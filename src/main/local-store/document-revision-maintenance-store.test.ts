@@ -3,13 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { openCardDocument } from "../../shared/block-documents";
+import { openPageDocument } from "../../shared/block-documents";
 import { resetAssetPathCacheForTests } from "./assets";
 import {
   applyBlockDocumentUpdate,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   checkpointActiveDocumentRevisionIfDue,
@@ -52,7 +52,7 @@ describe("Document revision maintenance", () => {
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .pluck()
       .get() as string;
-    const card = await createCard(projectId, "draft", { title: "Before" });
+    const card = await createPage(projectId, "draft", { title: "Before" });
     const documentId = database
       .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
       .pluck()
@@ -60,7 +60,7 @@ describe("Document revision maintenance", () => {
     const loaded = loadPrimaryBlockDocument(database, documentId);
     const baseHeadSeq = loaded.head.headSeq;
     const baseVector = Y.encodeStateVector(loaded.document);
-    const title = openCardDocument(loaded.document).title;
+    const title = openPageDocument(loaded.document).title;
     title.delete(0, title.length);
     title.insert(0, "After idle");
     const request = {
@@ -104,7 +104,7 @@ describe("Document revision maintenance", () => {
         documentId,
         versionId: safety.version_id,
       }).materialization,
-    ).toMatchObject({ kind: "card", title: "Before" });
+    ).toMatchObject({ kind: "page", title: "Before" });
 
     const session = database
       .prepare(
@@ -149,7 +149,7 @@ describe("Document revision maintenance", () => {
         documentId,
         versionId: idle.version_id,
       }).materialization,
-    ).toMatchObject({ kind: "card", title: "After idle" });
+    ).toMatchObject({ kind: "page", title: "After idle" });
     expect(
       database
         .prepare(
@@ -172,15 +172,15 @@ describe("Document revision maintenance", () => {
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .pluck()
       .get() as string;
-    const card = await createCard(projectId, "draft", { title: "Active" });
+    const card = await createPage(projectId, "draft", { title: "Active" });
     const documentId = database
       .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
       .pluck()
       .get(card.id) as string;
     const loaded = loadPrimaryBlockDocument(database, documentId);
     const vector = Y.encodeStateVector(loaded.document);
-    openCardDocument(loaded.document).title.insert(
-      openCardDocument(loaded.document).title.length,
+    openPageDocument(loaded.document).title.insert(
+      openPageDocument(loaded.document).title.length,
       " checkpoint",
     );
     const request = {
@@ -250,7 +250,7 @@ describe("Document revision maintenance", () => {
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .pluck()
       .get() as string;
-    const card = await createCard(projectId, "draft", { title: "No-op" });
+    const card = await createPage(projectId, "draft", { title: "No-op" });
     const documentId = database
       .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
       .pluck()

@@ -28,7 +28,7 @@ export type BlockDocumentSyncIndicatorTone =
 
 export type BlockDocumentSyncIndicatorAction =
   | { readonly kind: "retry"; readonly label: "Retry" }
-  | { readonly kind: "reload"; readonly label: "Reload Card" };
+  | { readonly kind: "reload"; readonly label: "Reload Page" };
 
 export interface BlockDocumentSyncIndicatorModel {
   readonly phase: NodexYProviderPhase;
@@ -106,7 +106,7 @@ const retryAction = {
 
 const reloadAction = {
   kind: "reload",
-  label: "Reload Card",
+  label: "Reload Page",
 } as const satisfies BlockDocumentSyncIndicatorAction;
 
 const resetIndicator = (
@@ -115,7 +115,7 @@ const resetIndicator = (
   phase: status.phase,
   label: "Reload required",
   detail:
-    "The local store or this Card document changed. Reload before continuing to edit.",
+    "The local store or this Page document changed. Reload before continuing to edit.",
   tone: "danger",
   action: reloadAction,
   editingBlocked: true,
@@ -128,7 +128,7 @@ const fatalIndicator = (
 ): BlockDocumentSyncIndicatorModel => ({
   phase: status.phase,
   label: "Couldn’t save changes",
-  detail: status.error?.message ?? "This Card document can no longer be saved.",
+  detail: status.error?.message ?? "This Page document can no longer be saved.",
   tone: "danger",
   action: status.error?.retryable ? retryAction : reloadAction,
   editingBlocked: !status.error?.retryable,
@@ -143,7 +143,7 @@ const offlineIndicator = (
   label: "Offline",
   detail: status.pendingUpdateCount > 0
     ? "Changes are kept on this device and will sync after reconnecting."
-    : "Reconnect to continue syncing this Card.",
+    : "Reconnect to continue syncing this Page.",
   tone: "warning",
   action: retryAction,
   editingBlocked: false,
@@ -152,7 +152,7 @@ const offlineIndicator = (
 });
 
 /**
- * Maps provider state into sparse Card Stage chrome. The normal path returns
+ * Maps provider state into sparse Page Stage chrome. The normal path returns
  * null so fast durable acknowledgements never flash “Saving…”. A surrounding
  * hook owns phase/pending timestamps; this helper owns only product policy.
  */

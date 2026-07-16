@@ -2,13 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
-import { openCardDocument } from "../src/shared/block-documents";
+import { openPageDocument } from "../src/shared/block-documents";
 import {
   applyBlockDocumentUpdate,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
 import { getOwnedBlockDocumentDescriptor } from "../src/main/local-store/block-document-cutover";
-import { createCard } from "../src/main/local-store/cards";
+import { createPage } from "../src/main/local-store/database-pages";
 import {
   closeDatabase,
   getDb,
@@ -16,12 +16,12 @@ import {
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
 import {
-  listAuthoritativeCalendarOccurrences,
-  readAuthoritativeScheduledCards,
+  listAuthoritativePageOccurrences,
+  readAuthoritativeScheduledPages,
   readDueReminderSnoozes,
-  refreshScheduledCardIndexProjection,
-  ScheduledCardReadError,
-} from "../src/main/local-store/scheduled-card-store";
+  refreshScheduledPageIndexProjection,
+  ScheduledPageReadError,
+} from "../src/main/local-store/scheduled-page-store";
 
 const assert: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -52,7 +52,7 @@ const editPrimaryDocument = (
   const loaded = loadPrimaryBlockDocument(database, documentId);
   try {
     const stateVector = Y.encodeStateVector(loaded.document);
-    const envelope = openCardDocument(loaded.document);
+    const envelope = openPageDocument(loaded.document);
     const bodyText = findFirstXmlText(envelope.body);
     assert(bodyText, "Scheduler probe expected genesis body text");
     loaded.document.transact(() => {
@@ -85,7 +85,7 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Scheduler runtime" });
-    const card = await createCard(project.id, "in_progress", {
+    const card = await createPage(project.id, "in_progress", {
       title: "Legacy reminder title",
       description: "Legacy reminder body",
       tags: ["legacy"],
@@ -162,14 +162,14 @@ const main = async (): Promise<void> => {
       database
         .prepare("UPDATE blocks SET metadata_revision = 9 WHERE id = ?")
         .run(card.id);
-      const refreshed = refreshScheduledCardIndexProjection(
+      const refreshed = refreshScheduledPageIndexProjection(
         database,
         project.id,
         [card.id],
         "2031-02-01T00:00:00.000Z",
       );
       assert(
-        refreshed.refreshedCardIds.join(",") === card.id,
+        refreshed.refreshedPageIds.join(",") === card.id,
         "Scheduler index refresh did not report the Card",
       );
     })();
@@ -193,7 +193,7 @@ const main = async (): Promise<void> => {
         database
           .prepare("UPDATE blocks SET metadata_revision = 10 WHERE id = ?")
           .run(card.id);
-        refreshScheduledCardIndexProjection(
+        refreshScheduledPageIndexProjection(
           database,
           project.id,
           [card.id],
@@ -202,7 +202,7 @@ const main = async (): Promise<void> => {
       })();
     } catch (error) {
       invalidRefreshRejected =
-        error instanceof ScheduledCardReadError &&
+        error instanceof ScheduledPageReadError &&
         error.code === "scheduled_value_invalid";
     }
     assert(invalidRefreshRejected, "Invalid schedule combination was accepted");
@@ -245,7 +245,7 @@ const main = async (): Promise<void> => {
       windowStart: new Date("2031-02-03T00:00:00.000Z"),
       windowEnd: new Date("2031-02-04T00:00:00.000Z"),
     } as const;
-    const scheduled = readAuthoritativeScheduledCards(database, query);
+    const scheduled = readAuthoritativeScheduledPages(database, query);
     assert(scheduled.length === 1, "Typed schedule index returned no Card");
     assert(
       scheduled[0]?.title === "Current reminder title" &&
@@ -263,11 +263,11 @@ const main = async (): Promise<void> => {
       "Scheduler ignored the typed schedule index",
     );
 
-    const current = listAuthoritativeCalendarOccurrences(database, {
+    const current = listAuthoritativePageOccurrences(database, {
       ...query,
       searchQuery: "Current reminder body relational",
     });
-    const legacy = listAuthoritativeCalendarOccurrences(database, {
+    const legacy = listAuthoritativePageOccurrences(database, {
       ...query,
       searchQuery: "Legacy reminder body",
     });
@@ -305,10 +305,10 @@ const main = async (): Promise<void> => {
       .run(card.id);
     let staleRejected = false;
     try {
-      readAuthoritativeScheduledCards(database, query);
+      readAuthoritativeScheduledPages(database, query);
     } catch (error) {
       staleRejected =
-        error instanceof ScheduledCardReadError &&
+        error instanceof ScheduledPageReadError &&
         error.code === "scheduled_index_stale";
     }
     assert(staleRejected, "Stale scheduler projection was not rejected");

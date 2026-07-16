@@ -2447,14 +2447,14 @@ export const NodexDynamicToolCalls: Story = {
             namespace: "nodex_app",
             tool: "search",
             completed: true,
-            args: { query: "migrtion", target: "cards", scope: { kind: "project" } },
+            args: { query: "migrtion", target: "pages", scope: { kind: "project" } },
             contentText: JSON.stringify({
               schemaVersion: 1,
               data: {
-                target: "cards",
+                target: "pages",
                 results: [
-                  { kind: "card", blockId: "card-1", title: "Migration plan" },
-                  { kind: "card", blockId: "card-2", title: "Migration checklist" },
+                  { kind: "page", blockId: "card-1", title: "Migration plan" },
+                  { kind: "page", blockId: "card-2", title: "Migration checklist" },
                 ],
               },
             }),
@@ -2462,7 +2462,7 @@ export const NodexDynamicToolCalls: Story = {
           <DynamicToolCall item={buildGenericDynamicStoryItem({
             id: "nodex-create-cards",
             namespace: "nodex_app",
-            tool: "create_cards",
+            tool: "create_pages",
             completed: true,
             args: {
               destination: { kind: "space" },
@@ -2474,7 +2474,7 @@ export const NodexDynamicToolCalls: Story = {
             contentText: JSON.stringify({
               data: {
                 cards: [{
-                  cardId: "card-migration-plan",
+                  pageId: "card-migration-plan",
                   location: { kind: "space" },
                   bodyBlocksCreated: 3,
                 }],
@@ -2485,10 +2485,10 @@ export const NodexDynamicToolCalls: Story = {
           <DynamicToolCall item={buildGenericDynamicStoryItem({
             id: "nodex-update-card",
             namespace: "nodex_app",
-            tool: "update_card",
+            tool: "update_page",
             completed: true,
             args: {
-              cardId: "card-migration-plan",
+              pageId: "card-migration-plan",
               body: {
                 kind: "patch",
                 patches: [
@@ -2505,7 +2505,7 @@ export const NodexDynamicToolCalls: Story = {
             },
             contentText: JSON.stringify({
               data: {
-                cardId: "card-migration-plan",
+                pageId: "card-migration-plan",
                 effects: {
                   created: 0,
                   updated: 3,
@@ -2521,7 +2521,7 @@ export const NodexDynamicToolCalls: Story = {
   ),
 };
 
-export const DynamicToolCallAutomationUpdateCards: Story = {
+export const DynamicToolCallAutomationUpdatePages: Story = {
   render: () => (
     <StorySurface
       title="Dynamic Tool Call Automation Update Cards"

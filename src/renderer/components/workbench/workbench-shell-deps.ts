@@ -1,4 +1,4 @@
-export { CardIcon } from "./card-icon";
+export { PageIcon } from "./page-icon";
 export { CommandPalette } from "./command-palette";
 export { MainViewHost } from "./main-view-host";
 export { SettingsRouteShell } from "./workbench-settings-overlay";
@@ -7,7 +7,7 @@ export { ReviewDiffPanel } from "./review-diff-panel";
 export { StageTabStrip } from "./workbench-stage-tab-strip";
 export { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
 export { HistoryPanel } from "./workbench-history-panel";
-export { CardStage } from "./workbench-card-stage";
+export { PageStage } from "./workbench-page-stage";
 export { TerminalPanel } from "./workbench-terminal-panel";
 export { invoke } from "./workbench-api";
 export { Input } from "@/components/ui/input";

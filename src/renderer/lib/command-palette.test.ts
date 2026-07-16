@@ -1,25 +1,25 @@
 import { describe, expect, test } from "vitest";
 import {
-  areCommandPaletteCardFiltersEqual,
+  areCommandPalettePageFiltersEqual,
   filterCommandPaletteItems,
-  getDefaultCommandPaletteCardFilters,
-  readCommandPaletteCardFilters,
-  summarizeCommandPaletteCardFilters,
-  type CommandPaletteCard,
+  getDefaultCommandPalettePageFilters,
+  readCommandPalettePageFilters,
+  summarizeCommandPalettePageFilters,
+  type CommandPalettePage,
   type CommandPaletteCommand,
   type CommandPaletteThread,
-  writeCommandPaletteCardFilters,
+  writeCommandPalettePageFilters,
 } from "./command-palette";
-import { createCommandPaletteCardSearchIndex } from "./command-palette-card-search";
+import { createCommandPalettePageSearchIndex } from "./command-palette-page-search";
 import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
-import type { CardSummary } from "./types";
+import type { DatabasePageSummary } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 
-function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
-  const descriptionPreview = overrides.descriptionPreview ?? "Add quick card switching and commands.";
+function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
+  const descriptionPreview = overrides.descriptionPreview ?? "Add quick page switching and commands.";
   const title = overrides.title ?? "Polish command palette";
   return {
-    id: overrides.id ?? "card-1",
+    id: overrides.id ?? "page-1",
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
@@ -64,16 +64,16 @@ function makeCommand(overrides: Partial<CommandPaletteCommand> = {}): CommandPal
   };
 }
 
-function makePaletteCard(overrides: Partial<CommandPaletteCard> = {}): CommandPaletteCard {
-  const card = overrides.card ?? makeCard();
+function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPalettePage {
+  const page = overrides.page ?? makePage();
   return {
-    kind: "card",
-    id: overrides.id ?? `${overrides.projectId ?? "default"}:${card.id}`,
+    kind: "page",
+    id: overrides.id ?? `${overrides.projectId ?? "default"}:${page.id}`,
     projectId: overrides.projectId ?? "default",
     projectName: overrides.projectName ?? "Default",
     projectIcon: overrides.projectIcon ?? "",
     columnName: overrides.columnName ?? "In progress",
-    card,
+    page,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,
@@ -133,14 +133,14 @@ function withMockLocalStorage(run: () => void): void {
 }
 
 describe("filterCommandPaletteItems", () => {
-  test("prefers active-project cards when text relevance is tied", () => {
-    const currentProjectCard = makePaletteCard({
-      card: makeCard({ id: "card-a", title: "Command palette" }),
+  test("prefers active-project pages when text relevance is tied", () => {
+    const currentProjectPage = makePalettePage({
+      page: makePage({ id: "page-a", title: "Command palette" }),
       inActiveProject: true,
       boardIndex: 5,
     });
-    const otherProjectCard = makePaletteCard({
-      card: makeCard({ id: "card-b", title: "Command palette" }),
+    const otherProjectPage = makePalettePage({
+      page: makePage({ id: "page-b", title: "Command palette" }),
       projectId: "ops",
       projectName: "Ops",
       inActiveProject: false,
@@ -149,13 +149,13 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "command pal",
-      mode: "cards",
+      mode: "pages",
       commands: [],
-      cards: [otherProjectCard, currentProjectCard],
-      cardSearchIndex: createCommandPaletteCardSearchIndex([otherProjectCard, currentProjectCard]),
+      pages: [otherProjectPage, currentProjectPage],
+      pageSearchIndex: createCommandPalettePageSearchIndex([otherProjectPage, currentProjectPage]),
     });
 
-    expect(result.cards[0]?.card.id).toBe("card-a");
+    expect(result.pages[0]?.page.id).toBe("page-a");
   });
 
   test("supports command-only root mode without a > prefix", () => {
@@ -166,43 +166,43 @@ describe("filterCommandPaletteItems", () => {
         makeCommand(),
         makeCommand({ id: "search", title: "Search tasks", subtitle: "Current project", keywords: ["find"] }),
       ],
-      cards: [makePaletteCard()],
+      pages: [makePalettePage()],
       threads: [makePaletteThread()],
     });
 
     expect(result.mode).toBe("root");
     expect(result.commands.length).toBe(1);
     expect(result.commands[0]?.id).toBe("open-settings");
-    expect(result.cards.length).toBe(0);
+    expect(result.pages.length).toBe(0);
     expect(result.threads.length).toBe(0);
   });
 
-  test("boosts recent cards when the query is otherwise tied", () => {
-    const recentCard = makePaletteCard({
-      card: makeCard({ id: "recent", title: "Search flow" }),
+  test("boosts recent pages when the query is otherwise tied", () => {
+    const recentPage = makePalettePage({
+      page: makePage({ id: "recent", title: "Search flow" }),
       recentIndex: 0,
       boardIndex: 10,
     });
-    const staleCard = makePaletteCard({
-      card: makeCard({ id: "stale", title: "Search flow" }),
+    const stalePage = makePalettePage({
+      page: makePage({ id: "stale", title: "Search flow" }),
       recentIndex: null,
       boardIndex: 0,
     });
 
     const result = filterCommandPaletteItems({
       query: "search flow",
-      mode: "cards",
+      mode: "pages",
       commands: [],
-      cards: [staleCard, recentCard],
-      cardSearchIndex: createCommandPaletteCardSearchIndex([staleCard, recentCard]),
+      pages: [stalePage, recentPage],
+      pageSearchIndex: createCommandPalettePageSearchIndex([stalePage, recentPage]),
     });
 
-    expect(result.cards[0]?.card.id).toBe("recent");
+    expect(result.pages[0]?.page.id).toBe("recent");
   });
 
-  test("returns fuzzy description matches in card results", () => {
-    const descriptionCard = makePaletteCard({
-      card: makeCard({
+  test("returns fuzzy description matches in page results", () => {
+    const descriptionPage = makePalettePage({
+      page: makePage({
         id: "description-hit",
         title: "Misc task",
         descriptionPreview: "Rebuild the search indxer for the command palette.",
@@ -211,27 +211,27 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "search indexer",
-      mode: "cards",
+      mode: "pages",
       commands: [],
-      cards: [descriptionCard],
-      cardSearchIndex: createCommandPaletteCardSearchIndex([descriptionCard]),
+      pages: [descriptionPage],
+      pageSearchIndex: createCommandPalettePageSearchIndex([descriptionPage]),
     });
 
-    expect(result.cards.length).toBe(1);
-    expect(result.cards[0]?.card.id).toBe("description-hit");
+    expect(result.pages.length).toBe(1);
+    expect(result.pages[0]?.page.id).toBe("description-hit");
   });
 
   test("returns useful defaults for an empty query", () => {
     const result = filterCommandPaletteItems({
       query: "",
-      mode: "cards",
+      mode: "pages",
       commands: [
         makeCommand({ id: "terminal", title: "Toggle terminal", priority: 300 }),
         makeCommand({ id: "board", title: "Switch to board", priority: 200 }),
       ],
-      cards: [
-        makePaletteCard({ card: makeCard({ id: "alpha", title: "Alpha" }), boardIndex: 3 }),
-        makePaletteCard({ card: makeCard({ id: "beta", title: "Beta" }), boardIndex: 0 }),
+      pages: [
+        makePalettePage({ page: makePage({ id: "alpha", title: "Alpha" }), boardIndex: 3 }),
+        makePalettePage({ page: makePage({ id: "beta", title: "Beta" }), boardIndex: 0 }),
       ],
       threads: [
         makePaletteThread({ threadId: "older", id: "thread:older", updatedAt: 100 }),
@@ -239,7 +239,7 @@ describe("filterCommandPaletteItems", () => {
       ],
     });
 
-    expect(result.cards[0]?.card.id).toBe("beta");
+    expect(result.pages[0]?.page.id).toBe("beta");
     expect(result.commands.length).toBe(0);
     expect(result.threads.length).toBe(0);
   });
@@ -262,20 +262,20 @@ describe("filterCommandPaletteItems", () => {
       query: "thread transcript",
       mode: "chats",
       commands: [],
-      cards: [],
+      pages: [],
       threads: [otherThread, targetThread],
       threadSearchIndex: createCommandPaletteThreadSearchIndex([otherThread, targetThread]),
     });
 
-    expect(result.cards.length).toBe(0);
+    expect(result.pages.length).toBe(0);
     expect(result.threads.length).toBe(1);
     expect(result.threads[0]?.threadId).toBe("thr-search");
     expect(result.threads[0]?.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBe(true);
   });
 
-  test("filters cards by explicit tag and status filters", () => {
-    const doneSearchCard = makePaletteCard({
-      card: makeCard({
+  test("filters pages by explicit tag and status filters", () => {
+    const doneSearchPage = makePalettePage({
+      page: makePage({
         id: "done-search",
         title: "Search polish",
         status: "done",
@@ -283,8 +283,8 @@ describe("filterCommandPaletteItems", () => {
       }),
       columnName: "Done",
     });
-    const backlogSearchCard = makePaletteCard({
-      card: makeCard({
+    const backlogSearchPage = makePalettePage({
+      page: makePage({
         id: "backlog-search",
         title: "Search polish",
         status: "backlog",
@@ -292,8 +292,8 @@ describe("filterCommandPaletteItems", () => {
       }),
       columnName: "Backlog",
     });
-    const doneOtherTagCard = makePaletteCard({
-      card: makeCard({
+    const doneOtherTagPage = makePalettePage({
+      page: makePage({
         id: "done-other",
         title: "Other task",
         status: "done",
@@ -304,50 +304,50 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "",
-      mode: "cards",
+      mode: "pages",
       commands: [],
-      cards: [backlogSearchCard, doneOtherTagCard, doneSearchCard],
-      cardFilters: {
-        ...getDefaultCommandPaletteCardFilters(),
+      pages: [backlogSearchPage, doneOtherTagPage, doneSearchPage],
+      pageFilters: {
+        ...getDefaultCommandPalettePageFilters(),
         statuses: ["done"],
         tags: ["search"],
       },
-      cardSearchIndex: createCommandPaletteCardSearchIndex([
-        backlogSearchCard,
-        doneOtherTagCard,
-        doneSearchCard,
+      pageSearchIndex: createCommandPalettePageSearchIndex([
+        backlogSearchPage,
+        doneOtherTagPage,
+        doneSearchPage,
       ]),
     });
 
-    expect(result.cards.length).toBe(1);
-    expect(result.cards[0]?.card.id).toBe("done-search");
+    expect(result.pages.length).toBe(1);
+    expect(result.pages[0]?.page.id).toBe("done-search");
   });
 
   test("combines project and assignee filters with free-text search", () => {
-    const targetCard = makePaletteCard({
+    const targetPage = makePalettePage({
       projectId: "ops",
       projectName: "Ops Console",
-      card: makeCard({
-        id: "ops-card",
+      page: makePage({
+        id: "ops-page",
         title: "Executor queue",
         assignee: "Alex",
         descriptionPreview: "Refresh palette results after queue updates.",
       }),
     });
-    const wrongProjectCard = makePaletteCard({
+    const wrongProjectPage = makePalettePage({
       projectId: "design",
       projectName: "Design System",
-      card: makeCard({
-        id: "design-card",
+      page: makePage({
+        id: "design-page",
         title: "Executor queue",
         assignee: "Alex",
         descriptionPreview: "Refresh palette results after queue updates.",
       }),
     });
-    const wrongAssigneeCard = makePaletteCard({
+    const wrongAssigneePage = makePalettePage({
       projectId: "ops",
       projectName: "Ops Console",
-      card: makeCard({
+      page: makePage({
         id: "other-assignee",
         title: "Executor queue",
         assignee: "Sam",
@@ -357,29 +357,29 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "queue",
-      mode: "cards",
+      mode: "pages",
       commands: [],
-      cards: [wrongProjectCard, wrongAssigneeCard, targetCard],
-      cardFilters: {
-        ...getDefaultCommandPaletteCardFilters(),
+      pages: [wrongProjectPage, wrongAssigneePage, targetPage],
+      pageFilters: {
+        ...getDefaultCommandPalettePageFilters(),
         assignees: ["Alex"],
         projectIds: ["ops"],
       },
-      cardSearchIndex: createCommandPaletteCardSearchIndex([
-        wrongProjectCard,
-        wrongAssigneeCard,
-        targetCard,
+      pageSearchIndex: createCommandPalettePageSearchIndex([
+        wrongProjectPage,
+        wrongAssigneePage,
+        targetPage,
       ]),
     });
 
-    expect(result.cards.length).toBe(1);
-    expect(result.cards[0]?.card.id).toBe("ops-card");
+    expect(result.pages.length).toBe(1);
+    expect(result.pages[0]?.page.id).toBe("ops-page");
   });
 
   test("summarizes active palette filters in the same compact language as the view toolbar", () => {
-    const summaries = summarizeCommandPaletteCardFilters(
+    const summaries = summarizeCommandPalettePageFilters(
       {
-        ...getDefaultCommandPaletteCardFilters(),
+        ...getDefaultCommandPalettePageFilters(),
         statuses: ["backlog", "in_progress"],
         priorities: ["p0-critical"],
         includeEmptyPriority: true,
@@ -402,14 +402,14 @@ describe("filterCommandPaletteItems", () => {
     withMockLocalStorage(() => {
       mockStorage.clear();
 
-      const written = writeCommandPaletteCardFilters({
-        ...getDefaultCommandPaletteCardFilters(),
+      const written = writeCommandPalettePageFilters({
+        ...getDefaultCommandPalettePageFilters(),
         projectIds: ["ops"],
         assignees: ["Alex"],
       });
-      const read = readCommandPaletteCardFilters();
+      const read = readCommandPalettePageFilters();
 
-      expect(areCommandPaletteCardFiltersEqual(read, written)).toBe(true);
+      expect(areCommandPalettePageFiltersEqual(read, written)).toBe(true);
       expect(read.projectIds[0]).toBe("ops");
       expect(read.assignees[0]).toBe("Alex");
     });
@@ -423,7 +423,7 @@ describe("filterCommandPaletteItems", () => {
         makeCommand({ id: "navigateBack", title: "Back", keywords: ["back"], disabled: true, priority: 500 }),
         makeCommand({ id: "navigateForward", title: "Forward", keywords: ["forward"], disabled: false, priority: 490 }),
       ],
-      cards: [],
+      pages: [],
     });
 
     expect(result.mode).toBe("root");
@@ -438,7 +438,7 @@ describe("filterCommandPaletteItems", () => {
         makeCommand({ id: "navigateBack", title: "Back", keywords: ["back"], disabled: true, priority: 500 }),
         makeCommand({ id: "navigateForward", title: "Forward", keywords: ["forward"], disabled: false, priority: 490 }),
       ],
-      cards: [],
+      pages: [],
     });
 
     expect(result.commands.length).toBe(2);

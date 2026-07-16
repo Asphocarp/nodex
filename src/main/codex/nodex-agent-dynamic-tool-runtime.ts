@@ -8,7 +8,7 @@ import {
 import {
   NodexAgentDynamicToolFailure,
   type NodexAgentDynamicExecutionContext,
-} from "../agent-tools/dynamic-service";
+} from "../agent-tools/dynamic-service-core";
 import { nodexAgentV3DynamicService } from "../agent-tools/dynamic-service-v3";
 import { DynamicToolRegistryError } from "./dynamic-tool-registry";
 import { buildNodexAgentV3DynamicToolCatalog } from "./nodex-dynamic-tool-registry";

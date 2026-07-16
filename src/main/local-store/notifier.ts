@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
-import type { CardSummary } from "../../shared/types";
+import type { DatabasePageSummary } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type { CardTargetChangedEvent } from "../../shared/card-target-events";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
@@ -24,8 +24,8 @@ export interface BoardChangeEvent {
   changeType: ChangeType;
   columnId: string;
   status: string;
-  cardId?: string;
-  summary?: CardSummary;
+  pageId?: string;
+  summary?: DatabasePageSummary;
   mutationId?: string;
   metrics?: {
     workerDurationMs?: number;
@@ -57,18 +57,25 @@ class DatabaseNotifier extends EventEmitter {
     projectId: string,
     changeType: ChangeType,
     columnId: string,
-    cardId?: string,
+    pageId?: string,
     details?: Pick<BoardChangeEvent, "summary" | "mutationId" | "metrics">,
   ): void {
-    this.emit("board-changed", { projectId, changeType, columnId, status: columnId, cardId, ...details });
+    this.emit("board-changed", {
+      projectId,
+      changeType,
+      columnId,
+      status: columnId,
+      pageId,
+      ...details,
+    });
   }
 
   notifyDatabaseChanged(event: DatabaseChangeEvent): void {
     this.emit("database-changed", event);
   }
 
-  notifyCardTargetChanged(event: CardTargetChangedEvent): void {
-    this.emit("card-target-changed", event);
+  notifyPageTargetChanged(event: PageTargetChangedEvent): void {
+    this.emit("page-target-changed", event);
   }
 
   notifyProjectsChanged(changeType: ProjectChangeType, projectId?: string): void {

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   BlockIdSchema,
   createToolSuccessSchema,
+  DataSourceIdSchema,
   DocumentAnchorSchema,
   ETagSchema,
   SiblingAnchorSchema,
@@ -11,8 +12,8 @@ import {
   NewBlockDraftSchema,
 } from "./write-schemas";
 import {
-  CardDestinationV3Schema,
-  CardLocationV3Schema,
+  PageDestinationV3Schema,
+  PageLocationV3Schema,
   DatabaseDestinationViewV3Schema,
   DatabaseValueDraftV3Schema,
   InlineMarkdownTitleSchema,
@@ -22,56 +23,56 @@ import {
 
 const BlockIdMapV3Schema = z.record(BlockIdSchema, BlockIdSchema);
 
-const CreateCardDraftV3Schema = z.strictObject({
+const CreatePageDraftV3Schema = z.strictObject({
   title: InlineMarkdownTitleSchema,
   markdown: NestedMarkdownSchema.optional(),
   values: z.array(DatabaseValueDraftV3Schema).max(512).optional(),
 });
 
-export const CreateCardsV3InputSchema = z.strictObject({
-  destination: CardDestinationV3Schema,
-  cards: z.array(CreateCardDraftV3Schema).min(1).max(16),
+export const CreatePagesV3InputSchema = z.strictObject({
+  destination: PageDestinationV3Schema,
+  pages: z.array(CreatePageDraftV3Schema).min(1).max(16),
   return: uniqueSelectorList(["block_ids", "etags"]).optional(),
 }).superRefine((input, context) => {
-  const bodyBytes = input.cards.reduce(
-    (total, card) => total + new TextEncoder().encode(card.markdown ?? "").byteLength,
+  const bodyBytes = input.pages.reduce(
+    (total, page) => total + new TextEncoder().encode(page.markdown ?? "").byteLength,
     0,
   );
   if (bodyBytes > 2 * 1024 * 1024) {
     context.addIssue({
       code: "custom",
-      message: "The Card batch exceeds the 2 MiB aggregate Nested Markdown limit",
-      path: ["cards"],
+      message: "The Page batch exceeds the 2 MiB aggregate Nested Markdown limit",
+      path: ["pages"],
     });
   }
-  if (input.destination.kind === "database") return;
-  input.cards.forEach((card, index) => {
-    if (card.values === undefined) return;
+  if (input.destination.kind === "data_source") return;
+  input.pages.forEach((page, index) => {
+    if (page.values === undefined) return;
     context.addIssue({
       code: "custom",
-      message: "Initial values require a Database destination",
-      path: ["cards", index, "values"],
+      message: "Initial values require a Data Source destination",
+      path: ["pages", index, "values"],
     });
   });
 });
 
-const CardMutationEtagsV3Schema = z.strictObject({
+const PageMutationEtagsV3Schema = z.strictObject({
   title: ETagSchema,
   body: ETagSchema,
 });
 
-export const CreateCardsV3DataSchema = z.strictObject({
-  cards: z.array(z.strictObject({
-    cardId: BlockIdSchema,
-    location: CardLocationV3Schema,
+export const CreatePagesV3DataSchema = z.strictObject({
+  pages: z.array(z.strictObject({
+    pageId: BlockIdSchema,
+    location: PageLocationV3Schema,
     bodyBlocksCreated: z.number().int().min(0),
     blockIds: z.array(BlockIdSchema).optional(),
-    etags: CardMutationEtagsV3Schema.optional(),
+    etags: PageMutationEtagsV3Schema.optional(),
   })).min(1).max(16),
   created: z.number().int().min(1).max(16),
 });
 
-export const CreateCardsV3OutputSchema = createToolSuccessSchema(CreateCardsV3DataSchema);
+export const CreatePagesV3OutputSchema = createToolSuccessSchema(CreatePagesV3DataSchema);
 
 const ExactMarkdownPatchV3Schema = z.strictObject({
   oldMarkdown: z.string().min(1).max(2 * 1024 * 1024),
@@ -79,7 +80,7 @@ const ExactMarkdownPatchV3Schema = z.strictObject({
   expectedMatches: z.number().int().min(1).max(100).optional(),
 });
 
-export const CardBodyUpdateV3Schema = z.discriminatedUnion("kind", [
+export const PageBodyUpdateV3Schema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("insert"),
     at: DocumentAnchorSchema,
@@ -96,29 +97,29 @@ export const CardBodyUpdateV3Schema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-const CardUpdateReturnV3Schema = uniqueSelectorList([
+const PageUpdateReturnV3Schema = uniqueSelectorList([
   "markdown",
   "block_ids",
   "etags",
 ]);
 
-export const UpdateCardV3InputSchema = z.strictObject({
-  cardId: BlockIdSchema,
+export const UpdatePageV3InputSchema = z.strictObject({
+  pageId: BlockIdSchema,
   title: z.strictObject({
     markdown: InlineMarkdownTitleSchema,
     ifMatch: ETagSchema,
   }).optional(),
-  body: CardBodyUpdateV3Schema.optional(),
+  body: PageBodyUpdateV3Schema.optional(),
   safety: z.strictObject({
     allowDeletingOwnedBlocks: z.boolean().optional(),
   }).optional(),
-  return: CardUpdateReturnV3Schema.optional(),
+  return: PageUpdateReturnV3Schema.optional(),
 }).refine(
   (input) => input.title !== undefined || input.body !== undefined,
-  "update_card requires title or body",
+  "update_page requires title or body",
 );
 
-const CardUpdateEffectsV3Schema = z.strictObject({
+const PageUpdateEffectsV3Schema = z.strictObject({
   created: z.number().int().min(0),
   updated: z.number().int().min(0),
   moved: z.number().int().min(0),
@@ -133,18 +134,18 @@ const CardUpdateEffectsV3Schema = z.strictObject({
   }).optional(),
 });
 
-export const CardUpdateV3DataSchema = z.strictObject({
-  cardId: BlockIdSchema,
-  effects: CardUpdateEffectsV3Schema,
+export const PageUpdateV3DataSchema = z.strictObject({
+  pageId: BlockIdSchema,
+  effects: PageUpdateEffectsV3Schema,
   body: z.strictObject({
     format: z.literal("markdown"),
     markdown: z.string(),
     contentHash: z.string().min(1).max(512),
   }).optional(),
-  etags: CardMutationEtagsV3Schema.optional(),
+  etags: PageMutationEtagsV3Schema.optional(),
 });
 
-export const UpdateCardV3OutputSchema = createToolSuccessSchema(CardUpdateV3DataSchema);
+export const UpdatePageV3OutputSchema = createToolSuccessSchema(PageUpdateV3DataSchema);
 
 export const StableBlockEditV3Schema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -170,80 +171,80 @@ export const StableBlockEditV3Schema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export const AdvancedUpdateCardV3InputSchema = z.strictObject({
-  cardId: BlockIdSchema,
+export const AdvancedUpdatePageV3InputSchema = z.strictObject({
+  pageId: BlockIdSchema,
   edits: z.array(StableBlockEditV3Schema).min(1).max(512),
   safety: z.strictObject({
     allowDeletingOwnedBlocks: z.boolean().optional(),
   }).optional(),
-  return: CardUpdateReturnV3Schema.optional(),
+  return: PageUpdateReturnV3Schema.optional(),
 });
 
-export const AdvancedUpdateCardV3OutputSchema = createToolSuccessSchema(
-  CardUpdateV3DataSchema,
+export const AdvancedUpdatePageV3OutputSchema = createToolSuccessSchema(
+  PageUpdateV3DataSchema,
 );
 
-const MoveCardsDestinationV3Schema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("space"), at: SiblingAnchorSchema.optional() }),
+const MovePagesDestinationV3Schema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("library"), at: SiblingAnchorSchema.optional() }),
   z.strictObject({
-    kind: z.literal("card"),
-    cardId: BlockIdSchema,
+    kind: z.literal("page"),
+    pageId: BlockIdSchema,
     at: SiblingAnchorSchema.optional(),
   }),
   z.strictObject({
-    kind: z.literal("database"),
-    databaseBlockId: BlockIdSchema,
+    kind: z.literal("data_source"),
+    dataSourceId: DataSourceIdSchema,
     values: z.array(DatabaseValueDraftV3Schema).max(512).optional(),
     view: DatabaseDestinationViewV3Schema.optional(),
   }),
 ]);
 
-export const MoveCardsV3InputSchema = z.strictObject({
-  cardIds: z.array(BlockIdSchema).min(1).max(16).refine(
+export const MovePagesV3InputSchema = z.strictObject({
+  pageIds: z.array(BlockIdSchema).min(1).max(16).refine(
     (ids) => new Set(ids).size === ids.length,
-    "cardIds must be unique",
+    "pageIds must be unique",
   ),
-  destination: MoveCardsDestinationV3Schema,
+  destination: MovePagesDestinationV3Schema,
 });
 
-export const MoveCardsV3DataSchema = z.strictObject({
-  cards: z.array(z.strictObject({
-    cardId: BlockIdSchema,
-    location: CardLocationV3Schema,
+export const MovePagesV3DataSchema = z.strictObject({
+  pages: z.array(z.strictObject({
+    pageId: BlockIdSchema,
+    location: PageLocationV3Schema,
   })).min(1).max(16),
   moved: z.number().int().min(1).max(16),
 });
 
-export const MoveCardsV3OutputSchema = createToolSuccessSchema(MoveCardsV3DataSchema);
+export const MovePagesV3OutputSchema = createToolSuccessSchema(MovePagesV3DataSchema);
 
-const DuplicateCardDestinationV3Schema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("space"), at: SiblingAnchorSchema.optional() }),
+const DuplicatePageDestinationV3Schema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("library"), at: SiblingAnchorSchema.optional() }),
   z.strictObject({
-    kind: z.literal("card"),
-    cardId: BlockIdSchema,
+    kind: z.literal("page"),
+    pageId: BlockIdSchema,
     at: SiblingAnchorSchema.optional(),
   }),
   z.strictObject({
-    kind: z.literal("database"),
-    databaseBlockId: BlockIdSchema,
+    kind: z.literal("data_source"),
+    dataSourceId: DataSourceIdSchema,
     values: z.array(DatabaseValueDraftV3Schema).max(512).optional(),
     view: DatabaseDestinationViewV3Schema.optional(),
   }),
 ]);
 
-export const DuplicateCardV3InputSchema = z.strictObject({
-  cardId: BlockIdSchema,
-  destination: DuplicateCardDestinationV3Schema,
+export const DuplicatePageV3InputSchema = z.strictObject({
+  pageId: BlockIdSchema,
+  destination: DuplicatePageDestinationV3Schema,
   return: uniqueSelectorList(["block_map", "etags"]).optional(),
 });
 
-export const DuplicateCardV3DataSchema = z.strictObject({
-  sourceCardId: BlockIdSchema,
-  cardId: BlockIdSchema,
-  location: CardLocationV3Schema,
+export const DuplicatePageV3DataSchema = z.strictObject({
+  sourcePageId: BlockIdSchema,
+  pageId: BlockIdSchema,
+  location: PageLocationV3Schema,
   bodyBlocksCreated: z.number().int().min(0),
   blockMap: BlockIdMapV3Schema.optional(),
-  etags: CardMutationEtagsV3Schema.optional(),
+  etags: PageMutationEtagsV3Schema.optional(),
 });
 
-export const DuplicateCardV3OutputSchema = createToolSuccessSchema(DuplicateCardV3DataSchema);
+export const DuplicatePageV3OutputSchema = createToolSuccessSchema(DuplicatePageV3DataSchema);

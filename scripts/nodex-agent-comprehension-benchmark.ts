@@ -18,68 +18,68 @@ export interface NodexAgentComprehensionCase {
 export const NODEX_AGENT_COMPREHENSION_CASES: readonly NodexAgentComprehensionCase[] = [
   {
     id: "fuzzy-search",
-    prompt: "Find the Card whose title is approximately 'dynmic tools'.",
-    expectedTool: { 2: "search", 3: "search" },
+    prompt: "Find the Page whose title is approximately 'dynmic tools'.",
+    expectedTool: { 2: "search", 4: "search" },
   },
   {
     id: "fetch-default-document",
-    prompt: "Fetch the complete body of Card card-1 after search found its ID.",
-    expectedTool: { 2: "get_block", 3: "fetch" },
+    prompt: "Fetch the complete body of Page page-1 after search found its ID.",
+    expectedTool: { 2: "get_block", 4: "fetch" },
   },
   {
     id: "fetch-summary",
-    prompt: "Fetch only a compact summary of Card card-1.",
-    expectedTool: { 2: "get_block", 3: "fetch" },
+    prompt: "Fetch only a compact summary of Page page-1.",
+    expectedTool: { 2: "get_block", 4: "fetch" },
   },
   {
     id: "create-tab-nested-toggle",
-    prompt: "Create a Card containing a toggle with a child paragraph and child task, using the namespace format hint.",
-    expectedTool: { 2: "create", 3: "create_cards" },
+    prompt: "Create a Page containing a toggle with a child paragraph and child task, using the namespace format hint.",
+    expectedTool: { 2: "create", 4: "create_pages" },
   },
   {
     id: "create-leading-spaces",
-    prompt: "Create a Card whose paragraph intentionally begins with two spaces; preserve those spaces as authored content.",
-    expectedTool: { 2: "create", 3: "create_cards" },
+    prompt: "Create a Page whose paragraph intentionally begins with two spaces; preserve those spaces as authored content.",
+    expectedTool: { 2: "create", 4: "create_pages" },
   },
   {
     id: "create-multiple-rich-titles",
-    prompt: "Atomically create three Cards, including one title with bold inline text, in the same destination.",
-    expectedTool: { 2: "create", 3: "create_cards" },
+    prompt: "Atomically create three Pages, including one title with bold inline text, in the same destination.",
+    expectedTool: { 2: "create", 4: "create_pages" },
   },
   {
     id: "update-title-only",
-    prompt: "Update only the title of Card card-1.",
-    expectedTool: { 2: "edit_document", 3: "update_card" },
+    prompt: "Update only the title of Page page-1.",
+    expectedTool: { 2: "edit_document", 4: "update_page" },
   },
   {
     id: "update-multiple-patches",
-    prompt: "Apply two exact textual patches to Card card-1 without replacing unrelated content.",
-    expectedTool: { 2: "edit_document", 3: "update_card" },
+    prompt: "Apply two exact textual patches to Page page-1 without replacing unrelated content.",
+    expectedTool: { 2: "edit_document", 4: "update_page" },
   },
   {
     id: "query-saved-view",
     prompt: "Read the current rows of saved Database View view-1.",
-    expectedTool: { 2: "query_database", 3: "query_database_view" },
+    expectedTool: { 2: "query_database", 4: "query_database_view" },
   },
   {
     id: "query-ad-hoc",
-    prompt: "Query Database database-1 with a temporary Status=Todo filter and due-date sort.",
-    expectedTool: { 2: "query_database", 3: "advanced_query_database" },
+    prompt: "Query Data Source source-1 with a temporary Status=Todo filter and due-date sort.",
+    expectedTool: { 2: "query_database", 4: "query_data_source" },
   },
   {
     id: "move-multiple-cards",
-    prompt: "Move Cards card-1 and card-2 to the end of the same destination.",
-    expectedTool: { 2: "transfer_blocks", 3: "move_cards" },
+    prompt: "Move Pages page-1 and page-2 to the end of the same destination.",
+    expectedTool: { 2: "transfer_blocks", 4: "move_pages" },
   },
   {
     id: "duplicate-one-card",
-    prompt: "Duplicate Card card-1, including its complete owned body, into the destination.",
-    expectedTool: { 2: "transfer_blocks", 3: "duplicate_card" },
+    prompt: "Duplicate Page page-1, including its complete owned body, into the destination.",
+    expectedTool: { 2: "transfer_blocks", 4: "duplicate_page" },
   },
   {
     id: "update-stable-block",
     prompt: "After reading stable Blocks, update one known child Block while preserving its identity.",
-    expectedTool: { 2: "edit_document", 3: "advanced_update_card" },
+    expectedTool: { 2: "edit_document", 4: "advanced_update_page" },
   },
 ] as const;
 
@@ -199,7 +199,7 @@ export function summarizeNodexAgentComprehensionRun(
 }
 
 export function createNodexAgentComprehensionTemplate(
-  revision: 2 | 3 = NODEX_APP_TOOLSET_REVISION,
+  revision: 2 | 4 = NODEX_APP_TOOLSET_REVISION,
 ): unknown {
   const fallbackTool = revision === NODEX_APP_V3_TOOLSET_REVISION
     ? NODEX_APP_V3_TOOLS[0]

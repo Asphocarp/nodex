@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import type { BoardSummary, CardSummary, Project } from "@/lib/types";
-import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
+import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
+import type { DatabaseContainerDescriptor } from "../../../shared/database-module";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import type { PanelDestination } from "./panel-destination-picker-model";
 import { PanelDestinationPickerSurface } from "./panel-destination-picker";
@@ -11,6 +11,10 @@ const STORY_DATE = new Date("2026-01-01T00:00:00.000Z");
 function makeProject(id: string, name: string, icon?: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon,
@@ -23,7 +27,7 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
   return {
     id,
     status,
@@ -62,7 +66,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
           id: "in_progress",
           name: "In Progress",
           cards: [
-            makeCard("card-stage", "Card Stage retained editor", "in_progress", 0),
+            makeCard("page-stage", "Page Stage retained editor", "in_progress", 0),
           ],
         },
       ],
@@ -84,13 +88,14 @@ const BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
-const DATABASE_DESCRIPTOR_MAP = new Map<string, GeneralDatabaseDescriptor>(
+const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptor>(
   PROJECTS.map((project) => {
-    const databaseBlockId = `database:${project.id}`;
-    const makeView = (suffix: string, name: string, isPrimary: boolean) => ({
-      id: `view:${project.id}:${suffix}`,
-      databaseBlockId,
-      projectId: project.id,
+    const databaseId = `database:${project.id}`;
+    const dataSourceId = `data-source:${project.id}`;
+    const makeView = (suffix: string, name: string, isDefault: boolean) => ({
+      viewId: `view:${project.id}:${suffix}`,
+      databaseId,
+      dataSourceId,
       name,
       kind: "kanban" as const,
       config: {
@@ -101,7 +106,7 @@ const DATABASE_DESCRIPTOR_MAP = new Map<string, GeneralDatabaseDescriptor>(
         group: null,
         display: { propertyIds: [], showTitle: true },
       },
-      isPrimary,
+      isDefault,
       revision: 1,
       rankKey: suffix,
       lifecycle: "active" as const,
@@ -110,17 +115,28 @@ const DATABASE_DESCRIPTOR_MAP = new Map<string, GeneralDatabaseDescriptor>(
     });
     return [project.id, {
       database: {
-        blockId: databaseBlockId,
-        projectId: project.id,
+        databaseId,
+        libraryId: "library:test",
         name: "Tasks",
-        isPrimary: true,
-        schemaKey: "nodex.database",
-        schemaRevision: 1,
+        lifecycle: "active",
+        defaultViewId: `view:${project.id}:primary`,
+        accessRevision: 1,
         metadataRevision: 1,
         createdAt: STORY_DATE.toISOString(),
         updatedAt: STORY_DATE.toISOString(),
       },
-      properties: [],
+      dataSources: [{
+        dataSourceId,
+        libraryId: "library:test",
+        homeDatabaseId: databaseId,
+        name: "Pages",
+        schemaKey: "nodex.page",
+        schemaRevision: 1,
+        lifecycle: "active",
+        rankKey: "0",
+        createdAt: STORY_DATE.toISOString(),
+        updatedAt: STORY_DATE.toISOString(),
+      }],
       views: project.id === "nodex"
         ? [
             makeView("primary", "Primary board", true),
@@ -141,7 +157,7 @@ function PanelDestinationPickerStory({
   loading?: boolean;
   loadError?: string | null;
   initialQuery?: string;
-  scope?: "all" | "db-only" | "card-only";
+  scope?: "all" | "db-only" | "page-only";
   currentProjectId?: string | null;
 }) {
   const [accepted, setAccepted] = useState<PanelDestination | null>(null);
@@ -167,7 +183,7 @@ function PanelDestinationPickerStory({
           <div className="border-t border-token-border px-3 py-2 text-xs text-token-description-foreground">
             {accepted.kind === "db"
               ? `DB: ${accepted.projectId}/${accepted.databaseViewId}`
-              : `Card: ${accepted.projectId}/${accepted.cardId}`}
+              : `Page: ${accepted.projectId}/${accepted.pageId}`}
           </div>
         ) : null}
       </div>
@@ -201,14 +217,14 @@ export const DbOnly: Story = {
   },
 };
 
-export const CardOnly: Story = {
+export const PageOnly: Story = {
   args: {
-    scope: "card-only",
+    scope: "page-only",
   },
   parameters: {
     docs: {
       description: {
-        story: "Card-only add-tab picker groups the current project's cards before cards from other projects.",
+        story: "Page-only add-tab picker groups the current project's Pages before Pages from other projects.",
       },
     },
   },

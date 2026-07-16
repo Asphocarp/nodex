@@ -4,10 +4,10 @@ import {
   type BlockDocumentAssetReference,
   type BlockDocumentReference,
   type BlockTreeNode,
-  type CardDocumentMaterialization,
+  type PageDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
 import type { PortableRichText } from "../../shared/block-documents/portable-rich-text";
-import { createUuidV7 } from "../../shared/card-id";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import {
   AgentDocumentEditCompilerError,
   compileAgentDocumentEdit,
@@ -121,10 +121,10 @@ function readCurrentDocument(
       { resourceId: documentId, domainCode: "document_not_found" },
     );
   }
-  if (row.schema_key !== "nodex.card") {
+  if (row.schema_key !== "nodex.page") {
     throw new NodexAgentReadError(
       "unsupported_resource",
-      `Document ${documentId} is not a Card document`,
+      `Document ${documentId} is not a Page document`,
       false,
       "none",
       { resourceId: documentId, domainCode: row.schema_key },
@@ -155,7 +155,7 @@ function readCurrentDocument(
   return row;
 }
 
-function toMaterialization(row: DocumentMaterializationRow): CardDocumentMaterialization {
+function toMaterialization(row: DocumentMaterializationRow): PageDocumentMaterialization {
   return {
     schemaVersion: row.schema_version,
     title: row.title as string,
@@ -196,7 +196,7 @@ function findBlock(
 function assertDocumentPreconditions(
   database: Database.Database,
   request: PrepareNodexAgentDocumentEditRequest,
-  current: CardDocumentMaterialization,
+  current: PageDocumentMaterialization,
 ): void {
   try {
     if (request.input.title) {

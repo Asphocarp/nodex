@@ -34,11 +34,11 @@ const SLASH_ITEMS: DefaultReactSuggestionItem[] = [
     onItemClick: () => undefined,
   },
   {
-    title: "Card Mention",
+    title: "Page Mention",
     subtext: "Embed a single card with inline editing",
     aliases: [],
     group: "Others",
-    badge: "/card",
+    badge: "/page",
     icon: <Link2 size={16} />,
     onItemClick: () => undefined,
   },
@@ -98,7 +98,7 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
     subtext: "Desktop / Backlog",
     tooltipContent: "Desktop / Backlog / description search hit",
     aliases: [],
-    group: "Cards",
+    group: "Pages",
     hint: null,
     icon: <FileText className="size-4" aria-hidden="true" />,
     onItemClick: () => undefined,
@@ -198,7 +198,7 @@ export const FilteredCustomCommands: Story = {
   },
 };
 
-export const CardMentionMenu: Story = {
+export const PageMentionMenu: Story = {
   args: {
     items: MENTION_ITEMS,
     loadingState: "loaded",

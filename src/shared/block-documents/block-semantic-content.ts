@@ -6,13 +6,13 @@ import {
   type PortableRichText,
 } from "./portable-rich-text";
 
-export type BlockToCardTypeCapability =
+export type BlockToPageTypeCapability =
   | "promote_primary"
   | "wrap_subtree"
-  | "already_card"
+  | "already_page"
   | "unsupported_legacy";
 
-export const BLOCK_TO_CARD_TYPE_CAPABILITIES = {
+export const BLOCK_TO_PAGE_TYPE_CAPABILITIES = {
   paragraph: "promote_primary",
   heading: "promote_primary",
   bulletListItem: "promote_primary",
@@ -26,17 +26,17 @@ export const BLOCK_TO_CARD_TYPE_CAPABILITIES = {
   image: "wrap_subtree",
   callout: "wrap_subtree",
   threadSection: "wrap_subtree",
-  card: "already_card",
-  cardRef: "wrap_subtree",
+  page: "already_page",
+  pageRef: "wrap_subtree",
   databaseViewRef: "wrap_subtree",
   syncedBlockRef: "wrap_subtree",
   templateRef: "wrap_subtree",
   cardToggle: "unsupported_legacy",
   toggleListInlineView: "unsupported_legacy",
-} as const satisfies Readonly<Record<string, BlockToCardTypeCapability>>;
+} as const satisfies Readonly<Record<string, BlockToPageTypeCapability>>;
 
-export type BlockToCardRegisteredType =
-  keyof typeof BLOCK_TO_CARD_TYPE_CAPABILITIES;
+export type BlockToPageRegisteredType =
+  keyof typeof BLOCK_TO_PAGE_TYPE_CAPABILITIES;
 
 export type BlockSemanticContentAssessment =
   | {
@@ -55,7 +55,7 @@ export type BlockSemanticContentAssessment =
       readonly detail: string;
     }
   | {
-      readonly kind: "already_card";
+      readonly kind: "already_page";
     };
 
 export class BlockSemanticContentError extends TypeError {
@@ -68,15 +68,15 @@ export class BlockSemanticContentError extends TypeError {
   }
 }
 
-const typeCapability = (blockType: string): BlockToCardTypeCapability => {
-  if (Object.hasOwn(BLOCK_TO_CARD_TYPE_CAPABILITIES, blockType)) {
-    return BLOCK_TO_CARD_TYPE_CAPABILITIES[
-      blockType as BlockToCardRegisteredType
+const typeCapability = (blockType: string): BlockToPageTypeCapability => {
+  if (Object.hasOwn(BLOCK_TO_PAGE_TYPE_CAPABILITIES, blockType)) {
+    return BLOCK_TO_PAGE_TYPE_CAPABILITIES[
+      blockType as BlockToPageRegisteredType
     ];
   }
   throw new BlockSemanticContentError(
     "unknown_block_type",
-    `Block type ${blockType} has no Card transformation capability`,
+    `Block type ${blockType} has no Page transformation capability`,
   );
 };
 
@@ -101,22 +101,22 @@ const presentationPropsForPromotion = (
   return props;
 };
 
-export const assessBlockSemanticContentForCard = (
+export const assessBlockSemanticContentForPage = (
   root: BlockTreeNode,
 ): BlockSemanticContentAssessment => {
   const capability = typeCapability(root.type);
   if (capability === "unsupported_legacy") {
     throw new BlockSemanticContentError(
       "unsupported_legacy_block",
-      `Legacy projection Block ${root.id} (${root.type}) must migrate before Card transformation`,
+      `Legacy projection Block ${root.id} (${root.type}) must migrate before Page transformation`,
     );
   }
-  if (capability === "already_card") return { kind: "already_card" };
+  if (capability === "already_page") return { kind: "already_page" };
   if (capability === "wrap_subtree") {
     return {
       kind: "wrap",
       reason: "type_requires_wrapper",
-      detail: `${root.type} preserves its complete subtree under a wrapper Card`,
+      detail: `${root.type} preserves its complete subtree under a wrapper Page`,
     };
   }
   const consumedProps = presentationPropsForPromotion(root);
@@ -124,7 +124,7 @@ export const assessBlockSemanticContentForCard = (
     return {
       kind: "wrap",
       reason: "unmapped_type_state",
-      detail: `${root.type} property ${String(consumedProps.unsupportedProperty)} has no Card mapping`,
+      detail: `${root.type} property ${String(consumedProps.unsupportedProperty)} has no Page mapping`,
     };
   }
   try {

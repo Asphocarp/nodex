@@ -43,7 +43,7 @@ import { createNfmMoveToSearchIndex } from "./nfm-move-to-menu-search";
 
 interface NfmMoveToMenuProps {
   sourceProjectId: string | null;
-  sourceCardId: string | null;
+  sourcePageId: string | null;
   onAccept: (destination: NfmMoveToDestination) => Promise<void> | void;
   onClose: () => void;
   resultScope?: NfmMoveToResultScope;
@@ -107,7 +107,7 @@ function MoveToProjectIcon({
 }
 
 function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
-  if (row.kind === "card") return <FileText className="size-4" aria-hidden="true" />;
+  if (row.kind === "page") return <FileText className="size-4" aria-hidden="true" />;
   if (row.kind === "db-column") {
     return (
       <StatusIcon
@@ -121,21 +121,21 @@ function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
 }
 
 function getMoveToRowLabel(row: NfmMoveToRow) {
-  if (row.kind === "card") return row.cardTitle;
+  if (row.kind === "page") return row.pageTitle;
   if (row.kind === "db-column") return row.columnName;
   return row.projectName;
 }
 
 function getMoveToRowMeta(row: NfmMoveToRow) {
-  if (row.kind === "card") return `${row.projectName} / ${row.columnName}`;
+  if (row.kind === "page") return `${row.projectName} / ${row.columnName}`;
   if (row.kind === "db-column") return row.projectName;
   return "";
 }
 
 function isAcceptableMoveToRow(
   row: NfmMoveToRow,
-): row is Extract<NfmMoveToRow, { kind: "card" | "db-column" }> {
-  return row.kind === "card" || row.kind === "db-column";
+): row is Extract<NfmMoveToRow, { kind: "page" | "db-column" }> {
+  return row.kind === "page" || row.kind === "db-column";
 }
 
 function MoveToStatusRow({
@@ -306,7 +306,7 @@ function NfmMoveToSectionView({
 
 export function NfmMoveToMenu({
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   onAccept,
   onClose,
   resultScope,
@@ -327,7 +327,7 @@ export function NfmMoveToMenu({
       loading={loading}
       loadError={error}
       sourceProjectId={sourceProjectId}
-      sourceCardId={sourceCardId}
+      sourcePageId={sourcePageId}
       onAccept={onAccept}
       onClose={onClose}
       resultScope={resultScope}
@@ -341,7 +341,7 @@ export function NfmMoveToMenuSurface({
   projects,
   boardMap,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   loading,
   loadError = null,
   initialQuery = "",
@@ -392,9 +392,9 @@ export function NfmMoveToMenuSurface({
       projects,
       boardMap,
       sourceProjectId,
-      sourceCardId,
+      sourcePageId,
     }),
-    [boardMap, projects, sourceCardId, sourceProjectId],
+    [boardMap, projects, sourcePageId, sourceProjectId],
   );
   const searchResult = useMemo(
     () => searchIndex.search(deferredQuery),
@@ -405,7 +405,7 @@ export function NfmMoveToMenuSurface({
       projects,
       boardMap,
       sourceProjectId,
-      sourceCardId,
+      sourcePageId,
       expandedProjectIds,
       query: deferredQuery,
       searchResult,
@@ -418,7 +418,7 @@ export function NfmMoveToMenuSurface({
       projects,
       resultScope,
       searchResult,
-      sourceCardId,
+      sourcePageId,
       sourceProjectId,
     ],
   );
@@ -429,7 +429,7 @@ export function NfmMoveToMenuSurface({
       projects,
       boardMap,
       sourceProjectId,
-      sourceCardId,
+      sourcePageId,
       expandedProjectIds,
       query: nextQuery,
       searchResult: nextSearchResult,
@@ -442,7 +442,7 @@ export function NfmMoveToMenuSurface({
     projects,
     resultScope,
     searchIndex,
-    sourceCardId,
+    sourcePageId,
     sourceProjectId,
   ]);
   const rowsStale = shouldConsumeStalePickerNavigation({

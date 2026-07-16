@@ -8,7 +8,7 @@ import type {
 export interface NfmTextActionMenuRuntimeValue {
   canSendBlocks: boolean;
   sourceProjectId?: string | null;
-  sourceCardId?: string | null;
+  sourcePageId?: string | null;
   sendToThreadProjectNameById?: Readonly<Record<string, string>>;
   sendToThreadPreferredTarget?: NfmSendToThreadPreferredTarget | null;
   onMoveBlocksToDestination?: (

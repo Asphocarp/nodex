@@ -5,12 +5,12 @@ import {
   normalizeDatabasePropertyValue,
   parseDatabaseMutationRequest,
   parseDatabasePropertyConfig,
-  parseGeneralDatabaseViewConfig,
+  parseDatabaseViewConfig,
   type DatabaseMutationRequest,
-  type GeneralDatabaseViewConfig,
+  type DatabaseViewConfig,
 } from "./database-kernel";
 
-const viewConfig = (): GeneralDatabaseViewConfig => ({
+const viewConfig = (): DatabaseViewConfig => ({
   schemaKey: "nodex.database-view",
   schemaVersion: 1,
   filter: { kind: "group", operator: "and", children: [] },
@@ -74,19 +74,19 @@ describe("general Database mutation contract", () => {
   test("accepts one connected Board intent and rejects duplicate, reversed, or unrelated writes", () => {
     const value = {
       kind: "set_value" as const,
-      cardBlockId: "card-1",
+      pageId: "card-1",
       databaseBlockId: "database-1",
       propertyId: "status-property",
       expectedValueRevision: 1,
       value: "done",
     };
     const position = {
-      kind: "position_card" as const,
+      kind: "position_page" as const,
       viewId: "view-1",
-      cardBlockId: "card-1",
+      pageId: "card-1",
       expectedPositionRevision: 2,
       groupKey: "done",
-      beforeCardBlockId: "card-2",
+      beforePageId: "card-2",
     };
     const boardDrag = parseDatabaseMutationRequest({
       ...request(),
@@ -142,15 +142,15 @@ describe("general Database mutation contract", () => {
     ).toBe(true);
   });
 
-  test("compresses a bounded ordered multi-Card drag without weakening field conflicts", () => {
+  test("compresses a bounded ordered multi-Page drag without weakening field conflicts", () => {
     const entries = Array.from({ length: 40 }, (_, index) => ({
-      cardBlockId: `card-${index}`,
+      pageId: `card-${index}`,
       propertyId: "status-property",
       expectedValueRevision: index + 1,
       value: "done",
     }));
-    const cards = entries.map((entry, index) => ({
-      cardBlockId: entry.cardBlockId,
+    const pages = entries.map((entry, index) => ({
+      pageId: entry.pageId,
       expectedPositionRevision: index + 2,
     }));
     const parsed = parseDatabaseMutationRequest({
@@ -162,23 +162,23 @@ describe("general Database mutation contract", () => {
           entries,
         },
         {
-          kind: "position_cards",
+          kind: "position_pages",
           viewId: "view-1",
-          cards,
+          pages,
           groupKey: "done",
-          beforeCardBlockId: "external-anchor",
+          beforePageId: "external-anchor",
         },
       ],
     });
     expect(parsed.operations.length).toBe(2);
     expect(parsed.operations[0]?.kind).toBe("set_values");
-    expect(parsed.operations[1]?.kind).toBe("position_cards");
-    if (parsed.operations[1]?.kind !== "position_cards") {
+    expect(parsed.operations[1]?.kind).toBe("position_pages");
+    if (parsed.operations[1]?.kind !== "position_pages") {
       throw new Error("Expected bulk position operation");
     }
     expect(
-      parsed.operations[1].cards.map((entry) => entry.cardBlockId).join(","),
-    ).toBe(cards.map((entry) => entry.cardBlockId).join(","));
+      parsed.operations[1].pages.map((entry) => entry.pageId).join(","),
+    ).toBe(pages.map((entry) => entry.pageId).join(","));
 
     expect(
       fails(() =>
@@ -200,11 +200,11 @@ describe("general Database mutation contract", () => {
           ...request(),
           operations: [
             {
-              kind: "position_cards",
+              kind: "position_pages",
               viewId: "view-1",
-              cards,
+              pages,
               groupKey: "done",
-              beforeCardBlockId: cards[0]?.cardBlockId,
+              beforePageId: pages[0]?.pageId,
             },
           ],
         }),
@@ -216,9 +216,9 @@ describe("general Database mutation contract", () => {
           ...request(),
           operations: [
             {
-              kind: "position_cards",
+              kind: "position_pages",
               viewId: "view-1",
-              cards,
+              pages,
               groupKey: "done",
             },
             {
@@ -303,7 +303,7 @@ describe("general Database mutation contract", () => {
   });
 
   test("evaluates bounded recursive DNF filters with explicit empty-group semantics", () => {
-    const filter = parseGeneralDatabaseViewConfig({
+    const filter = parseDatabaseViewConfig({
       ...viewConfig(),
       filter: {
         kind: "group",
@@ -384,7 +384,7 @@ describe("general Database mutation contract", () => {
   test("rejects recursive filters with unknown fields or excessive bounds", () => {
     expect(
       fails(() =>
-        parseGeneralDatabaseViewConfig({
+        parseDatabaseViewConfig({
           ...viewConfig(),
           filter: {
             kind: "clause",
@@ -406,7 +406,7 @@ describe("general Database mutation contract", () => {
     }
     expect(
       fails(() =>
-        parseGeneralDatabaseViewConfig({
+        parseDatabaseViewConfig({
           ...viewConfig(),
           filter: tooDeep,
         }),
@@ -414,7 +414,7 @@ describe("general Database mutation contract", () => {
     ).toBe(true);
     expect(
       fails(() =>
-        parseGeneralDatabaseViewConfig({
+        parseDatabaseViewConfig({
           ...viewConfig(),
           filter: {
             kind: "group",
@@ -436,7 +436,7 @@ describe("general Database mutation contract", () => {
       operations: [
         {
           kind: "add_remove_value",
-          cardBlockId: "card-1",
+          pageId: "card-1",
           databaseBlockId: "database-1",
           propertyId: "property-1",
           add: ["b", "a", "a"],

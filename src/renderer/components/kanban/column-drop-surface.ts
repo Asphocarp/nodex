@@ -1,14 +1,14 @@
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { combine } from "@atlaskit/pragmatic-drag-and-drop/combine";
 import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
-import type { CardStatus } from "@/lib/types";
+import type { WorkflowStatus } from "@/lib/types";
 import {
   buildKanbanColumnDropTargetData,
   type KanbanCardDragData,
 } from "./pragmatic-drag-data";
 
 export interface BindKanbanColumnDropSurfaceInput {
-  columnId: CardStatus;
+  columnId: WorkflowStatus;
   columnDropDisabled: boolean;
   dragInstanceId?: symbol;
   element: HTMLElement | null;

@@ -1,4 +1,4 @@
-import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "../card-search";
+import { buildPageSearchText, matchesSearchTokens, tokenizeSearchQuery } from "../page-search";
 import type {
   ToggleListCard,
   ToggleListClause,
@@ -14,7 +14,7 @@ import {
 } from "./types";
 import { priorityClauseIncludesEmpty } from "./priority-clause";
 import { compareNullableRanks } from "../sort-empty-placement";
-import type { CardSummary } from "../types";
+import type { DatabasePageSummary } from "../types";
 
 const priorityRank = new Map(TOGGLE_LIST_PRIORITY_ORDER.map((priority, index) => [priority, index]));
 const statusRank = new Map(TOGGLE_LIST_STATUS_ORDER.map((status, index) => [status, index]));
@@ -23,11 +23,11 @@ const estimateRank = new Map(
 );
 
 type ToggleListFilterableCard = Pick<
-  CardSummary,
+  DatabasePageSummary,
   "id" | "title" | "priority" | "estimate" | "tags" | "created" | "assignee"
 > & {
   descriptionPreview?: string;
-  status?: CardSummary["status"];
+  status?: DatabasePageSummary["status"];
   archived?: boolean;
   order?: number;
   columnId: ToggleListCard["columnId"];
@@ -40,19 +40,19 @@ export function filterCards<T extends ToggleListFilterableCard>(
   settings: ToggleListSettings,
   searchQuery: string,
   options?: {
-    excludedCardIds?: ReadonlySet<string>;
+    excludedPageIds?: ReadonlySet<string>;
   },
 ): T[] {
   const searchTokens = tokenizeSearchQuery(searchQuery);
   const rulesV2 = settings.rulesV2;
-  const excludedCardIds = options?.excludedCardIds;
+  const excludedPageIds = options?.excludedPageIds;
 
   return cards.filter((card) => {
-    if (excludedCardIds?.has(card.id)) return false;
+    if (excludedPageIds?.has(card.id)) return false;
     if (!matchesFilterSpec(card, rulesV2.filter)) return false;
     if (searchTokens.length === 0) return true;
 
-    const searchable = `${buildCardSearchText({
+    const searchable = `${buildPageSearchText({
       id: card.id,
       title: card.title,
       descriptionPreview: card.descriptionPreview ?? "",

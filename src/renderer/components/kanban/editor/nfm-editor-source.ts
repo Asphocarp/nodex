@@ -79,13 +79,13 @@ export function getNfmEditorInstanceKey(input: {
 }
 
 export function resolveNfmEditorBlockActionCapabilities(
-  hasSourceCardContext: boolean,
+  hasSourcePageContext: boolean,
 ): {
   readonly canMoveBlocks: boolean;
   readonly canSendBlocksToThread: boolean;
 } {
   return {
-    canMoveBlocks: hasSourceCardContext,
-    canSendBlocksToThread: hasSourceCardContext,
+    canMoveBlocks: hasSourcePageContext,
+    canSendBlocksToThread: hasSourcePageContext,
   };
 }

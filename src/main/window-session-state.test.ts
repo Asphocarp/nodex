@@ -61,7 +61,7 @@ describe("WindowSessionState", () => {
   test("seeds new sessions from the last-focused session layout", () => {
     withTempUserData((userDataPath) => {
       const state = new WindowSessionState(userDataPath);
-      const first = state.createSession({ layout: makeLayout("cards", "first") });
+      const first = state.createSession({ layout: makeLayout("pages", "first") });
       const second = state.createSession({ layout: makeLayout("files", "second") });
 
       state.assignWindow(1, first.id);
@@ -70,7 +70,7 @@ describe("WindowSessionState", () => {
 
       const inherited = state.createSession();
       expect(inherited.layout.dbProjectId).toBe("first");
-      expect(inherited.layout.focusedStage).toBe("cards");
+      expect(inherited.layout.focusedStage).toBe("pages");
     });
   });
 
@@ -124,7 +124,7 @@ describe("WindowSessionState", () => {
       state.assignWindow(1, first.id);
       state.assignWindow(2, second.id);
 
-      state.saveLayout(1, makeLayout("cards", "first"));
+      state.saveLayout(1, makeLayout("pages", "first"));
       state.saveLayout(2, makeLayout("threads", "second"));
 
       const catalog = state.readCatalog();
@@ -132,7 +132,7 @@ describe("WindowSessionState", () => {
       const savedSecond = catalog?.sessions.find((session) => session.id === second.id);
 
       expect(savedFirst?.layout.dbProjectId).toBe("first");
-      expect(savedFirst?.layout.focusedStage).toBe("cards");
+      expect(savedFirst?.layout.focusedStage).toBe("pages");
       expect(savedSecond?.layout.dbProjectId).toBe("second");
       expect(savedSecond?.layout.focusedStage).toBe("threads");
     });

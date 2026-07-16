@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { BlockMutationWriter } from "../src/main/block-mutation-writer";
 import {
   compactBlockDocument,
-  initializeCardDocumentGenesis,
+  initializePageDocumentGenesis,
 } from "../src/main/local-store/block-document-store";
 import { getDatabasePath } from "../src/main/local-store/config";
 import {
@@ -16,12 +16,12 @@ import {
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
 import {
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "../src/shared/block-documents/block-document-codec";
 import type { RelocationIntent } from "../src/shared/block-documents";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -53,7 +53,7 @@ const seedPrimaryDocument = (input: {
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
       location_revision, metadata_revision, created_at, updated_at
-    ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+    ) VALUES (?, ?, 'page', 'active', 'space', NULL, 1, 1, ?, ?)
   `,
     )
     .run(input.ownerBlockId, input.projectId, now, now);
@@ -78,7 +78,7 @@ const seedPrimaryDocument = (input: {
     INSERT INTO documents (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, state_hash, readiness, authority, created_at, updated_at
-    ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
+    ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', '',
       'pending_genesis', 'legacy_shadow', ?, ?)
   `,
     )
@@ -93,7 +93,7 @@ const seedPrimaryDocument = (input: {
     .run(input.ownerBlockId, documentId, input.projectId, now);
 
   let index = 0;
-  const genesis = createCardDocumentGenesis({
+  const genesis = createPageDocumentGenesis({
     documentId,
     title: input.ownerBlockId,
     nfm: input.nfm,
@@ -112,7 +112,7 @@ const seedPrimaryDocument = (input: {
     const metadata = database
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .get() as { readonly store_epoch: string };
-    const ack = initializeCardDocumentGenesis(database, {
+    const ack = initializePageDocumentGenesis(database, {
       documentId,
       storeEpoch: metadata.store_epoch,
       generation: 1,
@@ -131,7 +131,7 @@ const materializeSync = (documentId: string, update: Uint8Array): string => {
   const document = new Y.Doc({ guid: documentId });
   try {
     Y.applyUpdate(document, update, "worker-probe-sync");
-    return materializeCardDocument(document).nfm;
+    return materializePageDocument(document).nfm;
   } finally {
     document.destroy();
   }

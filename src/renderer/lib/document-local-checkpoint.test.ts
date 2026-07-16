@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  createCardDocument,
-  openCardDocument,
+  createPageDocument,
+  openPageDocument,
 } from "../../shared/block-documents";
 import {
   DocumentLocalCheckpointError,
@@ -20,13 +20,13 @@ const boundary = {
 
 describe("document local checkpoints", () => {
   test("recovers only local causal state missing from the durable server", () => {
-    const server = createCardDocument({
+    const server = createPageDocument({
       documentId: boundary.documentId,
       initialTitle: "Base",
     }).document;
     const local = new Y.Doc({ guid: boundary.documentId });
     Y.applyUpdate(local, Y.encodeStateAsUpdate(server));
-    openCardDocument(local).title.insert(4, " local");
+    openPageDocument(local).title.insert(4, " local");
     const checkpoint = captureDocumentLocalCheckpoint(local, boundary);
 
     const restarted = new Y.Doc({ guid: boundary.documentId });
@@ -40,15 +40,15 @@ describe("document local checkpoints", () => {
 
     expect(hasDocumentUpdateContent(missing)).toBe(true);
     Y.applyUpdate(server, missing);
-    expect(openCardDocument(server).title.toString()).toBe("Base local");
-    expect(openCardDocument(restarted).title.toString()).toBe("Base local");
+    expect(openPageDocument(server).title.toString()).toBe("Base local");
+    expect(openPageDocument(restarted).title.toString()).toBe("Base local");
     server.destroy();
     local.destroy();
     restarted.destroy();
   });
 
   test("returns an empty causal diff when the server already committed the cache", () => {
-    const server = createCardDocument({
+    const server = createPageDocument({
       documentId: boundary.documentId,
       initialTitle: "Committed",
     }).document;
@@ -69,11 +69,11 @@ describe("document local checkpoints", () => {
   });
 
   test("does not replay an already committed delete set as a local edit", () => {
-    const server = createCardDocument({
+    const server = createPageDocument({
       documentId: boundary.documentId,
       initialTitle: "Committed",
     }).document;
-    const title = openCardDocument(server).title;
+    const title = openPageDocument(server).title;
     title.insert(title.length, " transient");
     title.delete("Committed".length, " transient".length);
     const checkpoint = captureDocumentLocalCheckpoint(server, boundary);
@@ -88,13 +88,13 @@ describe("document local checkpoints", () => {
     );
 
     expect(hasDocumentUpdateContent(missing)).toBe(false);
-    expect(openCardDocument(restarted).title.toString()).toBe("Committed");
+    expect(openPageDocument(restarted).title.toString()).toBe("Committed");
     server.destroy();
     restarted.destroy();
   });
 
   test("validates a corrupt checkpoint before mutating the mounted document", () => {
-    const mounted = createCardDocument({
+    const mounted = createPageDocument({
       documentId: boundary.documentId,
       initialTitle: "Safe",
     }).document;

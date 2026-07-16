@@ -2,27 +2,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef } from "react";
 import { CardContextMenu } from "./card-context-menu";
 
-const PROJECTS = [
-  {
-    id: "project-a",
-    name: "Alpha workspace",
-    icon: "A",
-    primaryWorkspaceRoot: "/Users/asc/repo/nodex",
-  },
-  {
-    id: "project-b",
-    name: "Beta workspace",
-    icon: "B",
-    primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
-  },
-  {
-    id: "project-c",
-    name: "Gamma workspace",
-    icon: "G",
-    description: "Archived experiments",
-  },
-];
-
 function dispatchContextMenu(target: HTMLElement | null) {
   if (!target) {
     return;
@@ -38,29 +17,13 @@ function dispatchContextMenu(target: HTMLElement | null) {
   }));
 }
 
-function CardContextMenuStory({
-  openMoveView = false,
-}: {
-  openMoveView?: boolean;
-}) {
+function CardContextMenuStory() {
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     dispatchContextMenu(triggerRef.current);
 
-    if (!openMoveView) {
-      return;
-    }
-
-    const frameId = window.requestAnimationFrame(() => {
-      const moveToItem = Array.from(document.querySelectorAll<HTMLElement>("[data-card-menu-item='true']")).find(
-        (element) => element.textContent?.includes("Move to"),
-      );
-      moveToItem?.click();
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [openMoveView]);
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-token-main-surface-primary p-8">
@@ -72,8 +35,6 @@ function CardContextMenuStory({
         currentColumnId="inbox"
         currentProjectId="project-a"
         currentProjectName="Alpha workspace"
-        projects={PROJECTS}
-        onMoveToProject={() => {}}
         onDelete={() => {}}
         onCopyLink={() => {}}
         showMockActions
@@ -109,8 +70,4 @@ type Story = StoryObj<typeof meta>;
 
 export const ActionsOpen: Story = {
   render: () => <CardContextMenuStory />,
-};
-
-export const MoveOpen: Story = {
-  render: () => <CardContextMenuStory openMoveView={true} />,
 };

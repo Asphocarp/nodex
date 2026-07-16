@@ -29,7 +29,7 @@ describe("projection drag handle helpers", () => {
 
   test("starts drag with freshest block from editor when available", () => {
     let draggedBlock: unknown;
-    const storedBlock = { id: "owner", type: "cardRef", props: { sourceProjectId: "default" } };
+    const storedBlock = { id: "owner", type: "pageRef", props: { sourceProjectId: "default" } };
     const editor = {
       getExtension: () => ({
         blockDragStart: (_event: unknown, block: unknown) => {

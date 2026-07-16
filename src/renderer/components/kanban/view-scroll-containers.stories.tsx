@@ -37,12 +37,12 @@ function HorizontalOverflowContent() {
             Column {index + 1}
           </header>
           <div className="mt-3 space-y-2">
-            {Array.from({ length: 4 }, (_, cardIndex) => (
+            {Array.from({ length: 4 }, (_, pageIndex) => (
               <div
-                key={cardIndex}
+                key={pageIndex}
                 className="rounded-xl bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] px-3 py-2 text-sm text-token-text-secondary"
               >
-                Card {cardIndex + 1}
+                Card {pageIndex + 1}
               </div>
             ))}
           </div>

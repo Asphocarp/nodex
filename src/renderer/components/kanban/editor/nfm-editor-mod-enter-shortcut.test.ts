@@ -34,7 +34,7 @@ describe("handleNfmEditorModEnterShortcut", () => {
     expect(sendCount).toBe(0);
   });
 
-  test("toggles a Card occurrence before the thread-section fallback", () => {
+  test("toggles a Page occurrence before the thread-section fallback", () => {
     let clickCount = 0;
     let sendCount = 0;
     const button = document.createElement("button");
@@ -44,13 +44,13 @@ describe("handleNfmEditorModEnterShortcut", () => {
     const editor: ModifyShortcutEditor = {
       domElement: {
         querySelector: (selector: string) => (
-          selector === '.bn-block[data-id="card-1"] [data-card-outliner-caret]'
+          selector === '.bn-block[data-id="page-1"] [data-page-outliner-caret]'
             ? button
             : null
         ),
       } as unknown as ParentNode,
       getTextCursorPosition: () => ({
-        block: { id: "card-1", type: "card", props: {} },
+        block: { id: "page-1", type: "page", props: {} },
       }),
     };
 

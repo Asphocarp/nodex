@@ -1,15 +1,15 @@
 import { describe, expect, test, vi } from "vitest";
 import type { BlockMutationEnvelope } from "../block-mutation-writer";
 import {
-  CreateCardsV3InputSchema,
-  CreateCardsV3OutputSchema,
+  CreatePagesV3InputSchema,
+  CreatePagesV3OutputSchema,
   NODEX_APP_TOOL_NAMESPACE,
   NODEX_APP_V3_TOOLSET_REVISION,
-  UpdateCardV3InputSchema,
-  UpdateCardV3OutputSchema,
-  type NodexAgentCreateCardsCommand,
+  UpdatePageV3InputSchema,
+  UpdatePageV3OutputSchema,
+  type NodexAgentCreatePagesCommand,
 } from "../../shared/nodex-agent-tools";
-import type { NodexAgentDynamicExecutionContext } from "./dynamic-service";
+import type { NodexAgentDynamicExecutionContext } from "./dynamic-service-core";
 import {
   NodexAgentV3DynamicService,
   type NodexAgentV3DocumentHub,
@@ -56,24 +56,24 @@ function context(
 
 describe("NodexAgentV3DynamicService", () => {
   test("authorizes and executes a complete Card batch with a Markdown preview", async () => {
-    const input = CreateCardsV3InputSchema.parse({
-      destination: { kind: "space" },
-      cards: [{
+    const input = CreatePagesV3InputSchema.parse({
+      destination: { kind: "library" },
+      pages: [{
         title: "**Launch** plan",
         markdown: "## Milestones\n\n- [ ] Ship",
       }],
     });
-    const output = CreateCardsV3OutputSchema.parse({
+    const output = CreatePagesV3OutputSchema.parse({
       data: {
-        cards: [{
-          cardId: "card-created",
-          location: { kind: "space" },
+        pages: [{
+          pageId: "page-created",
+          location: { kind: "library", libraryId: "library-v3" },
           bodyBlocksCreated: 2,
         }],
         created: 1,
       },
     });
-    const command: NodexAgentCreateCardsCommand = {
+    const command: NodexAgentCreatePagesCommand = {
       threadId: "thread-v3",
       callId: "call-v3",
       projectId: "project-v3",
@@ -82,23 +82,23 @@ describe("NodexAgentV3DynamicService", () => {
       storeEpoch: "store-v3",
       input,
       destination: { kind: "space" },
-      cards: [{
+      pages: [{
         input: {
           resource: {
-            kind: "card",
+            kind: "page",
             title: { kind: "plain", text: "Launch plan" },
             body: { format: "nfm", content: "## Milestones\n\n- [ ] Ship" },
           },
           destination: { kind: "space" },
         },
-        cardId: output.data.cards[0]?.cardId ?? "card-created",
+        pageId: output.data.pages[0]?.pageId ?? "page-created",
         bodyBlockIds: ["block-heading", "block-task"],
         primaryMembershipId: "membership-primary",
         targetMembershipId: "membership-target",
       }],
     };
     const trace: string[] = [];
-    const prepareNodexAgentCreateCards = vi.fn(async () => {
+    const prepareNodexAgentCreatePages = vi.fn(async () => {
       trace.push("prepare");
       return envelope({
         ok: true as const,
@@ -107,7 +107,7 @@ describe("NodexAgentV3DynamicService", () => {
           command,
           leaseDocuments: [],
           previews: [{
-            cardId: "card-created",
+            pageId: "page-created",
             title: "Launch plan",
             bodyBlockCount: 2,
             targetMarkdown: "## Milestones\n\n- [ ] Ship",
@@ -115,7 +115,7 @@ describe("NodexAgentV3DynamicService", () => {
         },
       });
     });
-    const executeNodexAgentCreateCards = vi.fn(async () => {
+    const executeNodexAgentCreatePages = vi.fn(async () => {
       trace.push("execute");
       return {
         ok: true as const,
@@ -130,22 +130,22 @@ describe("NodexAgentV3DynamicService", () => {
     });
     const writer = {
       readNodexAgentV3Tool: unavailable(),
-      prepareNodexAgentCardUpdate: unavailable(),
-      completeNodexAgentCardUpdate: unavailable(),
-      prepareNodexAgentCreateCards,
-      prepareNodexAgentDuplicateCard: unavailable(),
-      prepareNodexAgentMoveCards: unavailable(),
+      prepareNodexAgentPageUpdate: unavailable(),
+      completeNodexAgentPageUpdate: unavailable(),
+      prepareNodexAgentCreatePages,
+      prepareNodexAgentDuplicatePage: unavailable(),
+      prepareNodexAgentMovePages: unavailable(),
     } as unknown as NodexAgentV3Writer;
     const documentHub = {
       applyDocumentMutation: unavailable(),
-      executeNodexAgentCreateCards,
-      executeNodexAgentDuplicateCard: unavailable(),
-      executeNodexAgentMoveCards: unavailable(),
+      executeNodexAgentCreatePages,
+      executeNodexAgentDuplicatePage: unavailable(),
+      executeNodexAgentMovePages: unavailable(),
     } as unknown as NodexAgentV3DocumentHub;
     const service = new NodexAgentV3DynamicService({ writer, documentHub });
     const authorize = vi.fn(async (request) => {
       trace.push("authorize");
-      expect(request.tool).toBe("create_cards");
+      expect(request.tool).toBe("create_pages");
       expect(request.preview.markdownPreview).toContain("Milestones");
       expect(request.preview.nfmPreview).toBeUndefined();
       return "allow_once" as const;
@@ -154,25 +154,25 @@ describe("NodexAgentV3DynamicService", () => {
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
       toolsetRevision: NODEX_APP_V3_TOOLSET_REVISION,
-      tool: "create_cards",
+      tool: "create_pages",
     }, input, context(authorize))).resolves.toEqual({ effect: "write", output });
     expect(trace).toEqual(["prepare", "authorize", "prepare", "execute"]);
-    expect(executeNodexAgentCreateCards).toHaveBeenCalledWith(command, []);
+    expect(executeNodexAgentCreatePages).toHaveBeenCalledWith(command, []);
   });
 
-  test("classifies whole-Card replacement as destructive and completes it through the Document kernel", async () => {
-    const input = UpdateCardV3InputSchema.parse({
-      cardId: "card-update",
+  test("classifies whole-Page replacement as destructive and completes it through the Document kernel", async () => {
+    const input = UpdatePageV3InputSchema.parse({
+      pageId: "page-update",
       body: { kind: "replace", markdown: "# New body", ifMatch: ETAG },
     });
-    const output = UpdateCardV3OutputSchema.parse({
+    const output = UpdatePageV3OutputSchema.parse({
       data: {
-        cardId: "card-update",
+        pageId: "page-update",
         effects: { created: 1, updated: 0, moved: 0, deleted: 2 },
       },
     });
     const mutation = { operationId: "document-operation" };
-    const prepareNodexAgentCardUpdate = vi.fn(async () => envelope({
+    const prepareNodexAgentPageUpdate = vi.fn(async () => envelope({
       ok: true as const,
       value: {
         kind: "prepared" as const,
@@ -194,23 +194,23 @@ describe("NodexAgentV3DynamicService", () => {
       ok: true as const,
       value: { operationId: "document-operation" },
     }));
-    const completeNodexAgentCardUpdate = vi.fn(async () => envelope({
+    const completeNodexAgentPageUpdate = vi.fn(async () => envelope({
       ok: true as const,
       output,
     }));
     const writer = {
       readNodexAgentV3Tool: unavailable(),
-      prepareNodexAgentCardUpdate,
-      completeNodexAgentCardUpdate,
-      prepareNodexAgentCreateCards: unavailable(),
-      prepareNodexAgentDuplicateCard: unavailable(),
-      prepareNodexAgentMoveCards: unavailable(),
+      prepareNodexAgentPageUpdate,
+      completeNodexAgentPageUpdate,
+      prepareNodexAgentCreatePages: unavailable(),
+      prepareNodexAgentDuplicatePage: unavailable(),
+      prepareNodexAgentMovePages: unavailable(),
     } as unknown as NodexAgentV3Writer;
     const documentHub = {
       applyDocumentMutation,
-      executeNodexAgentCreateCards: unavailable(),
-      executeNodexAgentDuplicateCard: unavailable(),
-      executeNodexAgentMoveCards: unavailable(),
+      executeNodexAgentCreatePages: unavailable(),
+      executeNodexAgentDuplicatePage: unavailable(),
+      executeNodexAgentMovePages: unavailable(),
     } as unknown as NodexAgentV3DocumentHub;
     const service = new NodexAgentV3DynamicService({ writer, documentHub });
     const authorize = vi.fn(async (request) => {
@@ -222,16 +222,16 @@ describe("NodexAgentV3DynamicService", () => {
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
       toolsetRevision: NODEX_APP_V3_TOOLSET_REVISION,
-      tool: "update_card",
+      tool: "update_page",
     }, input, context(authorize))).resolves.toEqual({
       effect: "destructive",
       output,
     });
-    expect(prepareNodexAgentCardUpdate).toHaveBeenCalledTimes(2);
+    expect(prepareNodexAgentPageUpdate).toHaveBeenCalledTimes(2);
     expect(applyDocumentMutation).toHaveBeenCalledWith(mutation);
-    expect(completeNodexAgentCardUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      tool: "update_card",
-      cardId: "card-update",
+    expect(completeNodexAgentPageUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      tool: "update_page",
+      pageId: "page-update",
     }));
   });
 });

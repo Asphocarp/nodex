@@ -1,14 +1,14 @@
-import { matchesSearchTokens, tokenizeSearchQuery } from "./card-search";
+import { matchesSearchTokens, tokenizeSearchQuery } from "./page-search";
 import {
-  createCommandPaletteCardSearchIndex,
+  createCommandPalettePageSearchIndex,
   normalizeCommandPaletteSearchText,
-  type CommandPaletteCardSearchIndex,
-} from "./command-palette-card-search";
+  type CommandPalettePageSearchIndex,
+} from "./command-palette-page-search";
 import {
   createCommandPaletteThreadSearchIndex,
   type CommandPaletteThreadSearchIndex,
 } from "./command-palette-thread-search";
-import { CARD_STATUS_LABELS, CARD_STATUS_ORDER } from "../../shared/card-status";
+import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER } from "../../shared/workflow-status";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
   TOGGLE_LIST_PRIORITY_CHIP_LABELS,
@@ -16,7 +16,7 @@ import {
   type ToggleListTagFilterMode,
 } from "./toggle-list/types";
 import type {
-  CardSummary,
+  DatabasePageSummary,
   CodexThreadActiveFlag,
   CodexThreadStatusType,
   Priority,
@@ -36,7 +36,7 @@ export interface CommandPaletteCommand {
   priority: number;
 }
 
-export type CommandMenuMode = "root" | "chats" | "cards" | "files";
+export type CommandMenuMode = "root" | "chats" | "pages" | "files";
 
 export interface CommandMenuOpenRequest {
   mode: CommandMenuMode;
@@ -53,55 +53,55 @@ export type CommandPaletteCommandGroup =
   | "Skills"
   | "App";
 
-export interface CommandPaletteCard {
-  kind: "card";
+export interface CommandPalettePage {
+  kind: "page";
   id: string;
   projectId: string;
   projectName: string;
   projectIcon: string;
   columnName: string;
-  card: CardSummary;
+  page: DatabasePageSummary;
   inActiveProject: boolean;
   recentIndex: number | null;
   boardIndex: number;
-  searchPreview?: CommandPaletteCardSearchPreview | null;
-  searchDecorations?: CommandPaletteCardSearchDecorations | null;
+  searchPreview?: CommandPalettePageSearchPreview | null;
+  searchDecorations?: CommandPalettePageSearchDecorations | null;
 }
 
-export interface CommandPaletteCardSearchPreviewSegment {
+export interface CommandPalettePageSearchPreviewSegment {
   text: string;
   highlight: boolean;
 }
 
-export interface CommandPaletteCardSearchBadge {
+export interface CommandPalettePageSearchBadge {
   id: string;
   label: string;
-  segments: CommandPaletteCardSearchPreviewSegment[];
+  segments: CommandPalettePageSearchPreviewSegment[];
   tone?: "default" | "monospace";
 }
 
-export interface CommandPaletteCardSearchPreview {
+export interface CommandPalettePageSearchPreview {
   excerpt: string;
-  segments: CommandPaletteCardSearchPreviewSegment[];
+  segments: CommandPalettePageSearchPreviewSegment[];
 }
 
-export interface CommandPaletteCardSearchDecorations {
-  titleSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
-  projectNameSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
-  columnNameSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
-  badges: CommandPaletteCardSearchBadge[];
+export interface CommandPalettePageSearchDecorations {
+  titleSegments?: CommandPalettePageSearchPreviewSegment[] | null;
+  projectNameSegments?: CommandPalettePageSearchPreviewSegment[] | null;
+  columnNameSegments?: CommandPalettePageSearchPreviewSegment[] | null;
+  badges: CommandPalettePageSearchBadge[];
 }
 
 export interface CommandPaletteThreadSearchPreview {
   excerpt: string;
-  segments: CommandPaletteCardSearchPreviewSegment[];
+  segments: CommandPalettePageSearchPreviewSegment[];
   source: "metadata" | "content";
 }
 
 export interface CommandPaletteThreadSearchDecorations {
-  titleSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
-  projectNameSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
-  cwdSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
+  titleSegments?: CommandPalettePageSearchPreviewSegment[] | null;
+  projectNameSegments?: CommandPalettePageSearchPreviewSegment[] | null;
+  cwdSegments?: CommandPalettePageSearchPreviewSegment[] | null;
 }
 
 export interface CommandPaletteThread {
@@ -131,7 +131,7 @@ export interface CommandPaletteResults {
   mode: CommandMenuMode;
   query: string;
   commands: CommandPaletteCommand[];
-  cards: CommandPaletteCard[];
+  pages: CommandPalettePage[];
   threads: CommandPaletteThread[];
 }
 
@@ -140,8 +140,8 @@ interface ScoredCommand {
   score: number;
 }
 
-interface ScoredCard {
-  item: CommandPaletteCard;
+interface ScoredPage {
+  item: CommandPalettePage;
   score: number;
 }
 
@@ -150,8 +150,8 @@ interface ScoredThread {
   score: number;
 }
 
-export interface CommandPaletteCardFilters {
-  statuses: CardSummary["status"][];
+export interface CommandPalettePageFilters {
+  statuses: DatabasePageSummary["status"][];
   priorities: Priority[];
   includeEmptyPriority: boolean;
   tags: string[];
@@ -160,9 +160,9 @@ export interface CommandPaletteCardFilters {
   projectIds: string[];
 }
 
-const DEFAULT_CARD_LIMIT = 12;
+const DEFAULT_PAGE_LIMIT = 12;
 const DEFAULT_THREAD_LIMIT = 8;
-const COMMAND_PALETTE_CARD_FILTERS_STORAGE_KEY = "nodex-command-palette-card-filters-v1";
+const COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY = "nodex-command-palette-page-filters-v1";
 const TAG_FILTER_MODES = new Set<ToggleListTagFilterMode>(["any", "all", "none"]);
 
 function dedupeArray<T>(values: T[]): T[] {
@@ -172,7 +172,7 @@ function dedupeArray<T>(values: T[]): T[] {
 function readRawFilterStorageValue(): string | null {
   if (typeof localStorage === "undefined") return null;
   try {
-    return localStorage.getItem(COMMAND_PALETTE_CARD_FILTERS_STORAGE_KEY);
+    return localStorage.getItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY);
   } catch {
     return null;
   }
@@ -181,15 +181,15 @@ function readRawFilterStorageValue(): string | null {
 function writeRawFilterStorageValue(value: string): void {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(COMMAND_PALETTE_CARD_FILTERS_STORAGE_KEY, value);
+    localStorage.setItem(COMMAND_PALETTE_PAGE_FILTERS_STORAGE_KEY, value);
   } catch {
     // ignore localStorage failures
   }
 }
 
-export function getDefaultCommandPaletteCardFilters(): CommandPaletteCardFilters {
+export function getDefaultCommandPalettePageFilters(): CommandPalettePageFilters {
   return {
-    statuses: [...CARD_STATUS_ORDER],
+    statuses: [...WORKFLOW_STATUS_ORDER],
     priorities: [...TOGGLE_LIST_PRIORITY_ORDER],
     includeEmptyPriority: true,
     tags: [],
@@ -199,9 +199,9 @@ export function getDefaultCommandPaletteCardFilters(): CommandPaletteCardFilters
   };
 }
 
-export function cloneCommandPaletteCardFilters(
-  filters: CommandPaletteCardFilters,
-): CommandPaletteCardFilters {
+export function cloneCommandPalettePageFilters(
+  filters: CommandPalettePageFilters,
+): CommandPalettePageFilters {
   return {
     statuses: [...filters.statuses],
     priorities: [...filters.priorities],
@@ -213,9 +213,9 @@ export function cloneCommandPaletteCardFilters(
   };
 }
 
-export function areCommandPaletteCardFiltersEqual(
-  left: CommandPaletteCardFilters,
-  right: CommandPaletteCardFilters,
+export function areCommandPalettePageFiltersEqual(
+  left: CommandPalettePageFilters,
+  right: CommandPalettePageFilters,
 ): boolean {
   return left.includeEmptyPriority === right.includeEmptyPriority
     && left.tagMode === right.tagMode
@@ -246,15 +246,15 @@ function normalizeSelectableStrings(
   return dedupeArray(filteredValues);
 }
 
-export function normalizeCommandPaletteCardFilters(
+export function normalizeCommandPalettePageFilters(
   value: unknown,
   options?: {
     allowedTags?: readonly string[];
     allowedAssignees?: readonly string[];
     allowedProjectIds?: readonly string[];
   },
-): CommandPaletteCardFilters {
-  const fallback = getDefaultCommandPaletteCardFilters();
+): CommandPalettePageFilters {
+  const fallback = getDefaultCommandPalettePageFilters();
   if (!value || typeof value !== "object") {
     return fallback;
   }
@@ -266,7 +266,7 @@ export function normalizeCommandPaletteCardFilters(
 
   return {
     statuses: normalizeSelectableStrings(candidate.statuses, fallback.statuses)
-      .filter((status): status is CardSummary["status"] => CARD_STATUS_ORDER.includes(status as CardSummary["status"])),
+      .filter((status): status is DatabasePageSummary["status"] => WORKFLOW_STATUS_ORDER.includes(status as DatabasePageSummary["status"])),
     priorities: normalizeSelectableStrings(candidate.priorities, fallback.priorities)
       .filter((priority): priority is Priority => TOGGLE_LIST_PRIORITY_ORDER.includes(priority as Priority)),
     includeEmptyPriority:
@@ -283,31 +283,31 @@ export function normalizeCommandPaletteCardFilters(
   };
 }
 
-export function readCommandPaletteCardFilters(
-  options?: Parameters<typeof normalizeCommandPaletteCardFilters>[1],
-): CommandPaletteCardFilters {
+export function readCommandPalettePageFilters(
+  options?: Parameters<typeof normalizeCommandPalettePageFilters>[1],
+): CommandPalettePageFilters {
   const raw = readRawFilterStorageValue();
   if (!raw) {
-    return normalizeCommandPaletteCardFilters(null, options);
+    return normalizeCommandPalettePageFilters(null, options);
   }
 
   try {
-    return normalizeCommandPaletteCardFilters(JSON.parse(raw) as unknown, options);
+    return normalizeCommandPalettePageFilters(JSON.parse(raw) as unknown, options);
   } catch {
-    return normalizeCommandPaletteCardFilters(null, options);
+    return normalizeCommandPalettePageFilters(null, options);
   }
 }
 
-export function writeCommandPaletteCardFilters(filters: CommandPaletteCardFilters): CommandPaletteCardFilters {
-  const normalized = normalizeCommandPaletteCardFilters(filters);
+export function writeCommandPalettePageFilters(filters: CommandPalettePageFilters): CommandPalettePageFilters {
+  const normalized = normalizeCommandPalettePageFilters(filters);
   writeRawFilterStorageValue(JSON.stringify(normalized));
   return normalized;
 }
 
-export function hasActiveCommandPaletteCardFilters(
-  filters: CommandPaletteCardFilters,
+export function hasActiveCommandPalettePageFilters(
+  filters: CommandPalettePageFilters,
 ): boolean {
-  if (filters.statuses.length !== CARD_STATUS_ORDER.length) {
+  if (filters.statuses.length !== WORKFLOW_STATUS_ORDER.length) {
     return true;
   }
 
@@ -323,17 +323,17 @@ export function hasActiveCommandPaletteCardFilters(
     || filters.projectIds.length > 0;
 }
 
-export function summarizeCommandPaletteCardFilters(
-  filters: CommandPaletteCardFilters,
+export function summarizeCommandPalettePageFilters(
+  filters: CommandPalettePageFilters,
   projectNameById: ReadonlyMap<string, string>,
 ): Array<{ key: string; label: string; value: string }> {
   const summaries: Array<{ key: string; label: string; value: string }> = [];
 
-  if (filters.statuses.length > 0 && filters.statuses.length < CARD_STATUS_ORDER.length) {
+  if (filters.statuses.length > 0 && filters.statuses.length < WORKFLOW_STATUS_ORDER.length) {
     summaries.push({
       key: "status",
       label: "Status",
-      value: filters.statuses.map((status) => CARD_STATUS_LABELS[status]).join(", "),
+      value: filters.statuses.map((status) => WORKFLOW_STATUS_LABELS[status]).join(", "),
     });
   }
 
@@ -380,7 +380,7 @@ export function summarizeCommandPaletteCardFilters(
   return summaries;
 }
 
-function matchesTagFilters(cardTags: string[], filters: CommandPaletteCardFilters): boolean {
+function matchesTagFilters(cardTags: string[], filters: CommandPalettePageFilters): boolean {
   if (filters.tags.length === 0) {
     return true;
   }
@@ -396,27 +396,27 @@ function matchesTagFilters(cardTags: string[], filters: CommandPaletteCardFilter
   return !cardTags.some((tag) => filters.tags.includes(tag));
 }
 
-export function matchesCommandPaletteCardFilters(
-  item: CommandPaletteCard,
-  filters: CommandPaletteCardFilters,
+export function matchesCommandPalettePageFilters(
+  item: CommandPalettePage,
+  filters: CommandPalettePageFilters,
 ): boolean {
-  if (!filters.statuses.includes(item.card.status)) {
+  if (!filters.statuses.includes(item.page.status)) {
     return false;
   }
 
-  if (item.card.priority) {
-    if (!filters.priorities.includes(item.card.priority)) {
+  if (item.page.priority) {
+    if (!filters.priorities.includes(item.page.priority)) {
       return false;
     }
   } else if (!filters.includeEmptyPriority) {
     return false;
   }
 
-  if (!matchesTagFilters(item.card.tags, filters)) {
+  if (!matchesTagFilters(item.page.tags, filters)) {
     return false;
   }
 
-  if (filters.assignees.length > 0 && !filters.assignees.includes(item.card.assignee ?? "")) {
+  if (filters.assignees.length > 0 && !filters.assignees.includes(item.page.assignee ?? "")) {
     return false;
   }
 
@@ -513,7 +513,7 @@ export function prioritizeActiveProjectItems<T extends { inActiveProject: boolea
   return [...activeItems, ...otherItems];
 }
 
-function compareDefaultCards(left: CommandPaletteCard, right: CommandPaletteCard): number {
+function compareDefaultPages(left: CommandPalettePage, right: CommandPalettePage): number {
   if (left.inActiveProject !== right.inActiveProject) {
     return left.inActiveProject ? -1 : 1;
   }
@@ -528,16 +528,16 @@ function compareDefaultCards(left: CommandPaletteCard, right: CommandPaletteCard
     return left.boardIndex - right.boardIndex;
   }
 
-  return left.card.title.localeCompare(right.card.title);
+  return left.page.title.localeCompare(right.page.title);
 }
 
-function compareScoredCards(left: ScoredCard, right: ScoredCard): number {
+function compareScoredPages(left: ScoredPage, right: ScoredPage): number {
   if (right.score !== left.score) return right.score - left.score;
-  return compareDefaultCards(left.item, right.item);
+  return compareDefaultPages(left.item, right.item);
 }
 
-function compareScoredCardsWithActiveProjectPriority(left: ScoredCard, right: ScoredCard): number {
-  return compareActiveProjectItems(left.item, right.item) || compareScoredCards(left, right);
+function compareScoredPagesWithActiveProjectPriority(left: ScoredPage, right: ScoredPage): number {
+  return compareActiveProjectItems(left.item, right.item) || compareScoredPages(left, right);
 }
 
 function compareDefaultThreads(left: CommandPaletteThread, right: CommandPaletteThread): number {
@@ -573,19 +573,19 @@ export function filterCommandPaletteItems(input: {
   query: string;
   mode: CommandMenuMode;
   commands: CommandPaletteCommand[];
-  cards: CommandPaletteCard[];
+  pages: CommandPalettePage[];
   threads?: CommandPaletteThread[];
-  cardFilters?: CommandPaletteCardFilters | null;
-  cardSearchIndex?: CommandPaletteCardSearchIndex | null;
+  pageFilters?: CommandPalettePageFilters | null;
+  pageSearchIndex?: CommandPalettePageSearchIndex | null;
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   commandLimit?: number;
-  cardLimit?: number;
+  pageLimit?: number;
   threadLimit?: number;
   preferActiveProject?: boolean;
 }): CommandPaletteResults {
   const query = normalizeCommandPaletteSearchText(input.query.trimStart());
   const tokens = tokenizeSearchQuery(query);
-  const cardFilters = input.cardFilters ?? getDefaultCommandPaletteCardFilters();
+  const pageFilters = input.pageFilters ?? getDefaultCommandPalettePageFilters();
   const preferActiveProject = input.preferActiveProject ?? false;
 
   if (input.mode === "root") {
@@ -600,7 +600,7 @@ export function filterCommandPaletteItems(input: {
       mode: input.mode,
       query,
       commands,
-      cards: [],
+      pages: [],
       threads: [],
     };
   }
@@ -623,7 +623,7 @@ export function filterCommandPaletteItems(input: {
       mode: input.mode,
       query,
       commands: [],
-      cards: [],
+      pages: [],
       threads,
     };
   }
@@ -633,32 +633,32 @@ export function filterCommandPaletteItems(input: {
       mode: input.mode,
       query,
       commands: [],
-      cards: [],
+      pages: [],
       threads: [],
     };
   }
 
-  const cards = query
+  const pages = query
     ? (
-        input.cardSearchIndex === undefined
-          ? createCommandPaletteCardSearchIndex(input.cards).search(query)
-          : input.cardSearchIndex?.search(query) ?? []
+        input.pageSearchIndex === undefined
+          ? createCommandPalettePageSearchIndex(input.pages).search(query)
+          : input.pageSearchIndex?.search(query) ?? []
       )
-        .filter(({ item }) => matchesCommandPaletteCardFilters(item, cardFilters))
-        .sort(preferActiveProject ? compareScoredCardsWithActiveProjectPriority : compareScoredCards)
-        .slice(0, input.cardLimit ?? DEFAULT_CARD_LIMIT)
+        .filter(({ item }) => matchesCommandPalettePageFilters(item, pageFilters))
+        .sort(preferActiveProject ? compareScoredPagesWithActiveProjectPriority : compareScoredPages)
+        .slice(0, input.pageLimit ?? DEFAULT_PAGE_LIMIT)
         .map(({ item }) => item)
-    : input.cards
+    : input.pages
         .slice()
-        .filter((item) => matchesCommandPaletteCardFilters(item, cardFilters))
-        .sort(compareDefaultCards)
-        .slice(0, input.cardLimit ?? DEFAULT_CARD_LIMIT);
+        .filter((item) => matchesCommandPalettePageFilters(item, pageFilters))
+        .sort(compareDefaultPages)
+        .slice(0, input.pageLimit ?? DEFAULT_PAGE_LIMIT);
 
   return {
     mode: input.mode,
     query,
     commands: [],
-    cards,
+    pages,
     threads: [],
   };
 }

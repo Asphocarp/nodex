@@ -1,55 +1,58 @@
 import {
-  DATABASE_MUTATION_CONTRACT_VERSION,
-  MAX_DATABASE_MUTATION_BULK_ENTRIES,
-  parseDatabaseMutationRequest,
+  DATABASE_MODULE_CONTRACT_VERSION,
+  MAX_DATABASE_MODULE_BULK_ENTRIES,
+  type DatabaseApply,
+  type DatabaseApplyOperation,
+  type DatabaseApplyReceipt,
+  type DatabaseApplyResult,
+  type DatabaseModuleError,
+  type DataSourcePageRow,
+  type DataSourcePropertyRecord,
+} from "../../shared/database-module";
+import {
   stableStringifyDatabaseJson,
   type DatabaseJsonValue,
-  type DatabaseMutationCommandResult,
-  type DatabaseMutationOperation,
-  type DatabaseMutationReceipt,
 } from "../../shared/database-kernel";
-import type {
-  GeneralDatabasePropertyDefinition,
-  GeneralDatabaseRow,
-} from "../../shared/database-query";
-import { mutateDatabase } from "./api";
+import { applyDatabaseModule } from "./api";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 
 export class DatabaseViewMutationError extends Error {
-  constructor(
-    message: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
+  constructor(readonly commandError: DatabaseModuleError) {
+    super(commandError.message);
     this.name = "DatabaseViewMutationError";
   }
 }
 
+const localError = (message: string): DatabaseViewMutationError =>
+  new DatabaseViewMutationError({
+    code: "invalid_request",
+    message,
+    retryable: false,
+  });
+
 const findRow = (
   model: DatabaseViewRenderModel,
-  cardBlockId: string,
-): GeneralDatabaseRow => {
+  pageId: string,
+): DataSourcePageRow => {
   const row = model.query.rows.find(
-    (candidate) => candidate.card.blockId === cardBlockId,
+    (candidate) => candidate.page.pageId === pageId,
   );
   if (row) return row;
-  throw new DatabaseViewMutationError(
-    `Card is no longer present in View ${model.databaseViewId}`,
-    false,
-  );
+  throw localError(`Page is no longer present in View ${model.databaseViewId}`);
 };
 
 const findProperty = (
   model: DatabaseViewRenderModel,
   propertyId: string,
-): GeneralDatabasePropertyDefinition => {
+): DataSourcePropertyRecord => {
   const property = model.query.properties.find(
-    (candidate) => candidate.id === propertyId && candidate.lifecycle === "active",
+    (candidate) =>
+      candidate.propertyId === propertyId
+      && candidate.lifecycle === "active",
   );
   if (property) return property;
-  throw new DatabaseViewMutationError(
-    `Property is no longer active in Database ${model.databaseBlockId}`,
-    false,
+  throw localError(
+    `Property is no longer active in Data Source ${model.dataSourceId}`,
   );
 };
 
@@ -62,16 +65,16 @@ const stringSet = (value: DatabaseJsonValue | undefined): ReadonlySet<string> =>
 
 export const buildDatabaseViewPropertyValueOperations = (input: {
   readonly model: DatabaseViewRenderModel;
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly propertyId: string;
   readonly value: DatabaseJsonValue;
-}): readonly DatabaseMutationOperation[] => {
-  const row = findRow(input.model, input.cardBlockId);
+}): readonly DatabaseApplyOperation[] => {
+  const row = findRow(input.model, input.pageId);
   const property = findProperty(input.model, input.propertyId);
-  const current = row.values[property.id];
+  const current = row.values[property.propertyId];
   if (
-    stableStringifyDatabaseJson(current?.value ?? null) ===
-    stableStringifyDatabaseJson(input.value)
+    stableStringifyDatabaseJson(current?.value ?? null)
+    === stableStringifyDatabaseJson(input.value)
   ) {
     return [];
   }
@@ -84,9 +87,9 @@ export const buildDatabaseViewPropertyValueOperations = (input: {
     if (add.length === 0 && remove.length === 0) return [];
     return [{
       kind: "add_remove_value",
-      cardBlockId: row.card.blockId,
-      databaseBlockId: input.model.databaseBlockId,
-      propertyId: property.id,
+      pageId: row.page.pageId,
+      dataSourceId: input.model.dataSourceId,
+      propertyId: property.propertyId,
       add,
       remove,
     }];
@@ -94,43 +97,44 @@ export const buildDatabaseViewPropertyValueOperations = (input: {
 
   return [{
     kind: "set_value",
-    cardBlockId: row.card.blockId,
-    databaseBlockId: input.model.databaseBlockId,
-    propertyId: property.id,
+    pageId: row.page.pageId,
+    dataSourceId: input.model.dataSourceId,
+    propertyId: property.propertyId,
     expectedValueRevision: current?.revision ?? 0,
     value: input.value,
   }];
 };
 
 const hasEmptyAndFilter = (model: DatabaseViewRenderModel): boolean =>
-  model.query.view.config.filter.kind === "group" &&
-  model.query.view.config.filter.operator === "and" &&
-  model.query.view.config.filter.children.length === 0;
+  model.query.view.config.filter.kind === "group"
+  && model.query.view.config.filter.operator === "and"
+  && model.query.view.config.filter.children.length === 0;
 
 export const databaseViewSupportsManualReorder = (
   model: DatabaseViewRenderModel,
 ): boolean => model.query.view.config.sort[0]?.field.kind === "manual";
 
-/**
- * Compile one visual one-step reorder. An unfiltered View can initialize every
- * missing position atomically. A filtered View only emits a single logical
- * move when the required external anchor already has durable authority.
- */
 export const buildDatabaseViewMoveOperations = (input: {
   readonly model: DatabaseViewRenderModel;
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly direction: "up" | "down";
-}): readonly DatabaseMutationOperation[] => {
+}): readonly DatabaseApplyOperation[] => {
   if (!databaseViewSupportsManualReorder(input.model)) return [];
-  const row = findRow(input.model, input.cardBlockId);
+  const row = findRow(input.model, input.pageId);
   const visibleGroup = input.model.query.rows.filter(
     (candidate) => candidate.effectiveGroupKey === row.effectiveGroupKey,
   );
   const currentIndex = visibleGroup.findIndex(
-    (candidate) => candidate.card.blockId === input.cardBlockId,
+    (candidate) => candidate.page.pageId === input.pageId,
   );
-  const targetIndex = input.direction === "up" ? currentIndex - 1 : currentIndex + 1;
-  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= visibleGroup.length) {
+  const targetIndex = input.direction === "up"
+    ? currentIndex - 1
+    : currentIndex + 1;
+  if (
+    currentIndex < 0
+    || targetIndex < 0
+    || targetIndex >= visibleGroup.length
+  ) {
     return [];
   }
 
@@ -144,17 +148,16 @@ export const buildDatabaseViewMoveOperations = (input: {
       : desired;
 
   if (hasEmptyAndFilter(input.model)) {
-    if (visibleGroup.length > MAX_DATABASE_MUTATION_BULK_ENTRIES) {
-      throw new DatabaseViewMutationError(
+    if (visibleGroup.length > MAX_DATABASE_MODULE_BULK_ENTRIES) {
+      throw localError(
         "This View group is too large for one atomic manual-order mutation",
-        false,
       );
     }
     return [{
-      kind: "position_cards",
+      kind: "position_pages",
       viewId: input.model.databaseViewId,
-      cards: authorityOrder.map((candidate) => ({
-        cardBlockId: candidate.card.blockId,
+      pages: authorityOrder.map((candidate) => ({
+        pageId: candidate.page.pageId,
         expectedPositionRevision: candidate.position?.revision ?? 0,
       })),
       groupKey: row.effectiveGroupKey,
@@ -162,23 +165,23 @@ export const buildDatabaseViewMoveOperations = (input: {
   }
 
   const authorityIndex = authorityOrder.findIndex(
-    (candidate) => candidate.card.blockId === input.cardBlockId,
+    (candidate) => candidate.page.pageId === input.pageId,
   );
   const anchor = authorityOrder[authorityIndex + 1];
   if (anchor && !anchor.position) return [];
   return [{
-    kind: "position_card",
+    kind: "position_page",
     viewId: input.model.databaseViewId,
-    cardBlockId: row.card.blockId,
+    pageId: row.page.pageId,
     expectedPositionRevision: row.position?.revision ?? 0,
     groupKey: row.effectiveGroupKey,
-    ...(anchor ? { beforeCardBlockId: anchor.card.blockId } : {}),
+    ...(anchor ? { beforePageId: anchor.page.pageId } : {}),
   }];
 };
 
-export const canMoveDatabaseViewCard = (input: {
+export const canMoveDatabaseViewPage = (input: {
   readonly model: DatabaseViewRenderModel;
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly direction: "up" | "down";
 }): boolean => {
   try {
@@ -189,45 +192,49 @@ export const canMoveDatabaseViewCard = (input: {
 };
 
 export interface DatabaseViewMutationDependencies {
-  readonly mutate: (
+  readonly apply: (
     projectId: string,
-    request: ReturnType<typeof parseDatabaseMutationRequest>,
-  ) => Promise<DatabaseMutationCommandResult>;
+    request: DatabaseApply,
+  ) => Promise<DatabaseApplyResult>;
 }
 
 const defaultDependencies: DatabaseViewMutationDependencies = {
-  mutate: mutateDatabase,
+  apply: applyDatabaseModule,
 };
 
 export const commitDatabaseViewOperations = async (input: {
   readonly model: DatabaseViewRenderModel;
-  readonly operations: readonly DatabaseMutationOperation[];
+  readonly operations: readonly DatabaseApplyOperation[];
   readonly clientSessionId?: string;
   readonly operationId?: string;
   readonly dependencies?: DatabaseViewMutationDependencies;
-}): Promise<DatabaseMutationReceipt | null> => {
+}): Promise<DatabaseApplyReceipt | null> => {
   if (input.operations.length === 0) return null;
-  const request = parseDatabaseMutationRequest({
-    version: DATABASE_MUTATION_CONTRACT_VERSION,
+  const request: DatabaseApply = {
+    version: DATABASE_MODULE_CONTRACT_VERSION,
     operationId: input.operationId ?? crypto.randomUUID(),
     projectId: input.model.projectId,
     storeEpoch: input.model.storeEpoch,
-    ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
-    actor: { kind: "renderer_database_view" },
+    actor: {
+      kind: "renderer_database_view",
+      ...(input.clientSessionId
+        ? { clientSessionId: input.clientSessionId }
+        : {}),
+    },
     operations: input.operations,
-  });
+  };
   const dependencies = input.dependencies ?? defaultDependencies;
-  let result: DatabaseMutationCommandResult;
+  let result: DatabaseApplyResult;
   let retried = false;
   try {
-    result = await dependencies.mutate(input.model.projectId, request);
+    result = await dependencies.apply(input.model.projectId, request);
   } catch {
     retried = true;
-    result = await dependencies.mutate(input.model.projectId, request);
+    result = await dependencies.apply(input.model.projectId, request);
   }
   if (!result.ok && result.error.retryable && !retried) {
-    result = await dependencies.mutate(input.model.projectId, request);
+    result = await dependencies.apply(input.model.projectId, request);
   }
   if (result.ok) return result.value;
-  throw new DatabaseViewMutationError(result.error.message, result.error.retryable);
+  throw new DatabaseViewMutationError(result.error);
 };

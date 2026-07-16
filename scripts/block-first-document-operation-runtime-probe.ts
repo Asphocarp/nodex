@@ -11,7 +11,7 @@ import {
 import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
-  initializeCardDocumentGenesis,
+  initializePageDocumentGenesis,
   loadBlockDocument,
 } from "../src/main/local-store/block-document-store";
 import {
@@ -21,11 +21,11 @@ import {
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
 import {
-  createCardDocumentGenesis,
+  createPageDocumentGenesis,
   type BlockTreeNode,
 } from "../src/shared/block-documents/block-document-codec";
 import { locateBlockContainer } from "../src/shared/block-documents/block-subtree-relocation";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
 function invariant(condition: boolean, message: string): asserts condition {
   if (condition) return;
@@ -60,13 +60,13 @@ const readEpoch = (): string =>
 
 const seedPrimaryDocument = (input: {
   readonly projectId: string;
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly title: string;
   readonly nfm: string;
   readonly blockIds: readonly string[];
 }): { readonly documentId: string; readonly headSeq: number } => {
   const database = getDb();
-  const documentId = `document:${input.cardBlockId}`;
+  const documentId = `document:${input.pageId}`;
   const now = new Date().toISOString();
   database
     .prepare(
@@ -75,10 +75,10 @@ const seedPrimaryDocument = (input: {
         id, project_id, type, lifecycle, location_kind,
         containing_document_id, location_revision, metadata_revision,
         created_at, updated_at
-      ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+      ) VALUES (?, ?, 'page', 'active', 'space', NULL, 1, 1, ?, ?)
     `,
     )
-    .run(input.cardBlockId, input.projectId, now, now);
+    .run(input.pageId, input.projectId, now, now);
   database
     .prepare(
       `
@@ -88,9 +88,9 @@ const seedPrimaryDocument = (input: {
     `,
     )
     .run(
-      input.cardBlockId,
+      input.pageId,
       input.projectId,
-      `operation:${input.cardBlockId}`,
+      `operation:${input.pageId}`,
       now,
       now,
     );
@@ -100,7 +100,7 @@ const seedPrimaryDocument = (input: {
       INSERT INTO documents (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
+      ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', '',
         'pending_genesis', 'legacy_shadow', ?, ?)
     `,
     )
@@ -112,10 +112,10 @@ const seedPrimaryDocument = (input: {
       VALUES (?, ?, ?, ?)
     `,
     )
-    .run(input.cardBlockId, documentId, input.projectId, now);
+    .run(input.pageId, documentId, input.projectId, now);
 
   let blockIndex = 0;
-  const genesis = createCardDocumentGenesis({
+  const genesis = createPageDocumentGenesis({
     documentId,
     title: input.title,
     nfm: input.nfm,
@@ -127,11 +127,11 @@ const seedPrimaryDocument = (input: {
     },
   });
   try {
-    const ack = initializeCardDocumentGenesis(database, {
+    const ack = initializePageDocumentGenesis(database, {
       documentId,
       storeEpoch: readEpoch(),
       generation: 1,
-      updateId: `genesis:${input.cardBlockId}`,
+      updateId: `genesis:${input.pageId}`,
       clientSessionId: "document-operation-probe",
       update: genesis.update,
       finalAuthority: "ydoc_primary",
@@ -335,14 +335,14 @@ const run = async (): Promise<void> => {
     const project = createProject({ name: "Document operations" });
     const main = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "operation-main-card",
+      pageId: "operation-main-card",
       title: "Before",
       nfm: "Alpha\nBeta\nGamma",
       blockIds: [blockIds.alpha, blockIds.beta, blockIds.gamma],
     });
     invariant(main.headSeq === 1, "main genesis head is not 1");
 
-    const insertTemplate = createCardDocumentGenesis({
+    const insertTemplate = createPageDocumentGenesis({
       documentId: "operation-insert-template",
       title: "",
       nfm: "Inserted",
@@ -398,7 +398,7 @@ const run = async (): Promise<void> => {
 
     const titleOnly = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "operation-title-card",
+      pageId: "operation-title-card",
       title: "Before title",
       nfm: "Title body",
       blockIds: [blockIds.titleBody],
@@ -445,7 +445,7 @@ const run = async (): Promise<void> => {
         crossSessionRetry.value.headSeq === 2,
       "cross-session exact retry did not recover the first durable outcome",
     );
-    const netZeroTemplate = createCardDocumentGenesis({
+    const netZeroTemplate = createPageDocumentGenesis({
       documentId: "operation-net-zero-template",
       title: "",
       nfm: "Net zero insert",
@@ -522,7 +522,7 @@ const run = async (): Promise<void> => {
       ),
     };
 
-    const updateTemplate = createCardDocumentGenesis({
+    const updateTemplate = createPageDocumentGenesis({
       documentId: "operation-update-template",
       title: "",
       nfm: "Alpha updated",
@@ -766,7 +766,7 @@ const run = async (): Promise<void> => {
 
     const nfm = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "operation-nfm-card",
+      pageId: "operation-nfm-card",
       title: "NFM title",
       nfm: "Same\nSame\nTail",
       blockIds: [blockIds.nfmSameOne, blockIds.nfmSameTwo, blockIds.nfmTail],
@@ -815,12 +815,12 @@ const run = async (): Promise<void> => {
 
     const classification = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "operation-classification-card",
+      pageId: "operation-classification-card",
       title: "Classification",
       nfm: "Parent",
       blockIds: [blockIds.classificationParent],
     });
-    const classificationTemplate = createCardDocumentGenesis({
+    const classificationTemplate = createPageDocumentGenesis({
       documentId: "operation-classification-template",
       title: "",
       nfm: "New child",
@@ -855,7 +855,7 @@ const run = async (): Promise<void> => {
 
     const epochScoped = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "operation-epoch-card",
+      pageId: "operation-epoch-card",
       title: "Epoch",
       nfm: "Epoch body",
       blockIds: [blockIds.epochScoped],

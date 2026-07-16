@@ -11,7 +11,7 @@ import {
   BlockDocumentStoreError,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
-import { applyCardLifecycleMutation } from "../src/main/local-store/card-block-lifecycle";
+import { applyPageLifecycleMutation } from "../src/main/local-store/page-lifecycle";
 import {
   closeDatabase,
   getDb,
@@ -19,10 +19,10 @@ import {
 } from "../src/main/local-store/database";
 import { createDocumentVersionCheckpoint } from "../src/main/local-store/document-versions";
 import { createProject } from "../src/main/local-store/projects";
-import { openCardDocument } from "../src/shared/block-documents";
-import { parseCardLifecycleMutationRequest } from "../src/shared/card-lifecycle";
+import { openPageDocument } from "../src/shared/block-documents";
+import { parsePageLifecycleMutationRequest } from "../src/shared/page-lifecycle";
 import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../src/shared/block-documents/document-history";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -45,9 +45,9 @@ const createCard = (
   storeEpoch: string,
   cardId: string,
 ): { readonly documentId: string; readonly generation: number; readonly headSeq: number } => {
-  const result = applyCardLifecycleMutation(
+  const result = applyPageLifecycleMutation(
     getDb(),
-    parseCardLifecycleMutationRequest({
+    parsePageLifecycleMutationRequest({
       version: 1,
       operationId: `create:${cardId}`,
       projectId,
@@ -55,8 +55,8 @@ const createCard = (
       clientSessionId: "compaction-probe:create",
       actor: { kind: "runtime_probe" },
       operation: {
-        kind: "create_card",
-        cardId,
+        kind: "create_page",
+        pageId: cardId,
         title: cardId,
         nfm: "Compaction body",
         status: "draft",
@@ -79,7 +79,7 @@ const rewriteTitle = (
   const loaded = loadPrimaryBlockDocument(getDb(), documentId);
   try {
     const before = Y.encodeStateVector(loaded.document);
-    const envelope = openCardDocument(loaded.document);
+    const envelope = openPageDocument(loaded.document);
     loaded.document.transact(() => {
       envelope.title.delete(0, envelope.title.length);
       envelope.title.insert(0, title);
@@ -116,7 +116,7 @@ const countRows = (table: string, documentId: string): number => {
 const readTitle = (documentId: string): string => {
   const loaded = loadPrimaryBlockDocument(getDb(), documentId);
   try {
-    return openCardDocument(loaded.document).title.toString();
+    return openPageDocument(loaded.document).title.toString();
   } finally {
     loaded.document.destroy();
   }

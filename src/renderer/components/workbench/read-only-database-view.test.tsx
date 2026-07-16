@@ -4,13 +4,18 @@ import { act } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { render } from "../../test/dom";
-import { ReadOnlyDatabaseView } from "./read-only-database-view";
+import { DatabaseViewSurface } from "./read-only-database-view";
+
+const timestamp = "2026-07-12T00:00:00.000Z";
+const dataSourceId = "source-1";
 
 const model: DatabaseViewRenderModel = {
   projectId: "project-1",
   databaseViewId: "view-focused",
-  databaseBlockId: "database-1",
+  databaseId: "database-1",
+  dataSourceId,
   databaseName: "Tasks",
+  dataSourceName: "Pages",
   viewName: "Focused",
   storeEpoch: "epoch-1",
   changeLogSeq: 2,
@@ -18,20 +23,32 @@ const model: DatabaseViewRenderModel = {
   readOnlyReason: null,
   query: {
     database: {
-      blockId: "database-1",
-      projectId: "project-1",
+      databaseId: "database-1",
+      libraryId: "library-1",
       name: "Tasks",
-      isPrimary: false,
-      schemaKey: "nodex.database",
-      schemaRevision: 1,
+      lifecycle: "active",
+      defaultViewId: "view-default",
+      accessRevision: 1,
       metadataRevision: 1,
-      createdAt: "2026-07-12T00:00:00.000Z",
-      updatedAt: "2026-07-12T00:00:00.000Z",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    dataSource: {
+      dataSourceId,
+      libraryId: "library-1",
+      homeDatabaseId: "database-1",
+      name: "Pages",
+      schemaKey: "nodex.pages",
+      schemaRevision: 1,
+      lifecycle: "active",
+      rankKey: "a",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
     view: {
-      id: "view-focused",
-      databaseBlockId: "database-1",
-      projectId: "project-1",
+      viewId: "view-focused",
+      databaseId: "database-1",
+      dataSourceId,
       name: "Focused",
       kind: "list",
       config: {
@@ -42,16 +59,16 @@ const model: DatabaseViewRenderModel = {
         group: null,
         display: { propertyIds: ["property-tags"], showTitle: true },
       },
-      isPrimary: false,
+      isDefault: false,
       revision: 1,
       rankKey: "a",
       lifecycle: "active",
-      createdAt: "2026-07-12T00:00:00.000Z",
-      updatedAt: "2026-07-12T00:00:00.000Z",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
     properties: [{
-      id: "property-tags",
-      databaseBlockId: "database-1",
+      propertyId: "property-tags",
+      dataSourceId,
       key: "tags",
       name: "Tags",
       valueType: "multi_select",
@@ -59,37 +76,32 @@ const model: DatabaseViewRenderModel = {
       rankKey: "a",
       lifecycle: "active",
       revision: 1,
-      createdAt: "2026-07-12T00:00:00.000Z",
-      updatedAt: "2026-07-12T00:00:00.000Z",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     }],
     rows: [{
       membership: {
-        id: "membership-focused",
-        databaseBlockId: "database-1",
-        cardBlockId: "card-focused",
+        membershipId: "membership-focused",
+        dataSourceId,
         revision: 1,
-        createdAt: "2026-07-12T00:00:00.000Z",
+        createdAt: timestamp,
       },
-      card: {
-        blockId: "card-focused",
-        projectId: "project-1",
+      page: {
+        pageId: "page-focused",
+        libraryId: "library-1",
+        parent: { kind: "data_source", dataSourceId },
         lifecycle: "active",
-        location: { kind: "space", rankKey: "a" },
-        locationRevision: 1,
+        parentRevision: 1,
         metadataRevision: 1,
         documentId: "document-focused",
         documentGeneration: 1,
         documentHeadSeq: 1,
-        documentAuthority: "ydoc_primary",
-        content: {
-          projectedSeq: 1,
-          title: "Focused Card",
-          richTitle: plainTextToPortableRichText("Focused Card"),
-          preview: "",
-          plainText: "",
-        },
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
+        title: "Focused Page",
+        richTitle: plainTextToPortableRichText("Focused Page"),
+        preview: "",
+        plainText: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
       values: {
         "property-tags": {
@@ -104,48 +116,48 @@ const model: DatabaseViewRenderModel = {
     }],
   },
   columns: [{
-      id: "in_progress",
-      name: "In Progress",
-      rows: [{
-        blockId: "card-focused",
-        status: "in_progress",
-        title: "Focused Card",
-        preview: "",
-        plainText: "",
-        tags: ["selected-view"],
-        metadataRevision: 1,
-        createdAt: new Date("2026-07-12T00:00:00.000Z"),
-      }],
+    id: "in_progress",
+    name: "In Progress",
+    rows: [{
+      pageId: "page-focused",
+      status: "in_progress",
+      title: "Focused Page",
+      preview: "",
+      plainText: "",
+      tags: ["selected-view"],
+      metadataRevision: 1,
+      createdAt: new Date(timestamp),
+    }],
   }],
 };
 
-describe("ReadOnlyDatabaseView", () => {
-  test("renders the selected View rows and opens their stable Card identity", () => {
+describe("DatabaseViewSurface", () => {
+  test("renders the selected View Pages and opens their stable identity", () => {
     const opened: unknown[][] = [];
     const screen = render(
-      <ReadOnlyDatabaseView
+      <DatabaseViewSurface
         model={model}
         searchQuery="focused"
-        openCardStage={(...args) => opened.push(args)}
+        openPageStage={(...args) => opened.push(args)}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Card Focused Card" }));
-    expect(JSON.stringify(opened[0])).toBe(JSON.stringify([
+    fireEvent.click(screen.getByRole("button", { name: "Open Page Focused Page" }));
+    expect(opened[0]).toEqual([
       "project-1",
-      "card-focused",
-      "Focused Card",
+      "page-focused",
+      "Focused Page",
       { openMode: "preview" },
-    ]));
+    ]);
   });
 
-  test("writes a displayed custom property through the selected Database identity", async () => {
+  test("writes a displayed custom property through Page and Data Source identity", async () => {
     const operations: unknown[] = [];
     const screen = render(
-      <ReadOnlyDatabaseView
+      <DatabaseViewSurface
         model={model}
         searchQuery=""
-        openCardStage={() => undefined}
+        openPageStage={() => undefined}
         commitOperations={async (input) => {
           operations.push(...input.operations);
           return null;
@@ -157,13 +169,13 @@ describe("ReadOnlyDatabaseView", () => {
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       await Promise.resolve();
     });
-    expect(JSON.stringify(operations[0])).toBe(JSON.stringify({
+    expect(operations[0]).toEqual({
       kind: "add_remove_value",
-      cardBlockId: "card-focused",
-      databaseBlockId: "database-1",
+      pageId: "page-focused",
+      dataSourceId,
       propertyId: "property-tags",
       add: ["next"],
       remove: [],
-    }));
+    });
   });
 });

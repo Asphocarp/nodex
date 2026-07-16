@@ -1,14 +1,14 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { GeneralDatabaseViewConfig } from "../../../shared/database-kernel";
-import type { GeneralDatabasePropertyDefinition } from "../../../shared/database-query";
+import type { DatabaseViewConfig } from "../../../shared/database-kernel";
+import type { DataSourcePropertyRecord } from "../../../shared/database-module";
 import { DatabaseViewConfigEditor } from "./database-view-config-editor";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
-const properties: readonly GeneralDatabasePropertyDefinition[] = [
+const properties: readonly DataSourcePropertyRecord[] = [
   {
-    id: "property-status",
-    databaseBlockId: "database-1",
+    propertyId: "property-status",
+    dataSourceId: "source-1",
     key: "status",
     name: "Status",
     valueType: "select",
@@ -20,8 +20,8 @@ const properties: readonly GeneralDatabasePropertyDefinition[] = [
     updatedAt: timestamp,
   },
   {
-    id: "property-owner",
-    databaseBlockId: "database-1",
+    propertyId: "property-owner",
+    dataSourceId: "source-1",
     key: "owner",
     name: "Owner",
     valueType: "person",
@@ -34,7 +34,7 @@ const properties: readonly GeneralDatabasePropertyDefinition[] = [
   },
 ];
 
-const initialConfig: GeneralDatabaseViewConfig = {
+const initialConfig: DatabaseViewConfig = {
   schemaKey: "nodex.database-view",
   schemaVersion: 1,
   filter: {
@@ -78,4 +78,3 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const DurableRules: Story = {};
-

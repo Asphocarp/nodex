@@ -12,14 +12,13 @@ import type { DbViewDisplayPrefs, DbViewDisplayPropertyKey } from "../../lib/db-
 import { resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import { EMPTY_DISPLAY_VALUE_TOKEN, getMetaChipClassName } from "../../lib/toggle-list/meta-chips";
 import { estimateStyles } from "@/lib/types";
-import type { CardSummary, Priority } from "@/lib/types";
+import type { DatabasePageSummary, Priority } from "@/lib/types";
 import { useCardPropertyPosition } from "./card-deps";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
-import { mergeCardDraftOverlay, useCardDraftOverlay } from "../../lib/card-draft-store";
+import { mergePageDraftOverlay, usePageDraftOverlay } from "../../lib/page-draft-store";
 import { ChipPropertyEditor } from "./editor/chip-property-editor";
 import { CardContextMenu } from "./card-context-menu";
-import type { CardContextMenuProjectSummary } from "./card-context-menu-model";
 import {
   buildKanbanCardDropTargetData,
   canDropOnKanbanCard,
@@ -30,7 +29,7 @@ import {
 type CardEditableProperty = "priority" | "estimate";
 type CardPropertyBadgeLayout = "stacked" | "inline";
 type KanbanCardDisplayProperty = Extract<DbViewDisplayPropertyKey, "priority" | "estimate" | "tags" | "assignee">;
-type CardType = CardSummary;
+type CardType = DatabasePageSummary;
 
 const DEFAULT_KANBAN_CARD_DISPLAY_ORDER: KanbanCardDisplayProperty[] = [
   "priority",
@@ -43,7 +42,7 @@ const TAG_CHIP_CLASS_NAME =
 const EMPTY_VALUE_CHIP_CLASS_NAME = getMetaChipClassName(EMPTY_DISPLAY_VALUE_TOKEN);
 
 export interface CardPropertyUpdateInput {
-  cardId: string;
+  pageId: string;
   columnId: string;
   property: CardEditableProperty;
   value: string;
@@ -68,10 +67,8 @@ interface CardProps {
     currentColumnId: string;
     currentProjectId: string;
     currentProjectName: string;
-    projects: CardContextMenuProjectSummary[];
-    onMoveToProject: (projectId: string) => Promise<void> | void;
-    onDelete: (input: { cardId: string; columnId: string }) => Promise<void> | void;
-    onCopyLink: (input: { cardId: string; projectId: string }) => Promise<void> | void;
+    onDelete: (input: { pageId: string; columnId: string }) => Promise<void> | void;
+    onCopyLink: (input: { pageId: string; projectId: string }) => Promise<void> | void;
     onMenuOpen?: () => void;
   };
 }
@@ -162,7 +159,7 @@ function CardPropertyBadges({
       <button
         type="button"
         data-card-property-trigger={property}
-        data-card-property-card-id={card.id}
+        data-card-property-uuid-v7={card.id}
         data-card-property-column-id={columnId}
         className={cn(
           className,
@@ -344,7 +341,7 @@ const CardBody = memo(function CardBody({
   );
 });
 
-interface ResolvedCardBodyProps extends Omit<CardBodyProps, "card"> {
+interface ResolvedCardBodyProps extends Omit<CardBodyProps, "page"> {
   projectId?: string;
   card: CardType;
 }
@@ -359,9 +356,9 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
   onOpenPropertyEditor,
   onChipPointerDown,
 }: ResolvedCardBodyProps) {
-  const draftOverlay = useCardDraftOverlay(projectId, card.id);
+  const draftOverlay = usePageDraftOverlay(projectId, card.id);
   const resolvedCard = useMemo(
-    () => mergeCardDraftOverlay(card, draftOverlay) ?? card,
+    () => mergePageDraftOverlay(card, draftOverlay) ?? card,
     [card, draftOverlay],
   );
 
@@ -570,7 +567,7 @@ export function Card({
   }, []);
 
   const handleChipSelect = useCallback(
-    (propertyType: string, _cardId: string, value: string) => {
+    (propertyType: string, _pageId: string, value: string) => {
       if (!onUpdateProperty) {
         return;
       }
@@ -580,7 +577,7 @@ export function Card({
       }
 
       void onUpdateProperty({
-        cardId: card.id,
+        pageId: card.id,
         columnId,
         property: propertyType,
         value,
@@ -663,14 +660,14 @@ export function Card({
       dropTargetForElements({
         element,
         canDrop: ({ source }) => canDropOnKanbanCard({
-          targetCardId: card.id,
+          targetPageId: card.id,
           source: source.data,
           instanceId: dragInstanceId,
         }),
         getIsSticky: () => true,
         getData: () => buildKanbanCardDropTargetData({
           instanceId: dragInstanceId,
-          cardId: card.id,
+          pageId: card.id,
           columnId: columnId as CardType["status"],
         }),
       }),
@@ -713,8 +710,6 @@ export function Card({
           currentColumnId={contextMenu.currentColumnId}
           currentProjectId={contextMenu.currentProjectId}
           currentProjectName={contextMenu.currentProjectName}
-          projects={contextMenu.projects}
-          onMoveToProject={contextMenu.onMoveToProject}
           onDelete={contextMenu.onDelete}
           onCopyLink={contextMenu.onCopyLink}
           onMenuOpen={contextMenu.onMenuOpen}
@@ -755,7 +750,7 @@ export function Card({
         <ChipPropertyEditor
           propertyType={activeChipEdit.property}
           currentToken={activeChipEdit.currentToken}
-          cardId={card.id}
+          pageId={card.id}
           anchorRect={activeChipEdit.anchorRect}
           onSelect={handleChipSelect}
           onClose={handleChipEditorClose}

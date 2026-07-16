@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import type { BoardSummary, CardSummary, Project } from "@/lib/types";
-import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
+import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
+import type { DatabaseContainerDescriptor } from "../../../shared/database-module";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   buildPanelDestinationSections,
@@ -14,6 +14,10 @@ const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 function makeProject(id: string, name: string, icon?: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon,
@@ -26,12 +30,12 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(
+function makePage(
   id: string,
   title: string,
-  status: CardSummary["status"],
+  status: DatabasePageSummary["status"],
   order: number,
-): CardSummary {
+): DatabasePageSummary {
   return {
     id,
     status,
@@ -62,8 +66,8 @@ const BOARD_MAP = new Map<string, BoardSummary>([
           id: "draft",
           name: "Draft",
           cards: [
-            makeCard("command-palette", "Command palette polish", "draft", 0),
-            makeCard("notes", "Meeting notes", "draft", 1),
+            makePage("command-palette", "Command palette polish", "draft", 0),
+            makePage("notes", "Meeting notes", "draft", 1),
           ],
         },
       ],
@@ -76,7 +80,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
         {
           id: "backlog",
           name: "Backlog",
-          cards: [makeCard("runtime", "Runtime polish", "backlog", 0)],
+          cards: [makePage("runtime", "Runtime polish", "backlog", 0)],
         },
       ],
     },
@@ -86,25 +90,37 @@ const BOARD_MAP = new Map<string, BoardSummary>([
 function makeDescriptor(
   projectId: string,
   views: ReadonlyArray<{ id: string; name: string; primary: boolean }>,
-): GeneralDatabaseDescriptor {
-  const databaseBlockId = `database:${projectId}`;
+): DatabaseContainerDescriptor {
+  const databaseId = `database:${projectId}`;
+  const dataSourceId = `data-source:${projectId}`;
   return {
     database: {
-      blockId: databaseBlockId,
-      projectId,
+      databaseId,
+      libraryId: "library:test",
       name: `${projectId} tasks`,
-      isPrimary: true,
-      schemaKey: "nodex.database",
-      schemaRevision: 1,
+      lifecycle: "active",
+      defaultViewId: views.find((view) => view.primary)?.id ?? null,
+      accessRevision: 1,
       metadataRevision: 1,
       createdAt: TEST_DATE.toISOString(),
       updatedAt: TEST_DATE.toISOString(),
     },
-    properties: [],
+    dataSources: [{
+      dataSourceId,
+      libraryId: "library:test",
+      homeDatabaseId: databaseId,
+      name: "Pages",
+      schemaKey: "nodex.page",
+      schemaRevision: 1,
+      lifecycle: "active",
+      rankKey: "0",
+      createdAt: TEST_DATE.toISOString(),
+      updatedAt: TEST_DATE.toISOString(),
+    }],
     views: views.map((view, index) => ({
-      id: view.id,
-      databaseBlockId,
-      projectId,
+      viewId: view.id,
+      databaseId,
+      dataSourceId,
       name: view.name,
       kind: "kanban",
       config: {
@@ -115,7 +131,7 @@ function makeDescriptor(
         group: null,
         display: { propertyIds: [], showTitle: true },
       },
-      isPrimary: view.primary,
+      isDefault: view.primary,
       revision: 1,
       rankKey: String(index),
       lifecycle: "active",
@@ -125,7 +141,7 @@ function makeDescriptor(
   };
 }
 
-const DATABASE_DESCRIPTOR_MAP = new Map<string, GeneralDatabaseDescriptor>([
+const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptor>([
   ["alpha", makeDescriptor("alpha", [
     { id: "view-alpha-primary", name: "Alpha DB", primary: true },
     { id: "view-alpha-focused", name: "Focused", primary: false },
@@ -136,7 +152,7 @@ const DATABASE_DESCRIPTOR_MAP = new Map<string, GeneralDatabaseDescriptor>([
 ]);
 
 describe("panel destination picker model", () => {
-  test("keeps DB before Card for the combined panel picker", () => {
+  test("keeps Database Views before Pages for the combined panel picker", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
@@ -145,13 +161,13 @@ describe("panel destination picker model", () => {
     });
     const rows = flattenPanelDestinationRows(sections);
 
-    expect(sections.map((section) => section.label).join(",")).toBe("DB,Card");
+    expect(sections.map((section) => section.label).join(",")).toBe("DB,Page");
     expect(rows.map((row) => row.id).join(",")).toBe(
-      "panel-db:alpha:view-alpha-primary,panel-db:alpha:view-alpha-focused,panel-db:beta:view-beta-primary,panel-card:alpha:command-palette,panel-card:alpha:notes,panel-card:beta:runtime",
+      "panel-db:alpha:view-alpha-primary,panel-db:alpha:view-alpha-focused,panel-db:beta:view-beta-primary,panel-page:alpha:command-palette,panel-page:alpha:notes,panel-page:beta:runtime",
     );
   });
 
-  test("supports DB-only and card-only scopes", () => {
+  test("supports Database-only and Page-only scopes", () => {
     const dbOnly = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
@@ -164,75 +180,75 @@ describe("panel destination picker model", () => {
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "",
-      scope: "card-only",
+      scope: "page-only",
     });
 
     expect(dbOnly.map((section) => section.label).join(",")).toBe("DB");
     expect(flattenPanelDestinationRows(dbOnly).map((row) => row.kind).join(",")).toBe("db,db,db");
-    expect(cardOnly.map((section) => section.label).join(",")).toBe("Card");
-    expect(flattenPanelDestinationRows(cardOnly).map((row) => row.kind).join(",")).toBe("card,card,card");
+    expect(cardOnly.map((section) => section.label).join(",")).toBe("Page");
+    expect(flattenPanelDestinationRows(cardOnly).map((row) => row.kind).join(",")).toBe("page,page,page");
   });
 
-  test("groups card-only rows with the current project first", () => {
+  test("groups Page-only rows with the current project first", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "",
-      scope: "card-only",
+      scope: "page-only",
       currentProjectId: "beta",
     });
     const rows = flattenPanelDestinationRows(sections);
 
     expect(sections.map((section) => section.label).join(",")).toBe("Current project,Other projects");
     expect(rows.map((row) => row.id).join(",")).toBe(
-      "panel-card:beta:runtime,panel-card:alpha:command-palette,panel-card:alpha:notes",
+      "panel-page:beta:runtime,panel-page:alpha:command-palette,panel-page:alpha:notes",
     );
   });
 
-  test("keeps search ranking inside current-project card groups", () => {
+  test("keeps search ranking inside current-project Page groups", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "polish",
-      scope: "card-only",
+      scope: "page-only",
       currentProjectId: "beta",
     });
     const rows = flattenPanelDestinationRows(sections);
 
     expect(sections.map((section) => section.label).join(",")).toBe("Current project,Other projects");
     expect(rows.map((row) => row.id).join(",")).toBe(
-      "panel-card:beta:runtime,panel-card:alpha:command-palette",
+      "panel-page:beta:runtime,panel-page:alpha:command-palette",
     );
   });
 
-  test("omits the current-project group when it has no card matches", () => {
+  test("omits the current-project group when it has no page matches", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "runtime",
-      scope: "card-only",
+      scope: "page-only",
       currentProjectId: "alpha",
     });
     const rows = flattenPanelDestinationRows(sections);
 
     expect(sections.map((section) => section.label).join(",")).toBe("Other projects");
-    expect(rows.map((row) => row.id).join(",")).toBe("panel-card:beta:runtime");
+    expect(rows.map((row) => row.id).join(",")).toBe("panel-page:beta:runtime");
   });
 
-  test("uses shared fuzzy search semantics for card rows", () => {
+  test("uses shared fuzzy search semantics for Page rows", () => {
     const sections = buildPanelDestinationSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
       databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
       query: "commnd pal",
-      scope: "card-only",
+      scope: "page-only",
     });
     const rows = flattenPanelDestinationRows(sections);
 
-    expect(rows.map((row) => row.id).join(",")).toBe("panel-card:alpha:command-palette");
+    expect(rows.map((row) => row.id).join(",")).toBe("panel-page:alpha:command-palette");
   });
 
   test("resets query focus to the first visible row and wraps arrow movement", () => {
@@ -245,7 +261,7 @@ describe("panel destination picker model", () => {
     const initial = resolvePanelDestinationFocusedRowId(null, "beta", rows);
 
     expect(initial).toBe("panel-db:beta:view-beta-primary");
-    expect(movePanelDestinationFocusedRowId(initial, 1, rows)).toBe("panel-card:beta:runtime");
-    expect(movePanelDestinationFocusedRowId("panel-card:beta:runtime", 1, rows)).toBe("panel-db:beta:view-beta-primary");
+    expect(movePanelDestinationFocusedRowId(initial, 1, rows)).toBe("panel-page:beta:runtime");
+    expect(movePanelDestinationFocusedRowId("panel-page:beta:runtime", 1, rows)).toBe("panel-db:beta:view-beta-primary");
   });
 });

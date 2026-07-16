@@ -155,7 +155,7 @@ export const ReadonlyPreview: Story = {
       <ReadonlyNfmBlockNotePreview
         content={'Captured note with <mention-date start="2050-06-28" format="relative" /> inside readonly history.'}
         projectId="project-1"
-        cardId="card-1"
+        pageId="card-1"
         historyId={1}
       />
     </div>

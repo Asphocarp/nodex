@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import {
   assertValidBlockDocument,
-  assertValidCardDocumentRoots,
+  assertValidPageDocumentRoots,
   BLOCK_CONTAINER_NODE_NAME,
   BLOCK_GROUP_NODE_NAME,
   encodeXmlSubtree,
@@ -126,7 +126,7 @@ export const captureBlockDocumentChangeState = (
       ? inspectHistoricalOwnedBlockDocument(document, schema)
       : inspectOwnedBlockDocument(document, schema)
     : null;
-  const envelope = inspection?.envelope ?? assertValidCardDocumentRoots(document);
+  const envelope = inspection?.envelope ?? assertValidPageDocumentRoots(document);
   const scannedBlocks = assertValidBlockDocument(envelope.body);
   const contentHashes = collectBlockContentHashes(envelope.body);
   const childIdsByParent = new Map<BlockId, BlockId[]>();
@@ -154,13 +154,13 @@ export const captureBlockDocumentChangeState = (
   });
   return {
     titleSemanticSource:
-      inspection?.materialization.kind === "card"
+      inspection?.materialization.kind === "page"
         ? portableRichTextSemanticSource(inspection.materialization.richTitle)
         : inspection
           ? null
           : portableRichTextSemanticSource(
               readPortableRichTextFromYText(
-                assertValidCardDocumentRoots(document).title,
+                assertValidPageDocumentRoots(document).title,
               ),
             ),
     blocks,
@@ -181,7 +181,7 @@ const descriptorsEqual = (
 
 /**
  * Derives the application-level change set from two already causally related
- * Card Documents. Client-declared touched IDs are intentionally absent from
+ * Page Documents. Client-declared touched IDs are intentionally absent from
  * this Interface: callers cannot influence the authoritative result.
  */
 export const deriveBlockDocumentTouchedIds = (input: {

@@ -1,8 +1,8 @@
 import * as Y from "yjs";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  MAX_CARD_DOCUMENT_STATE_BYTES,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  MAX_PAGE_DOCUMENT_STATE_BYTES,
   getRegisteredBlockDocumentSchemaAdapter,
   type DocumentId,
   type RegisteredBlockDocumentSchemaAdapter,
@@ -94,13 +94,13 @@ const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
   ]);
 
 const DEFAULT_STATE_CONSTRAINTS: DocumentLocalCheckpointStateConstraints = {
-  maxStateBytes: MAX_CARD_DOCUMENT_STATE_BYTES,
+  maxStateBytes: MAX_PAGE_DOCUMENT_STATE_BYTES,
 };
 
 const DEFAULT_CARD_SCHEMA_ADAPTER = getRegisteredBlockDocumentSchemaAdapter({
-  ownerType: "card",
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  ownerType: "page",
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
 });
 
 const EMPTY_DOCUMENT_UPDATE = (() => {

@@ -1,0 +1,113 @@
+import type Database from "better-sqlite3";
+import type { DocumentId } from "../../shared/nodex-agent-tools";
+import type { ProjectResourceAction } from "../../shared/resource-authorization";
+import { authorizeProjectResourceInDatabase } from "../local-store/project-resource-grants";
+import { NodexAgentReadError } from "./read-support";
+
+export interface PageStorageContext {
+  readonly pageId: string;
+  readonly documentId: DocumentId;
+  readonly contentProjectId: string;
+  readonly libraryId: string;
+  readonly parentKind: "library" | "page" | "data_source";
+  readonly parentId: string;
+}
+
+export function requirePageStorageContext(
+  database: Database.Database,
+  projectId: string,
+  pageId: string,
+  action: ProjectResourceAction = "read",
+): PageStorageContext {
+  const authorization = authorizeProjectResourceInDatabase(database, {
+    projectId,
+    resource: { kind: "page", pageId },
+    action,
+  });
+  if (!authorization.allowed) {
+    throw new NodexAgentReadError(
+      authorization.reason === "resource_not_found" ? "not_found" : "authorization_denied",
+      `Page ${pageId} ${action} denied: ${authorization.reason}`,
+      false,
+      "none",
+      { resourceId: pageId, domainCode: authorization.reason },
+    );
+  }
+  const row = database.prepare(`
+    SELECT page.block_id AS pageId,
+      page.document_id AS documentId,
+      block.project_id AS contentProjectId,
+      page.library_id AS libraryId,
+      page.parent_kind AS parentKind,
+      page.parent_id AS parentId
+    FROM pages page
+    INNER JOIN blocks block ON block.id = page.block_id
+    WHERE page.block_id = ?
+      AND page.lifecycle <> 'deleted'
+      AND block.type = 'page'
+      AND block.lifecycle <> 'deleted'
+    LIMIT 1
+  `).get(pageId) as PageStorageContext | undefined;
+  if (row) return row;
+  throw new NodexAgentReadError(
+    "not_found",
+    `Page ${pageId} was not found in the Library`,
+    false,
+    "none",
+    { resourceId: pageId, domainCode: "page_not_found" },
+  );
+}
+
+export function requirePageDocumentId(
+  database: Database.Database,
+  projectId: string,
+  pageId: string,
+  action: ProjectResourceAction = "read",
+): DocumentId {
+  return requirePageStorageContext(database, projectId, pageId, action).documentId;
+}
+
+export function requireDocumentPageId(
+  database: Database.Database,
+  projectId: string,
+  documentId: string,
+): string {
+  const row = database.prepare(
+    `
+    SELECT owner.id
+    FROM block_documents ownership
+    INNER JOIN blocks owner
+      ON owner.id = ownership.block_id
+     AND owner.project_id = ownership.project_id
+    WHERE ownership.document_id = ?
+      AND owner.type = 'page'
+      AND owner.lifecycle <> 'deleted'
+    LIMIT 1
+  `).get(documentId) as { readonly id: string } | undefined;
+  if (row) {
+    requirePageStorageContext(database, projectId, row.id, "read");
+    return row.id;
+  }
+  throw new NodexAgentReadError(
+    "unsupported_resource",
+    `Document ${documentId} is not owned by a Page`,
+    false,
+    "none",
+    { resourceId: documentId, domainCode: "page_parent_required" },
+  );
+}
+
+export function readPageLocation(
+  database: Database.Database,
+  projectId: string,
+  pageId: string,
+) {
+  const page = requirePageStorageContext(database, projectId, pageId, "read");
+  if (page.parentKind === "library") {
+    return { kind: "library" as const, libraryId: page.libraryId };
+  }
+  if (page.parentKind === "page") {
+    return { kind: "page" as const, pageId: page.parentId };
+  }
+  return { kind: "data_source" as const, dataSourceId: page.parentId };
+}

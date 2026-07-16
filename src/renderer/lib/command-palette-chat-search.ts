@@ -8,7 +8,7 @@ import {
 import {
   buildCommandPaletteQueryHighlightPreview,
 } from "./command-palette-highlight";
-import { normalizeCommandPaletteSearchText } from "./command-palette-card-search";
+import { normalizeCommandPaletteSearchText } from "./command-palette-page-search";
 import type {
   CommandPaletteThreadContentSearchResult,
   CommandPaletteThreadSummary,
@@ -259,7 +259,7 @@ export function selectCommandPaletteChatResults({
     query,
     mode: "chats",
     commands: [],
-    cards: [],
+    pages: [],
     threads,
     threadSearchIndex,
     threadLimit,

@@ -264,17 +264,17 @@ function nfmBlockToBN(
         children: [],
       };
 
-    case "card":
+    case "page":
       return {
         ...(block.uuid === undefined ? {} : { id: block.uuid }),
-        type: "card",
+        type: "page",
         props: {},
         children: [],
       };
 
-    case "mentionCard": {
+    case "pageRef": {
       return {
-        type: "cardRef",
+        type: "pageRef",
         props: {
           targetBlockId: block.targetBlockId,
           sourceProjectId: "",
@@ -296,11 +296,11 @@ function nfmBlockToBN(
 
     case "cardRef":
       return {
-        type: "cardRef",
+        type: "pageRef",
         props: {
           targetBlockId: "",
           sourceProjectId: block.sourceProjectId,
-          cardId: block.cardId,
+          cardId: block.pageId,
         },
         children: [],
       };
@@ -309,7 +309,7 @@ function nfmBlockToBN(
       return {
         type: "cardToggle",
         props: {
-          cardId: block.cardId,
+          cardId: block.pageId,
           meta: block.meta,
           snapshot: block.snapshot ?? "",
           sourceProjectId: block.sourceProjectId ?? "",
@@ -683,21 +683,21 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
         children: [],
       };
 
-    case "card":
+    case "page":
       return {
-        type: "card",
+        type: "page",
         ...(block.id ? { uuid: block.id } : {}),
         children: [],
       };
 
-    case "cardRef": {
+    case "pageRef": {
       const targetBlockId = normalizeString(block.props?.targetBlockId);
       const sourceProjectId = normalizeString(block.props?.sourceProjectId) ?? "default";
-      const cardId = normalizeString(block.props?.cardId) ?? "";
+      const pageId = normalizeString(block.props?.cardId) ?? "";
 
       if (targetBlockId !== undefined) {
         return {
-          type: "mentionCard",
+          type: "pageRef",
           targetBlockId,
           children: [],
         };
@@ -706,7 +706,7 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       return {
         type: "cardRef",
         sourceProjectId,
-        cardId,
+        pageId,
         children: [],
       };
     }
@@ -724,7 +724,7 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
     }
 
     case "cardToggle": {
-      const cardId = normalizeString(block.props?.cardId) ?? "";
+      const pageId = normalizeString(block.props?.cardId) ?? "";
       const meta = normalizeString(block.props?.meta) ?? "";
       const snapshot = normalizeString(block.props?.snapshot);
       const sourceProjectId = normalizeString(block.props?.sourceProjectId);
@@ -733,7 +733,7 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
 
       return {
         type: "cardToggle",
-        cardId,
+        pageId,
         meta,
         ...(snapshot !== undefined ? { snapshot } : {}),
         ...(sourceProjectId !== undefined ? { sourceProjectId } : {}),

@@ -6,14 +6,22 @@ import {
   type DatabaseViewFilterNode,
   type DatabaseViewFilterOperator,
   type DatabaseViewSort,
-  type GeneralDatabaseViewConfig,
+  type DatabaseViewConfig,
 } from "../../shared/database-kernel";
 import type {
-  GeneralDatabasePropertyDefinition,
-  GeneralDatabaseViewDefinition,
-} from "../../shared/database-query";
+  DatabaseViewRecord,
+  DataSourcePropertyRecord,
+} from "../../shared/database-module";
 
-export const emptyDatabaseViewConfig = (): GeneralDatabaseViewConfig => ({
+type DatabaseAuthoringProperty = DataSourcePropertyRecord;
+type DatabaseAuthoringView = DatabaseViewRecord;
+
+const authoringPropertyId = (property: DatabaseAuthoringProperty): string =>
+  property.propertyId;
+const authoringViewId = (view: DatabaseAuthoringView): string =>
+  view.viewId;
+
+export const emptyDatabaseViewConfig = (): DatabaseViewConfig => ({
   schemaKey: "nodex.database-view",
   schemaVersion: 1,
   filter: { kind: "group", operator: "and", children: [] },
@@ -29,7 +37,7 @@ export const emptyDatabaseViewConfig = (): GeneralDatabaseViewConfig => ({
 });
 
 export const readDatabasePropertyOptions = (
-  property: GeneralDatabasePropertyDefinition,
+  property: DatabaseAuthoringProperty,
 ): readonly DatabasePropertyOption[] => {
   if (property.valueType !== "select" && property.valueType !== "multi_select") {
     return [];
@@ -50,8 +58,8 @@ export const readDatabasePropertyOptions = (
 };
 
 export const databaseViewConfigsEqual = (
-  left: GeneralDatabaseViewConfig,
-  right: GeneralDatabaseViewConfig,
+  left: DatabaseViewConfig,
+  right: DatabaseViewConfig,
 ): boolean =>
   stableStringifyDatabaseJson(left) === stableStringifyDatabaseJson(right);
 
@@ -61,13 +69,13 @@ export const databaseViewConfigsEqual = (
  * is already at an edge and should not emit a mutation.
  */
 export const databaseViewMoveBeforeId = (
-  views: readonly GeneralDatabaseViewDefinition[],
+  views: readonly DatabaseAuthoringView[],
   viewId: string,
   direction: "up" | "down",
 ): string | null | undefined => {
   const ordered = views
     .filter((view) => view.lifecycle === "active")
-    .map((view) => view.id);
+    .map(authoringViewId);
   const currentIndex = ordered.indexOf(viewId);
   if (currentIndex < 0) return undefined;
   const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
@@ -133,7 +141,7 @@ export const removeDatabaseViewFilterNode = (
 };
 
 export const filterOperatorsForProperty = (
-  property: GeneralDatabasePropertyDefinition,
+  property: DatabaseAuthoringProperty,
 ): readonly DatabaseViewFilterOperator[] => {
   const common = ["equals", "not_equals", "is_empty", "is_not_empty"] as const;
   if (
@@ -152,11 +160,11 @@ export const filterOperatorsForProperty = (
 };
 
 const firstOptionId = (
-  property: GeneralDatabasePropertyDefinition,
+  property: DatabaseAuthoringProperty,
 ): string | null => readDatabasePropertyOptions(property)[0]?.id ?? null;
 
 export const defaultDatabaseFilterValue = (
-  property: GeneralDatabasePropertyDefinition,
+  property: DatabaseAuthoringProperty,
   operator: DatabaseViewFilterOperator,
 ): DatabaseJsonValue => {
   if (property.valueType === "checkbox") return false;
@@ -174,24 +182,24 @@ export const defaultDatabaseFilterValue = (
 };
 
 export const createDatabaseViewFilterClause = (
-  property: GeneralDatabasePropertyDefinition,
+  property: DatabaseAuthoringProperty,
 ): DatabaseViewFilterClause => ({
   kind: "clause",
-  propertyId: property.id,
+  propertyId: authoringPropertyId(property),
   operator: "equals",
   value: defaultDatabaseFilterValue(property, "equals"),
 });
 
 export const databaseFilterClauseWithOperator = (
-  property: GeneralDatabasePropertyDefinition,
+  property: DatabaseAuthoringProperty,
   operator: DatabaseViewFilterOperator,
 ): DatabaseViewFilterClause => {
   if (operator === "is_empty" || operator === "is_not_empty") {
-    return { kind: "clause", propertyId: property.id, operator };
+    return { kind: "clause", propertyId: authoringPropertyId(property), operator };
   }
   return {
     kind: "clause",
-    propertyId: property.id,
+    propertyId: authoringPropertyId(property),
     operator,
     value: defaultDatabaseFilterValue(property, operator),
   };
@@ -199,7 +207,7 @@ export const databaseFilterClauseWithOperator = (
 
 export const databaseFilterClauseWithProperty = (
   clause: DatabaseViewFilterClause,
-  property: GeneralDatabasePropertyDefinition,
+  property: DatabaseAuthoringProperty,
 ): DatabaseViewFilterClause => {
   const supported = filterOperatorsForProperty(property);
   const operator = supported.includes(clause.operator)

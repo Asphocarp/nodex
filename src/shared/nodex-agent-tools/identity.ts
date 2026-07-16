@@ -14,19 +14,19 @@ export const NODEX_APP_V2_TOOLS = [
 
 export type NodexAgentV2ToolName = (typeof NODEX_APP_V2_TOOLS)[number];
 
-export const NODEX_APP_V3_TOOLSET_REVISION = 3 as const;
+export const NODEX_APP_V3_TOOLSET_REVISION = 4 as const;
 
 export const NODEX_APP_V3_TOOLS = [
   "get_context",
   "search",
   "fetch",
   "query_database_view",
-  "advanced_query_database",
-  "create_cards",
-  "update_card",
-  "advanced_update_card",
-  "move_cards",
-  "duplicate_card",
+  "query_data_source",
+  "create_pages",
+  "update_page",
+  "advanced_update_page",
+  "move_pages",
+  "duplicate_page",
 ] as const;
 
 export type NodexAgentV3ToolName = (typeof NODEX_APP_V3_TOOLS)[number];

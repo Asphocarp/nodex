@@ -9,6 +9,10 @@ import { useProjects } from "./use-projects";
 function makeProject(id: string, name = id): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     sources: [{ root: `/tmp/${id}`, order: 0 }],

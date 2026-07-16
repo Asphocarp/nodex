@@ -22,7 +22,7 @@ const paragraph = (id: string, children: readonly TestBlock[] = []): TestBlock =
   children,
 });
 
-const card = (id: string): TestBlock => ({ id, type: "card", children: [] });
+const card = (id: string): TestBlock => ({ id, type: "page", children: [] });
 
 function makeEditor({
   document = [paragraph("before"), card("shell"), paragraph("after")],

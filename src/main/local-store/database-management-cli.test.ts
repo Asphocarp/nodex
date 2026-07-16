@@ -1,12 +1,11 @@
-import { describe, expect, test } from "vitest";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
+import { describe, expect, test } from "vitest";
 
 interface CapturedRequest {
-  readonly method: string;
   readonly pathname: string;
   readonly body: Readonly<Record<string, unknown>>;
 }
@@ -33,7 +32,7 @@ const runCli = (
     });
   });
 
-const timestamp = "2026-07-12T08:00:00.000Z";
+const timestamp = "2026-07-16T08:00:00.000Z";
 const viewConfig = {
   schemaKey: "nodex.database-view",
   schemaVersion: 1,
@@ -43,233 +42,202 @@ const viewConfig = {
   display: { propertyIds: [], showTitle: true },
 };
 
-const database = (id: string, viewId: string) => ({
+const descriptor = {
   database: {
-    blockId: id,
-    projectId: "default",
-    name: id,
-    isPrimary: id === "database-a",
-    schemaKey: "nodex.database",
-    schemaRevision: 1,
+    databaseId: "database-b",
+    libraryId: "library-default",
+    name: "Research",
+    lifecycle: "active",
+    defaultViewId: "view-b",
+    accessRevision: 1,
     metadataRevision: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
   },
-  properties: [],
-  views: [
-    {
-      id: viewId,
-      databaseBlockId: id,
-      projectId: "default",
-      name: "All",
-      kind: "list",
-      config: viewConfig,
-      isPrimary: true,
-      revision: 3,
-      rankKey: "1",
-      lifecycle: "active",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-  ],
-});
+  dataSources: [{
+    dataSourceId: "source-b",
+    libraryId: "library-default",
+    homeDatabaseId: "database-b",
+    name: "Pages",
+    schemaKey: "nodex.page",
+    schemaRevision: 1,
+    lifecycle: "active",
+    rankKey: "a",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }],
+  views: [{
+    viewId: "view-b",
+    databaseId: "database-b",
+    dataSourceId: "source-b",
+    name: "All",
+    kind: "list",
+    config: viewConfig,
+    isDefault: true,
+    revision: 3,
+    rankKey: "a",
+    lifecycle: "active",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }],
+};
 
-const card = (blockId: string) => ({
-  blockId,
-  projectId: "default",
-  lifecycle: "active",
-  location: { kind: "space", rankKey: "1" },
-  locationRevision: 1,
-  metadataRevision: 1,
-  documentId: `document-${blockId}`,
-  documentGeneration: 1,
-  documentHeadSeq: 1,
-  documentAuthority: "ydoc_primary",
-  content: {
-    projectedSeq: 1,
-    title: blockId,
-    preview: "",
-    plainText: "",
+const readSnapshot = (value: unknown) => ({
+  ok: true,
+  value: {
+    version: 1,
+    projectId: "default",
+    libraryId: "library-default",
+    storeEpoch: "epoch-1",
+    changeLogSeq: 9,
+    value,
   },
-  createdAt: timestamp,
-  updatedAt: timestamp,
 });
 
-describe("Database management CLI", () => {
-  test("compiles membership and selected-View writes from public authority snapshots", async () => {
-    const homeDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nodex-database-management-cli-"),
-    );
-    const databaseA = database("database-a", "view-a");
-    const databaseB = database("database-b", "view-b");
-    const management = {
-      version: 1,
-      projectId: "default",
-      storeEpoch: "epoch-1",
-      changeLogSeq: 9,
-      value: {
-        catalog: { databases: [databaseA, databaseB] },
-        cards: [
-          { card: card("card-new"), membership: null, positions: [] },
-          {
-            card: {
-              ...card("card-owned"),
-              location: {
-                kind: "database",
-                databaseBlockId: "database-a",
-              },
-            },
-            membership: {
-              id: "membership-owned",
-              databaseBlockId: "database-a",
-              cardBlockId: "card-owned",
-              revision: 4,
-              createdAt: timestamp,
-            },
-            positions: [],
+const pageDetail = (pageId: string, member: boolean) => ({
+  ok: true,
+  value: {
+    version: 1,
+    projectId: "default",
+    libraryId: "library-default",
+    storeEpoch: "epoch-1",
+    changeLogSeq: 9,
+    page: {
+      pageId,
+      parentRevision: 2,
+    },
+    dataSourceContext: member
+      ? {
+          kind: "member",
+          membership: {
+            membershipId: "membership-a",
+            dataSourceId: "source-a",
+            revision: 4,
           },
-        ],
-      },
-    };
+        }
+      : { kind: "standalone" },
+  },
+});
+
+describe("Database Module CLI", () => {
+  test("compiles Page membership and View writes from canonical snapshots", async () => {
+    const homeDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-database-module-cli-"),
+    );
     const requests: CapturedRequest[] = [];
     const server = http.createServer((request, response) => {
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => chunks.push(chunk));
       request.on("end", () => {
-        const url = new URL(request.url ?? "/", "http://127.0.0.1");
+        const pathname = new URL(
+          request.url ?? "/",
+          "http://127.0.0.1",
+        ).pathname;
         const body = chunks.length > 0
-          ? (JSON.parse(Buffer.concat(chunks).toString("utf8")) as Readonly<Record<string, unknown>>)
+          ? JSON.parse(Buffer.concat(chunks).toString("utf8")) as Readonly<Record<string, unknown>>
           : {};
-        requests.push({
-          method: request.method ?? "GET",
-          pathname: url.pathname,
-          body,
-        });
+        requests.push({ pathname, body });
         response.writeHead(200, { "Content-Type": "application/json" });
-        if (url.pathname.endsWith("/databases/management")) {
-          response.end(JSON.stringify({ ok: true, value: management }));
+
+        if (pathname.endsWith("/pages/page-new")) {
+          response.end(JSON.stringify(pageDetail("page-new", false)));
           return;
         }
-        if (url.pathname.endsWith("/database-views/view-b/snapshot")) {
-          response.end(JSON.stringify({
-            ok: true,
-            value: {
-              descriptor: { ...management, value: databaseB },
-              query: {
-                ...management,
-                value: {
-                  database: databaseB.database,
-                  view: databaseB.views[0],
-                  properties: [],
-                  rows: [],
-                },
-              },
-            },
-          }));
+        if (pathname.endsWith("/pages/page-owned")) {
+          response.end(JSON.stringify(pageDetail("page-owned", true)));
           return;
         }
-        const operationId = body.operationId;
+        if (pathname.endsWith("/database-module/read")) {
+          const read = body.read as {
+            readonly target?: { readonly kind?: string };
+          };
+          response.end(JSON.stringify(readSnapshot(
+            read.target?.kind === "view"
+              ? { kind: "view", value: descriptor.views[0] }
+              : { kind: "database", value: descriptor },
+          )));
+          return;
+        }
         response.end(JSON.stringify({
           ok: true,
           value: {
             version: 1,
-            operationId,
+            operationId: body.operationId,
             projectId: "default",
+            libraryId: "library-default",
             storeEpoch: "epoch-1",
-            operationKinds: [],
-            affectedDatabaseBlockIds: [],
             duplicate: false,
-            payload: {},
+            operationKinds: [],
+            affectedDatabaseIds: ["database-b"],
+            affectedDataSourceIds: ["source-b"],
+            affectedPageIds: [],
+            affectedViewIds: [],
+            committedRevisions: {},
             changeLogSeq: 10,
             committedAt: timestamp,
           },
         }));
       });
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
 
     try {
       const address = server.address();
-      if (!address || typeof address === "string") throw new Error("Test server failed");
-      const base = ["--url", `http://127.0.0.1:${address.port}`, "--project", "default"];
+      if (!address || typeof address === "string") {
+        throw new Error("Test server failed");
+      }
+      const base = [
+        "--url",
+        `http://127.0.0.1:${address.port}`,
+        "--project",
+        "default",
+      ];
+
       const add = await runCli([
         "database",
         "membership",
-        "card-new",
+        "page-new",
         "database-b",
         "--mutation-id",
         "membership-add",
         ...base,
       ], homeDir);
-      expect(add.exitCode).toBe(0);
-      const addIntent = requests.find(
+      expect(add.exitCode, add.stderr).toBe(0);
+      const addOperations = requests.find(
         (entry) => entry.body.operationId === "membership-add",
-      );
-      expect(addIntent?.pathname).toBe(
-        "/api/projects/default/block-transfers",
-      );
-      expect(addIntent?.body.source).toEqual({ kind: "space" });
-      expect(
-        (addIntent?.body.target as Readonly<Record<string, unknown>>)?.viewId,
-      ).toBe("view-b");
-
-      const transfer = await runCli(
-        [
-          "database",
-          "membership",
-          "card-owned",
-          "database-b",
-          "--mutation-id",
-          "membership-transfer",
-          ...base,
-        ],
-        homeDir,
-      );
-      expect(transfer.exitCode).toBe(0);
-      const transferIntent = requests.find(
-        (entry) => entry.body.operationId === "membership-transfer",
-      );
-      expect(transferIntent?.body.source).toEqual({
-        kind: "database",
-        databaseBlockId: "database-a",
+      )?.body.operations as readonly Record<string, unknown>[] | undefined;
+      expect(addOperations?.[0]).toMatchObject({
+        kind: "transfer_page",
+        pageId: "page-new",
+        expectedParentRevision: 2,
+        expectedActiveMembershipRevision: 0,
       });
-      expect(transferIntent?.body.target).toMatchObject({
-        kind: "database",
-        databaseBlockId: "database-b",
+      expect(addOperations?.[1]).toMatchObject({
+        kind: "position_page",
+        viewId: "view-b",
+        pageId: "page-new",
       });
 
       const remove = await runCli([
         "database",
         "membership",
-        "card-owned",
+        "page-owned",
         "none",
         "--mutation-id",
         "membership-remove",
         ...base,
       ], homeDir);
-      expect(remove.exitCode).toBe(0);
-      const removeIntent = requests.find(
+      expect(remove.exitCode, remove.stderr).toBe(0);
+      const removeOperations = requests.find(
         (entry) => entry.body.operationId === "membership-remove",
-      );
-      expect(removeIntent?.body.source).toEqual({
-        kind: "database",
-        databaseBlockId: "database-a",
+      )?.body.operations as readonly Record<string, unknown>[] | undefined;
+      expect(removeOperations?.[0]).toMatchObject({
+        kind: "transfer_page",
+        expectedActiveMembershipRevision: 4,
+        target: { kind: "library", libraryId: "library-default" },
       });
-      expect(removeIntent?.body.target).toEqual({ kind: "space" });
-
-      const removeMissing = await runCli([
-        "database",
-        "membership",
-        "card-new",
-        "none",
-        "--mutation-id",
-        "membership-remove-missing",
-        ...base,
-      ], homeDir);
-      expect(removeMissing.exitCode).toBe(1);
-      expect(removeMissing.stderr).toContain(
-        "Card card-new has no owning Database membership",
-      );
 
       const update = await runCli([
         "database",
@@ -280,15 +248,19 @@ describe("Database management CLI", () => {
         "view-update",
         ...base,
       ], homeDir);
-      expect(update.exitCode).toBe(0);
+      expect(update.exitCode, update.stderr).toBe(0);
       const viewOperation = requests.find(
         (entry) => entry.body.operationId === "view-update",
       )?.body.operations as readonly Record<string, unknown>[] | undefined;
-      expect(viewOperation?.[0]?.kind).toBe("put_view");
-      expect(viewOperation?.[0]?.viewId).toBe("view-b");
-      expect(viewOperation?.[0]?.expectedRevision).toBe(3);
-      expect(viewOperation?.[0]?.name).toBe("Research queue");
-      expect(viewOperation?.[0]?.viewKind).toBe("kanban");
+      expect(viewOperation?.[0]).toMatchObject({
+        kind: "put_view",
+        databaseId: "database-b",
+        dataSourceId: "source-b",
+        viewId: "view-b",
+        expectedRevision: 3,
+        name: "Research queue",
+        viewKind: "kanban",
+      });
     } finally {
       server.close();
       fs.rmSync(homeDir, { recursive: true, force: true });

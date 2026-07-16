@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import type {
-  DatabaseViewCardRow,
+  DatabaseViewPageRow,
   DatabaseViewDefinition,
   DatabaseViewJsonValue,
   DatabaseViewKind,
@@ -11,7 +11,7 @@ import {
   createGeneralInlineDatabaseViewConfig,
   inlineDatabaseViewId,
 } from "../../shared/database-views";
-import { readDatabaseCardSummariesByIds } from "./cards";
+import { readDatabasePageSummariesByIds } from "./database-pages";
 import { getDb } from "./database";
 
 const MAX_ID_LENGTH = 512;
@@ -71,7 +71,7 @@ interface DatabaseViewRow {
   readonly updated_at: string;
 }
 
-interface PositionedCardRow {
+interface PositionedPageRow {
   readonly block_id: string;
   readonly group_key: string | null;
   readonly rank_key: string;
@@ -353,10 +353,10 @@ export const readDatabaseViewDefinitionById = (
 const readDatabaseViewRows = (
   view: DatabaseViewDefinition,
   database: Database.Database,
-): DatabaseViewCardRow[] => {
-  const positionedCards = database.prepare(`
+): DatabaseViewPageRow[] => {
+  const positionedPages = database.prepare(`
     SELECT
-      membership.card_block_id AS block_id,
+      membership.page_block_id AS block_id,
       COALESCE(position.group_key, primary_position.group_key) AS group_key,
       COALESCE(
         position.rank_key,
@@ -365,14 +365,14 @@ const readDatabaseViewRows = (
       ) AS rank_key
     FROM database_memberships AS membership
     INNER JOIN blocks AS card_block
-      ON card_block.id = membership.card_block_id
+      ON card_block.id = membership.page_block_id
       AND card_block.project_id = membership.project_id
-      AND card_block.type = 'card'
+      AND card_block.type = 'page'
       AND card_block.lifecycle = 'active'
     LEFT JOIN database_view_positions AS position
       ON position.view_id = ?
       AND position.project_id = membership.project_id
-      AND position.block_id = membership.card_block_id
+      AND position.block_id = membership.page_block_id
     LEFT JOIN database_views AS primary_view
       ON primary_view.database_block_id = membership.database_block_id
       AND primary_view.project_id = membership.project_id
@@ -380,29 +380,29 @@ const readDatabaseViewRows = (
     LEFT JOIN database_view_positions AS primary_position
       ON primary_position.view_id = primary_view.id
       AND primary_position.project_id = primary_view.project_id
-      AND primary_position.block_id = membership.card_block_id
+      AND primary_position.block_id = membership.page_block_id
     WHERE membership.database_block_id = ?
       AND membership.project_id = ?
       AND membership.removed_at IS NULL
-    ORDER BY group_key ASC, rank_key ASC, membership.card_block_id ASC
+    ORDER BY group_key ASC, rank_key ASC, membership.page_block_id ASC
   `).all(
     view.id,
     view.databaseBlockId,
     view.projectId,
-  ) as PositionedCardRow[];
-  const summaries = readDatabaseCardSummariesByIds(
-    positionedCards.map((row) => row.block_id),
+  ) as PositionedPageRow[];
+  const summaries = readDatabasePageSummariesByIds(
+    positionedPages.map((row) => row.block_id),
     database,
   );
-  if (summaries.length !== positionedCards.length) {
+  if (summaries.length !== positionedPages.length) {
     throw new DatabaseViewStoreError(
       "corrupt_view",
-      `Database View ${view.id} contains an unreadable active Card position`,
+      `Database View ${view.id} contains an unreadable active Page position`,
     );
   }
 
-  const rows: DatabaseViewCardRow[] = positionedCards.map((position, index) => ({
-    card: summaries[index]!,
+  const rows: DatabaseViewPageRow[] = positionedPages.map((position, index) => ({
+    page: summaries[index]!,
     groupKey: position.group_key,
     rankKey: position.rank_key,
   }));
@@ -542,7 +542,7 @@ export const upsertLegacyInlineDatabaseView = (
       )
       SELECT
         ?,
-        membership.card_block_id,
+        membership.page_block_id,
         membership.project_id,
         primary_position.group_key,
         COALESCE(
@@ -553,9 +553,9 @@ export const upsertLegacyInlineDatabaseView = (
         ?
       FROM database_memberships AS membership
       INNER JOIN blocks AS card_block
-        ON card_block.id = membership.card_block_id
+        ON card_block.id = membership.page_block_id
         AND card_block.project_id = membership.project_id
-        AND card_block.type = 'card'
+        AND card_block.type = 'page'
         AND card_block.lifecycle = 'active'
       LEFT JOIN database_views AS primary_view
         ON primary_view.database_block_id = membership.database_block_id
@@ -564,7 +564,7 @@ export const upsertLegacyInlineDatabaseView = (
       LEFT JOIN database_view_positions AS primary_position
         ON primary_position.view_id = primary_view.id
         AND primary_position.project_id = primary_view.project_id
-        AND primary_position.block_id = membership.card_block_id
+        AND primary_position.block_id = membership.page_block_id
       WHERE membership.database_block_id = ?
         AND membership.project_id = ?
         AND membership.removed_at IS NULL

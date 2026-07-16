@@ -1,20 +1,25 @@
 import {
   invoke,
+  readDatabaseModule,
   subscribeBoardChanges,
   subscribeDatabaseChanges,
 } from "./api";
-import type { BoardSummary, Card, CardInput, CardSummary } from "./types";
+import type { BoardSummary, DatabasePage, PageInput, DatabasePageSummary } from "./types";
 import {
-  buildPatchCardTransform,
+  buildPatchPageTransform,
   conflictKeysForPatch,
   overlap,
   type BoardTransform,
 } from "./kanban-optimistic-ops";
-import { toCardSummary } from "../../shared/card-summary";
+import { toDatabasePageSummary } from "../../shared/page-summary";
 import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-summary-events";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type { DatabaseViewSnapshotCommandResult } from "../../shared/database-query";
+import {
+  DATABASE_MODULE_CONTRACT_VERSION,
+  type DatabaseModuleReadRequest,
+  type DatabaseModuleReadResult,
+} from "../../shared/database-module";
 import {
   buildDatabaseViewRenderModel,
   type DatabaseViewRenderModel,
@@ -23,7 +28,7 @@ import {
 const MUTATION_COOLDOWN_MS = 500;
 const DEFAULT_BOARD_FRESHNESS_MS = 30_000;
 
-export interface IndexedCard extends CardSummary {
+export interface IndexedPage extends DatabasePageSummary {
   columnId: string;
   columnName: string;
   boardIndex: number;
@@ -32,7 +37,7 @@ export interface IndexedCard extends CardSummary {
 export interface KanbanStoreSnapshot {
   board: BoardSummary | null;
   databaseView: DatabaseViewRenderModel | null;
-  cardIndex: ReadonlyMap<string, IndexedCard>;
+  pageIndex: ReadonlyMap<string, IndexedPage>;
   loading: boolean;
   error: string | null;
   pendingMutationCount: number;
@@ -50,12 +55,17 @@ export interface OptimisticMutationResult<T> {
 type StoreListener = () => void;
 
 type InvokeFn = (channel: string, ...args: unknown[]) => Promise<unknown>;
+type ReadDatabaseModuleFn = (
+  projectId: string,
+  request: DatabaseModuleReadRequest,
+) => Promise<DatabaseModuleReadResult>;
 type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
 type SubscribeDatabaseChangesFn = (projectId: string, callback: (event: DatabaseChangeEvent) => void) => () => void;
 type NowFn = () => number;
 
 export interface KanbanStoreDependencies {
   invoke: InvokeFn;
+  readDatabaseModule: ReadDatabaseModuleFn;
   subscribeBoardChanges: SubscribeBoardChangesFn;
   subscribeDatabaseChanges: SubscribeDatabaseChangesFn;
   now: NowFn;
@@ -84,8 +94,8 @@ export interface RunOptimisticMutationOptions<T> {
 
 interface RunOptimisticPatchOptions<T> {
   columnId: string;
-  cardId: string;
-  updates: Partial<CardInput>;
+  pageId: string;
+  updates: Partial<PageInput>;
   runRemote: () => Promise<T>;
 }
 
@@ -101,28 +111,29 @@ interface OptimisticEntry {
 
 const defaultDependencies: KanbanStoreDependencies = {
   invoke,
+  readDatabaseModule,
   subscribeBoardChanges,
   subscribeDatabaseChanges,
   now: () => Date.now(),
 };
 
-function buildCardIndex(board: BoardSummary | null): ReadonlyMap<string, IndexedCard> {
+function buildPageIndex(board: BoardSummary | null): ReadonlyMap<string, IndexedPage> {
   if (!board) return new Map();
 
-  const index = new Map<string, IndexedCard>();
+  const index = new Map<string, IndexedPage>();
   for (let columnIndex = 0; columnIndex < board.columns.length; columnIndex += 1) {
     const column = board.columns[columnIndex];
     if (!column) continue;
 
-    for (let cardIndex = 0; cardIndex < column.cards.length; cardIndex += 1) {
-      const card = column.cards[cardIndex];
+    for (let pageIndex = 0; pageIndex < column.cards.length; pageIndex += 1) {
+      const card = column.cards[pageIndex];
       if (!card) continue;
 
       index.set(card.id, {
         ...card,
         columnId: column.id,
         columnName: column.name,
-        boardIndex: columnIndex * 100_000 + cardIndex,
+        boardIndex: columnIndex * 100_000 + pageIndex,
       });
     }
   }
@@ -142,7 +153,7 @@ class KanbanProjectStore {
   private snapshot: KanbanStoreSnapshot = {
     board: null,
     databaseView: null,
-    cardIndex: new Map(),
+    pageIndex: new Map(),
     loading: true,
     error: null,
     pendingMutationCount: 0,
@@ -209,11 +220,14 @@ class KanbanProjectStore {
     this.inFlightFetch = (async () => {
       try {
         const result = this.databaseViewId
-          ? (await this.dependencies.invoke(
-              "database-views:snapshot",
-              this.projectId,
-              this.databaseViewId,
-            )) as DatabaseViewSnapshotCommandResult
+          ? await this.dependencies.readDatabaseModule(this.projectId, {
+              version: DATABASE_MODULE_CONTRACT_VERSION,
+              projectId: this.projectId,
+              read: {
+                target: { kind: "view", viewId: this.databaseViewId },
+                mode: "query",
+              },
+            })
           : null;
         if (result && !result.ok) {
           throw new Error(result.error.message);
@@ -296,11 +310,11 @@ class KanbanProjectStore {
     this.lastMutationAt = this.dependencies.now();
   };
 
-  applyRemoteCard = (card: Card): void => {
-    this.applyRemoteCardSummary(toCardSummary(card));
+  applyRemoteCard = (card: DatabasePage): void => {
+    this.applyRemoteCardSummary(toDatabasePageSummary(card));
   };
 
-  applyRemoteCardSummary = (card: CardSummary): void => {
+  applyRemoteCardSummary = (card: DatabasePageSummary): void => {
     if (!this.baseBoard) return;
 
     const nextBoard = upsertCardSummaryInBoard(this.baseBoard, card);
@@ -331,26 +345,26 @@ class KanbanProjectStore {
 
   applyLocalPatch = (
     columnId: string,
-    cardId: string,
-    updates: Partial<CardInput>,
+    pageId: string,
+    updates: Partial<PageInput>,
   ): boolean => {
     return this.enqueueLocalOverlay({
-      kind: "card:patch-local",
-      conflictKeys: conflictKeysForPatch(cardId, updates),
-      apply: buildPatchCardTransform(columnId, cardId, updates),
+      kind: "page:patch-local",
+      conflictKeys: conflictKeysForPatch(pageId, updates),
+      apply: buildPatchPageTransform(columnId, pageId, updates),
     });
   };
 
   runOptimisticPatch = async <T,>({
     columnId,
-    cardId,
+    pageId,
     updates,
     runRemote,
   }: RunOptimisticPatchOptions<T>): Promise<T> => {
     const outcome = await this.runOptimisticMutation({
       kind: "block:properties",
-      conflictKeys: conflictKeysForPatch(cardId, updates),
-      apply: buildPatchCardTransform(columnId, cardId, updates),
+      conflictKeys: conflictKeysForPatch(pageId, updates),
+      apply: buildPatchPageTransform(columnId, pageId, updates),
       runRemote,
     });
 
@@ -436,7 +450,7 @@ class KanbanProjectStore {
       ...this.snapshot,
       board,
       databaseView: this.baseDatabaseView,
-      cardIndex: buildCardIndex(board),
+      pageIndex: buildPageIndex(board),
       pendingMutationCount: this.activePendingCount(),
       loading: hasLoading ? (overrides.loading as boolean) : this.snapshot.loading,
       error: hasError ? (overrides.error as string | null) : this.snapshot.error,
@@ -545,7 +559,7 @@ class KanbanProjectStore {
     if (
       previous.board === next.board
       && previous.databaseView === next.databaseView
-      && previous.cardIndex === next.cardIndex
+      && previous.pageIndex === next.pageIndex
       && previous.loading === next.loading
       && previous.error === next.error
       && previous.pendingMutationCount === next.pendingMutationCount

@@ -15,14 +15,11 @@ import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
 import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
-import * as cardOccurrences from "./local-store/card-occurrences";
-import * as cardsStore from "./local-store/cards";
-import { getDb } from "./local-store/database";
-import { readCardMetadataPropertySnapshot } from "./local-store/card-metadata-property-snapshot";
-import { readCardDetailCommand } from "./card-detail-boundary";
+import * as pageOccurrences from "./local-store/page-occurrences";
+import * as pagesStore from "./local-store/database-pages";
 import {
   readProjectScopedDatabaseViewReference,
-  resolveProjectScopedCardTarget,
+  resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
 import {
   readPersistedAtomState,
@@ -60,9 +57,9 @@ import { parseAssetSource } from "../shared/assets";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import { codexService } from "./codex/codex-service";
 import type {
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
   CodexBackgroundProcessRunActionInput,
   CodexHeartbeatAutomationThreadStateChangedInput,
   CodexHeartbeatAutomationsEnabledChangedInput,
@@ -99,6 +96,10 @@ import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
 import type { IpcApi, IpcEvents } from "../shared/ipc-api";
+import type {
+  DocumentRelocationLeaseResponseRequest,
+  ProjectScopedDocumentRelocationLeaseResponseRequest,
+} from "../shared/block-documents/document-sync";
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
@@ -199,23 +200,18 @@ import {
 import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
 import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
 import {
-  DATABASE_CATALOG_IPC_CHANNEL,
-  DATABASE_MANAGEMENT_IPC_CHANNEL,
-  PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL,
-  PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL,
-  registerDatabaseKernelIpcHandlers,
-} from "./database-kernel-ipc";
+  registerDatabaseModuleIpcHandlers,
+} from "./database-module-ipc";
+import { registerPageDetailIpcHandler } from "./page-detail-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerAdditionalDocumentCommandIpcHandler } from "./additional-document-command-ipc";
-import { registerCardProjectTransferIpcHandler } from "./card-project-transfer-ipc";
 import { registerBlockTransferIpcHandler } from "./block-transfer-ipc";
 import { registerDocumentHistoryIpcHandlers } from "./document-history-ipc";
 import {
-  registerCardLifecycleIpcHandler,
-  registerCardLifecyclePreflightIpcHandler,
-} from "./card-lifecycle-ipc";
-import { registerCardHistoryIpcHandler } from "./card-history-ipc";
-import { registerCardMetadataPropertySnapshotIpcHandler } from "./card-metadata-property-snapshot-ipc";
+  registerPageLifecycleIpcHandler,
+  registerPageLifecyclePreflightIpcHandler,
+} from "./page-lifecycle-ipc";
+import { registerPageHistoryIpcHandler } from "./page-history-ipc";
 import {
   registerCodexPendingWorktreeIpcHandlers,
   type CodexPendingWorktreeIpcService,
@@ -399,6 +395,36 @@ function showNativeContextMenu(
 
 let browserSidebarEventBridgeRegistered = false;
 
+const omitProjectScope = <Request extends { readonly projectId: string }>(
+  request: Request,
+): Omit<Request, "projectId"> => {
+  const { projectId, ...unscoped } = request;
+  void projectId;
+  return unscoped;
+};
+
+const omitRelocationLeaseProjectScope = (
+  request: ProjectScopedDocumentRelocationLeaseResponseRequest,
+): DocumentRelocationLeaseResponseRequest => {
+  const boundary = {
+    leaseId: request.leaseId,
+    documentId: request.documentId,
+    clientSessionId: request.clientSessionId,
+    storeEpoch: request.storeEpoch,
+    generation: request.generation,
+    headSeq: request.headSeq,
+  };
+  if (request.response === "ack") {
+    return { ...boundary, response: "ack" };
+  }
+  return {
+    ...boundary,
+    response: "nack",
+    reason: request.reason,
+    message: request.message,
+  };
+};
+
 function ensureBrowserSidebarEventBridge(): void {
   if (browserSidebarEventBridgeRegistered) return;
   browserSidebarEventBridgeRegistered = true;
@@ -475,7 +501,7 @@ interface RegisterIpcHandlersOptions {
 }
 
 function assertValidOccurrenceIpcInput(
-  input: CardOccurrenceActionInput,
+  input: PageOccurrenceActionInput,
 ): void {
   if (
     typeof input?.operationId !== "string" ||
@@ -485,8 +511,8 @@ function assertValidOccurrenceIpcInput(
   ) {
     throw new Error("Missing or invalid occurrence operationId");
   }
-  if (typeof input.cardId !== "string" || input.cardId.length === 0) {
-    throw new Error("Missing or invalid occurrence cardId");
+  if (typeof input.pageId !== "string" || input.pageId.length === 0) {
+    throw new Error("Missing or invalid occurrence pageId");
   }
   if (
     !(input.occurrenceStart instanceof Date) ||
@@ -496,7 +522,7 @@ function assertValidOccurrenceIpcInput(
   }
   if (
     input.source !== "calendar" &&
-    input.source !== "card-stage" &&
+    input.source !== "page-detail" &&
     input.source !== "notification" &&
     input.source !== "api"
   ) {
@@ -505,20 +531,20 @@ function assertValidOccurrenceIpcInput(
 }
 
 function assertValidOccurrenceCompleteIpcInput(
-  input: CardOccurrenceCompleteInput,
+  input: PageOccurrenceCompleteInput,
 ): void {
   assertValidOccurrenceIpcInput(input);
   if (
-    typeof input.createdCardId !== "string" ||
-    input.createdCardId.length === 0 ||
-    input.createdCardId !== input.createdCardId.trim()
+    typeof input.createdPageId !== "string" ||
+    input.createdPageId.length === 0 ||
+    input.createdPageId !== input.createdPageId.trim()
   ) {
-    throw new Error("Missing or invalid occurrence createdCardId");
+    throw new Error("Missing or invalid occurrence createdPageId");
   }
 }
 
 function assertValidOccurrenceUpdateIpcInput(
-  input: CardOccurrenceUpdateInput,
+  input: PageOccurrenceUpdateInput,
 ): void {
   assertValidOccurrenceIpcInput(input);
   if (
@@ -528,16 +554,16 @@ function assertValidOccurrenceUpdateIpcInput(
   ) {
     throw new Error("Missing or invalid occurrence scope");
   }
-  if (input.scope === "all" && "createdCardId" in input) {
-    throw new Error("Occurrence scope all must not include createdCardId");
+  if (input.scope === "all" && "createdPageId" in input) {
+    throw new Error("Occurrence scope all must not include createdPageId");
   }
   if (
     input.scope !== "all" &&
-    (typeof input.createdCardId !== "string" ||
-      input.createdCardId.length === 0 ||
-      input.createdCardId !== input.createdCardId.trim())
+    (typeof input.createdPageId !== "string" ||
+      input.createdPageId.length === 0 ||
+      input.createdPageId !== input.createdPageId.trim())
   ) {
-    throw new Error("Missing or invalid occurrence createdCardId");
+    throw new Error("Missing or invalid occurrence createdPageId");
   }
   if (
     typeof input.updates !== "object" ||
@@ -796,15 +822,21 @@ export function registerIpcHandlers(
     codexService.respondToDynamicToolCall(requestId, conversationId, context),
   );
 
-  registerHandle("document-sync:subscribe", (event, request) => {
+  registerHandle("document-sync:subscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    return documentSyncHub.subscribe(target, request);
+    const authorization = await blockMutationWriter.authorizeDocumentAccess({
+      projectId: request.projectId,
+      documentId: request.documentId,
+      access: "read",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.subscribe(target, omitProjectScope(request));
   });
-  registerHandle("card-target:resolve", (_, input) =>
-    resolveProjectScopedCardTarget(input),
+  registerHandle("page-target:resolve", (_, input) =>
+    resolveProjectScopedPageTarget(input),
   );
   registerHandle("database-view:reference:get", (_, input) =>
     readProjectScopedDatabaseViewReference(input),
@@ -832,21 +864,33 @@ export function registerIpcHandlers(
     if (!target) {
       return documentSyncUnauthorized();
     }
-    return documentSyncHub.unsubscribe(target, request);
+    return documentSyncHub.unsubscribe(target, omitProjectScope(request));
   });
-  registerHandle("document-sync:sync", (event, request) => {
+  registerHandle("document-sync:sync", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    return documentSyncHub.sync(target, request);
+    const authorization = await blockMutationWriter.authorizeDocumentAccess({
+      projectId: request.projectId,
+      documentId: request.documentId,
+      access: "read",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.sync(target, omitProjectScope(request));
   });
-  registerHandle("document-sync:apply", (event, request) => {
+  registerHandle("document-sync:apply", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    return documentSyncHub.applyUpdate(target, request);
+    const authorization = await blockMutationWriter.authorizeDocumentAccess({
+      projectId: request.projectId,
+      documentId: request.documentId,
+      access: "write",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.applyUpdate(target, omitProjectScope(request));
   });
   registerHandle("canvas-scene:subscribe", (event, request) => {
     const target = resolveDocumentSyncTarget(event);
@@ -909,19 +953,37 @@ export function registerIpcHandlers(
     }
     return documentSyncHub.applyCanvasSceneMutation(target, request);
   });
-  registerHandle("document-sync:awareness:publish", (event, request) => {
+  registerHandle("document-sync:awareness:publish", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    return documentSyncHub.publishAwareness(target, request);
+    const authorization = await blockMutationWriter.authorizeDocumentAccess({
+      projectId: request.projectId,
+      documentId: request.documentId,
+      access: "read",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.publishAwareness(
+      target,
+      omitProjectScope(request),
+    );
   });
-  registerHandle("document-sync:relocation-lease:respond", (event, request) => {
+  registerHandle("document-sync:relocation-lease:respond", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
     }
-    return documentSyncHub.respondToRelocationLease(target, request);
+    const authorization = await blockMutationWriter.authorizeDocumentAccess({
+      projectId: request.projectId,
+      documentId: request.documentId,
+      access: "read",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.respondToRelocationLease(
+      target,
+      omitRelocationLeaseProjectScope(request),
+    );
   });
   registerBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
@@ -947,35 +1009,10 @@ export function registerIpcHandlers(
       (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
   });
 
-  registerCardMetadataPropertySnapshotIpcHandler({
+  registerDatabaseModuleIpcHandlers({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, cardBlockId) =>
-        listener(event, projectId, cardBlockId),
-      );
-    },
-    isTrustedEvent: (rawEvent) =>
-      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    readSnapshot: (projectId, cardBlockId) =>
-      readCardMetadataPropertySnapshot(getDb(), projectId, cardBlockId),
-  });
-
-  registerDatabaseKernelIpcHandlers({
-    registerHandle: (channel, listener) => {
-      if (
-        channel === DATABASE_CATALOG_IPC_CHANNEL ||
-        channel === DATABASE_MANAGEMENT_IPC_CHANNEL ||
-        channel === PRIMARY_DATABASE_DESCRIPTOR_IPC_CHANNEL ||
-        channel === PRIMARY_DATABASE_VIEW_SNAPSHOT_IPC_CHANNEL
-      ) {
-        registerHandle(channel, (event, projectId) =>
-          listener(event, projectId) as
-            | IpcApi[typeof channel]["result"]
-            | Promise<IpcApi[typeof channel]["result"]>,
-        );
-        return;
-      }
-      registerHandle(channel, (event, projectId, value) =>
-        listener(event, projectId, value) as
+      registerHandle(channel, (event, projectId, request) =>
+        listener(event, projectId, request) as
           | IpcApi[typeof channel]["result"]
           | Promise<IpcApi[typeof channel]["result"]>,
       );
@@ -987,48 +1024,39 @@ export function registerIpcHandlers(
       const clientId =
         resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
-        clientSessionId: clientId,
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    applyMutation: async (request) =>
-      (await blockMutationWriter.applyDatabaseMutation(request)).result,
-    readDescriptor: async (projectId, databaseBlockId) =>
-      (
-        await blockMutationWriter.readDatabaseDescriptor(
-          projectId,
-          databaseBlockId,
-        )
-      ).result,
-    readCatalog: async (projectId) =>
-      (await blockMutationWriter.readDatabaseCatalog(projectId)).result,
-    readManagement: async (projectId) =>
-      (await blockMutationWriter.readDatabaseManagement(projectId)).result,
-    readPrimaryDescriptor: async (projectId) =>
-      (await blockMutationWriter.readPrimaryDatabaseDescriptor(projectId))
-        .result,
-    readPrimaryViewSnapshot: async (projectId) =>
-      (await blockMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
-        .result,
-    readViewSnapshot: async (projectId, viewId) =>
-      (await blockMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
-        .result,
-    queryView: async (projectId, viewId) =>
-      (await blockMutationWriter.queryDatabaseView(projectId, viewId)).result,
+    apply: async (request) =>
+      (await blockMutationWriter.applyDatabaseModule(request)).result,
+    read: async (request) =>
+      (await blockMutationWriter.readDatabaseModule(request)).result,
   });
 
-  registerCardLifecyclePreflightIpcHandler({
+  registerPageDetailIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, cardId) =>
-        listener(event, projectId, cardId),
+      registerHandle(channel, (event, projectId, pageId) =>
+        listener(event, projectId, pageId),
       );
     },
-    readPreflight: async (projectId, cardId) =>
-      (await blockMutationWriter.readCardLifecyclePreflight(projectId, cardId))
+    isTrustedEvent: (rawEvent) =>
+      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
+    read: async (projectId, pageId) =>
+      (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+  });
+
+  registerPageLifecyclePreflightIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, projectId, pageId) =>
+        listener(event, projectId, pageId),
+      );
+    },
+    readPreflight: async (projectId, pageId) =>
+      (await blockMutationWriter.readPageLifecyclePreflight(projectId, pageId))
         .result,
   });
 
-  registerCardLifecycleIpcHandler({
+  registerPageLifecycleIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, projectId, request) =>
         listener(event, projectId, request),
@@ -1046,7 +1074,7 @@ export function registerIpcHandlers(
       };
     },
     applyMutation: async (request) =>
-      (await blockMutationWriter.applyCardLifecycleMutation(request)).result,
+      (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
   });
 
   registerDocumentMutationIpcHandler({
@@ -1092,26 +1120,6 @@ export function registerIpcHandlers(
     },
     applyCommand: (request) =>
       documentSyncHub.applyAdditionalDocumentCommand(request),
-  });
-
-  registerCardProjectTransferIpcHandler({
-    registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, sourceProjectId, intent) =>
-        listener(event, sourceProjectId, intent),
-      );
-    },
-    resolveTrustedIdentity: (rawEvent) => {
-      const event = rawEvent as IpcMainInvokeEvent;
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
-      return {
-        clientSessionId: clientId,
-        actor: { kind: "electron_renderer", clientId },
-      };
-    },
-    transfer: (intent) => documentSyncHub.transferCardProject(intent),
   });
 
   registerBlockTransferIpcHandler({
@@ -1189,13 +1197,13 @@ export function registerIpcHandlers(
       documentSyncHub.applyDocumentMutation(request),
   });
 
-  registerCardHistoryIpcHandler({
+  registerPageHistoryIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, request) => listener(event, request));
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    listHistory: (request) => blockMutationWriter.listCardHistory(request),
+    listHistory: (request) => blockMutationWriter.listPageHistory(request),
   });
 
   registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
@@ -1623,26 +1631,26 @@ export function registerIpcHandlers(
     return board;
   });
 
-  // Cards
+  // Database Pages
   registerHandle("database-rows:details:get", async (_, projectId, input) => {
     const startedAt = performance.now();
-    const cards = await boardReadModel.getDatabaseRowsDetails(projectId, input);
+    const pages = await boardReadModel.getDatabaseRowsDetails(projectId, input);
     ipcPayloadLogger.info("database row details payload served", {
       channel: "database-rows:details:get",
       projectId,
-      requestedCardCount: input.cardIds.length,
-      cardCount: cards.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(cards),
+      requestedPageCount: input.pageIds.length,
+      pageCount: pages.length,
+      approxPayloadBytes: approximateJsonPayloadBytes(pages),
       durationMs: Math.round(performance.now() - startedAt),
     });
-    return cards;
+    return pages;
   });
 
-  registerHandle("cards:search", async (_, input) => {
+  registerHandle("pages:search", async (_, input) => {
     const startedAt = performance.now();
-    const results = await boardReadModel.searchCards(input);
-    ipcPayloadLogger.info("card search payload served", {
-      channel: "cards:search",
+    const results = await boardReadModel.searchPages(input);
+    ipcPayloadLogger.info("page search payload served", {
+      channel: "pages:search",
       projectCount: input.projectIds.length,
       resultCount: results.length,
       approxPayloadBytes: approximateJsonPayloadBytes(results),
@@ -1652,18 +1660,12 @@ export function registerIpcHandlers(
   });
 
   registerHandle(
-    "card:get",
-    (_, projectId: string, cardId: string) =>
-      readCardDetailCommand(projectId, cardId),
-  );
-
-  registerHandle(
     "database-row:get",
-    (_, projectId: string, cardId: string, status?: string) =>
-      cardsStore.getDatabaseRowCard(
+    (_, projectId: string, pageId: string, status?: string) =>
+      pagesStore.getDatabaseRowPage(
         projectId,
-        cardId,
-        status as Parameters<typeof cardsStore.getDatabaseRowCard>[2],
+        pageId,
+        status as Parameters<typeof pagesStore.getDatabaseRowPage>[2],
       ),
   );
 
@@ -1676,16 +1678,16 @@ export function registerIpcHandlers(
       windowEnd: Date,
       searchQuery?: string,
     ) =>
-      cardOccurrences
-        .listCalendarOccurrences(projectId, windowStart, windowEnd, searchQuery)
+      pageOccurrences
+        .listPageOccurrences(projectId, windowStart, windowEnd, searchQuery)
         .then((occurrences) => ({ occurrences })),
   );
 
   registerHandle(
-    "card:occurrence:complete",
+    "page:occurrence:complete",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceCompleteIpcInput(input);
-      const envelope = await blockMutationWriter.completeCardOccurrence(
+      const envelope = await blockMutationWriter.completePageOccurrence(
         projectId,
         input,
         sessionId,
@@ -1695,10 +1697,10 @@ export function registerIpcHandlers(
   );
 
   registerHandle(
-    "card:occurrence:skip",
+    "page:occurrence:skip",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceIpcInput(input);
-      const envelope = await blockMutationWriter.skipCardOccurrence(
+      const envelope = await blockMutationWriter.skipPageOccurrence(
         projectId,
         input,
         sessionId,
@@ -1708,10 +1710,10 @@ export function registerIpcHandlers(
   );
 
   registerHandle(
-    "card:occurrence:update",
+    "page:occurrence:update",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceUpdateIpcInput(input);
-      const envelope = await blockMutationWriter.updateCardOccurrence(
+      const envelope = await blockMutationWriter.updatePageOccurrence(
         projectId,
         input,
         sessionId,

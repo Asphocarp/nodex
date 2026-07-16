@@ -6,7 +6,7 @@ import type {
   BlockPropertyFieldMutation,
   BlockPropertyMutationRequest,
 } from "../src/shared/block-property-mutations";
-import { createCard } from "../src/main/local-store/cards";
+import { createPage } from "../src/main/local-store/database-pages";
 import { getDatabasePath } from "../src/main/local-store/config";
 import {
   closeDatabase,
@@ -170,12 +170,12 @@ const setup = async (): Promise<{
   process.env.NODEX_DIR = tempDir;
   await initializeDatabase();
   const project = createProject({ name: "Property runtime" });
-  const card = await createCard(project.id, "draft", { title: "Mutable" });
-  const detached = await createCard(project.id, "draft", {
+  const card = await createPage(project.id, "draft", { title: "Mutable" });
+  const detached = await createPage(project.id, "draft", {
     title: "Detached membership",
   });
   const otherProject = createProject({ name: "Other Project" });
-  const otherCard = await createCard(otherProject.id, "draft", {
+  const otherCard = await createPage(otherProject.id, "draft", {
     title: "Other",
   });
   closeDatabase();
@@ -258,7 +258,7 @@ const run = async (): Promise<void> => {
     const batch = request(fixture, "batch", [
       {
         scope: "database",
-        cardBlockId: fixture.cardId,
+        pageId: fixture.cardId,
         databaseBlockId: fixture.databaseBlockId,
         propertyId: requirePropertyId(fixture, "priority"),
         operation: "set",
@@ -298,7 +298,7 @@ const run = async (): Promise<void> => {
       request(fixture, "status-group", [
         {
           scope: "database",
-          cardBlockId: fixture.cardId,
+          pageId: fixture.cardId,
           databaseBlockId: fixture.databaseBlockId,
           propertyId: requirePropertyId(fixture, "status"),
           operation: "set",
@@ -317,7 +317,7 @@ const run = async (): Promise<void> => {
       request(fixture, "invalid-status", [
         {
           scope: "database",
-          cardBlockId: fixture.cardId,
+          pageId: fixture.cardId,
           databaseBlockId: fixture.databaseBlockId,
           propertyId: requirePropertyId(fixture, "status"),
           operation: "set",
@@ -357,7 +357,7 @@ const run = async (): Promise<void> => {
       request(fixture, "invalid-date", [
         {
           scope: "database",
-          cardBlockId: fixture.cardId,
+          pageId: fixture.cardId,
           databaseBlockId: fixture.databaseBlockId,
           propertyId: requirePropertyId(fixture, "due_date"),
           operation: "set",
@@ -377,7 +377,7 @@ const run = async (): Promise<void> => {
         request(fixture, "status-group-fault", [
           {
             scope: "database",
-            cardBlockId: fixture.cardId,
+            pageId: fixture.cardId,
             databaseBlockId: fixture.databaseBlockId,
             propertyId: requirePropertyId(fixture, "status"),
             operation: "set",
@@ -431,7 +431,7 @@ const run = async (): Promise<void> => {
       request(fixture, "all-day-range", [
         {
           scope: "database",
-          cardBlockId: fixture.cardId,
+          pageId: fixture.cardId,
           databaseBlockId: fixture.databaseBlockId,
           propertyId: requirePropertyId(fixture, "scheduled_start"),
           operation: "set",
@@ -440,7 +440,7 @@ const run = async (): Promise<void> => {
         },
         {
           scope: "database",
-          cardBlockId: fixture.cardId,
+          pageId: fixture.cardId,
           databaseBlockId: fixture.databaseBlockId,
           propertyId: requirePropertyId(fixture, "scheduled_end"),
           operation: "set",
@@ -492,7 +492,7 @@ const run = async (): Promise<void> => {
         request(fixture, "after-projections-fault", [
           {
             scope: "database",
-            cardBlockId: fixture.cardId,
+            pageId: fixture.cardId,
             databaseBlockId: fixture.databaseBlockId,
             propertyId: requirePropertyId(fixture, "status"),
             operation: "set",
@@ -568,7 +568,7 @@ const run = async (): Promise<void> => {
     const tags = request(fixture, "tags", [
       {
         scope: "database",
-        cardBlockId: fixture.cardId,
+        pageId: fixture.cardId,
         databaseBlockId: fixture.databaseBlockId,
         propertyId: requirePropertyId(fixture, "tags"),
         operation: "add_remove",
@@ -613,7 +613,7 @@ const run = async (): Promise<void> => {
       request(fixture, "missing-membership", [
         {
           scope: "database",
-          cardBlockId: fixture.detachedCardId,
+          pageId: fixture.detachedCardId,
           databaseBlockId: fixture.databaseBlockId,
           propertyId: requirePropertyId(fixture, "priority"),
           operation: "set",
@@ -632,7 +632,7 @@ const run = async (): Promise<void> => {
       request(fixture, "foreign-property", [
         {
           scope: "database",
-          cardBlockId: fixture.cardId,
+          pageId: fixture.cardId,
           databaseBlockId: fixture.databaseBlockId,
           propertyId: fixture.otherProjectPropertyId,
           operation: "set",

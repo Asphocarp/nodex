@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { render, textContent } from "@/test/dom";
 import { CardContextMenuActionRowContent } from "./card-context-menu-row";
-import { getCardActionMenuEntries, type CardActionMenuEntry } from "./card-context-menu-model";
+import { getPageActionMenuEntries, type CardActionMenuEntry } from "./card-context-menu-model";
 
 function getAction(id: CardActionMenuEntry["id"], showMockActions: boolean) {
-  const action = getCardActionMenuEntries({ query: "", showMockActions })
+  const action = getPageActionMenuEntries({ query: "", showMockActions })
     .find((entry) => entry.id === id);
   if (!action) {
     throw new Error(`Missing card action ${id}`);
@@ -15,10 +15,10 @@ function getAction(id: CardActionMenuEntry["id"], showMockActions: boolean) {
 
 describe("card context menu action row content", () => {
   test("does not receive reference mock rows from the production menu model", () => {
-    const actions = getCardActionMenuEntries({ query: "", showMockActions: false });
+    const actions = getPageActionMenuEntries({ query: "", showMockActions: false });
 
     expect(actions.some((action) => action.mockReason !== undefined)).toBe(false);
-    expect(actions.map((action) => action.id).join(",")).toBe("copy-link,move-to,delete");
+    expect(actions.map((action) => action.id).join(",")).toBe("copy-link,delete");
   });
 
   test("renders dev mock rows with a Mock badge", () => {

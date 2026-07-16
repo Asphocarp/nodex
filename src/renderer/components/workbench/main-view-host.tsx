@@ -3,13 +3,13 @@ import { KanbanBoard } from "@/components/kanban/board";
 import { ListView } from "@/components/kanban/list-view";
 import { ToggleListView } from "@/components/kanban/toggle-list-view";
 import { CanvasView } from "@/components/kanban/canvas-view";
-import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
+import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import type { DbViewPrefs } from "../../lib/db-view-prefs";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
-import { ReadOnlyDatabaseView } from "./read-only-database-view";
+import { DatabaseViewSurface } from "./read-only-database-view";
 
 interface MainViewHostProps {
   projectId: string;
@@ -21,12 +21,12 @@ interface MainViewHostProps {
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
   onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
-  cardStageCardId?: string;
-  activePanelCardStageCardIds?: ReadonlySet<string>;
-  cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
+  pageStagePageId?: string;
+  activePanelPageStagePageIds?: ReadonlySet<string>;
+  pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   pendingReminderOpen?: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   } | null;
   calendarState: CalendarViewState;
@@ -35,14 +35,14 @@ interface MainViewHostProps {
   onCalendarAnchorDateChange: (update: (anchorDate: Date) => Date) => void;
   onReminderHandled?: (payload: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   }) => void;
-  openCardStage: (
+  openPageStage: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
-    options?: OpenCardStageOptions,
+    options?: OpenPageStageOptions,
   ) => void;
   scrollStateKey?: string | null;
 }
@@ -57,24 +57,24 @@ export function MainViewHost({
   searchQuery,
   dbViewPrefs,
   onUpdateDbViewPrefs,
-  cardStageCardId,
-  activePanelCardStageCardIds,
-  cardStageCloseRef,
+  pageStagePageId,
+  activePanelPageStagePageIds,
+  pageStageCloseRef,
   pendingReminderOpen,
   calendarState,
   calendarVisibleDays,
   calendarCreateRequestId,
   onCalendarAnchorDateChange,
   onReminderHandled,
-  openCardStage,
+  openPageStage,
   scrollStateKey,
 }: MainViewHostProps) {
   if (databaseView && !databaseView.primaryWriteCompatible) {
     return (
-      <ReadOnlyDatabaseView
+      <DatabaseViewSurface
         model={databaseView}
         searchQuery={searchQuery}
-        openCardStage={openCardStage}
+        openPageStage={openPageStage}
         onCommitted={refreshDatabaseView}
       />
     );
@@ -88,10 +88,10 @@ export function MainViewHost({
         projects={projects}
         searchQuery={searchQuery}
         dbViewPrefs={dbViewPrefs}
-        openCardStage={openCardStage}
-        cardStageCardId={cardStageCardId}
-        activePanelCardStageCardIds={activePanelCardStageCardIds}
-        cardStageCloseRef={cardStageCloseRef}
+        openPageStage={openPageStage}
+        pageStagePageId={pageStagePageId}
+        activePanelPageStagePageIds={activePanelPageStagePageIds}
+        pageStageCloseRef={pageStageCloseRef}
         scrollStateKey={scrollStateKey}
       />
     );
@@ -105,9 +105,9 @@ export function MainViewHost({
         searchQuery={searchQuery}
         dbViewPrefs={dbViewPrefs}
         onUpdateDbViewPrefs={onUpdateDbViewPrefs}
-        openCardStage={openCardStage}
-        cardStageCardId={cardStageCardId}
-        cardStageCloseRef={cardStageCloseRef}
+        openPageStage={openPageStage}
+        pageStagePageId={pageStagePageId}
+        pageStageCloseRef={pageStageCloseRef}
         scrollStateKey={scrollStateKey}
       />
     );
@@ -118,9 +118,9 @@ export function MainViewHost({
       <CanvasView
         projectId={projectId}
         databaseViewId={databaseViewId}
-        openCardStage={openCardStage}
-        cardStageCardId={cardStageCardId}
-        cardStageCloseRef={cardStageCloseRef}
+        openPageStage={openPageStage}
+        pageStagePageId={pageStagePageId}
+        pageStageCloseRef={pageStageCloseRef}
       />
     );
   }
@@ -131,9 +131,9 @@ export function MainViewHost({
         projectId={projectId}
         databaseViewId={databaseViewId}
         searchQuery={searchQuery}
-        openCardStage={openCardStage}
-        cardStageCardId={cardStageCardId}
-        cardStageCloseRef={cardStageCloseRef}
+        openPageStage={openPageStage}
+        pageStagePageId={pageStagePageId}
+        pageStageCloseRef={pageStageCloseRef}
         pendingReminderOpen={pendingReminderOpen?.projectId === projectId ? pendingReminderOpen : null}
         calendarState={calendarState}
         visibleDays={calendarVisibleDays}
@@ -151,7 +151,7 @@ export function MainViewHost({
       databaseViewId={databaseViewId}
       searchQuery={searchQuery}
       dbViewPrefs={dbViewPrefs}
-      openCardStage={openCardStage}
+      openPageStage={openPageStage}
       scrollStateKey={scrollStateKey}
     />
   );

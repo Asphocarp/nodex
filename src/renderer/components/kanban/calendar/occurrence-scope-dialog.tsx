@@ -46,7 +46,7 @@ export function OccurrenceScopeDialog({
           <DialogDescription>
             Choose how to apply the new time range for
             {" "}
-            <span className="font-medium wrap-break-word text-(--foreground)">{title || "this recurring card"}</span>
+            <span className="font-medium wrap-break-word text-(--foreground)">{title || "this recurring page"}</span>
             .
           </DialogDescription>
         </DialogHeader>

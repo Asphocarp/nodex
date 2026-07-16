@@ -19,16 +19,16 @@ import {
   useTheme,
 } from "./canvas-view-deps";
 import {
-  createCardElement,
-  collectPlacedCardIds,
+  createPageElement,
+  collectPlacedPageIds,
   isCardElement,
-  getCardIdFromElement,
-  getCardTitleHintFromElement,
-  syncPlacedCardIds,
-  updateCardElements,
+  getPageIdFromElement,
+  getPageTitleHintFromElement,
+  syncPlacedPageIds,
+  updatePageElements,
 } from "@/lib/canvas-card-elements";
-import type { CardSummary } from "@/lib/types";
-import { toCardSummary } from "../../../shared/card-summary";
+import type { DatabasePageSummary } from "@/lib/types";
+import { toDatabasePageSummary } from "../../../shared/page-summary";
 import {
   primaryCanvasBlockId,
   type PortableCanvasScene,
@@ -67,16 +67,16 @@ const collaborationPromise = loadExcalidraw().then((mod) => ({
 interface CanvasViewProps {
   projectId: string;
   databaseViewId: string;
-  openCardStage: (
+  openPageStage: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
   ) => void;
-  cardStageCardId: string | undefined;
-  cardStageCloseRef: RefObject<(() => Promise<void>) | null>;
+  pageStagePageId: string | undefined;
+  pageStageCloseRef: RefObject<(() => Promise<void>) | null>;
 }
 
-export function CanvasView({ projectId, databaseViewId, openCardStage, cardStageCardId, cardStageCloseRef }: CanvasViewProps) {
+export function CanvasView({ projectId, databaseViewId, openPageStage, pageStagePageId, pageStageCloseRef }: CanvasViewProps) {
   return (
     <RegisteredOwnedBlockDocumentBoundary
       projectId={projectId}
@@ -112,9 +112,9 @@ export function CanvasView({ projectId, databaseViewId, openCardStage, cardStage
             databaseViewId={databaseViewId}
             descriptor={{ ...descriptor, sync: descriptor.sync }}
             onReload={controls.reload}
-            openCardStage={openCardStage}
-            cardStageCardId={cardStageCardId}
-            cardStageCloseRef={cardStageCloseRef}
+            openPageStage={openPageStage}
+            pageStagePageId={pageStagePageId}
+            pageStageCloseRef={pageStageCloseRef}
           />
         );
       }}
@@ -134,13 +134,13 @@ function CanvasEditor({
   databaseViewId,
   descriptor,
   onReload,
-  openCardStage,
-  cardStageCardId,
-  cardStageCloseRef,
+  openPageStage,
+  pageStagePageId,
+  pageStageCloseRef,
 }: CanvasEditorProps) {
   const {
     board,
-    createCard,
+    createPage,
   } = useKanban({ projectId, databaseViewId });
   const { resolved: themeResolved } = useTheme();
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -153,8 +153,8 @@ function CanvasEditor({
   const [sceneError, setSceneError] = useState<string | null>(null);
   const retrySceneRef = useRef<(() => void) | null>(null);
   const latestElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
-  const [placedCardIds, setPlacedCardIds] = useState(() =>
-    collectPlacedCardIds(latestElementsRef.current),
+  const [placedPageIds, setPlacedPageIds] = useState(() =>
+    collectPlacedPageIds(latestElementsRef.current),
   );
   const [writeFrozen, setWriteFrozen] = useState(false);
 
@@ -238,8 +238,8 @@ function CanvasEditor({
           captureUpdate: collaboration.CaptureUpdateAction.NEVER,
         });
         latestElementsRef.current = reconciled;
-        setPlacedCardIds((previous) =>
-          syncPlacedCardIds(previous, reconciled),
+        setPlacedPageIds((previous) =>
+          syncPlacedPageIds(previous, reconciled),
         );
         setResolvedScene({ materialization, files });
         setSceneError(null);
@@ -315,7 +315,7 @@ function CanvasEditor({
       .then(async ({ CaptureUpdateAction, newElementWith }) => {
         if (!active) return;
         const elements = api.getSceneElementsIncludingDeleted();
-        const updated = updateCardElements(
+        const updated = updatePageElements(
           elements as readonly Record<string, unknown>[],
           board,
           (element, changes) =>
@@ -332,8 +332,8 @@ function CanvasEditor({
           elements: nextElements,
           captureUpdate: CaptureUpdateAction.NEVER,
         });
-        setPlacedCardIds((previous) =>
-          syncPlacedCardIds(previous, nextElements),
+        setPlacedPageIds((previous) =>
+          syncPlacedPageIds(previous, nextElements),
         );
         await binding.submitLocalScene({
           getSceneElementsIncludingDeleted: () => nextElements,
@@ -353,30 +353,30 @@ function CanvasEditor({
   }, [board, resolvedScene, writeFrozen]);
 
   // Excalidraw renders a native link badge on elements with a `link` property.
-  // Clicking that badge fires onLinkOpen — we intercept to open the card-stage.
+  // Clicking that badge fires onLinkOpen — we intercept to open the page-stage.
   const handleLinkOpen = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async (element: any, event: any) => {
       if (!isCardElement(element)) return;
       event.preventDefault();
 
-      const cardId = getCardIdFromElement(element);
-      if (!cardId) return;
+      const pageId = getPageIdFromElement(element);
+      if (!pageId) return;
 
       // Toggle: clicking the already-peeked card closes it (matches board/list behavior)
-      if (cardStageCardId === cardId) {
-        await cardStageCloseRef.current?.();
+      if (pageStagePageId === pageId) {
+        await pageStageCloseRef.current?.();
         return;
       }
 
-      openCardStage(projectId, cardId, getCardTitleHintFromElement(element));
+      openPageStage(projectId, pageId, getPageTitleHintFromElement(element));
     },
-    [openCardStage, projectId, cardStageCloseRef, cardStageCardId],
+    [openPageStage, projectId, pageStageCloseRef, pageStagePageId],
   );
 
   // Place an existing card on the canvas
   const handlePlaceCard = useCallback(
-    async (card: CardSummary) => {
+    async (card: DatabasePageSummary) => {
       const api = excalidrawApiRef.current;
       const binding = bindingRef.current;
       if (!api || !binding || writeFrozen) return;
@@ -385,7 +385,7 @@ function CanvasEditor({
         collaborationPromise,
       ]);
 
-      const skeleton = createCardElement(card, {
+      const skeleton = createPageElement(card, {
         x: 100 + Math.random() * 300,
         y: 100 + Math.random() * 300,
       });
@@ -397,7 +397,7 @@ function CanvasEditor({
         elements: nextElements,
         captureUpdate: collaboration.CaptureUpdateAction.IMMEDIATELY,
       });
-      setPlacedCardIds((previous) => syncPlacedCardIds(previous, nextElements));
+      setPlacedPageIds((previous) => syncPlacedPageIds(previous, nextElements));
       await binding.submitLocalScene({
         getSceneElementsIncludingDeleted: () => nextElements,
         appState: api.getAppState() as unknown as Record<string, unknown>,
@@ -410,10 +410,10 @@ function CanvasEditor({
   // Create a new card and place it on canvas
   const handleCreateAndPlace = useCallback(async () => {
     if (!excalidrawApiRef.current) return;
-    const card = await createCard("draft", { title: "New Card" });
+    const card = await createPage("draft", { title: "New Page" });
     if (!card) return;
-    await handlePlaceCard(toCardSummary(card));
-  }, [createCard, handlePlaceCard]);
+    await handlePlaceCard(toDatabasePageSummary(card));
+  }, [createPage, handlePlaceCard]);
 
   // Excalidraw observations become mergeable scene mutations with explicit tombstones.
   const handleChange = useCallback(
@@ -426,7 +426,7 @@ function CanvasEditor({
       const binding = bindingRef.current;
       if (!api || !binding || writeFrozen) return;
       latestElementsRef.current = elements;
-      setPlacedCardIds((previous) => syncPlacedCardIds(previous, elements));
+      setPlacedPageIds((previous) => syncPlacedPageIds(previous, elements));
       void binding
         .submitLocalScene({
           getSceneElementsIncludingDeleted:
@@ -448,7 +448,7 @@ function CanvasEditor({
         type="button"
         onClick={() => excalidrawApiRef.current?.toggleSidebar({ name: "cards", tab: "browse" })}
         className="excalidraw-button"
-        title="Cards"
+        title="Pages"
         style={{
           display: "flex",
           alignItems: "center",
@@ -458,7 +458,7 @@ function CanvasEditor({
         }}
       >
         <LayoutGrid size={16} />
-        Cards
+        Pages
       </button>
     );
   }, []);
@@ -526,7 +526,7 @@ function CanvasEditor({
           >
             <CanvasCardSidebarLazy
               board={board}
-              placedCardIds={placedCardIds}
+              placedPageIds={placedPageIds}
               onPlaceCard={handlePlaceCard}
               onCreateAndPlace={handleCreateAndPlace}
             />

@@ -1,19 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import {
-  CommandPaletteCardFilterPopover,
-  CommandPaletteCardFiltersSummaryRow,
+  CommandPalettePageFilterPopover,
+  CommandPalettePageFiltersSummaryRow,
 } from "./command-palette-filters";
 import {
-  getDefaultCommandPaletteCardFilters,
-  type CommandPaletteCardFilters,
+  getDefaultCommandPalettePageFilters,
+  type CommandPalettePageFilters,
 } from "@/lib/command-palette";
 import { NodexButton } from "@/components/ui/button";
 
 function CommandPaletteFiltersStory() {
   const [open, setOpen] = useState(true);
-  const [filters, setFilters] = useState<CommandPaletteCardFilters>(() => ({
-    ...getDefaultCommandPaletteCardFilters(),
+  const [filters, setFilters] = useState<CommandPalettePageFilters>(() => ({
+    ...getDefaultCommandPalettePageFilters(),
     statuses: ["draft", "in_progress", "in_review"],
     priorities: ["p0-critical", "p1-high"],
     tags: ["sidebar", "thread"],
@@ -23,12 +23,12 @@ function CommandPaletteFiltersStory() {
   return (
     <div className="min-h-screen bg-token-main-surface-primary p-8">
       <div className="mx-auto flex max-w-5xl flex-col gap-4 rounded-[20px] border border-token-border bg-token-main-surface-secondary p-5">
-        <CommandPaletteCardFiltersSummaryRow
+        <CommandPalettePageFiltersSummaryRow
           filters={filters}
           projectNameById={new Map([["default", "Nodex"], ["bundle", "Codex bundle"]])}
           onOpenFilter={() => setOpen(true)}
         />
-        <CommandPaletteCardFilterPopover
+        <CommandPalettePageFilterPopover
           open={open}
           onOpenChange={setOpen}
           filters={filters}
@@ -42,7 +42,7 @@ function CommandPaletteFiltersStory() {
           onChange={(update) => setFilters((current) => update(current))}
         >
           <NodexButton variant="secondary">Filters</NodexButton>
-        </CommandPaletteCardFilterPopover>
+        </CommandPalettePageFilterPopover>
       </div>
     </div>
   );

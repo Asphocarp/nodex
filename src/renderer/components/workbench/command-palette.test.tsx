@@ -2,19 +2,19 @@ import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
 import { act, fireEvent } from "@testing-library/react";
 import type {
-  CommandPaletteCard,
+  CommandPalettePage,
   CommandPaletteCommand,
   CommandPaletteThread,
 } from "@/lib/command-palette";
-import { getDefaultCommandPaletteCardFilters } from "@/lib/command-palette";
+import { getDefaultCommandPalettePageFilters } from "@/lib/command-palette";
 import {
   buildCommandPaletteCommands,
   OPEN_DB_VIEW_TAB_COMMAND_ID,
   type CommandPaletteShellCommandContext,
 } from "@/lib/command-palette-commands";
-import type { CardSummary } from "@/lib/types";
+import type { DatabasePageSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
-import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
+import { createCommandPalettePageSearchIndex } from "../../lib/command-palette-page-search";
 import { createCommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { createCommandKeymapState } from "../../../shared/command-keybindings";
@@ -23,8 +23,8 @@ import {
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../../shared/window-navigation";
 
-vi.mock("./card-icon", () => ({
-  CardIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
+vi.mock("./page-icon", () => ({
+  PageIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
 }));
 
 vi.mock("./threads-icon", () => ({
@@ -108,7 +108,7 @@ describe("buildCommandPaletteCommands", () => {
     const ids = commands.map((command) => command.id).join(",");
 
     expect(ids.includes("focus-views-stage")).toBe(false);
-    expect(ids.includes("focus-cards-stage")).toBe(false);
+    expect(ids.includes("focus-pages-stage")).toBe(false);
     expect(ids.includes("focus-threads-stage")).toBe(false);
     expect(ids.includes("focus-diff-stage")).toBe(false);
     expect(ids.includes("view-kanban")).toBe(false);
@@ -130,7 +130,7 @@ describe("buildCommandPaletteCommands", () => {
     expect(ids.includes("searchFiles")).toBe(false);
     expect(ids.includes("git.commit")).toBe(false);
     expect(ids.includes("toggleBrowserPanel")).toBe(false);
-    expect(ids.includes("openCardStage")).toBe(false);
+    expect(ids.includes("openPageStage")).toBe(false);
   });
 
   test("keeps unsupported parity commands as disabled mock rows in dev contexts", () => {
@@ -146,7 +146,7 @@ describe("buildCommandPaletteCommands", () => {
     expect(gitCommit?.disabled).toBe(true);
     expect(Boolean(gitCommit?.mockReason)).toBe(true);
     expect(ids.includes("toggleBrowserPanel")).toBe(false);
-    expect(ids.includes("openCardStage")).toBe(false);
+    expect(ids.includes("openPageStage")).toBe(false);
   });
 
   test("uses custom command-keymap labels for shell commands", () => {
@@ -177,11 +177,11 @@ describe("buildCommandPaletteCommands", () => {
   });
 });
 
-function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
+function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Rebuild the fuzzy search indxer for the palette.";
   const title = overrides.title ?? "Misc task";
   return {
-    id: overrides.id ?? "card-1",
+    id: overrides.id ?? "page-1",
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
@@ -211,16 +211,16 @@ function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
   };
 }
 
-function makePaletteCard(overrides: Partial<CommandPaletteCard> = {}): CommandPaletteCard {
-  const card = overrides.card ?? makeCard();
+function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPalettePage {
+  const page = overrides.page ?? makePage();
   return {
-    kind: "card",
-    id: overrides.id ?? `${overrides.projectId ?? "default"}:${card.id}`,
+    kind: "page",
+    id: overrides.id ?? `${overrides.projectId ?? "default"}:${page.id}`,
     projectId: overrides.projectId ?? "default",
     projectName: overrides.projectName ?? "Default",
     projectIcon: overrides.projectIcon ?? "",
     columnName: overrides.columnName ?? "In progress",
-    card,
+    page,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,
@@ -271,12 +271,12 @@ function makePaletteCommand(overrides: Partial<CommandPaletteCommand> = {}): Com
 describe("CommandPaletteSurface", () => {
   test("opens the top fuzzy description match when the selected result is activated", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const executedItems: CommandPaletteCard[] = [];
+    const executedItems: CommandPalettePage[] = [];
     const closeCalls: number[] = [];
-    const cards = [
-      makePaletteCard({
-        card: makeCard({
-          id: "card-1",
+    const pages = [
+      makePalettePage({
+        page: makePage({
+          id: "page-1",
           title: "Misc task",
           descriptionPreview: "Rebuild the fuzzy search indxer for the palette.",
         }),
@@ -286,20 +286,20 @@ describe("CommandPaletteSurface", () => {
       <CommandPaletteSurface
         open
         openTriggerTick={1}
-        mode="cards"
+        mode="pages"
         initialQuery="search indexer"
         commands={[]}
-        cards={cards}
-        cardSearchIndex={createCommandPaletteCardSearchIndex(cards)}
+        pages={pages}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => {
           closeCalls.push(1);
         }}
-        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
-          if (item.kind !== "card") {
+        onExecute={(item: CommandPalettePage | CommandPaletteCommand | CommandPaletteThread) => {
+          if (item.kind !== "page") {
             return;
           }
           executedItems.push(item);
@@ -316,7 +316,7 @@ describe("CommandPaletteSurface", () => {
 
     expect(closeCalls.length).toBe(1);
     expect(executedItems.length).toBe(1);
-    expect(executedItems[0]?.card.id).toBe("card-1");
+    expect(executedItems[0]?.page.id).toBe("page-1");
   });
 
   test("root mode searches commands without the legacy > prefix", async () => {
@@ -335,18 +335,18 @@ describe("CommandPaletteSurface", () => {
             keywords: ["settings", "preferences"],
           }),
         ]}
-        cards={[
-          makePaletteCard({
-            card: makeCard({
-              id: "card-2",
+        pages={[
+          makePalettePage({
+            page: makePage({
+              id: "page-2",
               title: "Misc task",
               descriptionPreview: "Should not appear while command mode is active.",
             }),
           }),
         ]}
-        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => undefined}
@@ -387,18 +387,18 @@ describe("CommandPaletteSurface", () => {
         mode="chats"
         initialQuery="thread transcript"
         commands={[]}
-        cards={[]}
+        pages={[]}
         threads={threads}
-        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => {
           closeCalls.push(1);
         }}
-        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
+        onExecute={(item: CommandPalettePage | CommandPaletteCommand | CommandPaletteThread) => {
           if (item.kind === "thread") executedItems.push(item);
         }}
       />,
@@ -417,14 +417,14 @@ describe("CommandPaletteSurface", () => {
     expect(executedItems[0]?.threadId).toBe("thr-thread-search");
   });
 
-  test("cards mode does not render chat results", async () => {
+  test("pages mode does not render chat results", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const cards = [
-      makePaletteCard({
-        card: makeCard({
-          id: "card-thread-search",
-          title: "Thread transcript card",
-          descriptionPreview: "Card notes about thread transcript search.",
+    const pages = [
+      makePalettePage({
+        page: makePage({
+          id: "page-thread-search",
+          title: "Thread transcript page",
+          descriptionPreview: "Page notes about thread transcript search.",
         }),
       }),
     ];
@@ -440,15 +440,15 @@ describe("CommandPaletteSurface", () => {
       <CommandPaletteSurface
         open
         openTriggerTick={6}
-        mode="cards"
+        mode="pages"
         initialQuery="thread transcript"
         commands={[]}
-        cards={cards}
+        pages={pages}
         threads={threads}
-        cardSearchIndex={createCommandPaletteCardSearchIndex(cards)}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => undefined}
@@ -461,7 +461,7 @@ describe("CommandPaletteSurface", () => {
     const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
     expect(resultButtons.length).toBe(1);
     expect(textContent(container).includes("Thread transcript session")).toBe(false);
-    expect(textContent(container).includes("Thread transcript card")).toBe(true);
+    expect(textContent(container).includes("Thread transcript page")).toBe(true);
   });
 
   test("renders backend-provided chat content snippet segments", async () => {
@@ -497,12 +497,12 @@ describe("CommandPaletteSurface", () => {
         mode="chats"
         initialQuery="snippet"
         commands={[]}
-        cards={[]}
+        pages={[]}
         threads={threads}
-        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => undefined}
@@ -551,12 +551,12 @@ describe("CommandPaletteSurface", () => {
         mode="chats"
         initialQuery="refresh"
         commands={[]}
-        cards={[]}
+        pages={[]}
         threads={threads}
-        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => undefined}
@@ -609,14 +609,14 @@ describe("CommandPaletteSurface", () => {
             priority: 100,
           }),
         ]}
-        cards={[]}
-        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        pages={[]}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => undefined}
-        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
+        onExecute={(item: CommandPalettePage | CommandPaletteCommand | CommandPaletteThread) => {
           if (item.kind === "command") executedItems.push(item);
         }}
       />,
@@ -675,16 +675,16 @@ describe("CommandPaletteSurface", () => {
             priority: 100,
           }),
         ]}
-        cards={[]}
-        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        pages={[]}
+        pageSearchIndex={createCommandPalettePageSearchIndex([])}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => {
           closeCalls.push(1);
         }}
-        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
+        onExecute={(item: CommandPalettePage | CommandPaletteCommand | CommandPaletteThread) => {
           if (item.kind === "command") executedItems.push(item);
         }}
       />,
@@ -707,22 +707,22 @@ describe("CommandPaletteSurface", () => {
 
   test("renders the filter button on the search-input row", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const cards = [
-      makePaletteCard({
+    const pages = [
+      makePalettePage({
         projectId: "ops",
         projectName: "Ops",
-        card: makeCard({
-          id: "ops-card",
+        page: makePage({
+          id: "ops-page",
           title: "Queue cleanup",
           descriptionPreview: "Executor queue polish.",
           assignee: "Alex",
         }),
       }),
-      makePaletteCard({
+      makePalettePage({
         projectId: "design",
         projectName: "Design",
-        card: makeCard({
-          id: "design-card",
+        page: makePage({
+          id: "design-page",
           title: "Queue cleanup",
           descriptionPreview: "Executor queue polish.",
           assignee: "Alex",
@@ -734,13 +734,13 @@ describe("CommandPaletteSurface", () => {
       <CommandPaletteSurface
         open
         openTriggerTick={3}
-        mode="cards"
+        mode="pages"
         initialQuery="queue"
         commands={[]}
-        cards={cards}
-        cardSearchIndex={createCommandPaletteCardSearchIndex(cards)}
+        pages={pages}
+        pageSearchIndex={createCommandPalettePageSearchIndex(pages)}
         loading={false}
-        cardsLoading={false}
+        pagesLoading={false}
         chatsLoading={false}
         onChangeMode={() => undefined}
         onRequestClose={() => undefined}
@@ -750,21 +750,21 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    const filterButton = getByLabelText("Filter cards");
-    expect(filterButton.getAttribute("aria-label")).toBe("Filter cards");
+    const filterButton = getByLabelText("Filter pages");
+    expect(filterButton.getAttribute("aria-label")).toBe("Filter pages");
     expect(textContent(container).includes("Queue cleanup")).toBe(true);
   });
 
   test("renders summary chips for active palette filters", async () => {
-    const { CommandPaletteCardFiltersSummaryRow } = await import("./command-palette-filters");
+    const { CommandPalettePageFiltersSummaryRow } = await import("./command-palette-filters");
     const filters = {
-      ...getDefaultCommandPaletteCardFilters(),
+      ...getDefaultCommandPalettePageFilters(),
       projectIds: ["ops"],
       assignees: ["Alex"],
     };
 
     const { container } = render(
-      <CommandPaletteCardFiltersSummaryRow
+      <CommandPalettePageFiltersSummaryRow
         filters={filters}
         projectNameById={new Map([["ops", "Ops"]])}
         onOpenFilter={() => undefined}

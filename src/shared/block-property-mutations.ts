@@ -31,7 +31,7 @@ export interface SetIntrinsicBlockProperty {
 
 export interface SetDatabaseScalarProperty {
   readonly scope: "database";
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly databaseBlockId: string;
   readonly propertyId: string;
   readonly operation: "set";
@@ -42,7 +42,7 @@ export interface SetDatabaseScalarProperty {
 
 export interface UpdateDatabaseSetProperty {
   readonly scope: "database";
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly databaseBlockId: string;
   readonly propertyId: string;
   readonly operation: "add_remove";
@@ -422,7 +422,7 @@ const parseField = (
   if (field.operation === "set") {
     assertExactKeys(field, label, [
       "scope",
-      "cardBlockId",
+      "pageId",
       "databaseBlockId",
       "propertyId",
       "operation",
@@ -442,7 +442,7 @@ const parseField = (
     }
     return {
       scope: "database",
-      cardBlockId: readBoundedString(field, "cardBlockId", label),
+      pageId: readBoundedString(field, "pageId", label),
       databaseBlockId: readBoundedString(field, "databaseBlockId", label),
       propertyId: readBoundedString(field, "propertyId", label),
       operation: "set",
@@ -457,7 +457,7 @@ const parseField = (
   }
   assertExactKeys(field, label, [
     "scope",
-    "cardBlockId",
+    "pageId",
     "databaseBlockId",
     "propertyId",
     "operation",
@@ -479,7 +479,7 @@ const parseField = (
   }
   return {
     scope: "database",
-    cardBlockId: readBoundedString(field, "cardBlockId", label),
+    pageId: readBoundedString(field, "pageId", label),
     databaseBlockId: readBoundedString(field, "databaseBlockId", label),
     propertyId: readBoundedString(field, "propertyId", label),
     operation: "add_remove",
@@ -494,7 +494,7 @@ export const makeBlockPropertyFieldPath = (
   if (field.scope === "intrinsic") {
     return `intrinsic/${encodeURIComponent(field.blockId)}/${encodeURIComponent(field.propertyKey)}`;
   }
-  return `database/${encodeURIComponent(field.databaseBlockId)}/${encodeURIComponent(field.cardBlockId)}/${encodeURIComponent(field.propertyId)}`;
+  return `database/${encodeURIComponent(field.databaseBlockId)}/${encodeURIComponent(field.pageId)}/${encodeURIComponent(field.propertyId)}`;
 };
 
 export const parseBlockPropertyMutationRequest = (

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Project,
   WorkbenchLayoutSnapshot,
-  WorkbenchRecentCardSession,
+  WorkbenchRecentPageSession,
 } from "./types";
 import {
   type DockTreeNode,
@@ -46,13 +46,13 @@ import {
   parseThreadsStageTabs,
   parseWorkbenchRecentSessions,
   parseWorkbenchSearchMap,
-  parseWorkbenchSpaceOrder,
+  parseWorkbenchProjectOrder,
   parseWorkbenchStageMap,
   parseWorkbenchViewMap,
 } from "./workbench-persisted-schemas";
 
 export type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
-export type StageId = "db" | "cards" | "threads" | "files";
+export type StageId = "db" | "pages" | "threads" | "files";
 export type StageNavDirection = "left" | "right";
 export type SidebarGroupId = StageId | "recents";
 export type {
@@ -63,18 +63,18 @@ export type {
   SidebarTopLevelSectionsPrefs,
 } from "./sidebar-section-prefs";
 
-export const STAGE_ORDER: StageId[] = ["db", "cards", "threads", "files"];
+export const STAGE_ORDER: StageId[] = ["db", "pages", "threads", "files"];
 export const NEW_THREAD_STAGE_TAB_ID = "thread:new";
 
-export interface SpaceRef {
+export interface ProjectRef {
   projectId: string;
   colorToken: string;
   initial: string;
 }
 
-export type RecentCardSession = WorkbenchRecentCardSession;
+export type RecentPageSession = WorkbenchRecentPageSession;
 
-export interface CardsStageTab {
+export interface PagesStageTab {
   id: string;
   kind: "history" | "session";
   title: string;
@@ -95,18 +95,18 @@ export interface FilesStageTab {
 export type StagePanelWidths = Partial<Record<StageId, number>>;
 export type SidebarSectionState = Record<string, boolean>;
 
-const WORKBENCH_STORAGE_KEY = "nodex-workbench-v1";
-const SIDEBAR_STORAGE_KEY = "nodex-sidebar-v1";
-const DOCK_STORAGE_KEY = "nodex-dock-layout-v1";
-const RECENT_STORAGE_KEY = "nodex-recent-card-sessions-v1";
+const WORKBENCH_STORAGE_KEY = "nodex-workbench-v2";
+const SIDEBAR_STORAGE_KEY = "nodex-sidebar-v2";
+const DOCK_STORAGE_KEY = "nodex-dock-layout-v2";
+const RECENT_STORAGE_KEY = "nodex-recent-page-sessions-v1";
 const DB_VIEW_PREFS_STORAGE_KEY = "nodex-db-view-prefs-v1";
 const WINDOW_LOCAL_STORAGE_KEYS = new Set([
   WORKBENCH_STORAGE_KEY,
   RECENT_STORAGE_KEY,
 ]);
 const VALID_VIEWS: WorkbenchView[] = ["kanban", "list", "toggle-list", "canvas", "calendar"];
-const SIDEBAR_GROUP_IDS: SidebarGroupId[] = ["db", "recents", "cards", "threads", "files"];
-const MAX_RECENT_CARD_SESSIONS = 10;
+const SIDEBAR_GROUP_IDS: SidebarGroupId[] = ["db", "recents", "pages", "threads", "files"];
+const MAX_RECENT_PAGE_SESSIONS = 10;
 const HISTORY_TAB_ID = "history";
 const NEW_THREAD_STAGE_TAB_TITLE = "New thread";
 
@@ -124,14 +124,14 @@ interface WorkbenchPrefs {
   viewsByProject: Record<string, WorkbenchView>;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  spaceOrder: string[];
+  projectOrder: string[];
   activeRecentSessionId: string | null;
   focusedStage?: StageId;
   stageNavDirection?: StageNavDirection;
   sidebarStageExpandedByProject?: Record<string, Partial<Record<SidebarGroupId, boolean>>>;
   sidebarSectionExpandedByProject?: Record<string, SidebarSectionState>;
   sidebarSectionShowAllByProject?: Record<string, SidebarSectionState>;
-  activeCardsTabId?: string;
+  activePagesTabId?: string;
   threadsTabs?: ThreadsStageTab[];
   activeThreadsTabId?: string;
   filesTabs?: FilesStageTab[];
@@ -139,6 +139,11 @@ interface WorkbenchPrefs {
   stagePanelWidths?: StagePanelWidths;
   slidingWindowPaneCount?: number;
 }
+
+type PersistedWorkbenchPrefs = Partial<WorkbenchPrefs> & {
+  /** Decode-only key written before Project navigation naming was corrected. */
+  spaceOrder?: string[];
+};
 
 interface DockPrefs {
   width: number;
@@ -151,17 +156,17 @@ interface WorkbenchState {
   viewsByProject: Record<string, WorkbenchView>;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  spaceOrder: string[];
+  projectOrder: string[];
   sidebar: SidebarPrefs;
   dock: DockPrefs;
-  recentCardSessions: RecentCardSession[];
+  recentPageSessions: RecentPageSession[];
   activeRecentSessionId: string | null;
   focusedStage: StageId;
   stageNavDirection: StageNavDirection;
   sidebarStageExpandedByProject: Record<string, Partial<Record<SidebarGroupId, boolean>>>;
   sidebarSectionExpandedByProject: Record<string, SidebarSectionState>;
   sidebarSectionShowAllByProject: Record<string, SidebarSectionState>;
-  activeCardsTabId: string;
+  activePagesTabId: string;
   threadsTabs: ThreadsStageTab[];
   activeThreadsTabId: string;
   filesTabs: FilesStageTab[];
@@ -176,7 +181,7 @@ const DOCK_MAX_WIDTH = 1100;
 const SLIDING_WINDOW_MIN_PANES = 1;
 const SLIDING_WINDOW_MAX_PANES = STAGE_ORDER.length;
 const SLIDING_WINDOW_DEFAULT_PANES = 2;
-const SPACE_COLOR_PALETTE = [
+const PROJECT_COLOR_PALETTE = [
   "#5e9fe8",
   "#72bc8f",
   "#de9255",
@@ -235,51 +240,51 @@ function normalizeDbViewPrefsMap(value: unknown): Record<string, Partial<Record<
   );
 }
 
-function normalizeSpaceOrder(value: unknown): string[] {
-  return parseWorkbenchSpaceOrder(value);
+function normalizeProjectOrder(value: unknown): string[] {
+  return parseWorkbenchProjectOrder(value);
 }
 
-function normalizeRecentSessions(value: unknown): RecentCardSession[] {
-  return parseWorkbenchRecentSessions(value, MAX_RECENT_CARD_SESSIONS);
+function normalizeRecentSessions(value: unknown): RecentPageSession[] {
+  return parseWorkbenchRecentSessions(value, MAX_RECENT_PAGE_SESSIONS);
 }
 
-function findRecentCardSession(
-  recentSessions: readonly RecentCardSession[],
+function findRecentPageSession(
+  recentSessions: readonly RecentPageSession[],
   projectId: string,
-  cardId: string,
-): RecentCardSession | null {
-  return recentSessions.find((session) => session.projectId === projectId && session.cardId === cardId) ?? null;
+  pageId: string,
+): RecentPageSession | null {
+  return recentSessions.find((session) => session.projectId === projectId && session.pageId === pageId) ?? null;
 }
 
-export function resolveCardsStageSelectionForCard(
-  recentSessions: readonly RecentCardSession[],
+export function resolvePagesStageSelectionForPage(
+  recentSessions: readonly RecentPageSession[],
   projectId: string,
-  cardId: string,
+  pageId: string,
 ): {
   activeRecentSessionId: string | null;
-  activeCardsTabId: string;
+  activePagesTabId: string;
 } {
-  const session = findRecentCardSession(recentSessions, projectId, cardId);
+  const session = findRecentPageSession(recentSessions, projectId, pageId);
   if (!session) {
     return {
       activeRecentSessionId: null,
-      activeCardsTabId: "",
+      activePagesTabId: "",
     };
   }
 
   return {
     activeRecentSessionId: session.id,
-    activeCardsTabId: `session:${session.id}`,
+    activePagesTabId: `session:${session.id}`,
   };
 }
 
-function recordRecentCardLeaveInList(
-  recentSessions: readonly RecentCardSession[],
+function recordRecentPageLeaveInList(
+  recentSessions: readonly RecentPageSession[],
   projectId: string,
-  cardId: string,
+  pageId: string,
   titleSnapshot: string,
-): RecentCardSession[] {
-  const existing = findRecentCardSession(recentSessions, projectId, cardId);
+): RecentPageSession[] {
+  const existing = findRecentPageSession(recentSessions, projectId, pageId);
   if (existing) {
     return recentSessions.map((session) =>
       session.id === existing.id
@@ -294,16 +299,16 @@ function recordRecentCardLeaveInList(
   return [{
     id: crypto.randomUUID(),
     projectId,
-    cardId,
+    pageId,
     titleSnapshot,
     lastOpenedAt: new Date().toISOString(),
-  }, ...recentSessions].slice(0, MAX_RECENT_CARD_SESSIONS);
+  }, ...recentSessions].slice(0, MAX_RECENT_PAGE_SESSIONS);
 }
 
-function reorderRecentCardSessionsInList(
-  recentSessions: readonly RecentCardSession[],
+function reorderRecentPageSessionsInList(
+  recentSessions: readonly RecentPageSession[],
   orderedSessionIds: readonly string[],
-): RecentCardSession[] {
+): RecentPageSession[] {
   if (orderedSessionIds.length === 0) return [...recentSessions];
 
   const sessionById = new Map(recentSessions.map((session) => [session.id, session]));
@@ -447,8 +452,8 @@ function hashProjectId(projectId: string): number {
   return Math.abs(hash);
 }
 
-function makeSpaceRef(projectId: string): SpaceRef {
-  const colorToken = SPACE_COLOR_PALETTE[hashProjectId(projectId) % SPACE_COLOR_PALETTE.length];
+function makeProjectRef(projectId: string): ProjectRef {
+  const colorToken = PROJECT_COLOR_PALETTE[hashProjectId(projectId) % PROJECT_COLOR_PALETTE.length];
   const initial = projectId.slice(0, 1).toUpperCase() || "?";
   return { projectId, colorToken, initial };
 }
@@ -469,9 +474,9 @@ function pruneProjectRecord<T>(
 }
 
 function pruneRecentSessions(
-  recentSessions: RecentCardSession[],
+  recentSessions: RecentPageSession[],
   projectIds: ReadonlySet<string>,
-): RecentCardSession[] {
+): RecentPageSession[] {
   return recentSessions.filter((session) => projectIds.has(session.projectId));
 }
 
@@ -480,7 +485,7 @@ interface LoadInitialStateOptions {
 }
 
 function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState {
-  const persistedWorkbench = readJson<Partial<WorkbenchPrefs>>(WORKBENCH_STORAGE_KEY);
+  const persistedWorkbench = readJson<PersistedWorkbenchPrefs>(WORKBENCH_STORAGE_KEY);
   const persistedSidebar = readJson<Partial<SidebarPrefs>>(SIDEBAR_STORAGE_KEY);
   const persistedCodexSidebarWidth = readNumberStorage(CODEX_SIDEBAR_WIDTH_STORAGE_KEY);
   const persistedDock = readJson<Partial<DockPrefs>>(DOCK_STORAGE_KEY);
@@ -516,9 +521,9 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     (typeof persistedWorkbench?.activeFilesTabId === "string" && persistedWorkbench.activeFilesTabId) ||
     filesTabs[0]?.id ||
     "diff";
-  const activeCardsTabId =
-    (typeof layoutSnapshot?.activeCardsTabId === "string" && layoutSnapshot.activeCardsTabId) ||
-    (typeof persistedWorkbench?.activeCardsTabId === "string" && persistedWorkbench.activeCardsTabId) ||
+  const activePagesTabId =
+    (typeof layoutSnapshot?.activePagesTabId === "string" && layoutSnapshot.activePagesTabId) ||
+    (typeof persistedWorkbench?.activePagesTabId === "string" && persistedWorkbench.activePagesTabId) ||
     "";
   const activeRecentSessionId = layoutSnapshot
     ? (typeof layoutSnapshot.activeRecentSessionId === "string" ? layoutSnapshot.activeRecentSessionId : null)
@@ -539,7 +544,11 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     dbViewPrefsByProject: normalizeDbViewPrefsMap(
       layoutSnapshot?.dbViewPrefsByProject ?? persistedDbViewPrefs ?? persistedWorkbench?.dbViewPrefsByProject,
     ),
-    spaceOrder: normalizeSpaceOrder(layoutSnapshot?.spaceOrder ?? persistedWorkbench?.spaceOrder),
+    projectOrder: normalizeProjectOrder(
+      layoutSnapshot?.projectOrder
+      ?? persistedWorkbench?.projectOrder
+      ?? persistedWorkbench?.spaceOrder,
+    ),
     sidebar: {
       collapsed: Boolean(layoutSnapshot?.sidebar?.collapsed ?? persistedSidebar?.collapsed),
       width: resolveCodexSidebarWidth({
@@ -570,9 +579,9 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
       ),
       tree: parseDockPrefs(layoutSnapshot?.dock).tree ?? parsedDockPrefs.tree,
     },
-    recentCardSessions: layoutSnapshot
-      ? normalizeRecentSessions(layoutSnapshot.recentCardSessions).slice(0, MAX_RECENT_CARD_SESSIONS)
-      : normalizeRecentSessions(persistedRecent).slice(0, MAX_RECENT_CARD_SESSIONS),
+    recentPageSessions: layoutSnapshot
+      ? normalizeRecentSessions(layoutSnapshot.recentPageSessions).slice(0, MAX_RECENT_PAGE_SESSIONS)
+      : normalizeRecentSessions(persistedRecent).slice(0, MAX_RECENT_PAGE_SESSIONS),
     activeRecentSessionId,
     focusedStage,
     stageNavDirection,
@@ -585,7 +594,7 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     sidebarSectionShowAllByProject: normalizeSidebarSectionStateByProject(
       layoutSnapshot?.sidebarSectionShowAllByProject ?? persistedWorkbench?.sidebarSectionShowAllByProject,
     ),
-    activeCardsTabId,
+    activePagesTabId,
     threadsTabs,
     activeThreadsTabId,
     filesTabs,
@@ -595,7 +604,7 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
   };
 }
 
-function reconcileSpaceOrder(
+function reconcileProjectOrder(
   order: string[],
   projects: Project[],
 ): string[] {
@@ -927,13 +936,13 @@ export function resolveSlidingWindowPaneCountChange(
   };
 }
 
-function makeCardsStageTabs(
-  recentSessions: RecentCardSession[],
-): CardsStageTab[] {
+function makePagesStageTabs(
+  recentSessions: RecentPageSession[],
+): PagesStageTab[] {
   return recentSessions.map((session) => ({
     id: `session:${session.id}`,
     kind: "session" as const,
-    title: session.titleSnapshot || session.cardId,
+    title: session.titleSnapshot || session.pageId,
     sessionId: session.id,
   }));
 }
@@ -957,7 +966,7 @@ export function useWorkbenchState(
 
     setState((prev) => {
       const projectIds = buildProjectIdSet(projects);
-      const spaceOrder = reconcileSpaceOrder(prev.spaceOrder, projects);
+      const projectOrder = reconcileProjectOrder(prev.projectOrder, projects);
       const dbProjectId = ensureActiveProject(prev.dbProjectId, projects);
       const threadsProjectId = ensureActiveProject(prev.threadsProjectId, projects);
 
@@ -984,11 +993,11 @@ export function useWorkbenchState(
         viewsByProject[project.id] = "kanban";
       });
 
-      const recentCardSessions = pruneRecentSessions(prev.recentCardSessions, projectIds);
+      const recentPageSessions = pruneRecentSessions(prev.recentPageSessions, projectIds);
 
       const activeRecentSessionId =
         prev.activeRecentSessionId &&
-        recentCardSessions.some((session) => session.id === prev.activeRecentSessionId)
+        recentPageSessions.some((session) => session.id === prev.activeRecentSessionId)
           ? prev.activeRecentSessionId
           : null;
 
@@ -1020,13 +1029,13 @@ export function useWorkbenchState(
         })[projectId] ?? {};
       });
 
-      const cardsTabs = makeCardsStageTabs(recentCardSessions);
-      const hasActiveCardsTab =
-        (prev.activeCardsTabId === HISTORY_TAB_ID && cardsTabs.length > 0) ||
-        cardsTabs.some((tab) => tab.id === prev.activeCardsTabId);
-      const activeCardsTabId = hasActiveCardsTab
-        ? prev.activeCardsTabId
-        : cardsTabs[0]?.id ?? "";
+      const pagesTabs = makePagesStageTabs(recentPageSessions);
+      const hasActivePagesTab =
+        (prev.activePagesTabId === HISTORY_TAB_ID && pagesTabs.length > 0) ||
+        pagesTabs.some((tab) => tab.id === prev.activePagesTabId);
+      const activePagesTabId = hasActivePagesTab
+        ? prev.activePagesTabId
+        : pagesTabs[0]?.id ?? "";
 
       const threadsTabs = ensureThreadsTabs(prev.threadsTabs);
       const activeThreadsTabId = threadsTabs.some((tab) => tab.id === prev.activeThreadsTabId)
@@ -1044,20 +1053,20 @@ export function useWorkbenchState(
 
       return {
         ...prev,
-        spaceOrder,
+        projectOrder,
         dbProjectId,
         threadsProjectId,
         viewsByProject,
         searchByProject,
         dbViewPrefsByProject,
-        recentCardSessions,
+        recentPageSessions,
         activeRecentSessionId,
         focusedStage,
         stageNavDirection,
         sidebarStageExpandedByProject,
         sidebarSectionExpandedByProject,
         sidebarSectionShowAllByProject,
-        activeCardsTabId,
+        activePagesTabId,
         threadsTabs,
         activeThreadsTabId,
         filesTabs,
@@ -1074,14 +1083,14 @@ export function useWorkbenchState(
       threadsProjectId: state.threadsProjectId,
       viewsByProject: state.viewsByProject,
       searchByProject: state.searchByProject,
-      spaceOrder: state.spaceOrder,
+      projectOrder: state.projectOrder,
       activeRecentSessionId: state.activeRecentSessionId,
       focusedStage: state.focusedStage,
       stageNavDirection: state.stageNavDirection,
       sidebarStageExpandedByProject: state.sidebarStageExpandedByProject,
       sidebarSectionExpandedByProject: state.sidebarSectionExpandedByProject,
       sidebarSectionShowAllByProject: state.sidebarSectionShowAllByProject,
-      activeCardsTabId: state.activeCardsTabId,
+      activePagesTabId: state.activePagesTabId,
       threadsTabs: state.threadsTabs,
       activeThreadsTabId: state.activeThreadsTabId,
       filesTabs: state.filesTabs,
@@ -1093,13 +1102,13 @@ export function useWorkbenchState(
     writeJson(SIDEBAR_STORAGE_KEY, state.sidebar);
     writeNumberStorage(CODEX_SIDEBAR_WIDTH_STORAGE_KEY, state.sidebar.width);
     writeJson(DOCK_STORAGE_KEY, state.dock);
-    writeJson(RECENT_STORAGE_KEY, state.recentCardSessions);
+    writeJson(RECENT_STORAGE_KEY, state.recentPageSessions);
     writeJson(DB_VIEW_PREFS_STORAGE_KEY, state.dbViewPrefsByProject);
   }, [state]);
 
-  const spaces = useMemo(
-    () => state.spaceOrder.map((projectId) => makeSpaceRef(projectId)),
-    [state.spaceOrder],
+  const projectRefs = useMemo(
+    () => state.projectOrder.map((projectId) => makeProjectRef(projectId)),
+    [state.projectOrder],
   );
 
   const activeView = state.viewsByProject[state.dbProjectId] ?? "kanban";
@@ -1110,11 +1119,11 @@ export function useWorkbenchState(
   const focusedStage = state.focusedStage;
   const stageNavDirection = state.stageNavDirection;
 
-  const cardsTabs = useMemo(
-    () => makeCardsStageTabs(state.recentCardSessions),
-    [state.recentCardSessions],
+  const pagesTabs = useMemo(
+    () => makePagesStageTabs(state.recentPageSessions),
+    [state.recentPageSessions],
   );
-  const activeCardsTabId = state.activeCardsTabId;
+  const activePagesTabId = state.activePagesTabId;
 
   const threadsTabs = state.threadsTabs;
   const activeThreadsTabId = state.activeThreadsTabId;
@@ -1432,12 +1441,12 @@ export function useWorkbenchState(
     return typeof value === "boolean" ? value : false;
   }, [state.sidebarSectionShowAllByProject]);
 
-  const setActiveCardsTab = useCallback((_projectId: string, tabId: string) => {
+  const setActivePagesTab = useCallback((_projectId: string, tabId: string) => {
     setState((prev) => {
-      if (prev.activeCardsTabId === tabId) return prev;
+      if (prev.activePagesTabId === tabId) return prev;
       return {
         ...prev,
-        activeCardsTabId: tabId,
+        activePagesTabId: tabId,
       };
     });
   }, []);
@@ -1550,39 +1559,39 @@ export function useWorkbenchState(
 
   const cycleProjects = useCallback((direction: -1 | 1) => {
     setState((prev) => {
-      if (prev.spaceOrder.length <= 1) return prev;
-      const currentIndex = prev.spaceOrder.indexOf(prev.dbProjectId);
+      if (prev.projectOrder.length <= 1) return prev;
+      const currentIndex = prev.projectOrder.indexOf(prev.dbProjectId);
       if (currentIndex < 0) return prev;
       const nextIndex =
         direction > 0
-          ? (currentIndex + 1) % prev.spaceOrder.length
-          : (currentIndex - 1 + prev.spaceOrder.length) % prev.spaceOrder.length;
+          ? (currentIndex + 1) % prev.projectOrder.length
+          : (currentIndex - 1 + prev.projectOrder.length) % prev.projectOrder.length;
       return {
         ...prev,
-        dbProjectId: prev.spaceOrder[nextIndex],
+        dbProjectId: prev.projectOrder[nextIndex],
       };
     });
   }, []);
 
   const switchToProjectIndex = useCallback((index: number) => {
     setState((prev) => {
-      if (index < 0 || index >= prev.spaceOrder.length) return prev;
-      return { ...prev, dbProjectId: prev.spaceOrder[index] };
+      if (index < 0 || index >= prev.projectOrder.length) return prev;
+      return { ...prev, dbProjectId: prev.projectOrder[index] };
     });
   }, []);
 
-  const recordRecentCardLeave = useCallback(
-    (projectId: string, cardId: string, titleSnapshot: string): string | null => {
+  const recordRecentPageLeave = useCallback(
+    (projectId: string, pageId: string, titleSnapshot: string): string | null => {
       let sessionId: string | null = null;
       setState((prev) => {
-        const nextRecent = recordRecentCardLeaveInList(prev.recentCardSessions, projectId, cardId, titleSnapshot);
-        const targetSession = findRecentCardSession(nextRecent, projectId, cardId);
+        const nextRecent = recordRecentPageLeaveInList(prev.recentPageSessions, projectId, pageId, titleSnapshot);
+        const targetSession = findRecentPageSession(nextRecent, projectId, pageId);
         if (!targetSession) return prev;
         sessionId = targetSession.id;
 
         return {
           ...prev,
-          recentCardSessions: nextRecent,
+          recentPageSessions: nextRecent,
         };
       });
 
@@ -1591,24 +1600,24 @@ export function useWorkbenchState(
     [],
   );
 
-  const selectRecentCardSession = useCallback((sessionId: string) => {
+  const selectRecentPageSession = useCallback((sessionId: string) => {
     setState((prev) => {
-      const target = prev.recentCardSessions.find((session) => session.id === sessionId);
+      const target = prev.recentPageSessions.find((session) => session.id === sessionId);
       if (!target) return prev;
 
       return {
         ...prev,
         activeRecentSessionId: target.id,
-        focusedStage: "cards",
-        activeCardsTabId: `session:${target.id}`,
+        focusedStage: "pages",
+        activePagesTabId: `session:${target.id}`,
       };
     });
   }, []);
 
-  const setActiveRecentCardSession = useCallback((sessionId: string | null) => {
+  const setActiveRecentPageSession = useCallback((sessionId: string | null) => {
     setState((prev) => {
       const target = sessionId
-        ? prev.recentCardSessions.find((session) => session.id === sessionId) ?? null
+        ? prev.recentPageSessions.find((session) => session.id === sessionId) ?? null
         : null;
       const nextActiveRecentSessionId = target?.id ?? null;
       if (prev.activeRecentSessionId === nextActiveRecentSessionId) {
@@ -1622,39 +1631,39 @@ export function useWorkbenchState(
     });
   }, []);
 
-  const closeRecentCardSession = useCallback((sessionId: string) => {
+  const closeRecentPageSession = useCallback((sessionId: string) => {
     setState((prev) => {
-      const closing = prev.recentCardSessions.find((session) => session.id === sessionId);
-      const nextRecent = prev.recentCardSessions.filter((session) => session.id !== sessionId);
-      if (nextRecent.length === prev.recentCardSessions.length) return prev;
+      const closing = prev.recentPageSessions.find((session) => session.id === sessionId);
+      const nextRecent = prev.recentPageSessions.filter((session) => session.id !== sessionId);
+      if (nextRecent.length === prev.recentPageSessions.length) return prev;
 
       const nextActiveSessionId =
         prev.activeRecentSessionId === sessionId ? nextRecent[0]?.id ?? null : prev.activeRecentSessionId;
 
-      const nextActiveCardsTabId =
-        closing && prev.activeCardsTabId === `session:${sessionId}`
+      const nextActivePagesTabId =
+        closing && prev.activePagesTabId === `session:${sessionId}`
           ? (nextRecent[0] ? `session:${nextRecent[0].id}` : "")
-          : prev.activeCardsTabId;
+          : prev.activePagesTabId;
 
       return {
         ...prev,
         activeRecentSessionId: nextActiveSessionId,
-        recentCardSessions: nextRecent,
-        activeCardsTabId: nextActiveCardsTabId,
+        recentPageSessions: nextRecent,
+        activePagesTabId: nextActivePagesTabId,
       };
     });
   }, []);
 
-  const reorderRecentCardSessions = useCallback((orderedSessionIds: string[]) => {
+  const reorderRecentPageSessions = useCallback((orderedSessionIds: string[]) => {
     setState((prev) => {
-      const nextRecent = reorderRecentCardSessionsInList(prev.recentCardSessions, orderedSessionIds);
-      if (JSON.stringify(nextRecent.map((session) => session.id)) === JSON.stringify(prev.recentCardSessions.map((session) => session.id))) {
+      const nextRecent = reorderRecentPageSessionsInList(prev.recentPageSessions, orderedSessionIds);
+      if (JSON.stringify(nextRecent.map((session) => session.id)) === JSON.stringify(prev.recentPageSessions.map((session) => session.id))) {
         return prev;
       }
 
       return {
         ...prev,
-        recentCardSessions: nextRecent,
+        recentPageSessions: nextRecent,
       };
     });
   }, []);
@@ -1668,17 +1677,17 @@ export function useWorkbenchState(
   );
 
   const buildLayoutSnapshot = useCallback((
-    cardStage: WorkbenchLayoutSnapshot["cardStage"],
+    pageStage: WorkbenchLayoutSnapshot["pageStage"],
     activeProjectSessionId: string | null = null,
   ): WorkbenchLayoutSnapshot => ({
-    version: 1,
+    version: 2,
     dbProjectId: state.dbProjectId,
     activeProjectSessionId,
     threadsProjectId: state.threadsProjectId,
     viewsByProject: state.viewsByProject,
     searchByProject: state.searchByProject,
     dbViewPrefsByProject: state.dbViewPrefsByProject,
-    spaceOrder: state.spaceOrder,
+    projectOrder: state.projectOrder,
     focusedStage: state.focusedStage,
     stageNavDirection: state.stageNavDirection,
     sidebar: state.sidebar,
@@ -1686,10 +1695,10 @@ export function useWorkbenchState(
     sidebarStageExpandedByProject: state.sidebarStageExpandedByProject as Record<string, Record<string, boolean>>,
     sidebarSectionExpandedByProject: state.sidebarSectionExpandedByProject,
     sidebarSectionShowAllByProject: state.sidebarSectionShowAllByProject,
-    activeCardsTabId: state.activeCardsTabId,
+    activePagesTabId: state.activePagesTabId,
     activeRecentSessionId: state.activeRecentSessionId,
-    recentCardSessions: state.recentCardSessions,
-    cardStage,
+    recentPageSessions: state.recentPageSessions,
+    pageStage,
     threadsTabs: state.threadsTabs,
     activeThreadsTabId: state.activeThreadsTabId,
     filesTabs: state.filesTabs,
@@ -1706,7 +1715,7 @@ export function useWorkbenchState(
     dbProjectId: state.dbProjectId,
     activeProjectId: state.dbProjectId,
     threadsProjectId: state.threadsProjectId,
-    spaces,
+    projectRefs,
     activeView,
     activeSearchQuery,
     activeDbViewPrefs,
@@ -1715,12 +1724,12 @@ export function useWorkbenchState(
     dbViewPrefsByProject: state.dbViewPrefsByProject,
     sidebar: state.sidebar,
     dock: state.dock,
-    recentCardSessions: state.recentCardSessions,
+    recentPageSessions: state.recentPageSessions,
     activeRecentSessionId: state.activeRecentSessionId,
     focusedStage,
     stageNavDirection,
-    cardsTabs,
-    activeCardsTabId,
+    pagesTabs,
+    activePagesTabId,
     threadsTabs,
     activeThreadsTabId,
     filesTabs,
@@ -1750,7 +1759,7 @@ export function useWorkbenchState(
     isSidebarSectionExpanded,
     setSidebarSectionShowAll,
     isSidebarSectionShowAll,
-    setActiveCardsTab,
+    setActivePagesTab,
     setActiveThreadsTab,
     setThreadsTabs,
     setActiveFilesTab,
@@ -1759,11 +1768,11 @@ export function useWorkbenchState(
     stepSlidingWindowPaneCount,
     cycleProjects,
     switchToProjectIndex,
-    recordRecentCardLeave,
-    selectRecentCardSession,
-    setActiveRecentCardSession,
-    closeRecentCardSession,
-    reorderRecentCardSessions,
+    recordRecentPageLeave,
+    selectRecentPageSession,
+    setActiveRecentPageSession,
+    closeRecentPageSession,
+    reorderRecentPageSessions,
     buildLayoutSnapshot,
     replaceLayoutSnapshot,
   };
@@ -1783,12 +1792,12 @@ export const workbenchTestHelpers = {
   normalizeViewMap,
   normalizeSearchMap,
   normalizeDbViewPrefsMap,
-  normalizeSpaceOrder,
+  normalizeProjectOrder,
   normalizeRecentSessions,
-  findRecentCardSession,
-  resolveCardsStageSelectionForCard,
-  recordRecentCardLeaveInList,
-  reorderRecentCardSessionsInList,
+  findRecentPageSession,
+  resolvePagesStageSelectionForPage,
+  recordRecentPageLeaveInList,
+  reorderRecentPageSessionsInList,
   normalizeStageMap,
   clampSlidingWindowPaneCount,
   normalizeSlidingWindowPaneCount,
@@ -1796,10 +1805,10 @@ export const workbenchTestHelpers = {
   normalizeSidebarTopLevelSectionOrder,
   normalizeSidebarTopLevelSectionsPrefs,
   moveSidebarTopLevelSection,
-  reconcileSpaceOrder,
+  reconcileProjectOrder,
   ensureActiveProject,
   loadInitialState,
-  makeSpaceRef,
+  makeProjectRef,
   resolveExpandedStages,
   resolveNearestSlidingWindowDirection,
   resolveSlidingWindowFocusIntent,

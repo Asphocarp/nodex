@@ -1,18 +1,18 @@
 # NFM Editor Thread Section Behavior
 
 Status: Active
-Last Updated: 2026-03-12
+Last Updated: 2026-07-17
 
 This document describes the current notebook-style `threadSection` behavior inside the NFM / BlockNote editor.
 
-This is intentionally narrower than the main product spec. It is the detailed source of truth for runnable prompt sections in card descriptions.
+This is intentionally narrower than the main product spec. It is the detailed source of truth for runnable prompt sections in Page descriptions.
 
 ## Scope
 
 Included:
 - The `threadSection` NFM syntax and round-trip rules
 - How runnable sections are delimited in the editor
-- Inline row rendering in the Card Stage editor
+- Inline row rendering in the Page Stage editor
 - `Cmd/Ctrl+Enter` section send behavior
 - Send confirmation and preview behavior
 - Section-to-thread binding rules
@@ -21,12 +21,12 @@ Included:
 Not included:
 - Thread transcript rendering inside the Threads stage
 - Codex approval/user-input cards outside the editor
-- Block drag/drop or card import behavior unrelated to thread sections
+- Block drag/drop or Page import behavior unrelated to thread sections
 - Any future inline transcript disclosure under section rows
 
 ## Overview
 
-`threadSection` turns a card description into explicit notebook-style runnable regions.
+`threadSection` turns a Page description into explicit notebook-style runnable regions.
 
 Each section is defined by:
 1. one `threadSection` marker block
@@ -78,7 +78,7 @@ The section body:
 - includes all following sibling blocks until the next sibling `threadSection`
 - can live at the document root or inside a parent block's `children`
 - can include nested content under those sibling body blocks
-- can include custom blocks such as `cardRef`, `toggleListInlineView`, images, code blocks, and toggles
+- can include custom blocks such as `pageRef`, `toggleListInlineView`, images, code blocks, and toggles
 
 The section body does not include:
 - the `threadSection` marker block itself
@@ -160,9 +160,9 @@ world
 
 There is no runnable section here yet. `Cmd/Ctrl+Enter` prepares a new local section starting at the current block and opens the send confirmation dialog.
 
-## Card Stage Rendering
+## Page Stage Rendering
 
-In the Card Stage editor, `threadSection` renders as a divider-like row with a compact center capsule.
+In the Page Stage editor, `threadSection` renders as a divider-like row with a compact center capsule.
 
 The row currently shows:
 - section state
@@ -177,11 +177,11 @@ This row is intentionally lightweight.
 Current v1 non-goals:
 - no inline transcript
 - no expandable disclosure under the row
-- no embedded assistant output inside the card description
+- no embedded assistant output inside the Page description
 
 ## Label Behavior
 
-The `label` attribute is editable directly from the section row in the Card Stage editor.
+The `label` attribute is editable directly from the section row in the Page Stage editor.
 
 Rules:
 - empty label is allowed
@@ -241,7 +241,7 @@ This is intentionally approximate v1 status chrome, not a durable execution-time
 
 ### `Cmd/Ctrl+Enter`
 
-In the Card Stage editor:
+In the Page Stage editor:
 - `Cmd/Ctrl+Enter` first attempts the current block's modify action
 - if no block-level modify action is handled and the cursor is inside a `threadSection` region, the shortcut prepares that section for send
 - this includes nested child regions, where a child `threadSection` sends its following siblings in the same parent block
@@ -255,10 +255,10 @@ If the current block has a modify action:
 - `checkListItem` flips its checked state
 - `toggleListItem` and toggle headings expand or collapse through the existing toggle button path
 - `image` opens the image preview
-- child `card` and `cardRef` occurrences expand or collapse through their local Card outliner disclosure; the same command works while the occurrence's live title is focused
+- child `page` and `pageRef` occurrences expand or collapse through their local Page outliner disclosure; the same command works while the occurrence's live title is focused
 - a bound `threadSection` opens its linked thread
 
-Handled modify actions prevent the thread-section send fallback. An unavailable Card occurrence is still a recognized modify target, so it consumes the shortcut without changing disclosure or preparing a section send. Events from a disclosed Card body stay inside that nested editor; only the Card header owns the parent occurrence's disclosure command. This keeps notebook sending from overriding block-specific actions while preserving the send shortcut for ordinary text blocks and unbound section markers.
+Handled modify actions prevent the thread-section send fallback. An unavailable Page occurrence is still a recognized modify target, so it consumes the shortcut without changing disclosure or preparing a section send. Events from a disclosed Page body stay inside that nested editor; only the Page header owns the parent occurrence's disclosure command. This keeps notebook sending from overriding block-specific actions while preserving the send shortcut for ordinary text blocks and unbound section markers.
 
 ### No explicit section
 
@@ -343,7 +343,7 @@ Serialization rules:
 - strip projected runtime-only inline rows before prompt serialization
 - exclude the `threadSection` marker block itself
 
-This means the prompt sent to Codex is a structure-preserving plain-text slice of the section, not the whole card description.
+This means the prompt sent to Codex is a structure-preserving plain-text slice of the section, not the whole Page description.
 
 ### Prompt Extraction Examples
 
@@ -508,11 +508,11 @@ When the picker opens for a section send:
 ## Focus And Navigation
 
 On successful section send:
-- editor focus is restored back to the card description
-- the Card Stage does not auto-switch to the Threads stage
+- editor focus is restored back to the Page description
+- the Page Stage does not auto-switch to the Threads stage
 - the bound thread continues to update through the existing linked-thread state
 
-Opening the bound thread remains an explicit action through the section row or the card’s Threads property row.
+Opening the bound thread remains an explicit action through the section row or the Page's Threads property row.
 
 ## Failure Behavior
 
@@ -570,7 +570,7 @@ This does not create 2 notebook sections. Only typing a fresh `---` in the edito
 
 The narrow implementation source of truth for this feature is:
 - shared NFM shape and parsing/serialization
-- Card Stage editor rendering and keyboard behavior
+- Page Stage editor rendering and keyboard behavior
 - linked Codex thread summary state used by the section row
 
 If this behavior changes, update this document before or alongside broader product-spec text.

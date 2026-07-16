@@ -27,8 +27,8 @@ export interface NodexAgentCallIdentity {
 
 export type NodexAgentDocumentEditTool =
   | "edit_document"
-  | "update_card"
-  | "advanced_update_card";
+  | "update_page"
+  | "advanced_update_page";
 
 export interface PrepareNodexAgentDocumentEditRequest extends NodexAgentCallIdentity {
   readonly tool: NodexAgentDocumentEditTool;
@@ -87,17 +87,17 @@ export type PreparedNodexAgentCreateDestination =
         readonly viewId: string;
         readonly viewRevision: number;
         readonly groupKey: string | null;
-        readonly beforeCardBlockId?: string;
+        readonly beforePageId?: string;
       };
     };
 
-export interface NodexAgentCreateCardCommand extends NodexAgentCallIdentity {
+export interface NodexAgentCreatePageCommand extends NodexAgentCallIdentity {
   readonly projectId: string;
   readonly requestHash: string;
   readonly mutationId: string;
   readonly storeEpoch: string;
   readonly input: CreateInput;
-  readonly cardId: string;
+  readonly pageId: string;
   readonly bodyBlockIds: readonly string[];
   readonly primaryMembershipId: string;
   readonly targetMembershipId: string;
@@ -116,7 +116,7 @@ export type PrepareNodexAgentCreateResult =
         | { readonly kind: "completed"; readonly output: CreateOutput }
         | {
             readonly kind: "prepared";
-            readonly command: NodexAgentCreateCardCommand;
+            readonly command: NodexAgentCreatePageCommand;
             readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
             readonly createdBodyBlockIds: readonly string[];
             readonly targetNfm: string;

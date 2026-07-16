@@ -15,9 +15,9 @@ import {
   type RegisteredOwnedDocumentMaterialization,
 } from "../../shared/block-documents/document-schema-adapters";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-} from "../../shared/block-documents/card-document";
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+} from "../../shared/block-documents/page-document";
 import {
   canonicalPortableCanvasSceneFingerprint,
   canonicalPortableCanvasSceneSemanticFingerprint,
@@ -71,9 +71,9 @@ const schemasSupportForwardRestore = (
   if (historical.schemaKey !== current.schemaKey) return false;
   if (historical.schemaVersion === current.schemaVersion) return true;
   return (
-    historical.schemaKey === CARD_DOCUMENT_SCHEMA_KEY &&
+    historical.schemaKey === PAGE_DOCUMENT_SCHEMA_KEY &&
     historical.schemaVersion === 1 &&
-    current.schemaVersion === CARD_DOCUMENT_SCHEMA_VERSION
+    current.schemaVersion === PAGE_DOCUMENT_SCHEMA_VERSION
   );
 };
 
@@ -237,7 +237,7 @@ const encodeBlockTreeSnapshotV2 = (
     formatVersion: 2,
     kind: materialization.kind,
     blockTree: materialization.blockTree,
-    ...(materialization.kind === "card"
+    ...(materialization.kind === "page"
       ? { richTitle: materialization.richTitle }
       : {}),
   };
@@ -298,7 +298,7 @@ export const decodeBlockTreeSnapshotV2 = (
     );
   }
   const expectedKeys =
-    adapter.kind === "card"
+    adapter.kind === "page"
       ? ["blockTree", "formatVersion", "kind", "richTitle"]
       : ["blockTree", "formatVersion", "kind"];
   const actualKeys = Object.keys(record).sort();
@@ -318,9 +318,9 @@ export const decodeBlockTreeSnapshotV2 = (
       envelope.body,
       record.blockTree as readonly BlockTreeNode[],
     );
-    if (envelope.kind === "card") {
+    if (envelope.kind === "page") {
       if (!Array.isArray(record.richTitle)) {
-        throw new TypeError("Card snapshot is missing richTitle");
+        throw new TypeError("Page snapshot is missing richTitle");
       }
       replaceYTextWithPortableRichText(
         envelope.title,
@@ -547,7 +547,7 @@ const materializationHash = (
       : stableStringifyTrustedValue({
           schemaVersion: materialization.schemaVersion,
           kind: materialization.kind,
-          ...(materialization.kind === "card"
+          ...(materialization.kind === "page"
             ? { richTitle: materialization.richTitle }
             : {}),
           blockTree: materialization.blockTree,
@@ -766,7 +766,7 @@ const decodeVersionRow = (
       materializationHash: materializationHash(materialization),
       byteLength: row.byte_length,
       materializationKind: materialization.kind,
-      title: materialization.kind === "card" ? materialization.title : null,
+      title: materialization.kind === "page" ? materialization.title : null,
       preview: materialization.preview,
       blockCount: countBlocks(materialization.blockTree),
       createdAt: row.created_at,
@@ -849,7 +849,7 @@ const decodeVersionRow = (
       materializationHash: materializationHash(materialization),
       byteLength: row.byte_length,
       materializationKind: materialization.kind,
-      title: materialization.kind === "card" ? materialization.title : null,
+      title: materialization.kind === "page" ? materialization.title : null,
       preview: materialization.preview,
       blockCount: countBlocks(materialization.blockTree),
       createdAt: row.created_at,
@@ -1668,8 +1668,8 @@ export const prepareDocumentVersionRestore = (
         );
       }
       const operations = [
-        ...(current.kind !== "card" ||
-        version.materialization.kind !== "card" ||
+        ...(current.kind !== "page" ||
+        version.materialization.kind !== "page" ||
         portableRichTextSemanticSource(current.richTitle) ===
           portableRichTextSemanticSource(version.materialization.richTitle)
           ? []
@@ -1687,7 +1687,7 @@ export const prepareDocumentVersionRestore = (
       const plan: DocumentVersionRestorePlan = {
         ...planBase,
         contentModel: "block_tree",
-        ...(version.materialization.kind === "card"
+        ...(version.materialization.kind === "page"
           ? {
               targetTitle: version.materialization.title,
               targetRichTitle: version.materialization.richTitle,

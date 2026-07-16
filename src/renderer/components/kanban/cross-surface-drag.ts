@@ -5,9 +5,9 @@ import type {
 import type { PublicBlockTransferIntent } from "../../../shared/block-transfer-transport";
 
 export const NODEX_BLOCK_TRANSFER_DRAG_MIME =
-  "application/vnd.nodex.block-transfer.v1+json";
+  "application/vnd.nodex.block-transfer.v2+json";
 
-const VERSION = 1 as const;
+const VERSION = 2 as const;
 const MAX_ITEMS = 128;
 const MAX_PAYLOAD_LENGTH = 256 * 1024;
 const MAX_ID_LENGTH = 512;
@@ -35,8 +35,19 @@ const isBoundedIdentity = (value: unknown): value is string =>
 
 const parseSource = (value: unknown): BlockTransferIntentSource | null => {
   if (!isRecord(value)) return null;
-  if (value.kind === "space" && Object.keys(value).length === 1) {
-    return { kind: "space" };
+  if (
+    value.kind === "library" &&
+    Object.keys(value).length === 2 &&
+    isBoundedIdentity(value.libraryId)
+  ) {
+    return { kind: "library", libraryId: value.libraryId };
+  }
+  if (
+    value.kind === "page" &&
+    Object.keys(value).length === 2 &&
+    isBoundedIdentity(value.pageId)
+  ) {
+    return { kind: "page", pageId: value.pageId };
   }
   if (
     value.kind === "document" &&
@@ -46,11 +57,11 @@ const parseSource = (value: unknown): BlockTransferIntentSource | null => {
     return { kind: "document", documentId: value.documentId };
   }
   if (
-    value.kind === "database" &&
+    value.kind === "data_source" &&
     Object.keys(value).length === 2 &&
-    isBoundedIdentity(value.databaseBlockId)
+    isBoundedIdentity(value.dataSourceId)
   ) {
-    return { kind: "database", databaseBlockId: value.databaseBlockId };
+    return { kind: "data_source", dataSourceId: value.dataSourceId };
   }
   return null;
 };
@@ -119,28 +130,28 @@ export const resolveCrossSurfaceTransferMode = (
 
 export const blockTransferDropLabel = (
   mode: BlockTransferMode,
-  target: "document" | "database",
+  target: "page" | "data_source",
 ): string =>
   mode === "copy"
-    ? target === "database"
-      ? "Copy as Card"
+    ? target === "data_source"
+      ? "Copy as Page"
       : "Copy into page"
-    : target === "database"
+    : target === "data_source"
       ? "Move to Database"
       : "Move into page";
 
-export const buildDocumentToDatabaseTransferIntent = (input: {
+export const buildBlockToDataSourceTransferIntent = (input: {
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
   readonly payload: CrossSurfaceBlockTransferPayload;
-  readonly databaseBlockId: string;
+  readonly dataSourceId: string;
   readonly viewId: string;
   readonly groupKey: string;
-  readonly beforeCardBlockId?: string;
+  readonly beforePageId?: string;
   readonly altKey: boolean;
 }): PublicBlockTransferIntent => ({
-  version: 1,
+  version: 2,
   operationId: input.operationId,
   projectId: input.projectId,
   storeEpoch: input.storeEpoch,
@@ -148,12 +159,12 @@ export const buildDocumentToDatabaseTransferIntent = (input: {
   rootBlockIds: input.payload.rootBlockIds,
   source: input.payload.source,
   target: {
-    kind: "database",
-    databaseBlockId: input.databaseBlockId,
+    kind: "data_source",
+    dataSourceId: input.dataSourceId,
     viewId: input.viewId,
     groupKey: input.groupKey,
-    ...(input.beforeCardBlockId
-      ? { beforeCardBlockId: input.beforeCardBlockId }
+    ...(input.beforePageId
+      ? { beforePageId: input.beforePageId }
       : {}),
   },
 });

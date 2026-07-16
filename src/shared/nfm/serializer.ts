@@ -4,7 +4,7 @@ import { resolveOrderedListStarts } from "./ordered-list";
 import { serializeInlineContent } from "./serializer-inline";
 import { serializeNfmTable } from "./table";
 import { escapeXmlAttr } from "./xml-attributes";
-import { buildCardDeepLink, parseCardDeepLink } from "../card-deeplink";
+import { buildPageDeepLink, parsePageDeepLink } from "../page-deeplink";
 
 export function serializeNfm(blocks: NfmBlock[]): string {
   return serializeBlocks(blocks, 0)
@@ -139,12 +139,12 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         );
         break;
       }
-      case "card": {
+      case "page": {
         if (!block.uuid || block.uuid !== block.uuid.trim()) {
-          throw new TypeError("Canonical Card NFM requires an exact non-empty uuid");
+          throw new TypeError("Canonical Page NFM requires an exact non-empty uuid");
         }
         lines.push(
-          prefix + `<card uuid="${escapeXmlAttr(block.uuid)}" />`,
+          prefix + `<page uuid="${escapeXmlAttr(block.uuid)}" />`,
         );
         break;
       }
@@ -160,26 +160,26 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         lines.push(prefix + `<thread-section${attrSuffix} />`);
         break;
       }
-      case "mentionCard": {
-        const url = buildCardDeepLink({ cardId: block.targetBlockId });
-        const target = parseCardDeepLink(url);
-        if (!target || target.cardId !== block.targetBlockId) {
-          throw new TypeError("Card mention URL must identify a Nodex Card");
+      case "pageRef": {
+        const url = buildPageDeepLink({ pageId: block.targetBlockId });
+        const target = parsePageDeepLink(url);
+        if (!target || target.pageId !== block.targetBlockId) {
+          throw new TypeError("Page reference URL must identify a Nodex Page");
         }
-        lines.push(prefix + `<mention-card url="${escapeXmlAttr(url)}" />`);
+        lines.push(prefix + `<page-ref url="${escapeXmlAttr(url)}" />`);
         break;
       }
       case "cardRef": {
         const attrs = [
           `project="${escapeXmlAttr(block.sourceProjectId)}"`,
-          `card="${escapeXmlAttr(block.cardId)}"`,
+          `card="${escapeXmlAttr(block.pageId)}"`,
         ];
         lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
         break;
       }
       case "cardToggle": {
         const attrs = [
-          `card="${escapeXmlAttr(block.cardId)}"`,
+          `card="${escapeXmlAttr(block.pageId)}"`,
           `meta="${escapeXmlAttr(block.meta)}"`,
         ];
         if (block.snapshot) attrs.push(`snapshot="${escapeXmlAttr(block.snapshot)}"`);

@@ -92,13 +92,13 @@ function renderCalendarGrid(
     <CalendarGrid
       visibleDays={buildVisibleDays()}
       createRequestId={0}
-      scheduledCards={[]}
-      cardStageCardId={undefined}
-      onClickCard={noop}
-      onCreateCard={noop}
+      scheduledPages={[]}
+      pageStagePageId={undefined}
+      onClickPage={noop}
+      onCreatePage={noop}
       onCompleteOccurrence={noop}
       onSkipOccurrence={noop}
-      onUpdateCardSchedule={noop}
+      onUpdatePageSchedule={noop}
       onNavigatePrev={noop}
       onNavigateNext={noop}
       allDayLaneHeight={72}

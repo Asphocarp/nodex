@@ -55,11 +55,11 @@ describe("pragmatic drop location", () => {
   const createSurface = () => ({
     querySelectorAll: () => [
       {
-        dataset: { kanbanCardId: "a" },
+        dataset: { kanbanPageId: "a" },
         getBoundingClientRect: () => ({ top: 100, bottom: 140 }),
       },
       {
-        dataset: { kanbanCardId: "b" },
+        dataset: { kanbanPageId: "b" },
         getBoundingClientRect: () => ({ top: 150, bottom: 190 }),
       },
     ],
@@ -73,11 +73,11 @@ describe("pragmatic drop location", () => {
       dropTargets: [{
         data: buildKanbanCardDropTargetData({
           instanceId,
-          cardId: "b",
+          pageId: "b",
           columnId: "in_progress",
         }),
       }],
-      draggedCardIds: ["a"],
+      draggedPageIds: ["a"],
       pointerY: 151,
       resolveColumnSurface: () => surface,
     });
@@ -94,11 +94,11 @@ describe("pragmatic drop location", () => {
       dropTargets: [{
         data: buildKanbanCardDropTargetData({
           instanceId,
-          cardId: "a",
+          pageId: "a",
           columnId: "in_progress",
         }),
       }],
-      draggedCardIds: ["b"],
+      draggedPageIds: ["b"],
       pointerY: 139,
       resolveColumnSurface: () => surface,
     });
@@ -110,7 +110,7 @@ describe("pragmatic drop location", () => {
           columnId: "in_progress",
         }),
       }],
-      draggedCardIds: ["b"],
+      draggedPageIds: ["b"],
       pointerY: 145,
       resolveColumnSurface: () => surface,
     });
@@ -125,11 +125,11 @@ describe("pragmatic drop location", () => {
       dropTargets: [{
         data: buildKanbanCardDropTargetData({
           instanceId,
-          cardId: "a",
+          pageId: "a",
           columnId: "in_progress",
         }),
       }],
-      draggedCardIds: ["a"],
+      draggedPageIds: ["a"],
       pointerY: 110,
       resolveColumnSurface: () => null,
     });
@@ -144,8 +144,9 @@ describe("pragmatic drop location", () => {
       instanceId,
       projectId: "default",
       databaseBlockId: "database-default",
+      dataSourceId: "source-default",
       storeEpoch: "epoch-default",
-      activeCard: board.columns[0]!.cards[0]!,
+      activePage: board.columns[0]!.cards[0]!,
       columnId: "in_progress",
     });
     const surface = createSurface();
@@ -156,7 +157,7 @@ describe("pragmatic drop location", () => {
         {
           data: buildKanbanCardDropTargetData({
             instanceId,
-            cardId: "a",
+            pageId: "a",
             columnId: "in_progress",
           }),
         },
@@ -168,7 +169,7 @@ describe("pragmatic drop location", () => {
         },
       ],
       sourceData: dragData,
-      draggedCardIds: ["a"],
+      draggedPageIds: ["a"],
       pointerY: 145,
       resolveColumnSurface: () => surface,
     });
@@ -188,7 +189,7 @@ describe("pragmatic drop location", () => {
           columnId: "in_progress",
         }),
       }],
-      draggedCardIds: ["x"],
+      draggedPageIds: ["x"],
       pointerY: 145,
       resolveColumnSurface: () => surface,
     });
@@ -208,7 +209,7 @@ describe("pragmatic drop location", () => {
           }),
         },
       ],
-      draggedCardIds: ["a"],
+      draggedPageIds: ["a"],
       pointerY: 145,
       resolveColumnSurface: createSurface,
     });

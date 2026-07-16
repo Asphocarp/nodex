@@ -7,7 +7,7 @@ import {
   workbenchTestHelpers,
 } from "./use-workbench-state";
 import { createDefaultWorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
-import type { WorkbenchLayoutSnapshot } from "./types";
+import type { Project, WorkbenchLayoutSnapshot } from "./types";
 import { render, settleAsyncRender } from "../test/dom";
 
 const storageMap = new Map<string, string>();
@@ -40,10 +40,14 @@ const localStorageRef =
 const sessionStorageRef =
   (globalThis as { sessionStorage?: typeof mockStorage }).sessionStorage ?? mockStorage;
 
-function makeProject(id: string, name: string) {
+function makeProject(id: string, name: string): Project {
   const created = new Date();
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     sources: [],
@@ -72,9 +76,9 @@ function resetStorage(): void {
 }
 
 describe("use-workbench-state helpers", () => {
-  test("reconcileSpaceOrder keeps known order and appends new projects", () => {
+  test("reconcileProjectOrder keeps known order and appends new projects", () => {
     resetStorage();
-    const result = workbenchTestHelpers.reconcileSpaceOrder(
+    const result = workbenchTestHelpers.reconcileProjectOrder(
       ["b", "a"],
       [
         makeProject("a", "A"),
@@ -133,10 +137,10 @@ describe("use-workbench-state helpers", () => {
 
     expect(state.dbProjectId).toBe("default");
     expect(state.threadsProjectId).toBe("default");
-    expect(JSON.stringify(state.spaceOrder)).toBe(JSON.stringify([]));
+    expect(JSON.stringify(state.projectOrder)).toBe(JSON.stringify([]));
     expect(JSON.stringify(state.viewsByProject)).toBe(JSON.stringify({}));
     expect(JSON.stringify(state.searchByProject)).toBe(JSON.stringify({}));
-    expect(state.activeCardsTabId).toBe("");
+    expect(state.activePagesTabId).toBe("");
   });
 
   test("initial layout snapshot overrides stale browser session storage", () => {
@@ -147,7 +151,7 @@ describe("use-workbench-state helpers", () => {
         dbProjectId: "stale",
         threadsProjectId: "stale",
         viewsByProject: { stale: "kanban" },
-        activeCardsTabId: "session:stale",
+        activePagesTabId: "session:stale",
         activeRecentSessionId: "stale",
         activeThreadsTabId: "thread:stale",
       }),
@@ -156,28 +160,28 @@ describe("use-workbench-state helpers", () => {
     const state = workbenchTestHelpers.loadInitialState({
       layoutSnapshot: {
         ...createDefaultWorkbenchLayoutSnapshot(),
-        version: 1,
+        version: 2,
         dbProjectId: "default",
         threadsProjectId: "ops",
         viewsByProject: { default: "calendar", ops: "list" },
         focusedStage: "threads",
         stageNavDirection: "left",
-        activeCardsTabId: "session:recent-1",
+        activePagesTabId: "session:recent-1",
         activeRecentSessionId: "recent-1",
         activeThreadsTabId: "thread-1",
-        recentCardSessions: [
+        recentPageSessions: [
           {
             id: "recent-1",
             projectId: "default",
-            cardId: "card-1",
+            pageId: "page-1",
             titleSnapshot: "Card 1",
             lastOpenedAt: "2026-03-09T00:00:00.000Z",
           },
         ],
-        cardStage: {
+        pageStage: {
           open: true,
           projectId: "default",
-          cardId: "card-1",
+          pageId: "page-1",
         },
       },
     });
@@ -190,11 +194,11 @@ describe("use-workbench-state helpers", () => {
     }));
     expect(state.focusedStage).toBe("threads");
     expect(state.stageNavDirection).toBe("left");
-    expect(state.activeCardsTabId).toBe("session:recent-1");
+    expect(state.activePagesTabId).toBe("session:recent-1");
     expect(state.activeRecentSessionId).toBe("recent-1");
     expect(state.activeThreadsTabId).toBe("thread-1");
-    expect(state.recentCardSessions.length).toBe(1);
-    expect(state.recentCardSessions[0]?.id).toBe("recent-1");
+    expect(state.recentPageSessions.length).toBe(1);
+    expect(state.recentPageSessions[0]?.id).toBe("recent-1");
   });
 
   test("loads persisted sidebar section collapse and show-more state per project", () => {
@@ -204,7 +208,7 @@ describe("use-workbench-state helpers", () => {
       JSON.stringify({
         sidebarSectionExpandedByProject: {
           default: {
-            "cards:status:6-in-progress": true,
+            "pages:status:6-in-progress": true,
           },
         },
         sidebarSectionShowAllByProject: {
@@ -217,7 +221,7 @@ describe("use-workbench-state helpers", () => {
 
     const state = workbenchTestHelpers.loadInitialState();
 
-    expect(state.sidebarSectionExpandedByProject.default?.["cards:status:6-in-progress"]).toBe(true);
+    expect(state.sidebarSectionExpandedByProject.default?.["pages:status:6-in-progress"]).toBe(true);
     expect(state.sidebarSectionShowAllByProject.default?.["recents:list"]).toBe(true);
   });
 
@@ -289,7 +293,7 @@ describe("use-workbench-state helpers", () => {
       Array.from({ length: 12 }, (_, index) => ({
         id: `session-${index + 1}`,
         projectId: "default",
-        cardId: `card-${index + 1}`,
+        pageId: `page-${index + 1}`,
         titleSnapshot: `Card ${index + 1}`,
         lastOpenedAt: `2026-03-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
       })),
@@ -300,51 +304,51 @@ describe("use-workbench-state helpers", () => {
     expect(normalized[9]?.id).toBe("session-10");
   });
 
-  test("recordRecentCardLeaveInList inserts a newly left card at the front", () => {
+  test("recordRecentPageLeaveInList inserts a newly left card at the front", () => {
     resetStorage();
-    const next = workbenchTestHelpers.recordRecentCardLeaveInList(
+    const next = workbenchTestHelpers.recordRecentPageLeaveInList(
       [
         {
           id: "session-2",
           projectId: "default",
-          cardId: "card-2",
+          pageId: "page-2",
           titleSnapshot: "Card 2",
           lastOpenedAt: "2026-03-02T00:00:00.000Z",
         },
       ],
       "default",
-      "card-1",
+      "page-1",
       "Card 1",
     );
 
     expect(next.length).toBe(2);
     expect(next[0]?.projectId).toBe("default");
-    expect(next[0]?.cardId).toBe("card-1");
+    expect(next[0]?.pageId).toBe("page-1");
     expect(next[0]?.titleSnapshot).toBe("Card 1");
     expect(next[1]?.id).toBe("session-2");
   });
 
-  test("recordRecentCardLeaveInList preserves position for cards already in recents", () => {
+  test("recordRecentPageLeaveInList preserves position for pages already in recents", () => {
     resetStorage();
-    const next = workbenchTestHelpers.recordRecentCardLeaveInList(
+    const next = workbenchTestHelpers.recordRecentPageLeaveInList(
       [
         {
           id: "session-1",
           projectId: "default",
-          cardId: "card-1",
+          pageId: "page-1",
           titleSnapshot: "Card 1",
           lastOpenedAt: "2026-03-01T00:00:00.000Z",
         },
         {
           id: "session-2",
           projectId: "default",
-          cardId: "card-2",
+          pageId: "page-2",
           titleSnapshot: "Card 2",
           lastOpenedAt: "2026-03-02T00:00:00.000Z",
         },
       ],
       "default",
-      "card-2",
+      "page-2",
       "Card 2 renamed",
     );
 
@@ -354,33 +358,33 @@ describe("use-workbench-state helpers", () => {
     expect(next[1]?.titleSnapshot).toBe("Card 2 renamed");
   });
 
-  test("reorderRecentCardSessionsInList ignores unknown ids and preserves omitted sessions", () => {
+  test("reorderRecentPageSessionsInList ignores unknown ids and preserves omitted sessions", () => {
     resetStorage();
     const recentSessions = [
       {
         id: "session-1",
         projectId: "default",
-        cardId: "card-1",
+        pageId: "page-1",
         titleSnapshot: "Card 1",
         lastOpenedAt: "2026-03-01T00:00:00.000Z",
       },
       {
         id: "session-2",
         projectId: "default",
-        cardId: "card-2",
+        pageId: "page-2",
         titleSnapshot: "Card 2",
         lastOpenedAt: "2026-03-02T00:00:00.000Z",
       },
       {
         id: "session-3",
         projectId: "default",
-        cardId: "card-3",
+        pageId: "page-3",
         titleSnapshot: "Card 3",
         lastOpenedAt: "2026-03-03T00:00:00.000Z",
       },
     ];
 
-    const next = workbenchTestHelpers.reorderRecentCardSessionsInList(
+    const next = workbenchTestHelpers.reorderRecentPageSessionsInList(
       recentSessions,
       ["missing", "session-3", "session-1"],
     );
@@ -391,7 +395,7 @@ describe("use-workbench-state helpers", () => {
     expect(next[2]?.lastOpenedAt).toBe("2026-03-02T00:00:00.000Z");
   });
 
-  test("recordRecentCardLeave updates recents without overwriting the active destination session", async () => {
+  test("recordRecentPageLeave updates recents without overwriting the active destination session", async () => {
     resetStorage();
 
     let latestState: ReturnType<typeof useWorkbenchState> | null = null;
@@ -405,28 +409,28 @@ describe("use-workbench-state helpers", () => {
         {
           initialLayoutSnapshot: {
             ...createDefaultWorkbenchLayoutSnapshot(),
-            version: 1,
+            version: 2,
             dbProjectId: "default",
             threadsProjectId: "default",
             viewsByProject: { default: "kanban" },
-            focusedStage: "cards",
+            focusedStage: "pages",
             stageNavDirection: "right",
-            activeCardsTabId: "session:session-2",
+            activePagesTabId: "session:session-2",
             activeRecentSessionId: "session-2",
             activeThreadsTabId: "thread:new",
-            recentCardSessions: [
+            recentPageSessions: [
               {
                 id: "session-2",
                 projectId: "default",
-                cardId: "card-2",
+                pageId: "page-2",
                 titleSnapshot: "Card 2",
                 lastOpenedAt: "2026-03-02T00:00:00.000Z",
               },
             ],
-            cardStage: {
+            pageStage: {
               open: true,
               projectId: "default",
-              cardId: "card-2",
+              pageId: "page-2",
             },
           },
         },
@@ -451,70 +455,70 @@ describe("use-workbench-state helpers", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      getLatestState().recordRecentCardLeave("default", "card-1", "Card 1");
+      getLatestState().recordRecentPageLeave("default", "page-1", "Card 1");
     });
     await settleAsyncRender();
 
     const state = getLatestState();
     expect(state.activeRecentSessionId).toBe("session-2");
-    expect(state.activeCardsTabId).toBe("session:session-2");
-    expect(state.recentCardSessions.length).toBe(2);
-    expect(state.recentCardSessions[0]?.cardId).toBe("card-1");
-    expect(state.recentCardSessions[1]?.cardId).toBe("card-2");
+    expect(state.activePagesTabId).toBe("session:session-2");
+    expect(state.recentPageSessions.length).toBe(2);
+    expect(state.recentPageSessions[0]?.pageId).toBe("page-1");
+    expect(state.recentPageSessions[1]?.pageId).toBe("page-2");
   });
 
-  test("findRecentCardSession matches cards by project and card id", () => {
+  test("findRecentPageSession matches pages by project and page id", () => {
     resetStorage();
-    const match = workbenchTestHelpers.findRecentCardSession(
+    const match = workbenchTestHelpers.findRecentPageSession(
       [
         {
           id: "session-1",
           projectId: "default",
-          cardId: "card-1",
+          pageId: "page-1",
           titleSnapshot: "Card 1",
           lastOpenedAt: "2026-03-01T00:00:00.000Z",
         },
       ],
       "default",
-      "card-1",
+      "page-1",
     );
 
     expect(match?.id).toBe("session-1");
   });
 
-  test("resolveCardsStageSelectionForCard keeps card-session and history state separate", () => {
+  test("resolvePagesStageSelectionForPage keeps page-session and history state separate", () => {
     resetStorage();
     const recentSessions = [
       {
         id: "session-1",
         projectId: "default",
-        cardId: "card-1",
+        pageId: "page-1",
         titleSnapshot: "Card 1",
         lastOpenedAt: "2026-03-01T00:00:00.000Z",
       },
     ];
 
-    const existingSelection = workbenchTestHelpers.resolveCardsStageSelectionForCard(
+    const existingSelection = workbenchTestHelpers.resolvePagesStageSelectionForPage(
       recentSessions,
       "default",
-      "card-1",
+      "page-1",
     );
-    const missingSelection = workbenchTestHelpers.resolveCardsStageSelectionForCard(
+    const missingSelection = workbenchTestHelpers.resolvePagesStageSelectionForPage(
       recentSessions,
       "default",
-      "card-2",
+      "page-2",
     );
 
     expect(existingSelection.activeRecentSessionId).toBe("session-1");
-    expect(existingSelection.activeCardsTabId).toBe("session:session-1");
+    expect(existingSelection.activePagesTabId).toBe("session:session-1");
     expect(missingSelection.activeRecentSessionId).toBe(null);
-    expect(missingSelection.activeCardsTabId).toBe("");
+    expect(missingSelection.activePagesTabId).toBe("");
   });
 
   test("space refs have stable color and initial", () => {
     resetStorage();
-    const one = workbenchTestHelpers.makeSpaceRef("project-a");
-    const two = workbenchTestHelpers.makeSpaceRef("project-a");
+    const one = workbenchTestHelpers.makeProjectRef("project-a");
+    const two = workbenchTestHelpers.makeProjectRef("project-a");
 
     expect(one.colorToken).toBe(two.colorToken);
     expect(one.initial).toBe("P");
@@ -525,7 +529,7 @@ describe("use-workbench-state helpers", () => {
     const left = workbenchTestHelpers.resolveExpandedStages("threads", "left", 2, false);
 
     expect(JSON.stringify(right)).toBe(JSON.stringify(["threads", "files"]));
-    expect(JSON.stringify(left)).toBe(JSON.stringify(["cards", "threads"]));
+    expect(JSON.stringify(left)).toBe(JSON.stringify(["pages", "threads"]));
   });
 
   test("resolveExpandedStages collapses to one in narrow mode", () => {
@@ -542,17 +546,17 @@ describe("use-workbench-state helpers", () => {
   });
 
   test("resolveExpandedStages supports 3-pane windows", () => {
-    const right = workbenchTestHelpers.resolveExpandedStages("cards", "right", 3, false);
+    const right = workbenchTestHelpers.resolveExpandedStages("pages", "right", 3, false);
     const left = workbenchTestHelpers.resolveExpandedStages("threads", "left", 3, false);
 
-    expect(JSON.stringify(right)).toBe(JSON.stringify(["cards", "threads", "files"]));
-    expect(JSON.stringify(left)).toBe(JSON.stringify(["db", "cards", "threads"]));
+    expect(JSON.stringify(right)).toBe(JSON.stringify(["pages", "threads", "files"]));
+    expect(JSON.stringify(left)).toBe(JSON.stringify(["db", "pages", "threads"]));
   });
 
   test("resolveNearestSlidingWindowDirection keeps visible stage window stable", () => {
     const direction = workbenchTestHelpers.resolveNearestSlidingWindowDirection(
-      "cards",
-      ["db", "cards"],
+      "pages",
+      ["db", "pages"],
       2,
       "right",
     );
@@ -563,12 +567,12 @@ describe("use-workbench-state helpers", () => {
   test("resolveNearestSlidingWindowDirection picks the nearest window shift", () => {
     const towardsRight = workbenchTestHelpers.resolveNearestSlidingWindowDirection(
       "threads",
-      ["db", "cards"],
+      ["db", "pages"],
       2,
       "right",
     );
     const towardsLeft = workbenchTestHelpers.resolveNearestSlidingWindowDirection(
-      "cards",
+      "pages",
       ["threads", "files"],
       2,
       "left",
@@ -630,7 +634,7 @@ describe("use-workbench-state helpers", () => {
       -1,
     );
 
-    expect(shiftedRight.focusedStage).toBe("cards");
+    expect(shiftedRight.focusedStage).toBe("pages");
     expect(shiftedRight.stageNavDirection).toBe("right");
     expect(
       JSON.stringify(
@@ -641,7 +645,7 @@ describe("use-workbench-state helpers", () => {
           false,
         ),
       ),
-    ).toBe(JSON.stringify(["cards", "threads"]));
+    ).toBe(JSON.stringify(["pages", "threads"]));
 
     expect(shiftedLeft.focusedStage).toBe("threads");
     expect(shiftedLeft.stageNavDirection).toBe("left");
@@ -654,7 +658,7 @@ describe("use-workbench-state helpers", () => {
           false,
         ),
       ),
-    ).toBe(JSON.stringify(["cards", "threads"]));
+    ).toBe(JSON.stringify(["pages", "threads"]));
   });
 
   test("resolveSlidingWindowShift is a no-op when the window cannot move", () => {
@@ -701,7 +705,7 @@ describe("use-workbench-state helpers", () => {
           false,
         ),
       ),
-    ).toBe(JSON.stringify(["db", "cards", "threads"]));
+    ).toBe(JSON.stringify(["db", "pages", "threads"]));
 
     expect(appendLeftFallback.slidingWindowPaneCount).toBe(3);
     expect(
@@ -713,12 +717,12 @@ describe("use-workbench-state helpers", () => {
           false,
         ),
       ),
-    ).toBe(JSON.stringify(["cards", "threads", "files"]));
+    ).toBe(JSON.stringify(["pages", "threads", "files"]));
   });
 
   test("resolveSlidingWindowPaneCountChange removes the right-most pane", () => {
     const keepFocus = workbenchTestHelpers.resolveSlidingWindowPaneCountChange(
-      "cards",
+      "pages",
       "right",
       3,
       "decrease",
@@ -731,7 +735,7 @@ describe("use-workbench-state helpers", () => {
     );
 
     expect(keepFocus.slidingWindowPaneCount).toBe(2);
-    expect(keepFocus.focusedStage).toBe("cards");
+    expect(keepFocus.focusedStage).toBe("pages");
     expect(keepFocus.stageNavDirection).toBe("right");
     expect(
       JSON.stringify(
@@ -742,10 +746,10 @@ describe("use-workbench-state helpers", () => {
           false,
         ),
       ),
-    ).toBe(JSON.stringify(["cards", "threads"]));
+    ).toBe(JSON.stringify(["pages", "threads"]));
 
     expect(dropFocusedRightEdge.slidingWindowPaneCount).toBe(1);
-    expect(dropFocusedRightEdge.focusedStage).toBe("cards");
+    expect(dropFocusedRightEdge.focusedStage).toBe("pages");
     expect(dropFocusedRightEdge.stageNavDirection).toBe("left");
     expect(
       JSON.stringify(
@@ -756,7 +760,7 @@ describe("use-workbench-state helpers", () => {
           false,
         ),
       ),
-    ).toBe(JSON.stringify(["cards"]));
+    ).toBe(JSON.stringify(["pages"]));
   });
 
   test("normalizes sliding-window pane count and rejects invalid values", () => {
@@ -834,14 +838,14 @@ describe("use-workbench-state helpers", () => {
     await settleAsyncRender();
 
     const layout: WorkbenchLayoutSnapshot = {
-      version: 1,
+      version: 2,
       dbProjectId: "ops",
       activeProjectSessionId: "session:ops:alpha",
       threadsProjectId: "ops",
       viewsByProject: { ops: "calendar" },
       searchByProject: { ops: "release" },
       dbViewPrefsByProject: {},
-      spaceOrder: ["ops", "default"],
+      projectOrder: ["ops", "default"],
       focusedStage: "threads",
       stageNavDirection: "left",
       sidebar: {
@@ -858,13 +862,13 @@ describe("use-workbench-state helpers", () => {
       sidebarStageExpandedByProject: {},
       sidebarSectionExpandedByProject: {},
       sidebarSectionShowAllByProject: {},
-      activeCardsTabId: "",
+      activePagesTabId: "",
       activeRecentSessionId: null,
-      recentCardSessions: [],
-      cardStage: {
+      recentPageSessions: [],
+      pageStage: {
         open: false,
         projectId: "",
-        cardId: null,
+        pageId: null,
       },
       threadsTabs: [{ id: "thread:new", title: "New thread", preview: "" }],
       activeThreadsTabId: "thread:new",

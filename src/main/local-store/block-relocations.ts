@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { createUuidV7 } from "../../shared/card-id";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import * as Y from "yjs";
 import {
   assertValidBlockDocument,
@@ -25,7 +25,7 @@ import {
 import {
   createCanonicalEmptyParagraphBlock,
   populateBlockDocumentBodyFromBlockTree,
-  type CardDocumentMaterialization,
+  type PageDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
 import {
   BlockDocumentSchemaError,
@@ -41,7 +41,7 @@ import {
   type LoadedBlockDocument,
 } from "./block-document-store";
 import { replaceDocumentSecondaryProjections } from "./block-document-projections";
-import { persistCardDocumentMaterialization } from "./document-materializations";
+import { persistPageDocumentMaterialization } from "./document-materializations";
 
 export type BlockRelocationFaultPoint =
   | "after_documents_loaded"
@@ -156,7 +156,7 @@ interface PreparedDocumentCommit {
   readonly stateVector: Uint8Array;
   readonly stateHash: string;
   readonly blocks: readonly ScannedDocumentBlock[];
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
 }
 
 const RELOCATION_CLIENT_SESSION_ID = "sqlite:block-relocation";
@@ -379,7 +379,7 @@ const validateRelocatedDocument = (
   relocationId: string,
 ): {
   readonly blocks: readonly ScannedDocumentBlock[];
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
   readonly fullState: Uint8Array;
   readonly stateVector: Uint8Array;
 } => {
@@ -1544,7 +1544,7 @@ export const readCommittedRelocation = (
 };
 
 /**
- * Relocate a stable Block subtree between two Card Y.Docs.
+ * Relocate a stable Block subtree between two Page Y.Docs.
  * The caller must run this function on the process-wide SQLite writer FIFO.
  * Both Yjs updates, registry locations, projections, and the durable operation
  * ledger commit in one IMMEDIATE transaction; nothing is published here.
@@ -1755,14 +1755,14 @@ export const relocateBlocksAtomically = (
         input.relocationId,
       );
       inject("after_target_commit");
-      persistCardDocumentMaterialization(database, {
+      persistPageDocumentMaterialization(database, {
         documentId: sourceCommit.documentId,
         generation: sourceCommit.generation,
         projectedSeq: sourceCommit.headSeq,
         materialization: sourceCommit.materialization,
         updatedAt: now,
       });
-      persistCardDocumentMaterialization(database, {
+      persistPageDocumentMaterialization(database, {
         documentId: targetCommit.documentId,
         generation: targetCommit.generation,
         projectedSeq: targetCommit.headSeq,

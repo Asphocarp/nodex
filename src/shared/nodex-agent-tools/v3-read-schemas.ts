@@ -3,8 +3,10 @@ import {
   BlockIdSchema,
   createPageInputSchema,
   createToolSuccessSchema,
+  DataSourceIdSchema,
   ETagSchema,
   JsonValueSchema,
+  LibraryIdSchema,
   ProjectIdSchema,
   PropertyIdSchema,
   ViewIdSchema,
@@ -12,23 +14,29 @@ import {
 import {
   DatabasePropertyValueTypeSchema,
   DatabaseViewFilterNodeSchema,
-  GeneralDatabaseViewKindSchema,
+  DatabaseViewKindSchema,
   NonManualDatabaseViewSortSchema,
 } from "./read-schemas";
 import {
-  CardLocationV3Schema,
+  PageLocationV3Schema,
   InlineMarkdownTitleSchema,
 } from "./v3-base-schemas";
 
 const DatabaseSummaryV3Schema = z.strictObject({
-  databaseBlockId: BlockIdSchema,
+  databaseId: BlockIdSchema,
   name: z.string(),
-  isPrimary: z.boolean(),
+  isBound: z.boolean(),
+  dataSources: z.array(z.strictObject({
+    dataSourceId: DataSourceIdSchema,
+    name: z.string(),
+    schemaRevision: z.number().int().min(1),
+  })),
   views: z.array(z.strictObject({
     viewId: ViewIdSchema,
+    dataSourceId: DataSourceIdSchema,
     name: z.string(),
-    kind: GeneralDatabaseViewKindSchema,
-    isPrimary: z.boolean(),
+    kind: DatabaseViewKindSchema,
+    isDefault: z.boolean(),
   })),
 });
 
@@ -40,11 +48,17 @@ export const GetContextV3InputSchema = z.strictObject({
 });
 
 export const GetContextV3DataSchema = z.strictObject({
-  project: z.strictObject({ projectId: ProjectIdSchema, name: z.string() }).nullable(),
+  project: z.strictObject({
+    projectId: ProjectIdSchema,
+    name: z.string(),
+    lifecycle: z.enum(["active", "inactive", "archived"]),
+    libraryId: LibraryIdSchema,
+    boundDatabaseId: BlockIdSchema,
+  }).nullable(),
   access: z.strictObject({
     read: z.enum(["allowed", "unavailable"]),
     write: z.enum(["granted", "consent_required", "unavailable"]),
-    domains: z.array(z.enum(["document", "placement", "database"])),
+    domains: z.array(z.enum(["page", "database"])),
   }),
   databases: z.array(DatabaseSummaryV3Schema).optional(),
   markdownGuide: z.strictObject({
@@ -99,7 +113,7 @@ export const FetchV3InputSchema = z.strictObject({
   id: BlockIdSchema,
   format: z.enum(["markdown", "summary", "blocks"]).optional(),
   propertyIds: z.array(PropertyIdSchema).max(512).optional(),
-  includeDatabase: z.boolean().optional(),
+  includeDataSource: z.boolean().optional(),
   prepareFor: z.array(FetchPrepareForV3Schema).max(8).optional(),
   maxDepth: z.number().int().min(0).max(512).optional(),
   page: createPageInputSchema(100).optional(),
@@ -140,19 +154,23 @@ export const FetchV3DataSchema = z.strictObject({
       etag: ETagSchema.optional(),
     }).optional(),
     lifecycle: z.enum(["active", "archived", "deleted"]),
-    location: CardLocationV3Schema,
+    location: PageLocationV3Schema,
     properties: z.record(PropertyIdSchema, z.strictObject({ value: JsonValueSchema })).optional(),
   }),
   content: FetchContentV3Schema.optional(),
-  database: z.strictObject({ databaseBlockId: BlockIdSchema }).optional(),
+  dataSource: z.strictObject({
+    dataSourceId: DataSourceIdSchema,
+    databaseId: BlockIdSchema,
+  }).optional(),
 });
 
 export const FetchV3OutputSchema = createToolSuccessSchema(FetchV3DataSchema);
 
 const SearchScopeV3Schema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("project") }),
-  z.strictObject({ kind: z.literal("database"), databaseBlockId: BlockIdSchema }),
-  z.strictObject({ kind: z.literal("card"), cardId: BlockIdSchema }),
+  z.strictObject({ kind: z.literal("library") }),
+  z.strictObject({ kind: z.literal("database"), databaseId: BlockIdSchema }),
+  z.strictObject({ kind: z.literal("data_source"), dataSourceId: DataSourceIdSchema }),
+  z.strictObject({ kind: z.literal("page"), pageId: BlockIdSchema }),
 ]);
 
 const SearchQueryV3Schema = z.string().trim().min(1).max(512).refine(
@@ -162,7 +180,7 @@ const SearchQueryV3Schema = z.string().trim().min(1).max(512).refine(
 
 export const SearchV3InputSchema = z.strictObject({
   query: SearchQueryV3Schema,
-  target: z.enum(["cards", "blocks"]).optional(),
+  target: z.enum(["pages", "blocks"]).optional(),
   scope: SearchScopeV3Schema.optional(),
   blockTypes: z.array(z.string().min(1).max(256)).max(64).optional(),
   includeArchived: z.boolean().optional(),
@@ -179,7 +197,7 @@ export const SearchV3InputSchema = z.strictObject({
 
 const SearchMatchQualityV3Schema = z.enum(["exact", "prefix", "fuzzy"]);
 
-const CardSearchMatchV3Schema = z.discriminatedUnion("source", [
+const PageSearchMatchV3Schema = z.discriminatedUnion("source", [
   z.strictObject({
     source: z.literal("identity"),
     quality: z.enum(["exact", "prefix"]),
@@ -204,17 +222,17 @@ const CardSearchMatchV3Schema = z.discriminatedUnion("source", [
 
 const SearchResultV3Schema = z.discriminatedUnion("kind", [
   z.strictObject({
-    kind: z.literal("card"),
+    kind: z.literal("page"),
     id: BlockIdSchema,
     title: z.string(),
-    location: CardLocationV3Schema,
-    matches: z.array(CardSearchMatchV3Schema).max(3),
+    location: PageLocationV3Schema,
+    matches: z.array(PageSearchMatchV3Schema).max(3),
   }),
   z.strictObject({
     kind: z.literal("block"),
     id: BlockIdSchema,
     blockType: z.string(),
-    cardId: BlockIdSchema,
+    ownerPageId: BlockIdSchema,
     source: z.enum(["title", "body"]),
     quality: z.enum(["exact", "prefix"]),
     excerpt: z.string(),
@@ -238,8 +256,8 @@ export const QueryDatabaseViewV3InputSchema = z.strictObject({
   page: createPageInputSchema(200).optional(),
 });
 
-export const AdvancedQueryDatabaseV3InputSchema = z.strictObject({
-  databaseBlockId: BlockIdSchema,
+export const QueryDataSourceV3InputSchema = z.strictObject({
+  dataSourceId: DataSourceIdSchema,
   filter: DatabaseViewFilterNodeSchema.optional(),
   sort: z.array(NonManualDatabaseViewSortSchema).max(64).optional(),
   select: QuerySelectV3Schema,
@@ -248,7 +266,11 @@ export const AdvancedQueryDatabaseV3InputSchema = z.strictObject({
 
 export const QueryDatabaseV3DataSchema = z.strictObject({
   database: z.strictObject({
-    databaseBlockId: BlockIdSchema,
+    databaseId: BlockIdSchema,
+    name: z.string(),
+  }),
+  dataSource: z.strictObject({
+    dataSourceId: DataSourceIdSchema,
     name: z.string(),
     properties: z.array(z.strictObject({
       propertyId: PropertyIdSchema,
@@ -259,11 +281,12 @@ export const QueryDatabaseV3DataSchema = z.strictObject({
   }),
   view: z.strictObject({
     viewId: ViewIdSchema,
+    dataSourceId: DataSourceIdSchema,
     name: z.string(),
-    kind: GeneralDatabaseViewKindSchema,
+    kind: DatabaseViewKindSchema,
   }).optional(),
   rows: z.array(z.strictObject({
-    cardId: BlockIdSchema,
+    pageId: BlockIdSchema,
     title: z.string(),
     values: z.record(PropertyIdSchema, JsonValueSchema),
     placement: z.strictObject({

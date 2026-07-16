@@ -46,7 +46,7 @@ describe("readonly NFM BlockNote preview", () => {
       <ReadonlyNfmBlockNotePreview
         content={"# Historical heading\n\nSnapshot body with **bold** text"}
         projectId="alpha"
-        cardId="card-1"
+        pageId="card-1"
         historyId={1}
       />,
     );
@@ -71,21 +71,21 @@ describe("readonly NFM BlockNote preview", () => {
           '<toggle-list-inline-view project="alpha" />',
         ].join("\n\n")}
         projectId="alpha"
-        cardId="card-1"
+        pageId="card-1"
         historyId={2}
       />,
     );
 
     await waitFor(() => {
-      if (!textContent(view.container).includes("Card mention")) {
-        throw new Error("Card mention placeholder not rendered");
+      if (!textContent(view.container).includes("Page mention")) {
+        throw new Error("Page mention placeholder not rendered");
       }
     });
 
     const body = textContent(view.container);
     expect(body.includes("Thread section")).toBe(true);
     expect(body.includes("Toggle list view")).toBe(true);
-    expect(body.includes("Search cards")).toBe(false);
+    expect(body.includes("Search Pages")).toBe(false);
     expect(body.includes("Rules")).toBe(false);
   });
 
@@ -94,7 +94,7 @@ describe("readonly NFM BlockNote preview", () => {
       <ReadonlyNfmBlockNotePreview
         content={'Before <attachment kind="file" mode="link" source="/tmp/report.md" name="report.md" /> after\n\nUse <agent-config mode="plan" model="gpt-5.5" reasoning="high" />\n\nSee <mention-thread uuid="019-thread" />'}
         projectId="alpha"
-        cardId="card-1"
+        pageId="card-1"
         historyId={3}
       />,
     );
@@ -126,7 +126,7 @@ describe("readonly NFM BlockNote preview", () => {
       <ReadonlyNfmBlockNotePreview
         content={'Readonly note with <mention-date start="2026-06-28" format="relative" />.'}
         projectId="alpha"
-        cardId="card-1"
+        pageId="card-1"
         historyId={5}
       />,
     );
@@ -155,7 +155,7 @@ describe("readonly NFM BlockNote preview", () => {
       <ReadonlyNfmBlockNotePreview
         content={"▼ Open toggle\n\tOpen child\n\n▶ Closed toggle\n\tClosed child"}
         projectId="alpha"
-        cardId="card-1"
+        pageId="card-1"
         historyId={4}
       />,
     );

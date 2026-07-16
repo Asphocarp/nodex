@@ -186,7 +186,7 @@ function PanelActionIconDropdownDemo() {
         <NodexDropdownItem
           leftSlot={<SquareKanban className="icon-sm" />}
         >
-          Card Stage
+          Page Stage
         </NodexDropdownItem>
       </NodexDropdownMenu>
     </StorySurface>

@@ -13243,7 +13243,7 @@ describe("local-conversation-store", () => {
           threadId: "thread-1",
           turnId: "turn-1",
           itemId: "call-1",
-          tool: "update_card",
+          tool: "update_page",
           effect: "write",
           preview: {
             title: "Append rollout plan",

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   BlockDragSessionCoordinator,
   blockTransferDropLabel,
-  buildDocumentToDatabaseTransferIntent,
+  buildBlockToDataSourceTransferIntent,
   encodeBlockTransferDragPayload,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
   parseBlockTransferDragPayload,
@@ -36,7 +36,7 @@ describe("cross-surface Block transfer drag", () => {
       sourceSurfaceId: "surface-a",
       projectId: "project-a",
       storeEpoch: "epoch-a",
-      source: { kind: "space" },
+      source: { kind: "library", libraryId: "library-a" },
       rootBlockIds: ["block-a", "block-a"],
       displayHints: ["One", "Two"],
     });
@@ -47,8 +47,8 @@ describe("cross-surface Block transfer drag", () => {
   test("defaults to Move and samples Option/Alt at feedback and drop time", () => {
     expect(resolveCrossSurfaceTransferMode({ altKey: false })).toBe("move");
     expect(resolveCrossSurfaceTransferMode({ altKey: true })).toBe("copy");
-    expect(blockTransferDropLabel("move", "database")).toBe("Move to Database");
-    expect(blockTransferDropLabel("copy", "document")).toBe("Copy into page");
+    expect(blockTransferDropLabel("move", "data_source")).toBe("Move to Database");
+    expect(blockTransferDropLabel("copy", "page")).toBe("Copy into page");
   });
 
   test("compiles an editor session into one Database-parent transfer", () => {
@@ -66,19 +66,19 @@ describe("cross-surface Block transfer drag", () => {
     if (!payload) throw new Error("Expected a valid Block drag payload");
 
     expect(
-      buildDocumentToDatabaseTransferIntent({
+      buildBlockToDataSourceTransferIntent({
         operationId: "operation-a",
         projectId: "project-a",
         storeEpoch: "epoch-a",
         payload,
-        databaseBlockId: "database-a",
+        dataSourceId: "source-a",
         viewId: "view-a",
         groupKey: "in-progress",
-        beforeCardBlockId: "card-b",
+        beforePageId: "card-b",
         altKey: true,
       }),
     ).toEqual({
-      version: 1,
+      version: 2,
       operationId: "operation-a",
       projectId: "project-a",
       storeEpoch: "epoch-a",
@@ -86,11 +86,11 @@ describe("cross-surface Block transfer drag", () => {
       rootBlockIds: ["block-a"],
       source: { kind: "document", documentId: "document-a" },
       target: {
-        kind: "database",
-        databaseBlockId: "database-a",
+        kind: "data_source",
+        dataSourceId: "source-a",
         viewId: "view-a",
         groupKey: "in-progress",
-        beforeCardBlockId: "card-b",
+        beforePageId: "card-b",
       },
     });
   });

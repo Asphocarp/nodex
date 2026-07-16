@@ -1,326 +1,209 @@
 import { describe, expect, test } from "vitest";
 import type {
-  DatabaseMutationCommandResult,
-  DatabaseMutationRequest,
-} from "../../shared/database-kernel";
-import type {
-  DatabaseManagementSnapshotCommandResult,
-  GeneralDatabaseCatalog,
-  GeneralDatabaseManagement,
-} from "../../shared/database-query";
+  DatabaseApply,
+  DatabaseApplyResult,
+  DatabaseContainerDescriptor,
+  DatabaseModuleReadResult,
+  DatabaseModuleReadSnapshot,
+  DataSourceDescriptor,
+} from "../../shared/database-module";
 import {
-  commitDatabaseManagementIntent,
+  commitDatabaseManagementOperations,
   DatabaseManagementMutationError,
+  readDatabaseManagementAuthority,
   type DatabaseManagementRuntimeDependencies,
 } from "./database-management-runtime";
 
-const catalogValue = (schemaRevision = 3): GeneralDatabaseCatalog => ({
-  databases: [
-    {
-      database: {
-        blockId: "database-1",
-        projectId: "project-1",
-        name: "Tasks",
-        isPrimary: true,
-        schemaKey: "nodex.database",
-        schemaRevision,
-        metadataRevision: 1,
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
-      },
-      properties: [],
-      views: [],
-    },
-  ],
-});
+const timestamp = "2026-07-16T00:00:00.000Z";
+const projectId = "project-1";
+const libraryId = "library-1";
+const databaseId = "database-1";
+const dataSourceId = "source-1";
 
-const managementValue = (schemaRevision = 3): GeneralDatabaseManagement => ({
-  catalog: catalogValue(schemaRevision),
-  cards: [],
-});
-
-const catalogResult = (
-  changeLogSeq: number,
-  schemaRevision = 3,
-): DatabaseManagementSnapshotCommandResult => ({
-  ok: true,
-  value: {
-    version: 1,
-    projectId: "project-1",
-    storeEpoch: "epoch-1",
-    changeLogSeq,
-    value: managementValue(schemaRevision),
+const descriptor = (): DatabaseContainerDescriptor => ({
+  database: {
+    databaseId,
+    libraryId,
+    name: "Tasks",
+    lifecycle: "active",
+    defaultViewId: "view-1",
+    accessRevision: 1,
+    metadataRevision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
   },
+  dataSources: [{
+    dataSourceId,
+    libraryId,
+    homeDatabaseId: databaseId,
+    name: "Pages",
+    schemaKey: "nodex.pages",
+    schemaRevision: 1,
+    lifecycle: "active",
+    rankKey: "a",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }],
+  views: [{
+    viewId: "view-1",
+    databaseId,
+    dataSourceId,
+    name: "Board",
+    kind: "kanban",
+    config: {
+      schemaKey: "nodex.database-view",
+      schemaVersion: 1,
+      filter: { kind: "group", operator: "and", children: [] },
+      sort: [{
+        field: { kind: "manual" },
+        direction: "asc",
+        nulls: "last",
+      }],
+      group: null,
+      display: { propertyIds: [], showTitle: true },
+    },
+    isDefault: true,
+    revision: 1,
+    rankKey: "a",
+    lifecycle: "active",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }],
 });
 
-const success = (
-  request: DatabaseMutationRequest,
-  duplicate = false,
-): DatabaseMutationCommandResult => ({
+const source = (): DataSourceDescriptor => ({
+  dataSource: descriptor().dataSources[0]!,
+  properties: [{
+    propertyId: "property-status",
+    dataSourceId,
+    key: "status",
+    name: "Status",
+    valueType: "select",
+    config: {},
+    rankKey: "a",
+    lifecycle: "active",
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }],
+});
+
+const snapshot = (
+  value: DatabaseModuleReadSnapshot["value"],
+  changeLogSeq = 4,
+): DatabaseModuleReadSnapshot => ({
+  version: 1,
+  projectId,
+  libraryId,
+  storeEpoch: "epoch-1",
+  changeLogSeq,
+  value,
+});
+
+const readResult = (
+  value: DatabaseModuleReadSnapshot["value"],
+  changeLogSeq?: number,
+): DatabaseModuleReadResult => ({
+  ok: true,
+  value: snapshot(value, changeLogSeq),
+});
+
+const committed = (request: DatabaseApply): DatabaseApplyResult => ({
   ok: true,
   value: {
     version: 1,
     operationId: request.operationId,
-    projectId: request.projectId,
+    projectId,
+    libraryId,
     storeEpoch: request.storeEpoch,
+    duplicate: false,
     operationKinds: request.operations.map((operation) => operation.kind),
-    affectedDatabaseBlockIds: ["database-1"],
-    duplicate,
-    payload: { operationResults: [] },
-    changeLogSeq: 11,
-    committedAt: "2026-07-12T00:00:01.000Z",
+    affectedDatabaseIds: [databaseId],
+    affectedDataSourceIds: [dataSourceId],
+    affectedPageIds: [],
+    affectedViewIds: [],
+    committedRevisions: {},
+    changeLogSeq: 5,
+    committedAt: timestamp,
   },
 });
 
-const unusedTransfer: DatabaseManagementRuntimeDependencies["transfer"] =
-  async () => {
-    throw new Error("Block transfer is not expected in this test");
-  };
+const readDependency = (
+  changeLogSeq = 5,
+): DatabaseManagementRuntimeDependencies["read"] => async (
+  _projectId,
+  request,
+) => request.read.mode === "catalog"
+  ? readResult({ kind: "catalog", databases: [descriptor()] }, changeLogSeq)
+  : readResult({ kind: "data_source", value: source() }, changeLogSeq);
 
-describe("Database management runtime", () => {
-  test("derives schema revisions from one catalog and returns a fresh catalog", async () => {
-    let reads = 0;
-    const requests: DatabaseMutationRequest[] = [];
-    const dependencies: DatabaseManagementRuntimeDependencies = {
-      readManagement: async () => catalogResult(reads++ === 0 ? 10 : 11, reads === 1 ? 3 : 4),
-      mutate: async (_projectId, request) => {
-        requests.push(request);
-        return success(request);
+describe("canonical Database management runtime", () => {
+  test("reads one selected Container and its initial Data Source", async () => {
+    const authority = await readDatabaseManagementAuthority(projectId, null, {
+      read: readDependency(),
+      apply: async () => {
+        throw new Error("apply should not run");
       },
-      transfer: unusedTransfer,
-    };
-    const result = await commitDatabaseManagementIntent({
-      projectId: "project-1",
-      operationId: "property-create",
-      buildIntent: (authority) => ({
-        kind: "put_property",
-        mode: "create",
-        descriptor: authority.descriptor("database-1"),
-        property: {
-          id: "property-score",
-          key: "score",
-          name: "Score",
-          valueType: "number",
-          config: {},
-        },
-      }),
-      dependencies,
     });
 
-    expect(requests.length).toBe(1);
-    expect(requests[0]?.operations[0]?.kind).toBe("put_property");
-    expect(
-      requests[0]?.operations[0]?.kind === "put_property"
-        ? requests[0].operations[0].expectedDatabaseSchemaRevision
-        : -1,
-    ).toBe(3);
-    expect(result.changeLogSeq).toBe(11);
+    expect(authority.selectedDatabase.database.databaseId).toBe(databaseId);
+    expect(authority.selectedDataSource.dataSourceId).toBe(dataSourceId);
+    expect(authority.source.properties[0]?.propertyId).toBe("property-status");
   });
 
-  test("retries an ambiguous response with the exact compiled request", async () => {
-    const requests: DatabaseMutationRequest[] = [];
-    let reads = 0;
-    const result = await commitDatabaseManagementIntent({
-      projectId: "project-1",
-      operationId: "database-create",
-      buildIntent: () => ({
-        kind: "create_database",
-        databaseBlockId: "database-2",
-        name: "Research",
-        initialView: {
-          id: "view-2",
-          name: "All",
-          kind: "list",
-          config: {
-            schemaKey: "nodex.database-view",
-            schemaVersion: 1,
-            filter: { kind: "group", operator: "and", children: [] },
-            sort: [],
-            group: null,
-            display: { propertyIds: [], showTitle: true },
-          },
-        },
-      }),
+  test("retains one exact Database Apply request across a lost response", async () => {
+    const requests: DatabaseApply[] = [];
+    const authority = await commitDatabaseManagementOperations({
+      projectId,
+      operationId: "operation-1",
+      clientSessionId: "window-1",
+      buildOperations: (current) => [{
+        kind: "delete_property",
+        dataSourceId: current.selectedDataSource.dataSourceId,
+        propertyId: "property-status",
+        expectedDataSourceRevision: 1,
+        expectedPropertyRevision: 1,
+      }],
       dependencies: {
-        readManagement: async () => catalogResult(reads++ === 0 ? 10 : 11),
-        mutate: async (_projectId, request) => {
+        read: readDependency(),
+        apply: async (_projectId, request) => {
           requests.push(request);
           if (requests.length === 1) throw new Error("response lost");
-          return success(request, true);
+          return committed(request);
         },
-        transfer: unusedTransfer,
       },
     });
 
-    expect(result.changeLogSeq).toBe(11);
-    expect(requests.length).toBe(2);
-    expect(requests[0] === requests[1]).toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toBe(requests[1]);
+    expect(requests[0]?.actor).toEqual({
+      kind: "renderer_database_management",
+      clientSessionId: "window-1",
+    });
+    expect(authority.snapshot.changeLogSeq).toBe(5);
   });
 
-  test("surfaces terminal typed mutation failures", async () => {
-    let code = "";
-    try {
-      await commitDatabaseManagementIntent({
-        projectId: "project-1",
-        operationId: "delete-stale-view",
-        buildIntent: () => ({
-          kind: "create_database",
-          databaseBlockId: "database-2",
-          name: "Research",
-          initialView: {
-            id: "view-2",
-            name: "All",
-            kind: "list",
-            config: {
-              schemaKey: "nodex.database-view",
-              schemaVersion: 1,
-              filter: { kind: "group", operator: "and", children: [] },
-              sort: [],
-              group: null,
-              display: { propertyIds: [], showTitle: true },
-            },
-          },
-        }),
-        dependencies: {
-          readManagement: async () => catalogResult(10),
-          mutate: async (_projectId, request) => ({
-            ok: false,
-            error: {
-              code: "database_schema_conflict",
-              message: "schema changed",
-              retryable: false,
-              operationId: request.operationId,
-            },
-          }),
-          transfer: unusedTransfer,
-        },
-      });
-    } catch (error) {
-      code = error instanceof DatabaseManagementMutationError
-        ? error.commandError.code
-        : "unexpected";
-    }
-    expect(code).toBe("database_schema_conflict");
-  });
-
-  test("routes Card membership through BlockTransfer instead of Database mutation", async () => {
-    const management: GeneralDatabaseManagement = {
-      catalog: {
-        databases: [
-          {
-            ...catalogValue().databases[0]!,
-            views: [
-              {
-                id: "view-1",
-                databaseBlockId: "database-1",
-                projectId: "project-1",
-                name: "All",
-                kind: "list",
-                config: {
-                  schemaKey: "nodex.database-view",
-                  schemaVersion: 1,
-                  filter: { kind: "group", operator: "and", children: [] },
-                  sort: [],
-                  group: null,
-                  display: { propertyIds: [], showTitle: true },
-                },
-                isPrimary: true,
-                revision: 1,
-                rankKey: "a0",
-                lifecycle: "active",
-                createdAt: "2026-07-12T00:00:00.000Z",
-                updatedAt: "2026-07-12T00:00:00.000Z",
-              },
-            ],
-          },
-        ],
-      },
-      cards: [
-        {
-          card: {
-            blockId: "card-1",
-            projectId: "project-1",
-            lifecycle: "active",
-            location: { kind: "space", rankKey: "a0" },
-            locationRevision: 1,
-            metadataRevision: 1,
-            documentId: "document-card-1",
-            documentGeneration: 1,
-            documentHeadSeq: 1,
-            documentAuthority: "ydoc_primary",
-            content: null,
-            createdAt: "2026-07-12T00:00:00.000Z",
-            updatedAt: "2026-07-12T00:00:00.000Z",
-          },
-          membership: null,
-          positions: [],
-        },
-      ],
-    };
-    let reads = 0;
-    let capturedMode = "";
-    let capturedSource = "";
-    const result = await commitDatabaseManagementIntent({
-      projectId: "project-1",
-      operationId: "membership-operation",
-      buildIntent: (authority) => ({
-        kind: "set_membership",
-        authority: authority.management,
-        cardBlockId: "card-1",
-        target: {
-          databaseBlockId: "database-1",
-          viewId: "view-1",
-        },
-      }),
+  test("surfaces typed authorization failures", async () => {
+    await expect(commitDatabaseManagementOperations({
+      projectId,
+      operationId: "operation-denied",
+      buildOperations: () => [{
+        kind: "delete_view",
+        databaseId,
+        viewId: "view-1",
+        expectedRevision: 1,
+      }],
       dependencies: {
-        readManagement: async () => ({
-          ok: true,
-          value: {
-            version: 1,
-            projectId: "project-1",
-            storeEpoch: "epoch-1",
-            changeLogSeq: reads++ === 0 ? 10 : 11,
-            value: management,
+        read: readDependency(),
+        apply: async () => ({
+          ok: false,
+          error: {
+            code: "authorization_denied",
+            message: "Manage Views denied",
+            retryable: false,
           },
         }),
-        mutate: async () => {
-          throw new Error("Membership must not use Database mutation");
-        },
-        transfer: async (_projectId, intent) => {
-          capturedMode = intent.mode;
-          capturedSource = intent.source.kind;
-          return {
-            ok: true,
-            value: {
-              version: 1,
-              operationId: intent.operationId,
-              projectId: intent.projectId,
-              storeEpoch: intent.storeEpoch,
-              mode: intent.mode,
-              duplicate: false,
-              sourceRootBlockIds: ["card-1"],
-              resultRootBlockIds: ["card-1"],
-              copiedBlockIds: {},
-              transformationEvidence: [],
-              finalLocations: {
-                "card-1": {
-                  kind: "database",
-                  databaseBlockId: "database-1",
-                },
-              },
-              finalLocationRevisions: { "card-1": 2 },
-              documentCommits: [],
-              affectedDatabaseBlockIds: ["database-1"],
-              changeLogSeq: 11,
-              committedAt: "2026-07-12T00:00:01.000Z",
-            },
-          };
-        },
       },
-    });
-
-    expect(result.changeLogSeq).toBe(11);
-    expect(capturedMode).toBe("move");
-    expect(capturedSource).toBe("space");
+    })).rejects.toBeInstanceOf(DatabaseManagementMutationError);
   });
 });

@@ -93,7 +93,7 @@ describe("Nodex Agent tool contracts", () => {
   test("accepts one-call creation of a complete multi-Block NFM Card without revisions", () => {
     const parsed = CreateInputSchema.safeParse({
       resource: {
-        kind: "card",
+        kind: "page",
         title: { kind: "plain", text: "Migration plan" },
         body: {
           format: "nfm",
@@ -256,7 +256,7 @@ describe("Nodex Agent tool contracts", () => {
 
   test("rejects ambiguous anchors, empty edits, unknown keys, and unsafe patch shapes", () => {
     expect(CreateInputSchema.safeParse({
-      resource: { kind: "card", title: { kind: "plain", text: "Card" } },
+      resource: { kind: "page", title: { kind: "plain", text: "Card" } },
       destination: {
         kind: "document",
         documentId: "document-1",

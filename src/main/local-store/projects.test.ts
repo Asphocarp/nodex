@@ -5,12 +5,17 @@ import path from "node:path";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   createProject,
+  getProject,
   listProjects,
   reorderProjects,
+  resolveProjectRunContext,
   setPinnedProjectOrder,
+  setProjectLifecycle,
   setProjectPinned,
 } from "./projects";
 import { deleteProjectBlockFirst } from "./project-deletion";
+import { createProjectSession } from "./project-sessions";
+import { createPage } from "./database-pages";
 
 const deleteProject = (projectId: string): boolean =>
   deleteProjectBlockFirst(getDb(), projectId).deleted;
@@ -124,207 +129,89 @@ describe("project service order and pinning", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("permanently retires every Project Block identity before deletion", async () => {
+  test("archives a Project without deleting its Library content", async () => {
     const ran = await withTempDatabase(async () => {
-      const project = createProject({ name: "Retired Space" });
+      const project = createProject({ name: "Archived execution context" });
+      const page = await createPage(project.id, "draft", {
+        title: "Durable Library Page",
+      });
+      const session = createProjectSession({
+        projectId: project.id,
+        noThreadFallbackTitle: "Historical work",
+      });
       const database = getDb();
-      const ownedDocument = database
-        .prepare(
-          `
-          SELECT document.id
-          FROM blocks owner
-          INNER JOIN block_documents ownership ON ownership.block_id = owner.id
-          INNER JOIN documents document ON document.id = ownership.document_id
-          WHERE owner.project_id = ? AND owner.type = 'canvas'
-          LIMIT 1
-        `,
-        )
-        .get(project.id) as { readonly id: string } | undefined;
-      if (!ownedDocument) throw new Error("Project has no Canvas Document");
-      const now = new Date().toISOString();
-      database
-        .prepare(
-          `
-          INSERT INTO blocks (
-            id, project_id, type, lifecycle, location_kind,
-            containing_document_id, location_revision, metadata_revision,
-            created_at, updated_at
-          ) VALUES (?, ?, 'paragraph', 'active', 'document', ?, 1, 1, ?, ?)
-        `,
-        )
-        .run(
-          "project-delete:nested-active",
-          project.id,
-          ownedDocument.id,
-          now,
-          now,
-        );
-      database
-        .prepare(
-          `
-          INSERT INTO blocks (
-            id, project_id, type, lifecycle, location_kind,
-            containing_document_id, location_revision, metadata_revision,
-            created_at, updated_at
-          ) VALUES (?, ?, 'paragraph', 'deleted', 'space', NULL, 1, 2, ?, ?)
-        `,
-        )
-        .run("project-delete:deleted", project.id, now, now);
-
-      const before = database
-        .prepare(
-          `
-          SELECT id, type, lifecycle
-          FROM blocks
-          WHERE project_id = ?
-          ORDER BY id
-        `,
-        )
-        .all(project.id) as readonly {
-        readonly id: string;
-        readonly type: string;
-        readonly lifecycle: string;
-      }[];
-      expect(before.some((block) => block.lifecycle === "active")).toBe(true);
-      expect(before.some((block) => block.lifecycle === "deleted")).toBe(true);
-      expect(before.some((block) => block.type === "canvas")).toBe(true);
+      const countsBefore = database.prepare(`
+        SELECT
+          (SELECT COUNT(*) FROM blocks WHERE project_id = ?) AS blocks,
+          (SELECT COUNT(*) FROM documents WHERE project_id = ?) AS documents,
+          (SELECT COUNT(*) FROM database_containers WHERE block_id = ?) AS databases,
+          (SELECT COUNT(*) FROM data_source_page_memberships
+            WHERE page_block_id = ? AND removed_at IS NULL) AS memberships
+      `).get(project.id, project.id, project.databaseId, page.id);
 
       expect(deleteProject(project.id)).toBe(true);
-      const retired = database
-        .prepare(
-          `
-          SELECT block_id, project_id, block_type, retention_root_block_id
-          FROM retired_block_identities
-          WHERE project_id = ?
-          ORDER BY block_id
-        `,
-        )
-        .all(project.id) as readonly {
-        readonly block_id: string;
-        readonly project_id: string;
-        readonly block_type: string;
-        readonly retention_root_block_id: string;
-      }[];
-      expect(JSON.stringify(retired.map((row) => row.block_id))).toBe(
-        JSON.stringify(before.map((row) => row.id)),
-      );
-      expect(
-        retired.every(
-          (row, index) =>
-            row.project_id === project.id &&
-            row.block_type === before[index]?.type &&
-            row.retention_root_block_id === row.block_id,
-        ),
-      ).toBe(true);
-      expect(
-        database
-          .prepare("SELECT 1 FROM projects WHERE id = ?")
-          .get(project.id) === undefined,
-      ).toBe(true);
-      expect(
-        database
-          .prepare("SELECT 1 FROM documents WHERE project_id = ?")
-          .get(project.id) === undefined,
-      ).toBe(true);
-
-      const replacement = createProject({ name: "Replacement Space" });
-      expect(() =>
-        database
-          .prepare(
-            `
-            INSERT INTO blocks (
-              id, project_id, type, lifecycle, location_kind,
-              containing_document_id, location_revision, metadata_revision,
-              created_at, updated_at
-            ) VALUES (?, ?, 'paragraph', 'active', 'space', NULL, 1, 1, ?, ?)
-          `,
-          )
-          .run(
-            "project-delete:nested-active",
-            replacement.id,
-            now,
-            now,
-          ),
-      ).toThrow("retired Block identity cannot be reused");
+      expect(getProject(project.id)?.lifecycle).toBe("archived");
+      expect(listProjects().some((candidate) => candidate.id === project.id))
+        .toBe(false);
+      expect(database.prepare(`
+        SELECT
+          (SELECT COUNT(*) FROM blocks WHERE project_id = ?) AS blocks,
+          (SELECT COUNT(*) FROM documents WHERE project_id = ?) AS documents,
+          (SELECT COUNT(*) FROM database_containers WHERE block_id = ?) AS databases,
+          (SELECT COUNT(*) FROM data_source_page_memberships
+            WHERE page_block_id = ? AND removed_at IS NULL) AS memberships
+      `).get(project.id, project.id, project.databaseId, page.id))
+        .toEqual(countsBefore);
+      expect(database.prepare(`
+        SELECT lifecycle FROM project_database_bindings WHERE project_id = ?
+      `).get(project.id)).toEqual({ lifecycle: "archived" });
+      expect(database.prepare(`
+        SELECT COUNT(*) AS count FROM retired_block_identities
+        WHERE project_id = ?
+      `).get(project.id)).toEqual({ count: 0 });
+      expect(database.prepare(`
+        SELECT id FROM project_sessions WHERE id = ?
+      `).get(session.id)).toEqual({ id: session.id });
+      expect(deleteProject(project.id)).toBe(false);
     });
 
     if (!ran) expect(true).toBe(true);
   });
 
-  test("rolls Project deletion back when identity retirement cannot commit", async () => {
+  test("enforces Project lifecycle before starting work and supports reactivation", async () => {
     const ran = await withTempDatabase(async () => {
-      const project = createProject({ name: "Retirement rollback" });
-      const database = getDb();
-      const blocks = database
-        .prepare(
-          "SELECT id, type FROM blocks WHERE project_id = ? ORDER BY id",
-        )
-        .all(project.id) as readonly {
-        readonly id: string;
-        readonly type: string;
-      }[];
-      const collision = blocks[0];
-      if (!collision) throw new Error("Project has no Block foundation");
-      const documentCount = (
-        database
-          .prepare(
-            "SELECT COUNT(*) AS count FROM documents WHERE project_id = ?",
-          )
-          .get(project.id) as { readonly count: number }
-      ).count;
-      database
-        .prepare(
-          `
-          INSERT INTO retired_block_identities (
-            block_id, project_id, block_type, retention_root_block_id, retired_at
-          ) VALUES (?, ?, ?, ?, ?)
-        `,
-        )
-        .run(
-          collision.id,
-          project.id,
-          collision.type,
-          collision.id,
-          new Date().toISOString(),
-        );
+      const project = createProject({ name: "Lifecycle" });
+      const inactive = setProjectLifecycle(project.id, {
+        lifecycle: "inactive",
+      });
+      expect(inactive?.lifecycle).toBe("inactive");
+      expect(inactive?.bindingRevision).toBe(project.bindingRevision + 1);
+      expect(() => resolveProjectRunContext(project.id)).toThrow(
+        "cannot start work",
+      );
+      expect(() => createProjectSession({
+        projectId: project.id,
+        noThreadFallbackTitle: "Blocked",
+      })).toThrow("cannot start work");
 
-      expect(() => deleteProject(project.id)).toThrow();
-      expect(
-        database
-          .prepare("SELECT 1 FROM projects WHERE id = ?")
-          .get(project.id) !== undefined,
-      ).toBe(true);
-      expect(
-        (
-          database
-            .prepare(
-              "SELECT COUNT(*) AS count FROM blocks WHERE project_id = ?",
-            )
-            .get(project.id) as { readonly count: number }
-        ).count,
-      ).toBe(blocks.length);
-      expect(
-        (
-          database
-            .prepare(
-              "SELECT COUNT(*) AS count FROM documents WHERE project_id = ?",
-            )
-            .get(project.id) as { readonly count: number }
-        ).count,
-      ).toBe(documentCount);
-      expect(
-        (
-          database
-            .prepare(
-              `
-              SELECT COUNT(*) AS count
-              FROM retired_block_identities
-              WHERE project_id = ?
-            `,
-            )
-            .get(project.id) as { readonly count: number }
-        ).count,
-      ).toBe(1);
+      const active = setProjectLifecycle(project.id, { lifecycle: "active" });
+      expect(active?.lifecycle).toBe("active");
+      expect(active?.bindingRevision).toBe(project.bindingRevision + 2);
+      expect(resolveProjectRunContext(project.id).canonicalProjectId)
+        .toBe(project.id);
+      expect(createProjectSession({
+        projectId: project.id,
+        noThreadFallbackTitle: "Allowed",
+      }).projectId).toBe(project.id);
+
+      expect(setProjectLifecycle(project.id, { lifecycle: "archived" })?.lifecycle)
+        .toBe("archived");
+      expect(listProjects().some((candidate) => candidate.id === project.id))
+        .toBe(false);
+      expect(setProjectLifecycle(project.id, { lifecycle: "active" })?.lifecycle)
+        .toBe("active");
+      expect(listProjects().some((candidate) => candidate.id === project.id))
+        .toBe(true);
     });
 
     if (!ran) expect(true).toBe(true);

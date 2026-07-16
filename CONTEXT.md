@@ -1,279 +1,494 @@
 # Nodex Domain Context
 
-This document defines the canonical Block-first domain language for Nodex. Product schema v58 implements engine-neutral Owned Documents, scene-native Canvas authority, exclusive Card parents, and stable dormant Database memberships directly. Files that can still read the former Card snapshot schema exist only inside the shipped-schema staging importer; they are import code, not an alternate authority or supported intermediate schema. Product startup accepts shipped source schemas v26 and v57; both publish directly to v58.
+This document defines the canonical domain language for Nodex. ADR 0017 moves
+durable content from Project-owned Spaces to the local Profile's Library,
+renames the document-like content entity from Card to Page, and separates
+Database Container, Data Source, and View identity. Earlier shipped-schema
+import code may still use legacy Card, Space, Project-content, or Database-as-
+schema terms; those names describe source data only and are not alternate
+authority.
 
 ## Product boundary
 
-Nodex is a local-first workspace for durable content and agent work. A Project provides the filesystem, execution, and data-isolation boundary. Content inside that boundary is modeled as Blocks. The user-facing name for a document-like Block is Card.
+Nodex is a local-first workspace for durable content and agent work. A local
+Profile owns one Library containing Pages, Databases, Blocks, Documents, and
+their durable history. A Project is an execution context: it owns filesystem
+roots, sessions, terminals, Codex Threads, and approval policy, binds one
+primary Database, and receives grants to Library resources. Project lifecycle
+never owns or deletes Library content.
 
-Accepted system-wide decisions live in `docs/adr/`. The completed development spike and its evidence remain in `.generated/block-first/` as implementation history.
+Accepted system-wide decisions live in `docs/adr/`. The Library/Page/Data
+Source cutover is tracked in
+`docs/plans/library-page-data-source-architecture.md`.
 
 ## Canonical terms
 
-### Space
+### Profile
 
-A Space is the content scope owned by one Project. `projectId` is the isolation key for Blocks, Documents, Database records, assets, search units, and operations. Space is a domain role played by the existing Project; it is not a persisted Block type.
+A Profile is one local Nodex installation context with its own filesystem data
+directory, process lock, SQLite store, browser session, and preferences. Each
+Profile owns exactly one Library. Profile is not a Block and is not inferred
+from any Project.
+
+### Library
+
+Library is the durable content scope. `libraryId` is the ownership coordinate
+for Blocks, Documents, Databases, Data Sources, Views, assets, search units,
+schedules, revisions, and content mutation evidence. One Profile has one
+Library; many Projects may receive access to it.
+
+Library is not a Block. A top-level Block has a Library parent and a fractional
+rank. Archiving or deleting a Project leaves the Library and all of its content
+unchanged.
 
 ### Block
 
-A Block is the only persistent content identity. Every content object has one globally unique application `blockId`, a type, lifecycle, Space, and current location. A Block can be text, media, a Card, a Database, a reference, or another registered type.
+A Block is the only persistent application content identity. Every content
+object has one globally unique `blockId`, a type, lifecycle, Library, and one
+current parent. A Block can be text, media, a Page, a Database, a reference, or
+another registered type.
 
-Yjs internal client and struct identifiers are implementation details. They never replace `blockId` and are not exposed as application identity.
+Yjs client and struct identifiers are implementation details and never replace
+`blockId`. Physical retention may remove a live Block only after global
+ownership, reference, history, and recovery reachability is disproved. Its ID
+then remains permanently in `retired_block_identities`; no creation, import,
+copy, relocation, or migration may reuse it.
 
-Physical retention may remove the live Block row only after global reachability is disproved. The application ID then remains forever in `retired_block_identities`; no create, import, clone, relocation, or migration may reuse it. Deleting a whole Project is the only bulk physical-removal path: it runs through `BlockMutationWriter`, permanently retires every Block identity in that Space inside the deletion transaction, then revokes only those Documents from the live sync Hub after commit.
+### Page
 
-### Card
+A Page is a document-bearing Block. Page has no separate storage identity: Page
+ID is Block ID. Every Page owns exactly one Document containing its
+collaborative rich title and body.
 
-A Card is the user-facing name for a document-bearing Block. A Card has no separate storage identity: the Card ID is its Block ID. Every Card owns exactly one Document containing its collaborative title and body.
+Page Detail is the membership-independent read Interface for opening that
+identity. It combines Block parent/lifecycle coordinates, owned Document and
+exact-head projection, intrinsic property coordinates, and the optional Data
+Source context implied by the Page's current parent. Library- and Page-parented
+Pages are complete Pages without Source-defined status, priority, due date, or
+View order. Data Source query rows are projections and must never be Page
+existence checks.
 
-Card Detail is the membership-independent read boundary for opening that identity. It combines the Card Block/location, owned Document coordinate and exact-head projection, intrinsic property coordinates, and an optional active Database capability in one versioned result. A Space- or Document-parented Card is therefore a complete Card even though it has no status, priority, View order, or other Database values. The wide `Card`/`CardSummary` projections are Database-row read models and must not be used as Card existence checks.
+Every active Page has one exclusive parent:
 
-A Card has exactly one parent: a Space, another Document, or a Database. It can also be shown through non-owning references and Database views. Nesting a Card moves its shell placement; it does not copy or embed the Card's owned body into the containing Document.
+- `library`: a top-level Page ordered in the Library;
+- `page`: a nested Page whose childless shell is stored in the parent Page's
+  Document; or
+- `data_source`: a structured row Page governed by one Data Source schema.
 
-Card Stage resolves the owned Document with the exact `(projectId, cardBlockId)` pair. It never derives a Document ID from a Card ID or treats a Card read model as proof of content authority. Only a ready descriptor whose registered sync engine is `yjs` may mount Card Stage; the current schema has no snapshot-editor fallback.
+Nesting moves the Page shell and does not copy its title/body into the parent
+Document. A `pageRef`, View, relation, mention, backlink, or link may present a
+Page elsewhere without changing its parent.
 
-Card Stage always exposes title/body, history, and run-target behavior. Agent execution state belongs to the owning Thread, project session, and Codex runtime; it is not Card or Block state. Database status, priority, estimate, tags, assignee, schedule, occurrence, move, and Database lifecycle actions exist only when Card Detail carries their active membership/property coordinates. Opening a standalone Card never creates or reactivates membership. Changing membership does not change its Block or owned Document identity.
+Page Stage resolves the owned Document with exact `(libraryId, pageId)`
+identity after Project access has been evaluated. It never derives a Document
+ID from Page ID, treats a query row as content authority, or initializes an
+existing Document from a projection. Only a ready descriptor for the registered
+sync engine may mount.
+
+Page Stage always exposes title, body, history, and Page-intrinsic run/schedule
+behavior. Live Agent execution state belongs to Thread/session/Codex runtime.
+Source-defined properties and View actions exist only for a Data
+Source-parented Page with exact Source/property coordinates. Opening a Page
+never moves it or creates/reactivates membership.
+
+`Card` is not a domain alias. It may be used only for a visual presentation
+such as `KanbanCard` or a generic request-card component.
 
 ### Document
 
-A Document is an independently loaded, persisted, synchronized, and history-scoped content owner. Its identity is `documentId`; its registered schema selects a content-specific sync engine. A `block_tree` Card Document uses Yjs and has exactly two named shared roots:
+A Document is an independently loaded, persisted, synchronized, and
+history-scoped content owner. Its identity is `documentId`; its registration
+selects schema, content model, and sync engine. Document is an implementation
+coordinate and is never exposed as a Page parent noun.
 
-- `Y.Text("title")` for the Card's canonical rich title. Its validated Delta preserves supported styles, links, and inline application objects; plain title text is only a rebuildable projection.
-- `Y.XmlFragment("body")` for the BlockNote-compatible body tree.
+A `block_tree` Page Document uses Yjs and has exactly two roots:
 
-No additional named shared roots are valid. The body fragment contains one canonical root `blockGroup` so every persisted ready Document can be mounted by the editor schema.
+- `Y.Text("title")` is canonical rich title authority; its validated Delta
+  preserves styles, links, and inline application objects.
+- `Y.XmlFragment("body")` contains one canonical BlockNote-compatible root
+  `blockGroup`.
 
-A body-only Block Document has exactly one `Y.XmlFragment("body")` root and no synthetic title. Synced Block sources (`nodex.synced-block@1`) and Reusable Template sources (`nodex.reusable-template@1`) share one root/envelope primitive. Document schemas dispatch through an exact `(ownerType, schemaKey, schemaVersion, contentModel, syncEngine)` registration and then apply type-specific content validation. BlockNote-backed Documents use the `block_tree` content model and `yjs` engine; Canvas uses the `scene_graph` content model and `canvas_scene` engine.
+A body-only Block Document has one `body` root and no synthetic title. Synced
+Block and Reusable Template sources share that primitive. Canvas uses a
+registered `scene_graph` content model and `canvas_scene` engine. The Yjs state
+vector expresses causal state; SQLite `headSeq` orders local durable appends;
+content hashes protect integrity. None substitutes for another.
 
-The Yjs state vector expresses causal synchronization state. SQLite `headSeq` expresses only the local durable append order. Neither is a content-integrity digest; persisted updates, snapshots, and reconstructed full states carry separate hashes.
-
-Every mounted writable `block_tree` surface owns a fresh local Y.Doc/client identity. It completes a state-vector handshake before resolving and mounting the `title` and `body` roots. A retained inactive surface may keep content synchronization alive, but it clears its local Awareness state so a hidden tab does not appear present. A mounted Canvas instead owns a scene-native provider/client session and completes a canonical scene handshake before mounting Excalidraw.
+Every mounted writable surface owns a fresh engine client identity and finishes
+its handshake before mounting content. Retained inactive surfaces clear
+ephemeral Awareness. Canvas mounts through the scene-native provider and full
+canonical scene repair path.
 
 ### Document-bearing Block
 
-A document-bearing Block owns a Document through `block_documents`. Card, the system-managed Synced Block source, Reusable Template source, and Canvas are registered document-bearing types. Every Project has one deterministic primary Canvas Block whose `nodex.canvas@1` Document uses the separate `scene_graph` content model. Ordinary paragraphs, headings, lists, and code Blocks remain first-class Blocks but share the nearest owning Document and are never promoted because of size. Long-form content is modeled as a Card; size may tune loading or caching but never durable type or ownership.
+A document-bearing Block owns a Document through `block_documents`. Page,
+system-managed Synced Block source, Reusable Template source, and Canvas are
+registered owners. Ordinary paragraph, heading, list, code, media, and reference
+Blocks share the nearest owning Document. Content size never changes ownership
+automatically; long-form content is modeled as Page.
 
-A Canvas Document stores normalized Excalidraw authority in SQLite: one current portable JSON value per element, bounded durable app-state fields, ordering, and immutable managed-file metadata. Concurrent candidates resolve by Excalidraw version and version nonce, with a canonical payload-hash tie-break; absence never deletes an element, so deletion requires an explicit tombstone. Application Card references store only `targetBlockId` plus a disposable title hint. Binary image data is uploaded first and the scene mutation retains only a `nodex://assets/*` URI. Renderers durably enqueue exact mutations in a local outbox, invalidate that outbox across store-epoch or generation changes, and repair event gaps by loading the full canonical scene.
+A Canvas Document stores normalized Excalidraw elements, bounded durable app
+state, order, and managed-file metadata. Application Page references retain
+only `targetBlockId` plus a disposable title hint. Asset data is uploaded first
+and scene authority stores a `nodex://assets/*` URI.
 
-Document ownership changes only through an explicit promotion or demotion operation. It never changes automatically because content became large.
-
-Nodex intentionally models a Synced Block source as a hidden library resource. The source Block has a real Space placement so every active Block has one total relational location, but Card/Database/top-level navigation does not present it as another Card or page. Every visible occurrence, including the original promotion location, is a childless `syncedBlockRef` that stores only `sourceBlockId` and mounts the source Document independently. Exact owner lookup, history/search projection, reference expansion, and maintenance may address the source directly.
-
-A Reusable Template is also a library source with an authoritative human display name in intrinsic Block properties and a body-only Document. A childless `templateRef` targets the source and may carry only a disposable display hint. Instantiation reads an exact source generation/head and copies the source subtree into a target Document with fresh UUID-v7 application Block IDs; later Template edits do not mutate existing instances. Global exact-head reference scanning prevents deleting or garbage-collecting a source referenced from any Project. Deletion tombstones the complete recursively owned Block closure while retaining its Documents and immutable history for retention GC. Template content cannot contain a document-bearing owner shell until a future typed deep-clone operation can also allocate and commit the nested owned Documents.
+Synced Block and Reusable Template remain dormant capabilities without ordinary
+Library UI. Their hidden source Blocks have real Library placement and body-only
+Documents. `syncedBlockRef` presents live source content; `templateRef`
+instantiates an exact source state with fresh Block IDs. Reference scanning and
+retention are Library-global, not Project-local.
 
 ### Block shell
 
-A Block shell is the representation of a Block inside its containing Document. For an ordinary Block, the shell and its content live together in the host Document. For a document-bearing Block, the host Document stores only its shell identity and presentation fields; the owned Document remains separate and is loaded independently.
+A Block shell is a Block's representation in the Document that physically
+contains it. Ordinary Block content lives in its host Document. A nested
+document-bearing Block stores only a childless shell there; the owned Document
+loads independently.
 
-An inline document-bearing shell is per-user local UI over that ownership boundary. Its disclosure preference is browser-profile state keyed by the stable shell Block ID; it is neither collaborative content nor a Document property. Collapsed or offscreen Synced and Template shells create no provider or editor. Expanding a visible shell mounts the owner through the registered owned-Document boundary and the shared window activation budget; collapsing unmounts it. Card is Page-like rather than a generic body-only shell: child `card` and non-owning `cardRef` Blocks share one flat outliner presentation. An idle collapsed row reads portable-rich title from the exact-head summary without a provider. Explicit title engagement may mount one target runtime while disclosure remains collapsed; its Y.Text title replaces the projection, but its body editor is constructed only while disclosed and appears at normal child indentation. Engagement, disclosure, and activation are separate local states. The provider boundary never creates a nested visual card or a second title. The inherited open-owner path blocks recursive Card/body-only Document cycles. A `scene_graph` owner never mounts a BlockNote body editor and remains a Canvas-view concern.
+Nested `page` and non-owning `pageRef` Blocks share one flat outliner
+presentation. Collapsed rows read an exact-head rich-title summary without a
+provider. Explicit title engagement may mount the target title while the body
+remains collapsed. Disclosure, engagement, activation, focus, and visibility
+are local view state. Open-owner ancestry prevents direct and indirect cycles
+from mounting recursively.
 
-### Placement
+### Parent and placement
 
-Placement answers where an active Block lives. A Block has exactly one content location:
+Parent answers who owns an active Block. Page uses the explicit `library |
+page | data_source` algebra. Non-Page Blocks are Library-owned or live in the
+nearest Page/owner Document according to their registered behavior. Relational
+parent coordinates and the Document's exact tree/materialized index must agree.
 
-- `space`: directly under a Project/Space, ordered by a fractional `rankKey`.
-- `document`: inside one containing Document; parent and order are authoritative in that Yjs tree.
-- `database`: a Card child of one Database, with its typed placement detail in one matching active membership.
-
-Top-level Space order and Database View manual order are independent orderings. Both use fractional keys and `blockId` as a stable tie-breaker. SQL rank is never authoritative for order inside a Yjs Document.
+Library top-level order and View manual order are independent fractional
+orderings with `blockId` as stable tie-breaker. SQL rank never determines order
+inside a Yjs Document.
 
 ### Database
 
-A Database is a Block with a Database capability. The capability owns property definitions, memberships, shared views, and view-specific positions. A Database remains placeable like any other Block.
+A Database is a placeable Block and Container. It owns metadata, lifecycle,
+Data Sources, hosted Views, one default View, access revision, and Project
+bindings. It does not own a property schema or Page rows directly.
 
-### Database membership
+Creating a Database atomically creates the Container, a deterministic initial
+Data Source, an initial View targeting that Source, and selects that View as
+default. The single-Source UI hides the Data Source noun while contracts retain
+its explicit identity.
 
-Database membership is the typed placement record for an existing Card whose exclusive parent is that Database. It does not create a second Card or copy its Document. A Space- or Document-parented Card has no active membership; a Database-parented Card has exactly one matching active membership.
+### Data Source
 
-Leaving a Database tombstones the membership but retains its property values as dormant data. Dormant values are excluded from active queries, scheduling, summaries, and mutations. Returning to the same Database reactivates the same membership and restores those values.
+A Data Source is a relational entity with one home Database. It is never a
+Block, has no Document, and has no independent Library placement. It owns one
+typed property schema, Data Source-parented Pages, their property values,
+schema/query revisions, and dormant membership history.
 
-Linked Database views and reference Blocks do not count as memberships.
+A Data Source-parented Page is the active row identity. It has exactly one
+matching active historical-membership record. Leaving the Source tombstones
+that membership while retaining values; dormant data is excluded from queries,
+scheduling, summaries, and mutations. Returning to the same Source reactivates
+the record. Moving to another Source performs no implicit value mapping.
 
-Membership management reads all active Cards, including Cards with no membership, plus each Card's sole membership and View positions in one SQLite authority snapshot. Add, remove, and transfer therefore derive logical source/target parents without requiring the Card to be visible through any filtered View. Public callers submit that parent change through `BlockTransfer`; the Database kernel's membership transition is an internal step of the same atomic commit, never a separately callable placement authority.
-
-### Database property
-
-A Database property is a typed field defined by a Database capability. Values belong to the Card membership and are mutated by field/path-level operations. Scalar properties use revision-aware conflict responses. Set-like properties such as tags preserve add/remove intent.
-
-Recurrence, reminders, run-target configuration, and other behavior intrinsic to a Card are generic Block properties with typed read models; they are not Database membership fields merely because a Database View displays them. Live Agent execution state is Thread/runtime state and never enters this property vocabulary.
+Status, priority, due date, and similar collection fields are Source-defined
+properties. Scalar edits use revision preconditions; set-like values preserve
+add/remove intent. Recurrence, reminders, run-target configuration, and other
+behavior intrinsic to a Page remain generic Block properties even if displayed
+by a View.
 
 ### Database View
 
-A Database View is a durable shared query definition over one Database. It stores filter, sort, group, display, and view-specific manual positions. The active view, search text, selection, and expansion state are window-local and are not part of the durable view definition.
+A Database View is a durable presentation belonging to one Database and
+targeting exactly one Data Source. It stores filter, sort, group, display, and
+Page-specific manual positions. Active View, search text, selection, expansion,
+and display interaction remain window-local.
 
-Renaming or changing a View addresses the selected stable `databaseViewId` and its exact revision. It never silently edits the Project's primary View merely because that View is easier to resolve.
+View position identity is `(databaseViewId, pageId)`. A Page needs no position
+to qualify as a Source row; missing manual rank follows the View's explicit null
+policy. The Page must be actively parented by the View's target Source.
 
-An inline Database View Block stores only its own `blockId` and a `databaseViewId`. The query executes over durable memberships and view configuration; result rows are read projections and never become children of the host Document.
+The first implementation requires the target Source's home Database to equal
+the View's host Database. A future linked View will own a new View identity and
+must require access to both host Database and target Source home Database. An
+inline Database View Block stores only its own Block ID and stable View ID;
+query rows never become host Document children.
+
+### Project
+
+A Project is an execution context, not content. It owns filesystem sources,
+sessions, tabs, terminals, Codex Threads, runtime settings, and approval policy.
+It binds exactly one primary Database and has lifecycle `active | inactive |
+archived`. One Database has at most one active Project.
+
+Active Projects may create and run Sessions. Inactive and archived Projects
+retain history but cannot start work and are read-only. Reactivation restores
+current implicit access after current lifecycle/revisions are checked; it never
+revives an expired approval or archived Session automatically. Project archive
+or deletion never deletes Library resources.
+
+### Project resource grant
+
+A Project resource grant authorizes `read` or `read_write` access to one Page or
+Database root and its ownership closure. Active Project binding supplies an
+implicit recursive read-write grant to the primary Database. All foreign
+resources require explicit grants.
+
+Database closure includes owned Data Sources, hosted Views, Source-parented
+Pages, nested Pages, owned Documents, and assets. Page closure includes nested
+Pages, physically nested Databases, Documents, and assets. Closure never follows
+`pageRef`, relation, linked View, mention, backlink, or ordinary link edges.
+
+A grant to one Source-parented Page exposes only the read-only schema slice
+needed to interpret that Page's current values. It never permits sibling query
+or schema management. `read_write` permits Page content/current-value edits but
+not structural schema, grant, Data Source move, archive, or permanent-delete
+operations.
+
+Authorization and approval are independent. Authorization decides whether the
+Project may act on the resource; approval decides whether an authorized action
+may proceed automatically, once, for the task, or not at all.
 
 ### Reference Block
 
-A Reference Block is a Block with its own `blockId` and a stable `targetBlockId`. It presents another Block without changing that target's placement or membership. An idle collapsed Card reference reads a rebuildable portable-rich Card-content summary that is valid whether the Card belongs to a Database, Space, or containing Document. Database-row properties and View position are not part of target resolution. Explicit title editing or expanded visibility mounts exactly one target Card surface for the collaborative title row; disclosure alone controls whether that same surface constructs its body editor. The foreign body never becomes content of the host Document. Its hollow-caret outliner appearance is the same as an exclusively nested Card Block because relationship semantics do not create another visual container.
+A Reference Block has its own `blockId` and stable `targetBlockId`. It presents
+foreign content without changing parent, membership, or authority. `pageRef`
+uses its own identity so duplicate mounts retain independent local disclosure.
+Idle references read rebuildable exact-head summaries; an active surface mounts
+the target Page's Document directly after access evaluation. The foreign body
+never becomes host content.
 
-A `syncedBlockRef` follows the same foreign-body rule and targets a `synced_block_source`. Promotion moves the selected subtree IDs into that source's body and allocates a new reference ID at the host location. Copy allocates fresh IDs recursively. Demotion is permitted only when exact-head projections prove a sole reference; one dual-Document fence then relocates the original IDs back, empties the source Y.Doc/projection at a new durable head, and tombstones the source resource and reference atomically.
-
-A `templateRef` follows the same foreign-body rule but has copy-on-instantiate semantics rather than live-content expansion semantics. Collapsed reference UI resolves the source's authoritative summary when the production query transport is available; its optional display hint is never the source name authority and opaque IDs are not user-facing labels.
-
-Synced source, Template, and non-primary Canvas ownership changes use one versioned Additional Document command. The Project route and actor/session are trusted transport evidence and are rebound by Electron main or loopback HTTP. Logical intent retains `operationId`, `storeEpoch`, application identities, generations, and requested placement; only the Document Hub may renew execution heads after mounted surfaces flush and freeze. Creation and reference-guarded recursive tombstoning commit through the same receipt boundary. The CLI and renderer API submit this same envelope, and committed heads repair through the registered engine's ordinary realtime resync path rather than a second ownership channel.
-
-Reference disclosure is per-user local preference state. Each renderer hydrates a stable shell Block ID from the browser profile and shares that preference across duplicate mounts in the same renderer; another active window is not live-driven by the change. A `cardRef` uses its own reference Block ID rather than the target Card ID, so separate occurrences remain independent. Moves retain disclosure state with the stable ID and copies default collapsed with their new IDs. Title engagement, visibility, provider activation, focus recency, navigation handles, and activation-budget membership remain per-mount ephemeral and never enter Y.Doc, NFM, history, or undo. Focused title engagement outranks visibility-only admission without exceeding the provider cap. Temporary loading, error, or cycle eligibility may suppress effective expansion but must not erase the stored preference. A mounted Card row owns one stable observed DOM frame; projected, loading, and active content are slots inside it, so provider admission cannot invalidate its own visibility observation. Its editor-scoped navigation handle lets adjacent host and nested body editors traverse the title as a visible boundary without copying it into either editor. Every nested surface carries its open Card ancestry, so direct and indirect cycles such as A → B → A remain summary/navigation-only. Canonical Card and Database View references are childless. An unresolved legacy reference reserves a tombstoned diagnostic Block identity so a later unrelated create cannot silently capture the target ID.
+References are childless and never participate in ownership traversal for copy,
+retention, or grants. Copy preserves reference targets. Unresolved legacy
+references reserve tombstoned diagnostic identities so unrelated creation
+cannot capture the target ID.
 
 ### Projection
 
-A projection is rebuildable data derived from the authoritative Block, Document, and Database records. NFM, plain text, previews, search units, asset references, Card read models, and scheduled-card indexes are projections. A projection can lag, be discarded, and be rebuilt. It must never be used to reconstruct an already-existing Yjs Document.
+A projection is rebuildable data derived from authoritative Block, Document,
+Data Source, View, and property records. NFM, plain text, previews, search units,
+asset references, Page read models, and schedule indexes may lag, be discarded,
+and be rebuilt. They never reconstruct an already-existing Document.
 
-The v58 property/projection foundation keeps Card-intrinsic agent/run/recurrence/reminder state in `block_properties`, Database membership values in typed relational records, and scheduler reads in `scheduled_card_index`. Recurrence exceptions and reminder evidence belong to the owning Card Block. Projection coordinates must match the current metadata revision or Document generation/head before a reader may use them.
-
-Durable secondary evidence is separate from rebuildable projections. `document_versions` is the immutable semantic Document Revision ledger, independent of operational update compaction. A BlockTree revision retains stable Block IDs plus rich Card title; NFM and other preview fields are rederived projections, never restoration authority. `block_mutations` is the idempotency/history ledger for property/location/membership operations. `block_search_units`, `block_asset_refs`, and `card_read_model` carry explicit Document generation/head or Block/property revisions and may be deleted and rebuilt. No projection writes back into Y.Doc or property authority.
-
-During a shipped-schema staging import, stable Block/Document identity rather than a mutable Project coordinate becomes the foreign-key edge for retained relocation, recovery, version, membership, and Canvas-reference evidence. A v26 source is first normalized semantically into the common Card-first import shape without changing its marker. The importer then drains shadow content and foreign-body references to a fixed point, repairs projections, verifies every owned Document and managed asset, and drops `cards`, legacy history/description storage, migration ledgers, the old Canvas row, and the transfer fence before publishing v58. Current Project transfer mutates only Block/Document/Database authority and rebuildable projections.
-
-A structured property mutation is a versioned, project/store-scoped field-intent batch with one immutable `mutationId`. Scalar fields compare their own property revision rather than a whole-Card revision; set-like values apply add/remove intent against the current set. The property values, any coupled View grouping, one `metadataRevision` advance per affected Card, full Card/schedule projections, change-log cursor, and accepted or rejected receipt are one SQLite transaction. Retrying the same canonical request replays its prior outcome; the same ID can never name different intent.
-
-Scheduler and Calendar reads begin with `scheduled_card_index`, never the wide Card row. An index row is visible only when its source metadata revision equals the current Card Block revision; title/body additionally require the ready Card Document's exact current Yjs materialization. Invalid or stale index/content coordinates fail closed, and the index can be rebuilt completely from Database plus intrinsic Block properties.
-
-The materialization committed with each Card Document head supplies title, NFM, preview, references, and assets to Card-named read models. Card/Board/reference summaries combine that exact-head content with current Block identity and Database/intrinsic properties in one SQLite read snapshot. Fanout never writes a projection back into content or metadata authority.
+`document_versions` is immutable semantic revision authority rather than a
+projection. `block_mutations` and relocation records retain idempotency/history
+evidence. Projections carry exact Library, Document generation/head, Block
+metadata/property, and Source coordinates needed to reject stale reads.
 
 ### Nested Markdown (internal NFM)
 
-Nested Markdown is Nodex's public text interchange format; internal modules and persisted compatibility identifiers may still call it NFM. It is used for genesis import, explicit compare-and-swap replacement, export, and materialized reads. Nested Markdown does not preserve every internal identity and is never a collaborative write authority.
-
-There is no ordinary whole-Card update transport. Card lifecycle, Block/Database properties, and Document content use separate typed commands. Retired Card creation/deletion/description endpoints return `410 Gone` with their authoritative replacements. A whole-body NFM import must use `ReplaceDocumentFromNfm` with the current Document generation and head; renderer editing always emits Yjs updates instead.
+NFM is a deterministic text projection for genesis import, explicit
+compare-and-swap replacement, export, and materialized reads. It does not
+preserve every internal identity and is never collaborative write authority.
+There is no ordinary whole-Page update transport.
 
 ### Mutation
 
-A mutation is a durable user or agent intent applied by the single SQLite writer. Document updates, property edits, membership changes, and placements are different mutation families but share idempotency, project scoping, durable acknowledgement, history, and change-log rules.
+A mutation is durable user or Agent intent applied by the single SQLite writer.
+Document updates, Page parents, Block/Data Source properties, View positions,
+Project bindings, and resource grants are different families but share bounded
+validation, caller-retained operation IDs, canonical semantic equality,
+immutable receipts, post-commit acknowledgement, history, and change-log rules.
 
-Every logical operation that may be retried after losing its response has a caller-generated operation identity. Canonical intent, not the transport attempt, determines equality: actor and client session are immutable first-seen audit fields and never participate in the logical hash. A committed operation records one canonical Block change; a deterministic precondition rejection records only an immutable rejected receipt and no authority change. Exact retry returns the same result after restart or transport switching, while any semantic reuse of the identity is a typed collision.
+The host binds Profile, Library, Project, Session, actor, and store epoch; public
+callers cannot forge scope. Every content mutation evaluates current Project
+lifecycle, binding/grant/access revisions, and independent approval policy.
 
-`BlockTransfer` is the sole public same-Project parent-change command. Its logical Intent contains stable root IDs, current logical source, destination anchors, and Move/Copy mode but no guessed SQL/Yjs revisions. The FIFO writer compiles exact locations, memberships, and Document heads; the Hub leases every affected mounted Document, flushes and freezes it, recompiles, then commits all Yjs, registry, placement, Database, projection, history, and receipt changes together. Copy recursively allocates fresh ownership identities and never follows reference targets. Same-parent Yjs order and Database View order remain focused in-parent operations rather than fake parent transfers.
+`BlockTransfer` moves/copies ownership within one Library. It accepts logical
+Page/Block roots and Library/Page/Data Source targets, while the writer compiles
+exact parent, membership, View, and Document heads. Copy recursively allocates
+fresh ownership identities and never follows reference targets. Project change
+is no longer a content transfer; access changes through binding/grants.
 
-Occurrence complete/skip/update is another operation family. It mutates schedule/recurrence through typed Block/Database property authority and, when it can create an archived, detached, or future Card, carries a preallocated UUID-v7 `createdCardId` in the canonical command intent. Exact retry therefore targets the same identity while cloning the current source Y.Doc plus relational properties without creating another Card storage aggregate.
-
-A Document operation batch addresses application Block IDs, not Yjs struct IDs. It may set the title or insert, update, delete, and move Blocks in order. The writer validates the entire batch on a detached current-head clone before committing one relative Yjs update and its registry, projections, mutation receipt, and change-log evidence atomically. Operations that replace or remove existing Yjs structs require a short trusted write fence and record every invalidated Block/subtree ID; an offline update that crosses such a barrier may merge only when its derived touched IDs are disjoint. Otherwise Nodex persists a recovery artifact and requires reload. A tombstoned Block ID is never a valid create/import identity.
-
-Block-to-Card transformation reads one semantic shape from exact Yjs authority: the source root's primary rich inline content and its ordered children. A losslessly promotable Move consumes the root as the Card owner, preserves that root ID as the Card ID, writes the primary content to the owned rich title, and makes the original children the Card body roots. Copy first allocates the recursive fresh-ID map and applies the same transformation. The source root is never cloned into body. Roots with unsupported inline objects or unmapped type-specific state receive a wrapper Card or a typed rejection rather than losing content.
+A Document operation batch addresses application Block IDs and validates the
+complete result on a current-head clone before atomically committing the engine
+update, registry/index changes, projections, revision, receipt, and change log.
+Barrier-crossing offline edits either prove disjoint derived touched IDs or
+become durable recovery artifacts requiring reload.
 
 ### Relocation
 
-A relocation is an atomic move of one or more Block subtrees between Documents or between a Document and a Space. It preserves application Block IDs. A copy is different: it allocates new IDs for the copied subtree while preserving reference targets.
+Relocation is an atomic parent change for one or more ownership subtrees. A move
+preserves Page/Block IDs and owned Document history. A copy allocates fresh IDs
+for the ownership closure while preserving reference targets.
 
-Cross-Document relocation uses short-lived write fences and an ephemeral lease so active editors flush composition and pending updates before the writer validates and commits source and target changes together.
-
-The renderer submits only a logical relocation intent: stable root Block IDs, source Document generation, and the target parent/anchor. It never supplies a guessed SQL head or location revision. The realtime Hub prepares once to establish the lease boundary, waits for every mounted source/target surface to commit IME, flush, and freeze, then prepares again so the SQLite writer receives the latest durable heads and Block location revisions. A response retry reuses the same relocation ID; the immutable ledger returns the committed result or a resync receipt after update compaction.
-
-The relocation ledger stores the immutable request/result, moved-member set, source pre-relocation state, per-Document update receipts, recovery artifacts, and shared change-log cursor. A stale binary update that overlaps moved Blocks is never applied blindly: safe remaining edits may commit, while inseparable moved content becomes a durable recovery artifact and forces a typed reload boundary.
-
-### Card Project transfer
-
-A Card Project transfer moves one active Database-parented Card plus the complete recursively owned Document/Block closure. Traversal follows `block_documents` ownership only; Card, Database View, Synced Block, Template, and Canvas references remain external targets and are never pulled into the new Space. Every Block ID, Document ID, generation/head, and engine-specific authority identity is preserved; Yjs state vectors, persisted updates, and internal identities remain unchanged for `block_tree` Documents.
-
-Electron, browser, renderer, and CLI callers submit only logical intent: operation ID, source/target Project, Card, target Database/View/status, and optional placement anchors. The FIFO writer first checks that intent against an immutable receipt, then compiles one exact snapshot of Block revisions, every recursively owned Document head, active Card memberships, root placement, and target schema. The realtime Hub leases every Document in that closure, lets mounted editors finish IME/flush/freeze, and asks the same FIFO to compile again; the second snapshot must retain the same logical intent/Document closure and observe every resolved head before commit.
-
-The writer requires target properties to represent every source value, tombstones each source membership, creates fresh target membership/value/View-position identities, moves intrinsic and projection coordinates, and records one immutable `block_mutations`/`change_log` receipt. Composite Project foreign keys are deferred only for that IMMEDIATE transaction and must be fully satisfied before commit. A pre-commit failure exposes the complete old state; a lost response after commit replays the complete new receipt without reading the now-obsolete source coordinate. Commit fanout removes the source Board row, publishes the target authoritative summary, invalidates both Projects' Database queries, and forces state-vector resync for every moved Document.
+Cross-Document relocation leases affected mounted Documents, lets editors
+finish IME/flush/freeze, recompiles exact heads and parents, and commits source,
+target, registry, membership, projection, history, receipt, and change evidence
+together. Response retry returns the immutable result.
 
 ### Store epoch and Document generation
 
-`storeEpoch` identifies one restored lifetime of the local SQLite store. It rotates after restore. `generation` identifies one reset/replacement lifetime of a Document. Durable updates and disposable client caches must match both values; old caches and outboxes are rejected rather than replayed into a restored state.
+`storeEpoch` identifies one restored lifetime of the SQLite store and rotates
+after restore. `generation` identifies one reset/replacement lifetime of a
+Document. Durable updates and disposable caches/outboxes must match both; stale
+state is rejected rather than replayed.
 
 ## Authority and ownership
 
 | State | Canonical authority |
 | --- | --- |
-| Block identity, type, lifecycle, Space, and containing location | `blocks` |
-| Card title and body content | Card Y.Doc |
-| Synced Block source body | body-only Synced Block Y.Doc |
-| Ordinary Block hierarchy, order, and content | nearest Card Y.Doc |
-| Canvas elements, durable app state, and managed-file metadata | normalized Canvas scene rows |
+| Profile → Library | `profiles` and `libraries` |
+| Block identity, type, lifecycle, Library, and parent | `blocks` plus typed placement detail |
+| Page title and body | Page Document (`yjs`) |
+| Ordinary Block hierarchy/order/content | nearest owning Document |
+| Canvas scene and managed-file metadata | normalized Canvas scene rows |
 | Document ownership | `block_documents` |
-| Top-level Space placement | `top_level_block_placements` |
-| Database definitions, membership, property values, and shared views | Database relational records |
-| Intrinsic Card behavior | generic Block properties plus typed read models |
-| NFM, preview, search, schedule, asset, and Card summary data | rebuildable projections |
-| Restorable historical Document states | immutable semantic `document_versions` revisions |
-| Cursor, presence, and relocation lease | ephemeral collaboration state |
-| Block disclosure preference | browser-profile-scoped per-user local view state |
-| Visibility, provider activation, selection, active view, and search | window-local ephemeral view state |
-| Project sessions, tabs, and panels | existing shell domain |
+| Library top-level placement | Library placement records |
+| Database metadata, lifecycle, default View | Database Container records |
+| Schema, Pages, and property values | Data Source relational records |
+| View query/configuration/manual Page position | Database View records |
+| Project binding/lifecycle | Project execution records |
+| Foreign Page/Database capability | Project resource grants |
+| Page-intrinsic schedule/run behavior | generic Block properties and typed read models |
+| NFM, preview, search, schedule, asset, and Page summary | rebuildable projections |
+| Restorable Document states | immutable semantic Document revisions |
+| Presence, cursor, selection, leases | ephemeral collaboration state |
+| Project sessions, tabs, panels, Threads | Project execution domain |
 
 ## Invariants
 
-1. `blocks.id` is the single application identity for content. A Card ID is a Block ID.
-2. Every active Block belongs to exactly one Project/Space and has exactly one content location: Space, containing Document, or containing Database.
-3. Every Card owns exactly one active Document. Registered Synced Block, Template, and Canvas owners use their registered Document schema; ordinary body Blocks do not own Documents.
-4. A Database-parented active Card has exactly one matching active membership; a Space- or Document-parented Card has none.
-5. A reference never changes the target's location or membership and never embeds the target's body in the host Y.Doc.
-6. A committed engine mutation is idempotent by its Document-scoped mutation identity and is acknowledged only after its SQLite transaction commits. Yjs update receipts outlive compactable binary tails; Canvas mutation receipts bind the canonical scene request to its first durable outcome.
-7. `headSeq` orders local persistence for every engine. A Yjs state vector represents only `yjs` causal content state; a Canvas scene hash protects only canonical scene content. None substitutes for another.
-8. Each mounted writable surface creates an independent engine client session, including two surfaces opened by the same user in different windows.
-9. Restoring history creates a new forward mutation in the current engine. It never rewinds a Yjs update log or replaces Canvas authority with an old snapshot.
-10. Deletion first tombstones identity. Ordinary create/import never reuses it; explicit history restore may reactivate the same Block and owned Document. Physical collection keeps the newest configured tombstone count and proceeds only after exact reference/history/recovery reachability permits the entire ownership closure.
-11. Cross-Document relocation commits source update, target update, registry changes, indexes, ledger, history, and change log in one SQLite transaction.
-12. NFM and all other projections can be rebuilt from authority. Authority is never rebuilt from an existing projection except during one-time genesis migration.
-13. A retryable logical operation ID is required at its calling boundary. Transport actor/session changes do not change semantic equality; exact retry cannot advance authority twice, and a durable rejection has no change-log cursor.
-14. Promotion/demotion of a Synced Block is fenced at every writable Document head. A source with more than one current reference cannot be demoted, and stale reference projections fail closed.
-15. A Document restore appends a forward mutation and pinned before/after revisions. NFM may display a revision but never reconstructs restoration authority.
+1. One local Profile owns exactly one Library.
+2. Library owns durable content; Project never does.
+3. `blocks.id` is the single application content identity; Page ID is Block ID.
+4. Every active Page has exactly one Library, Page, or Data Source parent.
+5. Every Page owns exactly one active Document; other registered owner types use
+   their exact registered schema.
+6. A Source-parented Page has one matching active membership; other Pages have
+   none. Dormant memberships are inert but recoverable.
+7. Database owns Data Sources and Views but not schema or Pages.
+8. Data Source owns schema, Page rows, values, and query identity.
+9. View belongs to one Database, targets one Source, and positions Pages.
+10. References never change parent or membership, copy ownership, grant access,
+    or embed a foreign body in the host Document.
+11. Each Project binds one Database; each Database has at most one active
+    Project. Project lifecycle never removes content.
+12. Recursive grants traverse ownership only; access and approval are separate.
+13. Committed engine/database/transfer mutations are idempotent and acknowledged
+    only after their SQLite transaction commits.
+14. Restore appends a forward engine mutation and never rewinds causal history.
+15. Deletion tombstones identity before collection; projections never restore
+    authority except explicit one-time genesis migration.
+16. Cross-owner relocation commits engine, registry, parent, Source, View,
+    history, receipt, and change records atomically.
+17. Database creation atomically creates Container, initial Source, initial
+    View, and default View authority.
+18. Data Source is never a Block under the accepted architecture.
 
 ## Operation semantics
 
 ### Edit
 
-A local BlockNote editor transaction updates its live Y.Doc immediately. Its provider sends an idempotent binary update with the current store epoch, Document generation, client session, and declared touched Block IDs. Declared IDs are bounded diagnostics, not authority; relocation safety uses writer-derived changes. The writer tentatively applies the update against a cloned or reloadable Document, rejects unresolved dependencies, validates the resulting schema and global identity set, commits the update and derived registry/index changes, then acknowledges and fans it out. Remote-origin transactions do not echo and do not enter the local undo stack.
+Local Page/BlockNote transactions update a live Y.Doc immediately and send an
+idempotent binary update with store epoch, generation, client session, and
+bounded touched-ID diagnostics. The writer applies it to a clone/reloadable
+Document, resolves dependencies, validates schema and global identity, commits
+update plus derived records, then acknowledges and fans out. Remote-origin
+transactions neither echo nor enter local undo.
 
-A local Canvas edit updates Excalidraw and its undo stack immediately. The scene provider coalesces observations, normalizes runtime values, uploads referenced assets, persists the exact mutation to its outbox, and sends element candidates plus app-state intent through the same durable FIFO boundary. Remote canonical scenes reconcile with `CaptureUpdateAction.NEVER`; gaps and reconnects load one full canonical scene rather than replaying guessed snapshots.
+Canvas edits update Excalidraw/local undo immediately. The provider normalizes
+runtime values, uploads assets, persists the exact outbox mutation, and sends
+canonical scene intent through the same durable FIFO. Remote repair never
+guesses snapshots.
 
-Card title undo and body undo are local to the mounted surface's tracked transaction origins. Awareness is ephemeral and window/session-specific rather than an edit lock. Surface close/deactivation persistence is bounded: content remains pending until durable acknowledgement or a disposable local checkpoint, and a close path must not wait forever on an offline transport. Normal fast acknowledgements render no sync chrome; only sustained pending, offline, error, or reset states become visible.
+Title and body undo remain local to the mounted surface. Awareness is ephemeral
+and not a lock. Close/deactivation persistence is bounded: durable
+acknowledgement or disposable local checkpoint, never an unbounded offline wait.
 
 ### Explicit NFM replacement
 
-`ReplaceDocumentFromNfm` is an import seam, not a normal update path. It requires an expected Document head or state precondition, parses and validates NFM, and generates a transaction on the existing Y.Doc. It does not create a new Y.Doc or reset causal history.
-
-Because public NFM does not encode Block IDs, replacement preserves an existing identity only when a conservative semantic/parent match is unambiguous. It allocates fresh UUID-v7 IDs for unmatched nodes, then compiles the target BlockTree into the same stable-ID Document operation engine. It never writes a materialized NFM snapshot directly into authority.
+`ReplaceDocumentFromNfm` requires an expected current Document head, parses and
+validates NFM, and generates operations against the existing Y.Doc. It does not
+replace the Y.Doc or causal history. Existing IDs survive only when conservative
+semantic/parent matching is unambiguous; unmatched nodes receive fresh UUID-v7
+IDs.
 
 ### Document revision history
 
-Meaningful Card content history is retained as immutable semantic Document revisions. Human edits create a pre-burst safety revision, an active revision at least every ten minutes, and an automatic revision after two minutes idle or during shutdown. Strict semantic commands create an immediate revision linked to their mutation/change evidence. Named and restore revisions are pinned; unpinned revisions use deterministic recent/hourly/daily retention.
+Meaningful Page content history is immutable semantic Document revisions.
+Human edits create pre-burst, periodic active, idle/shutdown revisions; strict
+semantic commands create immediate linked revisions. Named/restore revisions
+are pinned; unpinned retention is deterministic recent/hourly/daily.
 
-Card History projects one content entry for a linked command and revision, while property, Database, lifecycle, and relocation evidence remains Activity. Reading a BlockTree revision recreates its registered semantic Document from stable-ID BlockTree and rich title, then derives the read-only NFM preview. Restore saves current content and applies the chosen semantic state as a new forward change; it never rewinds Yjs or deletes later history.
+Page History combines content revisions with property, Data Source, lifecycle,
+and relocation activity. Reading recreates the registered semantic Document and
+derives NFM preview. Restore pins current state and applies selected semantic
+state as a new forward mutation.
 
 ### Move and copy
 
-Moving within one Document is one Yjs transaction. Moving across Documents uses relocation. Moving a document-bearing Card changes only its shell placement; its owned `documentId` and body remain unchanged. Copying allocates fresh Block IDs recursively and, when copying a document-bearing Block as a new Card, allocates a fresh owned Document.
+Moving within one Document is one engine transaction; cross-Document movement
+uses relocation. Moving Page changes shell/parent only and preserves its owned
+Document. Moving into/out of a Source changes active membership atomically and
+leaves old Source values dormant. Copy allocates a fresh ownership closure.
 
 ### Restore and backup
 
-A backup is copied only while one whole-store maintenance fence has drained managed asset writes, flushed the writer FIFO, and closed both worker and main SQLite connections. A standalone read-only source performs the SQLite backup while ordinary main access fails closed. A pre-restore safety backup and the replacement happen under that same uninterrupted fence, so no accepted write can fall between them.
-
-Restore treats SQLite, WAL state, and managed assets as one authority even though the filesystem cannot rename them atomically as a group. An fsynced restore journal makes every phase recoverable: startup rolls any pre-commit interruption back to the complete old store and finishes cleanup only after the installed DB has passed integrity/ownership/projection checks, every exact-head managed asset URI resolves to a flat regular file, and `storeEpoch` has durably rotated. The Hub then invalidates every live subscription. Old IPC/HTTP commands, Yjs outboxes, Awareness, and IndexedDB checkpoints fail closed; mounted surfaces fetch a new descriptor and state-vector sync instead of replaying old-epoch state. Snapshot compaction and user-visible history checkpoints have separate retention policies.
+A backup is copied only after one whole-store maintenance fence drains managed
+assets, flushes the writer, and closes SQLite connections. Restore journals
+SQLite/WAL/assets as one recoverable authority, verifies integrity, ownership,
+projections, and managed assets, rotates store epoch, then invalidates live
+subscriptions. Old transports, outboxes, Awareness, and checkpoints fail closed
+and remount through current descriptors.
 
 ## Non-domain state
 
-Presence, cursors, selections, open toggles, search terms, focus, and relocation leases are not durable content. Open toggles may persist as disposable browser-profile preferences keyed by stable Block identity, without entering collaboration, history, export, or backup authority. Project sessions, tabs, panels, and Codex thread ownership remain shell/execution concepts and are not Blocks. A durable `db_view` tab points to one stable `databaseViewId`; its temporary search, selection, and display interaction state remains window-local.
+Presence, cursors, selection, disclosure, search, focus, active View, and leases
+are not durable content. Disclosure may persist as disposable profile-local
+preference by stable Block ID. Project sessions, tabs, panels, and Codex Thread
+ownership remain execution/shell concepts. A durable `db_view` tab points to a
+stable View ID; interaction state remains window-local.
 
 ## Naming rules
 
-- Say **Card** in product surfaces, CLI commands, and Card read models.
-- Say **Block** when an operation applies to all content identities.
-- Say **Document** for independently synchronized content owned by a document-bearing Block; name the `yjs` or `canvas_scene` engine when encoding matters.
-- Say **Database membership**, not row copy or embedded Card.
-- Say **reference**, not embed snapshot, when a host Block points to foreign content.
-- Say **projection** for derived NFM, preview, search, asset, schedule, and read-model data.
-- Say **revision** for an immutable restorable Document state; reserve **checkpoint** for storage/transport mechanics.
-- Do not introduce another document-like product entity alongside Card.
+- Say **Page** for the durable document-like content object.
+- Say **Block** when behavior applies to all content identities.
+- Say **Document** for independently synchronized content owned by a
+  document-bearing Block; name `yjs` or `canvas_scene` when encoding matters.
+- Say **Database** for the placeable Container and **Data Source** for schema,
+  Pages, values, and query identity.
+- Say **View** for a saved presentation targeting one Data Source.
+- Say **membership** only for internal active/dormant Source placement evidence;
+  public active row identity is Page ID.
+- Say **reference** for a non-owning target edge and **projection** for derived
+  NFM, preview, search, asset, schedule, or read-model data.
+- Say **revision** for immutable restorable Document state and **checkpoint**
+  for storage/transport mechanics.
+- Say **Card** only for visual structures such as Kanban or request cards.
 
 ## Code orientation
 
-Card-first migration machinery is confined to the shipped-schema staging importer in `src/main`; its backing tables do not exist in a published v58 store. Card-named read models are projections assembled from Block/Document/Database authority. Renderer Card Stage and NFM editing receive a prepared Document or render a fail-closed descriptor diagnostic, with no snapshot-authority branch.
+Shared domain Interfaces live under `src/shared/`; SQLite Implementations live
+under `src/main/local-store/`; trusted HTTP/IPC/CLI/Agent adapters bind access
+in `src/main`; renderer transport remains behind `src/renderer/lib/api.ts`.
+Page Stage and owned-Document surfaces live under
+`src/renderer/components/block-documents/` with runtime/descriptor validation
+under `src/renderer/lib/`.
 
-Shared Block/Document Interfaces live under `src/shared/`, persistence Implementations under `src/main/local-store/`, and the transport-neutral renderer provider behind `src/renderer/lib/api.ts`. Card Stage's authority boundary and writable surface live under `src/renderer/components/block-documents/`; surface runtime and descriptor validation live under `src/renderer/lib/`. The completed spike evidence and phased cutover history remain in `.generated/block-first/EXECPLAN.md`.
+Legacy Card/Project-content readers are allowed only in shipped-schema staging
+import code. Production Page read models are assembled from Block/Document/Data
+Source authority. The deep Database Module hides target resolution,
+authorization, schema/value validation, membership history, ranking,
+idempotency, projections, and post-commit events behind `read` and `apply`.
 
 ## Decision index
 
-- `docs/adr/0001-block-identity-card-alias.md`: one Block identity; Card is the product alias for a document-bearing Block.
-- `docs/adr/0002-document-bearing-blocks-yjs.md`: per-Card Y.Doc and the distinction between first-class Blocks and Document ownership.
-- `docs/adr/0010-card-detail-and-database-capability.md`: membership-independent Card Detail and optional Database capabilities in Card Stage.
-- `docs/adr/0003-database-membership-and-views.md`: Database capability, zero-or-one Card membership, and durable views.
-- `docs/adr/0004-atomic-block-relocation.md`: atomic cross-Document moves with stable application identity.
-- `docs/adr/0005-canvas-scene-native-sync-engine.md`: engine-neutral Owned Documents and normalized scene-native Canvas authority.
-- `docs/adr/0006-rich-card-title-and-semantic-block-promotion.md`: rich Card-title authority and semantic Block-to-Card promotion.
-- `docs/adr/0007-card-outliner-independent-document-surface.md`: one flat Card outliner presentation over an independently synchronized target Document.
-- `docs/adr/0014-document-revision-history.md`: semantic Document revisions, automatic capture, linked Card history, forward restore, and tiered retention.
+- `docs/adr/0017-library-pages-data-sources-and-project-resource-grants.md`:
+  Library ownership, Page rename/exclusive parent, Database/Data Source/View,
+  Project binding, resource grants, and Database Module depth.
+- `docs/adr/0001-block-identity-card-alias.md`: retained single Block identity;
+  Card alias and Project-as-Space portions are superseded.
+- `docs/adr/0002-document-bearing-blocks-yjs.md`: independent owned Documents
+  and stable application identity.
+- `docs/adr/0003-database-membership-and-views.md`: retained relational schema/
+  value and durable View lessons; Database-as-schema is superseded.
+- `docs/adr/0004-atomic-block-relocation.md`: atomic ownership movement.
+- `docs/adr/0005-canvas-scene-native-sync-engine.md`: engine-neutral Documents
+  and scene-native Canvas authority.
+- `docs/adr/0005-exclusive-card-parent-and-block-transfer.md`: retained exclusive
+  parenting/transfer durability; old parent nouns are superseded.
+- `docs/adr/0006-rich-card-title-and-semantic-block-promotion.md`: rich title and
+  semantic promotion behavior, to be renamed Page.
+- `docs/adr/0007-card-outliner-independent-document-surface.md`: flat outliner
+  presentation over independently synchronized target Documents.
+- `docs/adr/0010-card-detail-and-database-capability.md`: retained
+  membership-independent detail read; Card/Database capability terms are
+  superseded.
+- `docs/adr/0014-document-revision-history.md`: semantic revisions and forward
+  restore.

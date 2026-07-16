@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { createCardToggleBlockSpec } from "./card-toggle-block";
+import { createPageToggleBlockSpec } from "./card-toggle-block";
 
 function createBlock(meta: string) {
   return {
@@ -42,7 +42,7 @@ function createEditor(block: ReturnType<typeof createBlock>) {
 
 describe("card toggle block", () => {
   test("renders properties inline with the editable title content", () => {
-    const spec = createCardToggleBlockSpec();
+    const spec = createPageToggleBlockSpec();
     const block = createBlock("[P1] [In Progress]");
     const render = spec.implementation.render as (
       this: { blockContentDOMAttributes: Record<string, string> },
@@ -71,7 +71,7 @@ describe("card toggle block", () => {
   });
 
   test("keeps exported meta text inline with the exported title container", () => {
-    const spec = createCardToggleBlockSpec();
+    const spec = createPageToggleBlockSpec();
     const block = createBlock("[P1]");
     const toExternalHTML = spec.implementation.toExternalHTML as (
       this: { blockContentDOMAttributes: Record<string, string> },

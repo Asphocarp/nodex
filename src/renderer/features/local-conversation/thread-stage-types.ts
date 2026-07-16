@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import type { ThreadGoal, FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type {
-  Card,
-  CardRunInTarget,
+  DatabasePage,
+  PageRunInTarget,
   CodexAccountSnapshot,
   CodexApprovalResponse,
   CodexBackgroundTerminalRow,
@@ -181,7 +181,7 @@ export interface ThreadStageRouteInput {
     projectName: string;
     sessionId: string;
     threadTitle?: string;
-    runInTarget?: CardRunInTarget;
+    runInTarget?: PageRunInTarget;
     runInEnvironmentPath?: string | null;
     worktreeStartMode?: WorktreeStartMode;
     worktreeBranchPrefix?: string | null;
@@ -189,7 +189,7 @@ export interface ThreadStageRouteInput {
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   newThreadStartInSelector?: NewChatStartInSelectorModel | null;
   threadStartProgress: {
-    runInTarget: CardRunInTarget;
+    runInTarget: PageRunInTarget;
     threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
@@ -243,7 +243,7 @@ export interface ThreadStageActions {
     promptInput?: CodexPromptInput;
     threadGoalDraft?: CodexThreadGoalDraftInput;
     threadGoalMaterializedDraft?: CodexThreadGoalMaterializedDraft;
-    runInTarget?: CardRunInTarget;
+    runInTarget?: PageRunInTarget;
     runInEnvironmentPath?: string | null;
     worktreeStartMode?: WorktreeStartMode;
     worktreeBranchPrefix?: string | null;
@@ -894,7 +894,7 @@ export interface ThreadBodySurfaceModel {
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
-    runInTarget: CardRunInTarget;
+    runInTarget: PageRunInTarget;
     threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
@@ -957,7 +957,7 @@ export interface ThreadBodyUiStateOverrides {
   collapsedAgentBodyByTurnId?: Record<string, boolean>;
 }
 
-export interface ThreadOpenCardDataState {
+export interface ThreadOpenPageDataState {
   loading: boolean;
-  card: Card | null;
+  card: DatabasePage | null;
 }

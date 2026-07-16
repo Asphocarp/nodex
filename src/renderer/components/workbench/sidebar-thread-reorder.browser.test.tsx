@@ -17,6 +17,10 @@ import { SidebarReorderDndProvider } from "./sidebar-reorder-dnd";
 
 const PROJECT: Project = {
   id: "project-beta",
+  libraryId: "library:test",
+  databaseId: "database:test:primary",
+  lifecycle: "active",
+  bindingRevision: 1,
   name: "Project beta",
   description: "",
   sources: [],

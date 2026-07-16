@@ -4,9 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
 import {
-  createCardDocument,
-  openCardDocument,
-  planBlockToCardTransformation,
+  createPageDocument,
+  openPageDocument,
+  planBlockToPageTransformation,
 } from "../../shared/block-documents";
 import type {
   DatabaseMutationRequest,
@@ -15,8 +15,8 @@ import type {
   BlockTransferIntent,
   BlockTransferRequest,
 } from "../../shared/block-transfer";
-import { createUuidV7, isUuidV7 } from "../../shared/card-id";
-import { initializeCardDocumentGenesis } from "./block-document-store";
+import { createUuidV7, isUuidV7 } from "../../shared/uuid-v7";
+import { initializePageDocumentGenesis } from "./block-document-store";
 import {
   applyBlockTransfer,
   prepareBlockTransfer,
@@ -47,7 +47,7 @@ const seedCard = (
         id, project_id, type, lifecycle, location_kind,
         containing_document_id, containing_database_id,
         location_revision, metadata_revision, created_at, updated_at
-      ) VALUES (?, ?, 'card', 'active', 'space', NULL, NULL, 1, 1, ?, ?)
+      ) VALUES (?, ?, 'page', 'active', 'space', NULL, NULL, 1, 1, ?, ?)
     `,
     )
     .run(input.cardId, input.projectId, now, now);
@@ -64,7 +64,7 @@ const seedCard = (
       INSERT INTO documents (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
+      ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', '',
                 'pending_genesis', 'legacy_shadow', ?, ?)
     `,
     )
@@ -90,11 +90,11 @@ const seedCard = (
       now,
       now,
     );
-  const genesis = createCardDocument({
+  const genesis = createPageDocument({
     documentId,
     initialTitle: input.title,
   });
-  const root = openCardDocument(genesis.document).body.get(0);
+  const root = openPageDocument(genesis.document).body.get(0);
   if (!(root instanceof Y.XmlElement)) {
     throw new Error("Card genesis has no Block group");
   }
@@ -106,7 +106,7 @@ const seedCard = (
   paragraphNode.insert(0, [text]);
   paragraph.insert(0, [paragraphNode]);
   root.insert(0, [paragraph]);
-  initializeCardDocumentGenesis(database, {
+  initializePageDocumentGenesis(database, {
     documentId,
     storeEpoch: input.storeEpoch,
     generation: 1,
@@ -178,7 +178,7 @@ describe("BlockTransfer store", () => {
       const primary = database
         .prepare(
           `SELECT capability.block_id AS database_block_id,
-                  view.id AS view_id
+                  view.id AS view_id, view.data_source_id
            FROM database_capabilities capability
            JOIN database_views view
              ON view.database_block_id = capability.block_id
@@ -189,6 +189,7 @@ describe("BlockTransfer store", () => {
         .get(project.id) as {
         readonly database_block_id: string;
         readonly view_id: string;
+        readonly data_source_id: string;
       };
       const enterDatabase: DatabaseMutationRequest = {
         version: 1,
@@ -199,7 +200,7 @@ describe("BlockTransfer store", () => {
         operations: [
           {
             kind: "transfer_membership",
-            cardBlockId: "card-source",
+            pageId: "card-source",
             expectedMembership: null,
             target: {
               databaseBlockId: primary.database_block_id,
@@ -225,6 +226,7 @@ describe("BlockTransfer store", () => {
         source: {
           kind: "database",
           databaseBlockId: primary.database_block_id,
+          dataSourceId: primary.data_source_id,
           memberships: {
             "card-source": {
               membershipId: "membership-source-target",
@@ -240,7 +242,7 @@ describe("BlockTransfer store", () => {
         },
       };
       const toDocumentIntent: BlockTransferIntent = {
-        version: 1,
+        version: 2,
         operationId: toDocument.operationId,
         projectId: project.id,
         storeEpoch: metadata.store_epoch,
@@ -249,8 +251,8 @@ describe("BlockTransfer store", () => {
         mode: "move",
         rootBlockIds: ["card-source"],
         source: {
-          kind: "database",
-          databaseBlockId: primary.database_block_id,
+          kind: "data_source",
+          dataSourceId: primary.data_source_id,
         },
         target: { kind: "document", documentId: hostDocumentId },
       };
@@ -331,7 +333,7 @@ describe("BlockTransfer store", () => {
             "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
           )
           .get(hostDocumentId, "card-source"),
-      ).toEqual({ block_type: "card" });
+      ).toEqual({ block_type: "page" });
       expect(
         database
           .prepare(
@@ -399,7 +401,7 @@ describe("BlockTransfer store", () => {
             "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
           )
           .get(hostDocumentId, "card-source"),
-      ).toEqual({ block_type: "card" });
+      ).toEqual({ block_type: "page" });
 
       const movedBack = applyBlockTransfer(database, backToDatabase);
       expect(movedBack.ok).toBe(true);
@@ -408,7 +410,7 @@ describe("BlockTransfer store", () => {
           .prepare(
             `SELECT id, revision, removed_at
              FROM database_memberships
-             WHERE card_block_id = ? AND database_block_id = ?`,
+             WHERE page_block_id = ? AND database_block_id = ?`,
           )
           .get("card-source", primary.database_block_id),
       ).toEqual({
@@ -475,7 +477,7 @@ describe("BlockTransfer store", () => {
             kind: "insert_block",
             block: {
               id: externalReferenceCopySourceId,
-              type: "cardRef",
+              type: "pageRef",
               props: {
                 targetBlockId: "card-host",
               },
@@ -672,7 +674,7 @@ describe("BlockTransfer store", () => {
                JOIN database_property_values value
                  ON value.membership_id = membership.id
                 AND value.property_id = property.id
-               WHERE membership.card_block_id = ?
+               WHERE membership.page_block_id = ?
                  AND membership.removed_at IS NULL`,
             )
             .get(copiedCardId),
@@ -877,13 +879,13 @@ describe("BlockTransfer store", () => {
           )
           .pluck()
           .get(secondHostDocumentId) as string,
-      ) as readonly Parameters<typeof planBlockToCardTransformation>[0]["root"][];
+      ) as readonly Parameters<typeof planBlockToPageTransformation>[0]["root"][];
       const promotionSourceRoot = promotionSourceTree[0];
       if (!promotionSourceRoot) throw new Error("Promotion source root is missing");
-      const promotionProbe = planBlockToCardTransformation({
+      const promotionProbe = planBlockToPageTransformation({
           root: promotionSourceRoot,
           resultRootId: promotionSourceRoot.id,
-          wrapperCardId: "unused-wrapper",
+          wrapperPageId: "unused-wrapper",
           allocateEmptyBodyBlockId: createUuidV7,
         });
       if (promotionProbe.kind !== "promote") {
@@ -891,9 +893,9 @@ describe("BlockTransfer store", () => {
       }
       for (const point of [
         "after_source_document",
-        "after_card_owner_staged",
-        "after_card_children_reparented",
-        "after_card_genesis",
+        "after_page_owner_staged",
+        "after_page_children_reparented",
+        "after_page_genesis",
         "after_parent_transition",
       ] as const) {
         expect(() =>
@@ -981,7 +983,7 @@ describe("BlockTransfer store", () => {
         expect(promoted.value.transformationEvidence).toEqual([
           {
             sourceBlockId: "paragraph:card-second-host",
-            resultCardId: "paragraph:card-second-host",
+            resultPageId: "paragraph:card-second-host",
             kind: "promote",
             sourceBlockType: "paragraph",
             semanticTitleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -1006,7 +1008,7 @@ describe("BlockTransfer store", () => {
           )
           .get("paragraph:card-second-host"),
       ).toEqual({
-        type: "card",
+        type: "page",
         lifecycle: "active",
         location_kind: "database",
         containing_database_id: primary.database_block_id,
@@ -1173,13 +1175,13 @@ describe("BlockTransfer store", () => {
           },
           {
             faultInjector: (point) => {
-              if (point === "after_card_body") {
-                throw new Error("injected after_card_body");
+              if (point === "after_page_body") {
+                throw new Error("injected after_page_body");
               }
             },
           },
         ),
-      ).toThrow("injected after_card_body");
+      ).toThrow("injected after_page_body");
       expect(
         database
           .prepare(
@@ -1195,12 +1197,12 @@ describe("BlockTransfer store", () => {
       );
       expect(wrappedChecklist.ok).toBe(true);
       if (wrappedChecklist.ok) {
-        const wrapperCardId = wrappedChecklist.value.resultRootBlockIds[0];
-        expect(isUuidV7(wrapperCardId)).toBe(true);
+        const wrapperPageId = wrappedChecklist.value.resultRootBlockIds[0];
+        expect(isUuidV7(wrapperPageId)).toBe(true);
         expect(wrappedChecklist.value.transformationEvidence).toEqual([
           {
             sourceBlockId: "paragraph:card-checklist-wrapper-host",
-            resultCardId: wrapperCardId,
+            resultPageId: wrapperPageId,
             kind: "wrap",
             sourceBlockType: "checkListItem",
             semanticTitleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -1218,7 +1220,7 @@ describe("BlockTransfer store", () => {
             .prepare(
               "SELECT block_type, text FROM document_block_index WHERE document_id = ?",
             )
-            .get(`document:${wrapperCardId}`),
+            .get(`document:${wrapperPageId}`),
         ).toEqual({
           block_type: "checkListItem",
           text: "Checklist wrapper body",
@@ -1228,7 +1230,7 @@ describe("BlockTransfer store", () => {
             .prepare(
               "SELECT title FROM document_materializations WHERE document_id = ?",
             )
-            .get(`document:${wrapperCardId}`),
+            .get(`document:${wrapperPageId}`),
         ).toEqual({ title: "Checklist wrapper body" });
       }
 
@@ -1321,20 +1323,20 @@ describe("BlockTransfer store", () => {
       });
       expect(copiedBlockToDatabase.ok).toBe(true);
       if (copiedBlockToDatabase.ok) {
-        const wrapperCardId = copiedBlockToDatabase.value.resultRootBlockIds[0];
+        const wrapperPageId = copiedBlockToDatabase.value.resultRootBlockIds[0];
         const copiedParagraphId =
           copiedBlockToDatabase.value.copiedBlockIds[
             "paragraph:card-copy-block-host"
           ];
         const copiedChildId =
           copiedBlockToDatabase.value.copiedBlockIds[copyChildSourceId];
-        expect(isUuidV7(wrapperCardId)).toBe(true);
-        expect(copiedParagraphId).toBe(wrapperCardId);
+        expect(isUuidV7(wrapperPageId)).toBe(true);
+        expect(copiedParagraphId).toBe(wrapperPageId);
         expect(isUuidV7(copiedChildId)).toBe(true);
         expect(copiedBlockToDatabase.value.transformationEvidence).toEqual([
           {
             sourceBlockId: "paragraph:card-copy-block-host",
-            resultCardId: wrapperCardId,
+            resultPageId: wrapperPageId,
             kind: "promote",
             sourceBlockType: "paragraph",
             semanticTitleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -1345,7 +1347,7 @@ describe("BlockTransfer store", () => {
             ],
             bodyRootBlockIds: [copiedChildId],
             sourceToResultBlockIds: {
-              "paragraph:card-copy-block-host": wrapperCardId,
+              "paragraph:card-copy-block-host": wrapperPageId,
               [copyChildSourceId]: copiedChildId,
             },
           },
@@ -1365,7 +1367,7 @@ describe("BlockTransfer store", () => {
             .prepare(
               "SELECT location_kind, containing_database_id FROM blocks WHERE id = ?",
             )
-            .get(wrapperCardId),
+            .get(wrapperPageId),
         ).toEqual({
           location_kind: "database",
           containing_database_id: primary.database_block_id,
@@ -1374,7 +1376,7 @@ describe("BlockTransfer store", () => {
           .prepare(
             "SELECT block_id, text FROM document_block_index WHERE document_id = ?",
           )
-          .get(`document:${wrapperCardId}`) as {
+          .get(`document:${wrapperPageId}`) as {
           readonly block_id: string;
           readonly text: string;
         };
@@ -1385,7 +1387,7 @@ describe("BlockTransfer store", () => {
             .prepare(
               "SELECT title, title_rich_json FROM document_materializations WHERE document_id = ?",
             )
-            .get(`document:${wrapperCardId}`),
+            .get(`document:${wrapperPageId}`),
         ).toEqual({
           title: "Copy Block host body",
           title_rich_json: JSON.stringify([
@@ -1432,19 +1434,19 @@ describe("BlockTransfer store", () => {
       });
       expect(copiedQuoteToDatabase.ok).toBe(true);
       if (copiedQuoteToDatabase.ok) {
-        const wrapperCardId = copiedQuoteToDatabase.value.resultRootBlockIds[0];
+        const wrapperPageId = copiedQuoteToDatabase.value.resultRootBlockIds[0];
         const copiedQuoteId =
           copiedQuoteToDatabase.value.copiedBlockIds[
             "paragraph:card-copy-quote-host"
           ];
-        expect(isUuidV7(wrapperCardId)).toBe(true);
-        expect(copiedQuoteId).toBe(wrapperCardId);
+        expect(isUuidV7(wrapperPageId)).toBe(true);
+        expect(copiedQuoteId).toBe(wrapperPageId);
         expect(
           database
             .prepare(
               "SELECT title, nfm FROM document_materializations WHERE document_id = ?",
             )
-            .get(`document:${wrapperCardId}`),
+            .get(`document:${wrapperPageId}`),
         ).toEqual({ title: "Copy quote host body", nfm: "" });
       }
 
@@ -1654,7 +1656,7 @@ describe("BlockTransfer store", () => {
                 "SELECT type, location_kind FROM blocks WHERE id = ?",
               )
               .get(copiedCardId),
-          ).toEqual({ type: "card", location_kind: "database" });
+          ).toEqual({ type: "page", location_kind: "database" });
         }
       }
 
@@ -1691,7 +1693,7 @@ describe("BlockTransfer store", () => {
             `SELECT type, location_kind FROM blocks WHERE id = ?`,
           )
           .get("paragraph:card-space-promotion-source"),
-      ).toEqual({ type: "card", location_kind: "space" });
+      ).toEqual({ type: "page", location_kind: "space" });
       expect(
         database
           .prepare(
@@ -1749,7 +1751,7 @@ describe("BlockTransfer store", () => {
                 "SELECT block_type FROM document_block_index WHERE document_id = ? AND block_id = ?",
               )
               .get(ordinaryCopyTargetDocumentId, copiedCardId),
-          ).toEqual({ block_type: "card" });
+          ).toEqual({ block_type: "page" });
         }
       }
 
@@ -1847,7 +1849,7 @@ describe("BlockTransfer store", () => {
               mixedTargetDocumentId,
               copiedMixedSelection.value.resultRootBlockIds[1],
             ),
-        ).toEqual({ block_type: "card" });
+        ).toEqual({ block_type: "page" });
       }
       const movedMixedSelection = applyBlockTransfer(database, {
         version: 1,
@@ -1890,7 +1892,7 @@ describe("BlockTransfer store", () => {
                 "SELECT type, location_kind FROM blocks WHERE id = ?",
               )
               .get(cardId),
-          ).toEqual({ type: "card", location_kind: "database" });
+          ).toEqual({ type: "page", location_kind: "database" });
         }
       }
     } finally {

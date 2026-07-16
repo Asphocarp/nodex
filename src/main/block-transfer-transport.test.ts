@@ -16,13 +16,13 @@ import {
 } from "./block-transfer-ipc";
 
 const intent: PublicBlockTransferIntent = {
-  version: 1,
+  version: 2,
   operationId: "transfer-public-1",
   projectId: "project-a",
   storeEpoch: "epoch-a",
   mode: "move",
   rootBlockIds: ["card-a"],
-  source: { kind: "database", databaseBlockId: "database-a" },
+  source: { kind: "data_source", dataSourceId: "source-a" },
   target: { kind: "document", documentId: "document-host" },
 };
 

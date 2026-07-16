@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { createProject, listProjects, updateProject } from "./projects";
 import {
   createProjectSession,
@@ -402,9 +402,9 @@ describe("project session service", () => {
         sessionId: session.id,
         projectId: projectId,
         panelId: "right",
-        kind: "card_stage",
+        kind: "page_stage",
         title: longTitle,
-        config: { projectId: projectId, cardId: "card-long", titleSnapshot: longTitle },
+        config: { projectId: projectId, pageId: "card-long", titleSnapshot: longTitle },
       });
       expect(tab.title.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
     });
@@ -428,9 +428,9 @@ describe("project session service", () => {
           sessionId: session.id,
           projectId: projectId,
           panelId: "right",
-          kind: "card_stage",
+          kind: "page_stage",
           title: tooLongTitle,
-          config: { projectId: projectId, cardId: "card-too-long", titleSnapshot: tooLongTitle },
+          config: { projectId: projectId, pageId: "card-too-long", titleSnapshot: tooLongTitle },
         });
       });
       expect(
@@ -448,16 +448,16 @@ describe("project session service", () => {
         sessionId: session.id,
         projectId: projectId,
         panelId: "right",
-        clientTabId: "tab:card-stage-preview",
-        kind: "card_stage",
+        clientTabId: "tab:page-stage-preview",
+        kind: "page_stage",
         title: "Card One",
-        config: { projectId: projectId, cardId: "card-1", titleSnapshot: "Card One" },
+        config: { projectId: projectId, pageId: "card-1", titleSnapshot: "Card One" },
       });
       const updated = getProjectSession(session.id);
 
-      expect(tab.id).toBe("tab:card-stage-preview");
-      expect(updated?.tabs.some((item) => item.id === "tab:card-stage-preview") ?? false).toBe(true);
-      expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe("tab:card-stage-preview");
+      expect(tab.id).toBe("tab:page-stage-preview");
+      expect(updated?.tabs.some((item) => item.id === "tab:page-stage-preview") ?? false).toBe(true);
+      expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe("tab:page-stage-preview");
     });
 
     if (!ran) expect(true).toBe(true);
@@ -470,10 +470,10 @@ describe("project session service", () => {
         sessionId: session.id,
         projectId: projectId,
         panelId: "right",
-        clientTabId: "tab:card-stage-preview",
-        kind: "card_stage",
+        clientTabId: "tab:page-stage-preview",
+        kind: "page_stage",
         title: "Card One",
-        config: { projectId: projectId, cardId: "card-1", titleSnapshot: "Card One" },
+        config: { projectId: projectId, pageId: "card-1", titleSnapshot: "Card One" },
       });
 
       const invalidError = runValidation(() => {
@@ -481,10 +481,10 @@ describe("project session service", () => {
           sessionId: session.id,
           projectId: projectId,
           panelId: "right",
-          clientTabId: "tab/card-stage-preview",
-          kind: "card_stage",
+          clientTabId: "tab/page-stage-preview",
+          kind: "page_stage",
           title: "Card Two",
-          config: { projectId: projectId, cardId: "card-2", titleSnapshot: "Card Two" },
+          config: { projectId: projectId, pageId: "card-2", titleSnapshot: "Card Two" },
         });
       });
       const duplicateError = runValidation(() => {
@@ -492,10 +492,10 @@ describe("project session service", () => {
           sessionId: session.id,
           projectId: projectId,
           panelId: "right",
-          clientTabId: "tab:card-stage-preview",
-          kind: "card_stage",
+          clientTabId: "tab:page-stage-preview",
+          kind: "page_stage",
           title: "Card Three",
-          config: { projectId: projectId, cardId: "card-3", titleSnapshot: "Card Three" },
+          config: { projectId: projectId, pageId: "card-3", titleSnapshot: "Card Three" },
         });
       });
 
@@ -663,11 +663,11 @@ describe("project session service", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("preserves cross-project card-stage tab content project", async () => {
+  test("preserves cross-project page-stage tab content project", async () => {
     const ran = await withTempDatabase(async () => {
       const alphaSession = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Alpha work" });
       const betaProject = createProject({ name: "Beta", sources: ["/tmp/beta"] });
-      const betaCard = await createCard(betaProject.id, "in_progress", {
+      const betaCard = await createPage(betaProject.id, "in_progress", {
         title: "Beta card",
       });
 
@@ -675,27 +675,27 @@ describe("project session service", () => {
         sessionId: alphaSession.id,
         projectId: projectId,
         panelId: "right",
-        kind: "card_stage",
+        kind: "page_stage",
         title: "Beta card",
-        config: { projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card" },
+        config: { projectId: betaProject.id, pageId: betaCard.id, titleSnapshot: "Beta card" },
       });
       expect(tab.projectId).toBe(projectId);
       expect(JSON.stringify(tab.config)).toBe(
-        JSON.stringify({ projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card" }),
+        JSON.stringify({ projectId: betaProject.id, pageId: betaCard.id, titleSnapshot: "Beta card" }),
       );
 
       const updated = updateProjectSessionTab(tab.id, {
-        config: { projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card updated" },
+        config: { projectId: betaProject.id, pageId: betaCard.id, titleSnapshot: "Beta card updated" },
       });
       expect(updated?.projectId).toBe(projectId);
       expect(JSON.stringify(updated?.config)).toBe(
-        JSON.stringify({ projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card updated" }),
+        JSON.stringify({ projectId: betaProject.id, pageId: betaCard.id, titleSnapshot: "Beta card updated" }),
       );
 
       const reloaded = getProjectSession(alphaSession.id)?.tabs.find((item) => item.id === tab.id);
       expect(reloaded?.projectId).toBe(projectId);
       expect(JSON.stringify(reloaded?.config)).toBe(
-        JSON.stringify({ projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card updated" }),
+        JSON.stringify({ projectId: betaProject.id, pageId: betaCard.id, titleSnapshot: "Beta card updated" }),
       );
     });
 
@@ -1002,7 +1002,7 @@ describe("project session service", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("normalizes a legacy overview config once only through the active primary View", async () => {
+  test("normalizes a legacy overview config once only through the active default View", async () => {
     const ran = await withTempDatabase(async () => {
       const overviewTab = getDb().prepare(`
         SELECT tab.id
@@ -1079,7 +1079,7 @@ describe("project session service", () => {
           config: { projectId, view: "kanban" },
         });
       });
-      expect(unresolvedError?.includes("cannot resolve one active primary View") ?? false).toBe(true);
+      expect(unresolvedError?.includes("cannot resolve the active default View") ?? false).toBe(true);
     });
 
     if (!ran) expect(true).toBe(true);
@@ -1445,15 +1445,15 @@ describe("project session service", () => {
         projectId: projectId,
         panelId: "right",
         targetLeafId: initialLeafId,
-        kind: "card_stage",
+        kind: "page_stage",
         title: "Card One",
-        config: { projectId: projectId, cardId: "card-1", titleSnapshot: "Card One" },
+        config: { projectId: projectId, pageId: "card-1", titleSnapshot: "Card One" },
       });
       const updated = getProjectSession(session.id);
       const targetLeaf = listProjectSessionPanelLeaves(updated!.panels.right.layout)
         .find((leaf) => leaf.id === initialLeafId);
 
-      expect(card.kind).toBe("card_stage");
+      expect(card.kind).toBe("page_stage");
       expect(JSON.stringify(targetLeaf?.tabIds ?? [])).toBe(JSON.stringify([review.id, card.id]));
       expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).id).toBe(initialLeafId);
       expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe(card.id);

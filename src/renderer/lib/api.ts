@@ -10,9 +10,9 @@ import type {
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
 import type {
-  CardTargetReadModel,
-  ResolveCardTargetInput,
-} from "../../shared/card-targets";
+  PageTargetReadModel,
+  ResolvePageTargetInput,
+} from "../../shared/page-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
@@ -21,23 +21,13 @@ import type {
   BlockPropertyMutationCommandResult,
   BlockPropertyMutationRequest,
 } from "../../shared/block-property-mutations";
-import {
-  parseCardMetadataPropertySnapshotCommandResult,
-  type CardMetadataPropertySnapshotCommandResult,
-} from "../../shared/card-metadata-property-snapshot-transport";
 import type {
-  DatabaseMutationCommandResult,
-  DatabaseMutationRequest,
-} from "../../shared/database-kernel";
-import type {
-  DatabaseCatalogSnapshotCommandResult,
-  DatabaseManagementSnapshotCommandResult,
-  DatabaseReadCommandResult,
-  DatabaseViewSnapshotCommandResult,
-  GeneralDatabaseDescriptor,
-  GeneralDatabaseViewQuery,
-  PrimaryDatabaseViewSnapshotCommandResult,
-} from "../../shared/database-query";
+  DatabaseApply,
+  DatabaseApplyResult,
+  DatabaseModuleReadRequest,
+  DatabaseModuleReadResult,
+} from "../../shared/database-module";
+import type { PageDetailResult } from "../../shared/page-detail";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -53,16 +43,14 @@ import type {
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 import type {
-  CardLifecycleMutationCommandResult,
-  CardLifecycleMutationRequest,
-} from "../../shared/card-lifecycle";
-import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
-import type { ListCardHistoryRequest } from "../../shared/card-history";
-import type { CardHistoryCommandResult } from "../../shared/card-history-transport";
+  PageLifecycleMutationCommandResult,
+  PageLifecycleMutationRequest,
+} from "../../shared/page-lifecycle";
+import type { PageLifecyclePreflightResult } from "../../shared/page-lifecycle-runtime";
+import type { ListPageHistoryRequest } from "../../shared/page-history";
+import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
-import type { CardProjectTransferCommandResult } from "../../shared/card-project-transfer";
-import type { PublicCardProjectTransferIntent } from "../../shared/card-project-transfer-transport";
 import type { BlockTransferCommandResult } from "../../shared/block-transfer";
 import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
 
@@ -161,16 +149,6 @@ export function applyAdditionalDocumentCommand(
   );
 }
 
-export function transferCardProject(
-  sourceProjectId: string,
-  intent: PublicCardProjectTransferIntent,
-): Promise<CardProjectTransferCommandResult> {
-  return resolveRendererTransport().transferCardProject(
-    sourceProjectId,
-    intent,
-  );
-}
-
 export function transferBlocks(
   projectId: string,
   intent: PublicBlockTransferIntent,
@@ -214,10 +192,10 @@ export function restoreDocumentVersion(
   );
 }
 
-export function resolveCardTarget(
-  input: ResolveCardTargetInput,
-): Promise<CardTargetReadModel | null> {
-  return invoke("card-target:resolve", input);
+export function resolvePageTarget(
+  input: ResolvePageTargetInput,
+): Promise<PageTargetReadModel | null> {
+  return invoke("page-target:resolve", input);
 }
 
 export function readDatabaseViewReference(
@@ -233,92 +211,48 @@ export function mutateBlockProperties(
   return invoke("block-properties:mutate", projectId, request);
 }
 
-export async function readCardMetadataPropertySnapshot(
+export function readPageLifecyclePreflight(
   projectId: string,
-  cardBlockId: string,
-): Promise<CardMetadataPropertySnapshotCommandResult> {
-  return parseCardMetadataPropertySnapshotCommandResult(
-    await invoke(
-      "cards:metadata-properties:snapshot",
-      projectId,
-      cardBlockId,
-    ),
-  );
-}
-
-export function readCardLifecyclePreflight(
-  projectId: string,
-  cardId: string,
-): Promise<CardLifecyclePreflightResult> {
-  return resolveRendererTransport().readCardLifecyclePreflight(
+  pageId: string,
+): Promise<PageLifecyclePreflightResult> {
+  return resolveRendererTransport().readPageLifecyclePreflight(
     projectId,
-    cardId,
+    pageId,
   );
 }
 
-export function mutateCardLifecycle(
+export function mutatePageLifecycle(
   projectId: string,
-  request: CardLifecycleMutationRequest,
-): Promise<CardLifecycleMutationCommandResult> {
-  return resolveRendererTransport().mutateCardLifecycle(projectId, request);
+  request: PageLifecycleMutationRequest,
+): Promise<PageLifecycleMutationCommandResult> {
+  return resolveRendererTransport().mutatePageLifecycle(projectId, request);
 }
 
-export function listCardHistory(
-  request: ListCardHistoryRequest,
-): Promise<CardHistoryCommandResult> {
-  return resolveRendererTransport().listCardHistory(request);
+export function listPageHistory(
+  request: ListPageHistoryRequest,
+): Promise<PageHistoryCommandResult> {
+  return resolveRendererTransport().listPageHistory(request);
 }
 
-export function mutateDatabase(
+export function readDatabaseModule(
   projectId: string,
-  request: DatabaseMutationRequest,
-): Promise<DatabaseMutationCommandResult> {
-  return invoke("databases:mutate", projectId, request);
+  request: DatabaseModuleReadRequest,
+): Promise<DatabaseModuleReadResult> {
+  return invoke("database-module:read", projectId, request);
 }
 
-export function readDatabaseCatalog(
+export function applyDatabaseModule(
   projectId: string,
-): Promise<DatabaseCatalogSnapshotCommandResult> {
-  return invoke("databases:catalog:get", projectId);
+  request: DatabaseApply,
+): Promise<DatabaseApplyResult> {
+  return invoke("database-module:apply", projectId, request);
 }
 
-export function readDatabaseManagement(
+export function readPageDetail(
   projectId: string,
-): Promise<DatabaseManagementSnapshotCommandResult> {
-  return invoke("databases:management:get", projectId);
-}
-
-export function readDatabaseDescriptor(
-  projectId: string,
-  databaseBlockId: string,
-): Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>> {
-  return invoke("databases:descriptor:get", projectId, databaseBlockId);
-}
-
-export function readPrimaryDatabaseDescriptor(
-  projectId: string,
-): Promise<DatabaseReadCommandResult<GeneralDatabaseDescriptor>> {
-  return invoke("databases:primary:get", projectId);
-}
-
-export function readPrimaryDatabaseViewSnapshot(
-  projectId: string,
-): Promise<PrimaryDatabaseViewSnapshotCommandResult> {
-  return invoke("database-views:primary:snapshot", projectId);
-}
-
-export function readDatabaseViewSnapshot(
-  projectId: string,
-  viewId: string,
-): Promise<DatabaseViewSnapshotCommandResult> {
-  return invoke("database-views:snapshot", projectId, viewId);
-}
-
-export function queryDatabaseView(
-  projectId: string,
-  viewId: string,
-): Promise<DatabaseReadCommandResult<GeneralDatabaseViewQuery>> {
-  return invoke("database-views:query", projectId, viewId);
+  pageId: string,
+): Promise<PageDetailResult> {
+  return invoke("pages:detail:get", projectId, pageId);
 }
 
 export function subscribeBoardChanges(

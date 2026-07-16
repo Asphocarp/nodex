@@ -10,11 +10,11 @@ import {
   type RegisteredBlockDocumentSchemaAdapter,
 } from "../../shared/block-documents/document-schema-adapters";
 import { parsePortableCanvasScene } from "../../shared/block-documents/canvas-scene";
-import { MAX_CARD_DOCUMENT_STATE_BYTES } from "../../shared/block-documents/contracts";
+import { MAX_PAGE_DOCUMENT_STATE_BYTES } from "../../shared/block-documents/contracts";
 import type { BlockDocumentReference } from "../../shared/block-documents/derived-records";
 import { parseProjectSessionTabConfig } from "../../shared/schemas/project-sessions";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
-import { isCanvasCardReferenceProjectionCurrent } from "./canvas-scene-projection-equivalence";
+import { isCanvasPageReferenceProjectionCurrent } from "./canvas-scene-projection-equivalence";
 import { decodeBlockTreeSnapshotV2 } from "./document-versions";
 
 export const BLOCK_RETENTION_GC_POLICY_VERSION = 1 as const;
@@ -49,7 +49,7 @@ export type BlockRetentionGcBlockerKind =
   | "current_document_content"
   | "block_tree_reference"
   | "database_view_reference"
-  | "canvas_card_reference"
+  | "canvas_page_reference"
   | "pending_recovery_artifact"
   | "retained_recovery_artifact"
   | "retained_document_version"
@@ -167,16 +167,18 @@ const KNOWN_INBOUND_AUTHORITY_TABLES = new Set([
   "block_relocations",
   "block_search_units",
   "blocks",
-  "canvas_card_references",
+  "canvas_page_references",
   "canvas_scene_elements",
   "canvas_scene_file_refs",
   "canvas_scene_files",
   "canvas_scene_mutation_receipts",
   "canvas_scenes",
-  "card_read_model",
+  "page_read_model",
   "database_capabilities",
   "database_memberships",
+  "database_view_page_positions",
   "database_view_positions",
+  "data_source_page_memberships",
   "document_block_index",
   "document_materializations",
   "document_recovery_artifacts",
@@ -184,10 +186,12 @@ const KNOWN_INBOUND_AUTHORITY_TABLES = new Set([
   "document_update_receipts",
   "document_updates",
   "document_versions",
+  "library_block_placements",
+  "pages",
   "recurrence_exceptions",
   "reminder_receipts",
   "reminder_snoozes",
-  "scheduled_card_index",
+  "scheduled_page_index",
   "top_level_block_placements",
 ]);
 
@@ -766,7 +770,7 @@ const analyzeDocumentProjectionRoots = (
         .prepare(
           `
           SELECT source_element_id, target_block_id
-          FROM canvas_card_references
+          FROM canvas_page_references
           WHERE document_id = ? AND project_id = ?
             AND document_generation = ? AND projected_seq = ?
           ORDER BY source_element_id
@@ -782,8 +786,8 @@ const analyzeDocumentProjectionRoots = (
         readonly target_block_id: string;
       }[];
       if (
-        !isCanvasCardReferenceProjectionCurrent(
-          authority.scene.cardReferences,
+        !isCanvasPageReferenceProjectionCurrent(
+          authority.scene.pageReferences,
           rows,
         )
       ) {
@@ -792,8 +796,8 @@ const analyzeDocumentProjectionRoots = (
       }
       for (const reference of rows) {
         if (!closure.blockIds.has(reference.target_block_id)) continue;
-        collector.add("canvas_card_reference", {
-          source: "canvas_card_references",
+        collector.add("canvas_page_reference", {
+          source: "canvas_page_references",
           identity: reference.source_element_id,
           relation: "target_block",
           documentId: document.id,
@@ -1020,7 +1024,7 @@ const analyzeHistoricalDocumentVersionRoots = (
     if (
       version.byte_length < 1 ||
       version.byte_length !== version.full_update_blob.byteLength ||
-      version.byte_length > MAX_CARD_DOCUMENT_STATE_BYTES ||
+      version.byte_length > MAX_PAGE_DOCUMENT_STATE_BYTES ||
       !/^[a-f0-9]{64}$/u.test(version.checkpoint_hash) ||
       sha256(version.full_update_blob) !== version.checkpoint_hash
     ) {
@@ -1039,9 +1043,9 @@ const analyzeHistoricalDocumentVersionRoots = (
         const scene = parsePortableCanvasScene(
           JSON.parse(version.full_update_blob.toString("utf8")) as unknown,
         );
-        for (const reference of scene.cardReferences) {
+        for (const reference of scene.pageReferences) {
           if (!closure.blockIds.has(reference.targetBlockId)) continue;
-          collector.add("canvas_card_reference", {
+          collector.add("canvas_page_reference", {
             source: "document_versions",
             identity: version.version_id,
             relation: `historical_canvas:${reference.sourceElementId}`,
@@ -1337,21 +1341,21 @@ const analyzeRelationalRoots = (
   const activeMemberships = database
     .prepare(
       `
-      SELECT id, card_block_id FROM database_memberships
+      SELECT id, page_block_id FROM database_memberships
       WHERE project_id = ? AND removed_at IS NULL
-        AND card_block_id IN (${inBlocks})
+        AND page_block_id IN (${inBlocks})
     `,
     )
     .all(projectId, ...blockIds) as readonly {
     readonly id: string;
-    readonly card_block_id: string;
+    readonly page_block_id: string;
   }[];
   for (const row of activeMemberships) {
     collector.add("active_database_membership", {
       source: "database_memberships",
       identity: row.id,
       relation: "active_card_membership",
-      status: row.card_block_id,
+      status: row.page_block_id,
     });
   }
   const positions = database
@@ -1439,7 +1443,7 @@ const analyzeRelationalRoots = (
     databaseViewIds,
     collector,
   );
-  analyzeCardBehaviorRoots(database, projectId, closure, collector);
+  analyzePageBehaviorRoots(database, projectId, closure, collector);
 };
 
 const analyzeSessionRoots = (
@@ -1480,17 +1484,17 @@ const analyzeSessionRoots = (
         readJson(tab.config_json, `session tab ${tab.id} config`),
       );
       if (
-        tab.kind === "card_stage" &&
-        "cardId" in config &&
-        closure.blockIds.has(config.cardId)
+        tab.kind === "page_stage" &&
+        "pageId" in config &&
+        closure.blockIds.has(config.pageId)
       ) {
         if (config.projectId !== projectId) {
-          throw new TypeError("Card tab target Project scope diverges");
+          throw new TypeError("Page tab target Project scope diverges");
         }
         collector.add("session_target", {
           source: "project_session_tabs",
           identity: tab.id,
-          relation: "card_stage",
+          relation: "page_stage",
         });
       }
       if (tab.kind !== "db_view" || !("view" in config)) continue;
@@ -1552,7 +1556,7 @@ const addRowsAsBlockers = (
   }
 };
 
-const analyzeCardBehaviorRoots = (
+const analyzePageBehaviorRoots = (
   database: Database.Database,
   projectId: string,
   closure: GcClosure,
@@ -1565,13 +1569,13 @@ const analyzeCardBehaviorRoots = (
     .prepare(
       `SELECT CAST(id AS TEXT) AS identity, 'recurrence_exception' AS relation
        FROM recurrence_exceptions
-       WHERE project_id = ? AND card_id IN (${inBlocks})
+       WHERE project_id = ? AND page_id IN (${inBlocks})
        UNION ALL
        SELECT CAST(id AS TEXT), 'reminder_receipt' FROM reminder_receipts
-       WHERE project_id = ? AND card_id IN (${inBlocks})
+       WHERE project_id = ? AND page_id IN (${inBlocks})
        UNION ALL
        SELECT CAST(id AS TEXT), 'reminder_snooze' FROM reminder_snoozes
-       WHERE project_id = ? AND card_id IN (${inBlocks})`,
+       WHERE project_id = ? AND page_id IN (${inBlocks})`,
     )
     .all(projectId, ...ids, projectId, ...ids, projectId, ...ids) as readonly {
     readonly identity: string;

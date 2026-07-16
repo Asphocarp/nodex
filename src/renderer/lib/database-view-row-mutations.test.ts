@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
-import type { DatabaseMutationCommandResult } from "../../shared/database-kernel";
 import type {
-  GeneralDatabasePropertyDefinition,
-  GeneralDatabaseRow,
-} from "../../shared/database-query";
+  DatabaseApplyResult,
+  DatabaseViewQueryResult,
+  DataSourcePageRow,
+  DataSourcePropertyRecord,
+} from "../../shared/database-module";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 import {
   buildDatabaseViewMoveOperations,
@@ -13,40 +14,42 @@ import {
 } from "./database-view-row-mutations";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
+const libraryId = "library-1";
+const dataSourceId = "source-1";
 
 const model = (): DatabaseViewRenderModel => {
-  const properties: readonly GeneralDatabasePropertyDefinition[] = [
+  const properties: readonly DataSourcePropertyRecord[] = [
     {
-      id: "property-score",
-      databaseBlockId: "database-1",
+      propertyId: "property-score",
+      dataSourceId,
       key: "score",
       name: "Score",
-      valueType: "number" as const,
+      valueType: "number",
       config: {},
       rankKey: "a",
-      lifecycle: "active" as const,
+      lifecycle: "active",
       revision: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
     },
     {
-      id: "property-tags",
-      databaseBlockId: "database-1",
+      propertyId: "property-tags",
+      dataSourceId,
       key: "tags",
       name: "Tags",
-      valueType: "multi_select" as const,
+      valueType: "multi_select",
       config: { options: [{ id: "one", name: "One" }, { id: "two", name: "Two" }] },
       rankKey: "b",
-      lifecycle: "active" as const,
+      lifecycle: "active",
       revision: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
     },
   ];
   const view = {
-    id: "view-1",
-    databaseBlockId: "database-1",
-    projectId: "project-1",
+    viewId: "view-1",
+    databaseId: "database-1",
+    dataSourceId,
     name: "All",
     kind: "list" as const,
     config: {
@@ -57,7 +60,7 @@ const model = (): DatabaseViewRenderModel => {
       group: null,
       display: { propertyIds: ["property-score", "property-tags"], showTitle: true },
     },
-    isPrimary: false,
+    isDefault: false,
     revision: 1,
     rankKey: "a",
     lifecycle: "active" as const,
@@ -65,69 +68,82 @@ const model = (): DatabaseViewRenderModel => {
     updatedAt: timestamp,
   };
   const database = {
-    blockId: "database-1",
-    projectId: "project-1",
+    databaseId: "database-1",
+    libraryId,
     name: "Tasks",
-    isPrimary: false,
-    schemaKey: "nodex.database",
-    schemaRevision: 1,
+    lifecycle: "active" as const,
+    defaultViewId: "view-default",
+    accessRevision: 1,
     metadataRevision: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  const rows: readonly GeneralDatabaseRow[] = ["card-a", "card-b", "card-c"].map((blockId, index): GeneralDatabaseRow => ({
-    membership: {
-      id: `membership-${blockId}`,
-      databaseBlockId: "database-1",
-      cardBlockId: blockId,
-      revision: 1,
-      createdAt: timestamp,
-    },
-    card: {
-      blockId,
-      projectId: "project-1",
-      lifecycle: "active" as const,
-      location: { kind: "space" as const, rankKey: String(index) },
-      locationRevision: 1,
-      metadataRevision: 1,
-      documentId: `document-${blockId}`,
-      documentGeneration: 1,
-      documentHeadSeq: 1,
-      documentAuthority: "ydoc_primary" as const,
-      content: {
-        projectedSeq: 1,
-        title: blockId,
-        richTitle: plainTextToPortableRichText(blockId),
+  const dataSource = {
+    dataSourceId,
+    libraryId,
+    homeDatabaseId: database.databaseId,
+    name: "Pages",
+    schemaKey: "nodex.pages",
+    schemaRevision: 2,
+    lifecycle: "active" as const,
+    rankKey: "a",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const rows: DatabaseViewQueryResult["rows"] = ["page-a", "page-b", "page-c"].map(
+    (pageId, index): DataSourcePageRow => ({
+      membership: {
+        membershipId: `membership-${pageId}`,
+        dataSourceId,
+        revision: 1,
+        createdAt: timestamp,
+      },
+      page: {
+        pageId,
+        libraryId,
+        parent: { kind: "data_source" as const, dataSourceId },
+        lifecycle: "active" as const,
+        parentRevision: 1,
+        metadataRevision: 1,
+        documentId: `document-${pageId}`,
+        documentGeneration: 1,
+        documentHeadSeq: 1,
+        title: pageId,
+        richTitle: plainTextToPortableRichText(pageId),
         preview: "",
         plainText: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-    values: index === 0
-      ? {
-          "property-score": { propertyId: "property-score", valueType: "number" as const, value: 1, revision: 3 },
-          "property-tags": { propertyId: "property-tags", valueType: "multi_select" as const, value: ["one"], revision: 2 },
-        }
-      : {},
-    position: index === 2 ? null : { groupKey: null, rankKey: String(index), revision: index + 1 },
-    effectiveGroupKey: null,
-  }));
+      values: index === 0
+        ? {
+            "property-score": { propertyId: "property-score", valueType: "number" as const, value: 1, revision: 3 },
+            "property-tags": { propertyId: "property-tags", valueType: "multi_select" as const, value: ["one"], revision: 2 },
+          }
+        : {},
+      position: index === 2
+        ? null
+        : { groupKey: null, rankKey: String(index), revision: index + 1 },
+      effectiveGroupKey: null,
+    }),
+  );
   return {
     projectId: "project-1",
-    databaseViewId: "view-1",
-    databaseBlockId: "database-1",
-    databaseName: "Tasks",
-    viewName: "All",
+    databaseViewId: view.viewId,
+    databaseId: database.databaseId,
+    dataSourceId,
+    databaseName: database.name,
+    dataSourceName: dataSource.name,
+    viewName: view.name,
     storeEpoch: "epoch-1",
     changeLogSeq: 4,
-    query: { database, view, properties, rows },
+    query: { database, dataSource, view, properties, rows },
     columns: [{
       id: "all",
       name: "All",
       rows: rows.map((row) => ({
-        blockId: row.card.blockId,
-        title: row.card.content?.title ?? "Untitled",
+        pageId: row.page.pageId,
+        title: row.page.title,
         preview: "",
         plainText: "",
         tags: [],
@@ -140,47 +156,53 @@ const model = (): DatabaseViewRenderModel => {
   };
 };
 
-describe("selected Database View row mutations", () => {
+describe("selected Database View Page mutations", () => {
   test("uses scalar CAS and set-like multi-select intent from one query snapshot", () => {
     const authority = model();
     const scalar = buildDatabaseViewPropertyValueOperations({
       model: authority,
-      cardBlockId: "card-a",
+      pageId: "page-a",
       propertyId: "property-score",
       value: 2,
     });
     const setLike = buildDatabaseViewPropertyValueOperations({
       model: authority,
-      cardBlockId: "card-a",
+      pageId: "page-a",
       propertyId: "property-tags",
       value: ["two"],
     });
-    expect(scalar[0]?.kind).toBe("set_value");
-    expect(scalar[0]?.kind === "set_value" ? scalar[0].expectedValueRevision : -1).toBe(3);
-    expect(JSON.stringify(setLike[0])).toBe(JSON.stringify({
+    expect(scalar[0]).toMatchObject({
+      kind: "set_value",
+      pageId: "page-a",
+      dataSourceId,
+      expectedValueRevision: 3,
+    });
+    expect(setLike[0]).toEqual({
       kind: "add_remove_value",
-      cardBlockId: "card-a",
-      databaseBlockId: "database-1",
+      pageId: "page-a",
+      dataSourceId,
       propertyId: "property-tags",
       add: ["two"],
       remove: ["one"],
-    }));
+    });
   });
 
   test("initializes an unfiltered group's complete manual order atomically", () => {
     const operations = buildDatabaseViewMoveOperations({
       model: model(),
-      cardBlockId: "card-a",
+      pageId: "page-a",
       direction: "down",
     });
-    const operation = operations[0];
-    expect(operation?.kind).toBe("position_cards");
-    expect(operation?.kind === "position_cards"
-      ? operation.cards.map((card) => card.cardBlockId).join(",")
-      : "").toBe("card-b,card-a,card-c");
-    expect(operation?.kind === "position_cards"
-      ? operation.cards[2]?.expectedPositionRevision
-      : -1).toBe(0);
+    expect(operations[0]).toEqual({
+      kind: "position_pages",
+      viewId: "view-1",
+      pages: [
+        { pageId: "page-b", expectedPositionRevision: 2 },
+        { pageId: "page-a", expectedPositionRevision: 1 },
+        { pageId: "page-c", expectedPositionRevision: 0 },
+      ],
+      groupKey: null,
+    });
   });
 
   test("retains the exact request identity across one transport retry", async () => {
@@ -188,21 +210,25 @@ describe("selected Database View row mutations", () => {
     let calls = 0;
     const operations = buildDatabaseViewPropertyValueOperations({
       model: model(),
-      cardBlockId: "card-a",
+      pageId: "page-a",
       propertyId: "property-score",
       value: 2,
     });
-    const result: DatabaseMutationCommandResult = {
+    const result: DatabaseApplyResult = {
       ok: true,
       value: {
         version: 1,
         operationId: "operation-1",
         projectId: "project-1",
+        libraryId,
         storeEpoch: "epoch-1",
-        operationKinds: ["set_value"],
-        affectedDatabaseBlockIds: ["database-1"],
         duplicate: false,
-        payload: {},
+        operationKinds: ["set_value"],
+        affectedDatabaseIds: ["database-1"],
+        affectedDataSourceIds: [dataSourceId],
+        affectedPageIds: ["page-a"],
+        affectedViewIds: [],
+        committedRevisions: {},
         changeLogSeq: 5,
         committedAt: timestamp,
       },
@@ -211,7 +237,7 @@ describe("selected Database View row mutations", () => {
       model: model(),
       operations,
       dependencies: {
-        mutate: async (_projectId, request) => {
+        apply: async (_projectId, request) => {
           requests.push(JSON.stringify(request));
           calls += 1;
           if (calls === 1) throw new Error("transport lost ACK");
@@ -222,7 +248,7 @@ describe("selected Database View row mutations", () => {
         },
       },
     });
-    expect(requests.length).toBe(2);
+    expect(requests).toHaveLength(2);
     expect(requests[0]).toBe(requests[1]);
     expect(receipt?.operationId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,

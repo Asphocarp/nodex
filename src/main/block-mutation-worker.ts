@@ -5,14 +5,15 @@ import {
   dbNotifier,
   type BoardChangeEvent as LocalBoardChangeEvent,
 } from "./local-store/notifier";
-import * as cardsStore from "./local-store/cards";
+import * as pagesStore from "./local-store/database-pages";
 import {
-  readCardTargetChangedEvent,
-  readCardTargetContentChangedEvent,
-} from "./local-store/card-targets";
-import * as cardOccurrences from "./local-store/card-occurrences";
+  readPageTargetChangedEvent,
+  readPageTargetContentChangedEvent,
+} from "./local-store/page-targets";
+import * as pageOccurrences from "./local-store/page-occurrences";
 import { getOwnedDocumentDescriptor } from "./local-store/block-document-cutover";
 import { prepareEditableOwnedBlockDocument } from "./local-store/owned-block-document-preparation";
+import { authorizeDocumentAccessInDatabase } from "./local-store/document-access";
 import {
   applyCanvasSceneMutation,
   syncCanvasScene,
@@ -25,12 +26,6 @@ import {
   readCommittedRelocation,
   relocateBlocksAtomically,
 } from "./local-store/block-relocations";
-import {
-  applyCardProjectTransfer,
-  CardProjectTransferCompilationError,
-  compileCardProjectTransferIntent,
-  readCardProjectTransferOutcomeByIntent,
-} from "./local-store/card-project-transfer";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
 import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
 import {
@@ -39,19 +34,14 @@ import {
   readCommittedBlockTransfer,
 } from "./local-store/block-transfers";
 import {
-  applyDatabaseMutation,
-  queryDatabaseViewSnapshot,
-  readDatabaseCatalogSnapshot,
-  readDatabaseManagementSnapshot,
-  readDatabaseViewSnapshot,
-  readDatabaseDescriptorSnapshot,
-  readPrimaryDatabaseDescriptorSnapshot,
-  readPrimaryDatabaseViewSnapshot,
-} from "./local-store/database-kernel";
+  applyDatabaseModule,
+  readDatabaseModule,
+} from "./local-store/database-module";
+import { readPageDetailInDatabase } from "./local-store/page-detail";
 import {
-  applyCardLifecycleMutation,
-  readCardLifecyclePreflightSnapshot,
-} from "./local-store/card-block-lifecycle";
+  applyPageLifecycleMutation,
+  readPageLifecyclePreflightSnapshot,
+} from "./local-store/page-lifecycle";
 import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
 import { maintainStoreBlockRetention } from "./local-store/block-retention-maintenance-store";
 import { deleteProjectBlockFirst } from "./local-store/project-deletion";
@@ -73,16 +63,16 @@ import {
   prepareDocumentRevisionForUpdate,
 } from "./local-store/document-revision-maintenance-store";
 import {
-  CardHistoryStoreError,
-  listCardHistory,
-} from "./local-store/card-history";
-import { readDatabaseCardSummaryById } from "./local-store/card-read-store";
+  PageHistoryStoreError,
+  listPageHistory,
+} from "./local-store/page-history";
+import { readDatabasePageSummaryById } from "./local-store/page-read-store";
 import {
   BlockDocumentRuntime,
   createSqliteBlockDocumentRuntimeAuthority,
 } from "./block-document-runtime";
 import type { BoardChangeEvent } from "../shared/ipc-api";
-import type { CardTargetChangedEvent } from "../shared/card-target-events";
+import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type {
   DocumentSyncCommandResult,
   RelocationCommandError,
@@ -93,22 +83,15 @@ import type {
   CanvasSceneMutationCommandResult,
   CanvasSceneSyncCommandResult,
 } from "../shared/block-documents/canvas-scene-sync";
-import {
-  parseCardProjectTransferIntent,
-  type CardProjectTransferCommandError,
-  type CardProjectTransferCommandResult,
-  type CardProjectTransferIntent,
-  type CardProjectTransferPreparation,
-} from "../shared/card-project-transfer";
 import type {
   DocumentHistoryCommandError,
   DocumentHistoryCommandResult,
 } from "../shared/block-documents/document-history-transport";
 import type {
-  CardHistoryCommandError,
-  CardHistoryCommandResult,
-} from "../shared/card-history-transport";
-import type { Card, CardSummary } from "../shared/types";
+  PageHistoryCommandError,
+  PageHistoryCommandResult,
+} from "../shared/page-history-transport";
+import type { DatabasePage, DatabasePageSummary } from "../shared/types";
 import type {
   BlockMutationMetrics,
   BlockMutationWorkerMessage,
@@ -116,34 +99,21 @@ import type {
   BlockMutationWorkerResponse,
   BlockMutationWorkerResult,
 } from "./block-mutation-worker-protocol";
-import { readNodexAgentTool } from "./agent-tools/read-service";
 import { readNodexAgentV3Tool } from "./agent-tools/read-v3";
 import {
-  completeNodexAgentDocumentEdit,
-  prepareNodexAgentDocumentEdit,
-} from "./agent-tools/document-edit-service";
+  completeNodexAgentPageUpdate,
+  prepareNodexAgentPageUpdate,
+} from "./agent-tools/page-update-v3";
 import {
-  completeNodexAgentCardUpdate,
-  prepareNodexAgentCardUpdate,
-} from "./agent-tools/card-update-v3";
-import {
-  executeNodexAgentCreateCards,
-  executeNodexAgentCreate,
-  prepareNodexAgentCreateCards,
-  prepareNodexAgentCreate,
+  executeNodexAgentCreatePages,
+  prepareNodexAgentCreatePages,
 } from "./agent-tools/create-service";
 import {
-  executeNodexAgentDuplicateCard,
-  executeNodexAgentMoveCards,
-  executeNodexAgentTransfer,
-  prepareNodexAgentDuplicateCard,
-  prepareNodexAgentMoveCards,
-  prepareNodexAgentTransfer,
+  executeNodexAgentDuplicatePage,
+  executeNodexAgentMovePages,
+  prepareNodexAgentDuplicatePage,
+  prepareNodexAgentMovePages,
 } from "./agent-tools/transfer-service";
-import {
-  executeNodexAgentDatabaseEdit,
-  prepareNodexAgentDatabaseEdit,
-} from "./agent-tools/database-edit-service";
 
 const blockDocumentRuntime = new BlockDocumentRuntime(
   createSqliteBlockDocumentRuntimeAuthority(getDb, {
@@ -266,10 +236,10 @@ const runDocumentHistoryCommand = <T>(
   }
 };
 
-const toCardHistoryCommandError = (
+const toPageHistoryCommandError = (
   error: unknown,
-): CardHistoryCommandError => {
-  if (error instanceof CardHistoryStoreError) {
+): PageHistoryCommandError => {
+  if (error instanceof PageHistoryStoreError) {
     return {
       code: error.code,
       message: error.message,
@@ -278,18 +248,18 @@ const toCardHistoryCommandError = (
   }
   return {
     code: "unknown",
-    message: "Canonical Card history is unavailable",
+    message: "Canonical Page history is unavailable",
     retryable: true,
   };
 };
 
-const runCardHistoryCommand = (
-  operation: () => import("../shared/card-history").CardHistoryPage,
-): CardHistoryCommandResult => {
+const runPageHistoryCommand = (
+  operation: () => import("../shared/page-history").PageHistoryPage,
+): PageHistoryCommandResult => {
   try {
     return { ok: true, value: operation() };
   } catch (error) {
-    return { ok: false, error: toCardHistoryCommandError(error) };
+    return { ok: false, error: toPageHistoryCommandError(error) };
   }
 };
 
@@ -351,126 +321,17 @@ const runRelocationCommand = <T>(
   }
 };
 
-const transferCompilationFailure = (
-  intent: CardProjectTransferIntent,
-  error: unknown,
-): CardProjectTransferCommandError => {
-  const code =
-    error instanceof CardProjectTransferCompilationError
-      ? error.code
-      : "unknown";
-  return {
-    code,
-    message: toErrorMessage(error),
-    retryable:
-      code === "block_authority_conflict" ||
-      code === "document_authority_conflict" ||
-      code === "membership_authority_conflict" ||
-      code === "target_database_conflict" ||
-      code === "target_view_conflict" ||
-      code === "position_anchor_not_found" ||
-      code === "position_anchor_group_mismatch" ||
-      code === "unknown",
-    operationId: intent.operationId,
-    cardId: intent.cardId,
-  };
+const publishPageTargetContentChange = (documentId: string): void => {
+  const event = readPageTargetContentChangedEvent(getDb(), documentId);
+  if (event) dbNotifier.notifyPageTargetChanged(event);
 };
 
-const prepareCardProjectTransfer = (
-  rawIntent: CardProjectTransferIntent,
-): CardProjectTransferCommandResult<CardProjectTransferPreparation> => {
-  let intent: CardProjectTransferIntent;
-  try {
-    intent = parseCardProjectTransferIntent(rawIntent);
-  } catch (error) {
-    return {
-      ok: false,
-      error: {
-        code: "invalid_card_project_transfer_request",
-        message: toErrorMessage(error),
-        retryable: false,
-      },
-    };
-  }
-  const stored = readCardProjectTransferOutcomeByIntent(getDb(), intent);
-  if (stored) {
-    if (!stored.ok) return stored;
-    return {
-      ok: true,
-      value: {
-        kind: "committed",
-        intent,
-        receipt: stored.value,
-      },
-    };
-  }
-  try {
-    return {
-      ok: true,
-      value: {
-        kind: "prepared",
-        intent,
-        request: compileCardProjectTransferIntent(getDb(), intent),
-      },
-    };
-  } catch (error) {
-    return { ok: false, error: transferCompilationFailure(intent, error) };
-  }
-};
-
-const publishCardProjectTransferBoardEvents = (
-  request: import("../shared/card-project-transfer").CardProjectTransferRequest,
-): void => {
-  const sourceStatus =
-    request.expectedMemberships.find(
-      (membership) => membership.cardBlockId === request.cardId,
-    )?.status ?? request.target.status;
-  dbNotifier.notifyChange(
-    request.sourceProjectId,
-    "delete",
-    sourceStatus,
-    request.cardId,
-    { mutationId: request.operationId },
-  );
-  dbNotifier.notifyCardTargetChanged({
-    projectId: request.sourceProjectId,
-    targetBlockId: request.cardId,
-    changeKind: "location",
-  });
-  const summary = readDatabaseCardSummaryById(getDb(), request.cardId);
-  if (!summary) {
-    postLog("error", "Committed Card Project transfer has no target summary", {
-      operationId: request.operationId,
-      cardId: request.cardId,
-      targetProjectId: request.targetProjectId,
-    });
-    return;
-  }
-  dbNotifier.notifyChange(
-    request.targetProjectId,
-    "create",
-    summary.status,
-    request.cardId,
-    { summary, mutationId: request.operationId },
-  );
-  dbNotifier.notifyCardTargetChanged({
-    projectId: request.targetProjectId,
-    targetBlockId: request.cardId,
-    changeKind: "location",
-  });
-};
-
-const publishCardTargetContentChange = (documentId: string): void => {
-  const event = readCardTargetContentChangedEvent(getDb(), documentId);
-  if (event) dbNotifier.notifyCardTargetChanged(event);
-};
-
-const publishCardTargetChange = (
+const publishPageTargetChange = (
   targetBlockId: string,
   changeKind: "lifecycle" | "location" | "metadata",
 ): void => {
-  const event = readCardTargetChangedEvent(getDb(), targetBlockId, changeKind);
-  if (event) dbNotifier.notifyCardTargetChanged(event);
+  const event = readPageTargetChangedEvent(getDb(), targetBlockId, changeKind);
+  if (event) dbNotifier.notifyPageTargetChanged(event);
 };
 
 const invalidateRelocatedDocumentCaches = (
@@ -490,7 +351,7 @@ const invalidateRelocatedDocumentCaches = (
   }
 };
 
-const publishRelocationCardSummaries = (result: RelocationResult): void => {
+const publishRelocationPageSummaries = (result: RelocationResult): void => {
   if (result.duplicate) return;
   const documentIds = [
     result.sourceCommit.documentId,
@@ -498,8 +359,8 @@ const publishRelocationCardSummaries = (result: RelocationResult): void => {
   ];
   for (const documentId of new Set(documentIds)) {
     try {
-      publishCardTargetContentChange(documentId);
-      const projection = cardsStore.readCardDocumentBoardProjection(
+      publishPageTargetContentChange(documentId);
+      const projection = pagesStore.readPageDocumentBoardProjection(
         getDb(),
         documentId,
       );
@@ -510,11 +371,11 @@ const publishRelocationCardSummaries = (result: RelocationResult): void => {
         projection.projectId,
         "update",
         projection.status,
-        projection.cardId,
+        projection.pageId,
         { summary: projection.summary },
       );
     } catch (error) {
-      postLog("error", "Committed relocation Card summary fanout failed", {
+      postLog("error", "Committed relocation Page summary fanout failed", {
         relocationId: result.relocationId,
         documentId,
         error: toErrorMessage(error),
@@ -532,18 +393,18 @@ function approximatePayloadBytes(value: unknown): number {
 }
 
 function shouldReadSummary(event: BoardChangeEvent): boolean {
-  if (!event.cardId) return false;
+  if (!event.pageId) return false;
   if (event.changeType === "delete") return false;
   return true;
 }
 
 async function readEventSummary(
   event: BoardChangeEvent,
-): Promise<CardSummary | undefined> {
+): Promise<DatabasePageSummary | undefined> {
   if (!shouldReadSummary(event)) return undefined;
-  const cardId = event.cardId;
-  if (!cardId) return undefined;
-  const summary = cardsStore.readDatabaseCardSummaryById(cardId);
+  const pageId = event.pageId;
+  if (!pageId) return undefined;
+  const summary = pagesStore.readDatabasePageSummaryById(pageId);
   return summary ?? undefined;
 }
 
@@ -551,9 +412,9 @@ function normalizeEvent(event: LocalBoardChangeEvent): BoardChangeEvent {
   return {
     projectId: event.projectId,
     changeType: event.changeType,
-    columnId: event.columnId as Card["status"],
-    status: event.status as Card["status"],
-    cardId: event.cardId,
+    columnId: event.columnId as DatabasePage["status"],
+    status: event.status as DatabasePage["status"],
+    pageId: event.pageId,
     summary: event.summary,
     mutationId: event.mutationId,
     metrics: event.metrics,
@@ -588,70 +449,34 @@ async function runRequest(
   request: BlockMutationWorkerRequest,
 ): Promise<BlockMutationWorkerResult> {
   switch (request.type) {
-    case "readNodexAgentTool":
-      return readNodexAgentTool(getDb(), request.payload);
     case "readNodexAgentV3Tool":
       return readNodexAgentV3Tool(getDb(), request.payload);
-    case "prepareNodexAgentDocumentEdit":
-      return prepareNodexAgentDocumentEdit(getDb(), request.payload);
-    case "completeNodexAgentDocumentEdit":
-      return completeNodexAgentDocumentEdit(getDb(), request.payload);
-    case "prepareNodexAgentCardUpdate":
-      return prepareNodexAgentCardUpdate(getDb(), request.payload);
-    case "completeNodexAgentCardUpdate":
-      return completeNodexAgentCardUpdate(getDb(), request.payload);
-    case "prepareNodexAgentCreate":
-      return prepareNodexAgentCreate(getDb(), request.payload);
-    case "executeNodexAgentCreate": {
-      const result = executeNodexAgentCreate(getDb(), request.payload);
+    case "prepareNodexAgentPageUpdate":
+      return prepareNodexAgentPageUpdate(getDb(), request.payload);
+    case "completeNodexAgentPageUpdate":
+      return completeNodexAgentPageUpdate(getDb(), request.payload);
+    case "prepareNodexAgentCreatePages":
+      return prepareNodexAgentCreatePages(getDb(), request.payload);
+    case "executeNodexAgentCreatePages": {
+      const result = executeNodexAgentCreatePages(getDb(), request.payload);
       if (!result.ok || result.value.duplicate) return result;
-      try {
-        publishCardTargetContentChange(
-          result.value.output.data.resource.documentId,
-        );
-        const cardId = result.value.output.data.resource.blockId;
-        const summary = readDatabaseCardSummaryById(getDb(), cardId);
-        if (summary) {
-          dbNotifier.notifyChange(
-            request.payload.projectId,
-            "create",
-            summary.status,
-            cardId,
-            { summary },
-          );
-        }
-      } catch (error) {
-        postLog("error", "Committed Nodex Agent Card create fanout failed", {
-          projectId: request.payload.projectId,
-          cardId: request.payload.cardId,
-          mutationId: request.payload.mutationId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      return result;
-    }
-    case "prepareNodexAgentCreateCards":
-      return prepareNodexAgentCreateCards(getDb(), request.payload);
-    case "executeNodexAgentCreateCards": {
-      const result = executeNodexAgentCreateCards(getDb(), request.payload);
-      if (!result.ok || result.value.duplicate) return result;
-      for (const card of result.value.output.data.cards) {
+      for (const page of result.value.output.data.pages) {
         try {
-          publishCardTargetContentChange(`document:${card.cardId}`);
-          const summary = readDatabaseCardSummaryById(getDb(), card.cardId);
+          publishPageTargetContentChange(`document:${page.pageId}`);
+          const summary = readDatabasePageSummaryById(getDb(), page.pageId);
           if (summary) {
             dbNotifier.notifyChange(
               request.payload.projectId,
               "create",
               summary.status,
-              card.cardId,
+              page.pageId,
               { summary },
             );
           }
         } catch (error) {
-          postLog("error", "Committed Nodex Agent Card batch fanout failed", {
+          postLog("error", "Committed Nodex Agent Page batch fanout failed", {
             projectId: request.payload.projectId,
-            cardId: card.cardId,
+            pageId: page.pageId,
             mutationId: request.payload.mutationId,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -659,58 +484,58 @@ async function runRequest(
       }
       return result;
     }
-    case "prepareNodexAgentDuplicateCard":
-      return prepareNodexAgentDuplicateCard(getDb(), request.payload);
-    case "executeNodexAgentDuplicateCard": {
-      const result = executeNodexAgentDuplicateCard(getDb(), request.payload);
+    case "prepareNodexAgentDuplicatePage":
+      return prepareNodexAgentDuplicatePage(getDb(), request.payload);
+    case "executeNodexAgentDuplicatePage": {
+      const result = executeNodexAgentDuplicatePage(getDb(), request.payload);
       if (!result.ok || result.value.duplicate) return result;
       try {
-        const cardId = result.value.output.data.cardId;
-        publishCardTargetContentChange(`document:${cardId}`);
-        const summary = readDatabaseCardSummaryById(getDb(), cardId);
+        const pageId = result.value.output.data.pageId;
+        publishPageTargetContentChange(`document:${pageId}`);
+        const summary = readDatabasePageSummaryById(getDb(), pageId);
         if (summary) {
           dbNotifier.notifyChange(
             request.payload.projectId,
             "create",
             summary.status,
-            cardId,
+            pageId,
             { summary },
           );
         }
       } catch (error) {
-        postLog("error", "Committed Nodex Agent Card duplicate fanout failed", {
+        postLog("error", "Committed Nodex Agent Page duplicate fanout failed", {
           projectId: request.payload.projectId,
-          sourceCardId: request.payload.input.cardId,
+          sourcePageId: request.payload.input.pageId,
           mutationId: request.payload.mutationId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
       return result;
     }
-    case "prepareNodexAgentMoveCards":
-      return prepareNodexAgentMoveCards(getDb(), request.payload);
-    case "executeNodexAgentMoveCards": {
-      const result = executeNodexAgentMoveCards(getDb(), request.payload);
+    case "prepareNodexAgentMovePages":
+      return prepareNodexAgentMovePages(getDb(), request.payload);
+    case "executeNodexAgentMovePages": {
+      const result = executeNodexAgentMovePages(getDb(), request.payload);
       if (!result.ok || result.value.duplicate) return result;
       try {
         for (const commit of result.value.documentCommits) {
           blockDocumentRuntime.invalidate(commit.documentId);
-          publishCardTargetContentChange(commit.documentId);
+          publishPageTargetContentChange(commit.documentId);
         }
-        for (const card of result.value.output.data.cards) {
-          publishCardTargetChange(card.cardId, "location");
-          const summary = readDatabaseCardSummaryById(getDb(), card.cardId);
+        for (const page of result.value.output.data.pages) {
+          publishPageTargetChange(page.pageId, "location");
+          const summary = readDatabasePageSummaryById(getDb(), page.pageId);
           if (!summary) continue;
           dbNotifier.notifyChange(
             request.payload.projectId,
             "update",
             summary.status,
-            card.cardId,
+            page.pageId,
             { summary, mutationId: request.payload.mutationId },
           );
         }
       } catch (error) {
-        postLog("error", "Committed Nodex Agent Card move fanout failed", {
+        postLog("error", "Committed Nodex Agent Page move fanout failed", {
           projectId: request.payload.projectId,
           mutationId: request.payload.mutationId,
           error: error instanceof Error ? error.message : String(error),
@@ -718,101 +543,20 @@ async function runRequest(
       }
       return result;
     }
-    case "prepareNodexAgentTransfer":
-      return prepareNodexAgentTransfer(getDb(), request.payload);
-    case "executeNodexAgentTransfer": {
-      const result = executeNodexAgentTransfer(getDb(), request.payload);
-      if (!result.ok || result.value.duplicate) return result;
-      try {
-        for (const commit of result.value.documentCommits) {
-          blockDocumentRuntime.invalidate(commit.documentId);
-          publishCardTargetContentChange(commit.documentId);
-        }
-        for (const transferred of result.value.output.data.results) {
-          publishCardTargetChange(transferred.resultBlockId, "location");
-          const summary = readDatabaseCardSummaryById(
-            getDb(),
-            transferred.resultBlockId,
-          );
-          if (!summary) continue;
-          dbNotifier.notifyChange(
-            request.payload.projectId,
-            request.payload.input.mode === "copy" ? "create" : "update",
-            summary.status,
-            transferred.resultBlockId,
-            { summary, mutationId: request.payload.mutationId },
-          );
-        }
-      } catch (error) {
-        postLog("error", "Committed Nodex Agent transfer fanout failed", {
-          projectId: request.payload.projectId,
-          mutationId: request.payload.mutationId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      return result;
-    }
-    case "prepareNodexAgentDatabaseEdit":
-      return prepareNodexAgentDatabaseEdit(getDb(), request.payload);
-    case "executeNodexAgentDatabaseEdit": {
-      const result = executeNodexAgentDatabaseEdit(getDb(), request.payload);
-      if (!result.ok || result.value.duplicate) return result;
-      const cardIds = [...new Set(request.payload.mutation.operations.flatMap(
-        (operation) => {
-          if (
-            operation.kind === "set_value"
-            || operation.kind === "add_remove_value"
-            || operation.kind === "position_card"
-            || operation.kind === "transfer_membership"
-          ) {
-            return [operation.cardBlockId];
-          }
-          if (operation.kind === "set_values") {
-            return operation.entries.map((entry) => entry.cardBlockId);
-          }
-          if (operation.kind === "position_cards") {
-            return operation.cards.map((entry) => entry.cardBlockId);
-          }
-          return [];
-        },
-      ))].sort();
-      for (const cardId of cardIds) {
-        try {
-          publishCardTargetChange(cardId, "metadata");
-          const summary = readDatabaseCardSummaryById(getDb(), cardId);
-          if (!summary) continue;
-          dbNotifier.notifyChange(
-            request.payload.projectId,
-            "update",
-            summary.status,
-            cardId,
-            { summary, mutationId: request.payload.mutationId },
-          );
-        } catch (error) {
-          postLog("error", "Committed Nodex Agent Database edit fanout failed", {
-            projectId: request.payload.projectId,
-            cardId,
-            mutationId: request.payload.mutationId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-      return result;
-    }
-    case "completeCardOccurrence":
-      return await cardOccurrences.completeCardOccurrence(
+    case "completePageOccurrence":
+      return await pageOccurrences.completePageOccurrence(
         request.payload.projectId,
         request.payload.input,
         request.payload.sessionId,
       );
-    case "skipCardOccurrence":
-      return await cardOccurrences.skipCardOccurrence(
+    case "skipPageOccurrence":
+      return await pageOccurrences.skipPageOccurrence(
         request.payload.projectId,
         request.payload.input,
         request.payload.sessionId,
       );
-    case "updateCardOccurrence":
-      return await cardOccurrences.updateCardOccurrence(
+    case "updatePageOccurrence":
+      return await pageOccurrences.updatePageOccurrence(
         request.payload.projectId,
         request.payload.input,
         request.payload.sessionId,
@@ -827,14 +571,14 @@ async function runRequest(
       // projection before returning. Fanout is intentionally best-effort and
       // happens only for the first durable receipt; exact retries must not
       // create a second semantic board event.
-      for (const cardId of Object.keys(result.value.blockMetadataRevisions)) {
+      for (const pageId of Object.keys(result.value.blockMetadataRevisions)) {
         try {
-          publishCardTargetChange(cardId, "metadata");
-          const summary = readDatabaseCardSummaryById(getDb(), cardId);
+          publishPageTargetChange(pageId, "metadata");
+          const summary = readDatabasePageSummaryById(getDb(), pageId);
           if (!summary) {
-            postLog("error", "Committed Card properties have no read model", {
+            postLog("error", "Committed Page properties have no read model", {
               projectId: request.payload.projectId,
-              cardId,
+              pageId,
               mutationId: request.payload.mutationId,
             });
             continue;
@@ -843,13 +587,13 @@ async function runRequest(
             request.payload.projectId,
             "update",
             summary.status,
-            cardId,
+            pageId,
             { summary },
           );
         } catch (error) {
-          postLog("error", "Committed Card property fanout failed", {
+          postLog("error", "Committed Page property fanout failed", {
             projectId: request.payload.projectId,
-            cardId,
+            pageId,
             mutationId: request.payload.mutationId,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -857,57 +601,26 @@ async function runRequest(
       }
       return result;
     }
-    case "applyDatabaseMutation": {
-      const result = applyDatabaseMutation(getDb(), request.payload);
+    case "applyDatabaseModule": {
+      const result = applyDatabaseModule(getDb(), request.payload);
       if (!result.ok || result.value.duplicate) return result;
 
-      const cardIds = [
-        ...new Set(
-          request.payload.operations.flatMap((operation) => {
-            if (
-              operation.kind === "transfer_membership" ||
-              operation.kind === "position_card" ||
-              operation.kind === "set_value" ||
-              operation.kind === "add_remove_value"
-            ) {
-              return [operation.cardBlockId];
-            }
-            return [];
-          }),
-        ),
-      ].sort();
-      const locationChangedCardIds = new Set(
-        request.payload.operations.flatMap((operation) =>
-          operation.kind === "transfer_membership"
-            ? [operation.cardBlockId]
-            : [],
-        ),
-      );
-      for (const cardId of cardIds) {
+      for (const pageId of result.value.affectedPageIds) {
         try {
-          if (locationChangedCardIds.has(cardId)) {
-            publishCardTargetChange(cardId, "location");
-          }
-          const summary = readDatabaseCardSummaryById(getDb(), cardId);
-          if (!summary) {
-            postLog("error", "Committed Database mutation has no Card read model", {
-              projectId: request.payload.projectId,
-              cardId,
-              operationId: request.payload.operationId,
-            });
-            continue;
-          }
+          publishPageTargetChange(pageId, "metadata");
+          const summary = readDatabasePageSummaryById(getDb(), pageId);
+          if (!summary) continue;
           dbNotifier.notifyChange(
             request.payload.projectId,
             "update",
             summary.status,
-            cardId,
+            pageId,
             { summary, mutationId: request.payload.operationId },
           );
         } catch (error) {
-          postLog("error", "Committed Database mutation fanout failed", {
+          postLog("error", "Committed Database Module Page fanout failed", {
             projectId: request.payload.projectId,
-            cardId,
+            pageId,
             operationId: request.payload.operationId,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -920,10 +633,10 @@ async function runRequest(
       if (!result.ok || result.value.duplicate) return result;
       for (const commit of result.value.documentCommits) {
         blockDocumentRuntime.invalidate(commit.documentId);
-        publishCardTargetContentChange(commit.documentId);
+        publishPageTargetContentChange(commit.documentId);
       }
       for (const blockId of result.value.resultRootBlockIds) {
-        publishCardTargetChange(blockId, "location");
+        publishPageTargetChange(blockId, "location");
       }
       return result;
     }
@@ -931,62 +644,58 @@ async function runRequest(
       return prepareBlockTransfer(getDb(), request.payload);
     case "readCommittedBlockTransfer":
       return readCommittedBlockTransfer(getDb(), request.payload);
-    case "applyCardLifecycleMutation": {
-      let previousSummary: CardSummary | null = null;
-      if (request.payload.operation.kind === "delete_card") {
+    case "applyPageLifecycleMutation": {
+      let previousSummary: DatabasePageSummary | null = null;
+      if (request.payload.operation.kind === "delete_page") {
         try {
-          previousSummary = readDatabaseCardSummaryById(
+          previousSummary = readDatabasePageSummaryById(
             getDb(),
-            request.payload.operation.cardId,
+            request.payload.operation.pageId,
           );
         } catch (error) {
-          postLog("warn", "Card lifecycle pre-commit summary read failed", {
+          postLog("warn", "Page lifecycle pre-commit summary read failed", {
             projectId: request.payload.projectId,
-            cardId: request.payload.operation.cardId,
+            pageId: request.payload.operation.pageId,
             operationId: request.payload.operationId,
             error: error instanceof Error ? error.message : String(error),
           });
         }
       }
 
-      const result = applyCardLifecycleMutation(getDb(), request.payload);
+      const result = applyPageLifecycleMutation(getDb(), request.payload);
       if (!result.ok || result.value.duplicate) return result;
 
       try {
-        dbNotifier.notifyCardTargetChanged({
-          projectId: request.payload.projectId,
-          targetBlockId: result.value.cardId,
-          changeKind: "lifecycle",
-        });
-        if (result.value.operationKind === "delete_card") {
+        publishPageTargetChange(result.value.pageId, "lifecycle");
+        if (result.value.operationKind === "delete_page") {
           if (previousSummary) {
             dbNotifier.notifyChange(
               request.payload.projectId,
               "delete",
               previousSummary.status,
-              result.value.cardId,
+              result.value.pageId,
               { mutationId: request.payload.operationId },
             );
           }
           return result;
         }
 
-        const summary = readDatabaseCardSummaryById(
+        const summary = readDatabasePageSummaryById(
           getDb(),
-          result.value.cardId,
+          result.value.pageId,
         );
         if (!summary) return result;
         dbNotifier.notifyChange(
           request.payload.projectId,
-          result.value.operationKind === "create_card" ? "create" : "update",
+          result.value.operationKind === "create_page" ? "create" : "update",
           summary.status,
-          result.value.cardId,
+          result.value.pageId,
           { summary, mutationId: request.payload.operationId },
         );
       } catch (error) {
-        postLog("error", "Committed Card lifecycle fanout failed", {
+        postLog("error", "Committed Page lifecycle fanout failed", {
           projectId: request.payload.projectId,
-          cardId: result.value.cardId,
+          pageId: result.value.pageId,
           operationId: request.payload.operationId,
           operationKind: result.value.operationKind,
           error: error instanceof Error ? error.message : String(error),
@@ -994,11 +703,11 @@ async function runRequest(
       }
       return result;
     }
-    case "readCardLifecyclePreflight":
-      return readCardLifecyclePreflightSnapshot(
+    case "readPageLifecyclePreflight":
+      return readPageLifecyclePreflightSnapshot(
         getDb(),
         request.payload.projectId,
-        request.payload.cardId,
+        request.payload.pageId,
       );
     case "compactEligibleBlockDocuments":
       return compactEligibleBlockDocuments(getDb(), request.payload);
@@ -1008,43 +717,13 @@ async function runRequest(
       return maintainDocumentRevisionHistory(getDb(), request.payload);
     case "deleteProject":
       return deleteProjectBlockFirst(getDb(), request.payload.projectId);
-    case "readDatabaseCatalog":
-      return readDatabaseCatalogSnapshot(
+    case "readDatabaseModule":
+      return readDatabaseModule(getDb(), request.payload);
+    case "readPageDetail":
+      return readPageDetailInDatabase(
         getDb(),
         request.payload.projectId,
-      );
-    case "readDatabaseManagement":
-      return readDatabaseManagementSnapshot(
-        getDb(),
-        request.payload.projectId,
-      );
-    case "readDatabaseDescriptor":
-      return readDatabaseDescriptorSnapshot(
-        getDb(),
-        request.payload.projectId,
-        request.payload.databaseBlockId,
-      );
-    case "readPrimaryDatabaseDescriptor":
-      return readPrimaryDatabaseDescriptorSnapshot(
-        getDb(),
-        request.payload.projectId,
-      );
-    case "readPrimaryDatabaseViewSnapshot":
-      return readPrimaryDatabaseViewSnapshot(
-        getDb(),
-        request.payload.projectId,
-      );
-    case "readDatabaseViewSnapshot":
-      return readDatabaseViewSnapshot(
-        getDb(),
-        request.payload.projectId,
-        request.payload.viewId,
-      );
-    case "queryDatabaseView":
-      return queryDatabaseViewSnapshot(
-        getDb(),
-        request.payload.projectId,
-        request.payload.viewId,
+        request.payload.pageId,
       );
     case "syncBlockDocument":
       return runDocumentCommand(() =>
@@ -1058,6 +737,8 @@ async function runRequest(
       return runDocumentCommand(() =>
         blockDocumentRuntime.getProjectId(request.payload.documentId),
       );
+    case "authorizeDocumentAccess":
+      return authorizeDocumentAccessInDatabase(getDb(), request.payload);
     case "getOwnedDocumentDescriptor":
       return getOwnedDocumentDescriptor(
         getDb(),
@@ -1107,14 +788,14 @@ async function runRequest(
       }
 
       // applyUpdate only returns after its SQLite transaction commits. Publish
-      // the Card summary from that same committed materialization so every
-      // window/browser updates without making legacy Card content authoritative
+      // the DatabasePage summary from that same committed materialization so every
+      // window/browser updates without making the legacy Page projection authoritative
       // again. A post-commit projection read must never turn a durable ACK into
       // a retryable failure: a retry is a duplicate and intentionally emits no
       // second semantic event.
       try {
-        publishCardTargetContentChange(request.payload.documentId);
-        const projection = cardsStore.readCardDocumentBoardProjection(
+        publishPageTargetContentChange(request.payload.documentId);
+        const projection = pagesStore.readPageDocumentBoardProjection(
           getDb(),
           request.payload.documentId,
         );
@@ -1126,11 +807,11 @@ async function runRequest(
           projection.projectId,
           "update",
           projection.status,
-          projection.cardId,
+          projection.pageId,
           { summary: projection.summary },
         );
       } catch (error) {
-        postLog("error", "Committed Card Document summary fanout failed", {
+        postLog("error", "Committed Page Document summary fanout failed", {
           documentId: request.payload.documentId,
           updateId: request.payload.updateId,
           committedSeq: result.value.committedSeq,
@@ -1159,8 +840,8 @@ async function runRequest(
       blockDocumentRuntime.invalidate(mutation.documentId);
 
       try {
-        publishCardTargetContentChange(mutation.documentId);
-        const projection = cardsStore.readCardDocumentBoardProjection(
+        publishPageTargetContentChange(mutation.documentId);
+        const projection = pagesStore.readPageDocumentBoardProjection(
           getDb(),
           mutation.documentId,
         );
@@ -1171,7 +852,7 @@ async function runRequest(
           projection.projectId,
           "update",
           projection.status,
-          projection.cardId,
+          projection.pageId,
           { summary: projection.summary },
         );
       } catch (error) {
@@ -1191,8 +872,8 @@ async function runRequest(
       for (const head of result.value.effect.documentHeads) {
         blockDocumentRuntime.invalidate(head.documentId);
         try {
-          publishCardTargetContentChange(head.documentId);
-          const projection = cardsStore.readCardDocumentBoardProjection(
+          publishPageTargetContentChange(head.documentId);
+          const projection = pagesStore.readPageDocumentBoardProjection(
             getDb(),
             head.documentId,
           );
@@ -1201,7 +882,7 @@ async function runRequest(
             projection.projectId,
             "update",
             projection.status,
-            projection.cardId,
+            projection.pageId,
             {
               summary: projection.summary,
               mutationId: request.payload.operationId,
@@ -1230,9 +911,9 @@ async function runRequest(
       return runDocumentHistoryCommand(() =>
         getDocumentVersionDetail(getDb(), request.payload),
       );
-    case "listCardHistory":
-      return runCardHistoryCommand(() =>
-        listCardHistory(getDb(), request.payload),
+    case "listPageHistory":
+      return runPageHistoryCommand(() =>
+        listPageHistory(getDb(), request.payload),
       );
     case "relocateBlocks": {
       const result = runRelocationCommand(() =>
@@ -1247,10 +928,10 @@ async function runRequest(
           : []),
       ];
       invalidateRelocatedDocumentCaches(documentIds, result.value.relocationId);
-      publishRelocationCardSummaries(result.value);
+      publishRelocationPageSummaries(result.value);
       if (!result.value.duplicate) {
         for (const blockId of result.value.rootBlockIds) {
-          publishCardTargetChange(blockId, "location");
+          publishPageTargetChange(blockId, "location");
         }
       }
       return result;
@@ -1275,17 +956,6 @@ async function runRequest(
       );
       return result;
     }
-    case "prepareCardProjectTransfer":
-      return prepareCardProjectTransfer(request.payload);
-    case "applyCardProjectTransfer": {
-      const result = applyCardProjectTransfer(getDb(), request.payload);
-      if (!result.ok || result.value.duplicate) return result;
-      for (const documentId of result.value.movedDocumentIds) {
-        blockDocumentRuntime.invalidate(documentId);
-      }
-      publishCardProjectTransferBoardEvents(request.payload);
-      return result;
-    }
     case "writerBarrier":
       return undefined;
     case "shutdown":
@@ -1302,20 +972,20 @@ async function handleRequest(
   const workerStartedAt = performance.now();
   const transactionStartedAt = performance.now();
   const capturedEvents: LocalBoardChangeEvent[] = [];
-  const capturedTargetEvents: CardTargetChangedEvent[] = [];
+  const capturedTargetEvents: PageTargetChangedEvent[] = [];
   const onBoardChanged = (event: LocalBoardChangeEvent) => {
     capturedEvents.push(event);
   };
-  const onCardTargetChanged = (event: CardTargetChangedEvent) => {
+  const onPageTargetChanged = (event: PageTargetChangedEvent) => {
     capturedTargetEvents.push(event);
   };
 
   dbNotifier.on("board-changed", onBoardChanged);
-  dbNotifier.on("card-target-changed", onCardTargetChanged);
+  dbNotifier.on("page-target-changed", onPageTargetChanged);
   try {
     const result = await runRequest(request);
     dbNotifier.removeListener("board-changed", onBoardChanged);
-    dbNotifier.removeListener("card-target-changed", onCardTargetChanged);
+    dbNotifier.removeListener("page-target-changed", onPageTargetChanged);
 
     const metrics: BlockMutationMetrics = {
       mutationId: request.mutationId,
@@ -1348,7 +1018,7 @@ async function handleRequest(
     }
   } catch (error) {
     dbNotifier.removeListener("board-changed", onBoardChanged);
-    dbNotifier.removeListener("card-target-changed", onCardTargetChanged);
+    dbNotifier.removeListener("page-target-changed", onPageTargetChanged);
     postResponse({
       id: request.id,
       ok: false,

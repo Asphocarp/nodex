@@ -87,6 +87,48 @@ export interface DocumentSyncSubscribeRequest {
   readonly clientSessionId: string;
 }
 
+/**
+ * Transport boundary for a Project-bound editor session. The Project is an
+ * authorization context; it is deliberately not part of the durable CRDT
+ * identity handled by the Document runtime.
+ */
+export interface ProjectScopedDocumentSyncSubscribeRequest
+  extends DocumentSyncSubscribeRequest {
+  readonly projectId: string;
+}
+
+export interface ProjectScopedDocumentSyncRequest extends DocumentSyncRequest {
+  readonly projectId: string;
+}
+
+export interface ProjectScopedDocumentSyncApplyRequest
+  extends DocumentSyncApplyRequest {
+  readonly projectId: string;
+}
+
+export interface ProjectScopedDocumentAwarenessPublishRequest
+  extends DocumentAwarenessPublishRequest {
+  readonly projectId: string;
+}
+
+export type ProjectScopedDocumentRelocationLeaseResponseRequest =
+  DocumentRelocationLeaseResponseRequest & { readonly projectId: string };
+
+export type DocumentAccessKind = "read" | "write";
+
+export interface DocumentAccessRequest {
+  readonly projectId: string;
+  readonly documentId: DocumentId;
+  readonly access: DocumentAccessKind;
+}
+
+export interface DocumentAccessAck {
+  readonly projectId: string;
+  readonly documentId: DocumentId;
+  readonly access: DocumentAccessKind;
+  readonly authorized: true;
+}
+
 export interface DocumentSyncSubscriptionAck {
   readonly subscribed: true;
 }

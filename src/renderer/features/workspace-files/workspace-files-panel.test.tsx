@@ -205,6 +205,10 @@ function entry(name: string, path: string, kind: "directory" | "file"): Workspac
 
 const project: Project = {
   id: "alpha",
+  libraryId: "library:test",
+  databaseId: "database:test:primary",
+  lifecycle: "active",
+  bindingRevision: 1,
   name: "Alpha",
   description: "",
   icon: "",

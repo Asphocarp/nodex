@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents/card-document";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents/page-document";
 import {
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
@@ -34,14 +34,14 @@ const makeDescriptor = (
 ): OwnedDocumentDescriptor => ({
   projectId: REQUEST.projectId,
   ownerBlockId: REQUEST.ownerBlockId,
-  ownerType: "card",
+  ownerType: "page",
   ownerLifecycle: "active",
   documentId: "opaque-owned-document-id",
   storeEpoch: "store-epoch-a",
   generation: 3,
   headSeq: 11,
-  schemaKey: "nodex.card",
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  schemaKey: "nodex.page",
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
   sync: { kind: "yjs", stateVector: new Uint8Array([1, 2, 3]) },
   ...overrides,
@@ -59,7 +59,7 @@ const captureBoundaryCode = (operation: () => unknown): string => {
 };
 
 describe("owned Block Document renderer boundary", () => {
-  test("accepts only the requested ready active nodex.card descriptor", () => {
+  test("accepts only the requested ready active nodex.page descriptor", () => {
     const descriptor = validateOwnedBlockDocumentDescriptor(
       REQUEST,
       makeDescriptor(),

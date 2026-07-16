@@ -22,7 +22,7 @@ function request(
     effect,
     preview: {
       title: "Edit “Launch brief”",
-      summary: "Append three Blocks to the Card document.",
+      summary: "Append three Blocks to the Page document.",
       details: [
         { label: "Document", value: "Launch brief" },
         { label: "Method", value: "nfm.insert" },
@@ -48,7 +48,7 @@ describe("NodexAgentAuthorizationRequestCard", () => {
     );
     await settleAsyncRender();
 
-    expect(getByText("Append three Blocks to the Card document.")).toBeTruthy();
+    expect(getByText("Append three Blocks to the Page document.")).toBeTruthy();
     expect(getByText("Launch brief")).toBeTruthy();
     expect(getByText(/## Rollout/)).toBeTruthy();
     const form = container.querySelector("form");
@@ -90,7 +90,7 @@ describe("NodexAgentAuthorizationRequestCard", () => {
   test("renders the v3 Nested Markdown preview without changing the compact surface", async () => {
     const v3Request: NodexAgentAuthorizationRequest = {
       ...request("write"),
-      tool: "create_cards",
+      tool: "create_pages",
       preview: {
         ...request("write").preview,
         nfmPreview: undefined,

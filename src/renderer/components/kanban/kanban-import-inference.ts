@@ -1,4 +1,4 @@
-import type { BoardSummary, CardInput, CardStatus, Estimate, Priority } from "@/lib/types";
+import type { BoardSummary, PageInput, WorkflowStatus, Estimate, Priority } from "@/lib/types";
 import type {
   DbViewCardRecord,
   DbViewFilterClause,
@@ -8,10 +8,10 @@ import type {
 } from "../../lib/db-view-prefs";
 import { filterDbViewCards } from "../../lib/db-view-prefs";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
-import { summarizeCardDescription } from "../../../shared/card-summary";
+import { summarizePageDescription } from "../../../shared/page-summary";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
-type CardInputWithDefaults = CardInput & {
+type CardInputWithDefaults = PageInput & {
   tags: string[];
 };
 
@@ -21,11 +21,11 @@ export type KanbanImportInferenceResult =
     }
   | {
       mode: "column";
-      cards: CardInput[];
+      cards: PageInput[];
     }
   | {
       mode: "slot";
-      cards: CardInput[];
+      cards: PageInput[];
       insertIndex: number;
     };
 
@@ -33,20 +33,20 @@ interface ResolveKanbanImportInferenceInput {
   board: BoardSummary | null;
   visibleBoard: BoardSummary | null;
   rules: DbViewRules;
-  targetColumnId: CardStatus;
+  targetColumnId: WorkflowStatus;
   targetVisibleIndex: number;
-  cards: CardInput[];
+  cards: PageInput[];
   hasSearchFilter: boolean;
 }
 
 interface SortAnchor {
-  beforeCardId?: string;
-  afterCardId?: string;
+  beforePageId?: string;
+  afterPageId?: string;
 }
 
 const SUPPORTED_SORT_FIELDS = new Set<DbViewSortField>(["board-order", "priority", "estimate"]);
 
-const CARD_STATUS_NAMES: Record<CardStatus, string> = {
+const WORKFLOW_STATUS_NAMES: Record<WorkflowStatus, string> = {
   draft: "Draft",
   backlog: "Backlog",
   in_progress: "In Progress",
@@ -58,7 +58,7 @@ function hasOwn<T extends object, K extends keyof T>(value: T, key: K): boolean 
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function normalizeCardInput(input: CardInput): CardInputWithDefaults {
+function normalizeCardInput(input: PageInput): CardInputWithDefaults {
   return {
     ...input,
     tags: input.tags ? [...input.tags] : [],
@@ -74,8 +74,8 @@ function displayPropertyValue(value: string | null | undefined): string {
 }
 
 export function resolveKanbanImportPreviewLabel(
-  sourceCards: CardInput[],
-  inferredCards: CardInput[],
+  sourceCards: PageInput[],
+  inferredCards: PageInput[],
 ): string | undefined {
   if (sourceCards.length !== inferredCards.length || sourceCards.length === 0) return undefined;
 
@@ -104,16 +104,16 @@ function dedupeTags(tags: readonly string[]): string[] {
   return Array.from(new Set(tags.filter((tag) => tag.length > 0)));
 }
 
-function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: CardStatus): DbViewCardRecord {
+function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: WorkflowStatus): DbViewCardRecord {
   return {
     id: `import:${crypto.randomUUID()}`,
     status: targetColumnId,
     columnId: targetColumnId,
-    columnName: CARD_STATUS_NAMES[targetColumnId],
+    columnName: WORKFLOW_STATUS_NAMES[targetColumnId],
     archived: false,
     title: card.title,
     richTitle: plainTextToPortableRichText(card.title),
-    ...summarizeCardDescription(card.description ?? ""),
+    ...summarizePageDescription(card.description ?? ""),
     priority: hasOwn(card, "priority") ? card.priority ?? undefined : undefined,
     estimate: hasOwn(card, "estimate") ? card.estimate ?? undefined : undefined,
     tags: card.tags,
@@ -139,7 +139,7 @@ function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: Car
 function resolvePriorityPatch(
   card: CardInputWithDefaults,
   clause: Extract<DbViewFilterClause, { field: "priority" }>,
-): CardInput["priority"] | typeof NO_CHANGE | null {
+): PageInput["priority"] | typeof NO_CHANGE | null {
   if (hasOwn(card, "priority")) {
     const current = card.priority ?? null;
     if (current === null) {
@@ -161,7 +161,7 @@ const NO_CHANGE = Symbol("no-change");
 
 function applyFilterGroupPatch(
   card: CardInputWithDefaults,
-  targetColumnId: CardStatus,
+  targetColumnId: WorkflowStatus,
   group: DbViewFilterGroup,
 ): CardInputWithDefaults | null {
   let next: CardInputWithDefaults = normalizeCardInput(card);
@@ -225,15 +225,15 @@ function applyFilterGroupPatch(
 }
 
 function pickSafestFilterPatch(
-  cards: CardInput[],
-  targetColumnId: CardStatus,
+  cards: PageInput[],
+  targetColumnId: WorkflowStatus,
   rules: DbViewRules,
-): CardInput[] | null {
+): PageInput[] | null {
   if (rules.filter.any.length === 0) {
     return cards.map((card) => normalizeCardInput(card));
   }
 
-  const patchedCards: CardInput[] = [];
+  const patchedCards: PageInput[] = [];
   for (const card of cards) {
     const normalized = normalizeCardInput(card);
     let bestPatch: CardInputWithDefaults | null = null;
@@ -262,7 +262,7 @@ function pickSafestFilterPatch(
 }
 
 function resolveSortValue(
-  card: Pick<CardInput, "priority" | "estimate"> | undefined,
+  card: Pick<PageInput, "priority" | "estimate"> | undefined,
   field: "priority" | "estimate",
 ): Priority | Estimate | null | undefined {
   if (!card) return undefined;
@@ -273,11 +273,11 @@ function resolveSortValue(
 }
 
 function applySortFieldPatch(
-  cards: CardInput[],
+  cards: PageInput[],
   field: "priority" | "estimate",
   value: Priority | Estimate | null | undefined,
-): CardInput[] | null {
-  const patchedCards: CardInput[] = [];
+): PageInput[] | null {
+  const patchedCards: PageInput[] = [];
   for (const card of cards) {
     if (hasOwn(card, field)) {
       const current = (card[field] ?? null) as Priority | Estimate | null;
@@ -303,21 +303,21 @@ function applySortFieldPatch(
   return patchedCards;
 }
 
-function findCardOrderIndex(board: BoardSummary, targetColumnId: CardStatus, cardId: string): number | null {
+function findCardOrderIndex(board: BoardSummary, targetColumnId: WorkflowStatus, pageId: string): number | null {
   const targetColumn = board.columns.find((column) => column.id === targetColumnId);
   if (!targetColumn) return null;
-  const index = targetColumn.cards.findIndex((card) => card.id === cardId);
+  const index = targetColumn.cards.findIndex((card) => card.id === pageId);
   return index >= 0 ? index : null;
 }
 
-function resolveAnchorInsertIndex(board: BoardSummary, targetColumnId: CardStatus, anchor: SortAnchor): number {
-  if (anchor.afterCardId) {
-    const index = findCardOrderIndex(board, targetColumnId, anchor.afterCardId);
+function resolveAnchorInsertIndex(board: BoardSummary, targetColumnId: WorkflowStatus, anchor: SortAnchor): number {
+  if (anchor.afterPageId) {
+    const index = findCardOrderIndex(board, targetColumnId, anchor.afterPageId);
     if (index !== null) return index;
   }
 
-  if (anchor.beforeCardId) {
-    const index = findCardOrderIndex(board, targetColumnId, anchor.beforeCardId);
+  if (anchor.beforePageId) {
+    const index = findCardOrderIndex(board, targetColumnId, anchor.beforePageId);
     if (index !== null) return index + 1;
   }
 
@@ -328,10 +328,10 @@ function resolveAnchorInsertIndex(board: BoardSummary, targetColumnId: CardStatu
 function resolveSortedSlot(args: {
   board: BoardSummary;
   visibleBoard: BoardSummary;
-  targetColumnId: CardStatus;
+  targetColumnId: WorkflowStatus;
   targetVisibleIndex: number;
   rules: DbViewRules;
-  cards: CardInput[];
+  cards: PageInput[];
 }): KanbanImportInferenceResult {
   const targetColumn = args.visibleBoard.columns.find((column) => column.id === args.targetColumnId);
   const visibleCards = targetColumn?.cards ?? [];
@@ -341,8 +341,8 @@ function resolveSortedSlot(args: {
 
   let nextCards = args.cards.map((card) => ({ ...card }));
   let anchor: SortAnchor = {
-    ...(afterCard ? { afterCardId: afterCard.id } : {}),
-    ...(beforeCard ? { beforeCardId: beforeCard.id } : {}),
+    ...(afterCard ? { afterPageId: afterCard.id } : {}),
+    ...(beforeCard ? { beforePageId: beforeCard.id } : {}),
   };
 
   for (const sortKey of args.rules.sort) {
@@ -376,7 +376,7 @@ function resolveSortedSlot(args: {
         return { mode: "column", cards: nextCards };
       }
       nextCards = patched;
-      anchor = { beforeCardId: beforeCard.id };
+      anchor = { beforePageId: beforeCard.id };
       return {
         mode: "slot",
         cards: nextCards,
@@ -390,7 +390,7 @@ function resolveSortedSlot(args: {
         return { mode: "column", cards: nextCards };
       }
       nextCards = patched;
-      anchor = { afterCardId: afterCard.id };
+      anchor = { afterPageId: afterCard.id };
       return {
         mode: "slot",
         cards: nextCards,
@@ -434,7 +434,7 @@ export function resolveKanbanImportInference(
       insertIndex: resolveFilteredDropOrder({
         board: input.board,
         visibleBoard: input.visibleBoard,
-        draggedCardIds: [],
+        draggedPageIds: [],
         targetColumnId: input.targetColumnId,
         targetVisibleIndex: input.targetVisibleIndex,
       }),

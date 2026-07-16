@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
-import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import {
@@ -17,6 +17,10 @@ const STORY_DATE = new Date("2026-01-01T00:00:00.000Z");
 function makeProject(id: string, name: string, icon?: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon,
@@ -29,7 +33,7 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
   return {
     id,
     status,
@@ -71,7 +75,7 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
           name: "In Progress",
           cards: [
             makeCard("rich-selection", "Rich selection send workflow", "in_progress", 0),
-            makeCard("card-stage", "Card Stage compact controls", "in_progress", 1),
+            makeCard("page-stage", "Page Stage compact controls", "in_progress", 1),
           ],
         },
       ],
@@ -188,7 +192,7 @@ function SideMenuStorySurface({
           canUseBackgroundColor={canUseColor}
           canSendBlocks={canSendBlocks}
           sourceProjectId="default"
-          sourceCardId="source-card"
+          sourcePageId="source-card"
           textColor="blue"
           backgroundColor="yellow"
           footerPrimary={footerPrimary}
@@ -273,10 +277,10 @@ export const ThreeBlocks: Story = {
   },
 };
 
-export const CardMentionBlock: Story = {
+export const PageMentionBlock: Story = {
   args: {
-    selectionTitle: "Card mention",
-    currentBlockType: "cardRef",
+    selectionTitle: "Page mention",
+    currentBlockType: "pageRef",
   },
 };
 

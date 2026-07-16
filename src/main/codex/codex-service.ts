@@ -81,7 +81,7 @@ import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2/TurnSt
 import type { TurnSteerResponse } from "@nodex/codex-app-server-protocol/v2/TurnSteerResponse";
 import type { ToolRequestUserInputResponse } from "@nodex/codex-app-server-protocol/v2/ToolRequestUserInputResponse";
 import type {
-  CardRunInTarget,
+  PageRunInTarget,
   CommandPaletteThreadContentSearchInput,
   CommandPaletteThreadContentSearchResult,
   CommandPaletteThreadListInput,
@@ -1217,12 +1217,12 @@ interface SourceNullBroadcastOptions {
 interface ResolvedThreadRunLocation {
   cwd: string;
   workspaceRoots: string[];
-  runInTarget: CardRunInTarget;
+  runInTarget: PageRunInTarget;
   managedWorktreePath: string | null;
 }
 
 interface ThreadStartProgressUpdate {
-  runInTarget?: CardRunInTarget;
+  runInTarget?: PageRunInTarget;
   threadId?: string | null;
   phase: CodexThreadStartProgressPhase;
   message: string;
@@ -5906,7 +5906,7 @@ export class CodexService extends EventEmitter {
   private emitThreadStartProgress(input: {
     projectId: string;
     sessionId: string | null;
-    runInTarget: CardRunInTarget;
+    runInTarget: PageRunInTarget;
     threadId?: string | null;
     phase: CodexThreadStartProgressPhase;
     message: string;
@@ -9912,7 +9912,7 @@ export class CodexService extends EventEmitter {
     sessionId: string;
     sessionTitle?: string | null;
     threadTitle?: string | null;
-    runInTarget?: CardRunInTarget;
+    runInTarget?: PageRunInTarget;
     runInEnvironmentPath?: string | null;
     worktreeStartMode?: WorktreeStartMode;
     worktreeBranchPrefix?: string | null;

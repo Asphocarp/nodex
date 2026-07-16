@@ -25,7 +25,7 @@ describe("nested Block transfer targets in Chromium", () => {
         projectId: "project-a",
         documentId: "document-outer",
         storeEpoch: "epoch-a",
-        ancestorCardIds: [],
+        ancestorPageIds: [],
         createOperationId: () => "operation-outer",
         transfer: async () => {
           throw new Error("The test does not drop");
@@ -41,7 +41,7 @@ describe("nested Block transfer targets in Chromium", () => {
         projectId: "project-a",
         documentId: "document-inner",
         storeEpoch: "epoch-a",
-        ancestorCardIds: [],
+        ancestorPageIds: [],
         createOperationId: () => "operation-inner",
         transfer: async () => {
           throw new Error("The test does not drop");

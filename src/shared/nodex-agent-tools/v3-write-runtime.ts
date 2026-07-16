@@ -14,43 +14,43 @@ import type {
 } from "./write-runtime";
 import type { CreateInput } from "./write-schemas";
 import type {
-  AdvancedUpdateCardV3InputSchema,
-  AdvancedUpdateCardV3OutputSchema,
-  CreateCardsV3InputSchema,
-  CreateCardsV3OutputSchema,
-  DuplicateCardV3InputSchema,
-  DuplicateCardV3OutputSchema,
-  MoveCardsV3InputSchema,
-  MoveCardsV3OutputSchema,
-  UpdateCardV3InputSchema,
-  UpdateCardV3OutputSchema,
+  AdvancedUpdatePageV3InputSchema,
+  AdvancedUpdatePageV3OutputSchema,
+  CreatePagesV3InputSchema,
+  CreatePagesV3OutputSchema,
+  DuplicatePageV3InputSchema,
+  DuplicatePageV3OutputSchema,
+  MovePagesV3InputSchema,
+  MovePagesV3OutputSchema,
+  UpdatePageV3InputSchema,
+  UpdatePageV3OutputSchema,
 } from "./v3-write-schemas";
 import type { z } from "zod";
 
-export type NodexAgentCardUpdateTool = "update_card" | "advanced_update_card";
+export type NodexAgentPageUpdateTool = "update_page" | "advanced_update_page";
 
-export type PrepareNodexAgentCardUpdateRequest = NodexAgentCallIdentity & {
+export type PrepareNodexAgentPageUpdateRequest = NodexAgentCallIdentity & {
   readonly projectId: string;
 } & (
   | {
-      readonly tool: "update_card";
-      readonly input: z.infer<typeof UpdateCardV3InputSchema>;
+      readonly tool: "update_page";
+      readonly input: z.infer<typeof UpdatePageV3InputSchema>;
     }
   | {
-      readonly tool: "advanced_update_card";
-      readonly input: z.infer<typeof AdvancedUpdateCardV3InputSchema>;
+      readonly tool: "advanced_update_page";
+      readonly input: z.infer<typeof AdvancedUpdatePageV3InputSchema>;
     }
 );
 
-export type NodexAgentCardUpdateOutput =
-  | z.infer<typeof UpdateCardV3OutputSchema>
-  | z.infer<typeof AdvancedUpdateCardV3OutputSchema>;
+export type NodexAgentPageUpdateOutput =
+  | z.infer<typeof UpdatePageV3OutputSchema>
+  | z.infer<typeof AdvancedUpdatePageV3OutputSchema>;
 
-export type PrepareNodexAgentCardUpdateResult =
+export type PrepareNodexAgentPageUpdateResult =
   | {
       readonly ok: true;
       readonly value:
-        | { readonly kind: "completed"; readonly output: NodexAgentCardUpdateOutput }
+        | { readonly kind: "completed"; readonly output: NodexAgentPageUpdateOutput }
         | {
             readonly kind: "prepared";
             readonly mutation: DocumentMutationRequest;
@@ -60,54 +60,54 @@ export type PrepareNodexAgentCardUpdateResult =
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export interface CompleteNodexAgentCardUpdateRequest extends NodexAgentCallIdentity {
+export interface CompleteNodexAgentPageUpdateRequest extends NodexAgentCallIdentity {
   readonly projectId: string;
-  readonly tool: NodexAgentCardUpdateTool;
-  readonly cardId: string;
+  readonly tool: NodexAgentPageUpdateTool;
+  readonly pageId: string;
   readonly result: DocumentOperationResult;
 }
 
-export type CompleteNodexAgentCardUpdateResult =
-  | { readonly ok: true; readonly output: NodexAgentCardUpdateOutput }
+export type CompleteNodexAgentPageUpdateResult =
+  | { readonly ok: true; readonly output: NodexAgentPageUpdateOutput }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export interface PreparedNodexAgentCreateCardV3 {
+export interface PreparedNodexAgentCreatePageV3 {
   readonly input: CreateInput;
-  readonly cardId: string;
+  readonly pageId: string;
   readonly bodyBlockIds: readonly string[];
   readonly primaryMembershipId: string;
   readonly targetMembershipId: string;
 }
 
-export interface NodexAgentCreateCardsCommand extends NodexAgentCallIdentity {
+export interface NodexAgentCreatePagesCommand extends NodexAgentCallIdentity {
   readonly projectId: string;
   readonly requestHash: string;
   readonly mutationId: string;
   readonly storeEpoch: string;
-  readonly input: z.infer<typeof CreateCardsV3InputSchema>;
+  readonly input: z.infer<typeof CreatePagesV3InputSchema>;
   readonly destination: PreparedNodexAgentCreateDestination;
-  readonly cards: readonly PreparedNodexAgentCreateCardV3[];
+  readonly pages: readonly PreparedNodexAgentCreatePageV3[];
 }
 
-export interface PrepareNodexAgentCreateCardsRequest extends NodexAgentCallIdentity {
+export interface PrepareNodexAgentCreatePagesRequest extends NodexAgentCallIdentity {
   readonly projectId: string;
-  readonly input: z.infer<typeof CreateCardsV3InputSchema>;
+  readonly input: z.infer<typeof CreatePagesV3InputSchema>;
 }
 
-export type PrepareNodexAgentCreateCardsResult =
+export type PrepareNodexAgentCreatePagesResult =
   | {
       readonly ok: true;
       readonly value:
         | {
             readonly kind: "completed";
-            readonly output: z.infer<typeof CreateCardsV3OutputSchema>;
+            readonly output: z.infer<typeof CreatePagesV3OutputSchema>;
           }
         | {
             readonly kind: "prepared";
-            readonly command: NodexAgentCreateCardsCommand;
+            readonly command: NodexAgentCreatePagesCommand;
             readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
             readonly previews: readonly {
-              readonly cardId: string;
+              readonly pageId: string;
               readonly title: string;
               readonly bodyBlockCount: number;
               readonly targetMarkdown: string;
@@ -116,11 +116,11 @@ export type PrepareNodexAgentCreateCardsResult =
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export type ExecuteNodexAgentCreateCardsResult =
+export type ExecuteNodexAgentCreatePagesResult =
   | {
       readonly ok: true;
       readonly value: {
-        readonly output: z.infer<typeof CreateCardsV3OutputSchema>;
+        readonly output: z.infer<typeof CreatePagesV3OutputSchema>;
         readonly duplicate: boolean;
         readonly documentCommits: readonly RelocationDocumentCommit[];
         readonly affectedDatabaseBlockIds: readonly string[];
@@ -129,40 +129,40 @@ export type ExecuteNodexAgentCreateCardsResult =
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export interface NodexAgentDuplicateCardCommand extends Omit<
+export interface NodexAgentDuplicatePageCommand extends Omit<
   NodexAgentTransferCommand,
   "input"
 > {
-  readonly input: z.infer<typeof DuplicateCardV3InputSchema>;
+  readonly input: z.infer<typeof DuplicatePageV3InputSchema>;
   readonly normalizedInput: NodexAgentTransferCommand["input"];
 }
 
-export interface PrepareNodexAgentDuplicateCardRequest extends NodexAgentCallIdentity {
+export interface PrepareNodexAgentDuplicatePageRequest extends NodexAgentCallIdentity {
   readonly projectId: string;
-  readonly input: z.infer<typeof DuplicateCardV3InputSchema>;
+  readonly input: z.infer<typeof DuplicatePageV3InputSchema>;
 }
 
-export type PrepareNodexAgentDuplicateCardResult =
+export type PrepareNodexAgentDuplicatePageResult =
   | {
       readonly ok: true;
       readonly value:
         | {
             readonly kind: "completed";
-            readonly output: z.infer<typeof DuplicateCardV3OutputSchema>;
+            readonly output: z.infer<typeof DuplicatePageV3OutputSchema>;
           }
         | {
             readonly kind: "prepared";
-            readonly command: NodexAgentDuplicateCardCommand;
+            readonly command: NodexAgentDuplicatePageCommand;
             readonly authorization: NodexAgentTransferAuthorizationEvidence;
           };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export type ExecuteNodexAgentDuplicateCardResult =
+export type ExecuteNodexAgentDuplicatePageResult =
   | {
       readonly ok: true;
       readonly value: {
-        readonly output: z.infer<typeof DuplicateCardV3OutputSchema>;
+        readonly output: z.infer<typeof DuplicatePageV3OutputSchema>;
         readonly duplicate: boolean;
         readonly documentCommits: readonly RelocationDocumentCommit[];
         readonly affectedDatabaseBlockIds: readonly string[];
@@ -171,49 +171,49 @@ export type ExecuteNodexAgentDuplicateCardResult =
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export interface NodexAgentMoveCardTransferStep {
-  readonly cardId: string;
+export interface NodexAgentMovePageTransferStep {
+  readonly pageId: string;
   readonly normalizedInput: NodexAgentTransferCommand["input"];
   readonly transfer: NodexAgentTransferCommand["transfer"];
 }
 
-export interface NodexAgentMoveCardsCommand extends NodexAgentCallIdentity {
+export interface NodexAgentMovePagesCommand extends NodexAgentCallIdentity {
   readonly projectId: string;
   readonly requestHash: string;
   readonly mutationId: string;
   readonly storeEpoch: string;
-  readonly input: z.infer<typeof MoveCardsV3InputSchema>;
+  readonly input: z.infer<typeof MovePagesV3InputSchema>;
   readonly destination: PreparedNodexAgentCreateDestination;
-  readonly transfers: readonly NodexAgentMoveCardTransferStep[];
+  readonly transfers: readonly NodexAgentMovePageTransferStep[];
   readonly leaseDocuments: readonly NodexAgentLeaseDocument[];
 }
 
-export interface PrepareNodexAgentMoveCardsRequest extends NodexAgentCallIdentity {
+export interface PrepareNodexAgentMovePagesRequest extends NodexAgentCallIdentity {
   readonly projectId: string;
-  readonly input: z.infer<typeof MoveCardsV3InputSchema>;
+  readonly input: z.infer<typeof MovePagesV3InputSchema>;
 }
 
-export type PrepareNodexAgentMoveCardsResult =
+export type PrepareNodexAgentMovePagesResult =
   | {
       readonly ok: true;
       readonly value:
         | {
             readonly kind: "completed";
-            readonly output: z.infer<typeof MoveCardsV3OutputSchema>;
+            readonly output: z.infer<typeof MovePagesV3OutputSchema>;
           }
         | {
             readonly kind: "prepared";
-            readonly command: NodexAgentMoveCardsCommand;
+            readonly command: NodexAgentMovePagesCommand;
             readonly authorization: NodexAgentTransferAuthorizationEvidence;
           };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };
 
-export type ExecuteNodexAgentMoveCardsResult =
+export type ExecuteNodexAgentMovePagesResult =
   | {
       readonly ok: true;
       readonly value: {
-        readonly output: z.infer<typeof MoveCardsV3OutputSchema>;
+        readonly output: z.infer<typeof MovePagesV3OutputSchema>;
         readonly duplicate: boolean;
         readonly documentCommits: readonly RelocationDocumentCommit[];
         readonly affectedDatabaseBlockIds: readonly string[];

@@ -46,7 +46,7 @@ function getAssetPathPrefixFromArgv(argv: string[]): string | undefined {
 const serverUrl = getServerUrlFromArgv(process.argv);
 const assetPathPrefix = getAssetPathPrefixFromArgv(process.argv);
 
-// Multiple editor blocks (toggle-list-inline-view, cardRef) each subscribe to
+// Multiple editor blocks (toggle-list-inline-view, pageRef) each subscribe to
 // board-changed via useKanban, easily exceeding the default limit of 10.
 ipcRenderer.setMaxListeners(50);
 

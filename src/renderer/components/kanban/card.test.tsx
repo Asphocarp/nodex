@@ -1,6 +1,6 @@
 import { describe, expect, vi, test } from "vitest";
 import { createElement } from "react";
-import { resetCardDraftStoreForTest, setCardDraftOverlay } from "../../lib/card-draft-store";
+import { resetPageDraftStoreForTest, setPageDraftOverlay } from "../../lib/page-draft-store";
 import type { CardPropertyPosition } from "@/lib/card-property-position";
 import { render, textContent } from "../../test/dom";
 
@@ -34,8 +34,8 @@ async function renderCard(props: Record<string, unknown>) {
 
 describe("kanban card", () => {
   test("renders live title draft overlay for the matching project card", async () => {
-    resetCardDraftStoreForTest();
-    setCardDraftOverlay("default", "card-1", { title: "Draft title" });
+    resetPageDraftStoreForTest();
+    setPageDraftOverlay("default", "card-1", { title: "Draft title" });
     const card = await renderCard({
       projectId: "default",
       card: {
@@ -247,11 +247,6 @@ describe("kanban card", () => {
         currentColumnId: "in_progress",
         currentProjectId: "default",
         currentProjectName: "Default",
-        projects: [
-          { id: "default", name: "Default" },
-          { id: "ops", name: "Ops" },
-        ],
-        onMoveToProject: () => undefined,
         onDelete: () => undefined,
         onCopyLink: () => undefined,
       },

@@ -1,16 +1,14 @@
 import type Database from "better-sqlite3";
 import {
-  searchCardMetadata,
-  type CardMetadataSearchDocument,
-  type CardMetadataSearchEvidence,
-} from "../../shared/card-metadata-search";
+  searchPageMetadata,
+  type PageMetadataSearchDocument,
+  type PageMetadataSearchEvidence,
+} from "../../shared/page-metadata-search";
 import { formatDatabasePropertyDisplayValue } from "../../shared/database-property-display";
 import { tokenizeSearchQuery } from "../../shared/search-text";
 import {
-  SearchOutputSchema,
   type JsonValue,
   type SearchInput,
-  type SearchOutput,
 } from "../../shared/nodex-agent-tools";
 import type {
   DatabaseJsonValue,
@@ -32,13 +30,24 @@ import {
   toBlockLocation,
 } from "./read-support";
 
-const MAX_METADATA_CARDS = 5_000;
-const MAX_PROPERTY_VALUES_PER_CARD = 64;
-const MAX_PROPERTY_TEXT_BYTES_PER_CARD = 32 * 1024;
+const MAX_METADATA_PAGES = 5_000;
+const MAX_PROPERTY_VALUES_PER_PAGE = 64;
+const MAX_PROPERTY_TEXT_BYTES_PER_PAGE = 32 * 1024;
 const MAX_FTS_HITS_PER_TERM = 200;
 const SEARCH_RANKING_REVISION = 1;
 
-interface CardSearchRow {
+export interface PageSearchInput {
+  readonly query: string;
+  readonly target?: "pages" | "blocks";
+  readonly scope?: SearchInput["scope"];
+  readonly filters?: {
+    readonly blockTypes?: readonly string[];
+    readonly includeArchived?: boolean;
+  };
+  readonly page?: SearchInput["page"];
+}
+
+interface PageSearchRow {
   readonly block_id: string;
   readonly title: string;
   readonly location_kind: "space" | "document" | "database";
@@ -47,7 +56,7 @@ interface CardSearchRow {
 }
 
 interface PropertySearchRow {
-  readonly card_block_id: string;
+  readonly page_block_id: string;
   readonly property_id: string;
   readonly property_name: string;
   readonly value_type: DatabasePropertyValueType;
@@ -55,8 +64,8 @@ interface PropertySearchRow {
   readonly value_json: string;
 }
 
-type RawCardMatch =
-  | (CardMetadataSearchEvidence & { readonly term: string })
+type RawPageMatch =
+  | (PageMetadataSearchEvidence & { readonly term: string })
   | {
       readonly term: string;
       readonly source: "body";
@@ -66,17 +75,17 @@ type RawCardMatch =
       readonly excerpt: string;
     };
 
-interface CardAggregate {
-  readonly row: CardSearchRow;
+interface PageAggregate {
+  readonly row: PageSearchRow;
   readonly matchedTerms: Set<string>;
-  readonly evidence: RawCardMatch[];
+  readonly evidence: RawPageMatch[];
   rank: number;
 }
 
 function validateScope(
   database: Database.Database,
   projectId: string,
-  scope: SearchInput["scope"],
+  scope: PageSearchInput["scope"],
 ): void {
   if (!scope || scope.kind === "project") return;
   if (scope.kind === "database") {
@@ -103,15 +112,15 @@ function validateScope(
   );
 }
 
-function readCardRows(
+function readPageRows(
   database: Database.Database,
   projectId: string,
-  input: SearchInput,
-): readonly CardSearchRow[] {
+  input: PageSearchInput,
+): readonly PageSearchRow[] {
   const conditions = [
-    "card.project_id = ?",
-    "card.type = 'card'",
-    input.filters?.includeArchived ? "card.lifecycle <> 'deleted'" : "card.lifecycle = 'active'",
+    "page.project_id = ?",
+    "page.type = 'page'",
+    input.filters?.includeArchived ? "page.lifecycle <> 'deleted'" : "page.lifecycle = 'active'",
     "document.readiness = 'ready'",
     "materialization.generation = document.generation",
     "materialization.projected_seq = document.head_seq",
@@ -120,37 +129,37 @@ function readCardRows(
   const parameters: Array<string | number> = [projectId];
   const scope = input.scope;
   if (scope?.kind === "database") {
-    conditions.push("card.location_kind = 'database'", "card.containing_database_id = ?");
+    conditions.push("page.location_kind = 'database'", "page.containing_database_id = ?");
     parameters.push(scope.databaseBlockId);
   }
   if (scope?.kind === "document") {
-    conditions.push("(ownership.document_id = ? OR card.containing_document_id = ?)");
+    conditions.push("(ownership.document_id = ? OR page.containing_document_id = ?)");
     parameters.push(scope.documentId, scope.documentId);
   }
-  parameters.push(MAX_METADATA_CARDS + 1);
+  parameters.push(MAX_METADATA_PAGES + 1);
   const rows = database.prepare(
     `
     SELECT
-      card.id AS block_id, materialization.title,
-      card.location_kind, card.containing_document_id,
-      card.containing_database_id
-    FROM blocks card
+      page.id AS block_id, materialization.title,
+      page.location_kind, page.containing_document_id,
+      page.containing_database_id
+    FROM blocks page
     INNER JOIN block_documents ownership
-      ON ownership.block_id = card.id
-     AND ownership.project_id = card.project_id
+      ON ownership.block_id = page.id
+     AND ownership.project_id = page.project_id
     INNER JOIN documents document
       ON document.id = ownership.document_id
      AND document.project_id = ownership.project_id
     INNER JOIN document_materializations materialization
       ON materialization.document_id = document.id
     WHERE ${conditions.join(" AND ")}
-    ORDER BY card.id
+    ORDER BY page.id
     LIMIT ?
-  `).all(...parameters) as readonly CardSearchRow[];
-  if (rows.length <= MAX_METADATA_CARDS) return rows;
+  `).all(...parameters) as readonly PageSearchRow[];
+  if (rows.length <= MAX_METADATA_PAGES) return rows;
   throw new NodexAgentReadError(
     "result_too_large",
-    "The requested Card-search scope is too large for the bounded metadata index",
+    "The requested Page-search scope is too large for the bounded metadata index",
     false,
     "none",
     { domainCode: "metadata_scope_too_large" },
@@ -160,14 +169,14 @@ function readCardRows(
 function readPropertyRows(
   database: Database.Database,
   projectId: string,
-  cardIds: readonly string[],
+  pageIds: readonly string[],
 ): readonly PropertySearchRow[] {
-  if (cardIds.length === 0) return [];
-  const placeholders = cardIds.map(() => "?").join(", ");
+  if (pageIds.length === 0) return [];
+  const placeholders = pageIds.map(() => "?").join(", ");
   return database.prepare(
     `
     SELECT
-      membership.card_block_id,
+      membership.page_block_id AS page_block_id,
       property.id AS property_id,
       property.name AS property_name,
       property.value_type,
@@ -185,20 +194,20 @@ function readPropertyRows(
      AND value.project_id = membership.project_id
     WHERE membership.project_id = ?
       AND membership.removed_at IS NULL
-      AND membership.card_block_id IN (${placeholders})
-    ORDER BY membership.card_block_id, property.rank_key, property.id
-  `).all(projectId, ...cardIds) as readonly PropertySearchRow[];
+      AND membership.page_block_id IN (${placeholders})
+    ORDER BY membership.page_block_id, property.rank_key, property.id
+  `).all(projectId, ...pageIds) as readonly PropertySearchRow[];
 }
 
 function buildMetadataDocuments(
-  cardRows: readonly CardSearchRow[],
+  pageRows: readonly PageSearchRow[],
   propertyRows: readonly PropertySearchRow[],
-): readonly CardMetadataSearchDocument[] {
-  const properties = new Map<string, CardMetadataSearchDocument["properties"][number][]>();
+): readonly PageMetadataSearchDocument[] {
+  const properties = new Map<string, PageMetadataSearchDocument["properties"][number][]>();
   const bytes = new Map<string, number>();
   for (const row of propertyRows) {
-    const current = properties.get(row.card_block_id) ?? [];
-    if (current.length >= MAX_PROPERTY_VALUES_PER_CARD) continue;
+    const current = properties.get(row.page_block_id) ?? [];
+    if (current.length >= MAX_PROPERTY_VALUES_PER_PAGE) continue;
     const config = parseJsonValue(row.config_json, `Database property ${row.property_id} config`);
     if (typeof config !== "object" || config === null || Array.isArray(config)) continue;
     const value = parseJsonValue(row.value_json, `Database value ${row.property_id}`);
@@ -210,17 +219,17 @@ function buildMetadataDocuments(
       value as DatabaseJsonValue,
     );
     if (!text) continue;
-    const nextBytes = (bytes.get(row.card_block_id) ?? 0) + Buffer.byteLength(text, "utf8");
-    if (nextBytes > MAX_PROPERTY_TEXT_BYTES_PER_CARD) continue;
+    const nextBytes = (bytes.get(row.page_block_id) ?? 0) + Buffer.byteLength(text, "utf8");
+    if (nextBytes > MAX_PROPERTY_TEXT_BYTES_PER_PAGE) continue;
     current.push({
       propertyId: row.property_id,
       propertyName: row.property_name,
       text,
     });
-    properties.set(row.card_block_id, current);
-    bytes.set(row.card_block_id, nextBytes);
+    properties.set(row.page_block_id, current);
+    bytes.set(row.page_block_id, nextBytes);
   }
-  return cardRows.map((row) => ({
+  return pageRows.map((row) => ({
     id: row.block_id,
     identity: row.block_id,
     title: row.title,
@@ -228,7 +237,7 @@ function buildMetadataDocuments(
   }));
 }
 
-function ftsScope(input: SearchInput): {
+function ftsScope(input: PageSearchInput): {
   readonly databaseBlockId?: string;
   readonly documentId?: string;
 } {
@@ -246,30 +255,30 @@ function exactOrPrefix(excerpt: string, term: string): "exact" | "prefix" {
   return tokens.includes(term) ? "exact" : "prefix";
 }
 
-function matchTier(match: RawCardMatch): number {
+function matchTier(match: RawPageMatch): number {
   if (match.source === "identity") return 0;
   if (match.source === "title") return match.quality === "fuzzy" ? 2 : 1;
   if (match.source === "property") return match.quality === "fuzzy" ? 5 : 3;
   return 4;
 }
 
-function evidenceKey(match: RawCardMatch): string {
+function evidenceKey(match: RawPageMatch): string {
   if (match.source === "property") return `${match.term}:property:${match.propertyId}:${match.excerpt}`;
   if (match.source === "body") return `${match.term}:body:${match.blockId}:${match.excerpt}`;
   return `${match.term}:${match.source}:${match.excerpt}`;
 }
 
 function representativeEvidence(
-  evidence: readonly RawCardMatch[],
+  evidence: readonly RawPageMatch[],
   terms: readonly string[],
-): readonly Omit<RawCardMatch, "term">[] {
+): readonly Omit<RawPageMatch, "term">[] {
   const unique = [...new Map(evidence.map((match) => [evidenceKey(match), match])).values()]
     .sort((left, right) =>
       matchTier(left) - matchTier(right)
       || terms.indexOf(left.term) - terms.indexOf(right.term)
       || evidenceKey(left).localeCompare(evidenceKey(right))
     );
-  const selected: RawCardMatch[] = [];
+  const selected: RawPageMatch[] = [];
   for (const term of terms) {
     const match = unique.find((candidate) => candidate.term === term && !selected.includes(candidate));
     if (match) selected.push(match);
@@ -306,26 +315,26 @@ function representativeEvidence(
   });
 }
 
-function searchCards(
+function searchPages(
   database: Database.Database,
   projectId: string,
-  input: SearchInput,
+  input: PageSearchInput,
 ): readonly {
-  readonly kind: "card";
+  readonly kind: "page";
   readonly blockId: string;
   readonly title: string;
   readonly location: ReturnType<typeof toBlockLocation>;
-  readonly matches: readonly Omit<RawCardMatch, "term">[];
+  readonly matches: readonly Omit<RawPageMatch, "term">[];
 }[] {
   const terms = tokenizeSearchQuery(input.query).slice(0, 32);
-  const rows = readCardRows(database, projectId, input);
+  const rows = readPageRows(database, projectId, input);
   const rowById = new Map(rows.map((row) => [row.block_id, row] as const));
   const metadataDocuments = buildMetadataDocuments(
     rows,
     readPropertyRows(database, projectId, rows.map((row) => row.block_id)),
   );
-  const aggregates = new Map<string, CardAggregate>();
-  for (const hit of searchCardMetadata(metadataDocuments, input.query)) {
+  const aggregates = new Map<string, PageAggregate>();
+  for (const hit of searchPageMetadata(metadataDocuments, input.query)) {
     const row = rowById.get(hit.id);
     if (!row) continue;
     aggregates.set(hit.id, {
@@ -340,7 +349,7 @@ function searchCards(
     const hits = searchDocumentBlockUnits(database, {
       projectId,
       query: term,
-      ownerType: "card",
+      ownerType: "page",
       includeArchived: input.filters?.includeArchived === true,
       sourceKinds: ["document_title", "document_block"],
       ...ftsScope(input),
@@ -387,7 +396,7 @@ function searchCards(
         || left.row.block_id.localeCompare(right.row.block_id);
     })
     .map((aggregate) => ({
-      kind: "card",
+      kind: "page",
       blockId: aggregate.row.block_id,
       title: aggregate.row.title,
       location: toBlockLocation(aggregate.row),
@@ -398,8 +407,8 @@ function searchCards(
 function searchBlocks(
   database: Database.Database,
   projectId: string,
-  input: SearchInput & { readonly target: "blocks" },
-  cardOwnedBlocksOnly: boolean,
+  input: PageSearchInput & { readonly target: "blocks" },
+  pageOwnedBlocksOnly: boolean,
 ): readonly {
   readonly kind: "block";
   readonly blockId: string;
@@ -414,7 +423,7 @@ function searchBlocks(
   return searchDocumentBlockUnits(database, {
     projectId,
     query: input.query,
-    ...(cardOwnedBlocksOnly ? { ownerType: "card" as const } : {}),
+    ...(pageOwnedBlocksOnly ? { ownerType: "page" as const } : {}),
     includeArchived: input.filters?.includeArchived === true,
     sourceKinds: ["document_title", "document_block"],
     blockTypes: input.filters?.blockTypes,
@@ -437,16 +446,16 @@ function searchBlocks(
 export function readNodexAgentSearch(
   database: Database.Database,
   projectId: string,
-  input: SearchInput,
-  options: { readonly cardOwnedBlocksOnly?: boolean } = {},
-): SearchOutput {
+  input: PageSearchInput,
+  options: { readonly pageOwnedBlocksOnly?: boolean } = {},
+) {
   requireProject(database, projectId);
   validateScope(database, projectId, input.scope);
-  const target = input.target ?? "cards";
+  const target = input.target ?? "pages";
   const changeLogSeq = readProjectChangeLogSeq(database, projectId);
   const fingerprint = nodexAgentFingerprint({
     target,
-    cardOwnedBlocksOnly: options.cardOwnedBlocksOnly === true,
+    pageOwnedBlocksOnly: options.pageOwnedBlocksOnly === true,
     query: input.query,
     scope: input.scope ?? { kind: "project" },
     filters: input.filters ?? {},
@@ -466,10 +475,10 @@ export function readNodexAgentSearch(
     ? searchBlocks(
       database,
       projectId,
-      input as SearchInput & { readonly target: "blocks" },
-      options.cardOwnedBlocksOnly === true,
+      input as PageSearchInput & { readonly target: "blocks" },
+      options.pageOwnedBlocksOnly === true,
     )
-    : searchCards(database, projectId, input);
+    : searchPages(database, projectId, input);
   const limit = input.page?.limit ?? 20;
   const results = allResults.slice(offset, offset + limit);
   const nextOffset = offset + results.length;
@@ -489,5 +498,5 @@ export function readNodexAgentSearch(
     },
   };
   assertResponseSize(rawOutput);
-  return SearchOutputSchema.parse(rawOutput);
+  return rawOutput;
 }

@@ -44,7 +44,7 @@ function makeTerminalTarget(): EventTarget {
 
 function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): WorkbenchShortcutActions {
   return {
-    spaces: [{ projectId: "a" }, { projectId: "b" }, { projectId: "c" }],
+    projectRefs: [{ projectId: "a" }, { projectId: "b" }, { projectId: "c" }],
     dbProjectId: "a",
     focusedStage: "db",
     focusAdjacentStage: () => {},
@@ -294,7 +294,7 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBe(true);
   });
 
-  test("Cmd+P opens cards search", () => {
+  test("Cmd+P opens Page search", () => {
     let mode = "";
     const actions = makeActions({
       onRequestCommandPalette: (request) => {
@@ -316,10 +316,10 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBe(true);
-    expect(mode).toBe("cards");
+    expect(mode).toBe("pages");
   });
 
-  test("Cmd+P opens cards search inside editable targets", () => {
+  test("Cmd+P opens Page search inside editable targets", () => {
     let calls = 0;
     let mode = "";
     const actions = makeActions({
@@ -344,7 +344,7 @@ describe("handleWorkbenchShortcut", () => {
       );
 
       expect(handled).toBe(true);
-      expect(mode).toBe("cards");
+      expect(mode).toBe("pages");
     }
 
     expect(calls).toBe(3);

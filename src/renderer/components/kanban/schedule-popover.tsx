@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { RecurrenceFrequency } from "@/lib/types";
 import type {
-  CardScheduleSource,
+  PageScheduleSource,
   ScheduleState,
 } from "@/lib/use-schedule-state";
 import {
@@ -28,10 +28,10 @@ import {
 
 interface SchedulePopoverProps {
   schedule: ScheduleState;
-  card: Pick<CardScheduleSource, "scheduledStart" | "recurrence">;
+  page: Pick<PageScheduleSource, "scheduledStart" | "recurrence">;
 }
 
-export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {
+export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
   const [open, setOpen] = useState(false);
   const [repeatOpen, setRepeatOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
@@ -383,7 +383,7 @@ export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {
             </div>
 
             {/* Section 4: Timezone */}
-            <div className={cn(card.scheduledStart && "border-b border-(--border)")}>
+            <div className={cn(page.scheduledStart && "border-b border-(--border)")}>
               <button
                 type="button"
                 onClick={() => setTimezoneOpen((v) => !v)}
@@ -421,7 +421,7 @@ export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {
             </div>
 
             {/* Section 5: Occurrence actions */}
-            {card.scheduledStart && (
+            {page.scheduledStart && (
               <div className="flex items-center gap-2 p-3">
                 {schedule.handleCompleteThisOccurrence && (
                   <button
@@ -433,7 +433,7 @@ export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {
                     Mark done
                   </button>
                 )}
-                {card.recurrence && schedule.handleSkipThisOccurrence && (
+                {page.recurrence && schedule.handleSkipThisOccurrence && (
                   <button
                     type="button"
                     disabled={schedule.occurrenceBusy}

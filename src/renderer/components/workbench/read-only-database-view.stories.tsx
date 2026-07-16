@@ -1,13 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
-import { ReadOnlyDatabaseView } from "./read-only-database-view";
+import { DatabaseViewSurface } from "./read-only-database-view";
+
+const timestamp = "2026-07-12T00:00:00.000Z";
+const libraryId = "library:nodex";
+const databaseId = "database:nodex:primary";
+const dataSourceId = "data-source:nodex:primary";
+const viewId = "database-view:nodex:focused";
 
 const model: DatabaseViewRenderModel = {
   projectId: "nodex",
-  databaseViewId: "database-view:nodex:focused",
-  databaseBlockId: "database:nodex:primary",
+  databaseViewId: viewId,
+  databaseId,
+  dataSourceId,
   databaseName: "Tasks",
+  dataSourceName: "Pages",
   viewName: "Focused work",
   storeEpoch: "story",
   changeLogSeq: 1,
@@ -15,20 +23,32 @@ const model: DatabaseViewRenderModel = {
   readOnlyReason: null,
   query: {
     database: {
-      blockId: "database:nodex:primary",
-      projectId: "nodex",
+      databaseId,
+      libraryId,
       name: "Tasks",
-      isPrimary: false,
-      schemaKey: "nodex.database",
-      schemaRevision: 1,
+      lifecycle: "active",
+      defaultViewId: "database-view:nodex:default",
+      accessRevision: 1,
       metadataRevision: 1,
-      createdAt: "2026-07-12T00:00:00.000Z",
-      updatedAt: "2026-07-12T00:00:00.000Z",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    dataSource: {
+      dataSourceId,
+      libraryId,
+      homeDatabaseId: databaseId,
+      name: "Pages",
+      schemaKey: "nodex.pages",
+      schemaRevision: 1,
+      lifecycle: "active",
+      rankKey: "a",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
     view: {
-      id: "database-view:nodex:focused",
-      databaseBlockId: "database:nodex:primary",
-      projectId: "nodex",
+      viewId,
+      databaseId,
+      dataSourceId,
       name: "Focused work",
       kind: "kanban",
       config: {
@@ -39,17 +59,17 @@ const model: DatabaseViewRenderModel = {
         group: { propertyId: "property-status" },
         display: { propertyIds: ["property-tags"], showTitle: true },
       },
-      isPrimary: false,
+      isDefault: false,
       revision: 1,
       rankKey: "a",
       lifecycle: "active",
-      createdAt: "2026-07-12T00:00:00.000Z",
-      updatedAt: "2026-07-12T00:00:00.000Z",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
     properties: [
       {
-        id: "property-status",
-        databaseBlockId: "database:nodex:primary",
+        propertyId: "property-status",
+        dataSourceId,
         key: "status",
         name: "Status",
         valueType: "select",
@@ -57,93 +77,86 @@ const model: DatabaseViewRenderModel = {
         rankKey: "a",
         lifecycle: "active",
         revision: 1,
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
       {
-        id: "property-tags",
-        databaseBlockId: "database:nodex:primary",
+        propertyId: "property-tags",
+        dataSourceId,
         key: "tags",
         name: "Tags",
         valueType: "multi_select",
-        config: { options: [{ id: "block-first", name: "Block first" }] },
+        config: { options: [{ id: "page-first", name: "Page first" }] },
         rankKey: "b",
         lifecycle: "active",
         revision: 1,
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
     ],
     rows: [{
       membership: {
-        id: "membership-1",
-        databaseBlockId: "database:nodex:primary",
-        cardBlockId: "card-1",
+        membershipId: "membership-1",
+        dataSourceId,
         revision: 1,
-        createdAt: "2026-07-12T00:00:00.000Z",
+        createdAt: timestamp,
       },
-      card: {
-        blockId: "card-1",
-        projectId: "nodex",
+      page: {
+        pageId: "page-1",
+        libraryId,
+        parent: { kind: "data_source", dataSourceId },
         lifecycle: "active",
-        location: { kind: "space", rankKey: "a" },
-        locationRevision: 1,
+        parentRevision: 1,
         metadataRevision: 1,
         documentId: "document-1",
         documentGeneration: 1,
         documentHeadSeq: 1,
-        documentAuthority: "ydoc_primary",
-        content: {
-          projectedSeq: 1,
-          title: "Unify Database View rendering",
-          richTitle: plainTextToPortableRichText("Unify Database View rendering"),
-          preview: "",
-          plainText: "",
-        },
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
+        title: "Unify Database View rendering",
+        richTitle: plainTextToPortableRichText("Unify Database View rendering"),
+        preview: "",
+        plainText: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
       values: {
         "property-status": { propertyId: "property-status", valueType: "select", value: "in_progress", revision: 1 },
-        "property-tags": { propertyId: "property-tags", valueType: "multi_select", value: ["block-first"], revision: 1 },
+        "property-tags": { propertyId: "property-tags", valueType: "multi_select", value: ["page-first"], revision: 1 },
       },
       position: { groupKey: "in_progress", rankKey: "a", revision: 1 },
       effectiveGroupKey: "in_progress",
     }],
   },
   columns: [
-      {
-        id: "in_progress",
-        name: "In Progress",
-        rows: [
-          {
-            blockId: "card-1",
-            status: "in_progress",
-            title: "Unify Database View rendering",
-            preview: "",
-            plainText: "",
-            tags: ["block-first"],
-            metadataRevision: 1,
-            createdAt: new Date("2026-07-12T00:00:00.000Z"),
-          },
-        ],
-      },
-      { id: "done", name: "Done", rows: [] },
-    ],
+    {
+      id: "in_progress",
+      name: "In Progress",
+      rows: [{
+        pageId: "page-1",
+        status: "in_progress",
+        title: "Unify Database View rendering",
+        preview: "",
+        plainText: "",
+        tags: ["page-first"],
+        metadataRevision: 1,
+        createdAt: new Date(timestamp),
+      }],
+    },
+    { id: "done", name: "Done", rows: [] },
+  ],
 };
 
 const meta = {
-  title: "Workbench/Durable Database View",
-  component: ReadOnlyDatabaseView,
+  title: "Workbench/Database View",
+  component: DatabaseViewSurface,
   parameters: { layout: "fullscreen" },
   args: {
     model,
     searchQuery: "",
-    openCardStage: () => undefined,
+    openPageStage: () => undefined,
     commitOperations: async () => null,
   },
   decorators: [(Story) => <div className="h-[640px]"><Story /></div>],
-} satisfies Meta<typeof ReadOnlyDatabaseView>;
+} satisfies Meta<typeof DatabaseViewSurface>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -170,7 +183,5 @@ const withKind = (
 });
 
 export const ListView: Story = { args: { model: withKind("list") } };
-
 export const CalendarAgenda: Story = { args: { model: withKind("calendar") } };
-
 export const OrderedCanvas: Story = { args: { model: withKind("canvas") } };

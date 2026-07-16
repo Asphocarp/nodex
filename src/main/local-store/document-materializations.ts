@@ -1,14 +1,14 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
+import type { PageDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
 import type { DocumentId } from "../../shared/block-documents/contracts";
 import { portableRichTextSemanticSource } from "../../shared/block-documents/portable-rich-text";
 
-export interface PersistCardDocumentMaterializationInput {
+export interface PersistPageDocumentMaterializationInput {
   readonly documentId: DocumentId;
   readonly generation: number;
   readonly projectedSeq: number;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
   readonly updatedAt?: string;
 }
 
@@ -42,13 +42,13 @@ const requireNonEmpty = (value: string, fieldName: string): string => {
 };
 
 /**
- * Persist every rebuildable Card content projection in one SQLite statement.
+ * Persist every rebuildable Page content projection in one SQLite statement.
  * Callers own the surrounding authority transaction, so a committed Document
  * head and its materialization cannot become visible independently.
  */
-export const persistCardDocumentMaterialization = (
+export const persistPageDocumentMaterialization = (
   database: Database.Database,
-  input: PersistCardDocumentMaterializationInput,
+  input: PersistPageDocumentMaterializationInput,
 ): void => {
   const documentId = requireNonEmpty(input.documentId, "documentId");
   const generation = requirePositiveInteger(input.generation, "generation");

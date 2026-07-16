@@ -165,25 +165,25 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
       case "cardRef": {
         const attrs = [
           `project="${escapeXmlAttr(block.sourceProjectId)}"`,
-          `card="${escapeXmlAttr(block.cardId)}"`,
+          `card="${escapeXmlAttr(block.pageId)}"`,
         ];
         lines.push(prefix + `<card-ref ${attrs.join(" ")} />`);
         break;
       }
 
-      case "mentionCard": {
+      case "pageRef": {
         lines.push(prefix + serializeNfm([block]));
         break;
       }
 
-      case "card": {
+      case "page": {
         lines.push(prefix + serializeNfm([block]));
         break;
       }
 
       case "cardToggle": {
         const attrs = [
-          `card="${escapeXmlAttr(block.cardId)}"`,
+          `card="${escapeXmlAttr(block.pageId)}"`,
           `meta="${escapeXmlAttr(block.meta)}"`,
         ];
         if (block.snapshot) {

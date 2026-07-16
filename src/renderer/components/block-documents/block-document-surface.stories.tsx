@@ -1,26 +1,26 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
   type DocumentSyncCommandError,
 } from "../../../shared/block-documents";
 import { BlockDocumentSurfaceError } from "@/lib/block-document-surface-failure";
 import {
   BlockDocumentSurfaceFailureState,
-  type PrimaryCardBlockDocumentDescriptor,
+  type PrimaryPageBlockDocumentDescriptor,
 } from "./block-document-surface";
 
-const descriptor: PrimaryCardBlockDocumentDescriptor = {
+const descriptor: PrimaryPageBlockDocumentDescriptor = {
   projectId: "project:launch",
   ownerBlockId: "card:sync-design",
-  ownerType: "card",
+  ownerType: "page",
   ownerLifecycle: "active",
   documentId: "document:sync-design",
   storeEpoch: "store:local",
   generation: 4,
   headSeq: 27,
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
   sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
 };
@@ -48,7 +48,7 @@ function SurfaceFailureStory({ resetRequired = false }) {
 
   return (
     <div className="min-h-screen bg-token-main-surface-primary px-10 py-16">
-      <div className="mx-auto w-full max-w-(--card-stage-body-max-width)">
+      <div className="mx-auto w-full max-w-(--page-stage-body-max-width)">
         <BlockDocumentSurfaceFailureState
           descriptor={descriptor}
           error={error}
@@ -62,7 +62,7 @@ function SurfaceFailureStory({ resetRequired = false }) {
 }
 
 const meta = {
-  title: "Card Stage/Document Surface Failure",
+  title: "Page Stage/Document Surface Failure",
   component: SurfaceFailureStory,
   parameters: { layout: "fullscreen" },
   render: () => <SurfaceFailureStory />,

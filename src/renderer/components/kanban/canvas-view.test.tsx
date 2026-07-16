@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, vi, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { createElement, StrictMode, type ReactNode } from "react";
 import { createHash } from "node:crypto";
-import type { BoardSummary, CardSummary } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
 import {
   CANVAS_SCENE_SYNC_VERSION,
@@ -47,7 +47,7 @@ let updateSceneCalls: Array<{
 let sidebarRenderCount = 0;
 let openedCards: Array<{
   readonly projectId: string;
-  readonly cardId: string;
+  readonly pageId: string;
   readonly title?: string;
 }> = [];
 
@@ -62,7 +62,7 @@ const mockBoard = {
   }],
 } as unknown as BoardSummary;
 
-function makeCardSummary(id: string, title: string): CardSummary {
+function makeCardSummary(id: string, title: string): DatabasePageSummary {
   return {
     id,
     title,
@@ -94,19 +94,19 @@ function makeCardSummary(id: string, title: string): CardSummary {
   };
 }
 
-function makePlacedElement(cardId: string, version = 1): MockCanvasElement {
-  const title = cardId === "card-2" ? "Two" : cardId === "standalone-card" ? "Standalone" : "One";
+function makePlacedElement(pageId: string, version = 1): MockCanvasElement {
+  const title = pageId === "card-2" ? "Two" : pageId === "standalone-card" ? "Standalone" : "One";
   return {
-    id: `element-${cardId}`,
+    id: `element-${pageId}`,
     type: "rectangle",
-    index: cardId === "card-2" ? "b1" : "a1",
+    index: pageId === "card-2" ? "b1" : "a1",
     version,
-    versionNonce: cardId === "card-2" ? 22 : 11,
+    versionNonce: pageId === "card-2" ? 22 : 11,
     isDeleted: false,
     backgroundColor: "#f8f9fa",
     customData: {
       type: "nodex-card-reference",
-      targetBlockId: cardId,
+      targetBlockId: pageId,
       titleHint: title,
     },
     label: { text: title },
@@ -284,9 +284,9 @@ vi.mock("./canvas-view-deps", () => ({
     }),
   }),
   loadCanvasCardSidebar: async () => ({
-    CanvasCardSidebar: ({ placedCardIds }: { placedCardIds: Set<string> }) => {
+    CanvasCardSidebar: ({ placedPageIds }: { placedPageIds: Set<string> }) => {
       sidebarRenderCount += 1;
-      return createElement("div", { "data-testid": "card-sidebar" }, `placed:${[...placedCardIds].sort().join(",")}`);
+      return createElement("div", { "data-testid": "card-sidebar" }, `placed:${[...placedPageIds].sort().join(",")}`);
     },
   }),
   RegisteredOwnedBlockDocumentBoundary: ({ children }: {
@@ -305,7 +305,7 @@ vi.mock("./canvas-view-deps", () => ({
   },
   useKanban: () => ({
     board: mockBoard,
-    createCard: async () => makeCardSummary("card-new", "New Card"),
+    createPage: async () => makeCardSummary("card-new", "New Card"),
   }),
   useTheme: () => ({ resolved: "light" }),
 }));
@@ -315,11 +315,11 @@ async function renderCanvas(strict = false) {
   const canvas = createElement(CanvasView, {
     projectId: "project-1",
     databaseViewId: "view-project-1-primary",
-    openCardStage: (projectId: string, cardId: string, title?: string) => {
-      openedCards.push({ projectId, cardId, title });
+    openPageStage: (projectId: string, pageId: string, title?: string) => {
+      openedCards.push({ projectId, pageId, title });
     },
-    cardStageCardId: undefined,
-    cardStageCloseRef: { current: null },
+    pageStagePageId: undefined,
+    pageStageCloseRef: { current: null },
   });
   return render(strict ? createElement(StrictMode, null, canvas) : canvas);
 }
@@ -356,9 +356,9 @@ describe("CanvasView", () => {
     expect(appliedMutations).toHaveLength(1);
   });
 
-  test("Cards button toggles the Excalidraw sidebar", async () => {
+  test("Pages button toggles the Excalidraw sidebar", async () => {
     const view = await renderCanvas();
-    fireEvent.click(await view.findByRole("button", { name: "Cards" }));
+    fireEvent.click(await view.findByRole("button", { name: "Pages" }));
     expect(toggleSidebarCalls).toBe(1);
   });
 
@@ -371,7 +371,7 @@ describe("CanvasView", () => {
     fireEvent.click(view.getByRole("button", { name: "open first card" }));
     expect(openedCards).toEqual([{
       projectId: "project-1",
-      cardId: "standalone-card",
+      pageId: "standalone-card",
       title: "Standalone",
     }]);
   });

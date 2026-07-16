@@ -1,4 +1,4 @@
-import { CARD_STATUS_ORDER, type CardStatus } from "../../shared/card-status";
+import { WORKFLOW_STATUS_ORDER, type WorkflowStatus } from "../../shared/workflow-status";
 
 export const DEFAULT_KANBAN_COLUMN_WIDTH = 288;
 export const MIN_KANBAN_COLUMN_WIDTH = 224;
@@ -17,7 +17,7 @@ export interface KanbanColumnLayout {
   width: number;
 }
 
-export type KanbanColumnLayoutPrefs = Partial<Record<CardStatus, Partial<KanbanColumnLayout>>>;
+export type KanbanColumnLayoutPrefs = Partial<Record<WorkflowStatus, Partial<KanbanColumnLayout>>>;
 
 const STORAGE_KEY_PREFIX = "nodex-kanban-column-layout-v1";
 
@@ -38,7 +38,7 @@ export function clampKanbanColumnWidth(value: unknown): number {
 
 export function getKanbanColumnLayout(
   prefs: KanbanColumnLayoutPrefs | null | undefined,
-  columnId: CardStatus,
+  columnId: WorkflowStatus,
 ): KanbanColumnLayout {
   const columnPrefs = prefs?.[columnId];
 
@@ -53,7 +53,7 @@ export function normalizeKanbanColumnLayoutPrefs(value: unknown): KanbanColumnLa
 
   const normalized: KanbanColumnLayoutPrefs = {};
 
-  for (const status of CARD_STATUS_ORDER) {
+  for (const status of WORKFLOW_STATUS_ORDER) {
     const candidate = value[status];
     if (!isRecord(candidate)) continue;
 
@@ -100,7 +100,7 @@ export function writeKanbanColumnLayoutPrefs(
 
 export function updateKanbanColumnLayoutPrefs(
   current: KanbanColumnLayoutPrefs,
-  columnId: CardStatus,
+  columnId: WorkflowStatus,
   patch: Partial<KanbanColumnLayout>,
 ): KanbanColumnLayoutPrefs {
   const previous = getKanbanColumnLayout(current, columnId);

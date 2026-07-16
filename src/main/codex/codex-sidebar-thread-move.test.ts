@@ -9,6 +9,10 @@ import {
 function makeProject(id: string, roots: string[]): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: `database:${id}:primary`,
+    lifecycle: "active",
+    bindingRevision: 1,
     name: id,
     description: "",
     sources: roots.map((root, order) => ({ root, order })),

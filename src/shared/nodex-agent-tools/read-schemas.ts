@@ -31,7 +31,7 @@ export const DatabasePropertyValueTypeSchema = z.enum([
   "person",
 ]) satisfies z.ZodType<DatabasePropertyValueType>;
 
-export const GeneralDatabaseViewKindSchema = z.enum([
+export const DatabaseViewKindSchema = z.enum([
   "kanban",
   "list",
   "calendar",
@@ -87,7 +87,7 @@ const DatabaseSummarySchema = z.strictObject({
   views: z.array(z.strictObject({
     viewId: ViewIdSchema,
     name: z.string(),
-    kind: GeneralDatabaseViewKindSchema,
+    kind: DatabaseViewKindSchema,
     isPrimary: z.boolean(),
   })),
 });
@@ -217,9 +217,9 @@ const SearchQuerySchema = z.string().trim().min(1).max(512).refine(
   "Search query must be at most 512 UTF-8 bytes",
 );
 
-const CardSearchInputSchema = z.strictObject({
+const PageSearchInputSchema = z.strictObject({
   query: SearchQuerySchema,
-  target: z.literal("cards").optional(),
+  target: z.literal("pages").optional(),
   scope: SearchScopeSchema.optional(),
   filters: z.strictObject({ includeArchived: z.boolean().optional() }).optional(),
   page: createPageInputSchema(100).optional(),
@@ -237,13 +237,13 @@ const BlockSearchInputSchema = z.strictObject({
 });
 
 export const SearchInputSchema = z.union([
-  CardSearchInputSchema,
+  PageSearchInputSchema,
   BlockSearchInputSchema,
 ]);
 
 const SearchMatchQualitySchema = z.enum(["exact", "prefix", "fuzzy"]);
 
-const CardSearchMatchSchema = z.discriminatedUnion("source", [
+const PageSearchMatchSchema = z.discriminatedUnion("source", [
   z.strictObject({
     source: z.literal("identity"),
     quality: z.enum(["exact", "prefix"]),
@@ -270,12 +270,12 @@ const CardSearchMatchSchema = z.discriminatedUnion("source", [
   }),
 ]);
 
-const CardSearchResultSchema = z.strictObject({
-  kind: z.literal("card"),
+const PageSearchResultSchema = z.strictObject({
+  kind: z.literal("page"),
   blockId: BlockIdSchema,
   title: z.string(),
   location: BlockLocationSchema,
-  matches: z.array(CardSearchMatchSchema).max(3),
+  matches: z.array(PageSearchMatchSchema).max(3),
 });
 
 const BlockSearchResultSchema = z.strictObject({
@@ -291,8 +291,8 @@ const BlockSearchResultSchema = z.strictObject({
 
 export const SearchDataSchema = z.discriminatedUnion("target", [
   z.strictObject({
-    target: z.literal("cards"),
-    results: z.array(CardSearchResultSchema).max(100),
+    target: z.literal("pages"),
+    results: z.array(PageSearchResultSchema).max(100),
   }),
   z.strictObject({
     target: z.literal("blocks"),
@@ -342,7 +342,7 @@ export const QueryDatabaseDataSchema = z.strictObject({
   view: z.strictObject({
     viewId: ViewIdSchema,
     name: z.string(),
-    kind: GeneralDatabaseViewKindSchema,
+    kind: DatabaseViewKindSchema,
   }).optional(),
   rows: z.array(z.strictObject({
     blockId: BlockIdSchema,

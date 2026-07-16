@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
-import type { SpaceRef } from "@/lib/use-workbench-state";
+import type { ProjectRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { CodexAutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
@@ -26,7 +26,7 @@ import {
   CodexSidebarSection,
   CodexSidebarTopActionButton,
   CodexThreadRow,
-  resolveCodexCardSearchShortcutLabel,
+  resolveCodexPageSearchShortcutLabel,
 } from "./codex-sidebar";
 import {
   replaceVisibleOrder,
@@ -59,6 +59,10 @@ import {
 const PROJECTS: Project[] = [
   {
     id: "default",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Nodex",
     description: "",
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
@@ -70,6 +74,10 @@ const PROJECTS: Project[] = [
   },
   {
     id: "bundle",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Codex bundle",
     description: "",
     sources: [{ root: "/Users/asc/repo/devtools-codex", order: 0 }],
@@ -81,7 +89,7 @@ const PROJECTS: Project[] = [
   },
 ];
 
-const SPACES: SpaceRef[] = [
+const PROJECT_REFS: ProjectRef[] = [
   { projectId: "default", colorToken: "var(--accent-blue)", initial: "N" },
   { projectId: "bundle", colorToken: "var(--accent-green)", initial: "C" },
 ];
@@ -89,6 +97,10 @@ const SPACES: SpaceRef[] = [
 const SIDEBAR_PARITY_PROJECTS: Project[] = [
   {
     id: "nodex",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Nodex",
     description: "",
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
@@ -100,6 +112,10 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
   },
   {
     id: "codex-electron-readable-bundle-with-a-very-long-name",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Codex Electron readable bundle with a very long project label",
     description: "",
     sources: [{ root: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable", order: 0 }],
@@ -111,6 +127,10 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
   },
   {
     id: "missing-workspace",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Missing workspace path",
     description: "",
     sources: [],
@@ -124,7 +144,7 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
 
 const STORY_TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1_000;
 
-const SIDEBAR_PARITY_SPACES: SpaceRef[] = [
+const SIDEBAR_PARITY_PROJECT_REFS: ProjectRef[] = [
   { projectId: "nodex", colorToken: "var(--accent-blue)", initial: "N" },
   { projectId: "codex-electron-readable-bundle-with-a-very-long-name", colorToken: "var(--accent-green)", initial: "C" },
   { projectId: "missing-workspace", colorToken: "var(--accent-yellow)", initial: "M" },
@@ -222,7 +242,7 @@ function SidebarSectionMenuHarness() {
     <div className="min-h-screen bg-(--background)">
       <LeftSidebar
         projects={PROJECTS}
-        spaces={SPACES}
+        projectRefs={PROJECT_REFS}
         activeProjectId="default"
         stageGroups={groups}
         collapsed={false}
@@ -236,7 +256,7 @@ function SidebarSectionMenuHarness() {
         onSetSectionShowAll={(sectionId, showAll) => {
           setShowAllItemsBySection((current) => ({ ...current, [sectionId]: showAll }));
         }}
-        onSelectSpace={() => {}}
+        onSelectProject={() => {}}
         onOpenSettings={() => {}}
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
@@ -249,23 +269,23 @@ function SidebarSectionMenuHarness() {
 
 function StatusGroupOrderHarness() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    "cards:status:done": true,
-    "cards:status:in_review": true,
-    "cards:status:in_progress": true,
+    "pages:status:done": true,
+    "pages:status:in_review": true,
+    "pages:status:in_progress": true,
   });
   const [showAllItemsBySection, setShowAllItemsBySection] = useState<Record<string, boolean>>({});
 
   const groups: StageSidebarGroup[] = [
     {
-      id: "cards",
-      label: "Cards",
+      id: "pages",
+      label: "Pages",
       active: true,
       expanded: true,
       onFocus: () => {},
       onToggleExpanded: () => {},
       sections: [
         {
-          id: "cards:status:done",
+          id: "pages:status:done",
           label: "Done",
           count: 2,
           collapsible: true,
@@ -275,14 +295,14 @@ function StatusGroupOrderHarness() {
           ],
         },
         {
-          id: "cards:status:in_review",
+          id: "pages:status:in_review",
           label: "In Review",
           count: 1,
           collapsible: true,
           items: [{ id: "review-1", label: "Check thread transcript parity", onSelect: () => {} }],
         },
         {
-          id: "cards:status:in_progress",
+          id: "pages:status:in_progress",
           label: "In Progress",
           count: 2,
           collapsible: true,
@@ -292,14 +312,14 @@ function StatusGroupOrderHarness() {
           ],
         },
         {
-          id: "cards:status:backlog",
+          id: "pages:status:backlog",
           label: "Backlog",
           count: 1,
           collapsible: true,
           items: [{ id: "backlog-1", label: "Investigate branch selector", onSelect: () => {} }],
         },
         {
-          id: "cards:status:draft",
+          id: "pages:status:draft",
           label: "Draft",
           count: 1,
           collapsible: true,
@@ -313,7 +333,7 @@ function StatusGroupOrderHarness() {
     <div className="min-h-screen bg-(--background)">
       <LeftSidebar
         projects={PROJECTS}
-        spaces={SPACES}
+        projectRefs={PROJECT_REFS}
         activeProjectId="default"
         stageGroups={groups}
         collapsed={false}
@@ -327,7 +347,7 @@ function StatusGroupOrderHarness() {
         onSetSectionShowAll={(sectionId, showAll) => {
           setShowAllItemsBySection((current) => ({ ...current, [sectionId]: showAll }));
         }}
-        onSelectSpace={() => {}}
+        onSelectProject={() => {}}
         onOpenSettings={() => {}}
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
@@ -350,7 +370,7 @@ function SidebarNewChatControlsHarness() {
         >
           <SidebarExpandedHeader
             productName="Nodex"
-            searchShortcutLabel={resolveCodexCardSearchShortcutLabel()}
+            searchShortcutLabel={resolveCodexPageSearchShortcutLabel()}
             newChatShortcutLabel="⌘N"
             scrolledContentUnderHeader={scrolledContentUnderHeader}
             onSearch={() => {}}
@@ -465,11 +485,11 @@ function CodexProjectsHarness({
         <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
           <SidebarProjectsSection
             projects={projects}
-            spaces={SIDEBAR_PARITY_SPACES}
+            projectRefs={SIDEBAR_PARITY_PROJECT_REFS}
             activeProjectId={activeProjectId}
             expanded={expanded}
             onToggleExpanded={() => {}}
-            onSelectSpace={() => {}}
+            onSelectProject={() => {}}
             onCreateProject={async () => projects[0] ?? null}
             onDeleteProject={async () => true}
             onUpdateProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}

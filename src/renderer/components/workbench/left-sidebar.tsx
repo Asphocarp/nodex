@@ -10,7 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import type { Project, ProjectCreateInput, ProjectUpdateInput } from "@/lib/types";
-import type { SpaceRef } from "@/lib/use-workbench-state";
+import type { ProjectRef } from "@/lib/use-workbench-state";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
 import { LeftSidebarFooter, type LeftSidebarFooterProps } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
@@ -70,7 +70,7 @@ export interface StageSidebarGroup {
 
 interface LeftSidebarProps {
   projects: Project[];
-  spaces: SpaceRef[];
+  projectRefs: ProjectRef[];
   activeProjectId: string;
   stageGroups: StageSidebarGroup[];
   collapsed: boolean;
@@ -80,7 +80,7 @@ interface LeftSidebarProps {
   onResizeWidth: (width: number) => void;
   onSetSectionExpanded: (sectionId: string, expanded: boolean) => void;
   onSetSectionShowAll: (sectionId: string, showAll: boolean) => void;
-  onSelectSpace: (projectId: string) => void;
+  onSelectProject: (projectId: string) => void;
   onOpenSettings: () => void;
   projectPickerOpenTick: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
@@ -194,7 +194,7 @@ function SidebarSectionMoreActionsMenu({
 
 export function LeftSidebar({
   projects,
-  spaces,
+  projectRefs,
   activeProjectId,
   stageGroups,
   collapsed,
@@ -204,7 +204,7 @@ export function LeftSidebar({
   onResizeWidth,
   onSetSectionExpanded,
   onSetSectionShowAll,
-  onSelectSpace,
+  onSelectProject,
   onOpenSettings,
   projectPickerOpenTick,
   onCreateProject,
@@ -286,11 +286,11 @@ export function LeftSidebar({
       <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto px-(--sidebar-shell-padding-x) py-1">
         <SidebarProjectsSection
           projects={projects}
-          spaces={spaces}
+          projectRefs={projectRefs}
           activeProjectId={activeProjectId}
           expanded={projectsStageGroup?.expanded ?? true}
           onToggleExpanded={projectsStageGroup?.onToggleExpanded ?? (() => undefined)}
-          onSelectSpace={onSelectSpace}
+          onSelectProject={onSelectProject}
           onCreateProject={onCreateProject}
           onDeleteProject={onDeleteProject}
           onUpdateProject={onUpdateProject}

@@ -3,18 +3,18 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
-import { createUuidV7 } from "../../shared/card-id";
-import { parseCardLifecycleMutationRequest } from "../../shared/card-lifecycle";
+import { createUuidV7 } from "../../shared/uuid-v7";
+import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
 import type { DocumentMutationRequest } from "../../shared/block-documents";
 import {
   BlockIdSchema,
-  AdvancedUpdateCardV3InputSchema,
+  AdvancedUpdatePageV3InputSchema,
   EditDocumentInputSchema,
-  UpdateCardV3InputSchema,
+  UpdatePageV3InputSchema,
   type BlockId,
   type EditDocumentInput,
 } from "../../shared/nodex-agent-tools";
-import { applyCardLifecycleMutation } from "../local-store/card-block-lifecycle";
+import { applyPageLifecycleMutation } from "../local-store/page-lifecycle";
 import {
   applyDocumentOperationBatch,
   replaceDocumentFromNfm,
@@ -22,15 +22,16 @@ import {
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
 import { createProject } from "../local-store/projects";
+import { putProjectResourceGrantInDatabase } from "../local-store/project-resource-grants";
 import {
   completeNodexAgentDocumentEdit,
   prepareNodexAgentDocumentEdit,
 } from "./document-edit-service";
 import {
-  completeNodexAgentCardUpdate,
-  prepareNodexAgentCardUpdate,
-} from "./card-update-v3";
-import { readNodexAgentTool } from "./read-service";
+  completeNodexAgentPageUpdate,
+  prepareNodexAgentPageUpdate,
+} from "./page-update-v3";
+import { readNodexAgentV3Tool } from "./read-v3";
 
 interface Fixture {
   readonly database: Database.Database;
@@ -81,50 +82,55 @@ async function withFixture(
 function createCard(
   fixture: Fixture,
   input: { readonly title: string; readonly nfm: string },
+  projectId = fixture.projectId,
 ): BlockId {
   const cardId = createUuidV7();
-  const request = parseCardLifecycleMutationRequest({
+  const request = parsePageLifecycleMutationRequest({
     version: 1,
     operationId: createUuidV7(),
-    projectId: fixture.projectId,
+    projectId,
     storeEpoch: fixture.storeEpoch,
     clientSessionId: "agent-edit-test",
     actor: { kind: "test" },
     operation: {
-      kind: "create_card",
-      cardId,
+      kind: "create_page",
+      pageId: cardId,
       title: input.title,
       nfm: input.nfm,
       status: "draft",
     },
   });
-  const result = applyCardLifecycleMutation(fixture.database, request);
+  const result = applyPageLifecycleMutation(fixture.database, request);
   if (!result.ok) throw new Error(result.error.message);
   return BlockIdSchema.parse(cardId);
 }
 
-function readDocument(fixture: Fixture, cardId: BlockId): DocumentSnapshot {
-  const result = readNodexAgentTool(fixture.database, {
-    tool: "get_block",
+function readDocument(fixture: Fixture, pageId: BlockId): DocumentSnapshot {
+  const result = readNodexAgentV3Tool(fixture.database, {
+    tool: "fetch",
     projectId: fixture.projectId,
     input: {
-      blockId: cardId,
-      prepareFor: [{ kind: "title.set" }, { kind: "document.replace" }],
+      id: pageId,
+      prepareFor: [{ kind: "title" }, { kind: "body" }],
     },
   });
-  if (!result.ok || result.tool !== "get_block") {
-    throw new Error("Could not read fixture Card");
+  if (!result.ok || result.tool !== "fetch") {
+    throw new Error("Could not read fixture Page");
   }
-  const document = result.output.data.document;
-  if (!document || document.body.format !== "nfm") {
-    throw new Error("Fixture Card has no NFM Document");
+  const content = result.output.data.content;
+  if (!content || content.format !== "markdown") {
+    throw new Error("Fixture Page has no Markdown content");
   }
-  const titleEtag = result.output.data.block.title?.etag;
-  const bodyEtag = document.body.etag;
+  const titleEtag = result.output.data.resource.title?.etag;
+  const bodyEtag = content.etag;
   if (!titleEtag || !bodyEtag) throw new Error("Fixture write ETags are unavailable");
+  const ownership = fixture.database.prepare(
+    "SELECT document_id FROM block_documents WHERE block_id = ?",
+  ).get(pageId) as { readonly document_id: string } | undefined;
+  if (!ownership) throw new Error("Fixture Page has no owned Document");
   return {
-    documentId: document.documentId,
-    nfm: document.body.content,
+    documentId: ownership.document_id,
+    nfm: content.markdown,
     titleEtag,
     bodyEtag,
   };
@@ -173,12 +179,74 @@ function prepare(
 }
 
 describe("Nodex Agent Document edit service", () => {
+  sqliteTest("updates a foreign Page through a recursive read-write grant", async () => {
+    await withFixture((fixture) => {
+      const owner = createProject({ name: "Granted Page owner" });
+      const pageId = createCard(fixture, { title: "Shared Page", nfm: "Original" }, owner.id);
+      putProjectResourceGrantInDatabase(fixture.database, {
+        projectId: fixture.projectId,
+        root: { kind: "page", pageId },
+        access: "read_write",
+      });
+      const prepared = prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
+        threadId: "thread-granted",
+        callId: "update-granted-page",
+        projectId: fixture.projectId,
+        input: UpdatePageV3InputSchema.parse({
+          pageId,
+          body: {
+            kind: "insert",
+            at: { kind: "end" },
+            markdown: "Granted edit",
+          },
+          return: ["markdown"],
+        }),
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Granted Page update was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      expect(prepared.value.mutation.projectId).toBe(owner.id);
+      const committed = applyMutation(fixture, prepared.value.mutation);
+      if (!committed.ok) throw new Error(committed.error.message);
+      const completed = completeNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
+        threadId: "thread-granted",
+        callId: "update-granted-page",
+        projectId: fixture.projectId,
+        pageId,
+        result: committed.value,
+      });
+      expect(completed.ok ? completed.output.data.body?.markdown : null)
+        .toBe("Original\nGranted edit");
+
+      putProjectResourceGrantInDatabase(fixture.database, {
+        projectId: fixture.projectId,
+        root: { kind: "page", pageId },
+        access: "read",
+      });
+      expect(prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
+        threadId: "thread-granted",
+        callId: "update-read-only-page",
+        projectId: fixture.projectId,
+        input: UpdatePageV3InputSchema.parse({
+          pageId,
+          body: { kind: "insert", at: { kind: "end" }, markdown: "Denied" },
+        }),
+      })).toMatchObject({
+        ok: false,
+        error: { code: "authorization_denied" },
+      });
+    });
+  });
+
   sqliteTest("adapts Card-first Nested Markdown updates and replays before stale guards", async () => {
     await withFixture((fixture) => {
       const cardId = createCard(fixture, { title: "Before", nfm: "Alpha\nKeep" });
       const before = readDocument(fixture, cardId);
-      const input = UpdateCardV3InputSchema.parse({
-        cardId,
+      const input = UpdatePageV3InputSchema.parse({
+        pageId: cardId,
         title: { markdown: "**After**", ifMatch: before.titleEtag },
         body: {
           kind: "patch",
@@ -186,8 +254,8 @@ describe("Nodex Agent Document edit service", () => {
         },
         return: ["markdown", "etags"],
       });
-      const prepared = prepareNodexAgentCardUpdate(fixture.database, {
-        tool: "update_card",
+      const prepared = prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
         threadId: "thread-v3",
         callId: "update-card",
         projectId: fixture.projectId,
@@ -199,16 +267,16 @@ describe("Nodex Agent Document edit service", () => {
       expect(prepared.value.targetMarkdown).toBe("Beta\nKeep");
       const committed = applyMutation(fixture, prepared.value.mutation);
       if (!committed.ok) throw new Error(committed.error.message);
-      const completed = completeNodexAgentCardUpdate(fixture.database, {
-        tool: "update_card",
+      const completed = completeNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
         threadId: "thread-v3",
         callId: "update-card",
         projectId: fixture.projectId,
-        cardId,
+        pageId: cardId,
         result: committed.value,
       });
       expect(completed.ok ? completed.output.data : null).toMatchObject({
-        cardId,
+        pageId: cardId,
         body: { format: "markdown", markdown: "Beta\nKeep" },
         etags: {
           title: expect.stringMatching(/^nxe1\./u),
@@ -218,15 +286,15 @@ describe("Nodex Agent Document edit service", () => {
       const receipt = fixture.database.prepare(
         "SELECT tool FROM nodex_agent_call_receipts WHERE call_id = ?",
       ).get("update-card") as { readonly tool: string };
-      expect(receipt.tool).toBe("update_card");
+      expect(receipt.tool).toBe("update_page");
 
-      const mismatch = prepareNodexAgentCardUpdate(fixture.database, {
-        tool: "update_card",
+      const mismatch = prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
         threadId: "thread-v3",
         callId: "patch-mismatch",
         projectId: fixture.projectId,
-        input: UpdateCardV3InputSchema.parse({
-          cardId,
+        input: UpdatePageV3InputSchema.parse({
+          pageId: cardId,
           body: {
             kind: "patch",
             patches: [{ oldMarkdown: "Missing", newMarkdown: "Replacement" }],
@@ -254,8 +322,8 @@ describe("Nodex Agent Document edit service", () => {
       const concurrentCommit = applyMutation(fixture, concurrent.value.mutation);
       if (!concurrentCommit.ok) throw new Error(concurrentCommit.error.message);
 
-      const replayed = prepareNodexAgentCardUpdate(fixture.database, {
-        tool: "update_card",
+      const replayed = prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
         threadId: "thread-v3",
         callId: "update-card",
         projectId: fixture.projectId,
@@ -271,47 +339,46 @@ describe("Nodex Agent Document edit service", () => {
   sqliteTest("routes advanced stable-Block updates through the same receipt kernel", async () => {
     await withFixture((fixture) => {
       const cardId = createCard(fixture, { title: "Advanced", nfm: "Paragraph" });
-      const fetched = readNodexAgentTool(fixture.database, {
-        tool: "get_block",
+      const fetched = readNodexAgentV3Tool(fixture.database, {
+        tool: "fetch",
         projectId: fixture.projectId,
         input: {
-          blockId: cardId,
-          include: { document: { format: "blocks" } },
-          prepareFor: [{ kind: "block.update", blockIds: [] }],
+          id: cardId,
+          format: "blocks",
         },
       });
-      if (!fetched.ok || fetched.tool !== "get_block") throw new Error("Fetch failed");
-      const block = fetched.output.data.document?.body.format === "blocks"
-        ? fetched.output.data.document.body.blocks[0]
+      if (!fetched.ok || fetched.tool !== "fetch") throw new Error("Fetch failed");
+      const block = fetched.output.data.content?.format === "blocks"
+        ? fetched.output.data.content.blocks[0]
         : undefined;
       if (!block) throw new Error("Fixture body Block is unavailable");
-      const preparedFetch = readNodexAgentTool(fixture.database, {
-        tool: "get_block",
+      const preparedFetch = readNodexAgentV3Tool(fixture.database, {
+        tool: "fetch",
         projectId: fixture.projectId,
         input: {
-          blockId: cardId,
-          include: { document: { format: "blocks" } },
-          prepareFor: [{ kind: "block.update", blockIds: [block.blockId] }],
+          id: cardId,
+          format: "blocks",
+          prepareFor: [{ kind: "block_update", blockIds: [block.id] }],
         },
       });
-      if (!preparedFetch.ok || preparedFetch.tool !== "get_block") {
+      if (!preparedFetch.ok || preparedFetch.tool !== "fetch") {
         throw new Error("Prepared fetch failed");
       }
-      const preparedBlock = preparedFetch.output.data.document?.body.format === "blocks"
-        ? preparedFetch.output.data.document.body.blocks[0]
+      const preparedBlock = preparedFetch.output.data.content?.format === "blocks"
+        ? preparedFetch.output.data.content.blocks[0]
         : undefined;
       if (!preparedBlock?.etag) throw new Error("Block update ETag is unavailable");
-      const input = AdvancedUpdateCardV3InputSchema.parse({
-        cardId,
+      const input = AdvancedUpdatePageV3InputSchema.parse({
+        pageId: cardId,
         edits: [{
           kind: "update",
-          blockId: preparedBlock.blockId,
+          blockId: preparedBlock.id,
           ifMatch: preparedBlock.etag,
           patch: { props: { textAlignment: "center" } },
         }],
       });
-      const prepared = prepareNodexAgentCardUpdate(fixture.database, {
-        tool: "advanced_update_card",
+      const prepared = prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "advanced_update_page",
         threadId: "thread-v3",
         callId: "advanced-update",
         projectId: fixture.projectId,
@@ -322,22 +389,22 @@ describe("Nodex Agent Document edit service", () => {
       }
       const committed = applyMutation(fixture, prepared.value.mutation);
       if (!committed.ok) throw new Error(committed.error.message);
-      const completed = completeNodexAgentCardUpdate(fixture.database, {
-        tool: "advanced_update_card",
+      const completed = completeNodexAgentPageUpdate(fixture.database, {
+        tool: "advanced_update_page",
         threadId: "thread-v3",
         callId: "advanced-update",
         projectId: fixture.projectId,
-        cardId,
+        pageId: cardId,
         result: committed.value,
       });
       expect(completed.ok ? completed.output.data : null).toMatchObject({
-        cardId,
+        pageId: cardId,
         effects: { updated: 1 },
       });
       const receipt = fixture.database.prepare(
         "SELECT tool FROM nodex_agent_call_receipts WHERE call_id = ?",
       ).get("advanced-update") as { readonly tool: string };
-      expect(receipt.tool).toBe("advanced_update_card");
+      expect(receipt.tool).toBe("advanced_update_page");
     });
   });
 

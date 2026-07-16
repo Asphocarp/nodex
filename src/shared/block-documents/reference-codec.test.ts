@@ -5,8 +5,8 @@ import { serializeNfm } from "../nfm/serializer";
 import type { NfmBlock } from "../nfm/types";
 import {
   BlockDocumentCodecError,
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "./block-document-codec";
 import {
   isLegacyForeignBodyReference,
@@ -21,9 +21,9 @@ const requireCardRef = (block: NfmBlock | undefined) => {
   return block;
 };
 
-const requireCardMention = (block: NfmBlock | undefined) => {
-  if (block?.type !== "mentionCard") {
-    throw new Error("Expected a mentionCard Block");
+const requirePageRef = (block: NfmBlock | undefined) => {
+  if (block?.type !== "pageRef") {
+    throw new Error("Expected a pageRef Block");
   }
   return block;
 };
@@ -55,12 +55,12 @@ describe("Block-first reference codec", () => {
     const block = requireCardRef(parseNfm(source)[0]);
 
     expect(block.sourceProjectId).toBe("legacy-project");
-    expect(block.cardId).toBe("legacy-card");
+    expect(block.pageId).toBe("legacy-card");
     expect(serializeNfm([block])).toBe(source);
   });
 
-  test("decodes historical canonical Card references as Card mention URLs", () => {
-    const block = requireCardMention(
+  test("decodes historical canonical Card references as Page reference URLs", () => {
+    const block = requirePageRef(
       parseNfm(
         '<card-ref target-block="target-card" display-hint="A &amp; B" project="stale" card="stale-card" />',
       )[0],
@@ -68,47 +68,47 @@ describe("Block-first reference codec", () => {
 
     expect(block.targetBlockId).toBe("target-card");
     expect(serializeNfm([block])).toBe(
-      '<mention-card url="nodex://cards/target-card" />',
+      '<page-ref url="nodex://pages/target-card" />',
     );
   });
 
-  test("canonicalizes accepted Card mention URL variants and rejects invalid targets", () => {
-    const block = requireCardMention(
+  test("canonicalizes accepted Page reference URL variants and rejects invalid targets", () => {
+    const block = requirePageRef(
       parseNfm(
-        '<mention-card url="nodex:///cards/card%2Fone?block=ignored" />',
+        '<page-ref url="nodex:///pages/card%2Fone?block=ignored" />',
       )[0],
     );
     expect(serializeNfm([block])).toBe(
-      '<mention-card url="nodex://cards/card%2Fone" />',
+      '<page-ref url="nodex://pages/card%2Fone" />',
     );
     expect(() =>
-      parseNfm('<mention-card url="https://example.com/card" />'),
-    ).toThrow("Card mention URL must identify a Nodex Card");
+      parseNfm('<page-ref url="https://example.com/card" />'),
+    ).toThrow("Page reference URL must identify a Nodex Page");
   });
 
-  test("does not serialize a historical owning Card without identity", () => {
-    expect(() => serializeNfm(parseNfm("<card />"))).toThrow(
-      "Canonical Card NFM requires an exact non-empty uuid",
+  test("does not serialize an owning Page without identity", () => {
+    expect(() => serializeNfm(parseNfm("<page />"))).toThrow(
+      "Canonical Page NFM requires an exact non-empty uuid",
     );
   });
 
-  test("round-trips canonical Card and Database View refs through the BlockNote adapter", () => {
+  test("round-trips canonical Page and Database View refs through the BlockNote adapter", () => {
     const source = [
-      '<mention-card url="nodex://cards/card-1" />',
+      '<page-ref url="nodex://pages/card-1" />',
       '<database-view-ref database-view="view-1" display-hint="Roadmap" />',
     ].join("\n");
     const nfmBlocks = parseNfm(source);
     const blockNoteBlocks = nfmToBlockNote(nfmBlocks);
     const roundTrip = blockNoteToNfm(blockNoteBlocks);
 
-    expect(blockNoteBlocks[0]?.type).toBe("cardRef");
+    expect(blockNoteBlocks[0]?.type).toBe("pageRef");
     expect(blockNoteBlocks[0]?.props?.targetBlockId).toBe("card-1");
     expect(blockNoteBlocks[0]?.children?.length).toBe(0);
     expect(blockNoteBlocks[1]?.type).toBe("databaseViewRef");
     expect(blockNoteBlocks[1]?.props?.databaseViewId).toBe("view-1");
     expect(blockNoteBlocks[1]?.children?.length).toBe(0);
     expect(serializeNfm(roundTrip)).toBe([
-      '<mention-card url="nodex://cards/card-1" />',
+      '<page-ref url="nodex://pages/card-1" />',
       '<database-view-ref database-view="view-1" display-hint="Roadmap" />',
     ].join("\n"));
   });
@@ -116,7 +116,7 @@ describe("Block-first reference codec", () => {
   test("round-trips Template and Card shell projection syntax without foreign bodies", () => {
     const source = [
       '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
-      '<card uuid="nested-card" />',
+      '<page uuid="nested-card" />',
     ].join("\n");
     const nfmBlocks = parseNfm(source);
     const blockNoteBlocks = nfmToBlockNote(nfmBlocks);
@@ -125,25 +125,25 @@ describe("Block-first reference codec", () => {
     expect(blockNoteBlocks[0]?.type).toBe("templateRef");
     expect(blockNoteBlocks[0]?.props?.displayHint).toBe("Incident & review");
     expect(blockNoteBlocks[0]?.children?.length).toBe(0);
-    expect(blockNoteBlocks[1]?.type).toBe("card");
+    expect(blockNoteBlocks[1]?.type).toBe("page");
     expect(blockNoteBlocks[1]?.id).toBe("nested-card");
     expect(blockNoteBlocks[1]?.children?.length).toBe(0);
     expect(serializeNfm(roundTrip)).toBe([
       '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
-      '<card uuid="nested-card" />',
+      '<page uuid="nested-card" />',
     ].join("\n"));
   });
 
   test("hoists attempted children out of canonical reference Blocks", () => {
     const blocks = parseNfm(
       [
-        '<mention-card url="nodex://cards/card-1" />',
+        '<page-ref url="nodex://pages/card-1" />',
         "\tCard child",
         '<database-view-ref database-view="view-1" />',
         "\tView child",
         '<template-ref source-block="template-1" />',
         "\tTemplate child",
-        '<card uuid="nested-card" />',
+        '<page uuid="nested-card" />',
         "\tCard shell child",
       ].join("\n"),
     );
@@ -157,10 +157,10 @@ describe("Block-first reference codec", () => {
 
   test("rejects persisted children beneath canonical Card and Database references", () => {
     for (const nfm of [
-      '<mention-card url="nodex://cards/card-1" />',
+      '<page-ref url="nodex://pages/card-1" />',
       '<database-view-ref database-view="view-1" />',
     ]) {
-      const genesis = createCardDocumentGenesis({
+      const genesis = createPageDocumentGenesis({
         documentId: `childless-${nfm.length}`,
         title: "References",
         nfm,
@@ -168,7 +168,7 @@ describe("Block-first reference codec", () => {
       appendParagraphChild(genesis.document);
       let message = "";
       try {
-        materializeCardDocument(genesis.document);
+        materializePageDocument(genesis.document);
       } catch (error) {
         if (error instanceof BlockDocumentCodecError) message = error.message;
       }
@@ -177,11 +177,11 @@ describe("Block-first reference codec", () => {
   });
 
   test("materialization separates canonical references from legacy projections", () => {
-    const materialization = createCardDocumentGenesis({
+    const materialization = createPageDocumentGenesis({
       documentId: "reference-kinds",
       title: "References",
       nfm: [
-        '<mention-card url="nodex://cards/card-1" />',
+        '<page-ref url="nodex://pages/card-1" />',
         '<database-view-ref database-view="view-1" display-hint="Roadmap" />',
         '<card-ref project="legacy-project" card="legacy-card" />',
         '<toggle-list-inline-view project="legacy-project" />',
@@ -223,13 +223,13 @@ describe("Block-first reference codec", () => {
   });
 
   test("discards historical Card display snapshots before materialization", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "historical-reference-hint",
       title: "References",
       nfm: '<card-ref target-block="card-1" display-hint="Old title" />',
     });
     expect(genesis.materialization.nfm).toBe(
-      '<mention-card url="nodex://cards/card-1" />',
+      '<page-ref url="nodex://pages/card-1" />',
     );
     genesis.document.destroy();
   });

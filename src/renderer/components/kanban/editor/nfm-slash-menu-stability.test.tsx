@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
-import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
-import type { CommandPaletteCardSearchIndex } from "@/lib/command-palette-card-search";
+import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-palette";
+import type { CommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
 import type { NfmMentionGetItemsLoaders } from "./nfm-slash-menu";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { useNfmMentionGetItems } from "./nfm-slash-menu";
@@ -14,26 +14,26 @@ type Deferred<T> = {
   resolve: (value: T) => void;
 };
 
-let cardDescriptionSearchCalls = 0;
+let pageDescriptionSearchCalls = 0;
 let threadListCalls = 0;
 
 const fakeEditor = {
   insertInlineContent: () => undefined,
 };
 
-function makePaletteCard(): CommandPaletteCard {
-  const descriptionPreview = "Mention search card.";
+function makePalettePage(): CommandPalettePage {
+  const descriptionPreview = "Mention search page.";
   return {
-    kind: "card",
-    id: "project-1:card-1",
+    kind: "page",
+    id: "project-1:page-1",
     projectId: "project-1",
     projectName: "Project",
     projectIcon: "",
     columnName: "Doing",
-    card: {
-      id: "card-1",
-      title: "Mention card",
-      richTitle: plainTextToPortableRichText("Mention card"),
+    page: {
+      id: "page-1",
+      title: "Mention page",
+      richTitle: plainTextToPortableRichText("Mention page"),
       descriptionPreview,
       descriptionLength: descriptionPreview.length,
       hasDescription: true,
@@ -76,7 +76,7 @@ function makeThread(): CommandPaletteThread {
   };
 }
 
-function createSearchIndex(): CommandPaletteCardSearchIndex {
+function createSearchIndex(): CommandPalettePageSearchIndex {
   return {
     search: () => [],
   };
@@ -93,15 +93,15 @@ function createDeferred<T>(): Deferred<T> {
 function makeLoaders(
   options: {
     listThreadItems?: NfmMentionGetItemsLoaders["listThreadItems"];
-    searchCardDescriptions?: NfmMentionGetItemsLoaders["searchCardDescriptions"];
+    searchPageDescriptions?: NfmMentionGetItemsLoaders["searchPageDescriptions"];
     searchThreadContent?: NfmMentionGetItemsLoaders["searchThreadContent"];
-    selectCardResults?: NfmMentionGetItemsLoaders["selectCardResults"];
+    selectPageResults?: NfmMentionGetItemsLoaders["selectPageResults"];
     selectChatResults?: NfmMentionGetItemsLoaders["selectChatResults"];
   } = {},
 ): NfmMentionGetItemsLoaders {
   return {
-    searchCardDescriptions: options.searchCardDescriptions ?? (async () => {
-      cardDescriptionSearchCalls += 1;
+    searchPageDescriptions: options.searchPageDescriptions ?? (async () => {
+      pageDescriptionSearchCalls += 1;
       return [];
     }),
     listThreadItems: options.listThreadItems ?? (async () => {
@@ -109,29 +109,29 @@ function makeLoaders(
       return [makeThread()];
     }),
     searchThreadContent: options.searchThreadContent ?? (async () => []),
-    selectCardResults: options.selectCardResults ?? (({ cards }) => cards),
+    selectPageResults: options.selectPageResults ?? (({ pages }) => pages),
     selectChatResults: options.selectChatResults ?? (({ threads }) => threads),
     createThreadSearchIndex: () => ({ search: () => [] }),
   };
 }
 
 function MentionGetItemsHarness({
-  cards,
-  cardSearchIndex,
+  pages,
+  pageSearchIndex,
   getItemsSnapshots,
   loaders,
 }: {
-  cards: CommandPaletteCard[];
-  cardSearchIndex: CommandPaletteCardSearchIndex;
+  pages: CommandPalettePage[];
+  pageSearchIndex: CommandPalettePageSearchIndex;
   getItemsSnapshots: GetItems[];
   loaders: NfmMentionGetItemsLoaders;
 }) {
   const getItems = useNfmMentionGetItems({
     editor: fakeEditor,
     projectId: "project-1",
-    cardItems: cards,
-    cardSearchIndex,
-    projectIdsForCardSearch: ["project-1"],
+    pageItems: pages,
+    pageSearchIndex,
+    projectIdsForPageSearch: ["project-1"],
     loaders,
   });
   getItemsSnapshots.push(getItems);
@@ -140,12 +140,12 @@ function MentionGetItemsHarness({
 }
 
 beforeEach(() => {
-  cardDescriptionSearchCalls = 0;
+  pageDescriptionSearchCalls = 0;
   threadListCalls = 0;
 });
 
 describe("useNfmMentionGetItems", () => {
-  test("keeps getItems stable across volatile card arrays until an async refresh lands", async () => {
+  test("keeps getItems stable across volatile page arrays until an async refresh lands", async () => {
     const getItemsSnapshots: GetItems[] = [];
     const threadList = createDeferred<CommandPaletteThread[]>();
     const loaders = makeLoaders({
@@ -156,8 +156,8 @@ describe("useNfmMentionGetItems", () => {
     });
     const view = render(
       <MentionGetItemsHarness
-        cards={[makePaletteCard()]}
-        cardSearchIndex={createSearchIndex()}
+        pages={[makePalettePage()]}
+        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -169,8 +169,8 @@ describe("useNfmMentionGetItems", () => {
 
     view.rerender(
       <MentionGetItemsHarness
-        cards={[makePaletteCard()]}
-        cardSearchIndex={createSearchIndex()}
+        pages={[makePalettePage()]}
+        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -189,7 +189,7 @@ describe("useNfmMentionGetItems", () => {
     expect(firstItems[0]?.group).toBe("Current project");
     expect(firstItems[1]?.title).toBe("Today");
     expect(firstItems[2]?.title).toBe("Now");
-    expect(cardDescriptionSearchCalls).toBe(0);
+    expect(pageDescriptionSearchCalls).toBe(0);
     expect(threadListCalls).toBe(1);
 
     await act(async () => {
@@ -204,7 +204,7 @@ describe("useNfmMentionGetItems", () => {
     const refreshedItems = await refreshedGetItems("");
     expect(refreshedItems.length).toBe(4);
     expect(refreshedItems[0]?.title).toBe("Mention thread");
-    expect(refreshedItems[1]?.title).toBe("Mention card");
+    expect(refreshedItems[1]?.title).toBe("Mention page");
     expect(refreshedItems[2]?.title).toBe("Today");
     expect(refreshedItems[3]?.title).toBe("Now");
   });
@@ -212,18 +212,18 @@ describe("useNfmMentionGetItems", () => {
   test("@now returns the date mention before slow full-text searches resolve", async () => {
     const getItemsSnapshots: GetItems[] = [];
     const threadList = createDeferred<CommandPaletteThread[]>();
-    const cardDescriptionSearch = createDeferred<[]>();
+    const pageDescriptionSearch = createDeferred<[]>();
     const threadContentSearch = createDeferred<[]>();
     const loaders = makeLoaders({
       listThreadItems: async () => threadList.promise,
-      searchCardDescriptions: async () => cardDescriptionSearch.promise,
+      searchPageDescriptions: async () => pageDescriptionSearch.promise,
       searchThreadContent: async () => threadContentSearch.promise,
     });
 
     render(
       <MentionGetItemsHarness
-        cards={[makePaletteCard()]}
-        cardSearchIndex={createSearchIndex()}
+        pages={[makePalettePage()]}
+        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -242,21 +242,21 @@ describe("useNfmMentionGetItems", () => {
 
   test("slow search results only supplement the latest query", async () => {
     const getItemsSnapshots: GetItems[] = [];
-    const oldCardSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchCardDescriptions"]>>>();
-    const nowCardSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchCardDescriptions"]>>>();
+    const oldPageSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchPageDescriptions"]>>>();
+    const nowPageSearch = createDeferred<Awaited<ReturnType<NfmMentionGetItemsLoaders["searchPageDescriptions"]>>>();
     const loaders = makeLoaders({
       listThreadItems: async () => new Promise<CommandPaletteThread[]>(() => undefined),
-      searchCardDescriptions: async ({ query }) => (
-        query === "old" ? oldCardSearch.promise : nowCardSearch.promise
+      searchPageDescriptions: async ({ query }) => (
+        query === "old" ? oldPageSearch.promise : nowPageSearch.promise
       ),
       searchThreadContent: async () => new Promise<[]>(() => undefined),
-      selectCardResults: ({ cardDescriptionSearchBatch }) => (
-        (cardDescriptionSearchBatch?.results.length ?? 0) > 0
+      selectPageResults: ({ pageDescriptionSearchBatch }) => (
+        (pageDescriptionSearchBatch?.results.length ?? 0) > 0
           ? [{
-            ...makePaletteCard(),
-            card: {
-              ...makePaletteCard().card,
-              title: "Async search card",
+            ...makePalettePage(),
+            page: {
+              ...makePalettePage().page,
+              title: "Async search page",
             },
           }]
           : []
@@ -265,8 +265,8 @@ describe("useNfmMentionGetItems", () => {
 
     render(
       <MentionGetItemsHarness
-        cards={[]}
-        cardSearchIndex={createSearchIndex()}
+        pages={[]}
+        pageSearchIndex={createSearchIndex()}
         getItemsSnapshots={getItemsSnapshots}
         loaders={loaders}
       />,
@@ -282,9 +282,9 @@ describe("useNfmMentionGetItems", () => {
     expect(nowItemsBeforeSearch.length).toBe(1);
 
     await act(async () => {
-      oldCardSearch.resolve([{
+      oldPageSearch.resolve([{
         projectId: "project-1",
-        cardId: "card-1",
+        pageId: "page-1",
         status: "in_progress",
         score: 1,
         excerpt: "old async result",
@@ -298,9 +298,9 @@ describe("useNfmMentionGetItems", () => {
     expect(afterOldSearch.length).toBe(1);
 
     await act(async () => {
-      nowCardSearch.resolve([{
+      nowPageSearch.resolve([{
         projectId: "project-1",
-        cardId: "card-1",
+        pageId: "page-1",
         status: "in_progress",
         score: 1,
         excerpt: "now async result",
@@ -314,6 +314,6 @@ describe("useNfmMentionGetItems", () => {
     if (!refreshedGetItems) return;
     const afterNowSearch = await refreshedGetItems("now");
     expect(afterNowSearch[0]?.title).toBe("Now");
-    expect(afterNowSearch[1]?.title).toBe("Async search card");
+    expect(afterNowSearch[1]?.title).toBe("Async search page");
   });
 });

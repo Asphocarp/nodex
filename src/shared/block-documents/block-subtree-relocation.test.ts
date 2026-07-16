@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "./block-document-codec";
 import {
   BlockSubtreeOperationError,
@@ -19,7 +19,7 @@ const createDocument = (
   blockIds: readonly string[],
 ) => {
   let index = 0;
-  const genesis = createCardDocumentGenesis({
+  const genesis = createPageDocumentGenesis({
     documentId,
     title: documentId,
     nfm,
@@ -131,8 +131,8 @@ describe("Block subtree relocation", () => {
         .blocks.get("parent")
         ?.directChildBlockIds.join(","),
     ).toBe("x,a,c,y");
-    expect(materializeCardDocument(source).nfm).toBe("B");
-    expect(materializeCardDocument(target).nfm).toBe(
+    expect(materializePageDocument(source).nfm).toBe("B");
+    expect(materializePageDocument(target).nfm).toBe(
       [
         "Parent",
         "\tX",
@@ -150,9 +150,9 @@ describe("Block subtree relocation", () => {
     Y.applyUpdate(targetReplica, targetInitialUpdate);
     Y.applyUpdate(sourceReplica, Y.encodeStateAsUpdate(source, sourceVector));
     Y.applyUpdate(targetReplica, Y.encodeStateAsUpdate(target, targetVector));
-    expect(materializeCardDocument(sourceReplica).nfm).toBe("B");
-    expect(materializeCardDocument(targetReplica).nfm).toBe(
-      materializeCardDocument(target).nfm,
+    expect(materializePageDocument(sourceReplica).nfm).toBe("B");
+    expect(materializePageDocument(targetReplica).nfm).toBe(
+      materializePageDocument(target).nfm,
     );
 
     sourceReplica.destroy();
@@ -182,7 +182,7 @@ describe("Block subtree relocation", () => {
     expect(result.sourceBlockIdsAfter.join(",")).toBe(
       "destination,first,second",
     );
-    expect(materializeCardDocument(document).nfm).toBe(
+    expect(materializePageDocument(document).nfm).toBe(
       ["Destination", "\tFirst", "\tSecond"].join("\n"),
     );
     document.destroy();
@@ -335,7 +335,7 @@ describe("Block subtree relocation", () => {
     const target = createDocument(
       "childless-target",
       [
-        '<mention-card url="nodex://cards/target-card" />',
+        '<page-ref url="nodex://pages/target-card" />',
         '<database-view-ref database-view="target-view" />',
       ].join("\n"),
       ["card-ref", "view-ref"],
@@ -357,10 +357,10 @@ describe("Block subtree relocation", () => {
     }
     expect(encodedState(source)).toBe(sourceBefore);
     expect(encodedState(target)).toBe(targetBefore);
-    expect(materializeCardDocument(target).blockTree[0]?.children.length).toBe(
+    expect(materializePageDocument(target).blockTree[0]?.children.length).toBe(
       0,
     );
-    expect(materializeCardDocument(target).blockTree[1]?.children.length).toBe(
+    expect(materializePageDocument(target).blockTree[1]?.children.length).toBe(
       0,
     );
     source.destroy();

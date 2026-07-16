@@ -1,4 +1,4 @@
-import type { CardInput, BoardSummary, CardSummary, Estimate, Priority } from "../../../lib/types";
+import type { PageInput, BoardSummary, DatabasePageSummary, Estimate, Priority } from "../../../lib/types";
 import type { ToggleListSettings, ToggleListStatusId } from "../../../lib/toggle-list/types";
 import {
   deriveToggleListFilterRule,
@@ -8,7 +8,7 @@ import { TOGGLE_LIST_STATUS_ORDER } from "../../../lib/toggle-list/types";
 
 export interface InlineViewProjectedRow {
   blockId: string;
-  cardId: string;
+  pageId: string;
   sourceStatus?: ToggleListStatusId;
 }
 
@@ -17,16 +17,16 @@ export interface InferInlineViewDropImportInput {
   projectedRows: InlineViewProjectedRow[];
   insertRowIndex: number;
   board: BoardSummary;
-  cards: CardInput[];
+  cards: PageInput[];
 }
 
 export interface InferInlineViewDropImportResult {
   targetStatus: ToggleListStatusId;
   insertIndex?: number;
-  cards: CardInput[];
+  cards: PageInput[];
 }
 
-type CardWithColumn = CardSummary & {
+type CardWithColumn = DatabasePageSummary & {
   columnId: ToggleListStatusId;
 };
 
@@ -69,19 +69,19 @@ function resolveFallbackStatus(settings: ToggleListSettings): ToggleListStatusId
 function resolveInsertIndexForColumn(
   board: BoardSummary,
   targetStatus: ToggleListStatusId,
-  afterCardId?: string,
-  beforeCardId?: string,
+  afterPageId?: string,
+  beforePageId?: string,
 ): number | undefined {
   const targetColumn = board.columns.find((column) => column.id === targetStatus);
   if (!targetColumn) return undefined;
 
-  if (afterCardId) {
-    const beforeIndex = targetColumn.cards.findIndex((card) => card.id === afterCardId);
+  if (afterPageId) {
+    const beforeIndex = targetColumn.cards.findIndex((card) => card.id === afterPageId);
     if (beforeIndex >= 0) return beforeIndex;
   }
 
-  if (beforeCardId) {
-    const afterIndex = targetColumn.cards.findIndex((card) => card.id === beforeCardId);
+  if (beforePageId) {
+    const afterIndex = targetColumn.cards.findIndex((card) => card.id === beforePageId);
     if (afterIndex >= 0) return afterIndex + 1;
   }
 
@@ -89,7 +89,7 @@ function resolveInsertIndexForColumn(
 }
 
 function inferPriorityDefault(
-  input: CardInput,
+  input: PageInput,
   referenceCard: CardWithColumn | undefined,
   settings: ToggleListSettings,
 ): Priority | null | undefined {
@@ -115,7 +115,7 @@ function inferPriorityDefault(
 }
 
 function inferEstimateDefault(
-  input: CardInput,
+  input: PageInput,
   referenceCard: CardWithColumn | undefined,
   settings: ToggleListSettings,
 ): Estimate | null | undefined {
@@ -140,8 +140,8 @@ export function inferInlineViewDropImport(
     ? input.projectedRows[insertRowIndex]
     : undefined;
 
-  const beforeCard = beforeRow ? cardById.get(beforeRow.cardId) : undefined;
-  const afterCard = afterRow ? cardById.get(afterRow.cardId) : undefined;
+  const beforeCard = beforeRow ? cardById.get(beforeRow.pageId) : undefined;
+  const afterCard = afterRow ? cardById.get(afterRow.pageId) : undefined;
   const targetStatus = afterCard?.columnId
     ?? beforeCard?.columnId
     ?? afterRow?.sourceStatus

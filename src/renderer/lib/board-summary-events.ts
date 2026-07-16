@@ -1,10 +1,10 @@
 import type { BoardChangeEvent } from "../../shared/ipc-api";
-import type { BoardSummary, CardSummary } from "./types";
+import type { BoardSummary, DatabasePageSummary } from "./types";
 
-export function removeCardSummaryFromBoard(board: BoardSummary, cardId: string): BoardSummary {
+export function removePageSummaryFromBoard(board: BoardSummary, pageId: string): BoardSummary {
   let changed = false;
   const columns = board.columns.map((column) => {
-    const cards = column.cards.filter((card) => card.id !== cardId);
+    const cards = column.cards.filter((card) => card.id !== pageId);
     if (cards.length === column.cards.length) return column;
     changed = true;
     return { ...column, cards };
@@ -13,8 +13,8 @@ export function removeCardSummaryFromBoard(board: BoardSummary, cardId: string):
   return changed ? { ...board, columns } : board;
 }
 
-export function upsertCardSummaryInBoard(board: BoardSummary, card: CardSummary): BoardSummary {
-  const boardWithoutCard = removeCardSummaryFromBoard(board, card.id);
+export function upsertCardSummaryInBoard(board: BoardSummary, card: DatabasePageSummary): BoardSummary {
+  const boardWithoutCard = removePageSummaryFromBoard(board, card.id);
   if (card.archived) return boardWithoutCard;
 
   const targetColumnIndex = boardWithoutCard.columns.findIndex((column) => column.id === card.status);
@@ -39,8 +39,8 @@ export function applyBoardChangeEventToBoard(
 ): BoardSummary | null {
   if (!board) return null;
   if (event.summary) return upsertCardSummaryInBoard(board, event.summary);
-  if (event.changeType === "delete" && event.cardId) {
-    return removeCardSummaryFromBoard(board, event.cardId);
+  if (event.changeType === "delete" && event.pageId) {
+    return removePageSummaryFromBoard(board, event.pageId);
   }
   return null;
 }

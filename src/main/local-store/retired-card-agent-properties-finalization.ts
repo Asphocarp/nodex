@@ -1,6 +1,10 @@
 import type Database from "better-sqlite3";
 
-import { rebuildCardReadModelProjection } from "./card-read-store";
+import { rebuildPageReadModelProjection } from "./page-read-store";
+import {
+  readPageProjectionStorageCoordinates,
+  withPageNamedProjectionStorage,
+} from "./legacy-page-projection-adapter";
 
 const RETIRED_PROPERTY_KEYS = ["agent.blocked", "agent.status"] as const;
 
@@ -48,7 +52,7 @@ export const finalizeRetiredCardAgentProperties = (
   const cards = database.prepare(`
     SELECT id, project_id
     FROM blocks
-    WHERE type = 'card'
+    WHERE type = 'page'
     ORDER BY project_id, id
   `).all() as CardIdentityRow[];
   const cardIdsByProject = new Map<string, string[]>();
@@ -57,9 +61,11 @@ export const finalizeRetiredCardAgentProperties = (
     cardIds.push(card.id);
     cardIdsByProject.set(card.project_id, cardIds);
   }
-  for (const [projectId, cardIds] of cardIdsByProject) {
-    rebuildCardReadModelProjection(database, projectId, cardIds);
-  }
+  withPageNamedProjectionStorage(database, () => {
+    for (const [projectId, cardIds] of cardIdsByProject) {
+      rebuildPageReadModelProjection(database, projectId, cardIds);
+    }
+  });
   options.faultInjector?.("after_projection_rebuild");
 
   const residualAuthority = database.prepare(`
@@ -74,9 +80,10 @@ export const finalizeRetiredCardAgentProperties = (
     );
   }
 
+  const projection = readPageProjectionStorageCoordinates(database);
   const residualProjection = database.prepare(`
-    SELECT read_model.card_block_id
-    FROM card_read_model read_model
+    SELECT read_model.${projection.pageIdColumn} AS card_block_id
+    FROM ${projection.tableName} read_model
     WHERE EXISTS (
       SELECT 1
       FROM json_each(read_model.intrinsic_properties_json) property

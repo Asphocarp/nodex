@@ -7,7 +7,7 @@ import {
 } from "react";
 import {
   ReferencedCardRow,
-  type ReferencedCardDocumentRenderer,
+  type ReferencedPageDocumentRenderer,
 } from "@/components/block-documents/reference-block-surfaces";
 import type { BlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import {
@@ -19,10 +19,10 @@ import {
   type DbViewCardRecord,
 } from "../../lib/db-view-prefs";
 import {
-  buildCardSearchText,
+  buildPageSearchText,
   matchesSearchTokens,
   tokenizeSearchQuery,
-} from "@/lib/card-search";
+} from "@/lib/page-search";
 import { resolveKanbanPriorityOption } from "@/lib/kanban-options";
 import type { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
 import type { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
@@ -35,11 +35,11 @@ import {
   type ToggleListStatusId,
 } from "@/lib/toggle-list/types";
 import { ToggleListScrollContainer } from "./view-scroll-containers";
-import type { OpenCardStageOptions } from "./open-card-stage";
+import type { OpenPageStageOptions } from "./open-page-stage";
 
-const EmbeddedReferencedCardDocument = lazy(() =>
-  import("./editor/embedded-referenced-card-document").then((module) => ({
-    default: module.EmbeddedReferencedCardDocument,
+const EmbeddedReferencedPageDocument = lazy(() =>
+  import("./editor/embedded-referenced-page-document").then((module) => ({
+    default: module.EmbeddedReferencedPageDocument,
   })),
 );
 
@@ -51,11 +51,11 @@ interface ToggleListViewProps {
   databaseViewId: string;
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
-  openCardStage?: (
+  openPageStage?: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
-    options?: OpenCardStageOptions,
+    options?: OpenPageStageOptions,
   ) => void;
   scrollStateKey?: string | null;
 }
@@ -68,10 +68,10 @@ interface ToggleListReferenceRowsProps {
   readonly hiddenProperties: readonly ToggleListPropertyKey[];
   readonly showEmptyEstimate: boolean;
   readonly showEmptyPriority: boolean;
-  readonly renderDocument: ReferencedCardDocumentRenderer;
-  readonly onOpenCard?: (input: {
+  readonly renderDocument: ReferencedPageDocumentRenderer;
+  readonly onOpenPage?: (input: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
   readonly disclosureStore?: BlockDisclosureStateStore;
@@ -169,8 +169,8 @@ function ToggleListRowMetadata({
 }
 
 /**
- * A Toggle List is a view over Card references. Rows intentionally receive
- * CardSummary values only; a Card's title/body become writable exclusively
+ * A Toggle List is a view over Page references. Rows intentionally receive
+ * DatabasePageSummary values only; a Page's title/body become writable exclusively
  * inside its independently mounted document surface.
  */
 export function ToggleListReferenceRows({
@@ -182,7 +182,7 @@ export function ToggleListReferenceRows({
   showEmptyEstimate,
   showEmptyPriority,
   renderDocument,
-  onOpenCard,
+  onOpenPage,
   disclosureStore,
   activationBudget,
   visibilityOverride,
@@ -195,7 +195,7 @@ export function ToggleListReferenceRows({
   if (cards.length === 0) {
     return (
       <div className="flex min-h-32 items-center justify-center text-sm text-token-description-foreground">
-        No Cards in this view
+        No Pages in this view
       </div>
     );
   }
@@ -223,7 +223,7 @@ export function ToggleListReferenceRows({
             />
           }
           renderDocument={renderDocument}
-          onOpenCard={onOpenCard}
+          onOpenPage={onOpenPage}
           disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           visibilityOverride={visibilityOverride}
@@ -238,7 +238,7 @@ export function ToggleListView({
   databaseViewId,
   searchQuery,
   dbViewPrefs,
-  openCardStage,
+  openPageStage,
   scrollStateKey,
 }: ToggleListViewProps) {
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -276,11 +276,11 @@ export function ToggleListView({
     if (!board) return [];
 
     return board.columns.flatMap((column, columnIndex) =>
-      column.cards.map((card, cardIndex) => ({
+      column.cards.map((card, pageIndex) => ({
         ...card,
         columnId: column.id as ToggleListStatusId,
         columnName: column.name,
-        boardIndex: columnIndex * 100_000 + cardIndex,
+        boardIndex: columnIndex * 100_000 + pageIndex,
       })),
     );
   }, [board]);
@@ -290,7 +290,7 @@ export function ToggleListView({
     const searchTokens = tokenizeSearchQuery(deferredSearchQuery);
     if (searchTokens.length === 0) return filteredByRules;
     return filteredByRules.filter((card) => {
-      const searchable = `${buildCardSearchText(card)} ${card.columnName.toLowerCase()}`;
+      const searchable = `${buildPageSearchText(card)} ${card.columnName.toLowerCase()}`;
       return matchesSearchTokens(searchable, searchTokens);
     });
   }, [cards, deferredSearchQuery, viewPrefs.rules]);
@@ -320,26 +320,26 @@ export function ToggleListView({
 
   if (!board) return null;
 
-  const onOpenReferencedCard = openCardStage
+  const onOpenReferencedCard = openPageStage
     ? ({
         projectId: targetProjectId,
-        cardId,
+        pageId,
         titleSnapshot,
       }: {
         projectId: string;
-        cardId: string;
+        pageId: string;
         titleSnapshot?: string;
-      }) => openCardStage(targetProjectId, cardId, titleSnapshot)
+      }) => openPageStage(targetProjectId, pageId, titleSnapshot)
     : undefined;
   const hostRuntime: BlockReferenceHostRuntime = {
     projectId,
     projectName: null,
     projectWorkspacePath: null,
-    hostCardId: null,
-    ancestorCardIds: [],
+    hostPageId: null,
+    ancestorPageIds: [],
     ancestorDocumentOwnerBlockIds: [],
     isActiveSurface: true,
-    ...(onOpenReferencedCard ? { openCard: onOpenReferencedCard } : {}),
+    ...(onOpenReferencedCard ? { openPage: onOpenReferencedCard } : {}),
   };
 
   return (
@@ -354,7 +354,7 @@ export function ToggleListView({
             hiddenProperties={hiddenProperties}
             showEmptyEstimate={viewPrefs.display.showEmptyEstimate}
             showEmptyPriority={viewPrefs.display.showEmptyPriority}
-            onOpenCard={onOpenReferencedCard}
+            onOpenPage={onOpenReferencedCard}
             renderDocument={({
               projectId: targetProjectId,
               card,
@@ -363,11 +363,11 @@ export function ToggleListView({
               <Suspense
                 fallback={
                   <div className="py-2 text-sm text-token-description-foreground">
-                    Opening Card…
+                    Opening Page…
                   </div>
                 }
               >
-                <EmbeddedReferencedCardDocument
+                <EmbeddedReferencedPageDocument
                   projectId={targetProjectId}
                   card={card}
                   isActive={isActive}

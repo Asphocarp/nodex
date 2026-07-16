@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { MAX_CARD_WRITE_BODY_BYTES } from "../card-limits";
+import { MAX_PAGE_WRITE_BODY_BYTES } from "../page-limits";
 import { MAX_PORTABLE_RICH_TEXT_BYTES } from "../block-documents/portable-rich-text";
 import { parseInlineMarkdownTitle } from "../nfm/agent-title";
 import {
   BlockIdSchema,
+  DataSourceIdSchema,
   JsonValueSchema,
+  LibraryIdSchema,
   PropertyIdSchema,
   SiblingAnchorSchema,
   ViewIdSchema,
@@ -25,10 +27,10 @@ export const InlineMarkdownTitleSchema = z.string()
   .describe("Single-line title using Nested Markdown's title-safe inline subset");
 
 export const NestedMarkdownSchema = z.string()
-  .max(MAX_CARD_WRITE_BODY_BYTES)
+  .max(MAX_PAGE_WRITE_BODY_BYTES)
   .refine(
-    (markdown) => new TextEncoder().encode(markdown).byteLength <= MAX_CARD_WRITE_BODY_BYTES,
-    `Nested Markdown must be at most ${MAX_CARD_WRITE_BODY_BYTES} UTF-8 bytes`,
+    (markdown) => new TextEncoder().encode(markdown).byteLength <= MAX_PAGE_WRITE_BODY_BYTES,
+    `Nested Markdown must be at most ${MAX_PAGE_WRITE_BODY_BYTES} UTF-8 bytes`,
   );
 
 export const DatabaseValueDraftV3Schema = z.strictObject({
@@ -42,25 +44,25 @@ export const DatabaseDestinationViewV3Schema = z.strictObject({
   at: SiblingAnchorSchema.optional(),
 });
 
-export const CardLocationV3Schema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("space") }),
-  z.strictObject({ kind: z.literal("card"), cardId: BlockIdSchema }),
-  z.strictObject({ kind: z.literal("database"), databaseBlockId: BlockIdSchema }),
+export const PageLocationV3Schema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("library"), libraryId: LibraryIdSchema }),
+  z.strictObject({ kind: z.literal("page"), pageId: BlockIdSchema }),
+  z.strictObject({ kind: z.literal("data_source"), dataSourceId: DataSourceIdSchema }),
 ]);
 
-export const CardDestinationV3Schema = z.discriminatedUnion("kind", [
+export const PageDestinationV3Schema = z.discriminatedUnion("kind", [
   z.strictObject({
-    kind: z.literal("space"),
+    kind: z.literal("library"),
     at: SiblingAnchorSchema.optional(),
   }),
   z.strictObject({
-    kind: z.literal("card"),
-    cardId: BlockIdSchema,
+    kind: z.literal("page"),
+    pageId: BlockIdSchema,
     at: SiblingAnchorSchema.optional(),
   }),
   z.strictObject({
-    kind: z.literal("database"),
-    databaseBlockId: BlockIdSchema,
+    kind: z.literal("data_source"),
+    dataSourceId: DataSourceIdSchema,
     view: DatabaseDestinationViewV3Schema.optional(),
   }),
 ]);

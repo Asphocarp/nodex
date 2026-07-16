@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import { isInlineCardCycle } from "./block-reference-runtime-context";
-import type { CardSummary } from "@/lib/types";
+import type { DatabasePageSummary } from "@/lib/types";
 import { resolveKanbanPriorityOption } from "@/lib/kanban-options";
 import {
   BlockDisclosureStateStore,
@@ -24,14 +24,14 @@ import { StatusIcon } from "@/lib/status-chip";
 import { useElementVisibility } from "@/lib/use-element-visibility";
 import { cn } from "@/lib/utils";
 
-export interface ReferencedCardDocumentInput {
+export interface ReferencedPageDocumentInput {
   readonly projectId: string;
-  readonly card: CardSummary;
+  readonly card: DatabasePageSummary;
   readonly isActive: boolean;
 }
 
-export type ReferencedCardDocumentRenderer = (
-  input: ReferencedCardDocumentInput,
+export type ReferencedPageDocumentRenderer = (
+  input: ReferencedPageDocumentInput,
 ) => ReactNode;
 
 interface ReferenceSurfaceStateDependencies {
@@ -44,16 +44,16 @@ interface ReferenceSurfaceStateDependencies {
 export interface ReferencedCardRowProps extends ReferenceSurfaceStateDependencies {
   readonly disclosureKey: string;
   readonly projectId: string;
-  readonly card: CardSummary;
+  readonly card: DatabasePageSummary;
   readonly canEdit: boolean;
   readonly archived?: boolean;
   readonly legacy?: boolean;
   readonly inlineEditingDisabledReason?: string;
   readonly metadata?: ReactNode;
-  readonly renderDocument?: ReferencedCardDocumentRenderer;
-  readonly onOpenCard?: (input: {
+  readonly renderDocument?: ReferencedPageDocumentRenderer;
+  readonly onOpenPage?: (input: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
 }
@@ -65,7 +65,7 @@ function CardRowMetadata({
   card,
   archived,
 }: {
-  readonly card: CardSummary;
+  readonly card: DatabasePageSummary;
   readonly archived: boolean;
 }) {
   const priority = resolveKanbanPriorityOption(card.priority);
@@ -103,7 +103,7 @@ export function ReferencedCardRow({
   inlineEditingDisabledReason,
   metadata,
   renderDocument,
-  onOpenCard,
+  onOpenPage,
   disclosureStore = blockDisclosureStateStore,
   activationBudget = referenceSurfaceActivationBudget,
   visibilityOverride,
@@ -174,16 +174,16 @@ export function ReferencedCardRow({
           </span>
         ) : null}
         {metadata ?? <CardRowMetadata card={card} archived={archived} />}
-        {onOpenCard ? (
+        {onOpenPage ? (
           <button
             type="button"
             aria-label={`Open ${title}`}
-            title="Open Card"
+            title="Open Page"
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-token-description-foreground opacity-0 group-hover/reference-row:opacity-100 hover:bg-token-foreground/10 hover:text-token-text-primary focus-visible:opacity-100"
             onClick={() =>
-              void onOpenCard({
+              void onOpenPage({
                 projectId,
-                cardId: card.id,
+                pageId: card.id,
                 titleSnapshot: title,
               })
             }
@@ -240,10 +240,10 @@ export interface DatabaseViewReferenceSurfaceProps extends ReferenceSurfaceState
   readonly model: DatabaseViewReadModel | null;
   readonly loading?: boolean;
   readonly error?: Error | null;
-  readonly renderDocument?: ReferencedCardDocumentRenderer;
-  readonly onOpenCard?: ReferencedCardRowProps["onOpenCard"];
-  readonly hostCardId?: string | null;
-  readonly ancestorCardIds?: readonly string[];
+  readonly renderDocument?: ReferencedPageDocumentRenderer;
+  readonly onOpenPage?: ReferencedCardRowProps["onOpenPage"];
+  readonly hostPageId?: string | null;
+  readonly ancestorPageIds?: readonly string[];
 }
 
 export function DatabaseViewReferenceSurface({
@@ -253,9 +253,9 @@ export function DatabaseViewReferenceSurface({
   loading = false,
   error = null,
   renderDocument,
-  onOpenCard,
-  hostCardId = null,
-  ancestorCardIds = [],
+  onOpenPage,
+  hostPageId = null,
+  ancestorPageIds = [],
   disclosureStore,
   activationBudget,
   visibilityOverride,
@@ -312,19 +312,19 @@ export function DatabaseViewReferenceSurface({
       </header>
       <div className="min-w-0" style={{ contentVisibility: "auto" }}>
         {model.rows.map((row) => {
-          const referencesHost = row.card.id === hostCardId;
+          const referencesHost = row.page.id === hostPageId;
           const referencesAncestor = isInlineCardCycle(
-            ancestorCardIds,
-            row.card.id,
+            ancestorPageIds,
+            row.page.id,
           );
           return (
             <ReferencedCardRow
-              key={row.card.id}
-              disclosureKey={`${referenceKey}:${row.card.id}`}
+              key={row.page.id}
+              disclosureKey={`${referenceKey}:${row.page.id}`}
               projectId={model.view.projectId}
-              card={row.card}
-              canEdit={!row.card.archived && !referencesAncestor}
-              archived={row.card.archived}
+              card={row.page}
+              canEdit={!row.page.archived && !referencesAncestor}
+              archived={row.page.archived}
               inlineEditingDisabledReason={
                 referencesHost
                   ? "Self"
@@ -333,7 +333,7 @@ export function DatabaseViewReferenceSurface({
                     : undefined
               }
               renderDocument={renderDocument}
-              onOpenCard={onOpenCard}
+              onOpenPage={onOpenPage}
               disclosureStore={disclosureStore}
               activationBudget={activationBudget}
               visibilityOverride={visibilityOverride}

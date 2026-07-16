@@ -1,4 +1,4 @@
-import { createUuidV7 } from "../../../../shared/card-id";
+import { createUuidV7 } from "../../../../shared/uuid-v7";
 
 export interface NfmSendToThreadToggleBlock {
   id: string;

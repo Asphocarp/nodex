@@ -4,24 +4,24 @@ import {
 } from "lucide-react";
 import { CodexSidebarVisibleIcon } from "@/components/shared/icons";
 import {
-  areCommandPaletteCardFiltersEqual,
-  cloneCommandPaletteCardFilters,
+  areCommandPalettePageFiltersEqual,
+  cloneCommandPalettePageFilters,
   filterCommandPaletteItems,
-  hasActiveCommandPaletteCardFilters,
-  normalizeCommandPaletteCardFilters,
-  readCommandPaletteCardFilters,
+  hasActiveCommandPalettePageFilters,
+  normalizeCommandPalettePageFilters,
+  readCommandPalettePageFilters,
   type CommandMenuMode,
-  type CommandPaletteCard,
-  type CommandPaletteCardFilters,
+  type CommandPalettePage,
+  type CommandPalettePageFilters,
   type CommandPaletteCommandGroup,
   type CommandPaletteCommand,
   type CommandPaletteThread,
-  writeCommandPaletteCardFilters,
+  writeCommandPalettePageFilters,
 } from "../../lib/command-palette";
 import {
   normalizeCommandPaletteSearchText,
-  type CommandPaletteCardSearchIndex,
-} from "../../lib/command-palette-card-search";
+  type CommandPalettePageSearchIndex,
+} from "../../lib/command-palette-page-search";
 import {
   type CommandPaletteHighlightSegment,
 } from "../../lib/command-palette-highlight";
@@ -32,11 +32,11 @@ import {
   useCommandPaletteThreadContentSearch,
 } from "../../lib/command-palette-chat-search";
 import {
-  buildCommandPaletteCardDescriptionSearchScopeKey,
-  selectCommandPaletteCardResults,
-  type CommandPaletteCardDescriptionSearchBatch,
-  useCommandPaletteCardDescriptionSearch,
-} from "../../lib/command-palette-card-results";
+  buildCommandPalettePageDescriptionSearchScopeKey,
+  selectCommandPalettePageResults,
+  type CommandPalettePageDescriptionSearchBatch,
+  useCommandPalettePageDescriptionSearch,
+} from "../../lib/command-palette-page-results";
 import {
   areQueryFresh,
   resolvePendingQueryFreshAccept,
@@ -44,11 +44,11 @@ import {
   shouldConsumeStalePickerNavigation,
 } from "../../lib/query-fresh-picker";
 import { cn } from "../../lib/utils";
-import { CardIcon } from "./card-icon";
+import { PageIcon } from "./page-icon";
 import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
 import {
-  CommandPaletteCardFilterPopover,
-  CommandPaletteCardFiltersSummaryRow,
+  CommandPalettePageFilterPopover,
+  CommandPalettePageFiltersSummaryRow,
 } from "./command-palette-filters";
 import { ThreadsIcon } from "./threads-icon";
 import { NodexIconButton } from "@/components/ui/button";
@@ -60,7 +60,7 @@ import {
 } from "../../../shared/window-navigation";
 import { OPEN_DB_VIEW_TAB_COMMAND_ID } from "@/lib/command-palette-commands";
 
-type PaletteItem = CommandPaletteCommand | CommandPaletteCard | CommandPaletteThread;
+type PaletteItem = CommandPaletteCommand | CommandPalettePage | CommandPaletteThread;
 type PaletteSectionModel = { title: string; items: PaletteItem[] };
 
 interface CommandPaletteSurfaceProps {
@@ -69,12 +69,12 @@ interface CommandPaletteSurfaceProps {
   mode: CommandMenuMode;
   initialQuery?: string;
   commands: CommandPaletteCommand[];
-  cards: CommandPaletteCard[];
+  pages: CommandPalettePage[];
   threads?: CommandPaletteThread[];
-  cardSearchIndex?: CommandPaletteCardSearchIndex | null;
+  pageSearchIndex?: CommandPalettePageSearchIndex | null;
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   loading: boolean;
-  cardsLoading: boolean;
+  pagesLoading: boolean;
   chatsLoading: boolean;
   onChangeMode: (mode: CommandMenuMode) => void;
   onRequestClose: () => void;
@@ -102,7 +102,7 @@ function isPaletteItemDisabled(item: PaletteItem | undefined): boolean {
 
 function getModePlaceholder(mode: CommandMenuMode): string {
   if (mode === "chats") return "Search chats";
-  if (mode === "cards") return "Search cards";
+  if (mode === "pages") return "Search pages";
   if (mode === "files") return "Search files";
   return "Type command";
 }
@@ -110,13 +110,13 @@ function getModePlaceholder(mode: CommandMenuMode): string {
 function getEmptyMessage(mode: CommandMenuMode, query: string, loading: boolean): string {
   if (loading) {
     if (mode === "chats") return "Loading chats...";
-    if (mode === "cards") return "Loading cards...";
+    if (mode === "pages") return "Loading pages...";
     if (mode === "files") return "Loading files...";
     return "Loading commands...";
   }
 
   if (mode === "chats") return query.length > 0 ? "No matching chats." : "No chats.";
-  if (mode === "cards") return query.length > 0 ? "No matching cards." : "No cards.";
+  if (mode === "pages") return query.length > 0 ? "No matching pages." : "No pages.";
   if (mode === "files") return "File search is not available in Nodex yet.";
   return "No matching commands.";
 }
@@ -143,13 +143,13 @@ interface CommandPaletteSectionsInput {
   query: string;
   mode: CommandMenuMode;
   commands: CommandPaletteCommand[];
-  cards: CommandPaletteCard[];
+  pages: CommandPalettePage[];
   threads: CommandPaletteThread[];
-  cardFilters: CommandPaletteCardFilters;
-  cardSearchIndex?: CommandPaletteCardSearchIndex | null;
+  pageFilters: CommandPalettePageFilters;
+  pageSearchIndex?: CommandPalettePageSearchIndex | null;
   threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
-  cardDescriptionSearchBatch?: CommandPaletteCardDescriptionSearchBatch | null;
-  cardDescriptionSearchScopeKey?: string | null;
+  pageDescriptionSearchBatch?: CommandPalettePageDescriptionSearchBatch | null;
+  pageDescriptionSearchScopeKey?: string | null;
   threadContentSearchBatch?: CommandPaletteThreadContentSearchBatch | null;
 }
 
@@ -163,33 +163,33 @@ function buildCommandPaletteSectionsModel({
   query,
   mode,
   commands,
-  cards,
+  pages,
   threads,
-  cardFilters,
-  cardSearchIndex,
+  pageFilters,
+  pageSearchIndex,
   threadSearchIndex,
-  cardDescriptionSearchBatch,
-  cardDescriptionSearchScopeKey,
+  pageDescriptionSearchBatch,
+  pageDescriptionSearchScopeKey,
   threadContentSearchBatch,
 }: CommandPaletteSectionsInput): CommandPaletteSectionsModel {
   const results = filterCommandPaletteItems({
     query,
     mode,
     commands,
-    cards,
+    pages,
     threads,
-    cardFilters,
-    cardSearchIndex,
+    pageFilters,
+    pageSearchIndex,
     threadSearchIndex,
   });
 
-  const visibleCards = selectCommandPaletteCardResults({
+  const visiblePages = selectCommandPalettePageResults({
     query,
-    cards,
-    cardFilters,
-    cardSearchIndex,
-    cardDescriptionSearchBatch,
-    cardDescriptionSearchScopeKey,
+    pages,
+    pageFilters,
+    pageSearchIndex,
+    pageDescriptionSearchBatch,
+    pageDescriptionSearchScopeKey,
   });
   const visibleThreads = selectCommandPaletteChatResults({
     query,
@@ -211,8 +211,8 @@ function buildCommandPaletteSectionsModel({
       return [{ title: "Chats", items: visibleThreads }];
     }
 
-    if (mode === "cards") {
-      return [{ title: "Cards", items: visibleCards }];
+    if (mode === "pages") {
+      return [{ title: "Pages", items: visiblePages }];
     }
 
     return [];
@@ -257,11 +257,11 @@ function getCommandGlyph(id: string) {
   if (id === "toggleTerminal" || id === "installPrimaryRuntime") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="terminal" {...props} />
   );
-  if (id === "searchChats" || id === "searchCards" || id === "findInThread") return (props: { className?: string }) => (
+  if (id === "searchChats" || id === "searchPages" || id === "findInThread") return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="search" {...props} />
   );
-  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return CardIcon;
-  if (id === "openSideChat") return CardIcon;
+  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID) return PageIcon;
+  if (id === "openSideChat") return PageIcon;
   if (id === "settings" || id === "showKeyboardShortcuts" || id.endsWith("Settings")) return (props: { className?: string }) => (
     <CommandMenuReferenceIcon name="settings" {...props} />
   );
@@ -350,12 +350,12 @@ function renderSegments(
   ));
 }
 
-function CardRow({
+function PageRow({
   item,
   selected,
   showSubtitle,
 }: {
-  item: CommandPaletteCard;
+  item: CommandPalettePage;
   selected: boolean;
   showSubtitle: boolean;
 }) {
@@ -374,7 +374,7 @@ function CardRow({
         <div className="truncate text-token-foreground">
           {decorations?.titleSegments
             ? renderSegments(decorations.titleSegments, `${item.id}:title`)
-            : item.card.title || "Untitled"}
+            : item.page.title || "Untitled"}
         </div>
         {showSubtitle ? (
           <div className="truncate text-xs text-token-description-foreground">
@@ -514,7 +514,7 @@ function PaletteSection({
               disabled={item.kind === "command" && item.disabled}
               className={cn(
                 "flex min-h-[calc(var(--spacing)*6)] w-full cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-left text-sm text-token-foreground opacity-75 outline-none",
-                (item.kind === "card" || item.kind === "thread") && item.searchPreview && "py-[calc(var(--padding-row-y)+2px)]",
+                (item.kind === "page" || item.kind === "thread") && item.searchPreview && "py-[calc(var(--padding-row-y)+2px)]",
                 item.kind === "command" && item.disabled
                   ? "cursor-not-allowed opacity-40 hover:bg-transparent hover:opacity-40"
                   : selected ? "bg-token-list-hover-background opacity-100" : "hover:bg-token-list-hover-background hover:opacity-100",
@@ -523,8 +523,8 @@ function PaletteSection({
               {item.kind === "command" ? (
                 <CommandRow item={item} selected={selected} showSubtitle={showSubtitle} />
               ) : (
-                item.kind === "card" ? (
-                  <CardRow item={item} selected={selected} showSubtitle={showSubtitle} />
+                item.kind === "page" ? (
+                  <PageRow item={item} selected={selected} showSubtitle={showSubtitle} />
                 ) : (
                   <ThreadRow item={item} selected={selected} />
                 )
@@ -543,12 +543,12 @@ export function CommandPaletteSurface({
   mode,
   initialQuery,
   commands,
-  cards,
+  pages,
   threads = [],
-  cardSearchIndex,
+  pageSearchIndex,
   threadSearchIndex,
   loading,
-  cardsLoading,
+  pagesLoading,
   chatsLoading,
   onChangeMode,
   onRequestClose,
@@ -561,7 +561,7 @@ export function CommandPaletteSurface({
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const previousModeRef = useRef<CommandMenuMode>(mode);
   const [query, setQuery] = useState("");
-  const [cardFilters, setCardFilters] = useState<CommandPaletteCardFilters>(() => readCommandPaletteCardFilters());
+  const [pageFilters, setPageFilters] = useState<CommandPalettePageFilters>(() => readCommandPalettePageFilters());
   const [filterOpen, setFilterOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const threadContentSearchBatch = useCommandPaletteThreadContentSearch({
@@ -569,50 +569,50 @@ export function CommandPaletteSurface({
     query: deferredQuery,
   });
   const availableTags = useMemo(
-    () => Array.from(new Set(cards.flatMap((item) => item.card.tags))).sort((left, right) => left.localeCompare(right)),
-    [cards],
+    () => Array.from(new Set(pages.flatMap((item) => item.page.tags))).sort((left, right) => left.localeCompare(right)),
+    [pages],
   );
   const availableAssignees = useMemo(
     () => Array.from(new Set(
-      cards
-        .map((item) => item.card.assignee?.trim() ?? "")
+      pages
+        .map((item) => item.page.assignee?.trim() ?? "")
         .filter((value) => value.length > 0),
     )).sort((left, right) => left.localeCompare(right)),
-    [cards],
+    [pages],
   );
   const availableProjects = useMemo(
     () => Array.from(new Map(
-      cards.map((item) => [item.projectId, { id: item.projectId, label: item.projectName }] as const),
+      pages.map((item) => [item.projectId, { id: item.projectId, label: item.projectName }] as const),
     ).values()).sort((left, right) => left.label.localeCompare(right.label)),
-    [cards],
+    [pages],
   );
   const projectNameById = useMemo(
     () => new Map(availableProjects.map((project) => [project.id, project.label] as const)),
     [availableProjects],
   );
-  const normalizedCardFilters = useMemo(
-    () => normalizeCommandPaletteCardFilters(cardFilters, {
+  const normalizedPageFilters = useMemo(
+    () => normalizeCommandPalettePageFilters(pageFilters, {
       allowedTags: availableTags,
       allowedAssignees: availableAssignees,
       allowedProjectIds: availableProjects.map((project) => project.id),
     }),
-    [availableAssignees, availableProjects, availableTags, cardFilters],
+    [availableAssignees, availableProjects, availableTags, pageFilters],
   );
   const projectIdsForSearch = useMemo(() => {
     const allProjectIds = availableProjects.map((project) => project.id);
-    if (normalizedCardFilters.projectIds.length === 0) {
+    if (normalizedPageFilters.projectIds.length === 0) {
       return allProjectIds;
     }
 
-    const selectedProjectIds = new Set(normalizedCardFilters.projectIds);
+    const selectedProjectIds = new Set(normalizedPageFilters.projectIds);
     return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
-  }, [availableProjects, normalizedCardFilters.projectIds]);
-  const cardDescriptionSearchScopeKey = useMemo(
-    () => buildCommandPaletteCardDescriptionSearchScopeKey(projectIdsForSearch),
+  }, [availableProjects, normalizedPageFilters.projectIds]);
+  const pageDescriptionSearchScopeKey = useMemo(
+    () => buildCommandPalettePageDescriptionSearchScopeKey(projectIdsForSearch),
     [projectIdsForSearch],
   );
-  const descriptionSearchBatch = useCommandPaletteCardDescriptionSearch({
-    enabled: mode === "cards" && open,
+  const descriptionSearchBatch = useCommandPalettePageDescriptionSearch({
+    enabled: mode === "pages" && open,
     query: deferredQuery,
     projectIds: projectIdsForSearch,
   });
@@ -621,24 +621,24 @@ export function CommandPaletteSurface({
       query: deferredQuery,
       mode,
       commands,
-      cards,
+      pages,
       threads,
-      cardFilters: normalizedCardFilters,
-      cardSearchIndex,
+      pageFilters: normalizedPageFilters,
+      pageSearchIndex,
       threadSearchIndex,
-      cardDescriptionSearchBatch: descriptionSearchBatch,
-      cardDescriptionSearchScopeKey,
+      pageDescriptionSearchBatch: descriptionSearchBatch,
+      pageDescriptionSearchScopeKey,
       threadContentSearchBatch,
     }),
     [
-      cardDescriptionSearchScopeKey,
-      cardSearchIndex,
-      cards,
+      pageDescriptionSearchScopeKey,
+      pageSearchIndex,
+      pages,
       commands,
       deferredQuery,
       descriptionSearchBatch,
       mode,
-      normalizedCardFilters,
+      normalizedPageFilters,
       threadContentSearchBatch,
       threadSearchIndex,
       threads,
@@ -646,7 +646,7 @@ export function CommandPaletteSurface({
   );
   const sections = visibleModel.sections;
   const flatItems = visibleModel.flatItems;
-  const filterActive = hasActiveCommandPaletteCardFilters(normalizedCardFilters);
+  const filterActive = hasActiveCommandPalettePageFilters(normalizedPageFilters);
   const showSubtitle = visibleModel.query.length > 0 || mode !== "root";
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [pendingAcceptQuery, setPendingAcceptQuery] = useState<string | null>(null);
@@ -706,48 +706,48 @@ export function CommandPaletteSurface({
   }, [mode, open, visibleModel.query]);
 
   useEffect(() => {
-    if (mode === "cards") return;
+    if (mode === "pages") return;
     setFilterOpen(false);
   }, [mode]);
 
   useEffect(() => {
-    if (areCommandPaletteCardFiltersEqual(cardFilters, normalizedCardFilters)) {
+    if (areCommandPalettePageFiltersEqual(pageFilters, normalizedPageFilters)) {
       return;
     }
 
-    setCardFilters(normalizedCardFilters);
-  }, [cardFilters, normalizedCardFilters]);
+    setPageFilters(normalizedPageFilters);
+  }, [pageFilters, normalizedPageFilters]);
 
   useEffect(() => {
-    writeCommandPaletteCardFilters(
-      areCommandPaletteCardFiltersEqual(cardFilters, normalizedCardFilters)
-        ? cardFilters
-        : normalizedCardFilters,
+    writeCommandPalettePageFilters(
+      areCommandPalettePageFiltersEqual(pageFilters, normalizedPageFilters)
+        ? pageFilters
+        : normalizedPageFilters,
     );
-  }, [cardFilters, normalizedCardFilters]);
+  }, [pageFilters, normalizedPageFilters]);
 
   const buildFlatItemsForQuery = useCallback((nextQuery: string): readonly PaletteItem[] => (
     buildCommandPaletteSectionsModel({
       query: nextQuery,
       mode,
       commands,
-      cards,
+      pages,
       threads,
-      cardFilters: normalizedCardFilters,
-      cardSearchIndex,
+      pageFilters: normalizedPageFilters,
+      pageSearchIndex,
       threadSearchIndex,
-      cardDescriptionSearchBatch: descriptionSearchBatch,
-      cardDescriptionSearchScopeKey,
+      pageDescriptionSearchBatch: descriptionSearchBatch,
+      pageDescriptionSearchScopeKey,
       threadContentSearchBatch,
     }).flatItems
   ), [
-    cardDescriptionSearchScopeKey,
-    cardSearchIndex,
-    cards,
+    pageDescriptionSearchScopeKey,
+    pageSearchIndex,
+    pages,
     commands,
     descriptionSearchBatch,
     mode,
-    normalizedCardFilters,
+    normalizedPageFilters,
     threadContentSearchBatch,
     threadSearchIndex,
     threads,
@@ -757,9 +757,9 @@ export function CommandPaletteSurface({
     rowsQuery: deferredQuery,
     normalizeQuery: normalizeCommandPaletteSearchText,
   });
-  const modeCanWaitForFreshRows = mode === "cards" || mode === "chats";
-  const visibleRowsLoading = mode === "cards"
-    ? cardsLoading || descriptionSearchBatch.loading
+  const modeCanWaitForFreshRows = mode === "pages" || mode === "chats";
+  const visibleRowsLoading = mode === "pages"
+    ? pagesLoading || descriptionSearchBatch.loading
     : mode === "chats"
       ? chatsLoading || threadContentSearchBatch.loading
       : loading;
@@ -807,8 +807,8 @@ export function CommandPaletteSurface({
       return;
     }
 
-    if (item.kind === "command" && item.id === "searchCards") {
-      onChangeMode("cards");
+    if (item.kind === "command" && item.id === "searchPages") {
+      onChangeMode("pages");
       return;
     }
 
@@ -975,32 +975,32 @@ export function CommandPaletteSurface({
           className="w-full border-none bg-transparent px-[calc(var(--spacing)*0.55)] py-[calc(var(--spacing)*1.75)] text-base text-token-foreground outline-none placeholder:text-token-description-foreground"
         />
 
-        {mode === "cards" ? (
-          <CommandPaletteCardFilterPopover
+        {mode === "pages" ? (
+          <CommandPalettePageFilterPopover
             open={filterOpen}
             onOpenChange={setFilterOpen}
-            filters={cardFilters}
+            filters={pageFilters}
             availableTags={availableTags}
             availableAssignees={availableAssignees}
             availableProjects={availableProjects}
             disabled={false}
-            onChange={(update) => setCardFilters((prev) => update(cloneCommandPaletteCardFilters(prev)))}
+            onChange={(update) => setPageFilters((prev) => update(cloneCommandPalettePageFilters(prev)))}
           >
             <NodexIconButton
               icon={ListFilter}
               size="sm"
               active={filterActive}
-              ariaLabel="Filter cards"
-              title="Filter cards"
+              ariaLabel="Filter pages"
+              title="Filter pages"
             />
-          </CommandPaletteCardFilterPopover>
+          </CommandPalettePageFilterPopover>
         ) : null}
       </div>
 
-      {mode === "cards" && filterActive ? (
+      {mode === "pages" && filterActive ? (
         <div className="px-[calc(var(--spacing)*2.75)] pb-[calc(var(--spacing)*0.5)]">
-          <CommandPaletteCardFiltersSummaryRow
-            filters={cardFilters}
+          <CommandPalettePageFiltersSummaryRow
+            filters={pageFilters}
             projectNameById={projectNameById}
             onOpenFilter={() => setFilterOpen(true)}
           />
@@ -1043,7 +1043,7 @@ export function CommandPaletteSurface({
         })}
         {flatItems.length === 0 ? (
           <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">
-            {rowsStale ? "Updating..." : getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "cards" ? cardsLoading : loading)}
+            {rowsStale ? "Updating..." : getEmptyMessage(mode, visibleModel.query, mode === "chats" ? chatsLoading : mode === "pages" ? pagesLoading : loading)}
           </div>
         ) : null}
       </div>

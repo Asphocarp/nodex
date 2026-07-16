@@ -69,11 +69,11 @@ describe("native drop index", () => {
 
   test("ignores dragged cards that remain rendered in the source column", () => {
     const cardA = {
-      dataset: { kanbanCardId: "a" },
+      dataset: { kanbanPageId: "a" },
       getBoundingClientRect: () => ({ top: 100, bottom: 140 }),
     } as unknown as HTMLElement;
     const cardB = {
-      dataset: { kanbanCardId: "b" },
+      dataset: { kanbanPageId: "b" },
       getBoundingClientRect: () => ({ top: 150, bottom: 190 }),
     } as unknown as HTMLElement;
     const surface = {
@@ -82,7 +82,7 @@ describe("native drop index", () => {
 
     expect(
       computeNativeDropIndexFromSurface(surface, 160, {
-        ignoredCardIds: new Set(["a"]),
+        ignoredPageIds: new Set(["a"]),
       }),
     ).toBe(0);
   });

@@ -1,18 +1,18 @@
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYXmlFragment } from "@blocknote/core/yjs";
 import * as Y from "yjs";
-import { createUuidV7 } from "../card-id";
+import { createUuidV7 } from "../uuid-v7";
 import { parseNfm } from "../nfm/parser";
 import {
   type BlockTreeNode,
-  type CardDocumentMaterialization,
-  materializeCardDocument,
+  type PageDocumentMaterialization,
+  materializePageDocument,
 } from "./block-document-codec";
 import { BLOCK_GROUP_NODE_NAME } from "./block-structure";
 import {
-  assertValidCardDocumentRoots,
-  createCardDocument,
-} from "./card-document";
+  assertValidPageDocumentRoots,
+  createPageDocument,
+} from "./page-document";
 import { MAX_BLOCK_ID_LENGTH, type BlockId } from "./contracts";
 import { headlessBlockDocumentSchema } from "./headless-blocknote-schema";
 import {
@@ -25,8 +25,8 @@ export type LegacyNfmShadowDocumentAuthority = "legacy_shadow" | "ydoc_primary";
 
 export type LegacyNfmShadowDocumentReadiness = "pending_genesis" | "ready";
 
-export interface TranslateLegacyNfmIntoCardDocumentInput {
-  /** The ready Card document at the exact durable head being translated. */
+export interface TranslateLegacyNfmIntoPageDocumentInput {
+  /** The ready Page document at the exact durable head being translated. */
   readonly document: Y.Doc;
   readonly authority: LegacyNfmShadowDocumentAuthority;
   readonly readiness: LegacyNfmShadowDocumentReadiness;
@@ -35,8 +35,8 @@ export interface TranslateLegacyNfmIntoCardDocumentInput {
   readonly allocateBlockId?: () => BlockId;
 }
 
-export interface ReplaceCardDocumentBodyFromNfmInput {
-  /** A detached current-head Card Document. The input remains read-only. */
+export interface ReplacePageDocumentBodyFromNfmInput {
+  /** A detached current-head Page Document. The input remains read-only. */
   readonly document: Y.Doc;
   readonly nfm: string;
   readonly allocateBlockId?: () => BlockId;
@@ -46,7 +46,7 @@ export interface LegacyNfmShadowTranslation {
   readonly changed: boolean;
   /** Relative to the input document's state vector. Empty only for a no-op. */
   readonly update: Uint8Array;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
 }
 
 export class LegacyNfmShadowTranslationError extends Error {
@@ -640,7 +640,7 @@ const inferConservativeTargetIdentities = (
 };
 
 /**
- * An explicit NFM Card UUID may pin only an existing owning Card shell in the
+ * An explicit NFM Card UUID may pin only an existing owning Page shell in the
  * current Document. It is never a textual create, copy, or cross-parent move.
  */
 const collectExplicitCardIdentityPins = (
@@ -659,7 +659,7 @@ const collectExplicitCardIdentityPins = (
     const explicitId = target.target?.id;
     if (explicitId === undefined) continue;
     if (
-      target.type !== "card" ||
+      target.type !== "page" ||
       explicitId !== explicitId.trim() ||
       explicitId.length === 0 ||
       explicitId.length > MAX_BLOCK_ID_LENGTH
@@ -670,7 +670,7 @@ const collectExplicitCardIdentityPins = (
     }
     if (seen.has(explicitId)) {
       throw new LegacyNfmShadowTranslationError(
-        `NFM repeats owning Card uuid ${explicitId}`,
+        `NFM repeats owning Page uuid ${explicitId}`,
       );
     }
     seen.add(explicitId);
@@ -678,12 +678,12 @@ const collectExplicitCardIdentityPins = (
     const source = sourceById.get(explicitId);
     if (!source) {
       throw new LegacyNfmShadowTranslationError(
-        `NFM Card uuid ${explicitId} is not an existing Block in this Document`,
+        `NFM Page uuid ${explicitId} is not an existing Block in this Document`,
       );
     }
-    if (source.type !== "card") {
+    if (source.type !== "page") {
       throw new LegacyNfmShadowTranslationError(
-        `NFM Card uuid ${explicitId} identifies ${source.type}, not an owning Card`,
+        `NFM Page uuid ${explicitId} identifies ${source.type}, not an owning Page`,
       );
     }
     pins.set(target.key, source);
@@ -768,7 +768,7 @@ const assertPinnedCardsKeepTheirParent = (
     }
     if (source.parentKey === undefined || target.parentKey === undefined) {
       throw new LegacyNfmShadowTranslationError(
-        `NFM Card uuid ${source.blockId ?? "unknown"} cannot move across parents`,
+        `NFM Page uuid ${source.blockId ?? "unknown"} cannot move across parents`,
       );
     }
 
@@ -776,7 +776,7 @@ const assertPinnedCardsKeepTheirParent = (
     const matchedTargetParent = matches.get(target.parentKey);
     if (!sourceParent || matchedTargetParent?.key !== sourceParent.key) {
       throw new LegacyNfmShadowTranslationError(
-        `NFM Card uuid ${source.blockId ?? "unknown"} cannot move across parents`,
+        `NFM Page uuid ${source.blockId ?? "unknown"} cannot move across parents`,
       );
     }
   }
@@ -845,9 +845,9 @@ const buildValidatedCandidate = (
   blocks: readonly BlockNoteBlockValue[],
 ): {
   readonly document: Y.Doc;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
 } => {
-  const envelope = createCardDocument({
+  const envelope = createPageDocument({
     documentId: `${documentId}:legacy-shadow-candidate`,
     initialTitle: title,
     initializeBody: false,
@@ -863,7 +863,7 @@ const buildValidatedCandidate = (
     }
     return {
       document: envelope.document,
-      materialization: materializeCardDocument(envelope.document),
+      materialization: materializePageDocument(envelope.document),
     };
   } catch (error) {
     envelope.document.destroy();
@@ -875,13 +875,13 @@ const buildValidatedCandidate = (
 };
 
 const materializationsHaveSameContent = (
-  left: CardDocumentMaterialization,
-  right: CardDocumentMaterialization,
+  left: PageDocumentMaterialization,
+  right: PageDocumentMaterialization,
 ): boolean => left.title === right.title && left.nfm === right.nfm;
 
 const assertEquivalentMaterialization = (
-  expected: CardDocumentMaterialization,
-  actual: CardDocumentMaterialization,
+  expected: PageDocumentMaterialization,
+  actual: PageDocumentMaterialization,
 ): void => {
   if (
     !materializationsHaveSameContent(expected, actual) ||
@@ -898,23 +898,23 @@ const assertEquivalentMaterialization = (
  * document. The input Y.Doc is always read-only: candidate construction and
  * mutation happen on disposable documents, so validation failures are pure.
  *
- * NFM carries exact IDs only for owning Card shells. Those identities pin
+ * NFM carries exact IDs only for owning Page shells. Those identities pin
  * existing same-Document Cards; all other Blocks retain deterministic
  * semantic inference, including traversal-order resolution for duplicates.
  */
-const translateNfmIntoCardDocument = ({
+const translateNfmIntoPageDocument = ({
   document,
   title,
   nfm,
   allocateBlockId = createUuidV7,
   identityPolicy = "legacy",
-}: Omit<TranslateLegacyNfmIntoCardDocumentInput, "authority" | "readiness"> & {
+}: Omit<TranslateLegacyNfmIntoPageDocumentInput, "authority" | "readiness"> & {
   readonly identityPolicy?: "legacy" | "conservative";
 }): LegacyNfmShadowTranslation => {
-  let currentMaterialization: CardDocumentMaterialization;
+  let currentMaterialization: PageDocumentMaterialization;
   let targetBlocks: readonly BlockNoteBlockValue[];
   try {
-    currentMaterialization = materializeCardDocument(document);
+    currentMaterialization = materializePageDocument(document);
     if (
       title === currentMaterialization.title &&
       nfm === currentMaterialization.nfm
@@ -992,8 +992,8 @@ const translateNfmIntoCardDocument = ({
   const working = new Y.Doc({ guid: document.guid });
   try {
     Y.applyUpdate(working, sourceState);
-    const workingEnvelope = assertValidCardDocumentRoots(working);
-    const candidateEnvelope = assertValidCardDocumentRoots(candidate.document);
+    const workingEnvelope = assertValidPageDocumentRoots(working);
+    const candidateEnvelope = assertValidPageDocumentRoots(candidate.document);
     const candidateRoot = candidateEnvelope.body.toArray()[0];
     if (!(candidateRoot instanceof Y.XmlElement)) {
       throw new LegacyNfmShadowTranslationError(
@@ -1012,7 +1012,7 @@ const translateNfmIntoCardDocument = ({
       workingEnvelope.body.insert(0, [cloneXmlSubtree(candidateRoot)]);
     }, "legacy-nfm-shadow-translation");
 
-    const materialization = materializeCardDocument(working);
+    const materialization = materializePageDocument(working);
     assertEquivalentMaterialization(candidate.materialization, materialization);
     const update = Y.encodeStateAsUpdate(working, sourceStateVector);
     if (update.byteLength === 0) {
@@ -1033,8 +1033,8 @@ const translateNfmIntoCardDocument = ({
   }
 };
 
-export const translateLegacyNfmIntoCardDocument = (
-  input: TranslateLegacyNfmIntoCardDocumentInput,
+export const translateLegacyNfmIntoPageDocument = (
+  input: TranslateLegacyNfmIntoPageDocumentInput,
 ): LegacyNfmShadowTranslation => {
   if (input.authority !== "legacy_shadow") {
     throw new LegacyNfmShadowTranslationError(
@@ -1043,10 +1043,10 @@ export const translateLegacyNfmIntoCardDocument = (
   }
   if (input.readiness !== "ready") {
     throw new LegacyNfmShadowTranslationError(
-      "Legacy NFM translation requires a ready Card document",
+      "Legacy NFM translation requires a ready Page document",
     );
   }
-  return translateNfmIntoCardDocument(input);
+  return translateNfmIntoPageDocument(input);
 };
 
 /**
@@ -1054,14 +1054,14 @@ export const translateLegacyNfmIntoCardDocument = (
  * aligns stable application IDs, and returns one forward update relative to the
  * supplied current-head Y.Doc. It never replaces or mutates that input Y.Doc.
  */
-export const replaceCardDocumentBodyFromNfm = ({
+export const replacePageDocumentBodyFromNfm = ({
   document,
   nfm,
   allocateBlockId,
-}: ReplaceCardDocumentBodyFromNfmInput): LegacyNfmShadowTranslation =>
-  translateNfmIntoCardDocument({
+}: ReplacePageDocumentBodyFromNfmInput): LegacyNfmShadowTranslation =>
+  translateNfmIntoPageDocument({
     document,
-    title: assertValidCardDocumentRoots(document).title.toString(),
+    title: assertValidPageDocumentRoots(document).title.toString(),
     nfm,
     identityPolicy: "conservative",
     ...(allocateBlockId ? { allocateBlockId } : {}),

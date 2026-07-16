@@ -7,8 +7,8 @@ import { serializeNfm } from "./serializer";
 describe("NFM code fences", () => {
   test("keeps Card identity and mention URL tags in clipboard text", () => {
     const nfm = [
-      '<card uuid="019f-card" />',
-      '<mention-card url="nodex://cards/019f-target" />',
+      '<page uuid="019f-card" />',
+      '<page-ref url="nodex://pages/019f-target" />',
     ].join("\n");
 
     expect(serializeClipboardText(parseNfm(nfm))).toBe(nfm);

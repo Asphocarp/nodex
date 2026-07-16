@@ -7,21 +7,21 @@ describe("resolveDropIndicatorPlacement", () => {
   test("renders before the first remaining card instead of the dragged source ghost", () => {
     const placement = resolveDropIndicatorPlacement(cards, new Set(["a"]), 0);
 
-    expect(placement.beforeCardId).toBe("b");
+    expect(placement.beforePageId).toBe("b");
     expect(placement.atEnd).toBe(false);
   });
 
   test("renders before the matching remaining card in an unfiltered list", () => {
     const placement = resolveDropIndicatorPlacement(cards, new Set<string>(), 1);
 
-    expect(placement.beforeCardId).toBe("b");
+    expect(placement.beforePageId).toBe("b");
     expect(placement.atEnd).toBe(false);
   });
 
   test("renders at the end when the indicator targets the final slot", () => {
     const placement = resolveDropIndicatorPlacement(cards, new Set(["a"]), 2);
 
-    expect(placement.beforeCardId).toBe(null);
+    expect(placement.beforePageId).toBe(null);
     expect(placement.atEnd).toBe(true);
   });
 });

@@ -61,6 +61,7 @@ import type {
   ThreadMemoryMode as CodexAppServerThreadMemoryMode,
 } from "@nodex/codex-app-server-protocol";
 import type { PortableRichText } from "./block-documents/portable-rich-text";
+import type { ProjectLifecycle } from "./library";
 import type {
   CodexApprovalResponse,
 } from "./codex-approval-response";
@@ -137,17 +138,17 @@ export type Estimate = "xs" | "s" | "m" | "l" | "xl";
 export type ResourceBlockKind = "text" | "file" | "folder";
 export type ResourceBlockMode = "materialized" | "link";
 
-export type CardRunInTarget = "localProject" | "newWorktree" | "cloud";
+export type PageRunInTarget = "localProject" | "newWorktree" | "cloud";
 export type WorktreeStartMode = "autoBranch" | "detachedHead";
 
 export {
-  CARD_STATUS_COLUMNS,
-  CARD_STATUS_LABELS,
-  CARD_STATUS_ORDER,
-  DEFAULT_CARD_STATUS,
-  type CardStatus,
-} from "./card-status";
-import type { CardStatus } from "./card-status";
+  WORKFLOW_STATUS_COLUMNS,
+  WORKFLOW_STATUS_LABELS,
+  WORKFLOW_STATUS_ORDER,
+  DEFAULT_WORKFLOW_STATUS,
+  type WorkflowStatus,
+} from "./workflow-status";
+import type { WorkflowStatus } from "./workflow-status";
 
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -177,10 +178,11 @@ export interface OccurrenceTimingUpdates {
 }
 
 export type OccurrenceActionSource =
-  "calendar" | "card-stage" | "notification" | "api";
+  "calendar" | "page-detail" | "notification" | "api";
 
-export interface CalendarOccurrence extends Card {
-  cardId: string;
+/** Calendar projection of one scheduled Page occurrence. */
+export interface PageOccurrence extends DatabasePage {
+  pageId: string;
   statusName: string;
   occurrenceStart: Date;
   occurrenceEnd: Date;
@@ -188,37 +190,38 @@ export interface CalendarOccurrence extends Card {
   thisAndFutureEquivalentToAll?: boolean;
 }
 
-export interface CardOccurrenceActionInput {
+export interface PageOccurrenceActionInput {
   /** Stable logical identity for exact retry across transport/session loss. */
   operationId: string;
-  cardId: string;
+  pageId: string;
   occurrenceStart: Date;
   source: OccurrenceActionSource;
 }
 
-export interface CardOccurrenceCompleteInput extends CardOccurrenceActionInput {
-  /** Preallocated identity for the archived Card created by completion. */
-  createdCardId: string;
+export interface PageOccurrenceCompleteInput extends PageOccurrenceActionInput {
+  /** Preallocated identity for the archived Page created by completion. */
+  createdPageId: string;
 }
 
-export type CardOccurrenceUpdateInput = CardOccurrenceActionInput &
+export type PageOccurrenceUpdateInput = PageOccurrenceActionInput &
   (
     | {
         scope: "all";
-        createdCardId?: never;
+        createdPageId?: never;
         updates: OccurrenceTimingUpdates;
       }
     | {
         scope: Exclude<OccurrenceEditScope, "all">;
-        /** Preallocated identity if this command needs to detach or split a Card. */
-        createdCardId: string;
+        /** Preallocated identity if this command needs to detach or split a Page. */
+        createdPageId: string;
         updates: OccurrenceTimingUpdates;
       }
   );
 
-export interface Card {
+/** Compatibility projection for one Page row in a Database View. */
+export interface DatabasePage {
   id: string;
-  status: CardStatus;
+  status: WorkflowStatus;
   archived: boolean;
   title: string;
   /** Canonical collaborative title authority; title is its plain-text projection. */
@@ -235,7 +238,7 @@ export interface Card {
   reminders?: ReminderConfig[];
   scheduleTimezone?: string;
   assignee?: string;
-  runInTarget?: CardRunInTarget;
+  runInTarget?: PageRunInTarget;
   runInLocalPath?: string;
   runInBaseBranch?: string;
   runInWorktreePath?: string;
@@ -245,16 +248,16 @@ export interface Card {
   order: number;
 }
 
-export interface CardSummary extends Omit<Card, "description"> {
+export interface DatabasePageSummary extends Omit<DatabasePage, "description"> {
   descriptionPreview: string;
   descriptionLength: number;
   hasDescription: boolean;
 }
 
 export interface Column {
-  id: CardStatus;
+  id: WorkflowStatus;
   name: string;
-  cards: Card[];
+  cards: DatabasePage[];
 }
 
 export interface Board {
@@ -262,17 +265,17 @@ export interface Board {
 }
 
 export interface BoardSummaryColumn {
-  id: CardStatus;
+  id: WorkflowStatus;
   name: string;
-  cards: CardSummary[];
+  cards: DatabasePageSummary[];
 }
 
 export interface BoardSummary {
   columns: BoardSummaryColumn[];
 }
 
-export interface CardInput {
-  status?: CardStatus;
+export interface PageInput {
+  status?: WorkflowStatus;
   title: string;
   description?: string;
   priority?: Priority | null;
@@ -286,51 +289,53 @@ export interface CardInput {
   reminders?: ReminderConfig[];
   scheduleTimezone?: string | null;
   assignee?: string;
-  runInTarget?: CardRunInTarget;
+  runInTarget?: PageRunInTarget;
   runInLocalPath?: string | null;
   runInBaseBranch?: string | null;
   runInWorktreePath?: string | null;
   runInEnvironmentPath?: string | null;
 }
 
-export interface CardCreateInput extends CardInput {
+export interface PageCreateInput extends PageInput {
   id?: string;
 }
 
-export type CardUpdateField = keyof CardInput;
+export type PageUpdateField = keyof PageInput;
 
-export type CardUpdateResult =
+export type PageUpdateResult =
   | {
       status: "updated";
       projectId: string;
-      cardId: string;
+      pageId: string;
       revision: number;
-      summary: CardSummary;
-      changedFields: CardUpdateField[];
+      summary: DatabasePageSummary;
+      changedFields: PageUpdateField[];
       didMutate: boolean;
     }
   | {
       status: "conflict";
-      card: Card;
+      page: DatabasePage;
     }
   | {
       status: "not_found";
     };
 
 export interface DatabaseRowsDetailsInput {
-  cardIds: string[];
+  pageIds: string[];
 }
 
-export interface CardSearchInput {
+export interface PageSearchInput {
+  /** Project access contexts whose effective grants define the search scope. */
   projectIds: string[];
   query: string;
   limit?: number;
 }
 
-export interface CardSearchResult {
+export interface PageSearchResult {
+  /** Project access context that authorized this result. */
   projectId: string;
-  cardId: string;
-  status: CardStatus;
+  pageId: string;
+  status: WorkflowStatus;
   score: number;
   excerpt: string;
 }
@@ -381,84 +386,29 @@ export interface CommandPaletteThreadContentSearchResult {
   snippetSegments?: CommandPaletteSearchSnippetSegment[];
 }
 
-export type CardCreatePlacement =
+export type PageCreatePlacement =
   | "top"
   | "bottom"
-  | { readonly beforeCardId: string };
+  | { readonly beforePageId: string };
 
-export interface MoveCardInput {
-  cardId: string;
-  fromStatus?: CardStatus;
-  toStatus: CardStatus;
+export interface MovePageInput {
+  pageId: string;
+  fromStatus?: WorkflowStatus;
+  toStatus: WorkflowStatus;
   // Insertion index after removing the dragged card from the target column.
   newOrder?: number;
-  fieldPatch?: Pick<Partial<CardInput>, "priority" | "estimate">;
+  fieldPatch?: Pick<Partial<PageInput>, "priority" | "estimate">;
   groupId?: string;
 }
 
-export interface MoveCardsInput {
-  cardIds: string[];
-  fromStatus?: CardStatus;
-  toStatus: CardStatus;
+export interface MovePagesInput {
+  pageIds: string[];
+  fromStatus?: WorkflowStatus;
+  toStatus: WorkflowStatus;
   // Insertion index after removing the dragged cards from the target column.
   newOrder?: number;
-  fieldPatch?: Pick<Partial<CardInput>, "priority" | "estimate">;
+  fieldPatch?: Pick<Partial<PageInput>, "priority" | "estimate">;
   groupId?: string;
-}
-
-export interface MoveCardToProjectInput {
-  cardId: string;
-  sourceProjectId: string;
-  sourceStatus?: CardStatus;
-  targetProjectId: string;
-  targetStatus?: CardStatus;
-}
-
-export interface MoveCardToProjectResult {
-  cardId: string;
-  sourceProjectId: string;
-  sourceStatus: CardStatus;
-  targetProjectId: string;
-  targetStatus: CardStatus;
-}
-
-export interface BlockDropImportSourceUpdate {
-  projectId: string;
-  status?: CardStatus;
-  cardId: string;
-  updates: Partial<CardInput>;
-}
-
-export interface BlockDropImportInput {
-  targetStatus: CardStatus;
-  insertIndex?: number;
-  cards: CardCreateInput[];
-  sourceUpdates: BlockDropImportSourceUpdate[];
-  groupId?: string;
-}
-
-export interface BlockDropImportResult {
-  cards: Card[];
-  groupId: string;
-}
-
-export interface CardEditorDropInput {
-  operation: import("./cross-window-drag").DragTransferOperation;
-  sourceProjectId?: string;
-  sourceCards: Array<{
-    cardId: string;
-    status?: CardStatus;
-  }>;
-  targetUpdates: BlockDropImportSourceUpdate[];
-  groupId?: string;
-}
-
-export interface CardEditorDropResult {
-  operation: import("./cross-window-drag").DragTransferOperation;
-  sourceProjectId: string;
-  sourceCardIds: string[];
-  updatedCardIds: string[];
-  groupId: string;
 }
 
 export interface ProjectSource {
@@ -468,6 +418,10 @@ export interface ProjectSource {
 
 export interface Project {
   id: string;
+  libraryId: string;
+  databaseId: string;
+  lifecycle: ProjectLifecycle;
+  bindingRevision: number;
   name: string;
   description: string;
   icon?: string;
@@ -493,6 +447,10 @@ export interface ProjectUpdateInput {
   sources?: string[];
 }
 
+export interface ProjectLifecycleInput {
+  lifecycle: ProjectLifecycle;
+}
+
 export interface ProjectOrderInput {
   orderedProjectIds: string[];
 }
@@ -509,7 +467,7 @@ export type ProjectSessionDbView =
   "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 
 export type ProjectSessionTabKind =
-  "db_view" | "card_stage" | "terminal" | "browser" | "review" | "files";
+  "db_view" | "page_stage" | "terminal" | "browser" | "review" | "files";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
   "review",
@@ -530,15 +488,15 @@ export interface ProjectSessionDbViewTabConfig {
   view: ProjectSessionDbView;
 }
 
-export interface ProjectSessionCardStageTabConfig {
+export interface ProjectSessionPageStageTabConfig {
   projectId: string;
-  cardId: string;
+  pageId: string;
   titleSnapshot?: string;
-  ancestors?: ProjectSessionCardStageAncestor[];
+  ancestors?: ProjectSessionPageStageAncestor[];
 }
 
-export interface ProjectSessionCardStageAncestor {
-  cardId: string;
+export interface ProjectSessionPageStageAncestor {
+  pageId: string;
 }
 
 export interface ProjectSessionTerminalTabConfig {
@@ -648,7 +606,7 @@ export interface ProjectSessionBrowserTabConfig {
 
 export type ProjectSessionTabConfig =
   | ProjectSessionDbViewTabConfig
-  | ProjectSessionCardStageTabConfig
+  | ProjectSessionPageStageTabConfig
   | ProjectSessionTerminalTabConfig
   | ProjectSessionBrowserTabConfig
   | ProjectSessionFilesTabConfig
@@ -1853,7 +1811,7 @@ export interface CodexThreadStartForSessionInput {
   threadStartKind?: string;
   baseInstructions?: string | null;
   additionalDeveloperInstructions?: string | null;
-  runInTarget?: CardRunInTarget;
+  runInTarget?: PageRunInTarget;
   runInEnvironmentPath?: string | null;
   worktreeStartMode?: WorktreeStartMode;
   worktreeBranchPrefix?: string;
@@ -3566,7 +3524,7 @@ export type CodexEvent =
       type: "threadStartProgress";
       projectId: string | null;
       sessionId: string | null;
-      runInTarget: CardRunInTarget;
+      runInTarget: PageRunInTarget;
       threadId?: string | null;
       phase: CodexThreadStartProgressPhase;
       message: string;
@@ -3615,7 +3573,7 @@ export type CodexSharedObject =
       value: {
         projectId: string | null;
         sessionId: string | null;
-        runInTarget: CardRunInTarget;
+        runInTarget: PageRunInTarget;
         threadId?: string | null;
         phase: CodexThreadStartProgressPhase;
         message: string;

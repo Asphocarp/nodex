@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
-import type { BoardSummary, CardSummary } from "./types";
+import type { BoardSummary, DatabasePageSummary } from "./types";
 import {
   applyBoardChangeEventToBoard,
   upsertCardSummaryInBoard,
 } from "./board-summary-events";
 
-function makeCard(id: string, status: CardSummary["status"], order: number): CardSummary {
+function makeCard(id: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
   return {
     id,
     status,
@@ -48,13 +48,13 @@ function makeBoard(): BoardSummary {
   };
 }
 
-function makeEvent(summary?: CardSummary): BoardChangeEvent {
+function makeEvent(summary?: DatabasePageSummary): BoardChangeEvent {
   return {
     projectId: "project-1",
     changeType: "update",
     columnId: summary?.status ?? "draft",
     status: summary?.status ?? "draft",
-    cardId: summary?.id ?? "card-1",
+    pageId: summary?.id ?? "card-1",
     summary,
   };
 }

@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import {
   applyBlockDocumentUpdate,
   compactBlockDocument,
-  initializeCardDocumentGenesis,
+  initializePageDocumentGenesis,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
 import {
@@ -24,13 +24,13 @@ import {
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
-import { createCardDocumentGenesis } from "../src/shared/block-documents/block-document-codec";
-import { replaceCardDocumentBodyFromNfm } from "../src/shared/block-documents/legacy-nfm-shadow-translator";
+import { createPageDocumentGenesis } from "../src/shared/block-documents/block-document-codec";
+import { replacePageDocumentBodyFromNfm } from "../src/shared/block-documents/legacy-nfm-shadow-translator";
 import {
   plainTextToPortableRichText,
   replaceYTextWithPortableRichText,
 } from "../src/shared/block-documents/portable-rich-text";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
 function invariant(condition: boolean, message: string): asserts condition {
   if (condition) return;
@@ -39,7 +39,7 @@ function invariant(condition: boolean, message: string): asserts condition {
 
 interface SeededDocument {
   readonly documentId: string;
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly blockIds: readonly string[];
   readonly headSeq: number;
 }
@@ -59,12 +59,12 @@ const readStoreEpoch = (): string =>
 
 const seedDocument = (input: {
   readonly projectId: string;
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly title: string;
   readonly nfm: string;
 }): SeededDocument => {
   const database = getDb();
-  const documentId = `document:${input.cardBlockId}`;
+  const documentId = `document:${input.pageId}`;
   const now = new Date().toISOString();
   database
     .prepare(
@@ -73,10 +73,10 @@ const seedDocument = (input: {
         id, project_id, type, lifecycle, location_kind,
         containing_document_id, location_revision, metadata_revision,
         created_at, updated_at
-      ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+      ) VALUES (?, ?, 'page', 'active', 'space', NULL, 1, 1, ?, ?)
     `,
     )
-    .run(input.cardBlockId, input.projectId, now, now);
+    .run(input.pageId, input.projectId, now, now);
   database
     .prepare(
       `
@@ -86,9 +86,9 @@ const seedDocument = (input: {
     `,
     )
     .run(
-      input.cardBlockId,
+      input.pageId,
       input.projectId,
-      `projection:${input.cardBlockId}`,
+      `projection:${input.pageId}`,
       now,
       now,
     );
@@ -98,7 +98,7 @@ const seedDocument = (input: {
       INSERT INTO documents (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
+      ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', '',
         'pending_genesis', 'legacy_shadow', ?, ?)
     `,
     )
@@ -110,27 +110,27 @@ const seedDocument = (input: {
       VALUES (?, ?, ?, ?)
     `,
     )
-    .run(input.cardBlockId, documentId, input.projectId, now);
+    .run(input.pageId, documentId, input.projectId, now);
 
-  const genesis = createCardDocumentGenesis({
+  const genesis = createPageDocumentGenesis({
     documentId,
     title: input.title,
     nfm: input.nfm,
     allocateBlockId,
   });
   try {
-    const ack = initializeCardDocumentGenesis(database, {
+    const ack = initializePageDocumentGenesis(database, {
       documentId,
       storeEpoch: readStoreEpoch(),
       generation: 1,
-      updateId: `genesis:${input.cardBlockId}`,
+      updateId: `genesis:${input.pageId}`,
       clientSessionId: "document-projection-probe",
       update: genesis.update,
       finalAuthority: "ydoc_primary",
     });
     return {
       documentId,
-      cardBlockId: input.cardBlockId,
+      pageId: input.pageId,
       blockIds: genesis.materialization.blockTree.map((block) => block.id),
       headSeq: ack.headSeq,
     };
@@ -156,7 +156,7 @@ const prepareCurrentUpdate = (input: {
   const working = new Y.Doc({ guid: input.documentId });
   try {
     Y.applyUpdate(working, Y.encodeStateAsUpdate(loaded.document));
-    const translated = replaceCardDocumentBodyFromNfm({
+    const translated = replacePageDocumentBodyFromNfm({
       document: working,
       nfm: input.nfm,
       allocateBlockId,
@@ -265,7 +265,7 @@ const run = async (): Promise<void> => {
     const project = createProject({ name: "Document projections" });
     const document = seedDocument({
       projectId: project.id,
-      cardBlockId: "projection-card",
+      pageId: "projection-card",
       title: "OldTitleNeedle",
       nfm: [
         'OldBodyNeedle <attachment kind="file" mode="materialized" source="nodex://assets/old.txt" name="old.txt" mime="text/plain" bytes="1" />',
@@ -280,8 +280,8 @@ const run = async (): Promise<void> => {
     });
     invariant(
       titleHits.length === 1 &&
-        titleHits[0]?.blockId === document.cardBlockId &&
-        titleHits[0]?.ownerBlockId === document.cardBlockId &&
+        titleHits[0]?.blockId === document.pageId &&
+        titleHits[0]?.ownerBlockId === document.pageId &&
         titleHits[0]?.sourceKind === "document_title",
       "genesis title was not searchable",
     );
@@ -292,8 +292,8 @@ const run = async (): Promise<void> => {
     });
     invariant(
       bodyHits.length === 1 &&
-        bodyHits[0]?.blockId !== document.cardBlockId &&
-        bodyHits[0]?.ownerBlockId === document.cardBlockId &&
+        bodyHits[0]?.blockId !== document.pageId &&
+        bodyHits[0]?.ownerBlockId === document.pageId &&
         bodyHits[0]?.sourceKind === "document_block",
       "genesis body was not searchable",
     );
@@ -433,8 +433,8 @@ const run = async (): Promise<void> => {
       )
       .run(
         project.id,
-        document.cardBlockId,
-        document.cardBlockId,
+        document.pageId,
+        document.pageId,
         intrinsicHash,
         new Date().toISOString(),
       );
@@ -493,13 +493,13 @@ const run = async (): Promise<void> => {
 
     const relocationSource = seedDocument({
       projectId: project.id,
-      cardBlockId: "projection-relocation-source",
+      pageId: "projection-relocation-source",
       title: "Relocation source",
       nfm: "RelocationOldNeedle",
     });
     const relocationTarget = seedDocument({
       projectId: project.id,
-      cardBlockId: "projection-relocation-target",
+      pageId: "projection-relocation-target",
       title: "Relocation target",
       nfm: "TargetAnchorNeedle",
     });

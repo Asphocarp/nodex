@@ -6,10 +6,10 @@ describe("collectSecondInstancesForStartupReplay", () => {
     const calls: string[] = [];
     const replay = collectSecondInstancesForStartupReplay(
       {
-        initialArgv: ["--flag", "nodex://cards/card-1"],
+        initialArgv: ["--flag", "nodex://pages/card-1"],
         startupEvents: [
           { type: "open-url", url: "nodex://sessions/session-1" },
-          { type: "second-instance", argv: ["nodex://cards/card-2"] },
+          { type: "second-instance", argv: ["nodex://pages/card-2"] },
           { type: "second-instance", argv: ["--new-window"] },
         ],
       },
@@ -25,7 +25,7 @@ describe("collectSecondInstancesForStartupReplay", () => {
     );
 
     expect(calls.join("|")).toBe(
-      "argv:--flag,nodex://cards/card-1|url:nodex://sessions/session-1|argv:nodex://cards/card-2|argv:--new-window",
+      "argv:--flag,nodex://pages/card-1|url:nodex://sessions/session-1|argv:nodex://pages/card-2|argv:--new-window",
     );
     expect(replay.length).toBe(1);
     expect(replay[0]?.join(",")).toBe("--new-window");

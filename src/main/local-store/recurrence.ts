@@ -1,5 +1,5 @@
 import type {
-  Card,
+  DatabasePage,
   RecurrenceConfig,
   ReminderConfig,
 } from "../../shared/types";
@@ -222,8 +222,8 @@ function buildExceptionMap(exceptions: RecurrenceException[]): Map<string, Recur
   return new Map(exceptions.map((item) => [item.occurrenceStart.toISOString(), item]));
 }
 
-export function expandCardOccurrences(
-  card: Card,
+export function expandPageOccurrences(
+  card: DatabasePage,
   windowStart: Date,
   windowEnd: Date,
   options?: {
@@ -300,7 +300,7 @@ export function expandCardOccurrences(
 }
 
 export function nextOccurrenceAfter(
-  card: Card,
+  card: DatabasePage,
   afterOccurrenceStart: Date,
   options?: {
     exceptions?: RecurrenceException[];
@@ -308,7 +308,7 @@ export function nextOccurrenceAfter(
 ): ExpandedOccurrence | null {
   const scanStart = new Date(afterOccurrenceStart.getTime() + 1);
   const scanEnd = addYearsInTimezone(scanStart, 5, resolveTimezone(card.scheduleTimezone));
-  const occurrences = expandCardOccurrences(card, scanStart, scanEnd, options);
+  const occurrences = expandPageOccurrences(card, scanStart, scanEnd, options);
   const afterTs = afterOccurrenceStart.getTime();
   return occurrences.find((occurrence) => occurrence.occurrenceStart.getTime() > afterTs) ?? null;
 }

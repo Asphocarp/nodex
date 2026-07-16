@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
-import { createUuidV7 } from "../../shared/card-id";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { createCanonicalEmptyParagraphBlock } from "../../shared/block-documents/block-document-codec";
 import {
   DOCUMENT_OPERATION_CONTRACT_VERSION,
@@ -8,7 +8,7 @@ import {
 } from "../../shared/block-documents/document-operations";
 import { inspectOwnedBlockDocument } from "../../shared/block-documents/document-schema-adapters";
 import type { OwnedDocumentDescriptor } from "../../shared/block-documents/contracts";
-import { getOwnedDocumentDescriptor } from "./block-document-cutover";
+import { getOwnedDocumentAccess } from "./block-document-cutover";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { loadBlockDocument } from "./block-document-store";
 
@@ -41,11 +41,13 @@ export const prepareEditableOwnedBlockDocument = (
   projectId: string,
   ownerBlockId: string,
 ): PreparedEditableOwnedBlockDocument => {
-  const descriptor = getOwnedDocumentDescriptor(
+  const access = getOwnedDocumentAccess(
     database,
     projectId,
     ownerBlockId,
+    "read",
   );
+  const { descriptor } = access;
   if (
     descriptor.ownerLifecycle !== "active" ||
     descriptor.readiness !== "ready" ||
@@ -68,20 +70,26 @@ export const prepareEditableOwnedBlockDocument = (
     loaded.document.destroy();
   }
 
-  const digest = coordinateDigest(descriptor);
+  const writableAccess = getOwnedDocumentAccess(
+    database,
+    projectId,
+    ownerBlockId,
+    "write",
+  );
+  const digest = coordinateDigest(writableAccess.descriptor);
   const request: DocumentOperationBatch = {
     version: DOCUMENT_OPERATION_CONTRACT_VERSION,
     mutationId: `system:editable-root:${digest}`,
-    projectId: descriptor.projectId,
-    storeEpoch: descriptor.storeEpoch,
+    projectId: writableAccess.storageProjectId,
+    storeEpoch: writableAccess.descriptor.storeEpoch,
     clientSessionId: "system:owned-document-prepare",
     actor: {
       kind: "system",
       reason: "ensure_editable_block_document",
     },
-    documentId: descriptor.documentId,
-    generation: descriptor.generation,
-    expectedHeadSeq: descriptor.headSeq,
+    documentId: writableAccess.descriptor.documentId,
+    generation: writableAccess.descriptor.generation,
+    expectedHeadSeq: writableAccess.descriptor.headSeq,
     operations: [
       {
         kind: "insert_block",
@@ -96,11 +104,12 @@ export const prepareEditableOwnedBlockDocument = (
     );
   }
   return {
-    descriptor: getOwnedDocumentDescriptor(
+    descriptor: getOwnedDocumentAccess(
       database,
       projectId,
       ownerBlockId,
-    ),
+      "write",
+    ).descriptor,
     repairedEmptyRoot: !result.value.duplicate,
   };
 };

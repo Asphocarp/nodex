@@ -5,12 +5,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
-import { createUuidV7, isUuidV7 } from "../../shared/card-id";
+import { createUuidV7, isUuidV7 } from "../../shared/uuid-v7";
 import {
-  createCardDocument,
-  openCardDocument,
+  createPageDocument,
+  openPageDocument,
 } from "../../shared/block-documents";
-import { createCardDocumentGenesis } from "../../shared/block-documents/block-document-codec";
+import { createPageDocumentGenesis } from "../../shared/block-documents/block-document-codec";
 import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
@@ -18,7 +18,7 @@ import {
   getBlockDocumentProjectId,
   getBlockDocumentRuntimeIdentity,
   getBlockDocumentSyncStep,
-  initializeCardDocumentGenesis,
+  initializePageDocumentGenesis,
   loadBlockDocument,
   syncBlockDocument,
   toDocumentSyncCommandError,
@@ -66,13 +66,21 @@ const expectThrowsCode = (
   expect((error as BlockDocumentStoreError).code).toBe(code);
 };
 
-const seedPendingCardDocument = (
+const seedPendingPageDocument = (
   database: Database.Database,
-  blockId = "block-document-store-card",
+  blockId = "block-document-store-page",
 ): { documentId: string; projectId: string; storeEpoch: string } => {
   const project = database
-    .prepare("SELECT id FROM projects ORDER BY created LIMIT 1")
-    .get() as { id: string };
+    .prepare(`
+      SELECT project.id, binding.database_block_id AS databaseBlockId
+      FROM projects project
+      INNER JOIN project_database_bindings binding
+        ON binding.project_id = project.id
+       AND binding.lifecycle = 'active'
+      ORDER BY project.created, binding.created_at
+      LIMIT 1
+    `)
+    .get() as { id: string; databaseBlockId: string };
   const now = new Date().toISOString();
   const documentId = `document:${blockId}`;
 
@@ -81,27 +89,19 @@ const seedPendingCardDocument = (
       `
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
-      location_revision, metadata_revision, created_at, updated_at
-    ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+      containing_database_id, location_revision, metadata_revision,
+      created_at, updated_at
+    ) VALUES (?, ?, 'page', 'active', 'database', NULL, ?, 1, 1, ?, ?)
   `,
     )
-    .run(blockId, project.id, now, now);
-  database
-    .prepare(
-      `
-    INSERT INTO top_level_block_placements (
-      block_id, project_id, rank_key, created_at, updated_at
-    ) VALUES (?, ?, 'document-store-test', ?, ?)
-  `,
-    )
-    .run(blockId, project.id, now, now);
+    .run(blockId, project.id, project.databaseBlockId, now, now);
   database
     .prepare(
       `
     INSERT INTO documents (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, readiness, authority, created_at, updated_at
-    ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', 'pending_genesis', 'legacy_shadow', ?, ?)
+    ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', 'pending_genesis', 'legacy_shadow', ?, ?)
   `,
     )
     .run(documentId, project.id, now, now);
@@ -135,19 +135,19 @@ const createParagraphBlock = (blockId: string, value: string): Y.XmlElement => {
   return container;
 };
 
-const createCardShellBlock = (blockId: string): Y.XmlElement => {
+const createPageShellBlock = (blockId: string): Y.XmlElement => {
   const container = new Y.XmlElement("blockContainer");
   container.setAttribute("id", blockId);
-  const card = new Y.XmlElement("card");
-  container.insert(0, [card]);
+  const page = new Y.XmlElement("page");
+  container.insert(0, [page]);
   return container;
 };
 
 const rootBlockGroup = (document: Y.Doc): Y.XmlElement => {
-  const root = openCardDocument(document).body.get(0);
+  const root = openPageDocument(document).body.get(0);
   if (root instanceof Y.XmlElement && root.nodeName === "blockGroup")
     return root;
-  throw new TypeError("Expected the canonical Card root blockGroup");
+  throw new TypeError("Expected the canonical Page root blockGroup");
 };
 
 const findBlockContainer = (document: Y.Doc, blockId: string): Y.XmlElement => {
@@ -232,7 +232,7 @@ describe("BlockDocumentStore", () => {
   });
 
   sqliteTest(
-    "atomically repairs a historical title-only Card before provider mount",
+    "atomically repairs a historical title-only Page before provider mount",
     async () => {
       closeDatabase();
       const tempDir = fs.mkdtempSync(
@@ -246,16 +246,16 @@ describe("BlockDocumentStore", () => {
 
         const database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
-        const blockId = "card-with-historical-empty-body";
-        const { documentId, projectId, storeEpoch } = seedPendingCardDocument(
+        const blockId = "page-with-historical-empty-body";
+        const { documentId, projectId, storeEpoch } = seedPendingPageDocument(
           database,
           blockId,
         );
-        const legacyEmpty = createCardDocument({
+        const legacyEmpty = createPageDocument({
           documentId,
           initialTitle: "Title only",
         });
-        initializeCardDocumentGenesis(database, {
+        initializePageDocumentGenesis(database, {
           documentId,
           storeEpoch,
           generation: 1,
@@ -362,18 +362,18 @@ describe("BlockDocumentStore", () => {
 
         const database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
-        const { documentId, storeEpoch } = seedPendingCardDocument(
+        const { documentId, storeEpoch } = seedPendingPageDocument(
           database,
-          "pending-image-card",
+          "pending-image-page",
         );
         const imageBlockId = createUuidV7();
-        const genesis = createCardDocumentGenesis({
+        const genesis = createPageDocumentGenesis({
           documentId,
           title: "Image paste",
           nfm: "",
           allocateBlockId: () => imageBlockId,
         });
-        initializeCardDocumentGenesis(database, {
+        initializePageDocumentGenesis(database, {
           documentId,
           storeEpoch,
           generation: 1,
@@ -493,7 +493,7 @@ describe("BlockDocumentStore", () => {
         const database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
         const { documentId, projectId, storeEpoch } =
-          seedPendingCardDocument(database);
+          seedPendingPageDocument(database);
         const historicalBlockId = "historical-paragraph-id";
         const now = new Date().toISOString();
         database
@@ -506,14 +506,14 @@ describe("BlockDocumentStore", () => {
           )
           .run(historicalBlockId, projectId, documentId, now, now);
 
-        const genesis = createCardDocument({
+        const genesis = createPageDocument({
           documentId,
           initialTitle: "Historical Block",
         });
         rootBlockGroup(genesis.document).insert(0, [
           createParagraphBlock(historicalBlockId, "Before"),
         ]);
-        initializeCardDocumentGenesis(database, {
+        initializePageDocumentGenesis(database, {
           documentId,
           storeEpoch,
           generation: 1,
@@ -582,11 +582,11 @@ describe("BlockDocumentStore", () => {
   );
 
   sqliteTest(
-    "rejects an ordinary Yjs update that manufactures a Card owner shell",
+    "rejects an ordinary Yjs update that manufactures a Page owner shell",
     async () => {
       closeDatabase();
       const tempDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "nodex-card-shell-typed-create-"),
+        path.join(os.tmpdir(), "nodex-page-shell-typed-create-"),
       );
       process.env.NODEX_DIR = tempDir;
 
@@ -595,19 +595,19 @@ describe("BlockDocumentStore", () => {
         closeDatabase();
         const database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
-        const { documentId, storeEpoch } = seedPendingCardDocument(
+        const { documentId, storeEpoch } = seedPendingPageDocument(
           database,
-          "card-shell-host",
+          "page-shell-host",
         );
-        const genesis = createCardDocument({
+        const genesis = createPageDocument({
           documentId,
           initialTitle: "Host",
         });
-        initializeCardDocumentGenesis(database, {
+        initializePageDocumentGenesis(database, {
           documentId,
           storeEpoch,
           generation: 1,
-          updateId: "card-shell-host-genesis",
+          updateId: "page-shell-host-genesis",
           clientSessionId: "migration",
           update: Y.encodeStateAsUpdate(genesis.document),
           finalAuthority: "ydoc_primary",
@@ -618,7 +618,7 @@ describe("BlockDocumentStore", () => {
         const before = Y.encodeStateVector(replica.document);
         rootBlockGroup(replica.document).insert(
           rootBlockGroup(replica.document).length,
-          [createCardShellBlock("unowned-card-shell")],
+          [createPageShellBlock("unowned-page-shell")],
         );
         expectThrowsCode(
           () =>
@@ -626,10 +626,10 @@ describe("BlockDocumentStore", () => {
               documentId,
               storeEpoch,
               generation: 1,
-              updateId: "manufacture-card-shell",
+              updateId: "manufacture-page-shell",
               clientSessionId: "window-1",
               baseHeadSeq: 1,
-              touchedBlockIds: ["unowned-card-shell"],
+              touchedBlockIds: ["unowned-page-shell"],
               update: Y.encodeStateAsUpdate(replica.document, before),
             }),
           "invalid_document_update",
@@ -637,7 +637,7 @@ describe("BlockDocumentStore", () => {
         replica.document.destroy();
         expect(
           database
-            .prepare("SELECT 1 FROM blocks WHERE id = 'unowned-card-shell'")
+            .prepare("SELECT 1 FROM blocks WHERE id = 'unowned-page-shell'")
             .get(),
         ).toBeUndefined();
         database.close();
@@ -664,7 +664,7 @@ describe("BlockDocumentStore", () => {
         let database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
         const { documentId, projectId, storeEpoch } =
-          seedPendingCardDocument(database);
+          seedPendingPageDocument(database);
         expect(getBlockDocumentProjectId(database, documentId)).toBe(projectId);
         expectThrowsCode(
           () => getBlockDocumentRuntimeIdentity(database, documentId),
@@ -674,12 +674,12 @@ describe("BlockDocumentStore", () => {
           () => getBlockDocumentProjectId(database, "document:missing"),
           "document_not_found",
         );
-        const genesis = createCardDocument({
+        const genesis = createPageDocument({
           documentId,
           initialTitle: "Base",
         });
         const genesisUpdate = Y.encodeStateAsUpdate(genesis.document);
-        const genesisAck = initializeCardDocumentGenesis(database, {
+        const genesisAck = initializePageDocumentGenesis(database, {
           documentId,
           storeEpoch,
           generation: 1,
@@ -692,7 +692,7 @@ describe("BlockDocumentStore", () => {
         expect(genesisAck.committedSeq).toBe(1);
         expect(genesisAck.storeEpoch).toBe(storeEpoch);
         expect(genesisAck.duplicate).toBe(false);
-        const duplicateGenesis = initializeCardDocumentGenesis(database, {
+        const duplicateGenesis = initializePageDocumentGenesis(database, {
           documentId,
           storeEpoch,
           generation: 1,
@@ -764,7 +764,7 @@ describe("BlockDocumentStore", () => {
         expect(initialSync.generation).toBe(1);
         expect(initialSync.headSeq).toBe(1);
         Y.applyUpdate(emptyReplica, initialSync.update);
-        expect(openCardDocument(emptyReplica).title.toString()).toBe("Base");
+        expect(openPageDocument(emptyReplica).title.toString()).toBe("Base");
         emptyReplica.destroy();
 
         const clientA = new Y.Doc({ guid: documentId });
@@ -772,8 +772,8 @@ describe("BlockDocumentStore", () => {
         Y.applyUpdate(clientA, genesisUpdate);
         Y.applyUpdate(clientB, genesisUpdate);
         const baseStateVector = Y.encodeStateVector(genesis.document);
-        openCardDocument(clientA).title.insert(4, " A");
-        openCardDocument(clientB).title.insert(4, " B");
+        openPageDocument(clientA).title.insert(4, " A");
+        openPageDocument(clientB).title.insert(4, " B");
         const updateA = Y.encodeStateAsUpdate(clientA, baseStateVector);
         const updateB = Y.encodeStateAsUpdate(clientB, baseStateVector);
 
@@ -818,7 +818,7 @@ describe("BlockDocumentStore", () => {
         };
         expect(derivedTitleReceipt.client_touched_block_ids_json).toBe("[]");
         expect(derivedTitleReceipt.derived_touched_block_ids_json).toBe(
-          '["block-document-store-card"]',
+          '["block-document-store-page"]',
         );
         expect(derivedTitleReceipt.derivation_version).toBe(1);
 
@@ -861,7 +861,7 @@ describe("BlockDocumentStore", () => {
         expect(causalReplayReceipt.count).toBe(0);
 
         const rejectedUpdate = captureOneUpdate(clientA, () => {
-          const title = openCardDocument(clientA).title;
+          const title = openPageDocument(clientA).title;
           title.insert(title.length, " rejected");
         });
         database.exec(`
@@ -894,7 +894,7 @@ describe("BlockDocumentStore", () => {
 
         const afterConcurrent = loadBlockDocument(database, documentId);
         expect(afterConcurrent.head.headSeq).toBe(3);
-        const concurrentTitle = openCardDocument(
+        const concurrentTitle = openPageDocument(
           afterConcurrent.document,
         ).title.toString();
         expect(concurrentTitle.includes(" A")).toBe(true);
@@ -906,11 +906,11 @@ describe("BlockDocumentStore", () => {
           Y.encodeStateAsUpdate(afterConcurrent.document),
         );
         const firstDependentUpdate = captureOneUpdate(dependentClient, () => {
-          const title = openCardDocument(dependentClient).title;
+          const title = openPageDocument(dependentClient).title;
           title.insert(title.length, " 1");
         });
         const secondDependentUpdate = captureOneUpdate(dependentClient, () => {
-          const title = openCardDocument(dependentClient).title;
+          const title = openPageDocument(dependentClient).title;
           title.insert(title.length, " 2");
         });
         afterConcurrent.document.destroy();
@@ -969,8 +969,8 @@ describe("BlockDocumentStore", () => {
         expect(syncStep.head.headSeq).toBe(5);
         Y.applyUpdate(clientWithOnlyFirstThreeHeads, syncStep.update);
         expect(
-          openCardDocument(clientWithOnlyFirstThreeHeads).title.toString(),
-        ).toBe(openCardDocument(dependentClient).title.toString());
+          openPageDocument(clientWithOnlyFirstThreeHeads).title.toString(),
+        ).toBe(openPageDocument(dependentClient).title.toString());
 
         genesis.document.destroy();
         clientA.destroy();
@@ -984,7 +984,7 @@ describe("BlockDocumentStore", () => {
         const reloaded = loadBlockDocument(database, documentId);
         expect(reloaded.head.headSeq).toBe(5);
         expect(
-          openCardDocument(reloaded.document).title.toString().includes(" 1 2"),
+          openPageDocument(reloaded.document).title.toString().includes(" 1 2"),
         ).toBe(true);
 
         database.exec(`
@@ -1173,18 +1173,18 @@ describe("BlockDocumentStore", () => {
         const database = new Database(getDatabasePath(), { readonly: false });
         database.pragma("foreign_keys = ON");
         try {
-          const source = seedPendingCardDocument(
+          const source = seedPendingPageDocument(
             database,
-            "recovery-source-card",
+            "recovery-source-page",
           );
-          const target = seedPendingCardDocument(
+          const target = seedPendingPageDocument(
             database,
-            "recovery-target-card",
+            "recovery-target-page",
           );
           expect(source.projectId).toBe(target.projectId);
           expect(source.storeEpoch).toBe(target.storeEpoch);
 
-          const sourceGenesis = createCardDocument({
+          const sourceGenesis = createPageDocument({
             documentId: source.documentId,
             initialTitle: "Source",
           });
@@ -1199,14 +1199,14 @@ describe("BlockDocumentStore", () => {
           const sourceGenesisUpdate = Y.encodeStateAsUpdate(
             sourceGenesis.document,
           );
-          const targetGenesis = createCardDocument({
+          const targetGenesis = createPageDocument({
             documentId: target.documentId,
             initialTitle: "Target",
           });
           const targetGenesisUpdate = Y.encodeStateAsUpdate(
             targetGenesis.document,
           );
-          initializeCardDocumentGenesis(database, {
+          initializePageDocumentGenesis(database, {
             documentId: source.documentId,
             storeEpoch: source.storeEpoch,
             generation: 1,
@@ -1214,7 +1214,7 @@ describe("BlockDocumentStore", () => {
             clientSessionId: "migration",
             update: sourceGenesisUpdate,
           });
-          initializeCardDocumentGenesis(database, {
+          initializePageDocumentGenesis(database, {
             documentId: target.documentId,
             storeEpoch: target.storeEpoch,
             generation: 1,
@@ -1355,7 +1355,7 @@ describe("BlockDocumentStore", () => {
 
           const declaredHitReplica = makeStaleReplica();
           const declaredHitUpdate = captureOneUpdate(declaredHitReplica, () => {
-            openCardDocument(declaredHitReplica).title.insert(6, " declared");
+            openPageDocument(declaredHitReplica).title.insert(6, " declared");
           });
           const declaredHit = captureStoreError(() =>
             applyBlockDocumentUpdate(database, {
@@ -1439,7 +1439,7 @@ describe("BlockDocumentStore", () => {
 
           const safeReplica = makeStaleReplica();
           const safeUpdate = captureOneUpdate(safeReplica, () => {
-            const title = openCardDocument(safeReplica).title;
+            const title = openPageDocument(safeReplica).title;
             title.insert(title.length, " safe offline title");
           });
           const safeAck = applyBlockDocumentUpdate(database, {
@@ -1455,7 +1455,7 @@ describe("BlockDocumentStore", () => {
           expect(safeAck.headSeq).toBe(4);
           const safeReload = loadBlockDocument(database, source.documentId);
           expect(
-            openCardDocument(safeReload.document)
+            openPageDocument(safeReload.document)
               .title.toString()
               .includes("safe offline title"),
           ).toBe(true);
@@ -1465,7 +1465,7 @@ describe("BlockDocumentStore", () => {
           const reservedUpdate = captureOneUpdate(
             targetCurrent.document,
             () => {
-              const title = openCardDocument(targetCurrent.document).title;
+              const title = openPageDocument(targetCurrent.document).title;
               title.insert(title.length, " reserved");
             },
           );

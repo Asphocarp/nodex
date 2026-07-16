@@ -1,39 +1,39 @@
-import type { BoardSummary, CardSummary } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
 
 export interface CardSelectionState {
-  cardIds: ReadonlySet<string>;
+  pageIds: ReadonlySet<string>;
 }
 
 export interface SelectedCardEntry {
-  card: CardSummary;
+  card: DatabasePageSummary;
   columnId: string;
   columnName: string;
 }
 
 export function emptyCardSelection(): CardSelectionState {
   return {
-    cardIds: new Set<string>(),
+    pageIds: new Set<string>(),
   };
 }
 
 export function toggleCardSelection(
   selection: CardSelectionState,
-  cardId: string,
+  pageId: string,
 ): CardSelectionState {
-  const nextCardIds = new Set(selection.cardIds);
+  const nextPageIds = new Set(selection.pageIds);
 
-  if (nextCardIds.has(cardId)) {
-    nextCardIds.delete(cardId);
+  if (nextPageIds.has(pageId)) {
+    nextPageIds.delete(pageId);
   } else {
-    nextCardIds.add(cardId);
+    nextPageIds.add(pageId);
   }
 
-  if (nextCardIds.size === 0) {
+  if (nextPageIds.size === 0) {
     return emptyCardSelection();
   }
 
   return {
-    cardIds: nextCardIds,
+    pageIds: nextPageIds,
   };
 }
 
@@ -41,20 +41,20 @@ export function normalizeCardSelection(
   selection: CardSelectionState,
   board: BoardSummary | null,
 ): CardSelectionState {
-  if (!board || selection.cardIds.size === 0) return selection;
+  if (!board || selection.pageIds.size === 0) return selection;
 
-  const visibleCardIds = new Set(
+  const visiblePageIds = new Set(
     board.columns.flatMap((column) => column.cards.map((card) => card.id)),
   );
   const normalizedIds = new Set(
-    [...selection.cardIds].filter((cardId) => visibleCardIds.has(cardId)),
+    [...selection.pageIds].filter((pageId) => visiblePageIds.has(pageId)),
   );
 
   if (normalizedIds.size === 0) return emptyCardSelection();
-  if (normalizedIds.size === selection.cardIds.size) return selection;
+  if (normalizedIds.size === selection.pageIds.size) return selection;
 
   return {
-    cardIds: normalizedIds,
+    pageIds: normalizedIds,
   };
 }
 
@@ -62,11 +62,11 @@ export function resolveSelectedCardEntries(
   board: BoardSummary | null,
   selection: CardSelectionState,
 ): SelectedCardEntry[] {
-  if (!board || selection.cardIds.size === 0) return [];
+  if (!board || selection.pageIds.size === 0) return [];
 
   return board.columns.flatMap((column) =>
     column.cards
-      .filter((card) => selection.cardIds.has(card.id))
+      .filter((card) => selection.pageIds.has(card.id))
       .map((card) => ({
         card,
         columnId: column.id,
@@ -78,27 +78,27 @@ export function resolveSelectedCardEntries(
 export function resolveDragGroup(
   board: BoardSummary | null,
   selection: CardSelectionState,
-  activeCard: {
-    card: CardSummary;
+  activePage: {
+    card: DatabasePageSummary;
     columnId: string;
   },
 ): SelectedCardEntry[] {
-  if (!selection.cardIds.has(activeCard.card.id) || selection.cardIds.size <= 1) {
+  if (!selection.pageIds.has(activePage.card.id) || selection.pageIds.size <= 1) {
     return [{
-      card: activeCard.card,
-      columnId: activeCard.columnId,
-      columnName: board?.columns.find((column) => column.id === activeCard.columnId)?.name
-        ?? activeCard.columnId,
+      card: activePage.card,
+      columnId: activePage.columnId,
+      columnName: board?.columns.find((column) => column.id === activePage.columnId)?.name
+        ?? activePage.columnId,
     }];
   }
 
   const selectedEntries = resolveSelectedCardEntries(board, selection);
   if (selectedEntries.length === 0) {
     return [{
-      card: activeCard.card,
-      columnId: activeCard.columnId,
-      columnName: board?.columns.find((column) => column.id === activeCard.columnId)?.name
-        ?? activeCard.columnId,
+      card: activePage.card,
+      columnId: activePage.columnId,
+      columnName: board?.columns.find((column) => column.id === activePage.columnId)?.name
+        ?? activePage.columnId,
     }];
   }
 

@@ -34,8 +34,8 @@ export interface BlockTransferDropBoundary {
   readonly projectId: string;
   readonly documentId: string;
   readonly storeEpoch: string;
-  readonly hostCardId?: string;
-  readonly ancestorCardIds: readonly string[];
+  readonly hostPageId?: string;
+  readonly ancestorPageIds: readonly string[];
   readonly transfer: (
     intent: PublicBlockTransferIntent,
   ) => Promise<BlockTransferCommandResult>;
@@ -191,8 +191,8 @@ export const setupBlockTransferDocumentDrop = (
     ) {
       return false;
     }
-    const forbidden = new Set(boundary.ancestorCardIds);
-    if (boundary.hostCardId) forbidden.add(boundary.hostCardId);
+    const forbidden = new Set(boundary.ancestorPageIds);
+    if (boundary.hostPageId) forbidden.add(boundary.hostPageId);
     return source.dragItems.every((item) => !forbidden.has(item.card.id));
   };
   const updateIndicator = (
@@ -205,7 +205,7 @@ export const setupBlockTransferDocumentDrop = (
       "data-block-transfer-drop-label",
       blockTransferDropLabel(
         resolveCrossSurfaceTransferMode({ altKey }),
-        "document",
+        "page",
       ),
     );
     indicator ??= createIndicator(container);
@@ -261,21 +261,23 @@ export const setupBlockTransferDocumentDrop = (
       );
       const target = resolveBlockTransferDocumentTarget(editor, anchor);
       const intent: PublicBlockTransferIntent = {
-        version: 1,
+        version: 2,
         operationId: boundary.createOperationId(),
         projectId: boundary.projectId,
         storeEpoch: boundary.storeEpoch,
         mode: resolveCrossSurfaceTransferMode(location.current.input),
         rootBlockIds: source.data.dragItems.map((item) => item.card.id),
         source: {
-          kind: "database",
-          databaseBlockId: source.data.databaseBlockId,
+          kind: "data_source",
+          dataSourceId: source.data.dataSourceId,
         },
-        target: {
-          kind: "document",
-          documentId: boundary.documentId,
-          ...target,
-        },
+        target: boundary.hostPageId
+          ? { kind: "page", pageId: boundary.hostPageId, ...target }
+          : {
+              kind: "document",
+              documentId: boundary.documentId,
+              ...target,
+            },
       };
       clear();
       void boundary
@@ -320,8 +322,8 @@ export const setupBlockTransferDocumentDrop = (
     ) {
       return false;
     }
-    const forbidden = new Set(boundary.ancestorCardIds);
-    if (boundary.hostCardId) forbidden.add(boundary.hostCardId);
+    const forbidden = new Set(boundary.ancestorPageIds);
+    if (boundary.hostPageId) forbidden.add(boundary.hostPageId);
     return payload.rootBlockIds.every((blockId) => !forbidden.has(blockId));
   };
   const claimManagedEvent = (event: DragEvent): void => {
@@ -334,8 +336,10 @@ export const setupBlockTransferDocumentDrop = (
     claimManagedEvent(event);
 
     if (
-      session.payload.source.kind === "document" &&
-      session.payload.source.documentId === boundary.documentId
+      (session.payload.source.kind === "page" &&
+        session.payload.source.pageId === boundary.hostPageId) ||
+      (session.payload.source.kind === "document" &&
+        session.payload.source.documentId === boundary.documentId)
     ) {
       event.dataTransfer!.dropEffect = "none";
       clear();
@@ -368,8 +372,10 @@ export const setupBlockTransferDocumentDrop = (
     endLocalBlockDragSession({ sessionId: session.sessionId });
 
     if (
-      session.payload.source.kind === "document" &&
-      session.payload.source.documentId === boundary.documentId
+      (session.payload.source.kind === "page" &&
+        session.payload.source.pageId === boundary.hostPageId) ||
+      (session.payload.source.kind === "document" &&
+        session.payload.source.documentId === boundary.documentId)
     ) {
       boundary.reportError(
         "This Block is already in the same collaborative Document.",
@@ -378,7 +384,7 @@ export const setupBlockTransferDocumentDrop = (
     }
     if (!canTransferPayload(session.payload)) {
       boundary.reportError(
-        "Block transfer belongs to another Project, store generation, or recursive Card boundary.",
+        "Block transfer belongs to another Project, store generation, or recursive Page boundary.",
       );
       return;
     }
@@ -386,18 +392,20 @@ export const setupBlockTransferDocumentDrop = (
     const anchor = resolveAnchor(container, event.clientX, event.clientY);
     const target = resolveBlockTransferDocumentTarget(editor, anchor);
     const intent: PublicBlockTransferIntent = {
-      version: 1,
+      version: 2,
       operationId: boundary.createOperationId(),
       projectId: boundary.projectId,
       storeEpoch: boundary.storeEpoch,
       mode: resolveCrossSurfaceTransferMode(event),
       rootBlockIds: session.payload.rootBlockIds,
       source: session.payload.source,
-      target: {
-        kind: "document",
-        documentId: boundary.documentId,
-        ...target,
-      },
+      target: boundary.hostPageId
+        ? { kind: "page", pageId: boundary.hostPageId, ...target }
+        : {
+            kind: "document",
+            documentId: boundary.documentId,
+            ...target,
+          },
     };
     void boundary
       .transfer(intent)

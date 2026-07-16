@@ -52,7 +52,7 @@ export const persistLegacyCanvasYjsMaterialization = (
       JSON.stringify(input.materialization.elements),
       JSON.stringify(input.materialization.appState),
       JSON.stringify(input.materialization.files),
-      JSON.stringify(input.materialization.cardReferences),
+      JSON.stringify(input.materialization.pageReferences),
       input.materialization.plainText,
       input.materialization.preview,
       input.updatedAt,

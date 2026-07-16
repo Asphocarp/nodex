@@ -9,9 +9,9 @@ import {
 } from "../../lib/db-view-prefs";
 import { resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import { estimateStyles } from "@/lib/types";
-import type { CardSummary } from "@/lib/types";
+import type { DatabasePageSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
+import { buildPageSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import { buildSortKeyWithEmptyPlacement } from "@/lib/sort-empty-placement";
 import {
   ChevronUp,
@@ -26,8 +26,8 @@ import type { ReactNode } from "react";
 import { StatusChip } from "@/lib/status-chip";
 import { useRetainedScrollPosition } from "@/lib/retained-scroll-position";
 
-// Card with column info attached
-interface CardWithColumn extends CardSummary {
+// Page with column info attached
+interface CardWithColumn extends DatabasePageSummary {
   columnId: string;
   columnName: string;
   boardIndex: number;
@@ -93,13 +93,13 @@ interface ListViewProps {
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
   onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
-  openCardStage: (
+  openPageStage: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
   ) => void;
-  cardStageCardId: string | undefined;
-  cardStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  pageStagePageId: string | undefined;
+  pageStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   scrollStateKey?: string | null;
 }
 
@@ -109,9 +109,9 @@ export function ListView({
   searchQuery,
   dbViewPrefs,
   onUpdateDbViewPrefs,
-  openCardStage,
-  cardStageCardId,
-  cardStageCloseRef,
+  openPageStage,
+  pageStagePageId,
+  pageStageCloseRef,
   scrollStateKey,
 }: ListViewProps) {
   const {
@@ -139,11 +139,11 @@ export function ListView({
   const cardsWithColumn = useMemo<DbViewCardRecord[]>(() => {
     if (!board) return [];
     return board.columns.flatMap((col, columnIndex) =>
-      col.cards.map((card, cardIndex) => ({
+      col.cards.map((card, pageIndex) => ({
         ...card,
         columnId: col.id,
         columnName: col.name,
-        boardIndex: columnIndex * 100_000 + cardIndex,
+        boardIndex: columnIndex * 100_000 + pageIndex,
       }))
     );
   }, [board]);
@@ -160,7 +160,7 @@ export function ListView({
     if (searchTokens.length === 0) return filteredByRules;
     return filteredByRules.filter((card) =>
       matchesSearchTokens(
-        `${buildCardSearchText(card)} ${card.columnName.toLowerCase()}`,
+        `${buildPageSearchText(card)} ${card.columnName.toLowerCase()}`,
         searchTokens
       )
     );
@@ -196,13 +196,13 @@ export function ListView({
     });
   };
 
-  // Handle row click to open/toggle CardStage
+  // Handle row click to open/toggle PageStage
   const handleRowClick = async (card: CardWithColumn) => {
-    if (cardStageCardId === card.id) {
-      await cardStageCloseRef?.current?.();
+    if (pageStagePageId === card.id) {
+      await pageStageCloseRef?.current?.();
       return;
     }
-    openCardStage(projectId, card.id, card.title);
+    openPageStage(projectId, card.id, card.title);
   };
 
   // Resize handlers
@@ -386,7 +386,7 @@ export function ListView({
                     "cursor-pointer border-b border-(--table-border)",
                     "hover:bg-(--row-hover)",
                     "transition-colors duration-100",
-                    cardStageCardId === card.id && "bg-(--blue-bg)"
+                    pageStagePageId === card.id && "bg-(--blue-bg)"
                   )}
                 >
                   {/* Tags */}

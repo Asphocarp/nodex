@@ -24,6 +24,10 @@ import {
 const PROJECTS: Project[] = [
   {
     id: "alpha",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Project alpha",
     description: "",
     sources: [],
@@ -35,6 +39,10 @@ const PROJECTS: Project[] = [
   },
   {
     id: "beta",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Project beta",
     description: "",
     sources: [],

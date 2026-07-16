@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { TextActionLinkIcon } from "@/components/shared/icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
-import type { BoardSummary, CardSummary, CodexThreadSummary, Project } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
@@ -24,6 +24,10 @@ const STORY_DATE = new Date("2026-01-01T00:00:00.000Z");
 function makeStoryProject(id: string, name: string, icon?: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon,
@@ -36,7 +40,7 @@ function makeStoryProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeStoryCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+function makeStoryCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
   return {
     id,
     status,
@@ -214,7 +218,7 @@ function TextActionMenuStorySurface(
           nodexRows={[]}
           showReferenceMocks
           sourceProjectId={null}
-          sourceCardId={null}
+          sourcePageId={null}
           onSelectBlockType={() => undefined}
           onToggleStyle={() => undefined}
           onSetTextColor={() => undefined}
@@ -296,7 +300,7 @@ function TextActionMoreHandoffStorySurface() {
             canUseBackgroundColor={true}
             canSendBlocks={true}
             sourceProjectId="default"
-            sourceCardId="source-card"
+            sourcePageId="source-card"
             textColor="default"
             backgroundColor="default"
             footerPrimary="Selected text spans two blocks"
@@ -378,7 +382,7 @@ function TextActionMoreHandoffStorySurface() {
             ]}
             showReferenceMocks
             sourceProjectId="default"
-            sourceCardId="source-card"
+            sourcePageId="source-card"
             onSelectBlockType={() => undefined}
             onToggleStyle={() => undefined}
             onSetTextColor={() => undefined}
@@ -489,7 +493,7 @@ export const WithNodexActions: Story = {
       },
     ],
     sourceProjectId: "default",
-    sourceCardId: "source-card",
+    sourcePageId: "source-card",
     sendToThreadProjectNameById: { default: "Default" },
     sendToThreadPreferredTarget: STORY_SEND_TO_THREAD_SUMMARIES[0]
       ? {

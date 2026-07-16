@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import { MAX_CARD_TITLE_LENGTH } from "../../shared/card-limits";
+import { MAX_PAGE_TITLE_LENGTH } from "../../shared/page-limits";
 import {
   YTextInputReconciliationError,
   applyYTextInputReconciliation,
@@ -115,7 +115,7 @@ describe("Y.Text title input", () => {
       applyYTextInputReconciliation({
         text,
         baseValue: "Safe",
-        draftValue: `${"a".repeat(MAX_CARD_TITLE_LENGTH - 1)}😀`,
+        draftValue: `${"a".repeat(MAX_PAGE_TITLE_LENGTH - 1)}😀`,
         origin: "local-title",
       });
     } catch (caught) {

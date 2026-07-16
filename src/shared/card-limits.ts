@@ -1,6 +1,0 @@
-export const MAX_CARD_WRITE_BODY_BYTES = 2 * 1024 * 1024; // 2 MiB
-export const MAX_CARD_TITLE_LENGTH = 2_000;
-export const MAX_CARD_DESCRIPTION_LENGTH = 1_000_000;
-export const MAX_CARD_TAG_COUNT = 64;
-export const MAX_CARD_TAG_LENGTH = 64;
-export const MAX_CARD_ASSIGNEE_LENGTH = 256;

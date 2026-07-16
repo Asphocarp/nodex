@@ -7,7 +7,7 @@ import {
   isChildlessBlockContainer,
   type ScannedDocumentBlock,
 } from "./block-structure";
-import { assertValidCardDocumentRoots } from "./card-document";
+import { assertValidPageDocumentRoots } from "./page-document";
 import { MAX_BLOCK_ID_LENGTH, type BlockId } from "./contracts";
 import {
   decodeXmlSubtree,
@@ -161,7 +161,7 @@ const resolveElementAtPath = (
   if (parent instanceof Y.XmlElement) return parent;
   throw new BlockSubtreeOperationError(
     "invalid_document",
-    "The Card body path did not resolve to a Block container",
+    "The Page body path did not resolve to a Block container",
   );
 };
 
@@ -181,7 +181,7 @@ const validateDocumentBody = (
     if (error instanceof BlockSubtreeOperationError) throw error;
     throw new BlockSubtreeOperationError(
       "invalid_document",
-      "Card Document structure is invalid for subtree operations",
+      "Page Document structure is invalid for subtree operations",
       { cause: error },
     );
   }
@@ -197,7 +197,7 @@ const readCanonicalRootGroup = (body: Y.XmlFragment): Y.XmlElement => {
   }
   throw new BlockSubtreeOperationError(
     "invalid_document",
-    "Card Document body is missing its canonical root blockGroup",
+    "Page Document body is missing its canonical root blockGroup",
   );
 };
 
@@ -677,9 +677,9 @@ export const relocateBlockSubtrees = ({
   transactionOrigin,
 }: RelocateBlockSubtreesInput): BlockSubtreeRelocationResult => {
   const sourceBody =
-    registeredSourceBody ?? assertValidCardDocumentRoots(sourceDocument).body;
+    registeredSourceBody ?? assertValidPageDocumentRoots(sourceDocument).body;
   const targetBody =
-    registeredTargetBody ?? assertValidCardDocumentRoots(targetDocument).body;
+    registeredTargetBody ?? assertValidPageDocumentRoots(targetDocument).body;
   const sameDocument = sourceDocument === targetDocument;
   const sourceIndex = indexBlockDocumentTree(sourceBody);
   const targetIndex = sameDocument

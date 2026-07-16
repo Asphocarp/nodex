@@ -1,38 +1,54 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type {
-  DatabaseReadSnapshot,
-  DatabaseViewSnapshot,
-  GeneralDatabaseDescriptor,
-  GeneralDatabaseViewQuery,
-} from "../../shared/database-query";
+  DatabaseModuleReadSnapshot,
+  DatabaseViewQueryResult,
+} from "../../shared/database-module";
 import { buildDatabaseViewRenderModel } from "./database-view-render-model";
 
+const timestamp = "2026-07-12T00:00:00.000Z";
 const projectId = "project-alpha";
-const databaseBlockId = "database-alpha";
+const libraryId = "library-alpha";
+const databaseId = "database-alpha";
+const dataSourceId = "source-alpha";
 const viewId = "view-alpha";
 const statusPropertyId = "property-status";
 const tagsPropertyId = "property-tags";
-
-const wrap = <T>(value: T): DatabaseReadSnapshot<T> => ({
-  version: 1,
-  projectId,
-  storeEpoch: "epoch-alpha",
-  changeLogSeq: 7,
-  value,
-});
 
 const makeSnapshot = (input: {
   readonly primary?: boolean;
   readonly groupedByStatus?: boolean;
   readonly viewId?: string;
   readonly title?: string;
-} = {}): DatabaseViewSnapshot => {
+} = {}): DatabaseModuleReadSnapshot => {
   const resolvedViewId = input.viewId ?? viewId;
+  const database = {
+    databaseId,
+    libraryId,
+    name: "Tasks",
+    lifecycle: "active" as const,
+    defaultViewId: input.primary === false ? viewId : resolvedViewId,
+    accessRevision: 1,
+    metadataRevision: 2,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  const dataSource = {
+    dataSourceId,
+    libraryId,
+    homeDatabaseId: databaseId,
+    name: "Pages",
+    schemaKey: "nodex.pages",
+    schemaRevision: 4,
+    lifecycle: "active" as const,
+    rankKey: "a",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
   const view = {
-    id: resolvedViewId,
-    databaseBlockId,
-    projectId,
+    viewId: resolvedViewId,
+    databaseId,
+    dataSourceId,
     name: input.primary === false ? "Focused work" : "Primary board",
     kind: "kanban" as const,
     config: {
@@ -49,17 +65,17 @@ const makeSnapshot = (input: {
         : { propertyId: statusPropertyId },
       display: { propertyIds: [statusPropertyId, tagsPropertyId], showTitle: true },
     },
-    isPrimary: input.primary !== false,
+    isDefault: input.primary !== false,
     revision: 3,
     rankKey: "a",
     lifecycle: "active" as const,
-    createdAt: "2026-07-12T00:00:00.000Z",
-    updatedAt: "2026-07-12T00:00:00.000Z",
+    createdAt: timestamp,
+    updatedAt: timestamp,
   };
   const properties = [
     {
-      id: statusPropertyId,
-      databaseBlockId,
+      propertyId: statusPropertyId,
+      dataSourceId,
       key: "status",
       name: "Status",
       valueType: "select" as const,
@@ -67,12 +83,12 @@ const makeSnapshot = (input: {
       rankKey: "a",
       lifecycle: "active" as const,
       revision: 1,
-      createdAt: "2026-07-12T00:00:00.000Z",
-      updatedAt: "2026-07-12T00:00:00.000Z",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
     {
-      id: tagsPropertyId,
-      databaseBlockId,
+      propertyId: tagsPropertyId,
+      dataSourceId,
       key: "tags",
       name: "Tags",
       valueType: "multi_select" as const,
@@ -80,58 +96,39 @@ const makeSnapshot = (input: {
       rankKey: "b",
       lifecycle: "active" as const,
       revision: 1,
-      createdAt: "2026-07-12T00:00:00.000Z",
-      updatedAt: "2026-07-12T00:00:00.000Z",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
   ];
-  const database = {
-    blockId: databaseBlockId,
-    projectId,
-    name: "Tasks",
-    isPrimary: true,
-    schemaKey: "nodex.database",
-    schemaRevision: 4,
-    metadataRevision: 2,
-    createdAt: "2026-07-12T00:00:00.000Z",
-    updatedAt: "2026-07-12T00:00:00.000Z",
-  };
-  const descriptor: GeneralDatabaseDescriptor = {
+  const title = input.title ?? "Canonical Page";
+  const query: DatabaseViewQueryResult = {
     database,
-    properties,
-    views: [view],
-  };
-  const query: GeneralDatabaseViewQuery = {
-    database,
+    dataSource,
     properties,
     view,
     rows: [{
       membership: {
-        id: "membership-1",
-        databaseBlockId,
-        cardBlockId: "card-1",
+        membershipId: "membership-1",
+        dataSourceId,
         revision: 1,
-        createdAt: "2026-07-12T00:00:00.000Z",
+        createdAt: timestamp,
       },
-      card: {
-        blockId: "card-1",
-        projectId,
+      page: {
+        pageId: "page-1",
+        libraryId,
+        parent: { kind: "data_source", dataSourceId },
         lifecycle: "active",
-        location: { kind: "space", rankKey: "a" },
-        locationRevision: 1,
+        parentRevision: 1,
         metadataRevision: 9,
         documentId: "document-1",
         documentGeneration: 1,
         documentHeadSeq: 5,
-        documentAuthority: "ydoc_primary",
-        content: {
-          projectedSeq: 5,
-          title: input.title ?? "Canonical Card",
-          richTitle: plainTextToPortableRichText(input.title ?? "Canonical Card"),
-          preview: "One line",
-          plainText: "One line body",
-        },
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
+        title,
+        richTitle: plainTextToPortableRichText(title),
+        preview: "One line",
+        plainText: "One line body",
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
       values: {
         [statusPropertyId]: {
@@ -143,7 +140,7 @@ const makeSnapshot = (input: {
         [tagsPropertyId]: {
           propertyId: tagsPropertyId,
           valueType: "multi_select",
-          value: ["sync", "block-first"],
+          value: ["sync", "page-first"],
           revision: 1,
         },
       },
@@ -151,21 +148,27 @@ const makeSnapshot = (input: {
       effectiveGroupKey: input.groupedByStatus === false ? null : "in_progress",
     }],
   };
-  return { descriptor: wrap(descriptor), query: wrap(query) };
+  return {
+    version: 1,
+    projectId,
+    libraryId,
+    storeEpoch: "epoch-alpha",
+    changeLogSeq: 7,
+    value: { kind: "query", value: query },
+  };
 };
 
 describe("Database View render model", () => {
-  test("projects one selected durable View query into the primary Board surface", () => {
+  test("projects the default single-Source View into the compatibility Board surface", () => {
     const model = buildDatabaseViewRenderModel(makeSnapshot());
     expect(model.databaseViewId).toBe(viewId);
+    expect(model.dataSourceId).toBe(dataSourceId);
     expect(model.primaryWriteCompatible).toBe(true);
-    expect(model.columns[2]?.rows[0]?.title).toBe("Canonical Card");
-    expect(model.columns[2]?.rows[0]?.tags.join(",")).toBe(
-      "sync,block-first",
-    );
+    expect(model.columns[2]?.rows[0]?.title).toBe("Canonical Page");
+    expect(model.columns[2]?.rows[0]?.tags).toEqual(["sync", "page-first"]);
   });
 
-  test("keeps secondary View identity and rows while failing writes closed", () => {
+  test("keeps a secondary View writable through its own canonical identity", () => {
     const model = buildDatabaseViewRenderModel(makeSnapshot({
       primary: false,
       viewId: "view-focused",
@@ -173,27 +176,23 @@ describe("Database View render model", () => {
     }));
     expect(model.databaseViewId).toBe("view-focused");
     expect(model.primaryWriteCompatible).toBe(false);
-    expect(model.readOnlyReason?.includes("selected View identity") ?? false).toBe(true);
-    expect(model.columns[2]?.rows[0]?.title).toBe(
-      "Only in focused view",
-    );
+    expect(model.readOnlyReason).toBe(null);
+    expect(model.columns[2]?.rows[0]?.title).toBe("Only in focused view");
   });
 
-  test("preserves ordered rows for a non-status grouped read-only View", () => {
+  test("preserves ordered Pages for a non-status grouped View", () => {
     const model = buildDatabaseViewRenderModel(makeSnapshot({
       primary: false,
       groupedByStatus: false,
     }));
-    expect(model.primaryWriteCompatible).toBe(false);
-    expect(model.columns.length).toBe(1);
-    expect(model.columns[0]?.rows[0]?.blockId).toBe("card-1");
+    expect(model.columns).toHaveLength(1);
+    expect(model.columns[0]?.rows[0]?.pageId).toBe("page-1");
   });
 
-  test("builds generic Board columns from stable select option identities", () => {
+  test("builds generic columns from stable select option identities", () => {
     const snapshot = makeSnapshot({ primary: false });
-    const descriptor = snapshot.descriptor.value;
-    const query = snapshot.query.value;
-    if (!descriptor || !query) throw new Error("Missing Database View fixture");
+    if (snapshot.value.kind !== "query") throw new Error("Missing query fixture");
+    const query = snapshot.value.value;
     const workflowProperty = {
       ...query.properties[0]!,
       key: "workflow",
@@ -202,26 +201,19 @@ describe("Database View render model", () => {
     };
     const properties = [workflowProperty, ...query.properties.slice(1)];
     const model = buildDatabaseViewRenderModel({
-      descriptor: {
-        ...snapshot.descriptor,
-        value: { ...descriptor, properties },
-      },
-      query: {
-        ...snapshot.query,
-        value: { ...query, properties },
-      },
+      ...snapshot,
+      value: { kind: "query", value: { ...query, properties } },
     });
     expect(model.primaryWriteCompatible).toBe(false);
     expect(model.columns[0]?.id).toBe("in_progress");
     expect(model.columns[0]?.name).toBe("Doing");
-    expect(model.columns[0]?.rows[0]?.blockId).toBe("card-1");
+    expect(model.columns[0]?.rows[0]?.pageId).toBe("page-1");
   });
 
-  test("does not route a filtered primary View through the unfiltered Board adapter", () => {
+  test("does not route a filtered default View through the unfiltered Board adapter", () => {
     const snapshot = makeSnapshot();
-    const descriptor = snapshot.descriptor.value;
-    const query = snapshot.query.value;
-    if (!descriptor || !query) throw new Error("Missing Database View fixture");
+    if (snapshot.value.kind !== "query") throw new Error("Missing query fixture");
+    const query = snapshot.value.value;
     const filteredView = {
       ...query.view,
       config: {
@@ -235,30 +227,33 @@ describe("Database View render model", () => {
       },
     };
     const model = buildDatabaseViewRenderModel({
-      descriptor: {
-        ...snapshot.descriptor,
-        value: { ...descriptor, views: [filteredView] },
-      },
-      query: {
-        ...snapshot.query,
+      ...snapshot,
+      value: {
+        kind: "query",
         value: { ...query, view: filteredView },
       },
     });
     expect(model.primaryWriteCompatible).toBe(false);
   });
 
-  test("rejects descriptor and query snapshots from different cursors", () => {
+  test("rejects resources from a different Library", () => {
     const snapshot = makeSnapshot();
-    const mismatched: DatabaseViewSnapshot = {
+    if (snapshot.value.kind !== "query") throw new Error("Missing query fixture");
+    const mismatched: DatabaseModuleReadSnapshot = {
       ...snapshot,
-      query: { ...snapshot.query, changeLogSeq: 8 },
+      value: {
+        kind: "query",
+        value: {
+          ...snapshot.value.value,
+          dataSource: {
+            ...snapshot.value.value.dataSource,
+            libraryId: "library-other",
+          },
+        },
+      },
     };
-    let message = "";
-    try {
-      buildDatabaseViewRenderModel(mismatched);
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-    }
-    expect(message.includes("one authority cursor")).toBe(true);
+    expect(() => buildDatabaseViewRenderModel(mismatched)).toThrow(
+      "mismatched Library resource identity",
+    );
   });
 });

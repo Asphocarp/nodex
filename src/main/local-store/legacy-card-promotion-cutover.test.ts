@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
-  materializeCardDocument,
+  materializePageDocument,
   type BlockTreeNode,
 } from "../../shared/block-documents/block-document-codec";
 import { applyDocumentOperationBatch } from "./block-document-operations";
@@ -12,9 +12,9 @@ import {
   compactBlockDocument,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import { applyCardLifecycleMutation } from "./card-block-lifecycle";
+import { applyPageLifecycleMutation } from "./page-lifecycle";
 import { maintainBlockRetention } from "./block-retention-maintenance";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   assertLegacyCardPromotionCutoverReady,
@@ -165,7 +165,7 @@ const seedHistoricalPromotionEvidence = (input: {
   });
 };
 
-const readCardDocument = (cardId: string): {
+const readPageDocument = (cardId: string): {
   readonly documentId: string;
   readonly generation: number;
   readonly headSeq: number;
@@ -187,7 +187,7 @@ const readCardDocument = (cardId: string): {
   };
   const loaded = loadPrimaryBlockDocument(database, row.document_id);
   try {
-    const roots = materializeCardDocument(loaded.document).blockTree;
+    const roots = materializePageDocument(loaded.document).blockTree;
     const root = roots[0];
     if (!root) throw new Error(`Card ${cardId} has no body root`);
     return {
@@ -219,15 +219,15 @@ describe("legacy Card promotion cutover", () => {
     process.env.NODEX_DIR = directory;
     await initializeDatabase();
     const project = createProject({ name: "Cutover" });
-    const safe = await createCard(project.id, "backlog", {
+    const safe = await createPage(project.id, "backlog", {
       title: "Safe promoted root",
       description: "Safe promoted root\n\tSafe child",
     });
-    const divergent = await createCard(project.id, "backlog", {
+    const divergent = await createPage(project.id, "backlog", {
       title: "Original promoted root",
       description: "Original promoted root",
     });
-    const editedRoot = await createCard(project.id, "backlog", {
+    const editedRoot = await createPage(project.id, "backlog", {
       title: "Edited promoted root",
       description: "Edited promoted root",
     });
@@ -237,9 +237,9 @@ describe("legacy Card promotion cutover", () => {
         .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
         .get() as { readonly store_epoch: string }
     ).store_epoch;
-    const safeDocument = readCardDocument(safe.id);
-    const divergentDocument = readCardDocument(divergent.id);
-    const editedRootDocument = readCardDocument(editedRoot.id);
+    const safeDocument = readPageDocument(safe.id);
+    const divergentDocument = readPageDocument(divergent.id);
+    const editedRootDocument = readPageDocument(editedRoot.id);
     seedHistoricalPromotionEvidence({
       projectId: project.id,
       storeEpoch,
@@ -334,7 +334,7 @@ describe("legacy Card promotion cutover", () => {
     ]));
     expect(result.issues).toHaveLength(2);
 
-    const repaired = readCardDocument(safe.id);
+    const repaired = readPageDocument(safe.id);
     const expectedChildId = safeDocument.root.children[0]?.id;
     expect(repaired.root.id).toBe(expectedChildId);
     expect(
@@ -375,11 +375,11 @@ describe("legacy Card promotion cutover", () => {
     process.env.NODEX_DIR = directory;
     await initializeDatabase();
     const project = createProject({ name: "Copy cutover" });
-    const copied = await createCard(project.id, "backlog", {
+    const copied = await createPage(project.id, "backlog", {
       title: "Copied root",
       description: "Copied root\n\tLifted child\nFollowing sibling",
     });
-    const leaf = await createCard(project.id, "backlog", {
+    const leaf = await createPage(project.id, "backlog", {
       title: "Copied leaf",
       description: "Copied leaf",
     });
@@ -389,8 +389,8 @@ describe("legacy Card promotion cutover", () => {
         .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
         .get() as { readonly store_epoch: string }
     ).store_epoch;
-    const copiedBefore = readCardDocument(copied.id);
-    const leafBefore = readCardDocument(leaf.id);
+    const copiedBefore = readPageDocument(copied.id);
+    const leafBefore = readPageDocument(leaf.id);
     const followingSiblingId = copiedBefore.roots[1]?.id;
     const liftedChildId = copiedBefore.root.children[0]?.id;
     seedHistoricalPromotionEvidence({
@@ -422,7 +422,7 @@ describe("legacy Card promotion cutover", () => {
       new Set([copied.id, leaf.id]),
     );
     expect(result.issues).toEqual([]);
-    const copiedAfter = readCardDocument(copied.id);
+    const copiedAfter = readPageDocument(copied.id);
     expect(copiedAfter.roots.map(({ id }) => id)).toEqual([
       liftedChildId,
       followingSiblingId,
@@ -430,7 +430,7 @@ describe("legacy Card promotion cutover", () => {
     expect(copiedAfter.root.content).toEqual(
       copiedBefore.root.children[0]?.content,
     );
-    const leafAfter = readCardDocument(leaf.id);
+    const leafAfter = readPageDocument(leaf.id);
     expect(leafAfter.roots).toHaveLength(1);
     expect(leafAfter.root.type).toBe("paragraph");
     expect(leafAfter.root.content).toEqual([]);
@@ -449,7 +449,7 @@ describe("legacy Card promotion cutover", () => {
     process.env.NODEX_DIR = directory;
     await initializeDatabase();
     const project = createProject({ name: "Retired cutover" });
-    const card = await createCard(project.id, "backlog", {
+    const card = await createPage(project.id, "backlog", {
       title: "Historical title",
       description: "Historical title",
     });
@@ -459,7 +459,7 @@ describe("legacy Card promotion cutover", () => {
         .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
         .get() as { readonly store_epoch: string }
     ).store_epoch;
-    const before = readCardDocument(card.id);
+    const before = readPageDocument(card.id);
     seedHistoricalPromotionEvidence({
       projectId: project.id,
       storeEpoch,
@@ -503,17 +503,17 @@ describe("legacy Card promotion cutover", () => {
       readonly metadata_revision: number;
       readonly location_revision: number;
     };
-    const deleted = applyCardLifecycleMutation(database, {
+    const deleted = applyPageLifecycleMutation(database, {
       version: 1,
       operationId: "delete-retired-promotion-card",
       projectId: project.id,
       storeEpoch,
       actor: { kind: "test" },
       operation: {
-        kind: "delete_card",
-        cardId: card.id,
+        kind: "delete_page",
+        pageId: card.id,
         expectedMetadataRevision: coordinate.metadata_revision,
-        expectedLocationRevision: coordinate.location_revision,
+        expectedParentRevision: coordinate.location_revision,
       },
     });
     expect(deleted.ok).toBe(true);
@@ -545,7 +545,7 @@ describe("legacy Card promotion cutover", () => {
            WHERE block_id = ? AND project_id = ?`,
         )
         .get(card.id, project.id),
-    ).toEqual({ block_type: "card" });
+    ).toEqual({ block_type: "page" });
     expect(assertLegacyCardPromotionCutoverReady(database)).toEqual({
       repairedCardIds: [],
       issues: [],

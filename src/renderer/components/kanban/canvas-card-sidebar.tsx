@@ -3,7 +3,7 @@ import { Sidebar } from "@excalidraw/excalidraw";
 import { Search, Plus, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { BoardSummary, CardSummary } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
 
 const PRIORITY_LABELS: Record<string, string> = {
   "p0-critical": "P0",
@@ -23,14 +23,14 @@ const PRIORITY_CLASSES: Record<string, string> = {
 
 interface CanvasCardSidebarProps {
   board: BoardSummary | null;
-  placedCardIds: Set<string>;
-  onPlaceCard: (card: CardSummary, columnId: string) => void;
+  placedPageIds: Set<string>;
+  onPlaceCard: (card: DatabasePageSummary, columnId: string) => void;
   onCreateAndPlace: () => void;
 }
 
 export function CanvasCardSidebar({
   board,
-  placedCardIds,
+  placedPageIds,
   onPlaceCard,
   onCreateAndPlace,
 }: CanvasCardSidebarProps) {
@@ -38,7 +38,7 @@ export function CanvasCardSidebar({
 
   const allCards = useMemo(() => {
     if (!board) return [];
-    const cards: { card: CardSummary; columnId: string; columnName: string }[] = [];
+    const cards: { card: DatabasePageSummary; columnId: string; columnName: string }[] = [];
     for (const col of board.columns) {
       for (const card of col.cards) {
         cards.push({ card, columnId: col.id, columnName: col.name });
@@ -54,7 +54,7 @@ export function CanvasCardSidebar({
   }, [allCards, search]);
 
   const handlePlace = useCallback(
-    (card: CardSummary, columnId: string) => {
+    (card: DatabasePageSummary, columnId: string) => {
       onPlaceCard(card, columnId);
     },
     [onPlaceCard],
@@ -64,7 +64,7 @@ export function CanvasCardSidebar({
     <Sidebar name="cards" docked={false}>
       <Sidebar.Header>
         <div className="flex items-center gap-2 text-sm font-medium">
-          Cards
+          Pages
         </div>
       </Sidebar.Header>
       <Sidebar.Tabs>
@@ -76,7 +76,7 @@ export function CanvasCardSidebar({
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search cards..."
+                placeholder="Search Pages..."
                 className="h-7 pl-7 text-xs"
               />
             </div>
@@ -103,7 +103,7 @@ export function CanvasCardSidebar({
                 </div>
               )}
               {filtered.map(({ card, columnId, columnName }) => {
-                const isPlaced = placedCardIds.has(card.id);
+                const isPlaced = placedPageIds.has(card.id);
                 return (
                   <button
                     key={card.id}

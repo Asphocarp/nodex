@@ -23,6 +23,7 @@ const request = (): BlockTransferRequest => ({
   source: {
     kind: "database",
     databaseBlockId: "database-a",
+    dataSourceId: "source-a",
     memberships: {
       "card-1": { membershipId: "membership-a", revision: 4 },
     },
@@ -53,8 +54,8 @@ describe("BlockTransfer contract", () => {
     const logical = blockTransferIntentFromRequest(request());
     expect(parseBlockTransferIntent(logical)).toEqual(logical);
     expect(logical.source).toEqual({
-      kind: "database",
-      databaseBlockId: "database-a",
+      kind: "data_source",
+      dataSourceId: "source-a",
     });
     expect(logical.target).toEqual({
       kind: "document",

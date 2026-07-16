@@ -3,15 +3,15 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 
 import type { OwnedDocumentDescriptor } from "../../../shared/block-documents/contracts";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../../shared/block-documents";
 import type { DocumentVersionDetail } from "../../../shared/block-documents/document-history";
-import type { CardHistoryEntry, CardHistoryPage } from "../../../shared/card-history";
+import type { PageHistoryEntry, PageHistoryPage } from "../../../shared/page-history";
 import { render, textContent } from "../../test/dom";
-import { mergeCardHistoryEntries } from "./card-history-view-model";
+import { mergePageHistoryEntries } from "./page-history-view-model";
 import { HistoryPanel } from "./history-panel";
 
 type HistoryPanelApiOperation =
-  | "listCardHistory"
+  | "listPageHistory"
   | "getDocumentVersion"
   | "getOwnedDocumentDescriptor"
   | "restoreDocumentVersion";
@@ -31,7 +31,7 @@ const callHistoryPanelApi = async (
 };
 
 vi.mock("./history-panel-deps", () => ({
-  listCardHistory: (...args: unknown[]) => callHistoryPanelApi("listCardHistory", ...args),
+  listPageHistory: (...args: unknown[]) => callHistoryPanelApi("listPageHistory", ...args),
   getDocumentVersion: (...args: unknown[]) => callHistoryPanelApi("getDocumentVersion", ...args),
   getOwnedDocumentDescriptor: (...args: unknown[]) =>
     callHistoryPanelApi("getOwnedDocumentDescriptor", ...args),
@@ -60,7 +60,7 @@ const selectCheckpoint = async (view: ReturnType<typeof render>) => {
   });
 };
 
-describe("canonical Card history panel", () => {
+describe("canonical Page history panel", () => {
   test("previews and forward-restores a Document checkpoint", async () => {
     const checkpoint = makeCheckpointEntry();
     const calls: HistoryPanelApiOperation[] = [];
@@ -69,7 +69,7 @@ describe("canonical Card history panel", () => {
 
     setHistoryPanelApi((operation, ...args) => {
       calls.push(operation);
-      if (operation === "listCardHistory") {
+      if (operation === "listPageHistory") {
         return { ok: true, value: makePage([checkpoint]) };
       }
       if (operation === "getDocumentVersion") {
@@ -88,13 +88,13 @@ describe("canonical Card history panel", () => {
     const view = render(
       <HistoryPanel
         projectId="project-1"
-        cardId="card-1"
-        cardTitle="Current title"
-        cardNfm="Current body"
+        pageId="card-1"
+        pageTitle="Current title"
+        pageNfm="Current body"
         projectWorkspacePath="/workspace/project-1"
         open
         onClose={() => undefined}
-        onCardMutated={() => {
+        onPageMutated={() => {
           mutationCount += 1;
         }}
       />,
@@ -102,10 +102,10 @@ describe("canonical Card history panel", () => {
 
     await waitFor(() => {
       if (!textContent(document.body).includes("Current body")) {
-        throw new Error("Current Card content did not render");
+        throw new Error("Current Page content did not render");
       }
     });
-    expect(calls.includes("listCardHistory")).toBe(true);
+    expect(calls.includes("listPageHistory")).toBe(true);
     expect(calls.includes("getDocumentVersion")).toBe(false);
 
     await selectCheckpoint(view);
@@ -140,7 +140,7 @@ describe("canonical Card history panel", () => {
     let restoreCount = 0;
 
     setHistoryPanelApi((operation) => {
-      if (operation === "listCardHistory") {
+      if (operation === "listPageHistory") {
         return { ok: true, value: makePage([checkpoint]) };
       }
       if (operation === "getDocumentVersion") {
@@ -156,7 +156,7 @@ describe("canonical Card history panel", () => {
     const view = render(
       <HistoryPanel
         projectId="project-1"
-        cardId="card-1"
+        pageId="card-1"
         open
         onClose={() => undefined}
       />,
@@ -189,7 +189,7 @@ describe("canonical Card history panel", () => {
     let descriptorCount = 0;
 
     setHistoryPanelApi((operation, ...args) => {
-      if (operation === "listCardHistory") {
+      if (operation === "listPageHistory") {
         return { ok: true, value: makePage([checkpoint]) };
       }
       if (operation === "getDocumentVersion") {
@@ -220,7 +220,7 @@ describe("canonical Card history panel", () => {
     const view = render(
       <HistoryPanel
         projectId="project-1"
-        cardId="card-1"
+        pageId="card-1"
         open
         onClose={() => undefined}
       />,
@@ -271,7 +271,7 @@ describe("canonical Card history panel", () => {
     let descriptorCount = 0;
 
     setHistoryPanelApi((operation, ...args) => {
-      if (operation === "listCardHistory") {
+      if (operation === "listPageHistory") {
         return { ok: true, value: makePage([checkpoint]) };
       }
       if (operation === "getDocumentVersion") {
@@ -299,7 +299,7 @@ describe("canonical Card history panel", () => {
     const view = render(
       <HistoryPanel
         projectId="project-1"
-        cardId="card-1"
+        pageId="card-1"
         open
         onClose={() => undefined}
       />,
@@ -349,7 +349,7 @@ describe("canonical Card history panel", () => {
         previewCount += 1;
         throw new Error("Mutation evidence must not request a checkpoint preview");
       }
-      if (operation !== "listCardHistory") {
+      if (operation !== "listPageHistory") {
         throw new Error(`Unexpected operation: ${operation}`);
       }
       listCount += 1;
@@ -370,7 +370,7 @@ describe("canonical Card history panel", () => {
     const view = render(
       <HistoryPanel
         projectId="project-1"
-        cardId="card-1"
+        pageId="card-1"
         open
         onClose={() => undefined}
       />,
@@ -380,7 +380,7 @@ describe("canonical Card history panel", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      if (!textContent(document.body).includes("Changed Card properties")) {
+      if (!textContent(document.body).includes("Changed Page properties")) {
         throw new Error("Mutation evidence did not render");
       }
     });
@@ -405,7 +405,7 @@ describe("canonical Card history panel", () => {
     const mutation = makeMutationEntry();
     const relocation = makeRelocationEntry();
 
-    const merged = mergeCardHistoryEntries(
+    const merged = mergePageHistoryEntries(
       [mutation],
       [mutation, relocation],
     );
@@ -427,18 +427,18 @@ function setHistoryPanelApi(
 
 const HASH = "a".repeat(64);
 
-function makeCheckpointEntry(): Extract<CardHistoryEntry, { kind: "document_version" }> {
+function makeCheckpointEntry(): Extract<PageHistoryEntry, { kind: "document_version" }> {
   return {
     id: "document-version:version-1",
     kind: "document_version",
-    projectId: "project-1",
-    cardBlockId: "card-1",
+    libraryId: "library-1",
+    pageId: "card-1",
     documentId: "document-1",
     occurredAt: "2026-07-12T08:00:00.000Z",
     display: {
       category: "checkpoint",
       title: "Manual checkpoint",
-      detail: "Saved before restructuring the Card",
+      detail: "Saved before restructuring the Page",
       actorLabel: "Local window",
     },
     evidence: { status: "verified" },
@@ -451,7 +451,7 @@ function makeCheckpointEntry(): Extract<CardHistoryEntry, { kind: "document_vers
       versionId: "version-1",
       generation: 1,
       baseHeadSeq: 8,
-      schemaKey: "nodex.card",
+      schemaKey: "nodex.page",
       schemaVersion: 1,
       cause: "manual",
       label: "Before restructure",
@@ -465,17 +465,17 @@ function makeCheckpointEntry(): Extract<CardHistoryEntry, { kind: "document_vers
   };
 }
 
-function makeMutationEntry(): Extract<CardHistoryEntry, { kind: "block_mutation" }> {
+function makeMutationEntry(): Extract<PageHistoryEntry, { kind: "block_mutation" }> {
   return {
     id: "change-log:21",
     kind: "block_mutation",
-    projectId: "project-1",
-    cardBlockId: "card-1",
+    libraryId: "library-1",
+    pageId: "card-1",
     documentId: "document-1",
     occurredAt: "2026-07-12T07:00:00.000Z",
     display: {
       category: "property",
-      title: "Changed Card properties",
+      title: "Changed Page properties",
       detail: "Updated two property values",
       actorLabel: "Local window",
     },
@@ -489,37 +489,37 @@ function makeMutationEntry(): Extract<CardHistoryEntry, { kind: "block_mutation"
   };
 }
 
-function makeRelocationEntry(): Extract<CardHistoryEntry, { kind: "block_relocation" }> {
+function makeRelocationEntry(): Extract<PageHistoryEntry, { kind: "block_relocation" }> {
   return {
     id: "change-log:20",
     kind: "block_relocation",
-    projectId: "project-1",
-    cardBlockId: "card-1",
+    libraryId: "library-1",
+    pageId: "card-1",
     documentId: "document-1",
     occurredAt: "2026-07-12T06:00:00.000Z",
     display: {
       category: "location",
       title: "Moved blocks",
-      detail: "Moved two blocks into this Card",
+      detail: "Moved two blocks into this Page",
       actorLabel: null,
     },
     evidence: { status: "verified" },
     recovery: { kind: "unavailable", reason: "no_inverse_contract" },
     changeSeq: 20,
     relocationId: "relocation-20",
-    direction: "into_card",
+    direction: "into_page",
     movedBlockCount: 2,
   };
 }
 
 function makePage(
-  entries: readonly CardHistoryEntry[],
-  nextCursor: CardHistoryPage["nextCursor"] = null,
-): CardHistoryPage {
+  entries: readonly PageHistoryEntry[],
+  nextCursor: PageHistoryPage["nextCursor"] = null,
+): PageHistoryPage {
   return {
     version: 1,
-    projectId: "project-1",
-    cardBlockId: "card-1",
+    libraryId: "library-1",
+    pageId: "card-1",
     documentId: "document-1",
     entries,
     nextCursor,
@@ -534,7 +534,7 @@ function makeVersionDetail(): DocumentVersionDetail {
       projectId: "project-1",
       generation: 1,
       baseHeadSeq: 8,
-      schemaKey: "nodex.card",
+      schemaKey: "nodex.page",
       schemaVersion: 1,
       cause: "manual",
       label: "Before restructure",
@@ -550,14 +550,14 @@ function makeVersionDetail(): DocumentVersionDetail {
       },
       materializationHash: HASH,
       byteLength: 1_024,
-      materializationKind: "card",
+      materializationKind: "page",
       title: "Checkpoint title",
       preview: "Checkpoint body",
       blockCount: 1,
       createdAt: "2026-07-12T08:00:00.000Z",
     },
     materialization: {
-      kind: "card",
+      kind: "page",
       schemaVersion: 1,
       title: "Checkpoint title",
       richTitle: [
@@ -577,14 +577,14 @@ function makeDescriptor(): OwnedDocumentDescriptor {
   return {
     projectId: "project-1",
     ownerBlockId: "card-1",
-    ownerType: "card",
+    ownerType: "page",
     ownerLifecycle: "active",
     documentId: "document-1",
     storeEpoch: "epoch-1",
     generation: 1,
     headSeq: 14,
-    schemaKey: "nodex.card",
-    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+    schemaKey: "nodex.page",
+    schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
     readiness: "ready",
     sync: { kind: "yjs", stateVector: new Uint8Array() },
   };

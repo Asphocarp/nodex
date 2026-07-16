@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { closeDatabase, initializeDatabase } from "./database";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { createProject } from "./projects";
-import { getBoardSummary, getDatabaseRowsDetails, searchCards } from "./board-read-model";
+import { getBoardSummary, getDatabaseRowsDetails, searchPages } from "./board-read-model";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -51,7 +51,7 @@ describe("board summary read model", () => {
   test("getBoardSummary omits full description and exposes bounded description metadata", async () => {
     const ran = await withTempDatabase(async (projectId) => {
       const description = `Visible opening ${"preview ".repeat(60)} hidden-body-marker`;
-      const created = await createCard(projectId, "draft", {
+      const created = await createPage(projectId, "draft", {
         title: "Large text",
         description,
       });
@@ -71,17 +71,17 @@ describe("board summary read model", () => {
 
   test("getDatabaseRowsDetails returns full cards in requested order", async () => {
     const ran = await withTempDatabase(async (projectId) => {
-      const first = await createCard(projectId, "draft", {
+      const first = await createPage(projectId, "draft", {
         title: "First",
         description: "First full body",
       });
-      const second = await createCard(projectId, "draft", {
+      const second = await createPage(projectId, "draft", {
         title: "Second",
         description: "Second full body",
       });
 
       const details = await getDatabaseRowsDetails(projectId, {
-        cardIds: [second.id, first.id, second.id, "missing"],
+        pageIds: [second.id, first.id, second.id, "missing"],
       });
 
       expect(details.map((card) => card.id).join(",")).toBe(`${second.id},${first.id}`);
@@ -92,20 +92,20 @@ describe("board summary read model", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("searchCards matches description text and returns only ids, score, and excerpt", async () => {
+  test("searchPages matches description text and returns only ids, score, and excerpt", async () => {
     const ran = await withTempDatabase(async (projectId) => {
-      const created = await createCard(projectId, "in_progress", {
+      const created = await createPage(projectId, "in_progress", {
         title: "Routine card",
         description: "The body contains a rare-search-token for command palette lookup.",
       });
-      const results = await searchCards({
+      const results = await searchPages({
         projectIds: [projectId],
         query: "rare-search-token",
         limit: 10,
       });
 
       expect(results.length).toBe(1);
-      expect(results[0]?.cardId).toBe(created.id);
+      expect(results[0]?.pageId).toBe(created.id);
       expect(results[0]?.projectId).toBe(projectId);
       expect(results[0]?.excerpt.includes("rare-search-token")).toBe(true);
       expect(Object.hasOwn(results[0] ?? {}, "description")).toBe(false);
@@ -120,7 +120,7 @@ describe("board summary read model", () => {
       const hiddenMarker = "full-body-marker-should-not-enter-summary";
       const longBody = `${"preview ".repeat(40)} ${hiddenMarker} ${"body ".repeat(600)}`;
       for (let index = 0; index < cardCount; index += 1) {
-        await createCard(projectId, "draft", {
+        await createPage(projectId, "draft", {
           title: `Large ${index}`,
           description: longBody,
         });

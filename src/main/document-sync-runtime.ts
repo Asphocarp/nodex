@@ -17,24 +17,16 @@ export const documentSyncHub = new DocumentSyncHub({
   relocateBlocks: (command) => blockMutationWriter.relocateBlocks(command),
   applyAdditionalDocumentCommand: (request) =>
     blockMutationWriter.applyAdditionalDocumentCommand(request),
-  prepareCardProjectTransfer: (intent) =>
-    blockMutationWriter.prepareCardProjectTransfer(intent),
-  applyCardProjectTransfer: (request) =>
-    blockMutationWriter.applyCardProjectTransfer(request),
   lookupCommittedBlockTransfer: (intent) =>
     blockMutationWriter.readCommittedBlockTransfer(intent),
   prepareBlockTransfer: (intent) =>
     blockMutationWriter.prepareBlockTransfer(intent),
   applyBlockTransfer: async (request) =>
     (await blockMutationWriter.applyBlockTransfer(request)).result,
-  executeNodexAgentCreate: async (command) =>
-    (await blockMutationWriter.executeNodexAgentCreate(command)).result,
-  executeNodexAgentCreateCards: async (command) =>
-    (await blockMutationWriter.executeNodexAgentCreateCards(command)).result,
-  executeNodexAgentDuplicateCard: async (command) =>
-    (await blockMutationWriter.executeNodexAgentDuplicateCard(command)).result,
-  executeNodexAgentMoveCards: async (command) =>
-    (await blockMutationWriter.executeNodexAgentMoveCards(command)).result,
-  executeNodexAgentTransfer: async (command) =>
-    (await blockMutationWriter.executeNodexAgentTransfer(command)).result,
+  executeNodexAgentCreatePages: async (command) =>
+    (await blockMutationWriter.executeNodexAgentCreatePages(command)).result,
+  executeNodexAgentDuplicatePage: async (command) =>
+    (await blockMutationWriter.executeNodexAgentDuplicatePage(command)).result,
+  executeNodexAgentMovePages: async (command) =>
+    (await blockMutationWriter.executeNodexAgentMovePages(command)).result,
 });

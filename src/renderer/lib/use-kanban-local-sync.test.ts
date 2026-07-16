@@ -13,14 +13,14 @@ describe("kanban local optimistic mutation sync", () => {
 
     const unsubscribe = subscribeKanbanLocalMutation("default", (mutation) => {
       if (mutation.type !== "patch") return;
-      received.push(`${mutation.columnId}:${mutation.cardId}:${String(mutation.updates.title ?? "")}`);
+      received.push(`${mutation.columnId}:${mutation.pageId}:${String(mutation.updates.title ?? "")}`);
     });
 
     publishKanbanLocalMutation("default", {
       type: "patch",
       sourceInstanceId,
       columnId: "backlog",
-      cardId: "abc",
+      pageId: "abc",
       updates: { title: "Updated from projection" },
     });
 
@@ -42,7 +42,7 @@ describe("kanban local optimistic mutation sync", () => {
       type: "patch",
       sourceInstanceId,
       columnId: "backlog",
-      cardId: "abc",
+      pageId: "abc",
       updates: { description: "Should not cross project boundary" },
     });
 

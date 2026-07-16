@@ -1,19 +1,19 @@
 import { describe, expect, test } from "vitest";
 import {
   readDatabaseViewReference,
-  resolveCardTarget,
+  resolvePageTarget,
 } from "./api";
 import { ReferenceReadHttpBoundaryError } from "../../shared/reference-read-http-contract";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
 
 const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   id: "card-target",
   status: "draft",
   archived: false,
-  title: "Target Card",
+  title: "Target Page",
   richTitle: [
     { type: "text", text: "Target ", styles: {} },
-    { type: "text", text: "Card", styles: { bold: true } },
+    { type: "text", text: "Page", styles: { bold: true } },
   ],
   tags: [],
   dueDate: "2026-01-02T00:00:00.000Z",
@@ -26,34 +26,30 @@ const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   hasDescription: false,
 });
 
-const makeCardTargetWire = (updatedAt = "2026-01-02T00:00:00.000Z") => ({
+const makePageTargetWire = (updatedAt = "2026-01-02T00:00:00.000Z") => ({
   status: "available",
-  targetBlockId: "card-target",
-  card: {
-    blockId: "card-target",
-    projectId: "target-project",
+  targetPageId: "card-target",
+  page: {
+    pageId: "card-target",
+    libraryId: "library:target",
     lifecycle: "active",
-    location: { kind: "document", documentId: "document-host" },
-    locationRevision: 1,
+    parent: { kind: "page", pageId: "page:host" },
+    parentRevision: 1,
     metadataRevision: 1,
     documentId: "document-target",
     documentGeneration: 1,
     documentHeadSeq: 3,
-    documentAuthority: "ydoc_primary",
-    content: {
-      projectedSeq: 3,
-      title: "Target Card",
-      richTitle: makeCardSummaryWire().richTitle,
-      preview: "",
-      plainText: "",
-    },
+    title: "Target Page",
+    richTitle: makeCardSummaryWire().richTitle,
+    preview: "",
+    plainText: "",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt,
   },
   document: {
     readiness: "ready",
-    schemaKey: "nodex.card",
-    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+    schemaKey: "nodex.page",
+    schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   },
 });
 
@@ -63,7 +59,7 @@ describe("reference read renderer transport", () => {
     const responses = [
       new Response(JSON.stringify({
         status: "missing",
-        targetBlockId: "card/target",
+        targetPageId: "card/target",
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
       new Response(JSON.stringify({
         view: {
@@ -95,9 +91,9 @@ describe("reference read renderer transport", () => {
       },
     });
 
-    const card = await resolveCardTarget({
+    const card = await resolvePageTarget({
       requestingProjectId: "host/project",
-      targetBlockId: "card/target",
+      targetPageId: "card/target",
     });
     expect(card?.status).toBe("missing");
     const view = await readDatabaseViewReference({
@@ -112,7 +108,7 @@ describe("reference read renderer transport", () => {
     });
     expect(absent === null).toBe(true);
     expect(requestedUrls[0]).toBe(
-      "http://localhost:51283/api/projects/host%2Fproject/card-targets/card%2Ftarget",
+      "http://localhost:51283/api/projects/host%2Fproject/page-targets/card%2Ftarget",
     );
     expect(requestedUrls[1]).toBe(
       "http://localhost:51283/api/projects/host%2Fproject/references/database-views/view%2Fone?hostBlockId=host%2Fcard",
@@ -127,19 +123,19 @@ describe("reference read renderer transport", () => {
     });
     let message = "";
     try {
-      await resolveCardTarget({
+      await resolvePageTarget({
         requestingProjectId: "host-project",
-        targetBlockId: "target",
+        targetPageId: "target",
       });
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
-    expect(message).toBe("Card target lookup failed with status 400");
+    expect(message).toBe("Page target lookup failed with status 400");
   });
 
-  test("decodes membership-free Card targets separately from Database rows", async () => {
+  test("decodes membership-free Page targets separately from Database rows", async () => {
     const responses = [
-      new Response(JSON.stringify(makeCardTargetWire()), {
+      new Response(JSON.stringify(makePageTargetWire()), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -147,7 +143,7 @@ describe("reference read renderer transport", () => {
         view: {
           id: "view-one",
           databaseBlockId: "database-target",
-          projectId: "target-project",
+          projectId: "source-project",
           name: "Work",
           kind: "list",
           config: {},
@@ -156,7 +152,7 @@ describe("reference read renderer transport", () => {
           updatedAt: "2026-01-02T00:00:00.000Z",
         },
         rows: [{
-          card: makeCardSummaryWire(),
+          page: makeCardSummaryWire(),
           groupKey: "draft",
           rankKey: "a0",
         }],
@@ -172,9 +168,9 @@ describe("reference read renderer transport", () => {
       },
     });
 
-    const card = await resolveCardTarget({
+    const card = await resolvePageTarget({
       requestingProjectId: "host-project",
-      targetBlockId: "card-target",
+      targetPageId: "card-target",
     });
     const view = await readDatabaseViewReference({
       requestingProjectId: "host-project",
@@ -183,14 +179,14 @@ describe("reference read renderer transport", () => {
 
     expect(card?.status).toBe("available");
     if (!card || card.status !== "available") return;
-    expect(card.card.location).toEqual({
-      kind: "document",
-      documentId: "document-host",
+    expect(card.page.parent).toEqual({
+      kind: "page",
+      pageId: "page:host",
     });
-    expect(card.card.content?.title).toBe("Target Card");
-    expect(card.card.createdAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(view?.rows[0]?.card.created instanceof Date).toBe(true);
-    expect(view?.rows[0]?.card.scheduledEnd instanceof Date).toBe(true);
+    expect(card.page.title).toBe("Target Page");
+    expect(card.page.createdAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(view?.rows[0]?.page.created instanceof Date).toBe(true);
+    expect(view?.rows[0]?.page.scheduledEnd instanceof Date).toBe(true);
   });
 
   test("rejects invalid browser reference JSON with a typed boundary error", async () => {
@@ -198,16 +194,16 @@ describe("reference read renderer transport", () => {
       configurable: true,
       writable: true,
       value: async () => new Response(
-        JSON.stringify(makeCardTargetWire("not-an-iso-date")),
+        JSON.stringify(makePageTargetWire("not-an-iso-date")),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     });
     let caught: unknown;
 
     try {
-      await resolveCardTarget({
+      await resolvePageTarget({
         requestingProjectId: "host-project",
-        targetBlockId: "card-target",
+        targetPageId: "card-target",
       });
     } catch (error) {
       caught = error;

@@ -16,7 +16,7 @@ import {
 import type { CommandMenuOpenRequest } from "./command-palette";
 
 export interface WorkbenchShortcutActions {
-  spaces: { projectId: string }[];
+  projectRefs: { projectId: string }[];
   dbProjectId: string;
   focusedStage: StageId;
   focusAdjacentStage: (projectId: string, direction: -1 | 1) => void;
@@ -121,8 +121,8 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
-  if (matchesCommandShortcut(e, actions, "searchCards", isMac)) {
-    actions.onRequestCommandPalette?.({ mode: "cards" });
+  if (matchesCommandShortcut(e, actions, "searchPages", isMac)) {
+    actions.onRequestCommandPalette?.({ mode: "pages" });
     return true;
   }
 
@@ -184,7 +184,7 @@ export function handleWorkbenchShortcut(
   if (e.altKey && e.key >= "1" && e.key <= "9") {
     if (targetIsEditable) return false;
     const index = Number.parseInt(e.key, 10) - 1;
-    if (index < actions.spaces.length) {
+    if (index < actions.projectRefs.length) {
       actions.switchToProjectIndex(index);
     }
     return true;
@@ -208,7 +208,7 @@ export function handleWorkbenchShortcut(
       return true;
     }
 
-    if (actions.focusedStage === "cards" && actions.onRequestContentSearch) {
+    if (actions.focusedStage === "pages" && actions.onRequestContentSearch) {
       actions.onRequestContentSearch(actions.dbProjectId);
       return true;
     }

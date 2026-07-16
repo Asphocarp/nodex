@@ -1426,6 +1426,6 @@ export function resolveCodexCommandPaletteShortcutLabel() {
   return isMacPlatform() ? "⌘K" : "Ctrl+K";
 }
 
-export function resolveCodexCardSearchShortcutLabel() {
+export function resolveCodexPageSearchShortcutLabel() {
   return isMacPlatform() ? "⌘P" : "Ctrl+P";
 }

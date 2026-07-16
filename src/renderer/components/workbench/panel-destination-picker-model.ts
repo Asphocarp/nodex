@@ -1,13 +1,13 @@
 import type { BoardSummary, Project } from "@/lib/types";
-import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
+import type { DatabaseContainerDescriptor } from "../../../shared/database-module";
 import { normalizeSearchText } from "@/lib/search-text";
 import {
   createNfmMoveToSearchIndex,
-  type NfmMoveToCardSearchHit,
+  type NfmMoveToPageSearchHit,
   type NfmMoveToSearchResult,
 } from "@/components/kanban/editor/nfm-move-to-menu-search";
 
-export type PanelDestinationPickerScope = "all" | "db-only" | "card-only";
+export type PanelDestinationPickerScope = "all" | "db-only" | "page-only";
 
 export type PanelDestination =
   | {
@@ -16,10 +16,10 @@ export type PanelDestination =
       databaseViewId: string;
     }
   | {
-      kind: "card";
+      kind: "page";
       projectId: string;
       columnId: string;
-      cardId: string;
+      pageId: string;
       titleSnapshot: string;
     };
 
@@ -34,48 +34,48 @@ export interface PanelDestinationDbRow {
   destination: PanelDestination;
 }
 
-export interface PanelDestinationCardRow {
-  kind: "card";
+export interface PanelDestinationPageRow {
+  kind: "page";
   id: string;
   projectId: string;
   projectName: string;
   projectIcon?: string;
   columnId: string;
   columnName: string;
-  cardId: string;
-  cardTitle: string;
+  pageId: string;
+  pageTitle: string;
   destination: PanelDestination;
 }
 
-export type PanelDestinationRow = PanelDestinationDbRow | PanelDestinationCardRow;
+export type PanelDestinationRow = PanelDestinationDbRow | PanelDestinationPageRow;
 
 export interface PanelDestinationSection {
-  key: "db" | "card" | "current-card" | "other-card";
-  label: "DB" | "Card" | "Current project" | "Other projects";
+  key: "db" | "page" | "current-page" | "other-page";
+  label: "DB" | "Page" | "Current project" | "Other projects";
   rows: PanelDestinationRow[];
 }
 
 export interface BuildPanelDestinationSectionsInput {
   projects: readonly Project[];
   boardMap: ReadonlyMap<string, BoardSummary>;
-  databaseDescriptorMap: ReadonlyMap<string, GeneralDatabaseDescriptor>;
+  databaseDescriptorMap: ReadonlyMap<string, DatabaseContainerDescriptor>;
   query: string;
   searchResult?: NfmMoveToSearchResult | null;
   scope?: PanelDestinationPickerScope;
-  cardLimit?: number;
+  pageLimit?: number;
   currentProjectId?: string | null;
 }
 
-const DEFAULT_CARD_LIMIT = 60;
+const DEFAULT_PAGE_LIMIT = 60;
 
 function createDbRow(
   project: Project,
-  descriptor: GeneralDatabaseDescriptor,
-  view: GeneralDatabaseDescriptor["views"][number],
+  descriptor: DatabaseContainerDescriptor,
+  view: DatabaseContainerDescriptor["views"][number],
 ): PanelDestinationDbRow {
   return {
     kind: "db",
-    id: `panel-db:${project.id}:${view.id}`,
+    id: `panel-db:${project.id}:${view.viewId}`,
     projectId: project.id,
     projectName: project.name || "Untitled",
     projectIcon: project.icon,
@@ -84,59 +84,59 @@ function createDbRow(
     destination: {
       kind: "db",
       projectId: project.id,
-      databaseViewId: view.id,
+      databaseViewId: view.viewId,
     },
   };
 }
 
-function createCardRowFromSearchHit(hit: NfmMoveToCardSearchHit): PanelDestinationCardRow {
+function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): PanelDestinationPageRow {
   return {
-    kind: "card",
-    id: `panel-${hit.id}`,
+    kind: "page",
+    id: `panel-page:${hit.projectId}:${hit.pageId}`,
     projectId: hit.projectId,
     projectName: hit.projectName,
     projectIcon: hit.projectIcon,
     columnId: hit.columnId,
     columnName: hit.columnName,
-    cardId: hit.cardId,
-    cardTitle: hit.cardTitle,
+    pageId: hit.pageId,
+    pageTitle: hit.pageTitle,
     destination: {
-      kind: "card",
+      kind: "page",
       projectId: hit.projectId,
       columnId: hit.columnId,
-      cardId: hit.cardId,
-      titleSnapshot: hit.cardTitle,
+      pageId: hit.pageId,
+      titleSnapshot: hit.pageTitle,
     },
   };
 }
 
-function createCardRowFromSummary(
+function createPageRowFromSummary(
   project: Project,
   column: BoardSummary["columns"][number],
-  card: BoardSummary["columns"][number]["cards"][number],
-): PanelDestinationCardRow {
-  const cardTitle = card.title || "Untitled";
+  page: BoardSummary["columns"][number]["cards"][number],
+): PanelDestinationPageRow {
+  const pageTitle = page.title || "Untitled";
   return {
-    kind: "card",
-    id: `panel-card:${project.id}:${card.id}`,
+    kind: "page",
+    id: `panel-page:${project.id}:${page.id}`,
     projectId: project.id,
     projectName: project.name || "Untitled",
     projectIcon: project.icon,
     columnId: column.id,
     columnName: column.name,
-    cardId: card.id,
-    cardTitle,
+    pageId: page.id,
+    pageTitle,
     destination: {
-      kind: "card",
+      kind: "page",
       projectId: project.id,
       columnId: column.id,
-      cardId: card.id,
-      titleSnapshot: cardTitle,
+      pageId: page.id,
+      titleSnapshot: pageTitle,
     },
   };
 }
 
-function orderProjectsForCardPicker(
+function orderProjectsForPagePicker(
   projects: readonly Project[],
   currentProjectId: string | null | undefined,
 ): readonly Project[] {
@@ -151,36 +151,36 @@ function orderProjectsForCardPicker(
   ];
 }
 
-function limitCardRowsWithCurrentProjectFirst(
-  rows: readonly PanelDestinationCardRow[],
+function limitPageRowsWithCurrentProjectFirst(
+  rows: readonly PanelDestinationPageRow[],
   currentProjectId: string,
-  cardLimit: number,
-): PanelDestinationCardRow[] {
+  pageLimit: number,
+): PanelDestinationPageRow[] {
   const currentProjectRows = rows.filter((row) => row.projectId === currentProjectId);
   const otherProjectRows = rows.filter((row) => row.projectId !== currentProjectId);
   return [
     ...currentProjectRows,
     ...otherProjectRows,
-  ].slice(0, cardLimit);
+  ].slice(0, pageLimit);
 }
 
-function createCardSections(
-  rows: readonly PanelDestinationCardRow[],
+function createPageSections(
+  rows: readonly PanelDestinationPageRow[],
   currentProjectId: string | null | undefined,
   groupCurrentProject: boolean,
 ): PanelDestinationSection[] {
   if (!groupCurrentProject || !currentProjectId) {
-    return [{ key: "card", label: "Card", rows: [...rows] }];
+    return [{ key: "page", label: "Page", rows: [...rows] }];
   }
 
   const currentProjectRows = rows.filter((row) => row.projectId === currentProjectId);
   const otherProjectRows = rows.filter((row) => row.projectId !== currentProjectId);
   return [
     ...(currentProjectRows.length > 0
-      ? [{ key: "current-card", label: "Current project", rows: currentProjectRows } as const]
+      ? [{ key: "current-page", label: "Current project", rows: currentProjectRows } as const]
       : []),
     ...(otherProjectRows.length > 0
-      ? [{ key: "other-card", label: "Other projects", rows: otherProjectRows } as const]
+      ? [{ key: "other-page", label: "Other projects", rows: otherProjectRows } as const]
       : []),
   ];
 }
@@ -199,7 +199,7 @@ function resolveSearchResult({
     projects,
     boardMap,
     sourceProjectId: null,
-    sourceCardId: null,
+    sourcePageId: null,
   }).search(query);
 }
 
@@ -210,7 +210,7 @@ export function buildPanelDestinationSections({
   query,
   searchResult,
   scope = "all",
-  cardLimit = DEFAULT_CARD_LIMIT,
+  pageLimit = DEFAULT_PAGE_LIMIT,
   currentProjectId = null,
 }: BuildPanelDestinationSectionsInput): PanelDestinationSection[] {
   const normalizedQuery = normalizeSearchText(query);
@@ -221,10 +221,10 @@ export function buildPanelDestinationSections({
     searchResult,
   });
   const includeDb = scope === "all" || scope === "db-only";
-  const includeCards = scope === "all" || scope === "card-only";
-  const groupCurrentProjectCards = scope === "card-only" && currentProjectId !== null;
+  const includePages = scope === "all" || scope === "page-only";
+  const groupCurrentProjectPages = scope === "page-only" && currentProjectId !== null;
   const dbRows: PanelDestinationDbRow[] = [];
-  const cardRows: PanelDestinationCardRow[] = [];
+  const pageRows: PanelDestinationPageRow[] = [];
 
   if (includeDb) {
     for (const project of projects) {
@@ -241,39 +241,39 @@ export function buildPanelDestinationSections({
     }
   }
 
-  if (includeCards) {
+  if (includePages) {
     if (normalizedQuery && resolvedSearchResult) {
-      cardRows.push(
-        ...(groupCurrentProjectCards && currentProjectId
-          ? limitCardRowsWithCurrentProjectFirst(
-              resolvedSearchResult.cardHits.map(createCardRowFromSearchHit),
+      pageRows.push(
+        ...(groupCurrentProjectPages && currentProjectId
+          ? limitPageRowsWithCurrentProjectFirst(
+              resolvedSearchResult.pageHits.map(createPageRowFromSearchHit),
               currentProjectId,
-              cardLimit,
+              pageLimit,
             )
-          : resolvedSearchResult.cardHits
-              .slice(0, cardLimit)
-              .map(createCardRowFromSearchHit)),
+          : resolvedSearchResult.pageHits
+              .slice(0, pageLimit)
+              .map(createPageRowFromSearchHit)),
       );
     } else {
-      for (const project of orderProjectsForCardPicker(projects, groupCurrentProjectCards ? currentProjectId : null)) {
+      for (const project of orderProjectsForPagePicker(projects, groupCurrentProjectPages ? currentProjectId : null)) {
         const board = boardMap.get(project.id);
         for (const column of board?.columns ?? []) {
-          for (const card of column.cards) {
-            if (cardRows.length >= cardLimit) break;
-            cardRows.push(createCardRowFromSummary(project, column, card));
+          for (const page of column.cards) {
+            if (pageRows.length >= pageLimit) break;
+            pageRows.push(createPageRowFromSummary(project, column, page));
           }
-          if (cardRows.length >= cardLimit) break;
+          if (pageRows.length >= pageLimit) break;
         }
-        if (cardRows.length >= cardLimit) break;
+        if (pageRows.length >= pageLimit) break;
       }
     }
   }
 
   const sections: PanelDestinationSection[] = [];
   if (includeDb) sections.push({ key: "db", label: "DB", rows: dbRows });
-  if (includeCards) {
+  if (includePages) {
     sections.push(
-      ...createCardSections(cardRows, currentProjectId, groupCurrentProjectCards),
+      ...createPageSections(pageRows, currentProjectId, groupCurrentProjectPages),
     );
   }
   return sections;

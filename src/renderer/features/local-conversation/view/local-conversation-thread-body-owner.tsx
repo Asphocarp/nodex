@@ -24,7 +24,7 @@ import {
 } from "@/features/content-search/content-search-dom";
 import { cn } from "../../../lib/utils";
 import type {
-  CardRunInTarget,
+  PageRunInTarget,
   CodexConversationCapabilityFlags,
   CodexCanonicalServerRequest,
   CodexConversationChildMembership,
@@ -141,7 +141,7 @@ function ThreadStartProgressPanel({
   setupProgressLogRef,
 }: {
   progress: NonNullable<{
-    runInTarget: CardRunInTarget;
+    runInTarget: PageRunInTarget;
     threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
@@ -295,7 +295,7 @@ interface LocalConversationThreadBodyOwnerProps {
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
-    runInTarget: CardRunInTarget;
+    runInTarget: PageRunInTarget;
     threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;

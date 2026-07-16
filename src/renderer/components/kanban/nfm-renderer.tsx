@@ -11,7 +11,7 @@ import {
   resolveOrderedListMargin,
   resolveOrderedListPadding,
 } from "@/lib/ordered-list-groups";
-import { buildCardDeepLink } from "../../../shared/card-deeplink";
+import { buildPageDeepLink } from "../../../shared/page-deeplink";
 import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import type {
   NfmBlock,
@@ -312,34 +312,34 @@ function BlockComponent({
 
     case "cardRef":
       return (
-        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Legacy Card mention (${block.sourceProjectId}/${block.cardId})`}>
+        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Legacy Page projection (${block.sourceProjectId}/${block.pageId})`}>
           <span aria-hidden="true">↗</span>
           <span className="whitespace-nowrap">
-            Legacy Card Mention · {block.sourceProjectId}/{block.cardId || "unlinked"}
+            Legacy Page Projection · {block.sourceProjectId}/{block.pageId || "unlinked"}
           </span>
         </div>
       );
 
-    case "mentionCard": {
-      const mentionUrl = buildCardDeepLink({
-        cardId: block.targetBlockId,
+    case "pageRef": {
+      const mentionUrl = buildPageDeepLink({
+        pageId: block.targetBlockId,
       });
       return (
-        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Card mention (${mentionUrl})`}>
+        <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-dashed border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)" title={`Page mention (${mentionUrl})`}>
           <span aria-hidden="true">↗</span>
           <span className="whitespace-nowrap">
-            Card Mention · {mentionUrl}
+            Page Mention · {mentionUrl}
           </span>
         </div>
       );
     }
 
-    case "card":
+    case "page":
       return (
         <div className="my-2.5 inline-flex items-center gap-2 rounded-lg border border-(--border) bg-[color-mix(in_srgb,var(--background-secondary)_65%,transparent)] px-2.5 py-2 text-xs leading-none text-(--foreground-secondary)">
           <span aria-hidden="true">▣</span>
           <span className="whitespace-nowrap">
-            Card · {block.uuid || "Unidentified"}
+            Page · {block.uuid || "Unidentified"}
           </span>
         </div>
       );

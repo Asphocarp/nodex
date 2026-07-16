@@ -16,7 +16,7 @@ describe("Canvas scene HTTP contract", () => {
     elements: [],
     appState: {},
     files: {},
-    cardReferences: [],
+    pageReferences: [],
     plainText: "",
     preview: "",
   } as const;

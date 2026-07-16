@@ -6,17 +6,17 @@ import {
 } from "@/components/ui/dialog";
 import type {
   CommandMenuMode,
-  CommandPaletteCard,
+  CommandPalettePage,
   CommandPaletteCommand,
   CommandPaletteThread,
 } from "@/lib/command-palette";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { normalizeProjectIcon } from "@/lib/project-icon";
 import type { Project } from "@/lib/types";
-import { useCommandPaletteCardSearchIndex } from "@/lib/use-command-palette-card-search-index";
+import { useCommandPalettePageSearchIndex } from "@/lib/use-command-palette-page-search-index";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
-import type { RecentCardSession } from "@/lib/use-workbench-state";
+import type { RecentPageSession } from "@/lib/use-workbench-state";
 import {
   buildCommandPaletteCommands,
   executeCommandPaletteShellCommand,
@@ -33,26 +33,26 @@ interface CommandPaletteProps {
   initialQuery?: string;
   projects: Project[];
   activeProjectId: string;
-  recentCardSessions: RecentCardSession[];
+  recentPageSessions: RecentPageSession[];
   commandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands">;
   commandHandlers: CommandPaletteShellCommandHandlers;
   onOpenChange: (open: boolean) => void;
-  onOpenCard: (projectId: string, cardId: string, titleSnapshot?: string) => void;
+  onOpenPage: (projectId: string, pageId: string, titleSnapshot?: string) => void;
   onOpenThread: (threadId: string) => void;
 }
 
-type PaletteItem = CommandPaletteCommand | CommandPaletteCard | CommandPaletteThread;
+type PaletteItem = CommandPaletteCommand | CommandPalettePage | CommandPaletteThread;
 
 function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 }
 
-function useCommandPaletteCards(
+function useCommandPalettePages(
   open: boolean,
   projects: Project[],
   activeProjectId: string,
-  recentCardSessions: RecentCardSession[],
-): { cards: CommandPaletteCard[]; loading: boolean } {
+  recentPageSessions: RecentPageSession[],
+): { pages: CommandPalettePage[]; loading: boolean } {
   const [version, setVersion] = useState(0);
   const stores = useMemo(
     () => projects.map((project) => ({ project, store: getKanbanProjectStore(project.id) })),
@@ -60,11 +60,11 @@ function useCommandPaletteCards(
   );
   const recentIndexByKey = useMemo(() => {
     const index = new Map<string, number>();
-    recentCardSessions.forEach((session, order) => {
-      index.set(`${session.projectId}:${session.cardId}`, order);
+    recentPageSessions.forEach((session, order) => {
+      index.set(`${session.projectId}:${session.pageId}`, order);
     });
     return index;
-  }, [recentCardSessions]);
+  }, [recentPageSessions]);
 
   useEffect(() => {
     if (!open || stores.length === 0) return;
@@ -83,32 +83,32 @@ function useCommandPaletteCards(
   return useMemo(() => {
     void version;
     let loading = false;
-    const cards: CommandPaletteCard[] = [];
+    const pages: CommandPalettePage[] = [];
 
     for (const { project, store } of stores) {
       const snapshot = store.getSnapshot();
-      if (snapshot.loading && snapshot.cardIndex.size === 0) {
+      if (snapshot.loading && snapshot.pageIndex.size === 0) {
         loading = true;
       }
 
       const projectIcon = normalizeProjectIcon(project.icon);
-      for (const card of snapshot.cardIndex.values()) {
-        cards.push({
-          kind: "card",
-          id: `${project.id}:${card.id}`,
+      for (const page of snapshot.pageIndex.values()) {
+        pages.push({
+          kind: "page",
+          id: `${project.id}:${page.id}`,
           projectId: project.id,
           projectName: project.name,
           projectIcon,
-          columnName: card.columnName,
-          card,
+          columnName: page.columnName,
+          page,
           inActiveProject: project.id === activeProjectId,
-          recentIndex: recentIndexByKey.get(`${project.id}:${card.id}`) ?? null,
-          boardIndex: card.boardIndex,
+          recentIndex: recentIndexByKey.get(`${project.id}:${page.id}`) ?? null,
+          boardIndex: page.boardIndex,
         });
       }
     }
 
-    return { cards, loading };
+    return { pages, loading };
   }, [activeProjectId, recentIndexByKey, stores, version]);
 }
 
@@ -119,22 +119,22 @@ export function CommandPalette({
   initialQuery,
   projects,
   activeProjectId,
-  recentCardSessions,
+  recentPageSessions,
   commandContext,
   commandHandlers,
   onOpenChange,
-  onOpenCard,
+  onOpenPage,
   onOpenThread,
 }: CommandPaletteProps) {
   const isMac = isMacPlatform();
-  const { cards, loading } = useCommandPaletteCards(open, projects, activeProjectId, recentCardSessions);
+  const { pages, loading } = useCommandPalettePages(open, projects, activeProjectId, recentPageSessions);
   const { threads, loading: threadsLoading } = useCommandPaletteThreadItems({
     enabled: open,
     activeProjectId,
     refreshKey: openTriggerTick,
   });
   const [mode, setMode] = useState<CommandMenuMode>(initialMode);
-  const cardSearchIndex = useCommandPaletteCardSearchIndex(cards);
+  const pageSearchIndex = useCommandPalettePageSearchIndex(pages);
   const threadSearchIndex = useCommandPaletteThreadSearchIndex(threads);
   const commands = useMemo(
     () => buildCommandPaletteCommands({
@@ -155,8 +155,8 @@ export function CommandPalette({
   }, []);
 
   const handleExecute = (item: PaletteItem) => {
-    if (item.kind === "card") {
-      onOpenCard(item.projectId, item.card.id, item.card.title);
+    if (item.kind === "page") {
+      onOpenPage(item.projectId, item.page.id, item.page.title);
       return;
     }
 
@@ -170,8 +170,8 @@ export function CommandPalette({
       return;
     }
 
-    if (item.id === "searchCards") {
-      setMode("cards");
+    if (item.id === "searchPages") {
+      setMode("pages");
       return;
     }
 
@@ -203,12 +203,12 @@ export function CommandPalette({
           mode={mode}
           initialQuery={initialQuery}
           commands={commands}
-          cards={cards}
+          pages={pages}
           threads={threads}
-          cardSearchIndex={cardSearchIndex}
+          pageSearchIndex={pageSearchIndex}
           threadSearchIndex={threadSearchIndex}
           loading={loading || threadsLoading}
-          cardsLoading={loading}
+          pagesLoading={loading}
           chatsLoading={threadsLoading}
           onChangeMode={handleChangeMode}
           onRequestClose={() => onOpenChange(false)}

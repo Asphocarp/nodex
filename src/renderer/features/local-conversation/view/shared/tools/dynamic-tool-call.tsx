@@ -74,7 +74,7 @@ function CodexAppCreatedThreadCard({
   );
 }
 
-function openAutomationUpdateCardTarget(
+function openAutomationUpdatePageTarget(
   state: AutomationUpdateRenderState,
   onOpenSummaryScheduledAutomation?: ToolComponentProps["onOpenSummaryScheduledAutomation"],
 ) {
@@ -91,7 +91,7 @@ function openAutomationUpdateCardTarget(
   });
 }
 
-function AutomationUpdateCard({
+function AutomationUpdatePage({
   initialState,
   onOpenSummaryScheduledAutomation,
 }: {
@@ -115,7 +115,7 @@ function AutomationUpdateCard({
           aria-label={[state.title, subtitle].filter(Boolean).join(" · ")}
           className="w-full cursor-interaction text-left hover:bg-token-list-hover-background/30 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset disabled:cursor-default"
           disabled={!canOpen}
-          onClick={() => openAutomationUpdateCardTarget(state, onOpenSummaryScheduledAutomation)}
+          onClick={() => openAutomationUpdatePageTarget(state, onOpenSummaryScheduledAutomation)}
         >
           <div className="flex min-w-0 items-center gap-2 px-2 py-2">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
@@ -184,7 +184,7 @@ function AutomationUpdateToolCall({
   }
 
   return (
-    <AutomationUpdateCard
+    <AutomationUpdatePage
       initialState={state}
       onOpenSummaryScheduledAutomation={onOpenSummaryScheduledAutomation}
     />

@@ -32,7 +32,7 @@ describe("Block property mutation contract", () => {
       fields: [
         {
           scope: "database" as const,
-          cardBlockId: "card-1",
+          pageId: "card-1",
           databaseBlockId: "database-1",
           propertyId: "tags-1",
           operation: "add_remove" as const,
@@ -134,7 +134,7 @@ describe("Block property mutation contract", () => {
           fields: [
             {
               scope: "database",
-              cardBlockId: "card-1",
+              pageId: "card-1",
               databaseBlockId: "database-1",
               propertyId: "tags-1",
               operation: "add_remove",

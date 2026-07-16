@@ -7,20 +7,31 @@ import type {
   RelocationDocumentCommit,
 } from "./block-documents/contracts";
 
+/** Exact writer request/receipt protocol. */
 export const BLOCK_TRANSFER_CONTRACT_VERSION = 1 as const;
+/** Public logical parent protocol compiled by the SQLite writer. */
+export const BLOCK_TRANSFER_INTENT_CONTRACT_VERSION = 2 as const;
 export const MAX_BLOCK_TRANSFER_ROOTS = 10_000;
 export const MAX_BLOCK_TRANSFER_ID_LENGTH = 512;
 
 export type BlockTransferMode = "move" | "copy";
 
 export type BlockTransferIntentSource =
-  | { readonly kind: "space" }
+  | { readonly kind: "library"; readonly libraryId: string }
+  | { readonly kind: "page"; readonly pageId: BlockId }
   | { readonly kind: "document"; readonly documentId: DocumentId }
-  | { readonly kind: "database"; readonly databaseBlockId: BlockId };
+  | { readonly kind: "data_source"; readonly dataSourceId: string };
 
 export type BlockTransferIntentTarget =
   | {
-      readonly kind: "space";
+      readonly kind: "library";
+      readonly libraryId: string;
+      readonly beforeBlockId?: BlockId;
+    }
+  | {
+      readonly kind: "page";
+      readonly pageId: BlockId;
+      readonly parentBlockId?: BlockId;
       readonly beforeBlockId?: BlockId;
     }
   | {
@@ -30,11 +41,11 @@ export type BlockTransferIntentTarget =
       readonly beforeBlockId?: BlockId;
     }
   | {
-      readonly kind: "database";
-      readonly databaseBlockId: BlockId;
+      readonly kind: "data_source";
+      readonly dataSourceId: string;
       readonly viewId: string;
       readonly groupKey: string | null;
-      readonly beforeCardBlockId?: BlockId;
+      readonly beforePageId?: BlockId;
     };
 
 /**
@@ -42,7 +53,7 @@ export type BlockTransferIntentTarget =
  * only the SQLite writer may compile those from current authority.
  */
 export interface BlockTransferIntent {
-  readonly version: typeof BLOCK_TRANSFER_CONTRACT_VERSION;
+  readonly version: typeof BLOCK_TRANSFER_INTENT_CONTRACT_VERSION;
   readonly operationId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
@@ -66,16 +77,18 @@ export interface BlockTransferPreparation {
 }
 
 export type BlockTransferSource =
-  | { readonly kind: "space" }
+  | { readonly kind: "space"; readonly libraryId?: string }
   | {
       readonly kind: "document";
       readonly documentId: DocumentId;
+      readonly pageId?: BlockId;
       readonly generation: number;
       readonly expectedHeadSeq: number;
     }
   | {
       readonly kind: "database";
       readonly databaseBlockId: BlockId;
+      readonly dataSourceId?: string;
       readonly memberships: Readonly<
         Record<
           BlockId,
@@ -87,11 +100,13 @@ export type BlockTransferSource =
 export type BlockTransferTarget =
   | {
       readonly kind: "space";
+      readonly libraryId?: string;
       readonly beforeBlockId?: BlockId;
     }
   | {
       readonly kind: "document";
       readonly documentId: DocumentId;
+      readonly pageId?: BlockId;
       readonly generation: number;
       readonly expectedHeadSeq: number;
       readonly parentBlockId?: BlockId;
@@ -100,9 +115,10 @@ export type BlockTransferTarget =
   | {
       readonly kind: "database";
       readonly databaseBlockId: BlockId;
+      readonly dataSourceId?: string;
       readonly viewId: string;
       readonly groupKey: string | null;
-      readonly beforeCardBlockId?: BlockId;
+      readonly beforePageId?: BlockId;
     };
 
 export interface BlockTransferRequest {
@@ -121,7 +137,7 @@ export interface BlockTransferRequest {
 
 export interface BlockTransferTransformationEvidence {
   readonly sourceBlockId: BlockId;
-  readonly resultCardId: BlockId;
+  readonly resultPageId: BlockId;
   readonly kind: "promote" | "wrap";
   readonly sourceBlockType: string;
   readonly semanticTitleHash: string;
@@ -339,19 +355,33 @@ const parseSource = (
 ): BlockTransferSource => {
   const source = readRecord(value, "blockTransfer.source");
   if (source.kind === "space") {
-    assertExactKeys(source, "blockTransfer.source", ["kind"]);
-    return { kind: "space" };
+    assertExactKeys(source, "blockTransfer.source", ["kind"], ["libraryId"]);
+    return {
+      kind: "space",
+      ...(source.libraryId === undefined
+        ? {}
+        : {
+            libraryId: readString(
+              source,
+              "libraryId",
+              "blockTransfer.source",
+            ),
+          }),
+    };
   }
   if (source.kind === "document") {
-    assertExactKeys(source, "blockTransfer.source", [
-      "kind",
-      "documentId",
-      "generation",
-      "expectedHeadSeq",
-    ]);
+    assertExactKeys(
+      source,
+      "blockTransfer.source",
+      ["kind", "documentId", "generation", "expectedHeadSeq"],
+      ["pageId"],
+    );
     return {
       kind: "document",
       documentId: readString(source, "documentId", "blockTransfer.source"),
+      ...(source.pageId === undefined
+        ? {}
+        : { pageId: readString(source, "pageId", "blockTransfer.source") }),
       generation: readInteger(source, "generation", "blockTransfer.source", 1),
       expectedHeadSeq: readInteger(
         source,
@@ -362,11 +392,12 @@ const parseSource = (
     };
   }
   if (source.kind === "database") {
-    assertExactKeys(source, "blockTransfer.source", [
-      "kind",
-      "databaseBlockId",
-      "memberships",
-    ]);
+    assertExactKeys(
+      source,
+      "blockTransfer.source",
+      ["kind", "databaseBlockId", "memberships"],
+      ["dataSourceId"],
+    );
     const memberships = readRecord(
       source.memberships,
       "blockTransfer.source.memberships",
@@ -388,6 +419,15 @@ const parseSource = (
         "databaseBlockId",
         "blockTransfer.source",
       ),
+      ...(source.dataSourceId === undefined
+        ? {}
+        : {
+            dataSourceId: readString(
+              source,
+              "dataSourceId",
+              "blockTransfer.source",
+            ),
+          }),
       memberships: Object.fromEntries(
         rootBlockIds.map((blockId) => {
           const membership = readRecord(
@@ -434,7 +474,7 @@ const parseTarget = (
       target,
       "blockTransfer.target",
       ["kind"],
-      ["beforeBlockId"],
+      ["libraryId", "beforeBlockId"],
     );
     const beforeBlockId = readOptionalString(
       target,
@@ -448,6 +488,15 @@ const parseTarget = (
     }
     return {
       kind: "space",
+      ...(target.libraryId === undefined
+        ? {}
+        : {
+            libraryId: readString(
+              target,
+              "libraryId",
+              "blockTransfer.target",
+            ),
+          }),
       ...(beforeBlockId ? { beforeBlockId } : {}),
     };
   }
@@ -456,7 +505,7 @@ const parseTarget = (
       target,
       "blockTransfer.target",
       ["kind", "documentId", "generation", "expectedHeadSeq"],
-      ["parentBlockId", "beforeBlockId"],
+      ["pageId", "parentBlockId", "beforeBlockId"],
     );
     const parentBlockId = readOptionalString(
       target,
@@ -479,6 +528,9 @@ const parseTarget = (
     return {
       kind: "document",
       documentId: readString(target, "documentId", "blockTransfer.target"),
+      ...(target.pageId === undefined
+        ? {}
+        : { pageId: readString(target, "pageId", "blockTransfer.target") }),
       generation: readInteger(target, "generation", "blockTransfer.target", 1),
       expectedHeadSeq: readInteger(
         target,
@@ -495,7 +547,7 @@ const parseTarget = (
       target,
       "blockTransfer.target",
       ["kind", "databaseBlockId", "viewId", "groupKey"],
-      ["beforeCardBlockId"],
+      ["dataSourceId", "beforePageId"],
     );
     const groupKey = target.groupKey;
     if (groupKey !== null && typeof groupKey !== "string") {
@@ -503,14 +555,14 @@ const parseTarget = (
         "blockTransfer.target.groupKey must be a string or null",
       );
     }
-    const beforeCardBlockId = readOptionalString(
+    const beforePageId = readOptionalString(
       target,
-      "beforeCardBlockId",
+      "beforePageId",
       "blockTransfer.target",
     );
-    if (beforeCardBlockId && rootBlockIds.includes(beforeCardBlockId)) {
+    if (beforePageId && rootBlockIds.includes(beforePageId)) {
       throw new BlockTransferContractError(
-        "blockTransfer.target.beforeCardBlockId cannot be a transferred root",
+        "blockTransfer.target.beforePageId cannot be a transferred root",
       );
     }
     return {
@@ -520,9 +572,18 @@ const parseTarget = (
         "databaseBlockId",
         "blockTransfer.target",
       ),
+      ...(target.dataSourceId === undefined
+        ? {}
+        : {
+            dataSourceId: readString(
+              target,
+              "dataSourceId",
+              "blockTransfer.target",
+            ),
+          }),
       viewId: readString(target, "viewId", "blockTransfer.target"),
       groupKey,
-      ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
+      ...(beforePageId ? { beforePageId } : {}),
     };
   }
   throw new BlockTransferContractError(
@@ -547,9 +608,26 @@ const readActor = (
 
 const parseIntentSource = (value: unknown): BlockTransferIntentSource => {
   const source = readRecord(value, "blockTransferIntent.source");
-  if (source.kind === "space") {
-    assertExactKeys(source, "blockTransferIntent.source", ["kind"]);
-    return { kind: "space" };
+  if (source.kind === "library") {
+    assertExactKeys(source, "blockTransferIntent.source", [
+      "kind",
+      "libraryId",
+    ]);
+    return {
+      kind: "library",
+      libraryId: readString(
+        source,
+        "libraryId",
+        "blockTransferIntent.source",
+      ),
+    };
+  }
+  if (source.kind === "page") {
+    assertExactKeys(source, "blockTransferIntent.source", ["kind", "pageId"]);
+    return {
+      kind: "page",
+      pageId: readString(source, "pageId", "blockTransferIntent.source"),
+    };
   }
   if (source.kind === "document") {
     assertExactKeys(source, "blockTransferIntent.source", ["kind", "documentId"]);
@@ -558,22 +636,22 @@ const parseIntentSource = (value: unknown): BlockTransferIntentSource => {
       documentId: readString(source, "documentId", "blockTransferIntent.source"),
     };
   }
-  if (source.kind === "database") {
+  if (source.kind === "data_source") {
     assertExactKeys(source, "blockTransferIntent.source", [
       "kind",
-      "databaseBlockId",
+      "dataSourceId",
     ]);
     return {
-      kind: "database",
-      databaseBlockId: readString(
+      kind: "data_source",
+      dataSourceId: readString(
         source,
-        "databaseBlockId",
+        "dataSourceId",
         "blockTransferIntent.source",
       ),
     };
   }
   throw new BlockTransferContractError(
-    "blockTransferIntent.source.kind must be space, document, or database",
+    "blockTransferIntent.source.kind must be library, page, document, or data_source",
   );
 };
 
@@ -582,10 +660,13 @@ const parseIntentTarget = (
   rootBlockIds: readonly BlockId[],
 ): BlockTransferIntentTarget => {
   const target = readRecord(value, "blockTransferIntent.target");
-  if (target.kind === "space") {
-    assertExactKeys(target, "blockTransferIntent.target", ["kind"], [
-      "beforeBlockId",
-    ]);
+  if (target.kind === "library") {
+    assertExactKeys(
+      target,
+      "blockTransferIntent.target",
+      ["kind", "libraryId"],
+      ["beforeBlockId"],
+    );
     const beforeBlockId = readOptionalString(
       target,
       "beforeBlockId",
@@ -596,7 +677,47 @@ const parseIntentTarget = (
         "blockTransferIntent.target.beforeBlockId cannot be a transferred root",
       );
     }
-    return { kind: "space", ...(beforeBlockId ? { beforeBlockId } : {}) };
+    return {
+      kind: "library",
+      libraryId: readString(
+        target,
+        "libraryId",
+        "blockTransferIntent.target",
+      ),
+      ...(beforeBlockId ? { beforeBlockId } : {}),
+    };
+  }
+  if (target.kind === "page") {
+    assertExactKeys(
+      target,
+      "blockTransferIntent.target",
+      ["kind", "pageId"],
+      ["parentBlockId", "beforeBlockId"],
+    );
+    const parentBlockId = readOptionalString(
+      target,
+      "parentBlockId",
+      "blockTransferIntent.target",
+    );
+    const beforeBlockId = readOptionalString(
+      target,
+      "beforeBlockId",
+      "blockTransferIntent.target",
+    );
+    if (
+      (parentBlockId && rootBlockIds.includes(parentBlockId)) ||
+      (beforeBlockId && rootBlockIds.includes(beforeBlockId))
+    ) {
+      throw new BlockTransferContractError(
+        "blockTransferIntent Page anchors cannot be transferred roots",
+      );
+    }
+    return {
+      kind: "page",
+      pageId: readString(target, "pageId", "blockTransferIntent.target"),
+      ...(parentBlockId ? { parentBlockId } : {}),
+      ...(beforeBlockId ? { beforeBlockId } : {}),
+    };
   }
   if (target.kind === "document") {
     assertExactKeys(
@@ -634,52 +755,61 @@ const parseIntentTarget = (
       ...(beforeBlockId ? { beforeBlockId } : {}),
     };
   }
-  if (target.kind === "database") {
+  if (target.kind === "data_source") {
     assertExactKeys(
       target,
       "blockTransferIntent.target",
-      ["kind", "databaseBlockId", "viewId", "groupKey"],
-      ["beforeCardBlockId"],
+      ["kind", "dataSourceId", "viewId", "groupKey"],
+      ["beforePageId"],
     );
     if (target.groupKey !== null && typeof target.groupKey !== "string") {
       throw new BlockTransferContractError(
         "blockTransferIntent.target.groupKey must be a string or null",
       );
     }
-    const beforeCardBlockId = readOptionalString(
+    const beforePageId = readOptionalString(
       target,
-      "beforeCardBlockId",
+      "beforePageId",
       "blockTransferIntent.target",
     );
-    if (beforeCardBlockId && rootBlockIds.includes(beforeCardBlockId)) {
+    if (beforePageId && rootBlockIds.includes(beforePageId)) {
       throw new BlockTransferContractError(
-        "blockTransferIntent.target.beforeCardBlockId cannot be a transferred root",
+        "blockTransferIntent.target.beforePageId cannot be a transferred root",
       );
     }
     return {
-      kind: "database",
-      databaseBlockId: readString(
+      kind: "data_source",
+      dataSourceId: readString(
         target,
-        "databaseBlockId",
+        "dataSourceId",
         "blockTransferIntent.target",
       ),
       viewId: readString(target, "viewId", "blockTransferIntent.target"),
       groupKey: target.groupKey,
-      ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
+      ...(beforePageId ? { beforePageId } : {}),
     };
   }
   throw new BlockTransferContractError(
-    "blockTransferIntent.target.kind must be space, document, or database",
+    "blockTransferIntent.target.kind must be library, page, document, or data_source",
   );
 };
 
 const assertParentChange = (
   mode: BlockTransferMode,
-  source: BlockTransferIntentSource,
-  target: BlockTransferIntentTarget,
+  source: BlockTransferIntentSource | BlockTransferSource,
+  target: BlockTransferIntentTarget | BlockTransferTarget,
   label: string,
 ): void => {
   if (mode !== "move") return;
+  if (
+    source.kind === "page" &&
+    target.kind === "page" &&
+    source.pageId === target.pageId
+  ) {
+    throw new BlockTransferContractError(
+      `${label} is for parent changes; reorder within one Page uses a Yjs transaction`,
+    );
+  }
   if (
     source.kind === "document" &&
     target.kind === "document" &&
@@ -687,6 +817,15 @@ const assertParentChange = (
   ) {
     throw new BlockTransferContractError(
       `${label} is for parent changes; reorder within one Document uses a Yjs transaction`,
+    );
+  }
+  if (
+    source.kind === "data_source" &&
+    target.kind === "data_source" &&
+    source.dataSourceId === target.dataSourceId
+  ) {
+    throw new BlockTransferContractError(
+      `${label} is for parent changes; reorder within one Data Source uses a View position operation`,
     );
   }
   if (
@@ -718,9 +857,9 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
     ],
     ["clientSessionId"],
   );
-  if (intent.version !== BLOCK_TRANSFER_CONTRACT_VERSION) {
+  if (intent.version !== BLOCK_TRANSFER_INTENT_CONTRACT_VERSION) {
     throw new BlockTransferContractError(
-      `blockTransferIntent.version must be ${BLOCK_TRANSFER_CONTRACT_VERSION}`,
+      `blockTransferIntent.version must be ${BLOCK_TRANSFER_INTENT_CONTRACT_VERSION}`,
     );
   }
   if (intent.mode !== "move" && intent.mode !== "copy") {
@@ -733,7 +872,7 @@ export const parseBlockTransferIntent = (value: unknown): BlockTransferIntent =>
   const target = parseIntentTarget(intent.target, rootBlockIds);
   assertParentChange(intent.mode, source, target, "BlockTransfer");
   return {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
+    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
     operationId: readString(intent, "operationId", "blockTransferIntent"),
     projectId: readString(intent, "projectId", "blockTransferIntent"),
     storeEpoch: readString(intent, "storeEpoch", "blockTransferIntent"),
@@ -758,8 +897,79 @@ export const blockTransferIntentFromRequest = (
   value: BlockTransferRequest,
 ): BlockTransferIntent => {
   const request = parseBlockTransferRequest(value);
+  const source: BlockTransferIntentSource = (() => {
+    if (request.source.kind === "space") {
+      if (!request.source.libraryId) {
+        throw new BlockTransferContractError(
+          "Prepared Library source is missing libraryId",
+        );
+      }
+      return { kind: "library", libraryId: request.source.libraryId };
+    }
+    if (request.source.kind === "document") {
+      return request.source.pageId
+        ? { kind: "page", pageId: request.source.pageId }
+        : { kind: "document", documentId: request.source.documentId };
+    }
+    if (!request.source.dataSourceId) {
+      throw new BlockTransferContractError(
+        "Prepared Data Source source is missing dataSourceId",
+      );
+    }
+    return {
+      kind: "data_source",
+      dataSourceId: request.source.dataSourceId,
+    };
+  })();
+  const target: BlockTransferIntentTarget = (() => {
+    if (request.target.kind === "space") {
+      if (!request.target.libraryId) {
+        throw new BlockTransferContractError(
+          "Prepared Library target is missing libraryId",
+        );
+      }
+      return {
+        kind: "library",
+        libraryId: request.target.libraryId,
+        ...(request.target.beforeBlockId
+          ? { beforeBlockId: request.target.beforeBlockId }
+          : {}),
+      };
+    }
+    if (request.target.kind === "document") {
+      const anchors = {
+        ...(request.target.parentBlockId
+          ? { parentBlockId: request.target.parentBlockId }
+          : {}),
+        ...(request.target.beforeBlockId
+          ? { beforeBlockId: request.target.beforeBlockId }
+          : {}),
+      };
+      return request.target.pageId
+        ? { kind: "page", pageId: request.target.pageId, ...anchors }
+        : {
+            kind: "document",
+            documentId: request.target.documentId,
+            ...anchors,
+          };
+    }
+    if (!request.target.dataSourceId) {
+      throw new BlockTransferContractError(
+        "Prepared Data Source target is missing dataSourceId",
+      );
+    }
+    return {
+      kind: "data_source",
+      dataSourceId: request.target.dataSourceId,
+      viewId: request.target.viewId,
+      groupKey: request.target.groupKey,
+      ...(request.target.beforePageId
+        ? { beforePageId: request.target.beforePageId }
+        : {}),
+    };
+  })();
   return {
-    version: request.version,
+    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -769,43 +979,8 @@ export const blockTransferIntentFromRequest = (
     actor: request.actor,
     mode: request.mode,
     rootBlockIds: request.rootBlockIds,
-    source:
-      request.source.kind === "space"
-        ? { kind: "space" }
-        : request.source.kind === "document"
-          ? { kind: "document", documentId: request.source.documentId }
-          : {
-              kind: "database",
-              databaseBlockId: request.source.databaseBlockId,
-            },
-    target:
-      request.target.kind === "space"
-        ? {
-            kind: "space",
-            ...(request.target.beforeBlockId
-              ? { beforeBlockId: request.target.beforeBlockId }
-              : {}),
-          }
-        : request.target.kind === "document"
-          ? {
-              kind: "document",
-              documentId: request.target.documentId,
-              ...(request.target.parentBlockId
-                ? { parentBlockId: request.target.parentBlockId }
-                : {}),
-              ...(request.target.beforeBlockId
-                ? { beforeBlockId: request.target.beforeBlockId }
-                : {}),
-            }
-          : {
-              kind: "database",
-              databaseBlockId: request.target.databaseBlockId,
-              viewId: request.target.viewId,
-              groupKey: request.target.groupKey,
-              ...(request.target.beforeCardBlockId
-                ? { beforeCardBlockId: request.target.beforeCardBlockId }
-                : {}),
-            },
+    source,
+    target,
   };
 };
 

@@ -21,7 +21,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+Shift+P` | Search commands | Opens the global command palette in root command mode; works from editable surfaces too |
 | `⌘/Ctrl+K` | Search commands | Opens the global command palette in root command mode; works from editable surfaces too |
 | `⌘/Ctrl+G` | Search chats | Opens the global palette in chat-search mode |
-| `⌘/Ctrl+P` | Search cards | Opens the global palette in card-search mode, including the card filter controls |
+| `⌘/Ctrl+P` | Search Pages | Opens the global palette in Page-search mode, including Page filter controls |
 | `⌘/Ctrl+[` | Back | Restores the previous shell-owned project/session/panel context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Forward | Restores the next shell-owned project/session/panel context; works from editable surfaces too |
 | `⌘/Ctrl+Shift+A` | Archive chat | Archives the active project or projectless session |
@@ -119,7 +119,7 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 
 | Shortcut | Action | Scope |
 |----------|--------|-------|
-| `↑` / `↓` | Traverse Card outliner surfaces | At a visual boundary, moves through the visible host Block order, an authoritative child `card` / `cardRef` title, and its disclosed body Blocks without changing disclosure; hidden collapsed-toggle descendants are skipped |
+| `↑` / `↓` | Traverse Page outliner surfaces | At a visual boundary, moves through the visible host Block order, an authoritative child `page` / `pageRef` title, and its disclosed body Blocks without changing disclosure; hidden collapsed-toggle descendants are skipped |
 | `↑` / `↓` | Navigate between cards at boundary | Top-level Toggle List Card editor |
 | `Escape` | Return from an engaged Card title to its host shell | Keeps Card disclosure unchanged |
 | `Space` | Toggle large image preview | When an image block is focused (open), or while preview modal is open (close) |

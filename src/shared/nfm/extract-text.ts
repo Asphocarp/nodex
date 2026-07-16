@@ -1,7 +1,7 @@
 import type { NfmBlock, NfmInlineContent } from "./types";
 import { formatDateMentionPlainText } from "./date-mention";
 import { parseNfm } from "./parser";
-import { buildCardDeepLink } from "../card-deeplink";
+import { buildPageDeepLink } from "../page-deeplink";
 
 export function extractPlainText(nfm: string, maxLength?: number): string {
   if (!nfm) return "";
@@ -41,11 +41,11 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
     }
 
     if (block.type === "cardRef") {
-      parts.push(block.cardId);
+      parts.push(block.pageId);
     }
 
-    if (block.type === "mentionCard") {
-      parts.push(buildCardDeepLink({ cardId: block.targetBlockId }));
+    if (block.type === "pageRef") {
+      parts.push(buildPageDeepLink({ pageId: block.targetBlockId }));
     }
 
     if (block.type === "databaseViewRef") {
@@ -61,7 +61,7 @@ function collectText(blocks: NfmBlock[], parts: string[]): void {
     }
 
     if (block.type === "cardToggle") {
-      parts.push(block.cardId, block.meta);
+      parts.push(block.pageId, block.meta);
     }
 
     if (block.type === "threadSection") {

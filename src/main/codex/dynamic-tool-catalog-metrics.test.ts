@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  NODEX_AGENT_V2_CATALOG_BUDGETS,
-  NODEX_AGENT_V3_CATALOG_BUDGETS,
-} from "../../shared/nodex-agent-tools/budgets";
+import { NODEX_AGENT_V3_CATALOG_BUDGETS } from "../../shared/nodex-agent-tools/budgets";
 import {
   NESTED_MARKDOWN_AGENT_GUIDE,
   NESTED_MARKDOWN_COMPACT_HINT,
@@ -11,37 +8,11 @@ import {
   formatDynamicToolCatalogMetrics,
   measureDynamicToolCatalog,
 } from "./dynamic-tool-catalog-metrics";
-import {
-  buildNodexAgentV2DynamicToolCatalog,
-  buildNodexAgentV3DynamicToolCatalog,
-} from "./nodex-dynamic-tool-registry";
+import { buildNodexAgentV3DynamicToolCatalog } from "./nodex-dynamic-tool-registry";
 
 describe("Nodex Agent catalog metrics", () => {
-  test("measures the exact production catalog without runtime dependencies", () => {
-    const metrics = measureDynamicToolCatalog(buildNodexAgentV2DynamicToolCatalog());
-
-    expect(metrics.namespace).toBe("nodex_app");
-    expect(metrics.namespaceBytes).toBeLessThanOrEqual(
-      NODEX_AGENT_V2_CATALOG_BUDGETS.namespaceBytes,
-    );
-    expect(metrics.eagerBytes).toBeLessThanOrEqual(
-      NODEX_AGENT_V2_CATALOG_BUDGETS.eagerBytes,
-    );
-    expect(metrics.completeBytes).toBeLessThanOrEqual(
-      NODEX_AGENT_V2_CATALOG_BUDGETS.completeBytes,
-    );
-
-    for (const tool of metrics.tools) {
-      const budget = NODEX_AGENT_V2_CATALOG_BUDGETS.tools[
-        tool.name as keyof typeof NODEX_AGENT_V2_CATALOG_BUDGETS.tools
-      ];
-      expect(budget, tool.name).toBeTypeOf("number");
-      expect(tool.totalBytes, tool.name).toBeLessThanOrEqual(budget);
-    }
-  });
-
   test("renders one deterministic table with all cost centers", () => {
-    const metrics = measureDynamicToolCatalog(buildNodexAgentV2DynamicToolCatalog());
+    const metrics = measureDynamicToolCatalog(buildNodexAgentV3DynamicToolCatalog());
     const first = formatDynamicToolCatalogMetrics(metrics);
     const second = formatDynamicToolCatalogMetrics(metrics);
 
@@ -56,7 +27,7 @@ describe("Nodex Agent catalog metrics", () => {
     expect(() => measureDynamicToolCatalog([])).toThrow(
       "exactly one dynamic-tool namespace",
     );
-    const catalog = buildNodexAgentV2DynamicToolCatalog();
+    const catalog = buildNodexAgentV3DynamicToolCatalog();
     expect(() => measureDynamicToolCatalog([...catalog, ...catalog])).toThrow(
       "exactly one dynamic-tool namespace",
     );

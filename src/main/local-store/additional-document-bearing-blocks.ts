@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import * as Y from "yjs";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
-import { assertUuidV7, createUuidV7 } from "../../shared/card-id";
+import { assertUuidV7, createUuidV7 } from "../../shared/uuid-v7";
 import {
   ADDITIONAL_DOCUMENT_BEARING_OPERATION_VERSION,
   CANVAS_BLOCK_TYPE,
@@ -1582,7 +1582,7 @@ const assertNoExternalBlockReferences = (
         schemaVersion: document.schema_version,
       });
       if (
-        authority.scene.cardReferences.some((reference) =>
+        authority.scene.pageReferences.some((reference) =>
           targetBlockIds.has(reference.targetBlockId),
         )
       ) {
@@ -1771,7 +1771,7 @@ export const deleteOwnedDocumentSource = (
       ) {
         throw new AdditionalDocumentBearingBlockError(
           "block_revision_conflict",
-          `Owned source ${ownerBlockId} must be moved to Space before deletion`,
+          `Owned source ${ownerBlockId} must be moved to the Library before deletion`,
         );
       }
       if (

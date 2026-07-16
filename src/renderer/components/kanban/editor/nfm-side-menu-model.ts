@@ -123,7 +123,7 @@ const REFERENCE_ACTIONS: readonly Omit<NfmSideMenuAction, "section" | "enabled" 
     visualGroup: "block-move",
     submenu: "move-to",
     shortcut: "⌘⇧P",
-    keywords: ["relocate", "page", "card", "database", "db", "nodex"],
+    keywords: ["relocate", "page", "page", "database", "db", "nodex"],
   },
   {
     key: "delete",
@@ -197,7 +197,7 @@ function resolveSingleBlockScopeTitle(block: NfmSideMenuTargetBlockDescriptor) {
   if (block.type === "image") return "Image";
   if (block.type === "callout") return "Callout";
   if (block.type === "table") return "Table";
-  if (block.type === "cardRef") return "Card mention";
+  if (block.type === "pageRef") return "Page mention";
   if (block.type === "threadSection") return "Thread section";
   return "Block";
 }

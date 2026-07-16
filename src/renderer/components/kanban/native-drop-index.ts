@@ -21,19 +21,19 @@ export function computeNativeDropIndexFromSurface(
   surface: HTMLElement,
   pointerY: number,
   options?: {
-    ignoredCardIds?: ReadonlySet<string>;
+    ignoredPageIds?: ReadonlySet<string>;
   },
 ): number {
-  const ignoredCardIds = options?.ignoredCardIds;
+  const ignoredPageIds = options?.ignoredPageIds;
   const cardElements = Array.from(
-    surface.querySelectorAll<HTMLElement>("[data-kanban-card-id]"),
+    surface.querySelectorAll<HTMLElement>("[data-kanban-uuid-v7]"),
   ).filter((element) => {
-    if (!ignoredCardIds || ignoredCardIds.size === 0) {
+    if (!ignoredPageIds || ignoredPageIds.size === 0) {
       return true;
     }
 
-    const cardId = element.dataset.kanbanCardId;
-    return !cardId || !ignoredCardIds.has(cardId);
+    const pageId = element.dataset.kanbanPageId;
+    return !pageId || !ignoredPageIds.has(pageId);
   });
   const rects = cardElements.map((element) => {
     const rect = element.getBoundingClientRect();

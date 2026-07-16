@@ -6,7 +6,7 @@ describe("BootstrapRuntimeEventQueue", () => {
     const queue = new BootstrapRuntimeEventQueue();
     const events: string[] = [];
 
-    await queue.enqueueOpenUrl("nodex://cards/card-1");
+    await queue.enqueueOpenUrl("nodex://pages/card-1");
     await queue.enqueueSecondInstance(["nodex://sessions/session-1"]);
 
     await queue.attachController({
@@ -18,7 +18,7 @@ describe("BootstrapRuntimeEventQueue", () => {
       },
     });
 
-    expect(events.join("|")).toBe("url:nodex://cards/card-1|argv:nodex://sessions/session-1");
+    expect(events.join("|")).toBe("url:nodex://pages/card-1|argv:nodex://sessions/session-1");
   });
 
   test("dispatches directly after runtime attach", async () => {
@@ -33,15 +33,15 @@ describe("BootstrapRuntimeEventQueue", () => {
         events.push(`argv:${argv.length}`);
       },
     });
-    await queue.enqueueOpenUrl("nodex://cards/card-2");
+    await queue.enqueueOpenUrl("nodex://pages/card-2");
 
-    expect(events.join("|")).toBe("url:nodex://cards/card-2");
+    expect(events.join("|")).toBe("url:nodex://pages/card-2");
   });
 
   test("exposes pending startup events without attaching runtime", async () => {
     const queue = new BootstrapRuntimeEventQueue();
 
-    await queue.enqueueOpenUrl("nodex://cards/card-1");
+    await queue.enqueueOpenUrl("nodex://pages/card-1");
     await queue.enqueueSecondInstance(["--flag"]);
 
     const pending = queue.takePendingEvents();

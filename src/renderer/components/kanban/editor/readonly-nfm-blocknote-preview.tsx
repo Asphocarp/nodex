@@ -19,7 +19,7 @@ import { formatAttachmentBytes } from "./attachment-chip-format";
 import { createReadonlyDateMentionInlineContentSpec } from "./date-mention-chip";
 import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
 import { createCalloutBlock } from "./callout-block";
-import { createCardToggleBlockSpec } from "./card-toggle-block";
+import { createPageToggleBlockSpec } from "./card-toggle-block";
 import { editorCodeBlockOptions } from "./code-block-options";
 import { imageBlockSpec } from "./image-block";
 import {
@@ -31,8 +31,8 @@ import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 import {
   agentConfigInlineContentConfig,
   attachmentInlineContentConfig,
-  cardBlockConfig,
-  cardRefBlockConfig,
+  pageBlockConfig,
+  pageRefBlockConfig,
   databaseViewRefBlockConfig,
   syncedBlockRefBlockConfig,
   reusableTemplateRefBlockConfig,
@@ -44,7 +44,7 @@ import {
 interface ReadonlyNfmBlockNotePreviewProps {
   content: string;
   projectId: string;
-  cardId: string;
+  pageId: string;
   historyId?: number | string | null;
   projectWorkspacePath?: string | null;
   className?: string;
@@ -94,8 +94,8 @@ function InertEmbedPlaceholder({
   );
 }
 
-const createReadonlyCardRefBlockSpec = createReactBlockSpec(
-  cardRefBlockConfig,
+const createReadonlyPageRefBlockSpec = createReactBlockSpec(
+  pageRefBlockConfig,
   {
     render: ({ block }) => {
       const sourceProjectId = String(block.props.sourceProjectId || "default");
@@ -103,7 +103,7 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
       return (
         <InertEmbedPlaceholder
           icon={Link2}
-          label="Card mention"
+          label="Page mention"
           detail={targetBlockId || sourceProjectId}
         />
       );
@@ -111,11 +111,11 @@ const createReadonlyCardRefBlockSpec = createReactBlockSpec(
   },
 );
 
-const createReadonlyCardBlockSpec = createReactBlockSpec(cardBlockConfig, {
+const createReadonlyPageBlockSpec = createReactBlockSpec(pageBlockConfig, {
   render: () => (
     <InertEmbedPlaceholder
       icon={FileText}
-      label="Card"
+      label="Page"
       detail="Untitled"
     />
   ),
@@ -280,9 +280,9 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     divider: defaultBlockSpecs.divider,
     image: imageBlockSpec,
     callout: createCalloutBlock(),
-    cardToggle: createCardToggleBlockSpec(),
-    card: createReadonlyCardBlockSpec(),
-    cardRef: createReadonlyCardRefBlockSpec(),
+    cardToggle: createPageToggleBlockSpec(),
+    page: createReadonlyPageBlockSpec(),
+    pageRef: createReadonlyPageRefBlockSpec(),
     databaseViewRef: createReadonlyDatabaseViewRefBlockSpec(),
     syncedBlockRef: createReadonlySyncedBlockRefBlockSpec(),
     templateRef: createReadonlyTemplateRefBlockSpec(),
@@ -335,7 +335,7 @@ function setToggleStates(toggleStates: ReadonlyPreviewDocument["toggleStates"]):
 export function ReadonlyNfmBlockNotePreview({
   content,
   projectId,
-  cardId,
+  pageId,
   historyId,
   projectWorkspacePath,
   className,
@@ -344,14 +344,14 @@ export function ReadonlyNfmBlockNotePreview({
   const toggleBlockIdsRef = useRef<string[]>([]);
 
   const previewDocument = useMemo(() => {
-    void cardId;
+    void pageId;
     void historyId;
     void projectId;
     cleanupToggleStates(toggleBlockIdsRef.current);
     const nextDocument = createReadonlyNfmPreviewDocument(content);
     toggleBlockIdsRef.current = setToggleStates(nextDocument.toggleStates);
     return nextDocument;
-  }, [content, projectId, cardId, historyId]);
+  }, [content, projectId, pageId, historyId]);
 
   useEffect(() => () => {
     cleanupToggleStates(toggleBlockIdsRef.current);
@@ -370,7 +370,7 @@ export function ReadonlyNfmBlockNotePreview({
         splitCells: false,
       },
     },
-    [projectId, cardId, historyId, content],
+    [projectId, pageId, historyId, content],
   );
 
   const handleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
@@ -398,7 +398,7 @@ export function ReadonlyNfmBlockNotePreview({
       spellCheck={false}
       data-testid="readonly-nfm-blocknote-preview"
       data-project-id={projectId}
-      data-card-id={cardId}
+      data-uuid-v7={pageId}
       data-history-id={historyId ?? undefined}
       data-project-workspace-path={projectWorkspacePath ?? undefined}
     >

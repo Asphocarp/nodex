@@ -8,8 +8,8 @@ const CARDS: DbViewCardRecord[] = [
     id: "card-sync-contract",
     status: "in_progress",
     archived: false,
-    title: "Define the Card document sync contract",
-    richTitle: plainTextToPortableRichText("Define the Card document sync contract"),
+    title: "Define the Page document sync contract",
+    richTitle: plainTextToPortableRichText("Define the Page document sync contract"),
     priority: "p0-critical",
     estimate: "l",
     tags: ["sync", "architecture"],
@@ -63,7 +63,7 @@ export const CollaborativeRows: Story = {
           showEmptyEstimate={false}
           showEmptyPriority={false}
           visibilityOverride
-          onOpenCard={() => undefined}
+          onOpenPage={() => undefined}
           renderDocument={({ card }) => (
             <div className="py-2 text-sm text-token-text-secondary">
               Independent collaborative surface for {card.title}

@@ -1,4 +1,4 @@
-export const SIDEBAR_TOP_LEVEL_SECTION_IDS = ["recents", "cards", "threads", "files"] as const;
+export const SIDEBAR_TOP_LEVEL_SECTION_IDS = ["recents", "pages", "threads", "files"] as const;
 
 export type SidebarTopLevelSectionId = (typeof SIDEBAR_TOP_LEVEL_SECTION_IDS)[number];
 
@@ -16,7 +16,7 @@ export const DEFAULT_SIDEBAR_SECTION_ITEM_LIMIT: SidebarSectionItemLimit = 10;
 
 export const SIDEBAR_TOP_LEVEL_SECTION_LABELS: Record<SidebarTopLevelSectionId, string> = {
   recents: "Recents",
-  cards: "Cards",
+  pages: "Pages",
   threads: "Threads",
   files: "Diffs",
 };
@@ -69,7 +69,11 @@ export function normalizeSidebarCollapsibleSectionsState(value: unknown): Sideba
 }
 
 export function normalizeSidebarTopLevelSectionOrder(value: unknown): SidebarTopLevelSectionId[] {
-  const preferredOrder = Array.isArray(value) ? value.filter(isSidebarTopLevelSectionId) : [];
+  const preferredOrder = Array.isArray(value)
+    ? value
+      .map((sectionId) => sectionId === "cards" ? "pages" : sectionId)
+      .filter(isSidebarTopLevelSectionId)
+    : [];
   const seen = new Set<SidebarTopLevelSectionId>();
   const nextOrder: SidebarTopLevelSectionId[] = [];
 
@@ -92,7 +96,9 @@ export function normalizeSidebarTopLevelSectionsPrefs(value: unknown): SidebarTo
   if (typeof value !== "object" || value === null || Array.isArray(value)) return defaults;
 
   return SIDEBAR_TOP_LEVEL_SECTION_IDS.reduce<SidebarTopLevelSectionsPrefs>((acc, sectionId) => {
-    const rawSection = (value as Record<string, unknown>)[sectionId];
+    const valueRecord = value as Record<string, unknown>;
+    const rawSection = valueRecord[sectionId]
+      ?? (sectionId === "pages" ? valueRecord.cards : undefined);
     if (typeof rawSection !== "object" || rawSection === null || Array.isArray(rawSection)) {
       acc[sectionId] = defaults[sectionId];
       return acc;

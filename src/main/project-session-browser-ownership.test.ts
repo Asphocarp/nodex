@@ -121,7 +121,7 @@ describe("project session browser ownership", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("closes every project-owned browser conversation before a project cascade disappears", async () => {
+  test("closes project-owned browser conversations while preserving archived session history", async () => {
     const ran = await withTempDatabase(async () => {
       const project = createProject({ name: "Disposable", sources: ["/tmp/disposable"] });
       const session = createProjectSession({ projectId: project.id, noThreadFallbackTitle: "Browser" });
@@ -141,7 +141,14 @@ describe("project session browser ownership", () => {
         (targetProjectId) => deleteProjectBlockFirst(getDb(), targetProjectId).deleted,
       )).toBe(true);
       expect(recorder.browserConversations.includes(session.id)).toBe(true);
-      expect(getProjectSession(session.id) === null).toBe(true);
+      expect(getProjectSession(session.id)?.projectId).toBe(project.id);
+      expect(
+        (
+          getDb().prepare("SELECT lifecycle FROM projects WHERE id = ?").get(
+            project.id,
+          ) as { readonly lifecycle: string }
+        ).lifecycle,
+      ).toBe("archived");
     });
 
     if (!ran) expect(true).toBe(true);

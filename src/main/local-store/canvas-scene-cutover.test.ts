@@ -10,7 +10,7 @@ import {
 } from "../../shared/block-documents";
 import { createCanvasDocument } from "./legacy-canvas-ydoc-codec";
 import { getOwnedDocumentDescriptor } from "./block-document-cutover";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createProject } from "./projects";
 import { cutoverImportedCanvasAuthority } from "./schema";
@@ -170,7 +170,7 @@ describe("Canvas scene authority import", () => {
   test("removes only Canvas Yjs rows, converts checkpoints, and leaves Cards unchanged", async () => {
     const database = await useFreshStore();
     const project = createProject({ name: "Canvas cutover isolation" });
-    const card = await createCard(project.id, "draft", { title: "Yjs remains" });
+    const card = await createPage(project.id, "draft", { title: "Yjs remains" });
     const cardDescriptor = getOwnedDocumentDescriptor(database, project.id, card.id);
     const canvasDescriptor = getOwnedDocumentDescriptor(
       database,

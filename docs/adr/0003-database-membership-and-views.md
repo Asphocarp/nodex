@@ -1,6 +1,6 @@
 # ADR 0003: Database capability, Card membership, and durable views
 
-- Status: Superseded in part by ADR 0005 and ADR 0013
+- Status: Superseded by ADR 0017
 - Date: 2026-07-11
 - Owners: Nodex maintainers
 

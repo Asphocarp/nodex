@@ -231,7 +231,7 @@ function readDatabaseValues(
      AND value.property_id = property.id
      AND value.database_block_id = membership.database_block_id
      AND value.project_id = membership.project_id
-    WHERE membership.card_block_id = ?
+    WHERE membership.page_block_id = ?
       AND membership.project_id = ?
       AND membership.removed_at IS NULL
     ORDER BY property.rank_key, property.id

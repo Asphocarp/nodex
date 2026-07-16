@@ -946,7 +946,7 @@ describe("blocknote adapter", () => {
     const bnBlocks = nfmToBlockNote(blocks);
 
     expect(bnBlocks.length).toBe(1);
-    expect(bnBlocks[0].type).toBe("cardRef");
+    expect(bnBlocks[0].type).toBe("pageRef");
     expect(bnBlocks[0].props.sourceProjectId).toBe("my-project");
     expect(bnBlocks[0].props.cardId).toBe("abc1234");
   });
@@ -955,7 +955,7 @@ describe("blocknote adapter", () => {
     const blocks = blockNoteToNfm(
       asDoc([
         {
-          type: "cardRef",
+          type: "pageRef",
           props: {
             sourceProjectId: "my-project",
             cardId: "abc1234",
@@ -970,14 +970,14 @@ describe("blocknote adapter", () => {
     expect(blocks[0].type).toBe("cardRef");
     if (blocks[0].type !== "cardRef") return;
     expect(blocks[0].sourceProjectId).toBe("my-project");
-    expect(blocks[0].cardId).toBe("abc1234");
+    expect(blocks[0].pageId).toBe("abc1234");
   });
 
-  test("card-ref with empty cardId survives BN → NFM round-trip", () => {
+  test("card-ref with empty pageId survives BN → NFM round-trip", () => {
     const blocks = blockNoteToNfm(
       asDoc([
         {
-          type: "cardRef",
+          type: "pageRef",
           props: {
             sourceProjectId: "default",
             cardId: "",
@@ -991,15 +991,15 @@ describe("blocknote adapter", () => {
     expect(blocks.length).toBe(1);
     expect(blocks[0].type).toBe("cardRef");
     if (blocks[0].type !== "cardRef") return;
-    expect(blocks[0].cardId).toBe("");
+    expect(blocks[0].pageId).toBe("");
   });
 
-  test("card-ref with missing card attribute parses with empty cardId", () => {
+  test("card-ref with missing card attribute parses with empty pageId", () => {
     const blocks = parseNfm('<card-ref project="my-project" />');
     expect(blocks.length).toBe(1);
     expect(blocks[0].type).toBe("cardRef");
     if (blocks[0].type !== "cardRef") return;
-    expect(blocks[0].cardId).toBe("");
+    expect(blocks[0].pageId).toBe("");
   });
 
   test("serialize and parse thread-section round-trip", () => {
@@ -1197,7 +1197,7 @@ describe("blocknote adapter", () => {
     expect(blocks.length).toBe(1);
     expect(blocks[0].type).toBe("cardToggle");
     if (blocks[0].type !== "cardToggle") return;
-    expect(blocks[0].cardId).toBe("abc123");
+    expect(blocks[0].pageId).toBe("abc123");
     expect(blocks[0].meta).toBe("[P1]");
     expect(blocks[0].snapshot).toBe("c25hcA==");
     expect(blocks[0].sourceProjectId).toBe("default");

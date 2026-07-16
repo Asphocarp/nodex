@@ -18,6 +18,7 @@ import {
   resolveAssetPathInRoot,
 } from "./assets";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
+import { readCanvasPageReferenceTable } from "./legacy-page-projection-adapter";
 
 const DOCUMENT_PROJECTION_VERSION = 1;
 const MAX_SEARCH_LIMIT = 200;
@@ -82,7 +83,10 @@ export type DocumentSearchSourceKind =
   | "document_marker";
 
 export interface SearchDocumentBlockUnitsInput {
-  readonly projectId: string;
+  /** Exactly one content scope is required. Project is a legacy projection scope. */
+  readonly projectId?: string;
+  /** Library scope is canonical for Page discovery. */
+  readonly libraryId?: string;
   readonly query: string;
   readonly documentId?: DocumentId;
   readonly ownerBlockId?: BlockId;
@@ -584,7 +588,7 @@ const replaceBlockTreeDocumentSecondaryProjections = (
     .prepare("DELETE FROM canvas_scene_file_refs WHERE document_id = ?")
     .run(source.document_id);
   database
-    .prepare("DELETE FROM canvas_card_references WHERE document_id = ?")
+    .prepare(`DELETE FROM ${readCanvasPageReferenceTable(database)} WHERE document_id = ?`)
     .run(source.document_id);
   database
     .prepare(
@@ -878,7 +882,7 @@ const replaceCanvasSceneSecondaryProjections = (
     .prepare("DELETE FROM canvas_scene_file_refs WHERE document_id = ?")
     .run(source.document_id);
   database
-    .prepare("DELETE FROM canvas_card_references WHERE document_id = ?")
+    .prepare(`DELETE FROM ${readCanvasPageReferenceTable(database)} WHERE document_id = ?`)
     .run(source.document_id);
   database
     .prepare(
@@ -967,14 +971,14 @@ const replaceCanvasSceneSecondaryProjections = (
       authority.updatedAt,
     );
   }
-  const insertCardReference = database.prepare(`
-    INSERT INTO canvas_card_references (
+  const insertPageReference = database.prepare(`
+    INSERT INTO ${readCanvasPageReferenceTable(database)} (
       document_id, source_element_id, target_block_id, owner_block_id,
       project_id, document_generation, projected_seq, title_hint, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const reference of authority.scene.cardReferences) {
-    insertCardReference.run(
+  for (const reference of authority.scene.pageReferences) {
+    insertPageReference.run(
       source.document_id,
       reference.sourceElementId,
       reference.targetBlockId,
@@ -1059,7 +1063,7 @@ export const rebuildProjectDocumentSecondaryProjections = (
         .prepare("DELETE FROM canvas_scene_file_refs WHERE project_id = ?")
         .run(projectId);
       database
-        .prepare("DELETE FROM canvas_card_references WHERE project_id = ?")
+        .prepare(`DELETE FROM ${readCanvasPageReferenceTable(database)} WHERE project_id = ?`)
         .run(projectId);
       database
         .prepare(
@@ -1189,17 +1193,22 @@ const clampLimit = (
   return Math.max(1, Math.min(Math.trunc(value), maximum));
 };
 
-/** Search only fresh Document-derived Block units within one Project. */
+/** Search only fresh Document-derived Block units within one explicit scope. */
 export const searchDocumentBlockUnits = (
   database: Database.Database,
   input: SearchDocumentBlockUnitsInput,
 ): readonly DocumentBlockSearchHit[] => {
-  const projectId = requireIdentity(input.projectId, "projectId");
+  const hasProjectScope = input.projectId !== undefined;
+  const hasLibraryScope = input.libraryId !== undefined;
+  if (hasProjectScope === hasLibraryScope) {
+    throw new TypeError(
+      "Document search requires exactly one Project or Library scope",
+    );
+  }
   const matchQuery = buildDocumentFtsMatchQuery(input.query.trim());
   if (!matchQuery) return [];
   const conditions = [
     "block_search_units_fts MATCH ?",
-    "unit.project_id = ?",
     "unit.document_id IS NOT NULL",
     "unit.source_kind IN ('document_title', 'document_block', 'document_marker')",
     "document.readiness = 'ready'",
@@ -1208,7 +1217,14 @@ export const searchDocumentBlockUnits = (
     "source.lifecycle <> 'deleted'",
     "owner.lifecycle <> 'deleted'",
   ];
-  const parameters: (string | number)[] = [matchQuery, projectId];
+  const parameters: (string | number)[] = [matchQuery];
+  if (input.projectId !== undefined) {
+    conditions.push("unit.project_id = ?");
+    parameters.push(requireIdentity(input.projectId, "projectId"));
+  } else {
+    conditions.push("owner_page.library_id = ?");
+    parameters.push(requireIdentity(input.libraryId ?? "", "libraryId"));
+  }
   if (input.documentId !== undefined) {
     conditions.push("unit.document_id = ?");
     parameters.push(requireIdentity(input.documentId, "documentId"));
@@ -1279,6 +1295,8 @@ export const searchDocumentBlockUnits = (
       INNER JOIN blocks owner
         ON owner.id = unit.owner_block_id
         AND owner.project_id = unit.project_id
+      LEFT JOIN pages owner_page
+        ON owner_page.block_id = owner.id
       WHERE ${conditions.join(" AND ")}
       ORDER BY rank, unit.owner_block_id, unit.block_id
       LIMIT ?

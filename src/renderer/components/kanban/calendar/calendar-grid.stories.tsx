@@ -14,7 +14,7 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
-type CalendarGridScheduledCard = ComponentProps<typeof CalendarGrid>["scheduledCards"][number];
+type CalendarGridScheduledPage = ComponentProps<typeof CalendarGrid>["scheduledPages"][number];
 
 function buildVisibleDays(count: number): Date[] {
   const start = new Date(2026, 3, 20);
@@ -39,14 +39,14 @@ function buildEvent({
   startHour: number;
   durationHours: number;
   isAllDay?: boolean;
-}): CalendarGridScheduledCard {
+}): CalendarGridScheduledPage {
   const scheduledStart = new Date(2026, 3, 20 + dayOffset, startHour, 0, 0, 0);
   const scheduledEnd = new Date(scheduledStart);
   scheduledEnd.setHours(scheduledStart.getHours() + durationHours);
 
   return {
     id,
-    cardId: id,
+    pageId: id,
     title,
     richTitle: plainTextToPortableRichText(title),
     description: "",
@@ -96,13 +96,13 @@ function GridHarness({
         <CalendarGrid
           visibleDays={visibleDays}
           createRequestId={0}
-          scheduledCards={[...timedEvents, ...allDayEvents]}
-          cardStageCardId={undefined}
-          onClickCard={() => undefined}
-          onCreateCard={() => undefined}
+          scheduledPages={[...timedEvents, ...allDayEvents]}
+          pageStagePageId={undefined}
+          onClickPage={() => undefined}
+          onCreatePage={() => undefined}
           onCompleteOccurrence={() => undefined}
           onSkipOccurrence={() => undefined}
-          onUpdateCardSchedule={() => undefined}
+          onUpdatePageSchedule={() => undefined}
           onNavigatePrev={() => undefined}
           onNavigateNext={() => undefined}
           allDayLaneHeight={allDayLaneHeight}

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   BLOCK_GROUP_NODE_NAME,
-  createCardDocument,
+  createPageDocument,
   replaceYTextWithPortableRichText,
 } from "../../shared/block-documents";
 import {
@@ -45,7 +45,7 @@ const makeDocument = (
   title: string,
   blocks: readonly TestBlock[],
 ): Y.Doc => {
-  const envelope = createCardDocument({ documentId, initialTitle: title });
+  const envelope = createPageDocument({ documentId, initialTitle: title });
   const root = envelope.body.toArray()[0];
   if (!(root instanceof Y.XmlElement)) {
     throw new TypeError("Expected Card body root");

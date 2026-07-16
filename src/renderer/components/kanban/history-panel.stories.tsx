@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import type { DocumentVersionDetail } from "../../../shared/block-documents/document-history";
-import type { CardHistoryEntry } from "../../../shared/card-history";
+import type { PageHistoryEntry } from "../../../shared/page-history";
 import {
   HistoryCurrentRevisionPreview,
   HistoryRevisionPreview,
@@ -11,18 +11,18 @@ import {
 const HASH = "a".repeat(64);
 
 const revisionEntry: Extract<
-  CardHistoryEntry,
+  PageHistoryEntry,
   { kind: "document_version" }
 > = {
   id: "document-version:version-1",
   kind: "document_version",
-  projectId: "project-1",
-  cardBlockId: "card-1",
+  libraryId: "library-1",
+  pageId: "card-1",
   documentId: "document-1",
   occurredAt: "2026-07-12T09:10:00.000Z",
   display: {
     category: "content",
-    title: "Edited Card",
+    title: "Edited Page",
     detail: "Automatic revision after editing stopped.",
     actorLabel: "This window",
   },
@@ -36,7 +36,7 @@ const revisionEntry: Extract<
     versionId: "version-1",
     generation: 1,
     baseHeadSeq: 17,
-    schemaKey: "nodex.card",
+    schemaKey: "nodex.page",
     schemaVersion: 1,
     cause: "automatic_edit",
     label: null,
@@ -53,20 +53,20 @@ const revisionDetail: DocumentVersionDetail = {
   summary: {
     ...revisionEntry.versionMetadata,
     documentId: revisionEntry.documentId,
-    projectId: revisionEntry.projectId,
+    projectId: "project-1",
     actor: { kind: "renderer" },
     checkpointMetadata: {
       format: "block_tree_snapshot_v2",
     },
     materializationHash: HASH,
-    materializationKind: "card",
+    materializationKind: "page",
     title: "Plan the document history model",
     preview: "Keep revisions semantic, compact, and restorable.",
     blockCount: 2,
     createdAt: revisionEntry.occurredAt,
   },
   materialization: {
-    kind: "card",
+    kind: "page",
     schemaVersion: 1,
     title: "Plan the document history model",
     richTitle: [
@@ -85,16 +85,16 @@ const revisionDetail: DocumentVersionDetail = {
   },
 };
 
-const mutationEntry: Extract<CardHistoryEntry, { kind: "block_mutation" }> = {
+const mutationEntry: Extract<PageHistoryEntry, { kind: "block_mutation" }> = {
   id: "change-log:42",
   kind: "block_mutation",
-  projectId: "project-1",
-  cardBlockId: "card-1",
+  libraryId: "library-1",
+  pageId: "card-1",
   documentId: "document-1",
   occurredAt: "2026-07-12T08:30:00.000Z",
   display: {
     category: "property",
-    title: "Changed Card properties",
+    title: "Changed Page properties",
     detail: "Updated status and priority in the primary Database.",
     actorLabel: "This window",
   },
@@ -108,18 +108,18 @@ const mutationEntry: Extract<CardHistoryEntry, { kind: "block_mutation" }> = {
 };
 
 const incompleteRelocationEntry: Extract<
-  CardHistoryEntry,
+  PageHistoryEntry,
   { kind: "block_relocation" }
 > = {
   id: "change-log:41",
   kind: "block_relocation",
-  projectId: "project-1",
-  cardBlockId: "card-1",
+  libraryId: "library-1",
+  pageId: "card-1",
   documentId: "document-1",
   occurredAt: "2026-07-12T08:00:00.000Z",
   display: {
     category: "location",
-    title: "Moved blocks into Card",
+    title: "Moved blocks into Page",
     detail: "The durable event survived, but its relocation ledger is unavailable.",
     actorLabel: null,
   },
@@ -127,12 +127,12 @@ const incompleteRelocationEntry: Extract<
   recovery: { kind: "unavailable", reason: "insufficient_evidence" },
   changeSeq: 41,
   relocationId: null,
-  direction: "into_card",
+  direction: "into_page",
   movedBlockCount: 3,
 };
 
 const meta = {
-  title: "Kanban/Card History Evidence",
+  title: "Kanban/Page History Evidence",
   component: HistoryTimelineDetails,
   parameters: { layout: "centered" },
   decorators: [
@@ -159,7 +159,7 @@ export const CurrentCardRevision: Story = {
   render: () => (
     <HistoryCurrentRevisionPreview
       projectId="project-1"
-      cardId="card-1"
+      pageId="card-1"
       title="Plan the document history model"
       nfm="Keep revisions semantic, compact, and restorable.\n\n## Acceptance\n\n- Preview exact content\n- Restore as a forward change"
       projectWorkspacePath="/workspace/project-1"
@@ -170,6 +170,7 @@ export const CurrentCardRevision: Story = {
 export const RestorableAutomaticRevision: Story = {
   render: () => (
     <HistoryRevisionPreview
+      projectId="project-1"
       entry={revisionEntry}
       detail={revisionDetail}
       loading={false}

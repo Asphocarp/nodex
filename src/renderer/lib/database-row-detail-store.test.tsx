@@ -9,10 +9,10 @@ import {
   setDatabaseRowDetails,
   useDatabaseRowDetail,
 } from "./database-row-detail-store";
-import type { Card } from "./types";
+import type { DatabasePage } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 
-function buildCard(overrides: Partial<Card> = {}): Card {
+function buildCard(overrides: Partial<DatabasePage> = {}): DatabasePage {
   const title = overrides.title ?? "Persisted title";
   return {
     id: "card-1",
@@ -221,7 +221,7 @@ describe("card detail store", () => {
     const view = render(<DetailHarness />);
 
     await waitFor(() => {
-      expect(view.getByTestId("detail-state").textContent).toBe("Card not found");
+      expect(view.getByTestId("detail-state").textContent).toBe("Page not found");
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
 

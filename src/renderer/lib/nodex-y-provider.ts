@@ -11,8 +11,8 @@ import type {
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
   getYjsDocumentSchemaAdapter,
   type BlockDocumentSchemaAdapter,
 } from "../../shared/block-documents";
@@ -176,10 +176,10 @@ const LOCAL_CHECKPOINT_ORIGIN = Object.freeze({
   source: "nodex-y-provider-local-checkpoint",
 });
 const DOCUMENT_WRITE_LEASE_TERMINAL_TIMEOUT_MS = 10_000;
-const DEFAULT_CARD_DOCUMENT_SCHEMA = {
-  ownerType: "card",
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+const DEFAULT_PAGE_DOCUMENT_SCHEMA = {
+  ownerType: "page",
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
 } as const;
 
 let fallbackSessionSequence = 0;
@@ -446,7 +446,7 @@ export class NodexYProvider {
         ? createDefaultDocumentLocalCheckpointStore()
         : options.localCheckpointStore;
     this.documentSchemaAdapter = getYjsDocumentSchemaAdapter(
-      options.documentSchema ?? DEFAULT_CARD_DOCUMENT_SCHEMA,
+      options.documentSchema ?? DEFAULT_PAGE_DOCUMENT_SCHEMA,
     );
     this.awareness = new Awareness(this.document);
     this.status = this.buildStatus();

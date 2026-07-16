@@ -15,6 +15,10 @@ function makeProject(input: {
   const primaryWorkspaceRoot = input.primaryWorkspaceRoot?.trim() || null;
   return {
     id: input.id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: input.name,
     description: input.description ?? "",
     icon: "",

@@ -1,6 +1,8 @@
 import type { BoardChangeEvent } from "../shared/ipc-api";
-import type { CardTargetChangedEvent } from "../shared/card-target-events";
+import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type {
+  DocumentAccessAck,
+  DocumentAccessRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -39,35 +41,23 @@ import type {
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
 import type {
-  DatabaseMutationCommandResult,
-  DatabaseMutationRequest,
-} from "../shared/database-kernel";
+  DatabaseApply,
+  DatabaseApplyResult,
+  DatabaseModuleReadRequest,
+  DatabaseModuleReadResult,
+} from "../shared/database-module";
+import type { PageDetailResult } from "../shared/page-detail";
 import type {
-  DatabaseCatalogSnapshotCommandResult,
-  DatabaseManagementSnapshotCommandResult,
-  DatabaseReadCommandResult,
-  DatabaseViewSnapshotCommandResult,
-  GeneralDatabaseDescriptor,
-  GeneralDatabaseViewQuery,
-  PrimaryDatabaseViewSnapshotCommandResult,
-} from "../shared/database-query";
-import type {
-  CardLifecycleMutationCommandResult,
-  CardLifecycleMutationRequest,
-} from "../shared/card-lifecycle";
-import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
-import type { ListCardHistoryRequest } from "../shared/card-history";
-import type { CardHistoryCommandResult } from "../shared/card-history-transport";
+  PageLifecycleMutationCommandResult,
+  PageLifecycleMutationRequest,
+} from "../shared/page-lifecycle";
+import type { PageLifecyclePreflightResult } from "../shared/page-lifecycle-runtime";
+import type { ListPageHistoryRequest } from "../shared/page-history";
+import type { PageHistoryCommandResult } from "../shared/page-history-transport";
 import type {
   AdditionalDocumentCommandRequest,
   AdditionalDocumentCommandResult,
 } from "../shared/additional-document-commands";
-import type {
-  CardProjectTransferCommandResult,
-  CardProjectTransferIntent,
-  CardProjectTransferPreparation,
-  CardProjectTransferRequest,
-} from "../shared/card-project-transfer";
 import type {
   CompactEligibleBlockDocumentsInput,
   CompactEligibleBlockDocumentsResult,
@@ -79,9 +69,9 @@ import type {
 import type { ProjectDeletionResult } from "./local-store/project-deletion";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
 } from "../shared/types";
 import type {
   BlockTransferCommandResult,
@@ -91,42 +81,24 @@ import type {
   BlockTransferRequest,
 } from "../shared/block-transfer";
 import type {
-  CompleteNodexAgentDocumentEditRequest,
-  CompleteNodexAgentDocumentEditResult,
-  CompleteNodexAgentCardUpdateRequest,
-  CompleteNodexAgentCardUpdateResult,
-  ExecuteNodexAgentCreateResult,
-  ExecuteNodexAgentCreateCardsResult,
-  ExecuteNodexAgentDuplicateCardResult,
-  ExecuteNodexAgentMoveCardsResult,
-  ExecuteNodexAgentDatabaseEditResult,
-  ExecuteNodexAgentTransferResult,
-  NodexAgentCreateCardCommand,
-  NodexAgentCreateCardsCommand,
-  NodexAgentDuplicateCardCommand,
-  NodexAgentMoveCardsCommand,
-  NodexAgentDatabaseEditCommand,
-  NodexAgentTransferCommand,
-  NodexAgentReadCommandResult,
-  NodexAgentReadRequest,
+  CompleteNodexAgentPageUpdateRequest,
+  CompleteNodexAgentPageUpdateResult,
+  ExecuteNodexAgentCreatePagesResult,
+  ExecuteNodexAgentDuplicatePageResult,
+  ExecuteNodexAgentMovePagesResult,
+  NodexAgentCreatePagesCommand,
+  NodexAgentDuplicatePageCommand,
+  NodexAgentMovePagesCommand,
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
-  PrepareNodexAgentDocumentEditRequest,
-  PrepareNodexAgentDocumentEditResult,
-  PrepareNodexAgentCardUpdateRequest,
-  PrepareNodexAgentCardUpdateResult,
-  PrepareNodexAgentCreateRequest,
-  PrepareNodexAgentCreateResult,
-  PrepareNodexAgentCreateCardsRequest,
-  PrepareNodexAgentCreateCardsResult,
-  PrepareNodexAgentDuplicateCardRequest,
-  PrepareNodexAgentDuplicateCardResult,
-  PrepareNodexAgentMoveCardsRequest,
-  PrepareNodexAgentMoveCardsResult,
-  PrepareNodexAgentDatabaseEditRequest,
-  PrepareNodexAgentDatabaseEditResult,
-  PrepareNodexAgentTransferRequest,
-  PrepareNodexAgentTransferResult,
+  PrepareNodexAgentPageUpdateRequest,
+  PrepareNodexAgentPageUpdateResult,
+  PrepareNodexAgentCreatePagesRequest,
+  PrepareNodexAgentCreatePagesResult,
+  PrepareNodexAgentDuplicatePageRequest,
+  PrepareNodexAgentDuplicatePageResult,
+  PrepareNodexAgentMovePagesRequest,
+  PrepareNodexAgentMovePagesResult,
 } from "../shared/nodex-agent-tools";
 
 export interface BlockMutationMetrics {
@@ -139,7 +111,7 @@ export interface BlockMutationMetrics {
   mainEventLoopLagMaxMs?: number;
 }
 
-export type CardOccurrenceMutationResult = { success: boolean; error?: string };
+export type PageOccurrenceMutationResult = { success: boolean; error?: string };
 interface BlockMutationWorkerRequestBase {
   id: number;
   mutationId: string;
@@ -148,98 +120,62 @@ interface BlockMutationWorkerRequestBase {
 
 export type BlockMutationWorkerRequest =
   | (BlockMutationWorkerRequestBase & {
-      type: "readNodexAgentTool";
-      payload: NodexAgentReadRequest;
-    })
-  | (BlockMutationWorkerRequestBase & {
       type: "readNodexAgentV3Tool";
       payload: NodexAgentV3ReadRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentDocumentEdit";
-      payload: PrepareNodexAgentDocumentEditRequest;
+      type: "prepareNodexAgentPageUpdate";
+      payload: PrepareNodexAgentPageUpdateRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "completeNodexAgentDocumentEdit";
-      payload: CompleteNodexAgentDocumentEditRequest;
+      type: "completeNodexAgentPageUpdate";
+      payload: CompleteNodexAgentPageUpdateRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentCardUpdate";
-      payload: PrepareNodexAgentCardUpdateRequest;
+      type: "prepareNodexAgentCreatePages";
+      payload: PrepareNodexAgentCreatePagesRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "completeNodexAgentCardUpdate";
-      payload: CompleteNodexAgentCardUpdateRequest;
+      type: "executeNodexAgentCreatePages";
+      payload: NodexAgentCreatePagesCommand;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentCreate";
-      payload: PrepareNodexAgentCreateRequest;
+      type: "prepareNodexAgentDuplicatePage";
+      payload: PrepareNodexAgentDuplicatePageRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "executeNodexAgentCreate";
-      payload: NodexAgentCreateCardCommand;
+      type: "executeNodexAgentDuplicatePage";
+      payload: NodexAgentDuplicatePageCommand;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentCreateCards";
-      payload: PrepareNodexAgentCreateCardsRequest;
+      type: "prepareNodexAgentMovePages";
+      payload: PrepareNodexAgentMovePagesRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "executeNodexAgentCreateCards";
-      payload: NodexAgentCreateCardsCommand;
+      type: "executeNodexAgentMovePages";
+      payload: NodexAgentMovePagesCommand;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentDuplicateCard";
-      payload: PrepareNodexAgentDuplicateCardRequest;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "executeNodexAgentDuplicateCard";
-      payload: NodexAgentDuplicateCardCommand;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentMoveCards";
-      payload: PrepareNodexAgentMoveCardsRequest;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "executeNodexAgentMoveCards";
-      payload: NodexAgentMoveCardsCommand;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentTransfer";
-      payload: PrepareNodexAgentTransferRequest;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "executeNodexAgentTransfer";
-      payload: NodexAgentTransferCommand;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "prepareNodexAgentDatabaseEdit";
-      payload: PrepareNodexAgentDatabaseEditRequest;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "executeNodexAgentDatabaseEdit";
-      payload: NodexAgentDatabaseEditCommand;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "completeCardOccurrence";
+      type: "completePageOccurrence";
       payload: {
         projectId: string;
-        input: CardOccurrenceCompleteInput;
+        input: PageOccurrenceCompleteInput;
         sessionId?: string;
       };
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "skipCardOccurrence";
+      type: "skipPageOccurrence";
       payload: {
         projectId: string;
-        input: CardOccurrenceActionInput;
+        input: PageOccurrenceActionInput;
         sessionId?: string;
       };
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "updateCardOccurrence";
+      type: "updatePageOccurrence";
       payload: {
         projectId: string;
-        input: CardOccurrenceUpdateInput;
+        input: PageOccurrenceUpdateInput;
         sessionId?: string;
       };
     })
@@ -251,8 +187,8 @@ export type BlockMutationWorkerRequest =
       payload: BlockPropertyMutationRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "applyDatabaseMutation";
-      payload: DatabaseMutationRequest;
+      type: "applyDatabaseModule";
+      payload: DatabaseApply;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyBlockTransfer";
@@ -267,12 +203,12 @@ export type BlockMutationWorkerRequest =
       payload: BlockTransferIntent;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "applyCardLifecycleMutation";
-      payload: CardLifecycleMutationRequest;
+      type: "applyPageLifecycleMutation";
+      payload: PageLifecycleMutationRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "readCardLifecyclePreflight";
-      payload: { readonly projectId: string; readonly cardId: string };
+      type: "readPageLifecyclePreflight";
+      payload: { readonly projectId: string; readonly pageId: string };
     })
   | (BlockMutationWorkerRequestBase & {
       type: "compactEligibleBlockDocuments";
@@ -291,32 +227,12 @@ export type BlockMutationWorkerRequest =
       payload: { readonly projectId: string };
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "readDatabaseCatalog";
-      payload: { readonly projectId: string };
+      type: "readDatabaseModule";
+      payload: DatabaseModuleReadRequest;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "readDatabaseManagement";
-      payload: { readonly projectId: string };
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "readDatabaseDescriptor";
-      payload: { readonly projectId: string; readonly databaseBlockId: string };
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "readPrimaryDatabaseDescriptor";
-      payload: { readonly projectId: string };
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "readPrimaryDatabaseViewSnapshot";
-      payload: { readonly projectId: string };
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "readDatabaseViewSnapshot";
-      payload: { readonly projectId: string; readonly viewId: string };
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "queryDatabaseView";
-      payload: { readonly projectId: string; readonly viewId: string };
+      type: "readPageDetail";
+      payload: { readonly projectId: string; readonly pageId: string };
     })
   | (BlockMutationWorkerRequestBase & {
       type: "syncBlockDocument";
@@ -329,6 +245,10 @@ export type BlockMutationWorkerRequest =
   | (BlockMutationWorkerRequestBase & {
       type: "getBlockDocumentProjectId";
       payload: { readonly documentId: string };
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "authorizeDocumentAccess";
+      payload: DocumentAccessRequest;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "getOwnedDocumentDescriptor";
@@ -376,8 +296,8 @@ export type BlockMutationWorkerRequest =
       payload: GetDocumentVersion;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "listCardHistory";
-      payload: ListCardHistoryRequest;
+      type: "listPageHistory";
+      payload: ListPageHistoryRequest;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "relocateBlocks";
@@ -392,14 +312,6 @@ export type BlockMutationWorkerRequest =
       payload: RelocationIntent;
     })
   | (BlockMutationWorkerRequestBase & {
-      type: "prepareCardProjectTransfer";
-      payload: CardProjectTransferIntent;
-    })
-  | (BlockMutationWorkerRequestBase & {
-      type: "applyCardProjectTransfer";
-      payload: CardProjectTransferRequest;
-    })
-  | (BlockMutationWorkerRequestBase & {
       type: "writerBarrier";
     })
   | (BlockMutationWorkerRequestBase & {
@@ -407,6 +319,7 @@ export type BlockMutationWorkerRequest =
     });
 
 export type BlockDocumentWorkerResult =
+  | DocumentSyncCommandResult<DocumentAccessAck>
   | DocumentSyncCommandResult<DocumentSyncResponse>
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
   | CanvasSceneSyncCommandResult
@@ -419,51 +332,36 @@ export type BlockDocumentWorkerResult =
   | BlockTransferCommandResult<BlockTransferReceipt | null>
   | DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>
   | DocumentHistoryCommandResult<DocumentVersionDetail>
-  | CardHistoryCommandResult
+  | PageHistoryCommandResult
   | RelocationCommandResult
   | RelocationCommandResult<RelocateBlocks>
-  | RelocationCommandResult<RelocationResult | null>
-  | CardProjectTransferCommandResult
-  | CardProjectTransferCommandResult<CardProjectTransferPreparation>;
+  | RelocationCommandResult<RelocationResult | null>;
 
 export type BlockMutationWorkerResult =
-  | CardOccurrenceMutationResult
-  | NodexAgentReadCommandResult
+  | PageOccurrenceMutationResult
   | NodexAgentV3ReadCommandResult
-  | PrepareNodexAgentDocumentEditResult
-  | CompleteNodexAgentDocumentEditResult
-  | PrepareNodexAgentCardUpdateResult
-  | CompleteNodexAgentCardUpdateResult
-  | PrepareNodexAgentCreateResult
-  | ExecuteNodexAgentCreateResult
-  | PrepareNodexAgentCreateCardsResult
-  | ExecuteNodexAgentCreateCardsResult
-  | PrepareNodexAgentDuplicateCardResult
-  | ExecuteNodexAgentDuplicateCardResult
-  | PrepareNodexAgentMoveCardsResult
-  | ExecuteNodexAgentMoveCardsResult
-  | PrepareNodexAgentTransferResult
-  | ExecuteNodexAgentTransferResult
-  | PrepareNodexAgentDatabaseEditResult
-  | ExecuteNodexAgentDatabaseEditResult
+  | PrepareNodexAgentPageUpdateResult
+  | CompleteNodexAgentPageUpdateResult
+  | PrepareNodexAgentCreatePagesResult
+  | ExecuteNodexAgentCreatePagesResult
+  | PrepareNodexAgentDuplicatePageResult
+  | ExecuteNodexAgentDuplicatePageResult
+  | PrepareNodexAgentMovePagesResult
+  | ExecuteNodexAgentMovePagesResult
   | BlockDocumentWorkerResult
   | OwnedDocumentDescriptor
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResult
-  | DatabaseMutationCommandResult
+  | DatabaseApplyResult
+  | DatabaseModuleReadResult
+  | PageDetailResult
   | BlockTransferCommandResult
-  | CardLifecycleMutationCommandResult
-  | CardLifecyclePreflightResult
+  | PageLifecycleMutationCommandResult
+  | PageLifecyclePreflightResult
   | CompactEligibleBlockDocumentsResult
   | MaintainStoreBlockRetentionResult
   | MaintainDocumentRevisionHistoryResult
   | ProjectDeletionResult
-  | DatabaseCatalogSnapshotCommandResult
-  | DatabaseManagementSnapshotCommandResult
-  | DatabaseReadCommandResult<GeneralDatabaseDescriptor>
-  | DatabaseReadCommandResult<GeneralDatabaseViewQuery>
-  | PrimaryDatabaseViewSnapshotCommandResult
-  | DatabaseViewSnapshotCommandResult
   | DocumentOperationCommandResult
   | AdditionalDocumentCommandResult
   | undefined;
@@ -474,7 +372,7 @@ export type BlockMutationWorkerResponse =
       ok: true;
       result: BlockMutationWorkerResult;
       events: BoardChangeEvent[];
-      targetEvents?: CardTargetChangedEvent[];
+      targetEvents?: PageTargetChangedEvent[];
       metrics: BlockMutationMetrics;
     }
   | {

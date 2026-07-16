@@ -34,6 +34,10 @@ const emptySnapshot: CodexSidebarSnapshot = {
 function makeProject(id: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: id,
     description: "",
     icon: undefined,

@@ -1,7 +1,7 @@
 import type { KanbanCardDragMode } from "./kanban-card-drop-strategy";
 
 export interface KanbanDropCapabilities {
-  allowCardTargets: boolean;
+  allowPageTargets: boolean;
   allowColumnTargets: boolean;
 }
 
@@ -10,13 +10,13 @@ export function resolveKanbanDropCapabilities(args: {
 }): KanbanDropCapabilities {
   if (args.dragMode.kind === "derived-move-only") {
     return {
-      allowCardTargets: false,
+      allowPageTargets: false,
       allowColumnTargets: true,
     };
   }
 
   return {
-    allowCardTargets: true,
+    allowPageTargets: true,
     allowColumnTargets: true,
   };
 }

@@ -8,21 +8,21 @@ import {
   DocumentSyncHub,
   type DocumentSyncClientTarget,
 } from "../src/main/document-sync-hub";
-import { createCard } from "../src/main/local-store/cards";
+import { createPage } from "../src/main/local-store/database-pages";
 import { getDatabasePath } from "../src/main/local-store/config";
 import {
   closeDatabase,
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
-import { materializeCardDocument } from "../src/shared/block-documents/block-document-codec";
+import { materializePageDocument } from "../src/shared/block-documents/block-document-codec";
 import type {
   DocumentBlockOperation,
   DocumentMutationRequest,
 } from "../src/shared/block-documents/document-operations";
 import type { DocumentSyncRealtimeEvent } from "../src/shared/block-documents/document-sync";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -114,7 +114,7 @@ const run = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Document operation transport" });
-    const card = await createCard(project.id, "draft", {
+    const card = await createPage(project.id, "draft", {
       title: "Original title",
       description: "First paragraph\n\nSecond paragraph",
     });
@@ -214,7 +214,7 @@ const run = async (): Promise<void> => {
     );
     invariant(
       boardEventCount() === 1 &&
-        boardEvents[0]?.cardId === card.id &&
+        boardEvents[0]?.pageId === card.id &&
         boardEvents[0]?.summary?.title === "Original title",
       "Worker ACK preceded the authoritative Board summary event",
     );
@@ -377,7 +377,7 @@ const run = async (): Promise<void> => {
     const restartedDocument = new Y.Doc({ guid: descriptor.documentId });
     try {
       Y.applyUpdate(restartedDocument, restartSync.value.update);
-      const materialized = materializeCardDocument(restartedDocument);
+      const materialized = materializePageDocument(restartedDocument);
       const restartedIds = materialized.blockTree.map((block) => block.id);
       invariant(
         materialized.title === "Original title" &&

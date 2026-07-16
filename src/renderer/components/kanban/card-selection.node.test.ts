@@ -83,7 +83,7 @@ const board: BoardSummary = {
 };
 
 function ids(selection: CardSelectionStateLike): string[] {
-  return Array.from(selection.cardIds);
+  return Array.from(selection.pageIds);
 }
 
 type CardSelectionStateLike = ReturnType<typeof emptyCardSelection>;
@@ -104,7 +104,7 @@ describe("card selection", () => {
 
   test("normalize drops removed cards regardless of source column", () => {
     const selection = {
-      cardIds: new Set(["b", "missing", "d"]),
+      pageIds: new Set(["b", "missing", "d"]),
     };
 
     const normalized = normalizeCardSelection(selection, board);
@@ -114,7 +114,7 @@ describe("card selection", () => {
 
   test("resolveSelectedCardEntries preserves board-visible order across columns", () => {
     const selection = {
-      cardIds: new Set(["d", "a", "c"]),
+      pageIds: new Set(["d", "a", "c"]),
     };
 
     const selected = resolveSelectedCardEntries(board, selection);
@@ -124,7 +124,7 @@ describe("card selection", () => {
 
   test("resolveDragGroup uses the full selection when the active card is selected", () => {
     const selection = {
-      cardIds: new Set(["d", "a", "c"]),
+      pageIds: new Set(["d", "a", "c"]),
     };
 
     const dragGroup = resolveDragGroup(board, selection, {
@@ -137,7 +137,7 @@ describe("card selection", () => {
 
   test("resolveDragGroup falls back to the active card when it is not in the selection", () => {
     const selection = {
-      cardIds: new Set(["a", "c"]),
+      pageIds: new Set(["a", "c"]),
     };
 
     const dragGroup = resolveDragGroup(board, selection, {

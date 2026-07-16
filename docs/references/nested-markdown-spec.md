@@ -52,34 +52,33 @@ There must be whitespace before the starting $ symbol and after the ending $ sym
 Inline line breaks within a block (this is mostly useful in multi-line quote blocks, where an ordinary newline character should not be used since it will break up the block structure):
 <br>
 Mentions:
-Users, pages, databases, data sources, agents, dates, and datetimes can be mentioned:
+Users, databases, data sources, agents, dates, and datetimes can be mentioned inline:
 <mention-user url="{{URL}}">User name</mention-user>
-<mention-page url="{{URL}}">Page title</mention-page>
 <mention-database url="{{URL}}">Database name</mention-database>
 <mention-data-source url="{{URL}}">Data source name</mention-data-source>
 <mention-agent url="{{URL}}">Agent name</mention-agent>
 <mention-date start="YYYY-MM-DD" end="YYYY-MM-DD"/>
 <mention-date start="YYYY-MM-DDThh:mm:ssZ" end="YYYY-MM-DDThh:mm:ssZ"/>
-The URL must always be provided, and refer to an existing user, page, database, data source, agent, date, or datetime.
+The URL must always be provided, and refer to an existing user, database, data source, agent, date, or datetime.
 The inner text (name/title) is optional. The UI always displays the resolved name.
 So an alternative self-closing format is also supported: <mention-user url="{{URL}}"/>
 Nodex extension for Codex thread references:
 <mention-thread uuid="{{CODEX_THREAD_ID}}" />
 The `uuid` attribute is the opaque Codex app-server thread/session id. It is required after trimming whitespace, is serialized as the only attribute, and is not regex-validated. Missing or empty `uuid` values remain plain text instead of creating structured mention content. In copy output and thread-section prompts, thread mentions serialize as `[Thread: {{CODEX_THREAD_ID}}]` and do not inject the referenced thread transcript.
-Nodex extensions for owning Cards and Card mentions:
-<card uuid="{{CARD_BLOCK_ID}}" />
-<mention-card url="nodex://cards/{{CARD_BLOCK_ID}}" />
-An owning `card` Block is a childless shell whose `uuid` is its own stable Card Block identity. During a semantically guarded whole-body replacement, that UUID may preserve or reorder only a Card already owned by the same Document; it never creates, copies, or moves a Card implicitly. Those operations require Nodex's typed ownership commands. A `mention-card` is a childless non-owning mention. Its required URL must resolve through the `nodex://cards/<card-id>` deeplink contract and is canonicalized on serialization. Historical `<card />` and `<card-ref ... />` tags are decode-only and are never emitted by current materialization.
+Nodex extensions for owning Pages and block-level Page references:
+<page uuid="{{PAGE_BLOCK_ID}}" />
+<page-ref url="nodex://pages/{{PAGE_BLOCK_ID}}" />
+An owning `page` Block is a childless shell whose `uuid` is its stable Page/Block identity. During a semantically guarded whole-body replacement, that UUID may preserve or reorder only a Page already owned by the same Document; it never creates, copies, or moves a Page implicitly. Those operations require Nodex's typed ownership commands. `page-ref` is childless and non-owning in NFM and maps to the canonical `pageRef` editor node. Historical `card`, `cardRef`, `<card />`, `<card-ref ... />`, and `<mention-card ... />` forms are decode-only and are never emitted by current materialization.
 
 ## Agent wire contract
 
 Agent tools use the full name **Nested Markdown** in descriptions and the compact field name `markdown` on the wire. Exact patches use `oldMarkdown` and `newMarkdown`; `format: "markdown"` selects this representation when an explicit format is required. `fetch` returns complete canonical Nested Markdown by default, and `get_context({ include: { markdownGuide: true } })` returns the extended authoring guide on demand.
 
-Writable Nested Markdown must be the complete canonical serialization of the selected Document or subtree. A truncated preview is not a Document and must never be accepted as replacement input. Whole-body replacement is all-or-nothing and requires a body ETag, so an unrelated title change does not invalidate it. Multiple text patches instead match exact `oldMarkdown` fragments against one current canonical source, must satisfy their requested match counts, reject overlaps, and apply simultaneously without a Document-wide validator. Bulk insertion is additive: it accepts a complete Nested Markdown Block forest at the Document start/end or before/after/inside a stable Block anchor, never at a character offset or fuzzy text ellipsis, and resolves the anchor against current state. Card title is a separate semantic unit with its own ETag, while any ownership change or deletion of an owning `card` shell requires a typed host operation plus its explicit destructive gate.
+Writable Nested Markdown must be the complete canonical serialization of the selected Document or subtree. A truncated preview is not a Document and must never be accepted as replacement input. Whole-body replacement is all-or-nothing and requires a body ETag, so an unrelated title change does not invalidate it. Multiple text patches instead match exact `oldMarkdown` fragments against one current canonical source, must satisfy their requested match counts, reject overlaps, and apply simultaneously without a Document-wide validator. Bulk insertion is additive: it accepts a complete Nested Markdown Block forest at the Document start/end or before/after/inside a stable Block anchor, never at a character offset or fuzzy text ellipsis, and resolves the anchor against current state. Page title is a separate semantic unit with its own ETag, while any ownership change or deletion of an owning `page` shell requires a typed host operation plus its explicit destructive gate.
 
 ### Inline Markdown titles
 
-Agent-facing Card titles use a bounded, single-line inline Markdown subset rather than a rich-text JSON tree. The lossless subset contains plain text, bold, italic, strikethrough, underline/color spans, inline code, links, `<mention-thread uuid="..." />`, and `<mention-date ... />`. Tabs, line breaks, Block syntax, attachments, agent configuration, and Card Blocks or mentions reject instead of being silently flattened. Title and body remain separate semantic units with separate ETags.
+Agent-facing Page titles use a bounded, single-line inline Markdown subset rather than a rich-text JSON tree. The lossless subset contains plain text, bold, italic, strikethrough, underline/color spans, inline code, links, `<mention-thread uuid="..." />`, and `<mention-date ... />`. Tabs, line breaks, Block syntax, attachments, agent configuration, and Page Blocks or mentions reject instead of being silently flattened. Title and body remain separate semantic units with separate ETags.
 
 Nodex extension for inline date mentions:
 <mention-date start="YYYY-MM-DD" format="relative" />
@@ -219,7 +218,7 @@ Columns:
 </columns>
 Page:
 <page url="{{URL}}" color?="Color">Title</page>
-WARNING: Using <page> with an existing page URL will MOVE the page to a new parent page with this content. If moving is not intended use the <mention-page> block instead.
+WARNING: Using <page> with an existing page URL will MOVE the page to a new parent page with this content. If moving is not intended use the <page-ref> block instead.
 Database:
 <database url?="{{URL}}" inline?="true|false" icon?="Emoji" color?="Color" data-source-url?="{{URL}}">Title</database>
 Provide either url or data-source-url attribute:

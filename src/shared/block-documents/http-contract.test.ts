@@ -17,7 +17,7 @@ import {
   encodeDocumentSyncHttpResponse,
   encodeOwnedDocumentDescriptorHttp,
 } from "./http-contract";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "./card-document";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "./page-document";
 
 const bytes = (...values: number[]): Uint8Array => Uint8Array.from(values);
 
@@ -36,10 +36,10 @@ describe("Document HTTP contract", () => {
       encodeOwnedDocumentDescriptorHttp({
         ...common,
         ownerBlockId: "card-1",
-        ownerType: "card",
+        ownerType: "page",
         documentId: "document-1",
-        schemaKey: "nodex.card",
-        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+        schemaKey: "nodex.page",
+        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
         sync: { kind: "yjs", stateVector: bytes(0, 128, 255) },
       }),
     );

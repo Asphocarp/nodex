@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isCardStatus, type CardStatus } from "../card-status";
+import { isWorkflowStatus, type WorkflowStatus } from "../workflow-status";
 
 function assertValidIsoCalendarDate(fieldName: string, value: string): void {
   const match = /^(\d{4})-(\d{2})-(\d{2})(?:$|T)/.exec(value);
@@ -64,7 +64,7 @@ function parseOptionalBoolean(fieldName: string, value: unknown): boolean | null
   throw new Error(`Invalid ${fieldName} value`);
 }
 
-function normalizeCardBodyObject(body: Record<string, unknown>): Record<string, unknown> {
+function normalizePageBodyObject(body: Record<string, unknown>): Record<string, unknown> {
   const result = { ...body };
   if (Object.hasOwn(result, "dueDate")) {
     result.dueDate = parseDueDate(result.dueDate);
@@ -88,9 +88,9 @@ const ProjectScopedReferenceIdSchema = z.string().min(1).max(512).refine(
   "Reference identifiers must not contain surrounding whitespace",
 );
 
-export const HttpCardTargetParamsSchema = z.object({
+export const HttpPageTargetParamsSchema = z.object({
   projectId: ProjectScopedReferenceIdSchema,
-  targetBlockId: ProjectScopedReferenceIdSchema,
+  pageId: ProjectScopedReferenceIdSchema,
 });
 
 export const HttpDatabaseViewReferenceParamsSchema = z.object({
@@ -105,11 +105,11 @@ export const HttpDatabaseViewReferenceQuerySchema = z.object({
   hostBlockId: ProjectScopedReferenceIdSchema.optional(),
 });
 
-export const HttpCardBodySchema = UnknownRecordSchema.transform((body) => normalizeCardBodyObject(body));
+export const HttpPageBodySchema = UnknownRecordSchema.transform((body) => normalizePageBodyObject(body));
 
-export function parseOptionalCardStatus(value: unknown): CardStatus | undefined {
+export function parseOptionalWorkflowStatus(value: unknown): WorkflowStatus | undefined {
   if (value === undefined || value === null || value === "") return undefined;
-  if (!isCardStatus(value)) {
+  if (!isWorkflowStatus(value)) {
     throw new Error("Invalid status");
   }
   return value;

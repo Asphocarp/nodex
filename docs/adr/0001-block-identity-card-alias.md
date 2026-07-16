@@ -1,6 +1,6 @@
 # ADR 0001: Block identity and the Card product alias
 
-- Status: Accepted
+- Status: Superseded in part by ADR 0017
 - Date: 2026-07-11
 - Owners: Nodex maintainers
 

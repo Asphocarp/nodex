@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type {
-  Card,
-  CardInput,
+  DatabasePage,
+  PageInput,
   RecurrenceConfig,
   RecurrenceFrequency,
   ReminderConfig,
@@ -50,7 +50,7 @@ export function reminderInputFromConfigs(
     .join(", ");
 }
 
-export function recurrenceFromCard(card: CardScheduleSource): {
+export function recurrenceFromPage(page: PageScheduleSource): {
   enabled: boolean;
   frequency: RecurrenceFrequency;
   interval: string;
@@ -58,7 +58,7 @@ export function recurrenceFromCard(card: CardScheduleSource): {
   endType: "never" | "untilDate";
   untilDate: string;
 } {
-  const recurrence = card.recurrence;
+  const recurrence = page.recurrence;
   if (!recurrence) {
     return {
       enabled: false,
@@ -84,9 +84,9 @@ export function recurrenceFromCard(card: CardScheduleSource): {
   };
 }
 
-export type CardScheduleSource = Omit<
+export type PageScheduleSource = Omit<
   Pick<
-    Card,
+    DatabasePage,
     | "id"
     | "scheduledStart"
     | "scheduledEnd"
@@ -225,10 +225,10 @@ export interface ScheduleSummary {
 }
 
 export interface UseScheduleStateOptions {
-  card: CardScheduleSource | null;
-  saveProperty: (updates: Partial<CardInput>) => void;
-  onCompleteOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
-  onSkipOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
+  page: PageScheduleSource | null;
+  saveProperty: (updates: Partial<PageInput>) => void;
+  onCompleteOccurrence?: (pageId: string, occurrenceStart: Date) => Promise<void>;
+  onSkipOccurrence?: (pageId: string, occurrenceStart: Date) => Promise<void>;
 }
 
 export interface ScheduleState {
@@ -246,8 +246,8 @@ export interface ScheduleState {
   scheduleTimezone: string;
   occurrenceBusy: boolean;
   scheduleSummary: ScheduleSummary | null;
-  applyScheduleState: (card: CardScheduleSource) => void;
-  applyRecurrenceState: (card: CardScheduleSource) => void;
+  applyScheduleState: (page: PageScheduleSource) => void;
+  applyRecurrenceState: (page: PageScheduleSource) => void;
   handleScheduledStartChange: (value: string) => void;
   handleScheduledEndChange: (value: string) => void;
   handleToggleAllDay: () => void;
@@ -273,13 +273,13 @@ export interface ScheduleState {
   toggleReminderPreset: (offset: number) => void;
   handleCompleteThisOccurrence: () => Promise<void>;
   handleSkipThisOccurrence: () => Promise<void>;
-  saveProperty: (updates: Partial<CardInput>) => void;
+  saveProperty: (updates: Partial<PageInput>) => void;
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useScheduleState({
-  card,
+  page,
   saveProperty,
   onCompleteOccurrence,
   onSkipOccurrence,
@@ -304,29 +304,29 @@ export function useScheduleState({
     savePropertyRef.current = saveProperty;
   }, [saveProperty]);
 
-  const applyScheduleState = useCallback((nextCard: CardScheduleSource) => {
-    const nextIsAllDay = Boolean(nextCard.isAllDay);
+  const applyScheduleState = useCallback((nextPage: PageScheduleSource) => {
+    const nextIsAllDay = Boolean(nextPage.isAllDay);
     setIsAllDay(nextIsAllDay);
     if (nextIsAllDay) {
-      setScheduledStart(toDateLocalValue(nextCard.scheduledStart));
-      setScheduledEnd(toAllDayEndInputValue(nextCard.scheduledEnd));
+      setScheduledStart(toDateLocalValue(nextPage.scheduledStart));
+      setScheduledEnd(toAllDayEndInputValue(nextPage.scheduledEnd));
     } else {
-      setScheduledStart(toDateTimeLocalValue(nextCard.scheduledStart));
-      setScheduledEnd(toDateTimeLocalValue(nextCard.scheduledEnd));
+      setScheduledStart(toDateTimeLocalValue(nextPage.scheduledStart));
+      setScheduledEnd(toDateTimeLocalValue(nextPage.scheduledEnd));
     }
     setScheduleHint(null);
   }, []);
 
-  const applyRecurrenceState = useCallback((nextCard: CardScheduleSource) => {
-    const recurrenceState = recurrenceFromCard(nextCard);
+  const applyRecurrenceState = useCallback((nextPage: PageScheduleSource) => {
+    const recurrenceState = recurrenceFromPage(nextPage);
     setRecurrenceEnabled(recurrenceState.enabled);
     setRecurrenceFrequency(recurrenceState.frequency);
     setRecurrenceInterval(recurrenceState.interval);
     setRecurrenceWeekdays(recurrenceState.byWeekdays);
     setRecurrenceEndType(recurrenceState.endType);
     setRecurrenceUntilDate(recurrenceState.untilDate);
-    setReminderOffsets(reminderInputFromConfigs(nextCard.reminders));
-    setScheduleTimezone(nextCard.scheduleTimezone ?? "");
+    setReminderOffsets(reminderInputFromConfigs(nextPage.reminders));
+    setScheduleTimezone(nextPage.scheduleTimezone ?? "");
   }, []);
 
   const buildRecurrenceConfig = useCallback(
@@ -587,24 +587,24 @@ export function useScheduleState({
   );
 
   const handleCompleteThisOccurrence = useCallback(async () => {
-    if (!card?.scheduledStart || !onCompleteOccurrence) return;
+    if (!page?.scheduledStart || !onCompleteOccurrence) return;
     setOccurrenceBusy(true);
     try {
-      await onCompleteOccurrence(card.id, card.scheduledStart);
+      await onCompleteOccurrence(page.id, page.scheduledStart);
     } finally {
       setOccurrenceBusy(false);
     }
-  }, [card, onCompleteOccurrence]);
+  }, [page, onCompleteOccurrence]);
 
   const handleSkipThisOccurrence = useCallback(async () => {
-    if (!card?.scheduledStart || !onSkipOccurrence) return;
+    if (!page?.scheduledStart || !onSkipOccurrence) return;
     setOccurrenceBusy(true);
     try {
-      await onSkipOccurrence(card.id, card.scheduledStart);
+      await onSkipOccurrence(page.id, page.scheduledStart);
     } finally {
       setOccurrenceBusy(false);
     }
-  }, [card, onSkipOccurrence]);
+  }, [page, onSkipOccurrence]);
 
   // Derived schedule summary
   const parsedScheduledStart = isAllDay

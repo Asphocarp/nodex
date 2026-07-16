@@ -25,9 +25,12 @@ import {
 import { normalizeSearchText } from "@/lib/search-text";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useBoardsForProjects } from "@/lib/use-all-boards";
-import { readPrimaryDatabaseDescriptor } from "@/lib/api";
+import { readDatabaseModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { GeneralDatabaseDescriptor } from "../../../shared/database-query";
+import {
+  DATABASE_MODULE_CONTRACT_VERSION,
+  type DatabaseContainerDescriptor,
+} from "../../../shared/database-module";
 import {
   buildPanelDestinationSections,
   flattenPanelDestinationRows,
@@ -51,7 +54,7 @@ interface PanelDestinationPickerProps {
 
 export interface PanelDestinationPickerSurfaceProps extends PanelDestinationPickerProps {
   boardMap: ReadonlyMap<string, BoardSummary>;
-  databaseDescriptorMap: ReadonlyMap<string, GeneralDatabaseDescriptor>;
+  databaseDescriptorMap: ReadonlyMap<string, DatabaseContainerDescriptor>;
   loading: boolean;
   loadError?: string | null;
   initialQuery?: string;
@@ -103,17 +106,17 @@ function PanelDestinationProjectIcon({
 }
 
 function PanelDestinationRowIcon({ row }: { row: PanelDestinationRow }) {
-  if (row.kind === "card") return <FileText className="size-4" aria-hidden="true" />;
+  if (row.kind === "page") return <FileText className="size-4" aria-hidden="true" />;
   return <PanelDestinationProjectIcon projectIcon={row.projectIcon} />;
 }
 
 function getPanelDestinationRowLabel(row: PanelDestinationRow) {
-  if (row.kind === "card") return row.cardTitle;
+  if (row.kind === "page") return row.pageTitle;
   return row.viewName;
 }
 
 function getPanelDestinationRowMeta(row: PanelDestinationRow) {
-  if (row.kind === "card") return `${row.projectName} / ${row.columnName}`;
+  if (row.kind === "page") return `${row.projectName} / ${row.columnName}`;
   return `${row.projectName} / ${row.databaseName}`;
 }
 
@@ -121,13 +124,13 @@ function useProjectDatabaseDescriptors(
   projects: readonly Project[],
   enabled: boolean,
 ): {
-  readonly descriptors: ReadonlyMap<string, GeneralDatabaseDescriptor>;
+  readonly descriptors: ReadonlyMap<string, DatabaseContainerDescriptor>;
   readonly loading: boolean;
   readonly error: string | null;
 } {
   const projectKey = projects.map((project) => project.id).join("\u0000");
   const [state, setState] = useState<{
-    descriptors: ReadonlyMap<string, GeneralDatabaseDescriptor>;
+    descriptors: ReadonlyMap<string, DatabaseContainerDescriptor>;
     loading: boolean;
     error: string | null;
   }>(() => ({ descriptors: new Map(), loading: enabled, error: null }));
@@ -141,14 +144,20 @@ function useProjectDatabaseDescriptors(
     setState((current) => ({ ...current, loading: true, error: null }));
     const projectIds = projectKey ? projectKey.split("\u0000") : [];
     void Promise.all(projectIds.map(async (projectId) => {
-      const result = await readPrimaryDatabaseDescriptor(projectId);
+      const result = await readDatabaseModule(projectId, {
+        version: DATABASE_MODULE_CONTRACT_VERSION,
+        projectId,
+        read: { target: { kind: "project_default" }, mode: "database" },
+      });
       if (!result.ok) throw new Error("Database Views could not be loaded");
-      return [projectId, result.value.value] as const;
+      if (result.value.value.kind !== "database") {
+        throw new Error("Database Module did not return the bound Database");
+      }
+      return [projectId, result.value.value.value] as const;
     })).then((entries) => {
       if (cancelled) return;
       setState({
-        descriptors: new Map(entries.flatMap(([projectId, descriptor]) =>
-          descriptor ? [[projectId, descriptor] as const] : [])),
+        descriptors: new Map(entries),
         loading: false,
         error: null,
       });
@@ -293,7 +302,7 @@ export function PanelDestinationPicker({
   } = useBoardsForProjects(projects);
   const databaseDescriptors = useProjectDatabaseDescriptors(
     projects,
-    scope !== "card-only",
+    scope !== "page-only",
   );
 
   return (
@@ -322,7 +331,7 @@ export function PanelDestinationPickerSurface({
   initialQuery = "",
   scope = "all",
   ariaLabel = "Open panel tab",
-  placeholder = "Open DB or card…",
+  placeholder = "Open Database or Page…",
   currentProjectId = null,
   onAccept,
   onClose,
@@ -361,7 +370,7 @@ export function PanelDestinationPickerSurface({
       projects,
       boardMap,
       sourceProjectId: null,
-      sourceCardId: null,
+      sourcePageId: null,
     }),
     [boardMap, projects],
   );

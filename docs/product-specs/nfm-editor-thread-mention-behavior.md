@@ -54,7 +54,7 @@ The mention references a Codex app-server thread/session id as an opaque string.
 - Mention tooltips show only compact context, such as project, column, actionable state, and an optional search snippet. They do not concatenate raw thread ids, card ids, cwd paths, or long mixed metadata strings.
 - Idle and unknown-state threads do not show `Ready` or `Thread` as row state labels.
 - Choosing a thread row inserts `threadMention` inline content and a trailing space.
-- Card rows use the same command-palette card search model: summary metadata is searched with MiniSearch ranking, and full-description hits come from bounded `cards:search` excerpts. Choosing a card row inserts the existing `cardRef` block shape.
+- Page rows use the same command-palette Page search model: summary metadata is searched with MiniSearch ranking, and full-content hits come from bounded `pages:search` excerpts. Choosing a Page row inserts the current reference Block shape.
 
 ## Prompt And Clipboard Behavior
 

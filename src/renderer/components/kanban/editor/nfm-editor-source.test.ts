@@ -3,8 +3,8 @@ import { BlockNoteEditor } from "@blocknote/core";
 import * as Y from "yjs";
 
 import {
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "../../../../shared/block-documents/block-document-codec";
 import {
   createNfmEditorModeOptions,
@@ -47,7 +47,7 @@ describe("NfmEditor source boundary", () => {
     document.destroy();
   });
 
-  test("enables stable-ID Move To for collaborative Card documents", () => {
+  test("enables stable-ID Move To for collaborative Page documents", () => {
     const document = new Y.Doc();
     const collaborative = resolveNfmEditorBlockActionCapabilities(true);
     const withoutCardContext = resolveNfmEditorBlockActionCapabilities(false);
@@ -87,7 +87,7 @@ describe("NfmEditor source boundary", () => {
 
   test("does not replace blocks for a remote collaborative update", async () => {
     const document = new Y.Doc({ guid: "document-1" });
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-1-genesis",
       title: "Collaborative Card",
       nfm: "",
@@ -144,7 +144,7 @@ describe("NfmEditor source boundary", () => {
   });
 
   test("mounts a title-only Card without inventing a placeholder identity", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-title-only",
       title: "Title only",
       nfm: "",
@@ -161,11 +161,11 @@ describe("NfmEditor source boundary", () => {
     expect(editor.document).toMatchObject([
       { id: "block-title-only-root", type: "paragraph" },
     ]);
-    expect(materializeCardDocument(genesis.document).blockTree).toMatchObject([
+    expect(materializePageDocument(genesis.document).blockTree).toMatchObject([
       { id: "block-title-only-root", type: "paragraph" },
     ]);
     expect(
-      materializeCardDocument(genesis.document).blockTree.some(
+      materializePageDocument(genesis.document).blockTree.some(
         (block) => block.id === "initialBlockId",
       ),
     ).toBe(false);
@@ -176,7 +176,7 @@ describe("NfmEditor source boundary", () => {
 
   test("preserves long-Card identities across collaboration-origin rerenders", async () => {
     let nextBlockId = 0;
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-long-collaborative",
       title: "Long collaborative Card",
       nfm: Array.from(
@@ -185,7 +185,7 @@ describe("NfmEditor source boundary", () => {
       ).join("\n\n"),
       allocateBlockId: () => `block-long-${++nextBlockId}`,
     });
-    const before = materializeCardDocument(genesis.document).blockTree.map(
+    const before = materializePageDocument(genesis.document).blockTree.map(
       (block) => block.id,
     );
     const localEditor = BlockNoteEditor.create(
@@ -243,7 +243,7 @@ describe("NfmEditor source boundary", () => {
     syncState.binding._forceRerender();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const after = materializeCardDocument(genesis.document).blockTree.map(
+    const after = materializePageDocument(genesis.document).blockTree.map(
       (block) => block.id,
     );
     expect(after).toEqual(before);

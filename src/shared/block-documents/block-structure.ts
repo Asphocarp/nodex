@@ -1,7 +1,7 @@
 import * as Y from "yjs";
 import {
   MAX_BLOCK_ID_LENGTH,
-  MAX_CARD_DOCUMENT_XML_PATH_DEPTH,
+  MAX_PAGE_DOCUMENT_XML_PATH_DEPTH,
   type BlockId,
 } from "./contracts";
 import { assertPortableXmlAttributes } from "./xml-subtree-codec";
@@ -60,8 +60,8 @@ export interface BlockStructureScan {
 export interface ChildlessBlockViolation {
   readonly blockId: BlockId | null;
   readonly blockType:
-    | "cardRef"
-    | "card"
+    | "pageRef"
+    | "page"
     | "databaseViewRef"
     | "syncedBlockRef"
     | "templateRef";
@@ -113,8 +113,8 @@ const isCanonicalChildlessBlockContent = (
   content: Y.XmlElement | undefined,
 ): content is Y.XmlElement & {
   readonly nodeName:
-    | "cardRef"
-    | "card"
+    | "pageRef"
+    | "page"
     | "databaseViewRef"
     | "syncedBlockRef"
     | "templateRef";
@@ -122,7 +122,7 @@ const isCanonicalChildlessBlockContent = (
   if (!content) return false;
   if (
     content.nodeName === "databaseViewRef" ||
-    content.nodeName === "card"
+    content.nodeName === "page"
   ) {
     return true;
   }
@@ -133,7 +133,7 @@ const isCanonicalChildlessBlockContent = (
     const sourceBlockId = content.getAttribute("sourceBlockId");
     return typeof sourceBlockId === "string" && sourceBlockId.trim().length > 0;
   }
-  if (content.nodeName !== "cardRef") return false;
+  if (content.nodeName !== "pageRef") return false;
   const targetBlockId = content.getAttribute("targetBlockId");
   return typeof targetBlockId === "string" && targetBlockId.trim().length > 0;
 };
@@ -234,7 +234,7 @@ export const scanBlockDocument = (body: Y.XmlFragment): BlockStructureScan => {
     const children: readonly unknown[] = parent.toArray();
     children.forEach((child, index) => {
       const path = [...parentPath, index];
-      if (path.length > MAX_CARD_DOCUMENT_XML_PATH_DEPTH) {
+      if (path.length > MAX_PAGE_DOCUMENT_XML_PATH_DEPTH) {
         issues.push({ code: "xml_depth_exceeded", path });
         return;
       }

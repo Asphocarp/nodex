@@ -4,33 +4,33 @@ export interface BlockReferenceHostRuntime {
   readonly projectId: string;
   readonly projectName: string | null;
   readonly projectWorkspacePath: string | null;
-  readonly hostCardId: string | null;
+  readonly hostPageId: string | null;
   /**
-   * Card Documents already open in this inline expansion chain, including
-   * `hostCardId`. A reference may still open a matching Card in the Stage, but
+   * Page Documents already open in this inline expansion chain, including
+   * `hostPageId`. A reference may still open a matching Page in the Stage, but
    * must never mount its Document recursively inside this chain.
    */
-  readonly ancestorCardIds: readonly string[];
+  readonly ancestorPageIds: readonly string[];
   /**
    * Every independently synchronized owner already open in this inline
-   * expansion chain. Unlike `ancestorCardIds`, this also includes Synced and
+   * expansion chain. Unlike `ancestorPageIds`, this also includes Synced and
    * Template owners so reference cycles cannot recursively mount providers.
    */
   readonly ancestorDocumentOwnerBlockIds: readonly string[];
   readonly isActiveSurface: boolean;
-  readonly openCard?: (input: {
+  readonly openPage?: (input: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
 }
 
 export const appendInlineCardAncestor = (
   ancestors: readonly string[],
-  cardId: string | null | undefined,
+  pageId: string | null | undefined,
 ): readonly string[] => {
-  if (!cardId || ancestors.includes(cardId)) return ancestors;
-  return [...ancestors, cardId];
+  if (!pageId || ancestors.includes(pageId)) return ancestors;
+  return [...ancestors, pageId];
 };
 
 export const appendInlineDocumentOwnerAncestor = (
@@ -43,8 +43,8 @@ export const appendInlineDocumentOwnerAncestor = (
 
 export const isInlineCardCycle = (
   ancestors: readonly string[],
-  targetCardId: string,
-): boolean => ancestors.includes(targetCardId);
+  targetPageId: string,
+): boolean => ancestors.includes(targetPageId);
 
 export const isInlineDocumentOwnerCycle = (
   ancestors: readonly string[],

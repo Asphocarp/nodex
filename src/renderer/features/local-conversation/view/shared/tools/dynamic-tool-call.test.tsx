@@ -377,9 +377,9 @@ describe("DynamicToolCall", () => {
   test("shows a v3 Nested Markdown diff compactly while keeping exact arguments and raw output inspectable", async () => {
     const item = buildDynamicEntry({
       namespace: "nodex_app",
-      tool: "update_card",
+      tool: "update_page",
       arguments: {
-        cardId: "card-launch",
+        pageId: "page-launch",
         body: {
           kind: "patch",
           patches: [{
@@ -392,7 +392,7 @@ describe("DynamicToolCall", () => {
         type: "inputText",
         text: JSON.stringify({
           data: {
-            cardId: "card-launch",
+            pageId: "page-launch",
             effects: { created: 0, updated: 1, moved: 0, deleted: 0 },
           },
         }),
@@ -407,7 +407,7 @@ describe("DynamicToolCall", () => {
     );
 
     expect(textContent(container).includes(
-      "Updated card “card-launch” · 1 Nested Markdown patch",
+      "Updated page “page-launch” · 1 Nested Markdown patch",
     )).toBe(true);
     expect(textContent(container).includes("Status: Draft")).toBe(true);
     expect(textContent(container).includes("Status: Ready")).toBe(true);
@@ -415,7 +415,7 @@ describe("DynamicToolCall", () => {
 
     await act(async () => {
       fireEvent.click(getByRole("button", {
-        name: "Show nodex_app.update_card tool call details",
+        name: "Show nodex_app.update_page tool call details",
       }));
       await Promise.resolve();
     });
@@ -424,7 +424,7 @@ describe("DynamicToolCall", () => {
 
     await act(async () => {
       fireEvent.click(getByRole("button", {
-        name: "Show raw nodex_app.update_card tool call",
+        name: "Show raw nodex_app.update_page tool call",
       }));
       await Promise.resolve();
     });

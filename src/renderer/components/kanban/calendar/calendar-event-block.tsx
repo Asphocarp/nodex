@@ -23,7 +23,7 @@ interface CalendarEventBlockProps {
   isActive: boolean;
   isInteracting: boolean;
   interactive?: boolean;
-  // Card detail props
+  // Page detail props
   priority?: Priority;
   estimate?: Estimate;
   tags: string[];
@@ -151,7 +151,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
       tabIndex={interactive ? 0 : undefined}
       aria-label={`${title} ${timeRange}`}
       data-calendar-event-block=""
-      data-card-id={id}
+      data-uuid-v7={id}
       draggable={interactive}
       onDragStart={interactive ? onDragStartMove : undefined}
       onDragEnd={interactive ? onDragEndMove : undefined}

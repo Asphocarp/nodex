@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import * as Y from "yjs";
 import {
-  MAX_CARD_DOCUMENT_STATE_BYTES,
+  MAX_PAGE_DOCUMENT_STATE_BYTES,
   type DocumentSyncApplyAck,
   type DocumentSyncApplyRequest,
   type DocumentSyncRequest,
@@ -135,10 +135,10 @@ export class BlockDocumentRuntime {
   sync = (request: DocumentSyncRequest): DocumentSyncResponse => {
     requireIdentity(request.documentId, "documentId");
     requireIdentity(request.clientSessionId, "clientSessionId");
-    if (request.stateVector.byteLength > MAX_CARD_DOCUMENT_STATE_BYTES) {
+    if (request.stateVector.byteLength > MAX_PAGE_DOCUMENT_STATE_BYTES) {
       throw new BlockDocumentStoreError(
         "invalid_document_update",
-        `Client state vector exceeds ${MAX_CARD_DOCUMENT_STATE_BYTES} bytes`,
+        `Client state vector exceeds ${MAX_PAGE_DOCUMENT_STATE_BYTES} bytes`,
       );
     }
 

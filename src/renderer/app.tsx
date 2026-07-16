@@ -10,7 +10,7 @@ import type {
 } from "@/features/content-search/content-search-context";
 import { useProjects } from "@/lib/use-projects";
 import {
-  resolveCardsStageSelectionForCard,
+  resolvePagesStageSelectionForPage,
   resolveSlidingWindowFocusIntent,
   resolveExpandedStages,
   resolveSlidingWindowShift,
@@ -20,7 +20,7 @@ import {
   type StageNavDirection,
   type WorkbenchView,
 } from "@/lib/use-workbench-state";
-import { useCardStageState } from "@/lib/use-card-stage";
+import { usePageStageState } from "@/lib/use-page-stage";
 import { useWorkbenchShortcuts } from "@/lib/use-workbench-shortcuts";
 import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import type { CommandMenuMode, CommandMenuOpenRequest } from "@/lib/command-palette";
@@ -39,8 +39,8 @@ import {
 } from "@/lib/window-sessions";
 import { AppStartupScreen } from "@/components/app-startup-screen";
 import { NodexToastProvider } from "@/components/ui/toast";
-import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
-import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
+import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
+import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
 import type {
   Project,
   ProjectCreateInput,
@@ -119,7 +119,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   const {
     dbProjectId,
     threadsProjectId,
-    spaces,
+    projectRefs,
     activeView,
     activeSearchQuery,
     activeDbViewPrefs,
@@ -129,15 +129,15 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     sidebar,
     focusedStage,
     stageNavDirection,
-    cardsTabs,
-    activeCardsTabId,
+    pagesTabs,
+    activePagesTabId,
     threadsTabs,
     activeThreadsTabId,
     filesTabs,
     activeFilesTabId,
     stagePanelWidths,
     slidingWindowPaneCount,
-    recentCardSessions,
+    recentPageSessions,
     activeRecentSessionId,
     setDbProject: setDbProjectState,
     setThreadsProjectId: setThreadsProjectIdState,
@@ -157,17 +157,17 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     isSidebarSectionExpanded,
     setSidebarSectionShowAll,
     isSidebarSectionShowAll,
-    setActiveCardsTab: setActiveCardsTabState,
+    setActivePagesTab: setActivePagesTabState,
     setActiveThreadsTab: setActiveThreadsTabState,
     setThreadsTabs,
     setActiveFilesTab: setActiveFilesTabState,
     setStagePanelWidths,
     stepSlidingWindowPaneCount,
-    recordRecentCardLeave,
-    selectRecentCardSession: selectRecentCardSessionState,
-    setActiveRecentCardSession: setActiveRecentCardSessionState,
-    closeRecentCardSession,
-    reorderRecentCardSessions,
+    recordRecentPageLeave,
+    selectRecentPageSession: selectRecentPageSessionState,
+    setActiveRecentPageSession: setActiveRecentPageSessionState,
+    closeRecentPageSession,
+    reorderRecentPageSessions,
     buildLayoutSnapshot,
   } = useWorkbenchState(projects, {
     initialLayoutSnapshot: initialWindowSessionBootstrap.session.layout,
@@ -199,29 +199,29 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   );
 
   const {
-    state: cardStageState,
-    openCardStage: openCardStageState,
-    closeCardStage: closeCardStageState,
-    cardStageCardId,
-  } = useCardStageState(initialWindowSessionBootstrap.session.layout.cardStage ?? null);
-  const cardStageCloseRef = useRef<(() => Promise<void>) | null>(null);
-  const cardStagePersistRef = useRef<(() => Promise<void>) | null>(null);
-  const cardStageSessionSnapshotRef = useRef<CardStageSessionSnapshot | null>(null);
+    state: pageStageState,
+    openPageStage: openPageStageState,
+    closePageStage: closePageStageState,
+    pageStagePageId,
+  } = usePageStageState(initialWindowSessionBootstrap.session.layout.pageStage ?? null);
+  const pageStageCloseRef = useRef<(() => Promise<void>) | null>(null);
+  const pageStagePersistRef = useRef<(() => Promise<void>) | null>(null);
+  const pageStageSessionSnapshotRef = useRef<PageStageSessionSnapshot | null>(null);
 
   const [pendingReminderOpen, setPendingReminderOpen] = useState<{
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   } | null>(null);
   const [pendingDeepLinkOpen, setPendingDeepLinkOpen] = useState<{
     projectId: string;
-    cardId: string;
+    pageId: string;
   } | null>(null);
   const [pendingSessionDeepLinkOpen, setPendingSessionDeepLinkOpen] = useState<{
     projectId: string | null;
     sessionId: string;
   } | null>(null);
-  const cardStageStateRef = useRef(cardStageState);
+  const pageStageStateRef = useRef(pageStageState);
   const resumeValidationStartedRef = useRef(false);
   const [navigationHistory, setNavigationHistory] = useState<NavigationHistoryState>(() => readNavigationHistoryState());
   const latestLayoutRef = useRef<WorkbenchLayoutSnapshot>(
@@ -231,8 +231,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   const reconciledProjectQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
-    cardStageStateRef.current = cardStageState;
-  }, [cardStageState]);
+    pageStageStateRef.current = pageStageState;
+  }, [pageStageState]);
 
   useEffect(() => {
     if (projects.length === 0) return;
@@ -247,8 +247,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [projects, setDbProjectState, setThreadsProjectIdState]);
 
   const currentLayout = useMemo(
-    () => buildLayoutSnapshot(cardStageState, activeProjectSessionId),
-    [activeProjectSessionId, buildLayoutSnapshot, cardStageState],
+    () => buildLayoutSnapshot(pageStageState, activeProjectSessionId),
+    [activeProjectSessionId, buildLayoutSnapshot, pageStageState],
   );
 
   useEffect(() => {
@@ -296,18 +296,18 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     activeView: resolvedView,
     focusedStage,
     stageNavDirection,
-    cardStage: cardStageState,
-    activeCardsTabId,
+    pageStage: pageStageState,
+    activePagesTabId,
     activeRecentSessionId,
     threadsProjectId,
     activeThreadsTabId,
     activeFilesTabId,
   }), [
-    activeCardsTabId,
+    activePagesTabId,
     activeFilesTabId,
     activeRecentSessionId,
     activeThreadsTabId,
-    cardStageState,
+    pageStageState,
     focusedStage,
     resolvedDbProjectId,
     resolvedView,
@@ -338,7 +338,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
         window.clearTimeout(layoutSaveTimerRef.current);
         layoutSaveTimerRef.current = null;
       }
-      await cardStagePersistRef.current?.();
+      await pageStagePersistRef.current?.();
       await flushWindowSessionLayout();
     });
   }, [
@@ -354,10 +354,14 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     let cancelled = false;
     void (async () => {
       const invalidRecentSessionIds = await Promise.all(
-        initialLayout.recentCardSessions.slice(0, 10).map(async (session) => {
+        initialLayout.recentPageSessions.slice(0, 10).map(async (session) => {
           try {
-            const result = await invoke("card:get", session.projectId, session.cardId);
-            return !result.ok && result.error.code === "card_not_found"
+            const result = await invoke(
+              "pages:detail:get",
+              session.projectId,
+              session.pageId,
+            );
+            return !result.ok && result.error.code === "page_not_found"
               ? session.id
               : null;
           } catch {
@@ -367,15 +371,15 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       );
 
       let activeCardMissing = false;
-      if (initialLayout.cardStage.open && initialLayout.cardStage.cardId) {
+      if (initialLayout.pageStage.open && initialLayout.pageStage.pageId) {
         try {
           const result = await invoke(
-            "card:get",
-            initialLayout.cardStage.projectId,
-            initialLayout.cardStage.cardId,
+            "pages:detail:get",
+            initialLayout.pageStage.projectId,
+            initialLayout.pageStage.pageId,
           );
           activeCardMissing =
-            !result.ok && result.error.code === "card_not_found";
+            !result.ok && result.error.code === "page_not_found";
         } catch {
           activeCardMissing = false;
         }
@@ -386,33 +390,33 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       invalidRecentSessionIds
         .filter((sessionId): sessionId is string => typeof sessionId === "string")
         .forEach((sessionId) => {
-          closeRecentCardSession(sessionId);
+          closeRecentPageSession(sessionId);
         });
 
       if (!activeCardMissing) return;
 
-      const matchingSession = initialLayout.recentCardSessions.find((session) =>
-        session.projectId === initialLayout.cardStage.projectId
-        && session.cardId === initialLayout.cardStage.cardId
+      const matchingSession = initialLayout.recentPageSessions.find((session) =>
+        session.projectId === initialLayout.pageStage.projectId
+        && session.pageId === initialLayout.pageStage.pageId
       );
       if (matchingSession) {
-        closeRecentCardSession(matchingSession.id);
+        closeRecentPageSession(matchingSession.id);
       }
 
-      const currentCardStageState = cardStageStateRef.current;
+      const currentPageStageState = pageStageStateRef.current;
       if (
-        currentCardStageState.open
-        && currentCardStageState.projectId === initialLayout.cardStage.projectId
-        && currentCardStageState.cardId === initialLayout.cardStage.cardId
+        currentPageStageState.open
+        && currentPageStageState.projectId === initialLayout.pageStage.projectId
+        && currentPageStageState.pageId === initialLayout.pageStage.pageId
       ) {
-        closeCardStageState();
+        closePageStageState();
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [closeCardStageState, closeRecentCardSession, initialWindowSessionBootstrap.session.layout, loading]);
+  }, [closePageStageState, closeRecentPageSession, initialWindowSessionBootstrap.session.layout, loading]);
 
   const handleCreateProject = useCallback(
     async (input: ProjectCreateInput) => {
@@ -468,100 +472,100 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     [refresh, setPinnedProjectOrder],
   );
 
-  const recordCardLeave = useCallback((snapshot: CardStageSessionSnapshot) => {
-    recordRecentCardLeave(snapshot.projectId, snapshot.cardId, snapshot.titleSnapshot);
-  }, [recordRecentCardLeave]);
+  const recordPageLeave = useCallback((snapshot: PageStageSessionSnapshot) => {
+    recordRecentPageLeave(snapshot.projectId, snapshot.pageId, snapshot.titleSnapshot);
+  }, [recordRecentPageLeave]);
 
-  const openCardStageSession = useCallback(
-    async (projectId: string, cardId: string) => {
+  const openPageStageSession = useCallback(
+    async (projectId: string, pageId: string) => {
       const isSwitchingCards =
-        cardStageState.open
+        pageStageState.open
         && (
-          cardStageState.projectId !== projectId
-          || cardStageState.cardId !== cardId
+          pageStageState.projectId !== projectId
+          || pageStageState.pageId !== pageId
         );
 
       if (isSwitchingCards) {
-        await cardStagePersistRef.current?.();
-        const leavingSnapshot = cardStageSessionSnapshotRef.current;
+        await pageStagePersistRef.current?.();
+        const leavingSnapshot = pageStageSessionSnapshotRef.current;
         if (
           leavingSnapshot
           && (
             leavingSnapshot.projectId !== projectId
-            || leavingSnapshot.cardId !== cardId
+            || leavingSnapshot.pageId !== pageId
           )
         ) {
-          recordCardLeave(leavingSnapshot);
+          recordPageLeave(leavingSnapshot);
         }
       }
-      openCardStageState(projectId, cardId);
+      openPageStageState(projectId, pageId);
     },
     [
-      cardStageState.cardId,
-      cardStageState.open,
-      cardStageState.projectId,
-      openCardStageState,
-      recordCardLeave,
+      pageStageState.pageId,
+      pageStageState.open,
+      pageStageState.projectId,
+      openPageStageState,
+      recordPageLeave,
     ],
   );
 
   const openRecentSession = useCallback(
     async (sessionId: string) => {
-      const session = recentCardSessions.find((candidate) => candidate.id === sessionId);
+      const session = recentPageSessions.find((candidate) => candidate.id === sessionId);
       if (!session) return;
 
       if (
-        cardStageState.open
-        && cardStageState.projectId === session.projectId
-        && cardStageState.cardId === session.cardId
+        pageStageState.open
+        && pageStageState.projectId === session.projectId
+        && pageStageState.pageId === session.pageId
       ) {
-        selectRecentCardSessionState(session.id);
+        selectRecentPageSessionState(session.id);
         return;
       }
 
-      selectRecentCardSessionState(session.id);
-      await openCardStageSession(session.projectId, session.cardId);
+      selectRecentPageSessionState(session.id);
+      await openPageStageSession(session.projectId, session.pageId);
     },
-    [cardStageState, openCardStageSession, recentCardSessions, selectRecentCardSessionState],
+    [pageStageState, openPageStageSession, recentPageSessions, selectRecentPageSessionState],
   );
 
   const handleCloseRecentSession = useCallback(
     (sessionId: string) => {
-      const closing = recentCardSessions.find((session) => session.id === sessionId);
-      const nextSession = recentCardSessions.find((session) => session.id !== sessionId) ?? null;
-      closeRecentCardSession(sessionId);
+      const closing = recentPageSessions.find((session) => session.id === sessionId);
+      const nextSession = recentPageSessions.find((session) => session.id !== sessionId) ?? null;
+      closeRecentPageSession(sessionId);
 
       if (!closing) return;
-      if (!cardStageState.open) return;
-      if (cardStageState.projectId !== closing.projectId) return;
-      if (cardStageState.cardId !== closing.cardId) return;
+      if (!pageStageState.open) return;
+      if (pageStageState.projectId !== closing.projectId) return;
+      if (pageStageState.pageId !== closing.pageId) return;
 
       if (nextSession) {
-        openCardStageState(nextSession.projectId, nextSession.cardId);
+        openPageStageState(nextSession.projectId, nextSession.pageId);
         return;
       }
 
-      closeCardStageState();
+      closePageStageState();
     },
-    [closeCardStageState, closeRecentCardSession, cardStageState, openCardStageState, recentCardSessions],
+    [closePageStageState, closeRecentPageSession, pageStageState, openPageStageState, recentPageSessions],
   );
 
   const prevActiveProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
     const prevProjectId = prevActiveProjectIdRef.current;
     if (prevProjectId && prevProjectId !== resolvedDbProjectId) {
-      void cardStagePersistRef.current?.();
+      void pageStagePersistRef.current?.();
     }
     prevActiveProjectIdRef.current = resolvedDbProjectId;
   }, [resolvedDbProjectId]);
 
   const handleReminderHandled = useCallback(
-    (payload: { projectId: string; cardId: string; occurrenceStart: string }) => {
+    (payload: { projectId: string; pageId: string; occurrenceStart: string }) => {
       setPendingReminderOpen((current) => {
         if (!current) return null;
         if (
           current.projectId !== payload.projectId ||
-          current.cardId !== payload.cardId ||
+          current.pageId !== payload.pageId ||
           current.occurrenceStart !== payload.occurrenceStart
         ) {
           return current;
@@ -572,13 +576,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     [],
   );
 
-  const handleCardDeepLinkHandled = useCallback(
-    (payload: { projectId: string; cardId: string }) => {
+  const handlePageDeepLinkHandled = useCallback(
+    (payload: { projectId: string; pageId: string }) => {
       setPendingDeepLinkOpen((current) => {
         if (!current) return null;
         if (
           current.projectId !== payload.projectId ||
-          current.cardId !== payload.cardId
+          current.pageId !== payload.pageId
         ) {
           return current;
         }
@@ -660,10 +664,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [recordNavigation, resolveProjectView, setDbProjectState]);
 
   const navigateToProjectIndex = useCallback((index: number) => {
-    const projectId = spaces[index]?.projectId;
+    const projectId = projectRefs[index]?.projectId;
     if (!projectId) return;
     navigateToProject(projectId);
-  }, [navigateToProject, spaces]);
+  }, [navigateToProject, projectRefs]);
 
   const navigateToDbView = useCallback((projectId: string, view: WorkbenchView) => {
     const nextSnapshot: NavigationSnapshot = {
@@ -678,89 +682,89 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     focusStageWithNearestIntent(projectId, "db");
   }, [focusStageWithNearestIntent, recordNavigation, resolveNavigationStageDirection, setWorkbenchView]);
 
-  const navigateToCard = useCallback(async (
+  const navigateToPage = useCallback(async (
     projectId: string,
-    cardId: string,
+    pageId: string,
     _titleSnapshot?: string,
-    options?: OpenCardStageOptions & {
+    options?: OpenPageStageOptions & {
       setDbProjectId?: string;
-      activeCardsTabId?: string;
+      activePagesTabId?: string;
       activeRecentSessionId?: string | null;
     },
   ) => {
-    const defaultCardsSelection = resolveCardsStageSelectionForCard(
-      recentCardSessions,
+    const defaultPageSelection = resolvePagesStageSelectionForPage(
+      recentPageSessions,
       projectId,
-      cardId,
+      pageId,
     );
-    const nextActiveCardsTabId = options?.activeCardsTabId ?? defaultCardsSelection.activeCardsTabId;
+    const nextActivePagesTabId = options?.activePagesTabId ?? defaultPageSelection.activePagesTabId;
     const nextActiveRecentSessionId = options?.activeRecentSessionId !== undefined
       ? options.activeRecentSessionId
-      : defaultCardsSelection.activeRecentSessionId;
+      : defaultPageSelection.activeRecentSessionId;
     const nextSnapshot: NavigationSnapshot = {
       ...currentNavigationSnapshotRef.current,
       dbProjectId: options?.setDbProjectId ?? currentNavigationSnapshotRef.current.dbProjectId,
       activeView: resolveProjectView(options?.setDbProjectId ?? currentNavigationSnapshotRef.current.dbProjectId),
-      cardStage: {
+      pageStage: {
         open: true,
         projectId,
-        cardId,
+        pageId,
       },
-      activeCardsTabId: nextActiveCardsTabId,
+      activePagesTabId: nextActivePagesTabId,
       activeRecentSessionId: nextActiveRecentSessionId,
-      focusedStage: "cards",
-      stageNavDirection: resolveNavigationStageDirection("cards"),
+      focusedStage: "pages",
+      stageNavDirection: resolveNavigationStageDirection("pages"),
     };
     recordNavigation(nextSnapshot);
     if (options?.setDbProjectId) {
       setDbProjectState(options.setDbProjectId);
     }
-    setActiveCardsTabState(projectId, nextActiveCardsTabId);
-    setActiveRecentCardSessionState(nextActiveRecentSessionId);
-    await openCardStageSession(projectId, cardId);
-    focusStageWithNearestIntent(options?.setDbProjectId ?? projectId, "cards");
+    setActivePagesTabState(projectId, nextActivePagesTabId);
+    setActiveRecentPageSessionState(nextActiveRecentSessionId);
+    await openPageStageSession(projectId, pageId);
+    focusStageWithNearestIntent(options?.setDbProjectId ?? projectId, "pages");
   }, [
     focusStageWithNearestIntent,
-    openCardStageSession,
-    recentCardSessions,
+    openPageStageSession,
+    recentPageSessions,
     recordNavigation,
     resolveNavigationStageDirection,
     resolveProjectView,
-    setActiveCardsTabState,
-    setActiveRecentCardSessionState,
+    setActivePagesTabState,
+    setActiveRecentPageSessionState,
     setDbProjectState,
   ]);
 
   const navigateToRecentSession = useCallback(async (sessionId: string) => {
-    const session = recentCardSessions.find((candidate) => candidate.id === sessionId);
+    const session = recentPageSessions.find((candidate) => candidate.id === sessionId);
     if (!session) return;
     const nextSnapshot: NavigationSnapshot = {
       ...currentNavigationSnapshotRef.current,
-      cardStage: {
+      pageStage: {
         open: true,
         projectId: session.projectId,
-        cardId: session.cardId,
+        pageId: session.pageId,
       },
-      activeCardsTabId: `session:${session.id}`,
+      activePagesTabId: `session:${session.id}`,
       activeRecentSessionId: session.id,
-      focusedStage: "cards",
-      stageNavDirection: resolveNavigationStageDirection("cards"),
+      focusedStage: "pages",
+      stageNavDirection: resolveNavigationStageDirection("pages"),
     };
     recordNavigation(nextSnapshot);
     await openRecentSession(sessionId);
-    focusStageWithNearestIntent(session.projectId, "cards");
-  }, [focusStageWithNearestIntent, openRecentSession, recentCardSessions, recordNavigation, resolveNavigationStageDirection]);
+    focusStageWithNearestIntent(session.projectId, "pages");
+  }, [focusStageWithNearestIntent, openRecentSession, recentPageSessions, recordNavigation, resolveNavigationStageDirection]);
 
-  const navigateToCardsTab = useCallback((projectId: string, tabId: string, activeSessionId: string | null) => {
+  const navigateToPagesTab = useCallback((projectId: string, tabId: string, activeSessionId: string | null) => {
     const nextSnapshot: NavigationSnapshot = {
       ...currentNavigationSnapshotRef.current,
-      activeCardsTabId: tabId,
+      activePagesTabId: tabId,
       activeRecentSessionId: activeSessionId,
     };
     recordNavigation(nextSnapshot);
-    setActiveCardsTabState(projectId, tabId);
-    setActiveRecentCardSessionState(activeSessionId);
-  }, [recordNavigation, setActiveCardsTabState, setActiveRecentCardSessionState]);
+    setActivePagesTabState(projectId, tabId);
+    setActiveRecentPageSessionState(activeSessionId);
+  }, [recordNavigation, setActivePagesTabState, setActiveRecentPageSessionState]);
 
   const navigateToThreadTab = useCallback((projectId: string, tabId: string, focusStage = true) => {
     const nextSnapshot: NavigationSnapshot = {
@@ -916,14 +920,14 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     return window.api.on("reminder:open", (...args: unknown[]) => {
       const payload = args[0] as {
         projectId?: unknown;
-        cardId?: unknown;
+        pageId?: unknown;
         occurrenceStart?: unknown;
       } | undefined;
 
       if (!payload) return;
       if (
         typeof payload.projectId !== "string" ||
-        typeof payload.cardId !== "string" ||
+        typeof payload.pageId !== "string" ||
         typeof payload.occurrenceStart !== "string"
       ) {
         return;
@@ -931,7 +935,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
 
       setPendingReminderOpen({
         projectId: payload.projectId,
-        cardId: payload.cardId,
+        pageId: payload.pageId,
         occurrenceStart: payload.occurrenceStart,
       });
       navigateToProject(payload.projectId);
@@ -940,23 +944,23 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
 
   useEffect(() => {
     if (!window.api) return;
-    return window.api.on("deeplink:open-card", (...args: unknown[]) => {
+    return window.api.on("deeplink:open-page", (...args: unknown[]) => {
       const payload = args[0] as {
         projectId?: unknown;
-        cardId?: unknown;
+        pageId?: unknown;
       } | undefined;
 
       if (!payload) return;
       if (
         typeof payload.projectId !== "string"
-        || typeof payload.cardId !== "string"
+        || typeof payload.pageId !== "string"
       ) {
         return;
       }
 
       setPendingDeepLinkOpen({
         projectId: payload.projectId,
-        cardId: payload.cardId,
+        pageId: payload.pageId,
       });
       navigateToProject(payload.projectId);
     });
@@ -1072,7 +1076,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       window.clearTimeout(layoutSaveTimerRef.current);
       layoutSaveTimerRef.current = null;
     }
-    await cardStagePersistRef.current?.();
+    await pageStagePersistRef.current?.();
     await flushWindowSessionLayout();
     await invoke("window:new", {
       layout: latestLayoutRef.current,
@@ -1084,7 +1088,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       window.clearTimeout(layoutSaveTimerRef.current);
       layoutSaveTimerRef.current = null;
     }
-    await cardStagePersistRef.current?.();
+    await pageStagePersistRef.current?.();
     await flushWindowSessionLayout();
     await invoke("window:new", {
       layout: {
@@ -1103,7 +1107,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   const commandKeymapQuery = useCommandKeymapState();
 
   useWorkbenchShortcuts({
-    spaces,
+    projectRefs,
     dbProjectId: resolvedDbProjectId,
     focusedStage,
     focusAdjacentStage: handleShortcutFocusAdjacentStage,
@@ -1176,30 +1180,30 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       activeDbViewPrefs={activeDbViewPrefs}
       searchByProject={searchByProject}
       dbViewPrefsByProject={dbViewPrefsByProject}
-      spaces={spaces}
-      recentCardSessions={recentCardSessions}
+      projectRefs={projectRefs}
+      recentPageSessions={recentPageSessions}
       activeRecentSessionId={activeRecentSessionId}
       sidebar={sidebar}
       stageNavDirection={stageNavDirection}
-      cardsTabs={cardsTabs}
-      activeCardsTabId={activeCardsTabId}
+      pagesTabs={pagesTabs}
+      activePagesTabId={activePagesTabId}
       threadsTabs={threadsTabs}
       activeThreadsTabId={activeThreadsTabId}
       filesTabs={filesTabs}
       activeFilesTabId={activeFilesTabId}
       stagePanelWidths={stagePanelWidths}
       slidingWindowPaneCount={slidingWindowPaneCount}
-      cardStageState={cardStageState}
-      cardStageCardId={cardStageState.projectId === resolvedDbProjectId ? cardStageCardId : undefined}
-      cardStageCloseRef={cardStageCloseRef}
-      cardStagePersistRef={cardStagePersistRef}
+      pageStageState={pageStageState}
+      pageStagePageId={pageStageState.projectId === resolvedDbProjectId ? pageStagePageId : undefined}
+      pageStageCloseRef={pageStageCloseRef}
+      pageStagePersistRef={pageStagePersistRef}
       pendingReminderOpen={pendingReminderOpen}
-      pendingCardDeepLinkOpen={pendingDeepLinkOpen}
+      pendingPageDeepLinkOpen={pendingDeepLinkOpen}
       pendingSessionOpen={pendingSessionDeepLinkOpen}
       onReminderHandled={handleReminderHandled}
-      onCardDeepLinkHandled={handleCardDeepLinkHandled}
+      onPageDeepLinkHandled={handlePageDeepLinkHandled}
       onOpenProjectSessionInNewWindow={handleOpenProjectSessionInNewWindow}
-      openCardStage={navigateToCard}
+      openPageStage={navigateToPage}
       setDbProject={setDbProjectState}
       setSearchQuery={setSearchQuery}
       setDbViewPrefs={setDbViewPrefs}
@@ -1219,11 +1223,11 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       setThreadsTabs={setThreadsTabs}
       setStagePanelWidths={setStagePanelWidths}
       stepSlidingWindowPaneCount={stepSlidingWindowPaneCount}
-      closeRecentCardSession={handleCloseRecentSession}
-      reorderRecentCardSessions={reorderRecentCardSessions}
-      closeCardStage={closeCardStageState}
-      onLeaveCardStageCard={recordCardLeave}
-      cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
+      closeRecentPageSession={handleCloseRecentSession}
+      reorderRecentPageSessions={reorderRecentPageSessions}
+      closePageStage={closePageStageState}
+      onLeavePageStage={recordPageLeave}
+      pageStageSessionSnapshotRef={pageStageSessionSnapshotRef}
       navigationCommandRequest={workbenchNavigationCommandRequest}
       panelTabCycleRequest={workbenchPanelTabCycleRequest}
       panelTabCloseRequest={workbenchPanelTabCloseRequest}
@@ -1258,7 +1262,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       onSetProjectPinned={handleSetProjectPinned}
       onSetPinnedProjectOrder={handleSetPinnedProjectOrder}
       navigateToRecentSession={navigateToRecentSession}
-      navigateToCardsTab={navigateToCardsTab}
+      navigateToPagesTab={navigateToPagesTab}
       navigateToThreadTab={navigateToThreadTab}
       navigateToFilesTab={navigateToFilesTab}
       commandKeymapState={commandKeymapQuery.data}

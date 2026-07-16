@@ -23,7 +23,7 @@ export type SettingsSectionId =
   | "keyboard-shortcuts"
   | "agent"
   | "editor"
-  | "card"
+  | "page"
   | "git"
   | "worktrees"
   | "local-environments"
@@ -101,11 +101,11 @@ export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     searchMessages: SETTINGS_SEARCH_CATALOG.editor.messages,
   },
   {
-    id: "card",
-    label: "Card",
+    id: "page",
+    label: "Page",
     icon: LayoutTemplate,
     groupKey: "coding",
-    searchMessages: SETTINGS_SEARCH_CATALOG.card.messages,
+    searchMessages: SETTINGS_SEARCH_CATALOG.page.messages,
   },
   {
     id: "git",

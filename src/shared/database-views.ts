@@ -1,10 +1,11 @@
-import { CARD_STATUS_ORDER } from "./card-status";
+import { WORKFLOW_STATUS_ORDER } from "./workflow-status";
 import type {
   DatabaseViewFilterNode,
+  DatabaseViewKind,
   DatabaseViewSort,
-  GeneralDatabaseViewConfig,
+  DatabaseViewConfig,
 } from "./database-kernel";
-import type { CardSummary, Estimate, Priority } from "./types";
+import type { DatabasePageSummary, Estimate, Priority } from "./types";
 
 export interface ReadDatabaseViewReferenceInput {
   /**
@@ -13,11 +14,11 @@ export interface ReadDatabaseViewReferenceInput {
    */
   readonly requestingProjectId: string;
   readonly databaseViewId: string;
-  /** Host Card identity used only for window-local include/exclude projection. */
+  /** Host Page identity used only for window-local include/exclude projection. */
   readonly hostBlockId?: string;
 }
 
-export type DatabaseViewKind = "kanban" | "list" | "calendar" | "canvas";
+export type { DatabaseViewKind } from "./database-kernel";
 
 export type DatabaseViewJsonValue =
   | null
@@ -39,22 +40,22 @@ export interface DatabaseViewDefinition {
   readonly updatedAt: string;
 }
 
-export interface DatabaseViewCardRow {
-  readonly card: CardSummary;
+export interface DatabaseViewPageRow {
+  readonly page: DatabasePageSummary;
   readonly groupKey: string | null;
   readonly rankKey: string;
 }
 
 export interface DatabaseViewReadModel {
   readonly view: DatabaseViewDefinition;
-  readonly rows: readonly DatabaseViewCardRow[];
+  readonly rows: readonly DatabaseViewPageRow[];
 }
 
 type LegacyFilterClause =
   | {
       readonly field: "status";
       readonly op: "in";
-      readonly values: readonly CardSummary["status"][];
+      readonly values: readonly DatabasePageSummary["status"][];
     }
   | {
       readonly field: "priority";
@@ -80,7 +81,7 @@ interface LegacySortKey {
 interface ValidLegacyViewQuery {
   readonly groups: readonly (readonly LegacyFilterClause[])[];
   readonly sort: readonly LegacySortKey[];
-  readonly includeHostCard: boolean;
+  readonly includeHostPage: boolean;
 }
 
 const PRIORITY_ORDER: readonly Priority[] = [
@@ -101,7 +102,7 @@ const LEGACY_SORT_FIELDS: readonly LegacySortField[] = [
 ];
 const DEFAULT_LEGACY_FILTER_GROUPS: ValidLegacyViewQuery["groups"] = [
   [
-    { field: "status", op: "in", values: CARD_STATUS_ORDER },
+    { field: "status", op: "in", values: WORKFLOW_STATUS_ORDER },
     {
       field: "priority",
       op: "in",
@@ -126,14 +127,14 @@ const parseLegacyFilterClause = (value: unknown): LegacyFilterClause | null => {
   if (value.field === "status" && value.op === "in") {
     if (
       !value.values.every((item) =>
-        CARD_STATUS_ORDER.includes(item as CardSummary["status"]),
+        WORKFLOW_STATUS_ORDER.includes(item as DatabasePageSummary["status"]),
       )
     )
       return null;
     return {
       field: "status",
       op: "in",
-      values: value.values as readonly CardSummary["status"][],
+      values: value.values as readonly DatabasePageSummary["status"][],
     };
   }
   if (value.field === "priority" && value.op === "in") {
@@ -221,7 +222,7 @@ const parseLegacyViewQuery = (
       : DEFAULT_LEGACY_FILTER_GROUPS;
   const sort =
     parsedSort && parsedSort.length > 0 ? parsedSort : DEFAULT_LEGACY_SORT;
-  const includeHostCard =
+  const includeHostPage =
     isRecord(config.options) &&
     typeof config.options.includeHostCard === "boolean"
       ? config.options.includeHostCard
@@ -229,56 +230,56 @@ const parseLegacyViewQuery = (
   return {
     groups,
     sort,
-    includeHostCard,
+    includeHostPage,
   };
 };
 
 const matchesLegacyClause = (
-  card: CardSummary,
+  page: DatabasePageSummary,
   clause: LegacyFilterClause,
 ): boolean => {
-  if (clause.field === "status") return clause.values.includes(card.status);
+  if (clause.field === "status") return clause.values.includes(page.status);
   if (clause.field === "priority") {
-    if (!card.priority) return clause.includeEmpty;
-    return clause.values.includes(card.priority);
+    if (!page.priority) return clause.includeEmpty;
+    return clause.values.includes(page.priority);
   }
   const selectedTags = new Set(clause.values);
   if (clause.op === "hasAny") {
-    return card.tags.some((tag) => selectedTags.has(tag));
+    return page.tags.some((tag) => selectedTags.has(tag));
   }
   if (clause.op === "hasAll") {
-    return clause.values.every((tag) => card.tags.includes(tag));
+    return clause.values.every((tag) => page.tags.includes(tag));
   }
-  return !card.tags.some((tag) => selectedTags.has(tag));
+  return !page.tags.some((tag) => selectedTags.has(tag));
 };
 
 const matchesLegacyFilter = (
-  card: CardSummary,
+  page: DatabasePageSummary,
   groups: ValidLegacyViewQuery["groups"],
 ): boolean =>
   groups.length === 0 ||
   groups.some((clauses) =>
-    clauses.every((clause) => matchesLegacyClause(card, clause)),
+    clauses.every((clause) => matchesLegacyClause(page, clause)),
   );
 
 const compareRankKeys = (
-  left: DatabaseViewCardRow,
-  right: DatabaseViewCardRow,
+  left: DatabaseViewPageRow,
+  right: DatabaseViewPageRow,
 ): number =>
   left.rankKey.localeCompare(right.rankKey) ||
-  left.card.id.localeCompare(right.card.id);
+  left.page.id.localeCompare(right.page.id);
 
 const compareRankOnly = (
-  left: DatabaseViewCardRow,
-  right: DatabaseViewCardRow,
+  left: DatabaseViewPageRow,
+  right: DatabaseViewPageRow,
 ): number => left.rankKey.localeCompare(right.rankKey);
 
 const compareBoardOrder = (
-  left: DatabaseViewCardRow,
-  right: DatabaseViewCardRow,
+  left: DatabaseViewPageRow,
+  right: DatabaseViewPageRow,
 ): number =>
-  CARD_STATUS_ORDER.indexOf(left.card.status) -
-    CARD_STATUS_ORDER.indexOf(right.card.status) ||
+  WORKFLOW_STATUS_ORDER.indexOf(left.page.status) -
+    WORKFLOW_STATUS_ORDER.indexOf(right.page.status) ||
   compareRankOnly(left, right);
 
 const compareNullableRank = (
@@ -293,66 +294,66 @@ const compareNullableRank = (
 };
 
 const compareByLegacySortKey = (
-  left: DatabaseViewCardRow,
-  right: DatabaseViewCardRow,
+  left: DatabaseViewPageRow,
+  right: DatabaseViewPageRow,
   key: LegacySortKey,
 ): number => {
   const sign = key.direction === "asc" ? 1 : -1;
   if (key.field === "board-order") return compareBoardOrder(left, right) * sign;
   if (key.field === "status") {
     return (
-      (CARD_STATUS_ORDER.indexOf(left.card.status) -
-        CARD_STATUS_ORDER.indexOf(right.card.status)) *
+      (WORKFLOW_STATUS_ORDER.indexOf(left.page.status) -
+        WORKFLOW_STATUS_ORDER.indexOf(right.page.status)) *
       sign
     );
   }
   if (key.field === "priority") {
     return compareNullableRank(
-      left.card.priority ? PRIORITY_ORDER.indexOf(left.card.priority) : null,
-      right.card.priority ? PRIORITY_ORDER.indexOf(right.card.priority) : null,
+      left.page.priority ? PRIORITY_ORDER.indexOf(left.page.priority) : null,
+      right.page.priority ? PRIORITY_ORDER.indexOf(right.page.priority) : null,
       key,
     );
   }
   if (key.field === "estimate") {
     return compareNullableRank(
-      left.card.estimate ? ESTIMATE_ORDER.indexOf(left.card.estimate) : null,
-      right.card.estimate ? ESTIMATE_ORDER.indexOf(right.card.estimate) : null,
+      left.page.estimate ? ESTIMATE_ORDER.indexOf(left.page.estimate) : null,
+      right.page.estimate ? ESTIMATE_ORDER.indexOf(right.page.estimate) : null,
       key,
     );
   }
   if (key.field === "created") {
     return (
-      (new Date(left.card.created).getTime() -
-        new Date(right.card.created).getTime()) *
+      (new Date(left.page.created).getTime() -
+        new Date(right.page.created).getTime()) *
       sign
     );
   }
-  return left.card.title.localeCompare(right.card.title) * sign;
+  return left.page.title.localeCompare(right.page.title) * sign;
 };
 
 /**
  * Executes the migrated legacy View query over durable membership rows.
  * Missing or invalid effective fields use the canonical show-all query. This
- * keeps Cards accessible, excludes the host by default, and gives old or
+ * keeps Pages accessible, excludes the host by default, and gives old or
  * partially migrated configs the same deterministic order as a new View.
  */
 export const evaluateDatabaseViewRows = (
   model: DatabaseViewReadModel,
   context: { readonly hostBlockId?: string } = {},
-): readonly DatabaseViewCardRow[] => {
+): readonly DatabaseViewPageRow[] => {
   const query = parseLegacyViewQuery(model.view.config);
   if (!query) {
-    const includeHostCard =
+    const includeHostPage =
       isRecord(model.view.config.options) &&
-      model.view.config.options.includeHostCard === true;
-    return context.hostBlockId && !includeHostCard
-      ? model.rows.filter((row) => row.card.id !== context.hostBlockId)
+      model.view.config.options.includeHostPage === true;
+    return context.hostBlockId && !includeHostPage
+      ? model.rows.filter((row) => row.page.id !== context.hostBlockId)
       : model.rows;
   }
   const filtered = model.rows.filter((row) => {
-    if (!query.includeHostCard && row.card.id === context.hostBlockId)
+    if (!query.includeHostPage && row.page.id === context.hostBlockId)
       return false;
-    return matchesLegacyFilter(row.card, query.groups);
+    return matchesLegacyFilter(row.page, query.groups);
   });
   return [...filtered].sort((left, right) => {
     for (const key of query.sort) {
@@ -599,7 +600,7 @@ export const createGeneralInlineDatabaseViewConfig = (input: {
   readonly databaseBlockId: string;
   readonly sourceBlockId: string;
   readonly props: LegacyInlineDatabaseViewProps;
-}): GeneralDatabaseViewConfig => {
+}): DatabaseViewConfig => {
   const legacy = createLegacyInlineDatabaseViewConfig(input);
   const query = parseLegacyViewQuery(
     legacy as unknown as Readonly<Record<string, DatabaseViewJsonValue>>,
@@ -645,6 +646,6 @@ export const createGeneralInlineDatabaseViewConfig = (input: {
         .map((key) => inlinePropertyId(input.databaseBlockId, key)),
       showTitle: true,
     },
-    options: { includeHostCard: query.includeHostCard },
+    options: { includeHostPage: query.includeHostPage },
   };
 };

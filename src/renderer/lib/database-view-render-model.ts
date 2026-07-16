@@ -1,22 +1,20 @@
 import {
-  CARD_STATUS_COLUMNS,
-  DEFAULT_CARD_STATUS,
-  isCardStatus,
-} from "../../shared/card-status";
+  WORKFLOW_STATUS_COLUMNS,
+  DEFAULT_WORKFLOW_STATUS,
+  isWorkflowStatus,
+} from "../../shared/workflow-status";
+import type {
+  DatabaseModuleReadSnapshot,
+  DatabaseViewQueryResult,
+  DataSourcePageRow,
+  DataSourcePropertyRecord,
+} from "../../shared/database-module";
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
 } from "../../shared/database-kernel";
 import { readDatabasePropertyOptions } from "./database-view-authoring";
-import type {
-  DatabaseViewSnapshot,
-  GeneralDatabasePropertyDefinition,
-  GeneralDatabaseRow,
-} from "../../shared/database-query";
-import type {
-  Estimate,
-  Priority,
-} from "./types";
+import type { Estimate, Priority } from "./types";
 
 const PRIORITIES = new Set<Priority>([
   "p0-critical",
@@ -30,23 +28,26 @@ const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 export interface DatabaseViewRenderModel {
   readonly projectId: string;
   readonly databaseViewId: string;
-  readonly databaseBlockId: string;
+  readonly databaseId: string;
+  readonly dataSourceId: string;
   readonly databaseName: string;
+  readonly dataSourceName: string;
   readonly viewName: string;
   readonly storeEpoch: string;
   readonly changeLogSeq: number;
   readonly columns: readonly DatabaseViewRenderColumn[];
-  readonly query: NonNullable<DatabaseViewSnapshot["query"]["value"]>;
+  readonly query: DatabaseViewQueryResult;
+  /** Whether the compatibility Board presentation can faithfully render it. */
   readonly primaryWriteCompatible: boolean;
   readonly readOnlyReason: string | null;
 }
 
 export interface DatabaseViewRenderRow {
-  readonly blockId: string;
+  readonly pageId: string;
   readonly title: string;
   readonly preview: string;
   readonly plainText: string;
-  readonly status?: import("../../shared/card-status").CardStatus;
+  readonly status?: import("../../shared/workflow-status").WorkflowStatus;
   readonly priority?: Priority;
   readonly estimate?: Estimate;
   readonly tags: readonly string[];
@@ -65,35 +66,35 @@ export interface DatabaseViewRenderColumn {
 }
 
 const propertyByKey = (
-  properties: readonly GeneralDatabasePropertyDefinition[],
+  properties: readonly DataSourcePropertyRecord[],
   key: string,
-): GeneralDatabasePropertyDefinition | null =>
+): DataSourcePropertyRecord | null =>
   properties.find(
     (property) => property.lifecycle === "active" && property.key === key,
   ) ?? null;
 
 const readValue = (
-  row: GeneralDatabaseRow,
-  property: GeneralDatabasePropertyDefinition | null,
+  row: DataSourcePageRow,
+  property: DataSourcePropertyRecord | null,
   valueType?: DatabasePropertyValueType,
 ): DatabaseJsonValue | undefined => {
   if (!property) return undefined;
-  const value = row.values[property.id];
+  const value = row.values[property.propertyId];
   if (!value || (valueType && value.valueType !== valueType)) return undefined;
   return value.value;
 };
 
 const readNullableString = (
-  row: GeneralDatabaseRow,
-  property: GeneralDatabasePropertyDefinition | null,
+  row: DataSourcePageRow,
+  property: DataSourcePropertyRecord | null,
 ): string | undefined => {
   const value = readValue(row, property);
   return typeof value === "string" && value.length > 0 ? value : undefined;
 };
 
 const readDate = (
-  row: GeneralDatabaseRow,
-  property: GeneralDatabasePropertyDefinition | null,
+  row: DataSourcePageRow,
+  property: DataSourcePropertyRecord | null,
 ): Date | undefined => {
   const value = readNullableString(row, property);
   if (!value) return undefined;
@@ -102,8 +103,8 @@ const readDate = (
 };
 
 const readStringList = (
-  row: GeneralDatabaseRow,
-  property: GeneralDatabasePropertyDefinition | null,
+  row: DataSourcePageRow,
+  property: DataSourcePropertyRecord | null,
 ): string[] => {
   const value = readValue(row, property, "multi_select");
   if (!Array.isArray(value)) return [];
@@ -111,11 +112,10 @@ const readStringList = (
 };
 
 const toRenderRow = (
-  row: GeneralDatabaseRow,
-  properties: readonly GeneralDatabasePropertyDefinition[],
+  row: DataSourcePageRow,
+  properties: readonly DataSourcePropertyRecord[],
 ): DatabaseViewRenderRow => {
   const statusValue = readNullableString(row, propertyByKey(properties, "status"));
-  const status = isCardStatus(statusValue) ? statusValue : DEFAULT_CARD_STATUS;
   const priorityValue = readNullableString(
     row,
     propertyByKey(properties, "priority"),
@@ -124,8 +124,6 @@ const toRenderRow = (
     row,
     propertyByKey(properties, "estimate"),
   );
-  const plainText = row.card.content?.plainText ?? "";
-  const descriptionPreview = row.card.content?.preview ?? "";
   const dueDate = readDate(row, propertyByKey(properties, "due_date"));
   const scheduledStart = readDate(
     row,
@@ -141,11 +139,11 @@ const toRenderRow = (
   );
 
   return {
-    blockId: row.card.blockId,
-    title: row.card.content?.title ?? "Untitled",
-    preview: descriptionPreview,
-    plainText,
-    ...(isCardStatus(statusValue) ? { status } : {}),
+    pageId: row.page.pageId,
+    title: row.page.title || "Untitled",
+    preview: row.page.preview,
+    plainText: row.page.plainText,
+    ...(isWorkflowStatus(statusValue) ? { status: statusValue } : {}),
     ...(priorityValue && PRIORITIES.has(priorityValue as Priority)
       ? { priority: priorityValue as Priority }
       : {}),
@@ -157,34 +155,33 @@ const toRenderRow = (
     ...(scheduledStart ? { scheduledStart } : {}),
     ...(scheduledEnd ? { scheduledEnd } : {}),
     ...(assignee ? { assignee } : {}),
-    metadataRevision: row.card.metadataRevision,
-    createdAt: new Date(row.card.createdAt),
+    metadataRevision: row.page.metadataRevision,
+    createdAt: new Date(row.page.createdAt),
   };
 };
 
 const hasStatusGroupContract = (
-  snapshot: DatabaseViewSnapshot,
-  statusProperty: GeneralDatabasePropertyDefinition | null,
+  query: DatabaseViewQueryResult,
+  statusProperty: DataSourcePropertyRecord | null,
 ): boolean => {
-  const query = snapshot.query.value;
-  if (!query || !statusProperty) return false;
-  if (query.view.config.group?.propertyId !== statusProperty.id) return false;
-
+  if (!statusProperty) return false;
+  if (query.view.config.group?.propertyId !== statusProperty.propertyId) {
+    return false;
+  }
   return query.rows.every((row) => {
     const value = readNullableString(row, statusProperty);
-    return isCardStatus(value) && row.effectiveGroupKey === value;
+    return isWorkflowStatus(value) && row.effectiveGroupKey === value;
   });
 };
 
-const hasLegacyPrimaryReadContract = (
-  snapshot: DatabaseViewSnapshot,
+const hasDefaultBoardReadContract = (
+  query: DatabaseViewQueryResult,
 ): boolean => {
-  const config = snapshot.query.value?.view.config;
-  if (!config) return false;
+  const config = query.view.config;
   if (
-    config.filter.kind !== "group" ||
-    config.filter.operator !== "and" ||
-    config.filter.children.length !== 0
+    config.filter.kind !== "group"
+    || config.filter.operator !== "and"
+    || config.filter.children.length !== 0
   ) {
     return false;
   }
@@ -195,38 +192,47 @@ const hasLegacyPrimaryReadContract = (
 };
 
 const buildColumns = (
-  snapshot: DatabaseViewSnapshot,
+  query: DatabaseViewQueryResult,
   statusGrouped: boolean,
 ): readonly DatabaseViewRenderColumn[] => {
-  const query = snapshot.query.value;
-  if (!query) return [];
   const rows = query.rows.map((row) => ({
     row,
     renderRow: toRenderRow(row, query.properties),
   }));
   if (!statusGrouped) {
     const groupPropertyId = query.view.config.group?.propertyId;
-    if (!groupPropertyId) return [{
-        id: DEFAULT_CARD_STATUS,
+    if (!groupPropertyId) {
+      return [{
+        id: DEFAULT_WORKFLOW_STATUS,
         name: query.view.name,
         rows: rows.map(({ renderRow }) => renderRow),
-    }];
+      }];
+    }
     const groupProperty = query.properties.find(
-      (property) => property.id === groupPropertyId && property.lifecycle === "active",
+      (property) =>
+        property.propertyId === groupPropertyId
+        && property.lifecycle === "active",
     );
-    if (!groupProperty) return [{
-      id: DEFAULT_CARD_STATUS,
-      name: query.view.name,
-      rows: rows.map(({ renderRow }) => renderRow),
-    }];
+    if (!groupProperty) {
+      return [{
+        id: DEFAULT_WORKFLOW_STATUS,
+        name: query.view.name,
+        rows: rows.map(({ renderRow }) => renderRow),
+      }];
+    }
+    const options = readDatabasePropertyOptions(groupProperty);
     const optionNames = new Map(
-      readDatabasePropertyOptions(groupProperty).map((option) => [option.id, option.name]),
+      options.map((option) => [option.id, option.name]),
     );
     const configuredGroupKeys = [
-      ...readDatabasePropertyOptions(groupProperty).map((option) => option.id),
+      ...options.map((option) => option.id),
       ...rows.map(({ row }) => row.effectiveGroupKey),
-    ].filter((key, index, all): key is string | null => all.indexOf(key) === index);
-    const groupKeys = configuredGroupKeys.length > 0 ? configuredGroupKeys : [null];
+    ].filter(
+      (key, index, all): key is string | null => all.indexOf(key) === index,
+    );
+    const groupKeys = configuredGroupKeys.length > 0
+      ? configuredGroupKeys
+      : [null];
     const groupName = (key: string | null): string => {
       if (key === null) return `No ${groupProperty.name}`;
       const optionName = optionNames.get(key);
@@ -234,13 +240,16 @@ const buildColumns = (
       if (groupProperty.valueType === "multi_select") {
         try {
           const optionIds = JSON.parse(key) as unknown;
-          if (Array.isArray(optionIds) && optionIds.every((id) => typeof id === "string")) {
+          if (
+            Array.isArray(optionIds)
+            && optionIds.every((id) => typeof id === "string")
+          ) {
             return optionIds
               .map((id) => optionNames.get(id) ?? id)
               .join(" · ");
           }
         } catch {
-          // The query owns the canonical group key; unknown values remain visible.
+          // Unknown canonical group keys remain visible.
         }
       }
       if (key === "true") return "Checked";
@@ -248,78 +257,61 @@ const buildColumns = (
       return key;
     };
     return groupKeys.map((groupKey) => ({
-      id: groupKey ?? `empty:${groupProperty.id}`,
+      id: groupKey ?? `empty:${groupProperty.propertyId}`,
       name: groupName(groupKey),
       rows: rows.flatMap(({ row, renderRow }) =>
         row.effectiveGroupKey === groupKey ? [renderRow] : []),
     }));
   }
 
-  return CARD_STATUS_COLUMNS.map((column) => ({
-      ...column,
-      rows: rows.flatMap(({ row, renderRow }) =>
-        row.effectiveGroupKey === column.id ? [renderRow] : []),
+  return WORKFLOW_STATUS_COLUMNS.map((column) => ({
+    ...column,
+    rows: rows.flatMap(({ row, renderRow }) =>
+      row.effectiveGroupKey === column.id ? [renderRow] : []),
   }));
 };
 
-const assertSnapshotIdentity = (snapshot: DatabaseViewSnapshot): void => {
-  const descriptor = snapshot.descriptor;
-  const query = snapshot.query;
-  if (
-    descriptor.projectId !== query.projectId ||
-    descriptor.storeEpoch !== query.storeEpoch ||
-    descriptor.changeLogSeq !== query.changeLogSeq
-  ) {
-    throw new Error("Database View snapshot does not share one authority cursor");
-  }
-  if (!descriptor.value || !query.value) {
-    throw new Error("Database View no longer exists");
-  }
-  if (
-    descriptor.value.database.blockId !== query.value.database.blockId ||
-    query.value.view.databaseBlockId !== query.value.database.blockId
-  ) {
-    throw new Error("Database View snapshot has mismatched Database identity");
-  }
-  const descriptorView = descriptor.value.views.find(
-    (view) => view.id === query.value?.view.id && view.lifecycle === "active",
-  );
-  if (!descriptorView || descriptorView.revision !== query.value.view.revision) {
-    throw new Error("Database View snapshot has mismatched View revision");
-  }
+const queryFromSnapshot = (
+  snapshot: DatabaseModuleReadSnapshot,
+): DatabaseViewQueryResult => {
+  if (snapshot.value.kind === "query") return snapshot.value.value;
+  throw new Error("Database View read did not return a query");
 };
 
 export const buildDatabaseViewRenderModel = (
-  snapshot: DatabaseViewSnapshot,
+  snapshot: DatabaseModuleReadSnapshot,
 ): DatabaseViewRenderModel => {
-  assertSnapshotIdentity(snapshot);
-  const descriptor = snapshot.descriptor.value;
-  const query = snapshot.query.value;
-  if (!descriptor || !query) {
-    throw new Error("Database View no longer exists");
+  const query = queryFromSnapshot(snapshot);
+  if (
+    query.database.libraryId !== snapshot.libraryId
+    || query.dataSource.libraryId !== snapshot.libraryId
+    || query.view.databaseId !== query.database.databaseId
+    || query.view.dataSourceId !== query.dataSource.dataSourceId
+  ) {
+    throw new Error("Database View query has mismatched Library resource identity");
   }
   const statusProperty = propertyByKey(query.properties, "status");
-  const statusGrouped = hasStatusGroupContract(snapshot, statusProperty);
+  const statusGrouped = hasStatusGroupContract(query, statusProperty);
   const primaryWriteCompatible =
-    descriptor.database.isPrimary &&
-    query.view.isPrimary &&
-    query.view.kind === "kanban" &&
-    statusGrouped &&
-    hasLegacyPrimaryReadContract(snapshot);
+    query.database.defaultViewId === query.view.viewId
+    && query.view.isDefault
+    && query.view.kind === "kanban"
+    && statusGrouped
+    && hasDefaultBoardReadContract(query);
 
   return {
-    projectId: query.view.projectId,
-    databaseViewId: query.view.id,
-    databaseBlockId: query.database.blockId,
+    projectId: snapshot.projectId,
+    databaseViewId: query.view.viewId,
+    databaseId: query.database.databaseId,
+    dataSourceId: query.dataSource.dataSourceId,
     databaseName: query.database.name,
+    dataSourceName: query.dataSource.name,
     viewName: query.view.name,
-    storeEpoch: snapshot.query.storeEpoch,
-    changeLogSeq: snapshot.query.changeLogSeq,
-    columns: buildColumns(snapshot, statusGrouped),
+    storeEpoch: snapshot.storeEpoch,
+    changeLogSeq: snapshot.changeLogSeq,
+    columns: buildColumns(query, statusGrouped),
     query,
     primaryWriteCompatible,
-    readOnlyReason: primaryWriteCompatible
-      ? null
-      : "This durable Database View is read-only until its mutations are modeled against the selected View identity.",
+    readOnlyReason: null,
   };
 };

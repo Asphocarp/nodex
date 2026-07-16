@@ -32,7 +32,7 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
   const [historyOpen, setHistoryOpen] = useState(true);
   const [sessionTabs, setSessionTabs] = useState<StorySessionTab[]>([
     { id: "session:1", title: "Inbox triage and project notes" },
-    { id: "session:2", title: "Codex-parity card stage tab bar", customTooltip: true },
+    { id: "session:2", title: "Codex-parity page stage tab bar", customTooltip: true },
     { id: "session:3", title: "Release checklist", contextLabel: "Codex readable" },
     {
       id: "session:4",
@@ -117,7 +117,7 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
   );
 }
 
-export const CardStageTabs: Story = {};
+export const PageStageTabs: Story = {};
 
 function LiveCardTitleStory() {
   const [titleSource] = useState(() => {
@@ -288,7 +288,7 @@ function makeRapidCloseStoryTab(tab: StorySessionTab): AppShellTabItem {
   };
 }
 
-export const CardStagePreviewTab: Story = {
+export const PageStagePreviewTab: Story = {
   render: () => {
     const tabs: AppShellTabItem[] = [
       {
@@ -305,7 +305,7 @@ export const CardStagePreviewTab: Story = {
         ),
       },
       {
-        id: "tab:card-stage-preview-story",
+        id: "tab:page-stage-preview-story",
         title: "Workbench tab preview polish",
         icon: SquareKanban,
         closable: true,
@@ -325,7 +325,7 @@ export const CardStagePreviewTab: Story = {
               </button>
             </div>
             <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-description-foreground">
-              Card Stage preview
+              Page Stage preview
             </div>
           </div>
         ),
@@ -337,7 +337,7 @@ export const CardStagePreviewTab: Story = {
         <div className="h-screen bg-token-main-surface-primary text-token-foreground">
           <AppShellTabs
             tabs={tabs}
-            activeTabId="tab:card-stage-preview-story"
+            activeTabId="tab:page-stage-preview-story"
             onSelect={() => undefined}
             onCloseTab={() => undefined}
             onPinTab={() => undefined}
@@ -350,7 +350,7 @@ export const CardStagePreviewTab: Story = {
   },
 };
 
-const retainedCardStageNotes = [
+const retainedPageStageNotes = [
   "Preserve the discussion around the database view cache boundary.",
   "Keep the card editor mounted when switching between right-panel card tabs.",
   "Flush draft and scroll snapshots on deactivation for fallback restores.",
@@ -361,23 +361,23 @@ const retainedCardStageNotes = [
   "Keep scroll retention local to the renderer hot state.",
   "Retain only the bounded MRU sessions to avoid unbounded memory growth.",
   "Restore DB View scroll before paint when the tab remounts.",
-  "Let Card Stage tab switches use the browser's native mounted scroll state.",
+  "Let Page Stage tab switches use the browser's native mounted scroll state.",
   "Park inactive retained tabs with visibility and inert semantics.",
 ];
 
-export const RetainedCardStageTabs: Story = {
-  render: () => <RetainedCardStageTabsStory />,
+export const RetainedPageStageTabs: Story = {
+  render: () => <RetainedPageStageTabsStory />,
 };
 
-function RetainedCardStageTabsStory() {
+function RetainedPageStageTabsStory() {
   const [activeTabId, setActiveTabId] = useState("retained:planning");
   const tabs: AppShellTabItem[] = [
-    makeRetainedCardStageStoryTab({
+    makeRetainedPageStageStoryTab({
       id: "retained:planning",
       title: "Session hot switch plan",
       accent: "bg-sky-500",
     }),
-    makeRetainedCardStageStoryTab({
+    makeRetainedPageStageStoryTab({
       id: "retained:editor",
       title: "Card editor scroll draft",
       accent: "bg-emerald-500",
@@ -401,7 +401,7 @@ function RetainedCardStageTabsStory() {
   );
 }
 
-function makeRetainedCardStageStoryTab({
+function makeRetainedPageStageStoryTab({
   id,
   title,
   accent,
@@ -431,7 +431,7 @@ function makeRetainedCardStageStoryTab({
           <div className="mx-auto flex max-w-2xl flex-col gap-4">
             <div className="rounded-lg border border-token-border bg-token-main-surface-secondary p-4">
               <div className="text-xs font-medium uppercase text-token-description-foreground">
-                Card Stage body
+                Page Stage body
               </div>
               <div className="mt-2 text-lg font-semibold">{title}</div>
               <p className="mt-2 text-sm leading-6 text-token-description-foreground">
@@ -439,7 +439,7 @@ function makeRetainedCardStageStoryTab({
                 mounted and keeps native scroll without waiting for a fallback restore.
               </p>
             </div>
-            {retainedCardStageNotes.map((note) => (
+            {retainedPageStageNotes.map((note) => (
               <div key={`${id}:${note}`} className="rounded-md border border-token-border p-4">
                 <div className="text-sm leading-6 text-token-foreground">{note}</div>
               </div>

@@ -4,8 +4,8 @@ import * as Y from "yjs";
 import {
   MAX_BLOCK_ID_LENGTH,
   CANVAS_BLOCK_TYPE,
-  MAX_CARD_DOCUMENT_STATE_BYTES,
-  MAX_CARD_DOCUMENT_UPDATE_BYTES,
+  MAX_PAGE_DOCUMENT_STATE_BYTES,
+  MAX_PAGE_DOCUMENT_UPDATE_BYTES,
   MAX_DOCUMENT_TOUCHED_BLOCK_IDS,
   type ApplyDocumentUpdate,
   type BlockId,
@@ -20,8 +20,8 @@ import {
   type ScannedDocumentBlock,
 } from "../../shared/block-documents";
 import type { LegacyDocumentAuthority } from "./legacy-document-authority";
-import type { CardDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
-import { assertUuidV7 } from "../../shared/card-id";
+import type { PageDocumentMaterialization } from "../../shared/block-documents/block-document-codec";
+import { assertUuidV7 } from "../../shared/uuid-v7";
 import {
   BlockDocumentSchemaError,
   getOwnedDocumentSchemaRegistration,
@@ -56,7 +56,7 @@ import {
   deriveBlockDocumentTouchedIds,
 } from "./block-document-change-set";
 import { replaceDocumentSecondaryProjections } from "./block-document-projections";
-import { persistCardDocumentMaterialization } from "./document-materializations";
+import { persistPageDocumentMaterialization } from "./document-materializations";
 import { recordAcceptedDocumentRevisionEdit } from "./document-revision-session-store";
 import { persistLegacyCanvasYjsMaterialization } from "./legacy-canvas-yjs-materialization";
 import {
@@ -291,7 +291,7 @@ export interface InitializeBlockDocumentGenesis {
   readonly finalAuthority?: LegacyDocumentAuthority;
 }
 
-export type InitializeCardDocumentGenesis = InitializeBlockDocumentGenesis;
+export type InitializePageDocumentGenesis = InitializeBlockDocumentGenesis;
 
 export type DocumentUpdateAck = DocumentSyncApplyAck;
 
@@ -528,12 +528,12 @@ const assertYjsDocumentEngine = (row: DocumentRow): void => {
   );
 };
 
-const assertSupportedCardSchema = (row: DocumentRow): void => {
+const assertSupportedPageSchema = (row: DocumentRow): void => {
   const adapter = getSchemaAdapter(row);
-  if (adapter.kind === "card") return;
+  if (adapter.kind === "page") return;
   throw new BlockDocumentStoreError(
     "unsupported_document_schema",
-    `Document ${row.document_id} is not a Card Document`,
+    `Document ${row.document_id} is not a Page Document`,
   );
 };
 
@@ -550,11 +550,11 @@ const assertReadableDocumentOwner = (row: DocumentRow): void => {
   assertReadableOwnerLifecycle(row);
 };
 
-const assertCardOwnerForInternalMigration = (row: DocumentRow): void => {
-  if (row.owner_type === "card") return;
+const assertPageOwnerForInternalMigration = (row: DocumentRow): void => {
+  if (row.owner_type === "page") return;
   throw new BlockDocumentStoreError(
     "document_state_corrupt",
-    `Document ${row.document_id} is not owned by a Card Block`,
+    `Document ${row.document_id} is not owned by a Page Block`,
   );
 };
 
@@ -781,7 +781,7 @@ interface RegisteredBlockRow {
 }
 
 const TYPED_CREATION_BLOCK_TYPES = new Set([
-  "card",
+  "page",
   "database",
   SYNCED_BLOCK_SOURCE_TYPE,
   REUSABLE_TEMPLATE_SOURCE_TYPE,
@@ -791,7 +791,7 @@ const TYPED_CREATION_BLOCK_TYPES = new Set([
 const validateRegisteredDocumentReferences = (
   database: Database.Database,
   row: DocumentRow,
-  materialization: CardDocumentMaterialization,
+  materialization: PageDocumentMaterialization,
   code: "document_state_corrupt" | "invalid_document_update",
   allowPendingSourceBlockIds: ReadonlySet<BlockId> = new Set(),
 ): void => {
@@ -895,13 +895,13 @@ const validateRegisteredCanvasReferences = (
   const readTarget = database.prepare(`
     SELECT id
     FROM blocks
-    WHERE id = ? AND project_id = ? AND type = 'card'
+    WHERE id = ? AND project_id = ? AND type = 'page'
   `);
-  for (const reference of materialization.cardReferences) {
+  for (const reference of materialization.pageReferences) {
     if (readTarget.get(reference.targetBlockId, row.project_id)) continue;
     throw new BlockDocumentStoreError(
       code,
-      `Canvas element ${reference.sourceElementId} does not target a Card Block in Project ${row.project_id}`,
+      `Canvas element ${reference.sourceElementId} does not target a Page Block in Project ${row.project_id}`,
     );
   }
 };
@@ -1240,13 +1240,13 @@ const validateIncomingUpdate = (update: Uint8Array): void => {
     );
   }
 
-  if (update.byteLength <= MAX_CARD_DOCUMENT_UPDATE_BYTES) {
+  if (update.byteLength <= MAX_PAGE_DOCUMENT_UPDATE_BYTES) {
     return;
   }
 
   throw new BlockDocumentStoreError(
     "invalid_document_update",
-    `Yjs update exceeds ${MAX_CARD_DOCUMENT_UPDATE_BYTES} bytes`,
+    `Yjs update exceeds ${MAX_PAGE_DOCUMENT_UPDATE_BYTES} bytes`,
   );
 };
 
@@ -2056,7 +2056,7 @@ export const loadLegacyShadowBlockDocument = (
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
     });
-    if (adapter.kind !== "card" || row.owner_type !== "card") {
+    if (adapter.kind !== "page" || row.owner_type !== "page") {
       throw new BlockDocumentStoreError(
         "unsupported_document_schema",
         `Document ${documentId} is not a historical Card authority`,
@@ -2094,13 +2094,13 @@ export const loadLegacyShadowBlockDocumentForMigration = (
       schemaKey: row.schema_key,
       schemaVersion: row.schema_version,
     });
-    if (adapter.kind !== "card") {
+    if (adapter.kind !== "page") {
       throw new BlockDocumentStoreError(
         "unsupported_document_schema",
         `Document ${documentId} is not a historical Card authority`,
       );
     }
-    assertCardOwnerForInternalMigration(row);
+    assertPageOwnerForInternalMigration(row);
     assertDocumentAuthority(row, "legacy_shadow");
     return {
       storeEpoch,
@@ -2175,10 +2175,10 @@ export const syncBlockDocument = (
 ): DocumentSyncResponse => {
   requireNonEmpty(input.documentId, "documentId");
   requireNonEmpty(input.clientSessionId, "clientSessionId");
-  if (input.stateVector.byteLength > MAX_CARD_DOCUMENT_STATE_BYTES) {
+  if (input.stateVector.byteLength > MAX_PAGE_DOCUMENT_STATE_BYTES) {
     throw new BlockDocumentStoreError(
       "invalid_document_update",
-      `Client state vector exceeds ${MAX_CARD_DOCUMENT_STATE_BYTES} bytes`,
+      `Client state vector exceeds ${MAX_PAGE_DOCUMENT_STATE_BYTES} bytes`,
     );
   }
   const step = getBlockDocumentSyncStep(
@@ -2222,14 +2222,14 @@ const initializeBlockDocumentGenesisWithMode = (
   if (
     (mode === "legacy_canvas_yjs" && registration.syncEngine !== "canvas_scene") ||
     (mode === "legacy_card_yjs" &&
-      (registration.syncEngine !== "yjs" || registration.kind !== "card"))
+      (registration.syncEngine !== "yjs" || registration.kind !== "page"))
   ) {
     throw new BlockDocumentStoreError(
       "unsupported_document_schema",
       `Document ${input.documentId} is not a supported migration genesis target`,
     );
   }
-  validateTrustedUpdate(input.update, MAX_CARD_DOCUMENT_STATE_BYTES);
+  validateTrustedUpdate(input.update, MAX_PAGE_DOCUMENT_STATE_BYTES);
   if (mode === "yjs") {
     assertReadableDocumentOwner(preflightRow);
   } else {
@@ -2263,7 +2263,7 @@ const initializeBlockDocumentGenesisWithMode = (
         );
         genesisBlocks = inspection.blocks;
         genesisOwnerTouched =
-          inspection.materialization.kind === "card" &&
+          inspection.materialization.kind === "page" &&
           inspection.materialization.title.length > 0;
         genesisMaterialization = inspection.materialization;
       }
@@ -2406,7 +2406,7 @@ const initializeBlockDocumentGenesisWithMode = (
         "invalid_document_update",
       );
       reconcileDocumentBlocks(database, row, genesisBlocks, 1, now);
-      persistCardDocumentMaterialization(database, {
+      persistPageDocumentMaterialization(database, {
         documentId: input.documentId,
         generation: input.generation,
         projectedSeq: 1,
@@ -2523,15 +2523,15 @@ export const initializeLegacyCanvasYjsGenesis = (
 ): DocumentUpdateAck =>
   initializeBlockDocumentGenesisWithMode(database, input, "legacy_canvas_yjs");
 
-export const initializeCardDocumentGenesis = (
+export const initializePageDocumentGenesis = (
   database: Database.Database,
-  input: InitializeCardDocumentGenesis,
+  input: InitializePageDocumentGenesis,
 ): DocumentUpdateAck => {
   const row = readDocumentRow(database, input.documentId);
   if (
     row.authority === "legacy_shadow" &&
-    row.owner_type === "card" &&
-    row.schema_key === "nodex.card" &&
+    row.owner_type === "page" &&
+    row.schema_key === "nodex.page" &&
     row.schema_version === 1
   ) {
     return initializeBlockDocumentGenesisWithMode(
@@ -2540,7 +2540,7 @@ export const initializeCardDocumentGenesis = (
       "legacy_card_yjs",
     );
   }
-  assertSupportedCardSchema(row);
+  assertSupportedPageSchema(row);
   return initializeBlockDocumentGenesis(database, input);
 };
 
@@ -2583,8 +2583,8 @@ const applyBlockDocumentUpdateForAuthority = (
     assertGeneration(row, input.generation);
     const schemaScope =
       authority === "legacy_shadow" &&
-      row.owner_type === "card" &&
-      row.schema_key === "nodex.card" &&
+      row.owner_type === "page" &&
+      row.schema_key === "nodex.page" &&
       row.schema_version === 1
         ? "historical"
         : "live";
@@ -2603,7 +2603,7 @@ const applyBlockDocumentUpdateForAuthority = (
     }
     if (allowInactiveOwner) {
       if (authority === "legacy_shadow") {
-        assertCardOwnerForInternalMigration(row);
+        assertPageOwnerForInternalMigration(row);
       } else {
         assertReadableDocumentOwner(row);
       }
@@ -2844,7 +2844,7 @@ const applyBlockDocumentUpdateForAuthority = (
         now,
         new Set(strictCommitPolicy?.preserveRemovedBlockIds ?? []),
       );
-      persistCardDocumentMaterialization(database, {
+      persistPageDocumentMaterialization(database, {
         documentId: input.documentId,
         generation: input.generation,
         projectedSeq: nextHeadSeq,
@@ -2966,7 +2966,7 @@ export interface ApplyBlockDocumentUpdateOptions {
   ) => void;
 }
 
-/** Renderer/provider writes are legal only after the one-way Card cutover. */
+/** Renderer/provider writes are legal only after the one-way Page cutover. */
 export const applyBlockDocumentUpdate = (
   database: Database.Database,
   input: ApplyDocumentUpdate,

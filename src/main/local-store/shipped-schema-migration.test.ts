@@ -6,8 +6,9 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { parseAssetSource } from "../../shared/assets";
-import { createUuidV7 } from "../../shared/card-id";
-import { getDatabaseRowCard } from "./cards";
+import { createUuidV7 } from "../../shared/uuid-v7";
+import { getDatabaseRowPage } from "./database-pages";
+import { readPageDetailInDatabase } from "./page-detail";
 import { getDatabasePath } from "./config";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { resetAssetPathCacheForTests } from "./assets";
@@ -233,7 +234,7 @@ describe("shipped schema through v58 staging and current startup migrations", ()
         )
         .get(source.threadId),
     ).toEqual({ project_id: project.id, thread_id: source.threadId });
-    expect(await getDatabaseRowCard(project.id, source.cardId)).toMatchObject({
+    expect(await getDatabaseRowPage(project.id, source.cardId)).toMatchObject({
       title: "Legacy Card",
       description: "Legacy body",
       status: "backlog",
@@ -278,10 +279,22 @@ describe("shipped schema through v58 staging and current startup migrations", ()
     });
     await initializeDatabase();
 
-    const card = await getDatabaseRowCard(source.projectId, source.cardId);
+    const card = await getDatabaseRowPage(source.projectId, source.cardId);
     expect(card?.title).toBe("Migrated Card");
     expect(card?.description).toContain("nodex://assets/legacy-card-");
     expect(card?.description).not.toContain("data:image/");
+    const pageDetail = readPageDetailInDatabase(
+      getDb(),
+      source.projectId,
+      source.cardId,
+    );
+    expect(pageDetail.ok).toBe(true);
+    if (!pageDetail.ok) return;
+    expect(pageDetail.value.page).toMatchObject({
+      pageId: source.cardId,
+      title: "Migrated Card",
+      parent: { kind: "data_source" },
+    });
 
     const parsed = parseAssetSource(
       /nodex:\/\/assets\/[^"\s]+/u.exec(card?.description ?? "")?.[0] ?? "",

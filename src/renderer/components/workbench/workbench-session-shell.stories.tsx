@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type {
   BoardSummary,
-  Card,
+  DatabasePage,
   Project,
   ProjectSession,
   ProjectSessionThreadLink,
@@ -11,7 +11,7 @@ import type {
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
-import { buildCardDetailStoryCommandResult } from "../kanban/card-stage/card-stage-story-card-detail";
+import { buildPageDetailStoryResult } from "../kanban/page-stage/page-stage-story-page-detail";
 import {
   writeWorkbenchShellNavigationHistoryState,
   type WorkbenchShellNavigationSnapshot,
@@ -27,7 +27,7 @@ import {
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
-  activeTab: "browser" | "terminal" | "db" | "card" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
+  activeTab: "browser" | "terminal" | "db" | "page" | "cross-project-card" | "missing-card" | "loading-card" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   rightPanelGroups: "single" | "split";
@@ -64,7 +64,7 @@ const meta = {
   argTypes: {
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db", "card", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
+      options: ["browser", "terminal", "db", "page", "cross-project-card", "missing-card", "loading-card", "review", "empty"],
     },
     thread: {
       control: "inline-radio",
@@ -114,6 +114,10 @@ const CREATED_AT = "2026-06-07T00:00:00.000Z";
 const PROJECTS: Project[] = [
   {
     id: "nodex",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Nodex",
     description: "",
     icon: "",
@@ -126,6 +130,10 @@ const PROJECTS: Project[] = [
   },
   {
     id: "codex-readable",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Codex readable pack",
     description: "",
     icon: "",
@@ -138,7 +146,7 @@ const PROJECTS: Project[] = [
   },
 ];
 
-const SPACES = PROJECTS.map((project) => ({
+const PROJECT_REFS = PROJECTS.map((project) => ({
   projectId: project.id,
   colorToken: "var(--accent-blue)",
   initial: project.name.slice(0, 1).toUpperCase(),
@@ -169,12 +177,12 @@ const STORY_BOARD: BoardSummary = {
   ],
 };
 
-function buildStoryCardDetail(projectId: string, cardId: string): Card | null {
-  if (cardId !== "card-1") return null;
+function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage | null {
+  if (pageId !== "card-1") return null;
   const crossProject = projectId === "codex-readable";
 
   return {
-    id: cardId,
+    id: pageId,
     status: "in_progress",
     archived: false,
     title: crossProject ? "Readable pack review" : "Workbench redesign",
@@ -332,7 +340,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
   }
 
   const cardProjectId = args.activeTab === "cross-project-card" ? "codex-readable" : "nodex";
-  const cardTitle = args.activeTab === "cross-project-card"
+  const pageTitle = args.activeTab === "cross-project-card"
     ? "Readable pack review"
     : args.activeTab === "missing-card"
       ? "Missing project card"
@@ -351,17 +359,17 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     }),
     makeTab({
       id: "tab:card",
-      kind: "card_stage",
-      title: cardTitle,
+      kind: "page_stage",
+      title: pageTitle,
       order: 1,
       config: {
         projectId: cardProjectId,
-        cardId: args.activeTab === "missing-card"
+        pageId: args.activeTab === "missing-card"
           ? "missing-card"
           : args.activeTab === "loading-card"
             ? "loading-card"
             : "card-1",
-        titleSnapshot: cardTitle,
+        titleSnapshot: pageTitle,
       },
     }),
     makeTab({
@@ -394,7 +402,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
   const activeTabId = (() => {
     if (args.activeTab === "db") return "tab:db";
     if (
-      args.activeTab === "card"
+      args.activeTab === "page"
       || args.activeTab === "cross-project-card"
       || args.activeTab === "missing-card"
       || args.activeTab === "loading-card"
@@ -653,7 +661,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         activeDbViewPrefs={null}
         searchByProject={{ nodex: "" }}
         dbViewPrefsByProject={{}}
-        spaces={SPACES}
+        projectRefs={PROJECT_REFS}
         sidebar={{
           collapsed: sidebarCollapsed,
           width: sidebarWidth,
@@ -667,12 +675,12 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
             [sectionId]: collapsed,
           }));
         }}
-        cardStageCloseRef={{ current: null }}
+        pageStageCloseRef={{ current: null }}
         setDbProject={() => undefined}
         setSearchQuery={() => undefined}
         setDbViewPrefs={() => undefined}
-        openCardStage={() => undefined}
-        onLeaveCardStageCard={() => undefined}
+        openPageStage={() => undefined}
+        onLeavePageStage={() => undefined}
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onDeleteProject={async () => false}
@@ -756,22 +764,22 @@ function installStoryApi(
         if (channel === "codex:automation-runs:inbox-items") {
           return { items: [] };
         }
-        if (channel === "card:get") {
+        if (channel === "pages:detail:get") {
           const projectId = String(args[0] ?? "nodex");
-          const cardId = String(args[1] ?? "");
-          if (cardId === "loading-card") {
+          const pageId = String(args[1] ?? "");
+          if (pageId === "loading-card") {
             return new Promise<never>(() => {});
           }
-          return buildCardDetailStoryCommandResult(
+          return buildPageDetailStoryResult(
             projectId,
-            buildStoryCardDetail(projectId, cardId),
+            buildStoryCardDetail(projectId, pageId),
           );
         }
         if (channel === "database-rows:details:get") {
           const projectId = String(args[0] ?? "nodex");
-          const input = (args[1] ?? {}) as { cardIds?: string[] };
-          return (input.cardIds ?? []).flatMap((cardId) => {
-            const card = buildStoryCardDetail(projectId, cardId);
+          const input = (args[1] ?? {}) as { pageIds?: string[] };
+          return (input.pageIds ?? []).flatMap((pageId) => {
+            const card = buildStoryCardDetail(projectId, pageId);
             return card ? [card] : [];
           });
         }
@@ -1052,14 +1060,14 @@ export const MixedRightTabs: Story = {
 
 export const CardRightPanelCollapseAnchor: Story = {
   args: {
-    activeTab: "card",
+    activeTab: "page",
     thread: "attached",
     rightPanel: "regular",
   },
   parameters: {
     docs: {
       description: {
-        story: "Interactive resize acceptance scene: drag the right-panel sash past its collapse threshold, reopen it, then resize it narrower. The full Card Stage canvas follows the sash with no retained minimum width, while trailing toolbar actions stay anchored to the viewport-right edge.",
+        story: "Interactive resize acceptance scene: drag the right-panel sash past its collapse threshold, reopen it, then resize it narrower. The full Page Detail canvas follows the sash with no retained minimum width, while trailing toolbar actions stay anchored to the viewport-right edge.",
       },
     },
   },
@@ -1072,7 +1080,7 @@ export const EmptyRightPanelActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Empty right panel showing the Codex-style new-tab action grid with Nodex DB View and Card Stage actions appended.",
+        story: "Empty right panel showing the Codex-style new-tab action grid with Database View and Page actions appended.",
       },
     },
   },
@@ -1093,40 +1101,40 @@ export const EmptyBottomPanelActions: Story = {
   },
 };
 
-export const MissingCardStageTab: Story = {
+export const MissingPageStageTab: Story = {
   args: {
     activeTab: "missing-card",
   },
   parameters: {
     docs: {
       description: {
-        story: "Card Stage tab whose saved card id no longer exists; it should render a clear missing state instead of a blank panel.",
+        story: "Page Detail tab whose saved Page id no longer exists; it should render a clear missing state instead of a blank panel.",
       },
     },
   },
 };
 
-export const LoadingCardStageTab: Story = {
+export const LoadingPageStageTab: Story = {
   args: {
     activeTab: "loading-card",
   },
   parameters: {
     docs: {
       description: {
-        story: "Card Stage tab while the saved card detail is still hydrating; it keeps the shell stable with a disabled toolbar and localized property/editor skeletons instead of the missing-card state.",
+        story: "Page Detail tab while the saved Page detail is still hydrating; it keeps the shell stable with a disabled toolbar and localized property/editor skeletons instead of the missing-Page state.",
       },
     },
   },
 };
 
-export const CrossProjectCardStageTab: Story = {
+export const CrossProjectPageStageTab: Story = {
   args: {
     activeTab: "cross-project-card",
   },
   parameters: {
     docs: {
       description: {
-        story: "Nodex session hosting a Card Stage tab whose content project is Codex readable pack; the tab row should expose the content project before the card title.",
+        story: "Nodex session hosting a Page Detail tab whose content project is Codex readable pack; the tab row should expose the content project before the Page title.",
       },
     },
   },

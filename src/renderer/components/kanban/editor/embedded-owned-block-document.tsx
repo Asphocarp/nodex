@@ -135,7 +135,7 @@ export function EmbeddedOwnedBlockDocument({
                       provider: { awareness: surface.awareness },
                     }}
                     surfaceWriteFence={surface.runtime}
-                    onOpenCard={hostRuntime?.openCard}
+                    onOpenPage={hostRuntime?.openPage}
                     isActivePanelTab={isActive}
                     placeholder="Add content…"
                     className="min-w-0"

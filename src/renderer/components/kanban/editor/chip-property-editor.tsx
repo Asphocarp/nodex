@@ -23,9 +23,9 @@ import {
 export interface ChipPropertyEditorProps {
   propertyType: Exclude<MetaChipPropertyType, "tag">;
   currentToken: string;
-  cardId: string;
+  pageId: string;
   anchorRect: DOMRect;
-  onSelect: (propertyType: string, cardId: string, value: string) => void;
+  onSelect: (propertyType: string, pageId: string, value: string) => void;
   onClose: () => void;
 }
 
@@ -55,7 +55,7 @@ function computePosition(
 export function ChipPropertyEditor({
   propertyType,
   currentToken,
-  cardId,
+  pageId,
   anchorRect,
   onSelect,
   onClose,
@@ -105,10 +105,10 @@ export function ChipPropertyEditor({
 
   const handleSelect = useCallback(
     (value: string) => {
-      onSelect(propertyType, cardId, value);
+      onSelect(propertyType, pageId, value);
       onClose();
     },
-    [cardId, onClose, onSelect, propertyType],
+    [pageId, onClose, onSelect, propertyType],
   );
 
   const items = getItemsForType(propertyType);

@@ -7,26 +7,26 @@ import type { BoardSummary, Project } from "@/lib/types";
 
 interface NfmMoveToSearchDocument {
   id: string;
-  kind: "project" | "column" | "card";
+  kind: "project" | "column" | "page";
   projectId: string;
   projectName: string;
   projectIcon: string;
   columnId: string;
   columnName: string;
-  cardId: string;
-  cardTitle: string;
+  pageId: string;
+  pageTitle: string;
   boardOrder: number;
 }
 
-export interface NfmMoveToCardSearchHit {
+export interface NfmMoveToPageSearchHit {
   id: string;
   projectId: string;
   projectName: string;
   projectIcon?: string;
   columnId: string;
   columnName: string;
-  cardId: string;
-  cardTitle: string;
+  pageId: string;
+  pageTitle: string;
   boardOrder: number;
   score: number;
 }
@@ -35,7 +35,7 @@ export interface NfmMoveToSearchResult {
   normalizedQuery: string;
   matchedProjectIds: ReadonlySet<string>;
   matchedColumnIdsByProjectId: ReadonlyMap<string, ReadonlySet<string>>;
-  cardHits: NfmMoveToCardSearchHit[];
+  pageHits: NfmMoveToPageSearchHit[];
 }
 
 export interface NfmMoveToSearchIndex {
@@ -46,20 +46,20 @@ export interface CreateNfmMoveToSearchIndexInput {
   projects: readonly Project[];
   boardMap: ReadonlyMap<string, BoardSummary>;
   sourceProjectId: string | null;
-  sourceCardId: string | null;
+  sourcePageId: string | null;
 }
 
 const SEARCH_FIELDS: Array<keyof Pick<
   NfmMoveToSearchDocument,
-  "projectName" | "columnName" | "cardTitle"
+  "projectName" | "columnName" | "pageTitle"
 >> = [
   "projectName",
   "columnName",
-  "cardTitle",
+  "pageTitle",
 ];
 
 const FIELD_BOOSTS: Partial<Record<keyof NfmMoveToSearchDocument, number>> = {
-  cardTitle: 8,
+  pageTitle: 8,
   columnName: 3,
   projectName: 2,
 };
@@ -81,7 +81,7 @@ function createEmptySearchResult(query: string): NfmMoveToSearchResult {
     normalizedQuery: normalizeSearchText(query),
     matchedProjectIds: new Set<string>(),
     matchedColumnIdsByProjectId: new Map<string, ReadonlySet<string>>(),
-    cardHits: [],
+    pageHits: [],
   };
 }
 
@@ -99,10 +99,10 @@ function addColumnMatch(
   columnIdsByProjectId.set(projectId, new Set([columnId]));
 }
 
-function createCardHit(
+function createPageHit(
   document: NfmMoveToSearchDocument,
   score: number,
-): NfmMoveToCardSearchHit {
+): NfmMoveToPageSearchHit {
   return {
     id: document.id,
     projectId: document.projectId,
@@ -110,8 +110,8 @@ function createCardHit(
     projectIcon: document.projectIcon || undefined,
     columnId: document.columnId,
     columnName: document.columnName,
-    cardId: document.cardId,
-    cardTitle: document.cardTitle,
+    pageId: document.pageId,
+    pageTitle: document.pageTitle,
     boardOrder: document.boardOrder,
     score,
   };
@@ -121,7 +121,7 @@ export function createNfmMoveToSearchIndex({
   projects,
   boardMap,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
 }: CreateNfmMoveToSearchIndexInput): NfmMoveToSearchIndex {
   const documents: NfmMoveToSearchDocument[] = [];
 
@@ -136,8 +136,8 @@ export function createNfmMoveToSearchIndex({
       projectIcon,
       columnId: "",
       columnName: "",
-      cardId: "",
-      cardTitle: "",
+      pageId: "",
+      pageTitle: "",
       boardOrder: projectIndex * 1_000_000,
     });
 
@@ -152,25 +152,25 @@ export function createNfmMoveToSearchIndex({
         projectIcon,
         columnId: column.id,
         columnName: column.name,
-        cardId: "",
-        cardTitle: "",
+        pageId: "",
+        pageTitle: "",
         boardOrder: columnOrder,
       });
 
-      column.cards.forEach((card, cardIndex) => {
-        if (project.id === sourceProjectId && card.id === sourceCardId) return;
+      column.cards.forEach((page, pageIndex) => {
+        if (project.id === sourceProjectId && page.id === sourcePageId) return;
 
         documents.push({
-          id: `card:${project.id}:${card.id}`,
-          kind: "card",
+          id: `page:${project.id}:${page.id}`,
+          kind: "page",
           projectId: project.id,
           projectName,
           projectIcon,
           columnId: column.id,
           columnName: column.name,
-          cardId: card.id,
-          cardTitle: card.title || "Untitled",
-          boardOrder: columnOrder + cardIndex,
+          pageId: page.id,
+          pageTitle: page.title || "Untitled",
+          boardOrder: columnOrder + pageIndex,
         });
       });
     });
@@ -189,7 +189,7 @@ export function createNfmMoveToSearchIndex({
 
       const matchedProjectIds = new Set<string>();
       const matchedColumnIdsByProjectId = new Map<string, Set<string>>();
-      const cardHitsById = new Map<string, NfmMoveToCardSearchHit>();
+      const pageHitsById = new Map<string, NfmMoveToPageSearchHit>();
       const results = miniSearch.search(normalizedQuery, {
         combineWith: "AND",
         prefix: (term) => term.length >= 2,
@@ -211,12 +211,12 @@ export function createNfmMoveToSearchIndex({
           continue;
         }
 
-        const existing = cardHitsById.get(document.id);
+        const existing = pageHitsById.get(document.id);
         if (existing && existing.score >= result.score) continue;
-        cardHitsById.set(document.id, createCardHit(document, result.score));
+        pageHitsById.set(document.id, createPageHit(document, result.score));
       }
 
-      const cardHits = Array.from(cardHitsById.values()).sort((left, right) => {
+      const pageHits = Array.from(pageHitsById.values()).sort((left, right) => {
         if (right.score !== left.score) return right.score - left.score;
         return left.boardOrder - right.boardOrder;
       });
@@ -225,7 +225,7 @@ export function createNfmMoveToSearchIndex({
         normalizedQuery,
         matchedProjectIds,
         matchedColumnIdsByProjectId,
-        cardHits,
+        pageHits,
       };
     },
   };

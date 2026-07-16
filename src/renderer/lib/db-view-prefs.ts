@@ -1,5 +1,5 @@
-import type { CardSummary, Estimate, Priority } from "@/lib/types";
-import { CARD_STATUS_LABELS, CARD_STATUS_ORDER, compareCardStatuses, type CardStatus } from "../../shared/card-status";
+import type { DatabasePageSummary, Estimate, Priority } from "@/lib/types";
+import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER, compareWorkflowStatuses, type WorkflowStatus } from "../../shared/workflow-status";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
   DEFAULT_TOGGLE_LIST_SETTINGS,
@@ -57,7 +57,7 @@ export const DB_VIEW_SORT_FIELD_LABELS: Record<DbViewSortField, string> = {
 };
 
 export type DbViewFilterClause =
-  | { field: "status"; op: "in"; values: CardStatus[] }
+  | { field: "status"; op: "in"; values: WorkflowStatus[] }
   | { field: "priority"; op: "in"; values: Priority[]; includeEmpty?: boolean }
   | { field: "tags"; op: "hasAny" | "hasAll" | "hasNone"; values: string[] };
 
@@ -105,8 +105,8 @@ export interface DbViewPrefs {
   display: DbViewDisplayPrefs;
 }
 
-export interface DbViewCardRecord extends CardSummary {
-  columnId: CardStatus;
+export interface DbViewCardRecord extends DatabasePageSummary {
+  columnId: WorkflowStatus;
   columnName: string;
   boardIndex: number;
 }
@@ -121,7 +121,7 @@ const DEFAULT_FILTER: DbViewFilterSpec = {
   any: [
         {
           all: [
-            { field: "status", op: "in", values: [...CARD_STATUS_ORDER] },
+            { field: "status", op: "in", values: [...WORKFLOW_STATUS_ORDER] },
             { field: "priority", op: "in", values: [...TOGGLE_LIST_PRIORITY_ORDER], includeEmpty: true },
           ],
         },
@@ -314,7 +314,7 @@ function normalizeFilterClause(value: unknown): DbViewFilterClause | null {
   }
 
   if (value.field === "status" && value.op === "in") {
-    const values = Array.from(new Set(value.values.filter((item): item is CardStatus => typeof item === "string" && CARD_STATUS_ORDER.includes(item as CardStatus))));
+    const values = Array.from(new Set(value.values.filter((item): item is WorkflowStatus => typeof item === "string" && WORKFLOW_STATUS_ORDER.includes(item as WorkflowStatus))));
     return { field: "status", op: "in", values };
   }
 
@@ -475,7 +475,7 @@ function compareBySortKey(
     case "board-order":
       return (left.boardIndex - right.boardIndex) * sign;
     case "status":
-      return compareCardStatuses(left.columnId, right.columnId) * sign;
+      return compareWorkflowStatuses(left.columnId, right.columnId) * sign;
     case "priority": {
       const leftRank = left.priority ? (priorityRank.get(left.priority) ?? null) : null;
       const rightRank = right.priority ? (priorityRank.get(right.priority) ?? null) : null;
@@ -524,10 +524,10 @@ export function getAvailableSortFields(view: SupportedDbView): DbViewSortField[]
 }
 
 export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string; label: string; value: string }> {
-  const statusValues = collectUnion<CardStatus>(
+  const statusValues = collectUnion<WorkflowStatus>(
     rules.filter,
     "status",
-    (value): value is CardStatus => CARD_STATUS_ORDER.includes(value as CardStatus),
+    (value): value is WorkflowStatus => WORKFLOW_STATUS_ORDER.includes(value as WorkflowStatus),
   );
   const priorityValues = collectUnion<Priority>(
     rules.filter,
@@ -537,11 +537,11 @@ export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string;
   const tagClause = resolveTagClause(rules.filter);
   const summaries: Array<{ key: string; label: string; value: string }> = [];
 
-  if (statusValues.found && statusValues.values.length > 0 && statusValues.values.length < CARD_STATUS_ORDER.length) {
+  if (statusValues.found && statusValues.values.length > 0 && statusValues.values.length < WORKFLOW_STATUS_ORDER.length) {
     summaries.push({
       key: "status",
       label: "Status",
-      value: statusValues.values.map((status) => CARD_STATUS_LABELS[status]).join(", "),
+      value: statusValues.values.map((status) => WORKFLOW_STATUS_LABELS[status]).join(", "),
     });
   }
 

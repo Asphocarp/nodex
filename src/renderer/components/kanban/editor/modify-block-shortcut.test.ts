@@ -22,11 +22,11 @@ function makeToggleRoot(blockId: string, button: HTMLButtonElement): ParentNode 
   } as unknown as ParentNode;
 }
 
-function makeCardRoot(
+function makePageRoot(
   blockId: string,
   button: HTMLButtonElement | null,
 ): ParentNode {
-  const expectedSelector = `.bn-block[data-id="${blockId}"] [data-card-outliner-caret]`;
+  const expectedSelector = `.bn-block[data-id="${blockId}"] [data-page-outliner-caret]`;
   return {
     querySelector: (selector: string) => (
       selector === expectedSelector ? button : null
@@ -146,7 +146,7 @@ describe("modifyCurrentBlock", () => {
     expect(handled).toBe(false);
   });
 
-  test.each(["card", "cardRef"])(
+  test.each(["page", "pageRef"])(
     "toggles the current %s occurrence disclosure",
     (type) => {
       const button = document.createElement("button");
@@ -159,11 +159,11 @@ describe("modifyCurrentBlock", () => {
         {
           id: blockId,
           type,
-          props: type === "cardRef"
-            ? { sourceProjectId: "project-2", targetBlockId: "card-1" }
+          props: type === "pageRef"
+            ? { sourceProjectId: "project-2", targetBlockId: "page-1" }
             : {},
         },
-        { domElement: makeCardRoot(blockId, button) },
+        { domElement: makePageRoot(blockId, button) },
       );
 
       const handled = modifyCurrentBlock(editor, {});
@@ -173,7 +173,7 @@ describe("modifyCurrentBlock", () => {
     },
   );
 
-  test.each(["card", "cardRef"])(
+  test.each(["page", "pageRef"])(
     "consumes the current unavailable %s occurrence without falling through",
     (type) => {
       const button = document.createElement("button");
@@ -185,7 +185,7 @@ describe("modifyCurrentBlock", () => {
       const blockId = `${type}-unavailable`;
       const editor = makeEditor(
         { id: blockId, type, props: {} },
-        { domElement: makeCardRoot(blockId, button) },
+        { domElement: makePageRoot(blockId, button) },
       );
 
       const handled = modifyCurrentBlock(editor, {});

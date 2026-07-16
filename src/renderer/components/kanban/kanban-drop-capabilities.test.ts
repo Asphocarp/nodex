@@ -7,7 +7,7 @@ describe("resolveKanbanDropCapabilities", () => {
       dragMode: { kind: "manual-rank" },
     });
 
-    expect(capabilities.allowCardTargets).toBe(true);
+    expect(capabilities.allowPageTargets).toBe(true);
     expect(capabilities.allowColumnTargets).toBe(true);
   });
 
@@ -16,7 +16,7 @@ describe("resolveKanbanDropCapabilities", () => {
       dragMode: { kind: "property-sorted", field: "priority" },
     });
 
-    expect(capabilities.allowCardTargets).toBe(true);
+    expect(capabilities.allowPageTargets).toBe(true);
     expect(capabilities.allowColumnTargets).toBe(true);
   });
 
@@ -25,7 +25,7 @@ describe("resolveKanbanDropCapabilities", () => {
       dragMode: { kind: "derived-move-only", field: "title" },
     });
 
-    expect(capabilities.allowCardTargets).toBe(false);
+    expect(capabilities.allowPageTargets).toBe(false);
     expect(capabilities.allowColumnTargets).toBe(true);
   });
 });

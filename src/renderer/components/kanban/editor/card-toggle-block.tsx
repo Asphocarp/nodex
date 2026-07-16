@@ -11,7 +11,7 @@ import {
 import { createStatusIconElement, getStatusIdByLabel } from "@/lib/status-chip";
 import { cardToggleBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
-export const createCardToggleBlockSpec = createBlockSpec(
+export const createPageToggleBlockSpec = createBlockSpec(
   cardToggleBlockConfig,
   {
     meta: {
@@ -31,7 +31,7 @@ export const createCardToggleBlockSpec = createBlockSpec(
         const chip = document.createElement("span");
         chip.className = getMetaChipClassName(token);
         chip.dataset.chipProperty = propertyType;
-        chip.dataset.chipCardId = block.props.cardId;
+        chip.dataset.chipPageId = block.props.cardId;
         chip.dataset.chipBlockId = block.id;
         chip.dataset.chipToken = token;
 

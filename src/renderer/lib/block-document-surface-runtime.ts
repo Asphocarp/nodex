@@ -457,7 +457,7 @@ export class BlockDocumentSurfaceRuntime {
   /**
    * Gives pending updates a bounded chance to reach SQLite while always
    * checkpointing the current local state. Unlike close(), this retains the
-   * live provider so hidden Card tabs can keep converging in the background.
+   * live provider so hidden Page tabs can keep converging in the background.
    */
   persist = (): Promise<BlockDocumentSurfacePersistResult> => {
     if (this.terminal) return Promise.reject(this.terminal.error);

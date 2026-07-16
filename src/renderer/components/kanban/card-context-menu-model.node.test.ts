@@ -1,17 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
-  getCardActionMenuEntries,
-  getCardMoveTargets,
+  getPageActionMenuEntries,
 } from "./card-context-menu-model";
 
 describe("card context menu model", () => {
   test("returns only real actions in production order when search is empty", () => {
-    const actions = getCardActionMenuEntries({ query: "", showMockActions: false });
+    const actions = getPageActionMenuEntries({ query: "", showMockActions: false });
 
     expect(actions.map((action) => action.label).join(",")).toBe(
       [
         "Copy deeplink",
-        "Move to",
         "Delete",
       ].join(","),
     );
@@ -19,7 +17,7 @@ describe("card context menu model", () => {
   });
 
   test("keeps mock actions disabled and marked in dev order", () => {
-    const actions = getCardActionMenuEntries({ query: "", showMockActions: true });
+    const actions = getPageActionMenuEntries({ query: "", showMockActions: true });
     const duplicate = actions.find((action) => action.id === "duplicate");
 
     expect(actions.map((action) => action.label).join(",")).toBe(
@@ -32,7 +30,6 @@ describe("card context menu model", () => {
         "Open in",
         "Copy deeplink",
         "Duplicate",
-        "Move to",
         "Delete",
       ].join(","),
     );
@@ -41,7 +38,7 @@ describe("card context menu model", () => {
   });
 
   test("keeps delete and copy deeplink enabled for real actions", () => {
-    const actions = getCardActionMenuEntries({ query: "", showMockActions: false });
+    const actions = getPageActionMenuEntries({ query: "", showMockActions: false });
     const copyLink = actions.find((action) => action.id === "copy-link");
     const deleteAction = actions.find((action) => action.id === "delete");
 
@@ -50,47 +47,17 @@ describe("card context menu model", () => {
   });
 
   test("filters action entries by label and keyword matches", () => {
-    const actions = getCardActionMenuEntries({ query: "project", showMockActions: false });
+    const actions = getPageActionMenuEntries({ query: "link", showMockActions: false });
 
-    expect(actions.map((action) => action.label).join(",")).toBe("Move to");
+    expect(actions.map((action) => action.label).join(",")).toBe("Copy deeplink");
   });
 
   test("filters mock action entries only when mock actions are visible", () => {
-    const productionActions = getCardActionMenuEntries({ query: "favorite", showMockActions: false });
-    const devActions = getCardActionMenuEntries({ query: "favorite", showMockActions: true });
+    const productionActions = getPageActionMenuEntries({ query: "favorite", showMockActions: false });
+    const devActions = getPageActionMenuEntries({ query: "favorite", showMockActions: true });
 
     expect(productionActions.length).toBe(0);
     expect(devActions.map((action) => action.label).join(",")).toBe("Add to Favorites");
   });
 
-  test("builds move targets with current-project state and metadata", () => {
-    const targets = getCardMoveTargets(
-      [
-        { id: "default", name: "Default", description: "Core workspace" },
-        { id: "ops", name: "Ops", primaryWorkspaceRoot: "/work/ops" },
-        { id: "research", name: "Research" },
-      ],
-      "ops",
-      "",
-    );
-
-    expect(targets.map((target) => target.label).join(",")).toBe("Default,Ops,Research");
-    expect(targets[1]?.description).toBe("Current project · /work/ops");
-    expect(targets[1]?.disabled).toBe(true);
-    expect(targets[2]?.description).toBe("Project");
-  });
-
-  test("filters move targets without disturbing project order", () => {
-    const targets = getCardMoveTargets(
-      [
-        { id: "default", name: "Default", description: "Core workspace" },
-        { id: "ops", name: "Ops", primaryWorkspaceRoot: "/work/ops" },
-        { id: "research", name: "Research" },
-      ],
-      "default",
-      "/work",
-    );
-
-    expect(targets.map((target) => target.label).join(",")).toBe("Ops");
-  });
 });

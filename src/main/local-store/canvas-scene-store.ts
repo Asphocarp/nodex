@@ -372,13 +372,13 @@ const persistDerivedProjections = (
   });
 };
 
-const assertCardReferencesAreScoped = (
+const assertPageReferencesAreScoped = (
   database: Database.Database,
   projectId: string,
   scene: PortableCanvasScene,
 ): void => {
   const targetIds = [...new Set(
-    scene.cardReferences.map((reference) => reference.targetBlockId),
+    scene.pageReferences.map((reference) => reference.targetBlockId),
   )];
   if (targetIds.length === 0) return;
   const placeholders = targetIds.map(() => "?").join(", ");
@@ -387,7 +387,7 @@ const assertCardReferencesAreScoped = (
       .prepare(
         `SELECT COUNT(*) AS count FROM blocks
          WHERE project_id = ? AND lifecycle <> 'deleted'
-           AND type = 'card'
+           AND type = 'page'
            AND id IN (${placeholders})`,
       )
       .get(projectId, ...targetIds) as { readonly count: number }
@@ -395,7 +395,7 @@ const assertCardReferencesAreScoped = (
   if (count === targetIds.length) return;
   throw new CanvasSceneStoreError(
     "invalid_canvas_scene_mutation",
-    "Canvas scene contains a missing, deleted, or cross-Project Card reference",
+    "Canvas scene contains a missing, deleted, or cross-Project Page reference",
   );
 };
 
@@ -435,7 +435,7 @@ export const initializeCanvasSceneAuthority = (
         true,
       );
     }
-    assertCardReferencesAreScoped(database, input.projectId, scene);
+    assertPageReferencesAreScoped(database, input.projectId, scene);
     const updatedAt = input.updatedAt ?? new Date().toISOString();
     const sceneHash = sha256(canonicalPortableCanvasSceneFingerprint(scene));
     const updatedDocument = database
@@ -868,7 +868,7 @@ export const applyCanvasSceneMutation = (
         appState,
         files: Object.fromEntries(files),
       });
-      assertCardReferencesAreScoped(database, request.projectId, scene);
+      assertPageReferencesAreScoped(database, request.projectId, scene);
       const changed =
         changedElementIds.length > 0 ||
         appStateChanged ||

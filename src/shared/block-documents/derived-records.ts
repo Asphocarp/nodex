@@ -180,14 +180,14 @@ const collectDerivedRecords = (
         source: nfmBlock.source,
       });
     } else if (
-      nfmBlock.type === "card" &&
+      nfmBlock.type === "page" &&
       nfmBlock.uuid !== undefined &&
       nfmBlock.uuid !== block.id
     ) {
       throw new BlockDocumentDerivedRecordsError(
-        `Owning Card NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
+        `Owning Page NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
       );
-    } else if (nfmBlock.type === "mentionCard") {
+    } else if (nfmBlock.type === "pageRef") {
       assertCanonicalReferenceId(nfmBlock.targetBlockId, "targetBlockId");
       references.push({
         kind: "block",
@@ -198,14 +198,14 @@ const collectDerivedRecords = (
       references.push({
         kind: "legacy_card_projection",
         sourceBlockId: block.id,
-        targetBlockId: nfmBlock.cardId,
+        targetBlockId: nfmBlock.pageId,
         projectHint: nfmBlock.sourceProjectId,
       });
     } else if (nfmBlock.type === "cardToggle") {
       references.push({
         kind: "legacy_card_projection",
         sourceBlockId: block.id,
-        targetBlockId: nfmBlock.cardId,
+        targetBlockId: nfmBlock.pageId,
         ...(nfmBlock.sourceProjectId
           ? { projectHint: nfmBlock.sourceProjectId }
           : {}),

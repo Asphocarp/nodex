@@ -2,10 +2,10 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   buildCompleteOrSkipOccurrenceTransform,
   buildCreateCardTransform,
-  buildDeleteCardTransform,
-  buildMoveCardTransform,
-  buildMoveCardsTransform,
-  buildPatchCardTransform,
+  buildDeletePageTransform,
+  buildMovePageTransform,
+  buildMovePagesTransform,
+  buildPatchPageTransform,
   conflictKeyForCard,
   conflictKeysForCreate,
   conflictKeysForDelete,
@@ -14,41 +14,40 @@ import {
   conflictKeysForPatch,
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
-import { createUuidV7 } from "../../shared/card-id";
-import { isCardStatus } from "../../shared/card-status";
+import { createUuidV7 } from "../../shared/uuid-v7";
+import { isWorkflowStatus } from "../../shared/workflow-status";
 import {
-  CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
-  findCardDocumentPatchFields,
-} from "../../shared/card-content-authority";
+  PAGE_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+  findPageDocumentPatchFields,
+} from "../../shared/page-content-authority";
 import type {
-  CalendarOccurrence,
-  Card,
-  CardCreateInput,
-  CardCreatePlacement,
-  CardInput,
-  CardUpdateMutationResult,
-  CardUpdateResult,
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
-  MoveCardInput,
-  MoveCardsInput,
+  PageOccurrence,
+  DatabasePage,
+  PageCreateInput,
+  PageCreatePlacement,
+  PageInput,
+  PageUpdateMutationResult,
+  PageUpdateResult,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
+  MovePageInput,
+  MovePagesInput,
 } from "./types";
 import {
   invoke,
-  readPrimaryDatabaseDescriptor,
-  transferCardProject,
 } from "./api";
-import type { CardProjectTransferReceipt } from "../../shared/card-project-transfer";
 import { getKanbanProjectStore } from "./kanban-store";
 import { getDatabaseRowDetail, setDatabaseRowDetail } from "./database-row-detail-store";
-import { commitPrimaryDatabaseCardDrag } from "./primary-database-card-drag-runtime";
-import { commitPrimaryDatabaseCardDragMany } from "./primary-database-card-drag-many-runtime";
-import { commitCardLifecycleIntent } from "./card-lifecycle-runtime";
 import {
-  commitCardMetadataPropertyPatch,
-  isCardMetadataPropertyPatch,
-} from "./card-metadata-property-runtime";
+  commitDatabasePageDrag,
+  commitDatabasePagesDrag,
+} from "./database-page-drag-runtime";
+import { commitPageLifecycleIntent } from "./page-lifecycle-runtime";
+import {
+  isPageMetadataPatch,
+} from "./page-detail-metadata-runtime";
+import { commitPageMetadataPatchForBoard } from "./page-metadata-board-runtime";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -58,25 +57,18 @@ interface UseKanbanOptions {
   enabled?: boolean;
 }
 
-type NewCardOccurrenceAction = Omit<
-  CardOccurrenceActionInput,
+type NewPageOccurrenceAction = Omit<
+  PageOccurrenceActionInput,
   "operationId"
 >;
-type NewCardOccurrenceComplete = Omit<
-  CardOccurrenceCompleteInput,
-  "operationId" | "createdCardId"
+type NewPageOccurrenceComplete = Omit<
+  PageOccurrenceCompleteInput,
+  "operationId" | "createdPageId"
 >;
-type NewCardOccurrenceUpdate = Omit<
-  CardOccurrenceUpdateInput,
-  "operationId" | "createdCardId"
+type NewPageOccurrenceUpdate = Omit<
+  PageOccurrenceUpdateInput,
+  "operationId" | "createdPageId"
 >;
-
-interface MoveCardToProjectIntentInput {
-  readonly cardId: string;
-  readonly sourceStatus: Card["status"];
-  readonly targetProjectId: string;
-  readonly targetStatus?: Card["status"];
-}
 
 function asDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
@@ -88,7 +80,7 @@ function toErrorMessage(value: unknown): string {
   return "Unknown error";
 }
 
-function ensureCreateInputId(input: CardCreateInput): CardCreateInput {
+function ensureCreateInputId(input: PageCreateInput): PageCreateInput {
   if (input.id && input.id.trim().length > 0) return input;
   return {
     ...input,
@@ -96,10 +88,10 @@ function ensureCreateInputId(input: CardCreateInput): CardCreateInput {
   };
 }
 
-function normalizeOccurrenceUpdatesToCardPatch(
-  input: CardOccurrenceUpdateInput,
-): Partial<CardInput> {
-  const patch: Partial<CardInput> = {};
+function normalizeOccurrenceUpdatesToPagePatch(
+  input: PageOccurrenceUpdateInput,
+): Partial<PageInput> {
+  const patch: Partial<PageInput> = {};
   if (Object.prototype.hasOwnProperty.call(input.updates, "scheduledStart")) patch.scheduledStart = input.updates.scheduledStart;
   if (Object.prototype.hasOwnProperty.call(input.updates, "scheduledEnd")) patch.scheduledEnd = input.updates.scheduledEnd;
   if (Object.prototype.hasOwnProperty.call(input.updates, "isAllDay")) patch.isAllDay = input.updates.isAllDay;
@@ -109,10 +101,10 @@ function normalizeOccurrenceUpdatesToCardPatch(
   return patch;
 }
 
-function buildCommittedCardDetailFromUpdate(
-  existing: Card | null,
-  result: Extract<CardUpdateResult, { status: "updated" }>,
-): Card | null {
+function buildCommittedPageDetailFromUpdate(
+  existing: DatabasePage | null,
+  result: Extract<PageUpdateResult, { status: "updated" }>,
+): DatabasePage | null {
   if (!existing) return null;
 
   return {
@@ -157,38 +149,38 @@ export function useKanban(options: UseKanbanOptions) {
     return false;
   }, [databaseViewId, store]);
 
-  const createCard = useCallback(
+  const createPage = useCallback(
     async (
       columnId: string,
-      input: CardCreateInput,
-      placement: CardCreatePlacement = "bottom",
-    ): Promise<Card | null> => {
+      input: PageCreateInput,
+      placement: PageCreatePlacement = "bottom",
+    ): Promise<DatabasePage | null> => {
       if (!requireWritableSelectedView()) return null;
-      if (!isCardStatus(columnId)) {
-        throw new Error("Card creation requires a canonical Card status");
+      if (!isWorkflowStatus(columnId)) {
+        throw new Error("Page creation requires a canonical Page status");
       }
       const createInput = ensureCreateInputId(input);
       const optimisticCard = createOptimisticCard(createInput);
       const operationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<Card>({
-        kind: "card:create",
+      const outcome = await store.runOptimisticMutation<DatabasePage>({
+        kind: "page:create",
         conflictKeys: conflictKeysForCreate(columnId, optimisticCard.id),
         apply: buildCreateCardTransform(columnId, optimisticCard, placement),
         runRemote: async () => {
-          const committed = await commitCardLifecycleIntent({
+          const committed = await commitPageLifecycleIntent({
             kind: "create",
             projectId,
             operationId,
             clientSessionId: sessionId,
-            cardId: optimisticCard.id,
+            pageId: optimisticCard.id,
             status: columnId,
             input: createInput,
             placement,
           });
-          if (!committed.card) {
-            throw new Error("Created Card is missing from canonical authority");
+          if (!committed.boardProjection) {
+            throw new Error("Created Page is missing from canonical authority");
           }
-          return committed.card;
+          return committed.boardProjection;
         },
       });
 
@@ -203,35 +195,35 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
-  const updateCard = useCallback(
+  const updatePage = useCallback(
     async (
       columnId: string,
-      cardId: string,
-      updates: Partial<CardInput>,
-    ): Promise<CardUpdateMutationResult> => {
+      pageId: string,
+      updates: Partial<PageInput>,
+    ): Promise<PageUpdateMutationResult> => {
       if (!requireWritableSelectedView()) {
         return { status: "error", error: "The selected Database View is read-only" };
       }
-      const documentFields = findCardDocumentPatchFields(updates);
+      const documentFields = findPageDocumentPatchFields(updates);
       if (documentFields.length > 0) {
         return {
           status: "error",
-          error: CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
+          error: PAGE_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
         };
       }
-      if (!isCardMetadataPropertyPatch(updates)) {
-        return { status: "error", error: "No mutable Card metadata was specified" };
+      if (!isPageMetadataPatch(updates)) {
+        return { status: "error", error: "No mutable Page metadata was specified" };
       }
-      const conflictKeys = conflictKeysForPatch(cardId, updates);
+      const conflictKeys = conflictKeysForPatch(pageId, updates);
       const metadataMutationId = crypto.randomUUID();
-      const outcome = await store.runOptimisticMutation<CardUpdateResult>({
+      const outcome = await store.runOptimisticMutation<PageUpdateResult>({
         kind: "block:properties",
         conflictKeys,
-        apply: buildPatchCardTransform(columnId, cardId, updates, { bumpRevision: true }),
-        runRemote: async () => await commitCardMetadataPropertyPatch({
+        apply: buildPatchPageTransform(columnId, pageId, updates, { bumpRevision: true }),
+        runRemote: async () => await commitPageMetadataPatchForBoard({
           projectId,
-          cardBlockId: cardId,
-          mutationId: metadataMutationId,
+          pageId: pageId,
+          operationId: metadataMutationId,
           clientSessionId: sessionId,
           patch: updates,
         }),
@@ -254,8 +246,8 @@ export function useKanban(options: UseKanbanOptions) {
       }
 
       if (result.status === "updated") {
-        const committedDetail = buildCommittedCardDetailFromUpdate(
-          getDatabaseRowDetail(projectId, cardId),
+        const committedDetail = buildCommittedPageDetailFromUpdate(
+          getDatabaseRowDetail(projectId, pageId),
           result,
         );
         if (committedDetail) {
@@ -267,15 +259,15 @@ export function useKanban(options: UseKanbanOptions) {
       }
 
       if (result.status === "conflict") {
-        setDatabaseRowDetail(projectId, result.card);
-        store.applyRemoteCard(result.card);
+        setDatabaseRowDetail(projectId, result.page);
+        store.applyRemoteCard(result.page);
         store.resolveConflict(conflictKeys);
         await store.refreshBoard();
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("nodex:card-update-conflict", {
             detail: {
               projectId,
-              cardId,
+              pageId,
             },
           }));
         }
@@ -288,10 +280,10 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
-  const getCard = useCallback(
-    async (cardId: string, columnId?: string): Promise<Card | null> => {
+  const getPage = useCallback(
+    async (pageId: string, columnId?: string): Promise<DatabasePage | null> => {
       try {
-        const card = (await invoke("database-row:get", projectId, cardId, columnId)) as Card | null;
+        const card = (await invoke("database-row:get", projectId, pageId, columnId)) as DatabasePage | null;
         if (card) setDatabaseRowDetail(projectId, card);
         return card;
       } catch (err) {
@@ -302,21 +294,21 @@ export function useKanban(options: UseKanbanOptions) {
     [projectId, store],
   );
 
-  const deleteCard = useCallback(
-    async (columnId: string, cardId: string): Promise<boolean> => {
+  const deletePage = useCallback(
+    async (columnId: string, pageId: string): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
       const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
-        kind: "card:delete",
-        conflictKeys: conflictKeysForDelete(cardId),
-        apply: buildDeleteCardTransform(columnId, cardId),
+        kind: "page:delete",
+        conflictKeys: conflictKeysForDelete(pageId),
+        apply: buildDeletePageTransform(columnId, pageId),
         runRemote: async () => {
-          const committed = await commitCardLifecycleIntent({
+          const committed = await commitPageLifecycleIntent({
             kind: "delete",
             projectId,
             operationId,
             clientSessionId: sessionId,
-            cardId,
+            pageId: pageId,
           });
           return committed.receipt.lifecycle === "deleted";
         },
@@ -332,15 +324,15 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
-  const moveCard = useCallback(
-    async (input: MoveCardInput): Promise<boolean> => {
+  const movePage = useCallback(
+    async (input: MovePageInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
       const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "database:position",
         conflictKeys: conflictKeysForMove(input),
-        apply: buildMoveCardTransform(input),
-        runRemote: async () => await commitPrimaryDatabaseCardDrag({
+        apply: buildMovePageTransform(input),
+        runRemote: async () => await commitDatabasePageDrag({
           projectId,
           clientSessionId: sessionId,
           operationId,
@@ -358,15 +350,15 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
-  const moveCards = useCallback(
-    async (input: MoveCardsInput): Promise<boolean> => {
+  const movePages = useCallback(
+    async (input: MovePagesInput): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
       const operationId = crypto.randomUUID();
       const outcome = await store.runOptimisticMutation<boolean>({
         kind: "database:position-many",
         conflictKeys: conflictKeysForMoveMany(input),
-        apply: buildMoveCardsTransform(input),
-        runRemote: async () => await commitPrimaryDatabaseCardDragMany({
+        apply: buildMovePagesTransform(input),
+        runRemote: async () => await commitDatabasePagesDrag({
           projectId,
           clientSessionId: sessionId,
           operationId,
@@ -384,66 +376,12 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
-  const moveCardToProject = useCallback(
-    async (
-      input: MoveCardToProjectIntentInput,
-    ): Promise<CardProjectTransferReceipt | null> => {
-      if (!requireWritableSelectedView()) return null;
-      const targetDescriptor = await readPrimaryDatabaseDescriptor(
-        input.targetProjectId,
-      );
-      const descriptor = targetDescriptor.ok
-        ? targetDescriptor.value.value
-        : null;
-      const targetView = descriptor?.views.find(
-        (view) => view.isPrimary && view.lifecycle === "active",
-      );
-      if (!descriptor || !targetView) {
-        store.setError(
-          targetDescriptor.ok
-            ? "Target Project has no active primary Database View"
-            : targetDescriptor.error.message,
-        );
-        return null;
-      }
-
-      const operationId = crypto.randomUUID();
-      const outcome =
-        await store.runOptimisticMutation<CardProjectTransferReceipt>({
-          kind: "card:project-transfer",
-          conflictKeys: conflictKeysForDelete(input.cardId),
-          apply: buildDeleteCardTransform(input.sourceStatus, input.cardId),
-          runRemote: async () => {
-            const result = await transferCardProject(projectId, {
-              version: 2,
-              operationId,
-              sourceProjectId: projectId,
-              targetProjectId: input.targetProjectId,
-              cardId: input.cardId,
-              target: {
-                databaseBlockId: descriptor.database.blockId,
-                viewId: targetView.id,
-                status: input.targetStatus ?? input.sourceStatus,
-              },
-            });
-            if (result.ok) return result.value;
-            throw new Error(result.error.message);
-          },
-        });
-
-      if (!outcome.ok) return null;
-      onMutation?.();
-      return outcome.result ?? null;
-    },
-    [onMutation, projectId, requireWritableSelectedView, store],
-  );
-
-  const listCalendarOccurrences = useCallback(
+  const listPageOccurrences = useCallback(
     async (
       windowStart: Date,
       windowEnd: Date,
       searchQuery?: string,
-    ): Promise<CalendarOccurrence[]> => {
+    ): Promise<PageOccurrence[]> => {
       try {
         const result = (await invoke(
           "calendar:occurrences",
@@ -451,7 +389,7 @@ export function useKanban(options: UseKanbanOptions) {
           windowStart,
           windowEnd,
           searchQuery,
-        )) as { occurrences: CalendarOccurrence[] };
+        )) as { occurrences: PageOccurrence[] };
         return result.occurrences.map((occurrence) => ({
           ...occurrence,
           created: asDate(occurrence.created),
@@ -470,19 +408,19 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const completeOccurrence = useCallback(
-    async (input: NewCardOccurrenceComplete): Promise<boolean> => {
+    async (input: NewPageOccurrenceComplete): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const command: CardOccurrenceCompleteInput = {
+      const command: PageOccurrenceCompleteInput = {
         ...input,
         operationId: crypto.randomUUID(),
-        createdCardId: createUuidV7(),
+        createdPageId: createUuidV7(),
       };
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
-        kind: "card:occurrence:complete",
-        conflictKeys: [conflictKeyForCard(command.cardId)],
-        apply: buildCompleteOrSkipOccurrenceTransform(command.cardId),
+        kind: "page:occurrence:complete",
+        conflictKeys: [conflictKeyForCard(command.pageId)],
+        apply: buildCompleteOrSkipOccurrenceTransform(command.pageId),
         runRemote: async () => (await invoke(
-          "card:occurrence:complete",
+          "page:occurrence:complete",
           projectId,
           command,
           sessionId,
@@ -501,18 +439,18 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const skipOccurrence = useCallback(
-    async (input: NewCardOccurrenceAction): Promise<boolean> => {
+    async (input: NewPageOccurrenceAction): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
-      const command: CardOccurrenceActionInput = {
+      const command: PageOccurrenceActionInput = {
         ...input,
         operationId: crypto.randomUUID(),
       };
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
-        kind: "card:occurrence:skip",
-        conflictKeys: [conflictKeyForCard(command.cardId)],
-        apply: buildCompleteOrSkipOccurrenceTransform(command.cardId),
+        kind: "page:occurrence:skip",
+        conflictKeys: [conflictKeyForCard(command.pageId)],
+        apply: buildCompleteOrSkipOccurrenceTransform(command.pageId),
         runRemote: async () => (await invoke(
-          "card:occurrence:skip",
+          "page:occurrence:skip",
           projectId,
           command,
           sessionId,
@@ -531,20 +469,20 @@ export function useKanban(options: UseKanbanOptions) {
   );
 
   const updateOccurrence = useCallback(
-    async (input: NewCardOccurrenceUpdate): Promise<boolean> => {
+    async (input: NewPageOccurrenceUpdate): Promise<boolean> => {
       if (!requireWritableSelectedView()) return false;
       const command = {
         ...input,
         operationId: crypto.randomUUID(),
-        ...(input.scope === "all" ? {} : { createdCardId: createUuidV7() }),
-      } as CardOccurrenceUpdateInput;
-      const optimisticPatch = normalizeOccurrenceUpdatesToCardPatch(command);
+        ...(input.scope === "all" ? {} : { createdPageId: createUuidV7() }),
+      } as PageOccurrenceUpdateInput;
+      const optimisticPatch = normalizeOccurrenceUpdatesToPagePatch(command);
       const outcome = await store.runOptimisticMutation<{ success: boolean; error?: string }>({
-        kind: "card:occurrence:update",
-        conflictKeys: conflictKeysForPatch(command.cardId, optimisticPatch),
-        apply: buildPatchCardTransform(undefined, command.cardId, optimisticPatch),
+        kind: "page:occurrence:update",
+        conflictKeys: conflictKeysForPatch(command.pageId, optimisticPatch),
+        apply: buildPatchPageTransform(undefined, command.pageId, optimisticPatch),
         runRemote: async () => (await invoke(
-          "card:occurrence:update",
+          "page:occurrence:update",
           projectId,
           command,
           sessionId,
@@ -562,13 +500,13 @@ export function useKanban(options: UseKanbanOptions) {
     [onMutation, projectId, requireWritableSelectedView, sessionId, store],
   );
 
-  const patchCard = useCallback(
-    (columnId: string, cardId: string, updates: Partial<CardInput>) => {
+  const patchPage = useCallback(
+    (columnId: string, pageId: string, updates: Partial<PageInput>) => {
       if (!requireWritableSelectedView()) return;
       store.enqueueLocalOverlay({
-        kind: "card:patch-local",
-        conflictKeys: conflictKeysForPatch(cardId, updates),
-        apply: buildPatchCardTransform(columnId, cardId, updates),
+        kind: "page:patch-local",
+        conflictKeys: conflictKeysForPatch(pageId, updates),
+        apply: buildPatchPageTransform(columnId, pageId, updates),
       });
     },
     [requireWritableSelectedView, store],
@@ -581,24 +519,23 @@ export function useKanban(options: UseKanbanOptions) {
   return {
     board: snapshot.board,
     databaseView: snapshot.databaseView,
-    cardIndex: snapshot.cardIndex,
+    pageIndex: snapshot.pageIndex,
     loading: snapshot.loading,
     error: snapshot.error,
     pendingMutationCount: snapshot.pendingMutationCount,
     lastMutationError: snapshot.lastMutationError,
     clearLastMutationError,
     refresh: fetchBoard,
-    createCard,
-    getCard,
-    updateCard,
-    deleteCard,
-    moveCard,
-    moveCards,
-    moveCardToProject,
-    listCalendarOccurrences,
+    createPage,
+    getPage,
+    updatePage,
+    deletePage,
+    movePage,
+    movePages,
+    listPageOccurrences,
     completeOccurrence,
     skipOccurrence,
     updateOccurrence,
-    patchCard,
+    patchPage,
   };
 }

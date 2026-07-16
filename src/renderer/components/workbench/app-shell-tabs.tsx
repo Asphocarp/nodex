@@ -196,7 +196,7 @@ export function AppShellTabs({
   tabs,
   activeTabId,
   panelId,
-  controllerId = "cards",
+  controllerId = "pages",
   onSelect,
   onCloseTab,
   onDirectCloseTab,

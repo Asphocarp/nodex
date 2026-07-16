@@ -54,12 +54,13 @@ describe("pragmatic drag data", () => {
       instanceId: Symbol("test-instance"),
       projectId: "default",
       databaseBlockId: "database-default",
+      dataSourceId: "source-default",
       storeEpoch: "epoch-default",
-      activeCard: board.columns[0]!.cards[0]!,
+      activePage: board.columns[0]!.cards[0]!,
       columnId: "in_progress",
     });
 
-    expect(result.sourceCard.descriptionPreview).toBe("Persisted body");
+    expect(result.sourcePage.descriptionPreview).toBe("Persisted body");
     expect(result.dragItems[0]?.card.descriptionPreview).toBe("Persisted body");
   });
 
@@ -75,23 +76,24 @@ describe("pragmatic drag data", () => {
       instanceId,
       projectId: "default",
       databaseBlockId: "database-default",
+      dataSourceId: "source-default",
       storeEpoch: "epoch-default",
-      activeCard: board.columns[0]!.cards[0]!,
+      activePage: board.columns[0]!.cards[0]!,
       columnId: "in_progress",
     });
 
     expect(canDropOnKanbanCard({
-      targetCardId: "card-1",
+      targetPageId: "card-1",
       source: dragData,
       instanceId,
     })).toBe(false);
     expect(canDropOnKanbanCard({
-      targetCardId: "card-2",
+      targetPageId: "card-2",
       source: dragData,
       instanceId,
     })).toBe(false);
     expect(canDropOnKanbanCard({
-      targetCardId: "card-3",
+      targetPageId: "card-3",
       source: dragData,
       instanceId,
     })).toBe(true);

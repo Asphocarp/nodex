@@ -1,8 +1,8 @@
 import {
   MAX_BLOCK_ID_LENGTH,
-  MAX_CARD_DOCUMENT_BLOCKS,
-  MAX_CARD_DOCUMENT_STATE_BYTES,
-  MAX_CARD_DOCUMENT_UPDATE_BYTES,
+  MAX_PAGE_DOCUMENT_BLOCKS,
+  MAX_PAGE_DOCUMENT_STATE_BYTES,
+  MAX_PAGE_DOCUMENT_UPDATE_BYTES,
   MAX_RELOCATION_ID_LENGTH,
   MAX_RELOCATION_ROOT_BLOCKS,
   type BlockLocation,
@@ -533,7 +533,7 @@ const parseDocumentCommit = (
   const update =
     commit.update === null && allowCompactedUpdate
       ? null
-      : readBytes(commit, "update", label, MAX_CARD_DOCUMENT_UPDATE_BYTES);
+      : readBytes(commit, "update", label, MAX_PAGE_DOCUMENT_UPDATE_BYTES);
   return {
     documentId: readBoundedString(commit, "documentId", label),
     generation: readInteger(commit, "generation", label, 1),
@@ -545,7 +545,7 @@ const parseDocumentCommit = (
       commit,
       "stateVector",
       label,
-      MAX_CARD_DOCUMENT_STATE_BYTES,
+      MAX_PAGE_DOCUMENT_STATE_BYTES,
     ),
   };
 };
@@ -602,7 +602,7 @@ const parseFinalLocations = (
 ): Readonly<Record<string, BlockLocation>> => {
   const locations = readRecord(value, "relocationResult.finalLocations");
   const entries = Object.entries(locations);
-  if (entries.length < 1 || entries.length > MAX_CARD_DOCUMENT_BLOCKS) {
+  if (entries.length < 1 || entries.length > MAX_PAGE_DOCUMENT_BLOCKS) {
     throw new RelocationContractError(
       "relocationResult.finalLocations has an invalid size",
     );
@@ -694,7 +694,7 @@ export const parseRelocationResult = (
   const movedBlockIds = readBlockIdList(
     result.movedBlockIds,
     "relocationResult.movedBlockIds",
-    MAX_CARD_DOCUMENT_BLOCKS,
+    MAX_PAGE_DOCUMENT_BLOCKS,
   );
   if (rootBlockIds.some((blockId) => !movedBlockIds.includes(blockId))) {
     throw new RelocationContractError(

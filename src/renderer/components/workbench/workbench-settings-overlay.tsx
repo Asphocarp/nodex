@@ -33,13 +33,13 @@ import {
 import type { CardPropertyPosition } from "../../lib/card-property-position";
 import { FILE_LINK_OPENER_ICON_URLS } from "../../lib/file-link-opener-icons";
 import {
-  CARD_STAGE_COLLAPSIBLE_PROPERTIES,
-  CARD_STAGE_COLLAPSIBLE_PROPERTY_LABELS,
-  type CardStageCollapsibleProperty,
-} from "../../lib/card-stage-collapsed-properties";
+  PAGE_STAGE_COLLAPSIBLE_PROPERTIES,
+  PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS,
+  type PageStageCollapsibleProperty,
+} from "../../lib/page-stage-collapsed-properties";
 import { useCardPropertyPosition } from "../../lib/use-card-property-position";
 import { useFileLinkOpener } from "../../lib/use-file-link-opener";
-import { useCardStageCollapsedProperties } from "../../lib/use-card-stage-collapsed-properties";
+import { usePageStageCollapsedProperties } from "../../lib/use-page-stage-collapsed-properties";
 import { DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX } from "../../lib/worktree-branch-prefix";
 import {
   DEFAULT_CODE_FONT_SIZE,
@@ -1170,16 +1170,16 @@ function CardPropertyPositionSettingControl() {
   );
 }
 
-function CardStageCollapsedPropertiesSettingControl() {
-  const { collapsedProperties, toggleCollapsedProperty } = useCardStageCollapsedProperties();
+function PageStageCollapsedPropertiesSettingControl() {
+  const { collapsedProperties, toggleCollapsedProperty } = usePageStageCollapsedProperties();
 
   return (
-    <ToggleGroup<CardStageCollapsibleProperty>
+    <ToggleGroup<PageStageCollapsibleProperty>
       selectedValues={collapsedProperties}
       onToggle={toggleCollapsedProperty}
-      options={CARD_STAGE_COLLAPSIBLE_PROPERTIES.map((property) => ({
+      options={PAGE_STAGE_COLLAPSIBLE_PROPERTIES.map((property) => ({
         value: property,
-        label: CARD_STAGE_COLLAPSIBLE_PROPERTY_LABELS[property],
+        label: PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS[property],
       }))}
     />
   );
@@ -2349,7 +2349,7 @@ function EditorSettingsPage({
         </SettingRow>
         <SettingRow
           label="Strip parsed prefix from title"
-          description="Remove matched shorthand from imported card titles after parsing."
+          description="Remove matched shorthand from imported Page titles after parsing."
         >
           <StripSmartPrefixFromTitleSettingControl
             value={stripSmartPrefixFromTitleEnabled}
@@ -2380,13 +2380,13 @@ function EditorSettingsPage({
   );
 }
 
-function CardSettingsPage() {
+function PageSettingsPage() {
   return (
     <SettingsPageSurface
-      title="Card"
-      subtitle="Kanban card and card-stage presentation."
+      title="Page"
+      subtitle="Kanban card and page-stage presentation."
     >
-      <SectionBlock title="Cards">
+      <SectionBlock title="Pages">
         <SettingRow
           label="Kanban card properties"
           description="Choose whether priority, estimate, tags, assignee, and run-in metadata render above the title, inline with it, or below the card body."
@@ -2394,10 +2394,10 @@ function CardSettingsPage() {
           <CardPropertyPositionSettingControl />
         </SettingRow>
         <SettingRow
-          label="Card stage collapsed properties"
-          description="Choose which card-stage property rows start behind the more-properties toggle."
+          label="Page Stage collapsed properties"
+          description="Choose which page-stage property rows start behind the more-properties toggle."
         >
-          <CardStageCollapsedPropertiesSettingControl />
+          <PageStageCollapsedPropertiesSettingControl />
         </SettingRow>
       </SectionBlock>
     </SettingsPageSurface>
@@ -2673,7 +2673,7 @@ const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<Setti
   "keyboard-shortcuts": KeyboardShortcutsSettingsPage,
   agent: AgentSettingsPage,
   editor: EditorSettingsPage,
-  card: CardSettingsPage,
+  page: PageSettingsPage,
   git: GitSettingsPage,
   worktrees: WorktreesSettingsPage,
   "local-environments": LocalEnvironmentsSettingsSectionPage,

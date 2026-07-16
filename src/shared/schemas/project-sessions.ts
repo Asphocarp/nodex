@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type {
   ProjectSessionBrowserTabConfig,
-  ProjectSessionCardStageTabConfig,
+  ProjectSessionPageStageTabConfig,
   ProjectSessionCreateInput,
   ProjectSessionDbViewTabConfig,
   ProjectSessionFilesTabConfig,
@@ -31,7 +31,7 @@ import type {
   ProjectSessionListOptions,
   ProjectSessionForkInput,
 } from "../types";
-import { MAX_CARD_STAGE_ANCESTOR_DEPTH } from "../card-stage-ancestors";
+import { MAX_PAGE_STAGE_ANCESTOR_DEPTH } from "../page-stage-ancestors";
 import { WorkbenchViewSchema } from "./workbench";
 import {
   CodexCollaborationModeKindSchema,
@@ -49,14 +49,14 @@ export const ProjectSessionDbViewTabConfigSchema = z.object({
   view: WorkbenchViewSchema,
 }) satisfies z.ZodType<ProjectSessionDbViewTabConfig>;
 
-export const ProjectSessionCardStageTabConfigSchema = z.object({
+export const ProjectSessionPageStageTabConfigSchema = z.object({
   projectId: z.string().min(1),
-  cardId: z.string().min(1),
+  pageId: z.string().min(1),
   titleSnapshot: z.string().optional(),
   ancestors: z.array(z.object({
-    cardId: z.string().min(1),
-  })).max(MAX_CARD_STAGE_ANCESTOR_DEPTH).optional(),
-}) satisfies z.ZodType<ProjectSessionCardStageTabConfig>;
+    pageId: z.string().min(1),
+  })).max(MAX_PAGE_STAGE_ANCESTOR_DEPTH).optional(),
+}) satisfies z.ZodType<ProjectSessionPageStageTabConfig>;
 
 export const ProjectSessionTerminalTabConfigSchema = z.object({
   projectId: z.string().min(1),
@@ -84,7 +84,7 @@ export const ProjectSessionFilesTabConfigSchema = z.object({
 
 export function parseProjectSessionTabConfig(kind: string, config: unknown): ProjectSessionTabConfig {
   if (kind === "db_view") return ProjectSessionDbViewTabConfigSchema.parse(config);
-  if (kind === "card_stage") return ProjectSessionCardStageTabConfigSchema.parse(config);
+  if (kind === "page_stage") return ProjectSessionPageStageTabConfigSchema.parse(config);
   if (kind === "terminal") return ProjectSessionTerminalTabConfigSchema.parse(config);
   if (kind === "browser") return ProjectSessionBrowserTabConfigSchema.parse(config);
   if (kind === "review") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
@@ -201,7 +201,7 @@ export const ProjectSessionForkInputSchema = z.object({
 
 export const ProjectSessionTabKindSchema = z.enum([
   "db_view",
-  "card_stage",
+  "page_stage",
   "terminal",
   "browser",
   "review",

@@ -5,8 +5,10 @@ import { getLocalStoreDir } from "./local-store/config";
 import { dbNotifier, type ChangeType } from "./local-store/notifier";
 import { getLogger } from "./logging/logger";
 import type { BoardChangeEvent } from "../shared/ipc-api";
-import type { CardTargetChangedEvent } from "../shared/card-target-events";
+import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type {
+  DocumentAccessAck,
+  DocumentAccessRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -45,39 +47,27 @@ import type {
   BlockPropertyMutationRequest,
 } from "../shared/block-property-mutations";
 import type {
-  DatabaseMutationCommandResult,
-  DatabaseMutationRequest,
-} from "../shared/database-kernel";
+  DatabaseApply,
+  DatabaseApplyResult,
+  DatabaseModuleReadRequest,
+  DatabaseModuleReadResult,
+} from "../shared/database-module";
+import type { PageDetailResult } from "../shared/page-detail";
 import {
   DATABASE_CHANGE_EVENT_VERSION,
   type DatabaseChangeEvent,
 } from "../shared/database-events";
 import type {
-  DatabaseCatalogSnapshotCommandResult,
-  DatabaseManagementSnapshotCommandResult,
-  DatabaseReadCommandResult,
-  DatabaseViewSnapshotCommandResult,
-  GeneralDatabaseDescriptor,
-  GeneralDatabaseViewQuery,
-  PrimaryDatabaseViewSnapshotCommandResult,
-} from "../shared/database-query";
-import type {
-  CardLifecycleMutationCommandResult,
-  CardLifecycleMutationRequest,
-} from "../shared/card-lifecycle";
-import type { CardLifecyclePreflightResult } from "../shared/card-lifecycle-runtime";
-import type { ListCardHistoryRequest } from "../shared/card-history";
-import type { CardHistoryCommandResult } from "../shared/card-history-transport";
+  PageLifecycleMutationCommandResult,
+  PageLifecycleMutationRequest,
+} from "../shared/page-lifecycle";
+import type { PageLifecyclePreflightResult } from "../shared/page-lifecycle-runtime";
+import type { ListPageHistoryRequest } from "../shared/page-history";
+import type { PageHistoryCommandResult } from "../shared/page-history-transport";
 import type {
   AdditionalDocumentCommandRequest,
   AdditionalDocumentCommandResult,
 } from "../shared/additional-document-commands";
-import type {
-  CardProjectTransferCommandResult,
-  CardProjectTransferIntent,
-  CardProjectTransferPreparation,
-  CardProjectTransferRequest,
-} from "../shared/card-project-transfer";
 import type {
   BlockTransferCommandResult,
   BlockTransferIntent,
@@ -96,47 +86,29 @@ import type {
 import type { ProjectDeletionResult } from "./local-store/project-deletion";
 import type { RepairDocumentSecondaryProjectionsResult } from "./local-store/block-document-projections";
 import type {
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
 } from "../shared/types";
 import type {
-  CompleteNodexAgentDocumentEditRequest,
-  CompleteNodexAgentDocumentEditResult,
-  CompleteNodexAgentCardUpdateRequest,
-  CompleteNodexAgentCardUpdateResult,
-  ExecuteNodexAgentCreateResult,
-  ExecuteNodexAgentCreateCardsResult,
-  ExecuteNodexAgentDuplicateCardResult,
-  ExecuteNodexAgentMoveCardsResult,
-  ExecuteNodexAgentDatabaseEditResult,
-  ExecuteNodexAgentTransferResult,
-  NodexAgentCreateCardCommand,
-  NodexAgentCreateCardsCommand,
-  NodexAgentDuplicateCardCommand,
-  NodexAgentMoveCardsCommand,
-  NodexAgentDatabaseEditCommand,
-  NodexAgentTransferCommand,
-  NodexAgentReadCommandResult,
-  NodexAgentReadRequest,
+  CompleteNodexAgentPageUpdateRequest,
+  CompleteNodexAgentPageUpdateResult,
+  ExecuteNodexAgentCreatePagesResult,
+  ExecuteNodexAgentDuplicatePageResult,
+  ExecuteNodexAgentMovePagesResult,
+  NodexAgentCreatePagesCommand,
+  NodexAgentDuplicatePageCommand,
+  NodexAgentMovePagesCommand,
   NodexAgentV3ReadCommandResult,
   NodexAgentV3ReadRequest,
-  PrepareNodexAgentDocumentEditRequest,
-  PrepareNodexAgentDocumentEditResult,
-  PrepareNodexAgentCardUpdateRequest,
-  PrepareNodexAgentCardUpdateResult,
-  PrepareNodexAgentCreateRequest,
-  PrepareNodexAgentCreateResult,
-  PrepareNodexAgentCreateCardsRequest,
-  PrepareNodexAgentCreateCardsResult,
-  PrepareNodexAgentDuplicateCardRequest,
-  PrepareNodexAgentDuplicateCardResult,
-  PrepareNodexAgentMoveCardsRequest,
-  PrepareNodexAgentMoveCardsResult,
-  PrepareNodexAgentDatabaseEditRequest,
-  PrepareNodexAgentDatabaseEditResult,
-  PrepareNodexAgentTransferRequest,
-  PrepareNodexAgentTransferResult,
+  PrepareNodexAgentPageUpdateRequest,
+  PrepareNodexAgentPageUpdateResult,
+  PrepareNodexAgentCreatePagesRequest,
+  PrepareNodexAgentCreatePagesResult,
+  PrepareNodexAgentDuplicatePageRequest,
+  PrepareNodexAgentDuplicatePageResult,
+  PrepareNodexAgentMovePagesRequest,
+  PrepareNodexAgentMovePagesResult,
 } from "../shared/nodex-agent-tools";
 import type {
   BlockMutationMetrics,
@@ -145,7 +117,7 @@ import type {
   BlockMutationWorkerRequest,
   BlockMutationWorkerResponse,
   BlockMutationWorkerResult,
-  CardOccurrenceMutationResult,
+  PageOccurrenceMutationResult,
 } from "./block-mutation-worker-protocol";
 
 const LONG_MUTATION_WARN_MS = 1_000;
@@ -166,7 +138,7 @@ type BlockMutationWorkerRequestInput =
 export interface BlockMutationEnvelope<T> {
   result: T;
   events: BoardChangeEvent[];
-  targetEvents?: CardTargetChangedEvent[];
+  targetEvents?: PageTargetChangedEvent[];
   metrics: BlockMutationMetrics;
 }
 
@@ -193,8 +165,8 @@ export interface BlockMutationWriterOptions {
     event: BoardChangeEvent,
     metrics: BlockMutationMetrics,
   ) => void;
-  publishCardTargetEvent?: (
-    event: CardTargetChangedEvent,
+  publishPageTargetEvent?: (
+    event: PageTargetChangedEvent,
     metrics: BlockMutationMetrics,
   ) => void;
   publishDatabaseEvent?: (
@@ -225,15 +197,6 @@ export class BlockMutationWriter {
 
   constructor(private readonly options: BlockMutationWriterOptions = {}) {}
 
-  async readNodexAgentTool(
-    request: NodexAgentReadRequest,
-  ): Promise<BlockMutationEnvelope<NodexAgentReadCommandResult>> {
-    return await this.executeTyped<NodexAgentReadCommandResult>({
-      type: "readNodexAgentTool",
-      payload: request,
-    });
-  }
-
   async readNodexAgentV3Tool(
     request: NodexAgentV3ReadRequest,
   ): Promise<BlockMutationEnvelope<NodexAgentV3ReadCommandResult>> {
@@ -243,71 +206,53 @@ export class BlockMutationWriter {
     });
   }
 
-  async prepareNodexAgentDocumentEdit(
-    request: PrepareNodexAgentDocumentEditRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentDocumentEditResult>> {
-    return await this.executeTyped<PrepareNodexAgentDocumentEditResult>({
-      type: "prepareNodexAgentDocumentEdit",
+  async prepareNodexAgentPageUpdate(
+    request: PrepareNodexAgentPageUpdateRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentPageUpdateResult>> {
+    return await this.executeTyped<PrepareNodexAgentPageUpdateResult>({
+      type: "prepareNodexAgentPageUpdate",
       payload: request,
     });
   }
 
-  async completeNodexAgentDocumentEdit(
-    request: CompleteNodexAgentDocumentEditRequest,
-  ): Promise<BlockMutationEnvelope<CompleteNodexAgentDocumentEditResult>> {
-    return await this.executeTyped<CompleteNodexAgentDocumentEditResult>({
-      type: "completeNodexAgentDocumentEdit",
+  async completeNodexAgentPageUpdate(
+    request: CompleteNodexAgentPageUpdateRequest,
+  ): Promise<BlockMutationEnvelope<CompleteNodexAgentPageUpdateResult>> {
+    return await this.executeTyped<CompleteNodexAgentPageUpdateResult>({
+      type: "completeNodexAgentPageUpdate",
       payload: request,
     });
   }
 
-  async prepareNodexAgentCardUpdate(
-    request: PrepareNodexAgentCardUpdateRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentCardUpdateResult>> {
-    return await this.executeTyped<PrepareNodexAgentCardUpdateResult>({
-      type: "prepareNodexAgentCardUpdate",
-      payload: request,
-    });
-  }
-
-  async completeNodexAgentCardUpdate(
-    request: CompleteNodexAgentCardUpdateRequest,
-  ): Promise<BlockMutationEnvelope<CompleteNodexAgentCardUpdateResult>> {
-    return await this.executeTyped<CompleteNodexAgentCardUpdateResult>({
-      type: "completeNodexAgentCardUpdate",
-      payload: request,
-    });
-  }
-
-  async completeCardOccurrence(
+  async completePageOccurrence(
     projectId: string,
-    input: CardOccurrenceCompleteInput,
+    input: PageOccurrenceCompleteInput,
     sessionId?: string,
-  ): Promise<BlockMutationEnvelope<CardOccurrenceMutationResult>> {
-    return await this.executeTyped<CardOccurrenceMutationResult>({
-      type: "completeCardOccurrence",
+  ): Promise<BlockMutationEnvelope<PageOccurrenceMutationResult>> {
+    return await this.executeTyped<PageOccurrenceMutationResult>({
+      type: "completePageOccurrence",
       payload: { projectId, input, sessionId },
     });
   }
 
-  async skipCardOccurrence(
+  async skipPageOccurrence(
     projectId: string,
-    input: CardOccurrenceActionInput,
+    input: PageOccurrenceActionInput,
     sessionId?: string,
-  ): Promise<BlockMutationEnvelope<CardOccurrenceMutationResult>> {
-    return await this.executeTyped<CardOccurrenceMutationResult>({
-      type: "skipCardOccurrence",
+  ): Promise<BlockMutationEnvelope<PageOccurrenceMutationResult>> {
+    return await this.executeTyped<PageOccurrenceMutationResult>({
+      type: "skipPageOccurrence",
       payload: { projectId, input, sessionId },
     });
   }
 
-  async updateCardOccurrence(
+  async updatePageOccurrence(
     projectId: string,
-    input: CardOccurrenceUpdateInput,
+    input: PageOccurrenceUpdateInput,
     sessionId?: string,
-  ): Promise<BlockMutationEnvelope<CardOccurrenceMutationResult>> {
-    return await this.executeTyped<CardOccurrenceMutationResult>({
-      type: "updateCardOccurrence",
+  ): Promise<BlockMutationEnvelope<PageOccurrenceMutationResult>> {
+    return await this.executeTyped<PageOccurrenceMutationResult>({
+      type: "updatePageOccurrence",
       payload: { projectId, input, sessionId },
     });
   }
@@ -329,11 +274,11 @@ export class BlockMutationWriter {
     });
   }
 
-  async applyDatabaseMutation(
-    request: DatabaseMutationRequest,
-  ): Promise<BlockMutationEnvelope<DatabaseMutationCommandResult>> {
-    const envelope = await this.executeTyped<DatabaseMutationCommandResult>({
-      type: "applyDatabaseMutation",
+  async applyDatabaseModule(
+    request: DatabaseApply,
+  ): Promise<BlockMutationEnvelope<DatabaseApplyResult>> {
+    const envelope = await this.executeTyped<DatabaseApplyResult>({
+      type: "applyDatabaseModule",
       payload: request,
     });
     if (envelope.result.ok && !envelope.result.value.duplicate) {
@@ -343,9 +288,14 @@ export class BlockMutationWriter {
           projectId: envelope.result.value.projectId,
           storeEpoch: envelope.result.value.storeEpoch,
           operationId: envelope.result.value.operationId,
-          sourceKind: "database_mutation",
-          affectedDatabaseBlockIds:
-            envelope.result.value.affectedDatabaseBlockIds,
+          sourceKind: "database_module",
+          libraryId: envelope.result.value.libraryId,
+          affectedDatabaseIds:
+            envelope.result.value.affectedDatabaseIds,
+          affectedDataSourceIds:
+            envelope.result.value.affectedDataSourceIds,
+          affectedPageIds: envelope.result.value.affectedPageIds,
+          affectedViewIds: envelope.result.value.affectedViewIds,
           changeLogSeq: envelope.result.value.changeLogSeq,
         },
         envelope.metrics,
@@ -373,7 +323,7 @@ export class BlockMutationWriter {
           storeEpoch: envelope.result.value.storeEpoch,
           operationId: envelope.result.value.operationId,
           sourceKind: "block_transfer",
-          affectedDatabaseBlockIds:
+          affectedDatabaseIds:
             envelope.result.value.affectedDatabaseBlockIds,
           changeLogSeq: envelope.result.value.changeLogSeq,
         },
@@ -395,20 +345,20 @@ export class BlockMutationWriter {
     return envelope.result;
   }
 
-  async prepareNodexAgentCreate(
-    request: PrepareNodexAgentCreateRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentCreateResult>> {
-    return await this.executeTyped<PrepareNodexAgentCreateResult>({
-      type: "prepareNodexAgentCreate",
+  async prepareNodexAgentCreatePages(
+    request: PrepareNodexAgentCreatePagesRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentCreatePagesResult>> {
+    return await this.executeTyped<PrepareNodexAgentCreatePagesResult>({
+      type: "prepareNodexAgentCreatePages",
       payload: request,
     });
   }
 
-  async executeNodexAgentCreate(
-    command: NodexAgentCreateCardCommand,
-  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentCreateResult>> {
-    const envelope = await this.executeTyped<ExecuteNodexAgentCreateResult>({
-      type: "executeNodexAgentCreate",
+  async executeNodexAgentCreatePages(
+    command: NodexAgentCreatePagesCommand,
+  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentCreatePagesResult>> {
+    const envelope = await this.executeTyped<ExecuteNodexAgentCreatePagesResult>({
+      type: "executeNodexAgentCreatePages",
       payload: command,
     });
     if (
@@ -423,7 +373,7 @@ export class BlockMutationWriter {
           storeEpoch: command.storeEpoch,
           operationId: command.mutationId,
           sourceKind: "nodex_agent_create",
-          affectedDatabaseBlockIds:
+          affectedDatabaseIds:
             envelope.result.value.affectedDatabaseBlockIds,
           changeLogSeq: envelope.result.value.changeLogSeq,
         },
@@ -433,58 +383,20 @@ export class BlockMutationWriter {
     return envelope;
   }
 
-  async prepareNodexAgentCreateCards(
-    request: PrepareNodexAgentCreateCardsRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentCreateCardsResult>> {
-    return await this.executeTyped<PrepareNodexAgentCreateCardsResult>({
-      type: "prepareNodexAgentCreateCards",
+  async prepareNodexAgentDuplicatePage(
+    request: PrepareNodexAgentDuplicatePageRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentDuplicatePageResult>> {
+    return await this.executeTyped<PrepareNodexAgentDuplicatePageResult>({
+      type: "prepareNodexAgentDuplicatePage",
       payload: request,
     });
   }
 
-  async executeNodexAgentCreateCards(
-    command: NodexAgentCreateCardsCommand,
-  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentCreateCardsResult>> {
-    const envelope = await this.executeTyped<ExecuteNodexAgentCreateCardsResult>({
-      type: "executeNodexAgentCreateCards",
-      payload: command,
-    });
-    if (
-      envelope.result.ok
-      && !envelope.result.value.duplicate
-      && envelope.result.value.affectedDatabaseBlockIds.length > 0
-    ) {
-      this.publishDatabaseEvent(
-        {
-          version: DATABASE_CHANGE_EVENT_VERSION,
-          projectId: command.projectId,
-          storeEpoch: command.storeEpoch,
-          operationId: command.mutationId,
-          sourceKind: "nodex_agent_create",
-          affectedDatabaseBlockIds:
-            envelope.result.value.affectedDatabaseBlockIds,
-          changeLogSeq: envelope.result.value.changeLogSeq,
-        },
-        envelope.metrics,
-      );
-    }
-    return envelope;
-  }
-
-  async prepareNodexAgentDuplicateCard(
-    request: PrepareNodexAgentDuplicateCardRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentDuplicateCardResult>> {
-    return await this.executeTyped<PrepareNodexAgentDuplicateCardResult>({
-      type: "prepareNodexAgentDuplicateCard",
-      payload: request,
-    });
-  }
-
-  async executeNodexAgentDuplicateCard(
-    command: NodexAgentDuplicateCardCommand,
-  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentDuplicateCardResult>> {
-    const envelope = await this.executeTyped<ExecuteNodexAgentDuplicateCardResult>({
-      type: "executeNodexAgentDuplicateCard",
+  async executeNodexAgentDuplicatePage(
+    command: NodexAgentDuplicatePageCommand,
+  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentDuplicatePageResult>> {
+    const envelope = await this.executeTyped<ExecuteNodexAgentDuplicatePageResult>({
+      type: "executeNodexAgentDuplicatePage",
       payload: command,
     });
     if (
@@ -499,7 +411,7 @@ export class BlockMutationWriter {
           storeEpoch: command.storeEpoch,
           operationId: command.mutationId,
           sourceKind: "nodex_agent_transfer",
-          affectedDatabaseBlockIds:
+          affectedDatabaseIds:
             envelope.result.value.affectedDatabaseBlockIds,
           changeLogSeq: envelope.result.value.changeLogSeq,
         },
@@ -509,20 +421,20 @@ export class BlockMutationWriter {
     return envelope;
   }
 
-  async prepareNodexAgentMoveCards(
-    request: PrepareNodexAgentMoveCardsRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentMoveCardsResult>> {
-    return await this.executeTyped<PrepareNodexAgentMoveCardsResult>({
-      type: "prepareNodexAgentMoveCards",
+  async prepareNodexAgentMovePages(
+    request: PrepareNodexAgentMovePagesRequest,
+  ): Promise<BlockMutationEnvelope<PrepareNodexAgentMovePagesResult>> {
+    return await this.executeTyped<PrepareNodexAgentMovePagesResult>({
+      type: "prepareNodexAgentMovePages",
       payload: request,
     });
   }
 
-  async executeNodexAgentMoveCards(
-    command: NodexAgentMoveCardsCommand,
-  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentMoveCardsResult>> {
-    const envelope = await this.executeTyped<ExecuteNodexAgentMoveCardsResult>({
-      type: "executeNodexAgentMoveCards",
+  async executeNodexAgentMovePages(
+    command: NodexAgentMovePagesCommand,
+  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentMovePagesResult>> {
+    const envelope = await this.executeTyped<ExecuteNodexAgentMovePagesResult>({
+      type: "executeNodexAgentMovePages",
       payload: command,
     });
     if (
@@ -537,83 +449,7 @@ export class BlockMutationWriter {
           storeEpoch: command.storeEpoch,
           operationId: command.mutationId,
           sourceKind: "nodex_agent_transfer",
-          affectedDatabaseBlockIds:
-            envelope.result.value.affectedDatabaseBlockIds,
-          changeLogSeq: envelope.result.value.changeLogSeq,
-        },
-        envelope.metrics,
-      );
-    }
-    return envelope;
-  }
-
-  async prepareNodexAgentTransfer(
-    request: PrepareNodexAgentTransferRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentTransferResult>> {
-    return await this.executeTyped<PrepareNodexAgentTransferResult>({
-      type: "prepareNodexAgentTransfer",
-      payload: request,
-    });
-  }
-
-  async executeNodexAgentTransfer(
-    command: NodexAgentTransferCommand,
-  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentTransferResult>> {
-    const envelope = await this.executeTyped<ExecuteNodexAgentTransferResult>({
-      type: "executeNodexAgentTransfer",
-      payload: command,
-    });
-    if (
-      envelope.result.ok
-      && !envelope.result.value.duplicate
-      && envelope.result.value.affectedDatabaseBlockIds.length > 0
-    ) {
-      this.publishDatabaseEvent(
-        {
-          version: DATABASE_CHANGE_EVENT_VERSION,
-          projectId: command.projectId,
-          storeEpoch: command.storeEpoch,
-          operationId: command.mutationId,
-          sourceKind: "nodex_agent_transfer",
-          affectedDatabaseBlockIds:
-            envelope.result.value.affectedDatabaseBlockIds,
-          changeLogSeq: envelope.result.value.changeLogSeq,
-        },
-        envelope.metrics,
-      );
-    }
-    return envelope;
-  }
-
-  async prepareNodexAgentDatabaseEdit(
-    request: PrepareNodexAgentDatabaseEditRequest,
-  ): Promise<BlockMutationEnvelope<PrepareNodexAgentDatabaseEditResult>> {
-    return await this.executeTyped<PrepareNodexAgentDatabaseEditResult>({
-      type: "prepareNodexAgentDatabaseEdit",
-      payload: request,
-    });
-  }
-
-  async executeNodexAgentDatabaseEdit(
-    command: NodexAgentDatabaseEditCommand,
-  ): Promise<BlockMutationEnvelope<ExecuteNodexAgentDatabaseEditResult>> {
-    const envelope = await this.executeTyped<ExecuteNodexAgentDatabaseEditResult>({
-      type: "executeNodexAgentDatabaseEdit",
-      payload: command,
-    });
-    if (
-      envelope.result.ok
-      && !envelope.result.value.duplicate
-      && envelope.result.value.affectedDatabaseBlockIds.length > 0
-    ) {
-      this.publishDatabaseEvent(
-        {
-          version: DATABASE_CHANGE_EVENT_VERSION,
-          projectId: command.projectId,
-          storeEpoch: command.storeEpoch,
-          operationId: command.mutationId,
-          sourceKind: "nodex_agent_database_edit",
-          affectedDatabaseBlockIds:
+          affectedDatabaseIds:
             envelope.result.value.affectedDatabaseBlockIds,
           changeLogSeq: envelope.result.value.changeLogSeq,
         },
@@ -635,24 +471,24 @@ export class BlockMutationWriter {
     return envelope.result;
   }
 
-  async applyCardLifecycleMutation(
-    request: CardLifecycleMutationRequest,
-  ): Promise<BlockMutationEnvelope<CardLifecycleMutationCommandResult>> {
+  async applyPageLifecycleMutation(
+    request: PageLifecycleMutationRequest,
+  ): Promise<BlockMutationEnvelope<PageLifecycleMutationCommandResult>> {
     const envelope =
-      await this.executeTyped<CardLifecycleMutationCommandResult>({
-        type: "applyCardLifecycleMutation",
+      await this.executeTyped<PageLifecycleMutationCommandResult>({
+        type: "applyPageLifecycleMutation",
         payload: request,
       });
     const result = envelope.result;
-    if (result.ok && !result.value.duplicate && result.value.databaseBlockId) {
+    if (result.ok && !result.value.duplicate && result.value.databaseId) {
       this.publishDatabaseEvent(
         {
           version: DATABASE_CHANGE_EVENT_VERSION,
           projectId: result.value.projectId,
           storeEpoch: result.value.storeEpoch,
           operationId: result.value.operationId,
-          sourceKind: "card_lifecycle",
-          affectedDatabaseBlockIds: [result.value.databaseBlockId],
+          sourceKind: "page_lifecycle",
+          affectedDatabaseIds: [result.value.databaseId],
           changeLogSeq: result.value.changeLogSeq,
         },
         envelope.metrics,
@@ -661,13 +497,13 @@ export class BlockMutationWriter {
     return envelope;
   }
 
-  async readCardLifecyclePreflight(
+  async readPageLifecyclePreflight(
     projectId: string,
-    cardId: string,
-  ): Promise<BlockMutationEnvelope<CardLifecyclePreflightResult>> {
-    return await this.executeTyped<CardLifecyclePreflightResult>({
-      type: "readCardLifecyclePreflight",
-      payload: { projectId, cardId },
+    pageId: string,
+  ): Promise<BlockMutationEnvelope<PageLifecyclePreflightResult>> {
+    return await this.executeTyped<PageLifecyclePreflightResult>({
+      type: "readPageLifecyclePreflight",
+      payload: { projectId, pageId },
     });
   }
 
@@ -707,81 +543,22 @@ export class BlockMutationWriter {
     });
   }
 
-  async readDatabaseDescriptor(
-    projectId: string,
-    databaseBlockId: string,
-  ): Promise<
-    BlockMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
-  > {
-    return await this.executeTyped<
-      DatabaseReadCommandResult<GeneralDatabaseDescriptor>
-    >({
-      type: "readDatabaseDescriptor",
-      payload: { projectId, databaseBlockId },
+  async readDatabaseModule(
+    request: DatabaseModuleReadRequest,
+  ): Promise<BlockMutationEnvelope<DatabaseModuleReadResult>> {
+    return await this.executeTyped<DatabaseModuleReadResult>({
+      type: "readDatabaseModule",
+      payload: request,
     });
   }
 
-  async readDatabaseCatalog(
+  async readPageDetail(
     projectId: string,
-  ): Promise<BlockMutationEnvelope<DatabaseCatalogSnapshotCommandResult>> {
-    return await this.executeTyped<DatabaseCatalogSnapshotCommandResult>({
-      type: "readDatabaseCatalog",
-      payload: { projectId },
-    });
-  }
-
-  async readDatabaseManagement(
-    projectId: string,
-  ): Promise<BlockMutationEnvelope<DatabaseManagementSnapshotCommandResult>> {
-    return await this.executeTyped<DatabaseManagementSnapshotCommandResult>({
-      type: "readDatabaseManagement",
-      payload: { projectId },
-    });
-  }
-
-  async readPrimaryDatabaseDescriptor(
-    projectId: string,
-  ): Promise<
-    BlockMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseDescriptor>>
-  > {
-    return await this.executeTyped<
-      DatabaseReadCommandResult<GeneralDatabaseDescriptor>
-    >({
-      type: "readPrimaryDatabaseDescriptor",
-      payload: { projectId },
-    });
-  }
-
-  async readPrimaryDatabaseViewSnapshot(
-    projectId: string,
-  ): Promise<BlockMutationEnvelope<PrimaryDatabaseViewSnapshotCommandResult>> {
-    return await this.executeTyped<PrimaryDatabaseViewSnapshotCommandResult>({
-      type: "readPrimaryDatabaseViewSnapshot",
-      payload: { projectId },
-    });
-  }
-
-  async readDatabaseViewSnapshot(
-    projectId: string,
-    viewId: string,
-  ): Promise<BlockMutationEnvelope<DatabaseViewSnapshotCommandResult>> {
-    return await this.executeTyped<DatabaseViewSnapshotCommandResult>({
-      type: "readDatabaseViewSnapshot",
-      payload: { projectId, viewId },
-    });
-  }
-
-  async queryDatabaseView(
-    projectId: string,
-    viewId: string,
-  ): Promise<
-    BlockMutationEnvelope<DatabaseReadCommandResult<GeneralDatabaseViewQuery>>
-  > {
-    return await this.executeTyped<
-      DatabaseReadCommandResult<GeneralDatabaseViewQuery>
-    >({
-      type: "queryDatabaseView",
-      payload: { projectId, viewId },
+    pageId: string,
+  ): Promise<BlockMutationEnvelope<PageDetailResult>> {
+    return await this.executeTyped<PageDetailResult>({
+      type: "readPageDetail",
+      payload: { projectId, pageId },
     });
   }
 
@@ -816,6 +593,18 @@ export class BlockMutationWriter {
         payload: { documentId },
       },
     );
+    return envelope.result;
+  }
+
+  async authorizeDocumentAccess(
+    request: DocumentAccessRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentAccessAck>> {
+    const envelope = await this.executeTyped<
+      DocumentSyncCommandResult<DocumentAccessAck>
+    >({
+      type: "authorizeDocumentAccess",
+      payload: request,
+    });
     return envelope.result;
   }
 
@@ -924,11 +713,11 @@ export class BlockMutationWriter {
     return envelope.result;
   }
 
-  async listCardHistory(
-    request: ListCardHistoryRequest,
-  ): Promise<CardHistoryCommandResult> {
-    const envelope = await this.executeTyped<CardHistoryCommandResult>({
-      type: "listCardHistory",
+  async listPageHistory(
+    request: ListPageHistoryRequest,
+  ): Promise<PageHistoryCommandResult> {
+    const envelope = await this.executeTyped<PageHistoryCommandResult>({
+      type: "listPageHistory",
       payload: request,
     });
     return envelope.result;
@@ -966,62 +755,6 @@ export class BlockMutationWriter {
       payload: intent,
     });
     return envelope.result;
-  }
-
-  async prepareCardProjectTransfer(
-    intent: CardProjectTransferIntent,
-  ): Promise<CardProjectTransferCommandResult<CardProjectTransferPreparation>> {
-    const envelope = await this.executeTyped<
-      CardProjectTransferCommandResult<CardProjectTransferPreparation>
-    >({
-      type: "prepareCardProjectTransfer",
-      payload: intent,
-    });
-    return envelope.result;
-  }
-
-  async applyCardProjectTransfer(
-    request: CardProjectTransferRequest,
-  ): Promise<CardProjectTransferCommandResult> {
-    const envelope = await this.executeTyped<CardProjectTransferCommandResult>({
-      type: "applyCardProjectTransfer",
-      payload: request,
-    });
-    const result = envelope.result;
-    if (!result.ok || result.value.duplicate) return result;
-
-    const sourceDatabaseBlockIds = [
-      ...new Set(
-        request.expectedMemberships.map(
-          (membership) => membership.databaseBlockId,
-        ),
-      ),
-    ].sort((left, right) => left.localeCompare(right));
-    this.publishDatabaseEvent(
-      {
-        version: DATABASE_CHANGE_EVENT_VERSION,
-        projectId: request.sourceProjectId,
-        storeEpoch: result.value.storeEpoch,
-        operationId: result.value.operationId,
-        sourceKind: "card_project_transfer",
-        affectedDatabaseBlockIds: sourceDatabaseBlockIds,
-        changeLogSeq: result.value.changeLogSeq,
-      },
-      envelope.metrics,
-    );
-    this.publishDatabaseEvent(
-      {
-        version: DATABASE_CHANGE_EVENT_VERSION,
-        projectId: request.targetProjectId,
-        storeEpoch: result.value.storeEpoch,
-        operationId: result.value.operationId,
-        sourceKind: "card_project_transfer",
-        affectedDatabaseBlockIds: [request.target.databaseBlockId],
-        changeLogSeq: result.value.changeLogSeq,
-      },
-      envelope.metrics,
-    );
-    return result;
   }
 
   async barrier(): Promise<void> {
@@ -1262,7 +995,7 @@ export class BlockMutationWriter {
       eventLoopDelay.max / 1_000_000,
     );
     this.publishBoardEvents(response.events, response.metrics);
-    this.publishCardTargetEvents(response.targetEvents ?? [], response.metrics);
+    this.publishPageTargetEvents(response.targetEvents ?? [], response.metrics);
 
     return {
       result: response.result,
@@ -1375,7 +1108,7 @@ export class BlockMutationWriter {
           event.projectId,
           event.changeType as ChangeType,
           event.status,
-          event.cardId,
+          event.pageId,
           {
             summary: event.summary,
             mutationId: event.mutationId ?? metrics.mutationId,
@@ -1394,7 +1127,7 @@ export class BlockMutationWriter {
           error: error instanceof Error ? error.message : String(error),
           mutationId: event.mutationId ?? metrics.mutationId,
           projectId: event.projectId,
-          cardId: event.cardId,
+          pageId: event.pageId,
         });
       }
     }
@@ -1420,23 +1153,23 @@ export class BlockMutationWriter {
     }
   }
 
-  private publishCardTargetEvents(
-    events: readonly CardTargetChangedEvent[],
+  private publishPageTargetEvents(
+    events: readonly PageTargetChangedEvent[],
     metrics: BlockMutationMetrics,
   ): void {
     for (const event of events) {
       try {
-        if (this.options.publishCardTargetEvent) {
-          this.options.publishCardTargetEvent(event, metrics);
+        if (this.options.publishPageTargetEvent) {
+          this.options.publishPageTargetEvent(event, metrics);
           continue;
         }
-        dbNotifier.notifyCardTargetChanged(event);
+        dbNotifier.notifyPageTargetChanged(event);
       } catch (error) {
-        logger.warn("Failed to publish committed Card target event", {
+        logger.warn("Failed to publish committed Page target event", {
           error: error instanceof Error ? error.message : String(error),
           mutationId: metrics.mutationId,
-          projectId: event.projectId,
-          targetBlockId: event.targetBlockId,
+          libraryId: event.libraryId,
+          pageId: event.targetPageId,
         });
       }
     }

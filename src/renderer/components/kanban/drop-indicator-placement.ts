@@ -3,31 +3,31 @@ interface IdentifiableCard {
 }
 
 export interface DropIndicatorPlacement {
-  beforeCardId: string | null;
+  beforePageId: string | null;
   atEnd: boolean;
 }
 
 export function resolveDropIndicatorPlacement(
   cards: readonly IdentifiableCard[],
-  draggedCardIds: ReadonlySet<string>,
+  draggedPageIds: ReadonlySet<string>,
   dropIndicatorIndex: number | undefined,
 ): DropIndicatorPlacement {
   if (typeof dropIndicatorIndex !== "number" || dropIndicatorIndex < 0) {
     return {
-      beforeCardId: null,
+      beforePageId: null,
       atEnd: false,
     };
   }
 
   let remainingIndex = 0;
   for (const card of cards) {
-    if (draggedCardIds.has(card.id)) {
+    if (draggedPageIds.has(card.id)) {
       continue;
     }
 
     if (remainingIndex === dropIndicatorIndex) {
       return {
-        beforeCardId: card.id,
+        beforePageId: card.id,
         atEnd: false,
       };
     }
@@ -36,7 +36,7 @@ export function resolveDropIndicatorPlacement(
   }
 
   return {
-    beforeCardId: null,
+    beforePageId: null,
     atEnd: dropIndicatorIndex === remainingIndex,
   };
 }

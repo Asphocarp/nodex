@@ -142,7 +142,7 @@ export const ReadonlyPreview: Story = {
       <ReadonlyNfmBlockNotePreview
         content={`Captured note with <mention-thread uuid="${args.uuid}" /> inside readonly history.`}
         projectId="project-1"
-        cardId="card-1"
+        pageId="card-1"
         historyId={1}
       />
     </div>

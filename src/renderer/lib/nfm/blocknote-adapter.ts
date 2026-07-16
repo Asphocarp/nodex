@@ -39,7 +39,7 @@ interface ToggleStateBlock {
 }
 
 /**
- * Applies window-local toggle expansion state to an NFM export. Durable Card
+ * Applies window-local toggle expansion state to an NFM export. Durable Page
  * Documents intentionally exclude this DOM state.
  */
 export function applyToggleStatesFromDom(

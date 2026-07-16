@@ -260,7 +260,7 @@ function resolveGetBlock(call: CodexDynamicToolCallView): NodexDynamicToolCallPr
 function resolveSearch(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
   const query = stringValue(args, "query");
-  const target = args?.target === "blocks" ? "blocks" : "cards";
+  const target = args?.target === "blocks" ? "blocks" : "pages";
   const data = outputData(call);
   const results = asArray(data?.results);
   const count = call.completed && data ? results.length : null;
@@ -299,7 +299,7 @@ function resolveCreate(call: CodexDynamicToolCallView): NodexDynamicToolCallPres
   const args = asRecord(call.arguments);
   const resource = asRecord(args?.resource);
   const title = textInputPlainText(resource?.title);
-  const target = title ? quoted(title) : "card";
+  const target = title ? quoted(title) : "page";
   const data = outputData(call);
   const outputResource = asRecord(data?.resource);
   const count = call.completed && data
@@ -396,17 +396,17 @@ function inlineMarkdownLabel(value: string): string {
     .trim();
 }
 
-function cardDestinationLabel(value: unknown): string | null {
+function pageDestinationLabel(value: unknown): string | null {
   const destination = asRecord(value);
   const kind = stringValue(destination, "kind");
-  if (kind === "space") return "Project Space";
-  if (kind === "card") {
-    const cardId = stringValue(destination, "cardId");
-    return cardId ? `card ${quoted(cardId)}` : "a parent card";
+  if (kind === "library") return "Library";
+  if (kind === "page") {
+    const pageId = stringValue(destination, "pageId");
+    return pageId ? `page ${quoted(pageId)}` : "a parent page";
   }
-  if (kind === "database") {
-    const databaseBlockId = stringValue(destination, "databaseBlockId");
-    return databaseBlockId ? `database ${quoted(databaseBlockId)}` : "a database";
+  if (kind === "data_source") {
+    const dataSourceId = stringValue(destination, "dataSourceId");
+    return dataSourceId ? `data source ${quoted(dataSourceId)}` : "a data source";
   }
   return null;
 }
@@ -442,18 +442,17 @@ function resolveFetch(call: CodexDynamicToolCallView): NodexDynamicToolCallPrese
 
 function resolveQueryDatabaseV3(
   call: CodexDynamicToolCallView,
-  kind: "view" | "database",
+  kind: "view" | "data source",
 ): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
   const data = outputData(call);
-  const database = asRecord(data?.database);
   const view = asRecord(data?.view);
   const fallbackId = kind === "view"
     ? stringValue(args, "viewId")
-    : stringValue(args, "databaseBlockId");
+    : stringValue(args, "dataSourceId");
   const name = kind === "view"
     ? stringValue(view, "name")
-    : stringValue(database, "name");
+    : stringValue(asRecord(data?.dataSource), "name");
   const target = name
     ? `${kind} ${quoted(name)}`
     : fallbackId
@@ -471,9 +470,9 @@ function resolveQueryDatabaseV3(
   };
 }
 
-function resolveCreateCards(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
+function resolveCreatePages(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
-  const drafts = asArray(args?.cards).map(asRecord).filter(
+  const drafts = asArray(args?.pages).map(asRecord).filter(
     (draft): draft is Record<string, unknown> => draft !== null,
   );
   const titles = drafts.flatMap((draft) => {
@@ -483,13 +482,13 @@ function resolveCreateCards(call: CodexDynamicToolCallView): NodexDynamicToolCal
   const count = drafts.length;
   const subject = count === 1 && titles[0]
     ? quoted(titles[0])
-    : `${plural(count, "card")}${titles.length > 0 ? `: ${compactTitleList(titles)}` : ""}`;
-  const outputCards = asArray(outputData(call)?.cards);
-  const bodyBlockCount = call.completed && outputCards.length > 0
-    ? outputCards.reduce<number>((total, card) =>
-      total + (numberValue(asRecord(card), "bodyBlocksCreated") ?? 0), 0)
+    : `${plural(count, "page")}${titles.length > 0 ? `: ${compactTitleList(titles)}` : ""}`;
+  const outputPages = asArray(outputData(call)?.pages);
+  const bodyBlockCount = call.completed && outputPages.length > 0
+    ? outputPages.reduce<number>((total, page) =>
+      total + (numberValue(asRecord(page), "bodyBlocksCreated") ?? 0), 0)
     : null;
-  const destination = cardDestinationLabel(args?.destination);
+  const destination = pageDestinationLabel(args?.destination);
   return {
     label: `${phaseLabel(call, {
       active: `Creating ${subject}`,
@@ -501,17 +500,17 @@ function resolveCreateCards(call: CodexDynamicToolCallView): NodexDynamicToolCal
   };
 }
 
-function resolveUpdateCard(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
+function resolveUpdatePage(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
-  const cardId = stringValue(args, "cardId");
+  const pageId = stringValue(args, "pageId");
   const title = stringValue(asRecord(args?.title), "markdown");
   const body = asRecord(args?.body);
   const markdownChange = buildMarkdownChangePreview(body);
   const target = title
     ? quoted(inlineMarkdownLabel(title))
-    : cardId
-      ? `card ${quoted(cardId)}`
-      : "card";
+    : pageId
+      ? `page ${quoted(pageId)}`
+      : "page";
   const changes = [
     title ? "title" : null,
     markdownChange?.label ?? null,
@@ -527,14 +526,14 @@ function resolveUpdateCard(call: CodexDynamicToolCallView): NodexDynamicToolCall
   };
 }
 
-function resolveAdvancedUpdateCard(
+function resolveAdvancedUpdatePage(
   call: CodexDynamicToolCallView,
 ): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
-  const cardId = stringValue(args, "cardId");
+  const pageId = stringValue(args, "pageId");
   const edits = asArray(args?.edits);
   const deletes = edits.filter((edit) => asRecord(edit)?.kind === "delete").length;
-  const target = cardId ? `card ${quoted(cardId)}` : "card";
+  const target = pageId ? `page ${quoted(pageId)}` : "page";
   const suffix = edits.length > 0
     ? ` · ${plural(edits.length, "stable block change")}${deletes > 0 ? `, ${plural(deletes, "delete")}` : ""}`
     : "";
@@ -549,11 +548,11 @@ function resolveAdvancedUpdateCard(
   };
 }
 
-function resolveMoveCards(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
+function resolveMovePages(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
-  const count = asArray(args?.cardIds).length;
-  const destination = cardDestinationLabel(args?.destination);
-  const subject = plural(count, "card");
+  const count = asArray(args?.pageIds).length;
+  const destination = pageDestinationLabel(args?.destination);
+  const subject = plural(count, "page");
   return {
     label: `${phaseLabel(call, {
       active: `Moving ${subject}`,
@@ -565,13 +564,13 @@ function resolveMoveCards(call: CodexDynamicToolCallView): NodexDynamicToolCallP
   };
 }
 
-function resolveDuplicateCard(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
+function resolveDuplicatePage(call: CodexDynamicToolCallView): NodexDynamicToolCallPresentation {
   const args = asRecord(call.arguments);
-  const sourceId = stringValue(args, "cardId");
-  const resultId = stringValue(outputData(call), "cardId");
-  const source = sourceId ? `card ${quoted(sourceId)}` : "card";
+  const sourceId = stringValue(args, "pageId");
+  const resultId = stringValue(outputData(call), "pageId");
+  const source = sourceId ? `page ${quoted(sourceId)}` : "page";
   const result = resultId ? ` → ${quoted(resultId)}` : "";
-  const destination = cardDestinationLabel(args?.destination);
+  const destination = pageDestinationLabel(args?.destination);
   return {
     label: `${phaseLabel(call, {
       active: `Duplicating ${source}`,
@@ -595,15 +594,15 @@ export function resolveNodexDynamicToolCallPresentation(
     case "search": return resolveSearch(call);
     case "query_database": return resolveQueryDatabase(call);
     case "query_database_view": return resolveQueryDatabaseV3(call, "view");
-    case "advanced_query_database": return resolveQueryDatabaseV3(call, "database");
+    case "query_data_source": return resolveQueryDatabaseV3(call, "data source");
     case "create": return resolveCreate(call);
-    case "create_cards": return resolveCreateCards(call);
+    case "create_pages": return resolveCreatePages(call);
     case "edit_document": return resolveEditDocument(call);
-    case "update_card": return resolveUpdateCard(call);
-    case "advanced_update_card": return resolveAdvancedUpdateCard(call);
+    case "update_page": return resolveUpdatePage(call);
+    case "advanced_update_page": return resolveAdvancedUpdatePage(call);
     case "transfer_blocks": return resolveTransferBlocks(call);
-    case "move_cards": return resolveMoveCards(call);
-    case "duplicate_card": return resolveDuplicateCard(call);
+    case "move_pages": return resolveMovePages(call);
+    case "duplicate_page": return resolveDuplicatePage(call);
     case "edit_database": return resolveEditDatabase(call);
     default: return null;
   }

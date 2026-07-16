@@ -38,7 +38,7 @@ import { NfmTextActionMenuRuntimeProvider } from "./nfm-text-action-menu-runtime
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { toast } from "@/components/ui/toast";
-import { createUuidV7 } from "../../../../shared/card-id";
+import { createUuidV7 } from "../../../../shared/uuid-v7";
 import {
   NodexPopover,
   NodexPopoverAnchor,
@@ -144,7 +144,7 @@ import {
   ThreadMentionRuntimeProvider,
   type ThreadMentionRuntimeValue,
 } from "./thread-mention-chip";
-import type { CardStageLinkedThread } from "@/components/kanban/card-stage/types";
+import type { PageStageLinkedThread } from "@/components/kanban/page-stage/types";
 import {
   invoke,
   prepareOwnedBlockDocument,
@@ -196,19 +196,19 @@ interface NfmEditorCommonProps {
   projectId: string;
   projectName?: string | null;
   projectWorkspacePath?: string | null;
-  sourceCardContext?: {
-    cardId: string;
+  sourcePageContext?: {
+    pageId: string;
   };
   /** The independently synchronized owner whose body this editor renders. */
   documentOwnerBlockId?: string;
   sessionId?: string | null;
   sessionThread?: CodexThreadSummary | null;
   canStartThreadInSession?: boolean;
-  linkedCodexThreads?: CardStageLinkedThread[];
+  linkedCodexThreads?: PageStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
-  onOpenCard?: (input: {
+  onOpenPage?: (input: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
   onStartNewSessionThreadFromEditor?: (input: {
@@ -252,9 +252,9 @@ interface NfmEditorInstanceProps extends NfmEditorCommonProps {
 }
 
 interface InlineViewHostContextRuntimeEditor {
-  nodexSourceCardContext?: {
+  nodexSourcePageContext?: {
     projectId: string;
-    cardId: string;
+    pageId: string;
   } | null;
 }
 
@@ -317,7 +317,7 @@ function createNfmSendToThreadPreferredSessionTarget(
 }
 
 function toThreadSectionLinkedThreadState(
-  thread: CardStageLinkedThread,
+  thread: PageStageLinkedThread,
 ): ThreadSectionLinkedThreadState {
   return {
     threadId: thread.threadId,
@@ -379,14 +379,14 @@ function NfmEditorInstance({
   projectWorkspacePath,
   source,
   editorInstanceKey,
-  sourceCardContext,
+  sourcePageContext,
   documentOwnerBlockId,
   sessionId = null,
   sessionThread = null,
   canStartThreadInSession = false,
   linkedCodexThreads = [],
   onOpenCodexThread,
-  onOpenCard,
+  onOpenPage,
   onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab = true,
@@ -1031,14 +1031,14 @@ function NfmEditorInstance({
 
   useEffect(() => {
     const runtime = editor as unknown as InlineViewHostContextRuntimeEditor;
-    runtime.nodexSourceCardContext = sourceCardContext
-      ? { projectId, cardId: sourceCardContext.cardId }
+    runtime.nodexSourcePageContext = sourcePageContext
+      ? { projectId, pageId: sourcePageContext.pageId }
       : null;
 
     return () => {
-      runtime.nodexSourceCardContext = null;
+      runtime.nodexSourcePageContext = null;
     };
-  }, [editor, projectId, sourceCardContext]);
+  }, [editor, projectId, sourcePageContext]);
 
   const handlePasteResourceChoice = useCallback(
     async (mode: "materialized" | "link") => {
@@ -1573,7 +1573,7 @@ function NfmEditorInstance({
 
   const resolveSendBlocksSelection = useCallback(
     (fallbackBlockId: string): SendBlocksSelection | null => {
-      if (!sourceCardContext) return null;
+      if (!sourcePageContext) return null;
 
       const container = containerRef.current;
       if (!container) return null;
@@ -1591,7 +1591,7 @@ function NfmEditorInstance({
         blocks: selection.blocks,
       };
     },
-    [editor, sourceCardContext],
+    [editor, sourcePageContext],
   );
 
   const appendSendBlockSelectionToCard = useCallback(
@@ -1599,60 +1599,63 @@ function NfmEditorInstance({
       selection: SendBlocksSelection,
       {
         projectId: targetProjectId,
-        cardId: targetCardId,
+        pageId: targetPageId,
       }: {
         projectId: string;
         columnId: string;
-        cardId: string;
+        pageId: string;
       },
     ) => {
-      if (!sourceCardContext) {
+      if (!sourcePageContext) {
         throw new Error("No blocks selected.");
       }
       if (
         targetProjectId === projectId &&
-        targetCardId === sourceCardContext.cardId
+        targetPageId === sourcePageContext.pageId
       ) {
         throw new Error("Choose a different destination card.");
       }
 
       if (targetProjectId !== projectId) {
         throw new Error(
-          "Moving Blocks between Cards in different Projects is not available yet.",
+          "Moving Blocks between Pages in different Projects is not available yet.",
         );
       }
       if (!surfaceWriteFence) {
         throw new Error(
-          "The collaborative Card surface changed; reopen it before moving Blocks.",
+          "The collaborative Page surface changed; reopen it before moving Blocks.",
         );
       }
       if (surfaceWriteFence.getWriteFrozen()) {
         throw new Error(
-          "This Card is already completing another Block move.",
+          "This Page is already completing another Block move.",
         );
       }
 
       const preparedTarget = await prepareOwnedBlockDocument(
         targetProjectId,
-        targetCardId,
+        targetPageId,
       );
       if (!preparedTarget.ok) {
         throw new Error(preparedTarget.error.message);
       }
       if (preparedTarget.value.documentId === source.documentId) {
-        throw new Error("Choose a different destination Card.");
+        throw new Error("Choose a different destination Page.");
       }
       const result = await transferBlocks(projectId, {
-        version: 1,
+        version: 2,
         operationId: crypto.randomUUID(),
         projectId,
         storeEpoch: source.storeEpoch,
         mode: "move",
         rootBlockIds: selection.blockIds,
-        source: { kind: "document", documentId: source.documentId },
+        source: {
+          kind: "page",
+          pageId: sourcePageContext.pageId,
+        },
         target: {
-          kind: "document",
-          documentId: preparedTarget.value.documentId,
+          kind: "page",
+          pageId: targetPageId,
         },
       });
       if (!result.ok) throw new Error(result.error.message);
@@ -1660,14 +1663,14 @@ function NfmEditorInstance({
     [
       projectId,
       source,
-      sourceCardContext,
+      sourcePageContext,
       surfaceWriteFence,
     ],
   );
 
   const sendBlockSelectionToProject = useCallback(async () => {
     throw new Error(
-      "Creating Cards from selected Blocks needs an explicit Block command and is not available from this menu yet.",
+      "Creating Pages from selected Blocks needs an explicit Block command and is not available from this menu yet.",
     );
   }, []);
 
@@ -1678,7 +1681,7 @@ function NfmEditorInstance({
         throw new Error("No blocks selected.");
       }
 
-      if (destination.kind === "card") {
+      if (destination.kind === "page") {
         await appendSendBlockSelectionToCard(selection, destination);
       } else {
         await sendBlockSelectionToProject();
@@ -1696,7 +1699,7 @@ function NfmEditorInstance({
 
   const sendBlocksToThread = useCallback(
     async (request: NfmSendToThreadRequest, fallbackBlockId: string) => {
-      if (!sourceCardContext) {
+      if (!sourcePageContext) {
         throw new Error("No blocks selected.");
       }
 
@@ -1782,7 +1785,7 @@ function NfmEditorInstance({
       projectId,
       resolveSendBlocksSelection,
       restoreEditorFocus,
-      sourceCardContext,
+      sourcePageContext,
     ],
   );
 
@@ -1797,10 +1800,10 @@ function NfmEditorInstance({
         projectId,
         documentId: source.documentId,
         storeEpoch: source.storeEpoch,
-        ...(sourceCardContext?.cardId
-          ? { hostCardId: sourceCardContext.cardId }
+        ...(sourcePageContext?.pageId
+          ? { hostPageId: sourcePageContext.pageId }
           : {}),
-        ancestorCardIds: parentBlockReferenceRuntime?.ancestorCardIds ?? [],
+        ancestorPageIds: parentBlockReferenceRuntime?.ancestorPageIds ?? [],
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
           transferBlocks(projectId, intent),
@@ -1808,12 +1811,12 @@ function NfmEditorInstance({
       },
     }),
     [
-      parentBlockReferenceRuntime?.ancestorCardIds,
+      parentBlockReferenceRuntime?.ancestorPageIds,
       projectId,
       source.documentId,
       source.clientSessionId,
       source.storeEpoch,
-      sourceCardContext?.cardId,
+      sourcePageContext?.pageId,
     ],
   );
 
@@ -1837,7 +1840,7 @@ function NfmEditorInstance({
   // aborts native block drag-and-drop. Route volatile values through a ref so
   // the callback identity below never changes.
   const blockActionCapabilities = resolveNfmEditorBlockActionCapabilities(
-    sourceCardContext !== undefined,
+    sourcePageContext !== undefined,
   );
   const handleBlockDragStart = useCallback(
     ({
@@ -1854,14 +1857,16 @@ function NfmEditorInstance({
           sourceSurfaceId: source.clientSessionId,
           projectId,
           storeEpoch: source.storeEpoch,
-          source: { kind: "document", documentId: source.documentId },
+          source: sourcePageContext
+            ? { kind: "page", pageId: sourcePageContext.pageId }
+            : { kind: "document", documentId: source.documentId },
           rootBlockIds: roots.map((block) => block.id),
           displayHints: roots.map((block) => block.type),
         },
         dataTransfer,
       );
     },
-    [editor, projectId, source],
+    [editor, projectId, source, sourcePageContext],
   );
   const handleBlockDragEnd = useCallback(
     () =>
@@ -1871,8 +1876,8 @@ function NfmEditorInstance({
   const sideMenuHandlersRef = useRef({
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
-    sourceProjectId: sourceCardContext ? projectId : null,
-    sourceCardId: sourceCardContext?.cardId ?? null,
+    sourceProjectId: sourcePageContext ? projectId : null,
+    sourcePageId: sourcePageContext?.pageId ?? null,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
     onBlockDragStart: handleBlockDragStart,
@@ -1881,8 +1886,8 @@ function NfmEditorInstance({
   sideMenuHandlersRef.current = {
     canSendBlocks: blockActionCapabilities.canMoveBlocks,
     hasConvertDividerToThreadSection: true,
-    sourceProjectId: sourceCardContext ? projectId : null,
-    sourceCardId: sourceCardContext?.cardId ?? null,
+    sourceProjectId: sourcePageContext ? projectId : null,
+    sourcePageId: sourcePageContext?.pageId ?? null,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
     onBlockDragStart: handleBlockDragStart,
@@ -1901,8 +1906,8 @@ function NfmEditorInstance({
   const textActionMenuRuntimeValue = useMemo(
     () => ({
       canSendBlocks: blockActionCapabilities.canSendBlocksToThread,
-      sourceProjectId: sourceCardContext ? projectId : null,
-      sourceCardId: sourceCardContext?.cardId ?? null,
+      sourceProjectId: sourcePageContext ? projectId : null,
+      sourcePageId: sourcePageContext?.pageId ?? null,
       sendToThreadProjectNameById,
       sendToThreadPreferredTarget: sessionSendToThreadPreferredTarget,
       ...(blockActionCapabilities.canMoveBlocks
@@ -1922,7 +1927,7 @@ function NfmEditorInstance({
       sendToThreadProjectNameById,
       sendBlocksToThread,
       sessionSendToThreadPreferredTarget,
-      sourceCardContext,
+      sourcePageContext,
     ],
   );
 
@@ -1953,34 +1958,34 @@ function NfmEditorInstance({
   const blockReferenceRuntimeValue = useMemo<BlockReferenceHostRuntime>(
     () => {
       const currentDocumentOwnerBlockId =
-        documentOwnerBlockId ?? sourceCardContext?.cardId;
+        documentOwnerBlockId ?? sourcePageContext?.pageId;
       return {
         projectId,
         projectName,
         projectWorkspacePath: projectWorkspacePath ?? null,
-        hostCardId: sourceCardContext?.cardId ?? null,
-        ancestorCardIds: appendInlineCardAncestor(
-          parentBlockReferenceRuntime?.ancestorCardIds ?? [],
-          sourceCardContext?.cardId,
+        hostPageId: sourcePageContext?.pageId ?? null,
+        ancestorPageIds: appendInlineCardAncestor(
+          parentBlockReferenceRuntime?.ancestorPageIds ?? [],
+          sourcePageContext?.pageId,
         ),
         ancestorDocumentOwnerBlockIds: appendInlineDocumentOwnerAncestor(
           parentBlockReferenceRuntime?.ancestorDocumentOwnerBlockIds ?? [],
           currentDocumentOwnerBlockId,
         ),
         isActiveSurface: isActivePanelTab,
-        ...(onOpenCard ? { openCard: onOpenCard } : {}),
+        ...(onOpenPage ? { openPage: onOpenPage } : {}),
       };
     },
     [
       documentOwnerBlockId,
       isActivePanelTab,
-      onOpenCard,
+      onOpenPage,
       projectId,
       projectName,
       projectWorkspacePath,
-      parentBlockReferenceRuntime?.ancestorCardIds,
+      parentBlockReferenceRuntime?.ancestorPageIds,
       parentBlockReferenceRuntime?.ancestorDocumentOwnerBlockIds,
-      sourceCardContext?.cardId,
+      sourcePageContext?.pageId,
     ],
   );
 
@@ -2214,7 +2219,7 @@ function NfmEditorInstance({
                       />
                       <NfmSlashMenu
                         projectId={projectId}
-                        allowCardReferences
+                        allowPageReferences
                       />
                       <NfmTableHandlesController />
                     </NfmSideMenuOpenProvider>

@@ -36,11 +36,11 @@ export interface NodexAgentAuthorizationRequest {
       >
     | Extract<
         NodexAgentV3ToolName,
-        | "create_cards"
-        | "update_card"
-        | "advanced_update_card"
-        | "move_cards"
-        | "duplicate_card"
+        | "create_pages"
+        | "update_page"
+        | "advanced_update_page"
+        | "move_pages"
+        | "duplicate_page"
       >;
   readonly effect: "write" | "destructive";
   readonly preview: NodexAgentAuthorizationPreview;

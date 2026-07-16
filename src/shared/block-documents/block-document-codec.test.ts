@@ -2,9 +2,9 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   createBlockDocumentNfmContentParitySignature,
-  createCardDocumentGenesis,
-  createDetachedCardDocumentFromBlockTree,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  createDetachedPageDocumentFromBlockTree,
+  materializePageDocument,
 } from "./block-document-codec";
 
 const FULL_NFM_FIXTURE = [
@@ -22,7 +22,7 @@ const FULL_NFM_FIXTURE = [
   '<image source="nodex://assets/image.png">Image caption</image>',
   '<thread-section label="Investigate" thread="thread-2" />',
   '<card-ref project="project-a" card="card-target" />',
-  '<mention-card url="nodex://cards/card-canonical" />',
+  '<page-ref url="nodex://pages/card-canonical" />',
   '<toggle-list-inline-view project="project-a" rules-v2="eyJtb2RlIjoiYWxsIn0" />',
   '<database-view-ref database-view="view-canonical" display-hint="Planning" />',
   '<card-toggle card="legacy-card" meta="[P1]" project="project-a">',
@@ -50,7 +50,7 @@ const flattenIds = (
     ),
   ]);
 
-describe("CardDocumentCodec", () => {
+describe("PageDocumentCodec", () => {
   test("excludes imported toggle disclosure state from durable content", () => {
     const nfm = [
       "▼ Expanded toggle",
@@ -59,7 +59,7 @@ describe("CardDocumentCodec", () => {
       "\tHeading child",
     ].join("\n");
 
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-codec-local-toggle-state",
       title: "Local disclosure",
       nfm,
@@ -78,25 +78,25 @@ describe("CardDocumentCodec", () => {
     );
   });
 
-  test("normalizes owning Card identities only for legacy content parity", () => {
-    expect(createBlockDocumentNfmContentParitySignature("<card />")).toBe(
-      '<card uuid="nfm-parity-1" />',
+  test("normalizes owning Page identities only for legacy content parity", () => {
+    expect(createBlockDocumentNfmContentParitySignature("<page />")).toBe(
+      '<page uuid="nfm-parity-1" />',
     );
     expect(
       createBlockDocumentNfmContentParitySignature(
-        '<card uuid="exported-card" />',
+        '<page uuid="exported-card" />',
       ),
-    ).toBe('<card uuid="nfm-parity-1" />');
+    ).toBe('<page uuid="nfm-parity-1" />');
     expect(
       createBlockDocumentNfmContentParitySignature(
-        '<mention-card url="nodex://cards/target-card" />',
+        '<page-ref url="nodex://pages/target-card" />',
       ),
-    ).toBe('<mention-card url="nodex://cards/target-card" />');
+    ).toBe('<page-ref url="nodex://pages/target-card" />');
   });
 
   test("headlessly imports and materializes every supported custom shape", () => {
     let nextId = 0;
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-codec-all-shapes",
       title: "Shared title",
       nfm: FULL_NFM_FIXTURE,
@@ -104,7 +104,7 @@ describe("CardDocumentCodec", () => {
     });
 
     expect(genesis.materialization.title).toBe("Shared title");
-    const replay = createCardDocumentGenesis({
+    const replay = createPageDocumentGenesis({
       documentId: "document-codec-all-shapes-replay",
       title: "Shared title",
       nfm: genesis.materialization.nfm,
@@ -133,7 +133,7 @@ describe("CardDocumentCodec", () => {
 
   test("preserves application identities through encoded reload", () => {
     let nextId = 0;
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-codec-source",
       title: "Reload",
       nfm: "Root\n\t- Child\nSibling",
@@ -143,14 +143,14 @@ describe("CardDocumentCodec", () => {
     const reloaded = new Y.Doc({ guid: "document-codec-source" });
     Y.applyUpdate(reloaded, genesis.update);
 
-    const materialized = materializeCardDocument(reloaded);
+    const materialized = materializePageDocument(reloaded);
 
     expect(flattenIds(materialized.blockTree).join(",")).toBe(originalIds);
     expect(materialized.nfm).toBe(genesis.materialization.nfm);
   });
 
   test("materializes without mutating the authoritative Y.Doc", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-codec-pure-read",
       title: "Pure read",
       nfm: "Parent\n\tChild",
@@ -159,7 +159,7 @@ describe("CardDocumentCodec", () => {
       Y.encodeStateAsUpdate(genesis.document),
     ).join(",");
 
-    materializeCardDocument(genesis.document);
+    materializePageDocument(genesis.document);
 
     expect(Array.from(Y.encodeStateAsUpdate(genesis.document)).join(",")).toBe(
       stateBefore,
@@ -167,7 +167,7 @@ describe("CardDocumentCodec", () => {
   });
 
   test("creates one authority-owned editable paragraph for blank NFM", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document-codec-empty",
       title: "Empty",
       nfm: "",
@@ -188,7 +188,7 @@ describe("CardDocumentCodec", () => {
   });
 
   test("keeps a pending image Block without projecting a nonexistent asset", () => {
-    const pending = createDetachedCardDocumentFromBlockTree({
+    const pending = createDetachedPageDocumentFromBlockTree({
       documentId: "document-codec-pending-image",
       title: "Pending image",
       blockTree: [

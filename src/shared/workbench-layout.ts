@@ -1,19 +1,19 @@
 export type WorkbenchLayoutView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
-export type WorkbenchLayoutStageId = "db" | "cards" | "threads" | "files";
+export type WorkbenchLayoutStageId = "db" | "pages" | "threads" | "files";
 export type WorkbenchLayoutStageNavDirection = "left" | "right";
 
-export interface WorkbenchRecentCardSession {
+export interface WorkbenchRecentPageSession {
   id: string;
   projectId: string;
-  cardId: string;
+  pageId: string;
   titleSnapshot: string;
   lastOpenedAt: string;
 }
 
-export interface WorkbenchLayoutCardStageState {
+export interface WorkbenchLayoutPageStageState {
   open: boolean;
   projectId: string;
-  cardId: string | null;
+  pageId: string | null;
 }
 
 export interface WorkbenchLayoutThreadsStageTab {
@@ -41,14 +41,14 @@ export interface WorkbenchLayoutDockSnapshot {
 }
 
 export interface WorkbenchLayoutSnapshot {
-  version: 1;
+  version: 2;
   dbProjectId: string;
   activeProjectSessionId: string | null;
   threadsProjectId: string;
   viewsByProject: Record<string, WorkbenchLayoutView>;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, unknown>;
-  spaceOrder: string[];
+  projectOrder: string[];
   focusedStage: WorkbenchLayoutStageId;
   stageNavDirection: WorkbenchLayoutStageNavDirection;
   sidebar: WorkbenchLayoutSidebarSnapshot;
@@ -56,10 +56,10 @@ export interface WorkbenchLayoutSnapshot {
   sidebarStageExpandedByProject: Record<string, Record<string, boolean>>;
   sidebarSectionExpandedByProject: Record<string, Record<string, boolean>>;
   sidebarSectionShowAllByProject: Record<string, Record<string, boolean>>;
-  activeCardsTabId: string;
+  activePagesTabId: string;
   activeRecentSessionId: string | null;
-  recentCardSessions: WorkbenchRecentCardSession[];
-  cardStage: WorkbenchLayoutCardStageState;
+  recentPageSessions: WorkbenchRecentPageSession[];
+  pageStage: WorkbenchLayoutPageStageState;
   threadsTabs: WorkbenchLayoutThreadsStageTab[];
   activeThreadsTabId: string;
   filesTabs: WorkbenchLayoutFilesStageTab[];
@@ -73,23 +73,23 @@ function createDefaultDockTree(): WorkbenchLayoutSnapshot["dock"]["tree"] {
     type: "leaf",
     id: globalThis.crypto?.randomUUID?.() ?? "default-dock",
     tabs: [
-      { id: "cardstage", kind: "cardstage", title: "Card" },
+      { id: "pagestage", kind: "pagestage", title: "Page" },
       { id: "history", kind: "history", title: "History" },
     ],
-    activeTabId: "cardstage",
+    activeTabId: "pagestage",
   };
 }
 
 export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot {
   return {
-    version: 1,
+    version: 2,
     dbProjectId: "default",
     activeProjectSessionId: null,
     threadsProjectId: "default",
     viewsByProject: {},
     searchByProject: {},
     dbViewPrefsByProject: {},
-    spaceOrder: [],
+    projectOrder: [],
     focusedStage: "db",
     stageNavDirection: "right",
     sidebar: {
@@ -106,13 +106,13 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
     sidebarStageExpandedByProject: {},
     sidebarSectionExpandedByProject: {},
     sidebarSectionShowAllByProject: {},
-    activeCardsTabId: "",
+    activePagesTabId: "",
     activeRecentSessionId: null,
-    recentCardSessions: [],
-    cardStage: {
+    recentPageSessions: [],
+    pageStage: {
       open: false,
       projectId: "",
-      cardId: null,
+      pageId: null,
     },
     threadsTabs: [],
     activeThreadsTabId: "thread:new",

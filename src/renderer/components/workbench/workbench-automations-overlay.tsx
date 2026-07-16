@@ -2985,7 +2985,7 @@ export function WorkbenchAutomationsRouteShell({
   const [createDraftTemplate, setCreateDraftTemplate] = useState<WorkbenchAutomationTemplate | null>(null);
   const [chatCreatePending, setChatCreatePending] = useState(false);
   const [templatePersonalizationPending, setTemplatePersonalizationPending] = useState(false);
-  const [discardDraftDialogOpen, setDiscardDraftDialogOpen] = useState(false);
+  const [dispageDraftDialogOpen, setDispageDraftDialogOpen] = useState(false);
   const pendingDiscardActionRef = useRef<(() => void) | null>(null);
   const pendingEditActionRef = useRef<{
     action: () => void | Promise<void>;
@@ -3102,7 +3102,7 @@ export function WorkbenchAutomationsRouteShell({
     if (detailMode === "create") return;
     setCreateDraftSeed(null);
     setCreateDraftTemplate(null);
-    setDiscardDraftDialogOpen(false);
+    setDispageDraftDialogOpen(false);
     pendingDiscardActionRef.current = null;
   }, [detailMode]);
 
@@ -3338,7 +3338,7 @@ export function WorkbenchAutomationsRouteShell({
     pendingDiscardActionRef.current = () => {
       void action();
     };
-    setDiscardDraftDialogOpen(true);
+    setDispageDraftDialogOpen(true);
   };
 
   const runAfterAutomationRouteGuard = (action: () => void | Promise<void>) => {
@@ -3669,15 +3669,15 @@ export function WorkbenchAutomationsRouteShell({
     setDeleteDialogAutomation(null);
   };
 
-  const closeDiscardDraftDialog = () => {
+  const closeDispageDraftDialog = () => {
     pendingDiscardActionRef.current = null;
-    setDiscardDraftDialogOpen(false);
+    setDispageDraftDialogOpen(false);
   };
 
   const discardCreateDraft = () => {
     const action = pendingDiscardActionRef.current;
     pendingDiscardActionRef.current = null;
-    setDiscardDraftDialogOpen(false);
+    setDispageDraftDialogOpen(false);
     action?.();
   };
 
@@ -3868,9 +3868,9 @@ export function WorkbenchAutomationsRouteShell({
         </NodexDialogContent>
       </NodexDialog>
       <NodexDialog
-        open={discardDraftDialogOpen}
+        open={dispageDraftDialogOpen}
         onOpenChange={(open) => {
-          if (!open) closeDiscardDraftDialog();
+          if (!open) closeDispageDraftDialog();
         }}
       >
         <NodexDialogContent className="max-w-[420px] rounded-2xl" showCloseButton={false}>
@@ -3886,7 +3886,7 @@ export function WorkbenchAutomationsRouteShell({
             <NodexButton
               type="button"
               variant="secondary"
-              onClick={closeDiscardDraftDialog}
+              onClick={closeDispageDraftDialog}
             >
               Keep editing
             </NodexButton>

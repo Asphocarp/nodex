@@ -13,10 +13,8 @@ import {
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  plainTextToPortableRichText,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
 } from "../../../shared/block-documents";
-import { CARD_DETAIL_CONTRACT_VERSION } from "../../../shared/card-detail";
 import type {
   CodexAutomationInboxItem,
   CodexAutomationRunsInboxResponse,
@@ -38,7 +36,8 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import { resetDatabaseRowDetailStoreForTests } from "@/lib/database-row-detail-store";
-import { resetCardDetailStoreForTests } from "@/lib/card-detail-store";
+import { resetPageDetailStoreForTests } from "@/lib/page-detail-store";
+import { buildPageDetailStoryResult } from "../kanban/page-stage/page-stage-story-page-detail";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { terminalSessionStore } from "@/lib/terminal-session-store";
 import {
@@ -84,7 +83,6 @@ import type {
   WorkbenchPanelTabCycleDirection,
   WorkbenchSidebarToggleCommandSource,
 } from "../../../shared/window-navigation";
-import type { DatabaseViewSnapshotCommandResult } from "../../../shared/database-query";
 import {
   findNearestProjectSessionPanelLeafToRight,
   insertProjectSessionPanelLeaf,
@@ -359,14 +357,40 @@ vi.mock("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
-  resolveCardTarget: async (input: {
+  readPageDetail: async (projectId: string, pageId: string) => {
+    invokeCalls.push(["pages:detail:get", projectId, pageId]);
+    return mockInvokeImpl?.("pages:detail:get", projectId, pageId) ?? null;
+  },
+  applyDatabaseModule: async (projectId: string, request: unknown) => {
+    invokeCalls.push(["database-module:apply", projectId, request]);
+    return mockInvokeImpl?.("database-module:apply", projectId, request) ?? {
+      ok: false,
+      error: {
+        code: "unknown",
+        message: "Not configured in this test.",
+        retryable: false,
+      },
+    };
+  },
+  mutateBlockProperties: async (projectId: string, request: unknown) => {
+    invokeCalls.push(["block-properties:mutate", projectId, request]);
+    return mockInvokeImpl?.("block-properties:mutate", projectId, request) ?? {
+      ok: false,
+      error: {
+        code: "unknown",
+        message: "Not configured in this test.",
+        retryable: false,
+      },
+    };
+  },
+  resolvePageTarget: async (input: {
     requestingProjectId: string;
-    targetBlockId: string;
+    targetPageId: string;
   }) => {
-    invokeCalls.push(["card-target:resolve", input]);
-    return mockInvokeImpl?.("card-target:resolve", input) ?? {
+    invokeCalls.push(["page-target:resolve", input]);
+    return mockInvokeImpl?.("page-target:resolve", input) ?? {
       status: "missing",
-      targetBlockId: input.targetBlockId,
+      targetPageId: input.targetPageId,
     };
   },
   subscribeBoardChanges: () => () => undefined,
@@ -400,14 +424,99 @@ vi.mock("@/lib/api", () => ({
   subscribeAppUpdateStatus: () => () => undefined,
   getWindowFocusState: async () => true,
   subscribeWindowFocusChanges: () => () => undefined,
-  readDatabaseManagement: async () => ({
-    ok: false,
-    error: { code: "not_found", message: "Not configured in this test." },
-  }),
-  mutateDatabase: async () => ({
-    ok: false,
-    error: { code: "not_found", message: "Not configured in this test." },
-  }),
+  readDatabaseModule: async (projectId: string, request: {
+    read?: { mode?: string };
+  }) => {
+    invokeCalls.push(["database-module:read", projectId, request]);
+    const configured = await mockInvokeImpl?.(
+      "database-module:read",
+      projectId,
+      request,
+    );
+    if (configured !== undefined && configured !== null) return configured;
+    const projectName = projectId === "beta" ? "Beta" : "Alpha";
+    const databaseId = `database:${projectId}:primary`;
+    const dataSourceId = `${databaseId}:data-source:initial`;
+    const viewId = `database-view:${projectId}:primary-kanban`;
+    const descriptor = {
+      database: {
+        databaseId,
+        libraryId: "library:test",
+        name: "Tasks",
+        lifecycle: "active",
+        defaultViewId: viewId,
+        accessRevision: 1,
+        metadataRevision: 1,
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      },
+      dataSources: [{
+        dataSourceId,
+        libraryId: "library:test",
+        homeDatabaseId: databaseId,
+        name: "Pages",
+        schemaKey: "nodex.page",
+        schemaRevision: 1,
+        lifecycle: "active",
+        rankKey: "a",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      }],
+      views: [{
+        viewId,
+        databaseId,
+        dataSourceId,
+        name: projectName,
+        kind: "kanban",
+        config: {
+          schemaKey: "nodex.database-view",
+          schemaVersion: 1,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [],
+          group: null,
+          display: { propertyIds: [], showTitle: true },
+        },
+        isDefault: true,
+        revision: 1,
+        rankKey: "a",
+        lifecycle: "active",
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      }],
+    } as const;
+    return {
+      ok: true,
+      value: {
+        version: 1,
+        projectId,
+        libraryId: "library:test",
+        storeEpoch: "workbench-test-store",
+        changeLogSeq: 1,
+        value: {
+          kind: request.read?.mode === "catalog"
+            ? "catalog"
+            : request.read?.mode === "query"
+              ? "query"
+              : "database",
+          ...(request.read?.mode === "catalog"
+            ? {
+                databases: [descriptor],
+              }
+            : request.read?.mode === "query"
+              ? {
+                  value: {
+                    database: descriptor.database,
+                    dataSource: descriptor.dataSources[0],
+                    view: descriptor.views[0],
+                    properties: [],
+                    rows: [],
+                  },
+                }
+              : { value: descriptor }),
+        },
+      },
+    };
+  },
   transferBlocks: async () => ({
     ok: false,
     error: {
@@ -417,56 +526,6 @@ vi.mock("@/lib/api", () => ({
       reloadRequired: false,
     },
   }),
-  readPrimaryDatabaseDescriptor: async (projectId: string) => {
-    invokeCalls.push(["databases:primary:get", projectId]);
-    const projectName = projectId === "beta" ? "Beta" : "Alpha";
-    const databaseBlockId = `database:${projectId}:primary`;
-    const databaseViewId = `database-view:${projectId}:primary-kanban`;
-    return {
-      ok: true,
-      value: {
-        version: 1,
-        projectId,
-        storeEpoch: "workbench-test-store",
-        changeLogSeq: 1,
-        value: {
-          database: {
-            blockId: databaseBlockId,
-            projectId,
-            name: "Tasks",
-            isPrimary: true,
-            schemaKey: "nodex.database",
-            schemaRevision: 1,
-            metadataRevision: 1,
-            createdAt: "2026-06-07T00:00:00.000Z",
-            updatedAt: "2026-06-07T00:00:00.000Z",
-          },
-          properties: [],
-          views: [{
-            id: databaseViewId,
-            databaseBlockId,
-            projectId,
-            name: projectName,
-            kind: "kanban",
-            config: {
-              schemaKey: "nodex.database-view",
-              schemaVersion: 1,
-              filter: { kind: "group", operator: "and", children: [] },
-              sort: [],
-              group: null,
-              display: { propertyIds: [], showTitle: true },
-            },
-            isPrimary: true,
-            revision: 1,
-            rankKey: "a",
-            lifecycle: "active",
-            createdAt: "2026-06-07T00:00:00.000Z",
-            updatedAt: "2026-06-07T00:00:00.000Z",
-          }],
-        },
-      },
-    };
-  },
 }));
 
 vi.mock("./main-view-host", () => ({
@@ -534,14 +593,14 @@ const MockOwnedBlockDocumentBoundary = ({
       descriptor: {
         projectId,
         ownerBlockId,
-        ownerType: "card",
+        ownerType: "page",
         ownerLifecycle: "active",
         documentId: `document:${ownerBlockId}`,
         storeEpoch: "workbench-test-store",
         generation: 1,
         headSeq: 1,
-        schemaKey: "nodex.card",
-        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+        schemaKey: "nodex.page",
+        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
       },
@@ -568,49 +627,49 @@ vi.mock("@/components/block-documents/owned-block-document-boundary", () => ({
   RegisteredOwnedBlockDocumentBoundary: MockOwnedBlockDocumentBoundary,
 }));
 
-vi.mock("./workbench-card-stage", () => ({
-  CardStage: (props: Record<string, unknown>) => {
-    (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = props;
-    const stageModel = props.card as {
-      card?: { id?: string };
+vi.mock("./workbench-page-stage", () => ({
+  PageStage: (props: Record<string, unknown>) => {
+    (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps = props;
+    const stageModel = props.page as {
+      page?: { id?: string };
     } | null | undefined;
-    const card = stageModel?.card;
-    const cardId = card?.id ?? "missing";
-    const propsByCardId = ((globalThis as {
-      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
-    }).__mockCardStagePropsByCardId ??= {});
-    propsByCardId[cardId] = props;
+    const page = stageModel?.page;
+    const pageId = page?.id ?? "missing";
+    const propsByPageId = ((globalThis as {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId ??= {});
+    propsByPageId[pageId] = props;
     useEffect(() => {
       const state = globalThis as {
-        __mockCardStageMounts?: number;
-        __mockCardStageUnmounts?: number;
-        __mockCardStageMountsByCardId?: Record<string, number>;
-        __mockCardStageUnmountsByCardId?: Record<string, number>;
+        __mockPageStageMounts?: number;
+        __mockPageStageUnmounts?: number;
+        __mockPageStageMountsByPageId?: Record<string, number>;
+        __mockPageStageUnmountsByPageId?: Record<string, number>;
       };
-      state.__mockCardStageMounts = (state.__mockCardStageMounts ?? 0) + 1;
-      state.__mockCardStageMountsByCardId = {
-        ...(state.__mockCardStageMountsByCardId ?? {}),
-        [cardId]: (state.__mockCardStageMountsByCardId?.[cardId] ?? 0) + 1,
+      state.__mockPageStageMounts = (state.__mockPageStageMounts ?? 0) + 1;
+      state.__mockPageStageMountsByPageId = {
+        ...(state.__mockPageStageMountsByPageId ?? {}),
+        [pageId]: (state.__mockPageStageMountsByPageId?.[pageId] ?? 0) + 1,
       };
       return () => {
-        state.__mockCardStageUnmounts = (state.__mockCardStageUnmounts ?? 0) + 1;
-        state.__mockCardStageUnmountsByCardId = {
-          ...(state.__mockCardStageUnmountsByCardId ?? {}),
-          [cardId]: (state.__mockCardStageUnmountsByCardId?.[cardId] ?? 0) + 1,
+        state.__mockPageStageUnmounts = (state.__mockPageStageUnmounts ?? 0) + 1;
+        state.__mockPageStageUnmountsByPageId = {
+          ...(state.__mockPageStageUnmountsByPageId ?? {}),
+          [pageId]: (state.__mockPageStageUnmountsByPageId?.[pageId] ?? 0) + 1,
         };
       };
-    }, [cardId]);
+    }, [pageId]);
     return createElement(
       "div",
-      { "data-card-stage": "true" },
-      `Card:${String(cardId)}`,
+      { "data-page-stage": "true" },
+      `Page:${String(pageId)}`,
       createElement(
         "div",
         { className: "nfm-editor" },
         createElement(
           "div",
           {
-            "aria-label": `Mock editor ${String(cardId)}`,
+            "aria-label": `Mock editor ${String(pageId)}`,
             className: "ProseMirror",
             contentEditable: true,
             tabIndex: 0,
@@ -634,14 +693,14 @@ vi.mock("./workbench-card-stage", () => ({
           "aria-label": "History",
           "aria-pressed": Boolean(props.historyPanelActive),
           onClick: () => {
-            const current = (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks ?? 0;
-            (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks = current + 1;
+            const current = (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks ?? 0;
+            (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks = current + 1;
             (props.onToggleHistoryPanel as ((snapshot: {
               readonly title: string;
               readonly nfm: string;
             }) => void) | undefined)?.({
-              title: `Card ${String(cardId)}`,
-              nfm: `Body ${String(cardId)}`,
+              title: `Card ${String(pageId)}`,
+              nfm: `Body ${String(pageId)}`,
             });
           },
         },
@@ -665,10 +724,10 @@ vi.mock("./workbench-card-stage", () => ({
           "aria-label": "Delete",
           "data-app-shell-preview-pin-suppressed": "true",
           onClick: () => {
-            const current = (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks ?? 0;
-            (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks = current + 1;
-            void (props.onDelete as ((cardId: string) => Promise<void>) | undefined)?.(
-              card?.id ?? "card-1",
+            const current = (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks ?? 0;
+            (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks = current + 1;
+            void (props.onDelete as ((pageId: string) => Promise<void>) | undefined)?.(
+              page?.id ?? "card-1",
             );
           },
         },
@@ -690,9 +749,9 @@ vi.mock("./workbench-history-panel", () => ({
     return createElement(
       "div",
       {
-        "data-testid": "card-history-panel",
+        "data-testid": "page-history-panel",
         "data-project-id": String(props.projectId),
-        "data-card-id": String(props.cardId),
+        "data-uuid-v7": String(props.pageId),
       },
       "History panel",
       createElement(
@@ -709,7 +768,7 @@ vi.mock("./workbench-history-panel", () => ({
         {
           type: "button",
           "aria-label": "Mutate card from history",
-          onClick: () => (props.onCardMutated as (() => void) | undefined)?.(),
+          onClick: () => (props.onPageMutated as (() => void) | undefined)?.(),
         },
         "Mutate",
       ),
@@ -955,13 +1014,13 @@ vi.mock("@/lib/use-kanban", () => ({
           },
         ],
       },
-      cardIndex: new Map(visibleCards.map((card) => [card.id, card])),
+      pageIndex: new Map(visibleCards.map((card) => [card.id, card])),
       loading: false,
       refresh: async () => undefined,
-      patchCard: () => undefined,
-      updateCard: async () => ({ didMutate: true }),
-      deleteCard: async () => true,
-      moveCard: async () => undefined,
+      patchPage: () => undefined,
+      updatePage: async () => ({ didMutate: true }),
+      deletePage: async () => true,
+      movePage: async () => undefined,
       completeOccurrence: async () => undefined,
       skipOccurrence: async () => undefined,
     };
@@ -1025,13 +1084,13 @@ vi.mock("./workbench-shell-deps", () => ({
 }));
 
 let WorkbenchShell: (typeof import("./workbench-shell"))["WorkbenchShell"];
-let resolveCardStageSessionTabOrder: (typeof import("./workbench-shell"))["resolveCardStageSessionTabOrder"];
+let resolvePageStageSessionTabOrder: (typeof import("./workbench-shell"))["resolvePageStageSessionTabOrder"];
 let shouldSynchronouslyRevealSession: (typeof import("./workbench-shell"))["shouldSynchronouslyRevealSession"];
 
 beforeAll(async () => {
   const workbenchShellModule = await import("./workbench-shell");
   WorkbenchShell = workbenchShellModule.WorkbenchShell;
-  resolveCardStageSessionTabOrder = workbenchShellModule.resolveCardStageSessionTabOrder;
+  resolvePageStageSessionTabOrder = workbenchShellModule.resolvePageStageSessionTabOrder;
   shouldSynchronouslyRevealSession = workbenchShellModule.shouldSynchronouslyRevealSession;
 });
 
@@ -1039,6 +1098,10 @@ function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): 
   const normalizedPrimarySourceRoot = primarySourceRoot?.trim() || null;
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon: "",
@@ -1048,88 +1111,6 @@ function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): 
     pinnedOrder: null,
     created: new Date("2026-06-07T00:00:00.000Z"),
     updated: new Date("2026-06-07T00:00:00.000Z"),
-  };
-}
-
-function makePrimaryDatabaseViewSnapshot(
-  projectId: string,
-  databaseViewId: string,
-): DatabaseViewSnapshotCommandResult {
-  const databaseBlockId = `database:${projectId}:primary`;
-  const statusPropertyId = `database-property:${projectId}:status`;
-  const timestamp = "2026-06-07T00:00:00.000Z";
-  const database = {
-    blockId: databaseBlockId,
-    projectId,
-    name: "Tasks",
-    isPrimary: true,
-    schemaKey: "nodex.database",
-    schemaRevision: 1,
-    metadataRevision: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  const statusProperty = {
-    id: statusPropertyId,
-    databaseBlockId,
-    key: "status",
-    name: "Status",
-    valueType: "select" as const,
-    config: {},
-    rankKey: "a",
-    lifecycle: "active" as const,
-    revision: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  const view = {
-    id: databaseViewId,
-    databaseBlockId,
-    projectId,
-    name: "Primary board",
-    kind: "kanban" as const,
-    config: {
-      schemaKey: "nodex.database-view" as const,
-      schemaVersion: 1 as const,
-      filter: { kind: "group" as const, operator: "and" as const, children: [] },
-      sort: [{
-        field: { kind: "manual" as const },
-        direction: "asc" as const,
-        nulls: "last" as const,
-      }],
-      group: { propertyId: statusPropertyId },
-      display: { propertyIds: [statusPropertyId], showTitle: true },
-    },
-    isPrimary: true,
-    revision: 1,
-    rankKey: "a",
-    lifecycle: "active" as const,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-  const wrap = <T,>(value: T) => ({
-    version: 1 as const,
-    projectId,
-    storeEpoch: "workbench-test-store",
-    changeLogSeq: 1,
-    value,
-  });
-
-  return {
-    ok: true,
-    value: {
-      descriptor: wrap({
-        database,
-        properties: [statusProperty],
-        views: [view],
-      }),
-      query: wrap({
-        database,
-        properties: [statusProperty],
-        view,
-        rows: [],
-      }),
-    },
   };
 }
 
@@ -1668,20 +1649,20 @@ function renderWorkbench({
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
-  cardGetOverride?: ((projectId: string, cardId: string) => Promise<unknown> | unknown) | null;
+  cardGetOverride?: ((projectId: string, pageId: string) => Promise<unknown> | unknown) | null;
   scheduledAutomations?: CodexScheduledAutomation[];
   automationInboxItems?: CodexAutomationInboxItem[];
   worktreeEnvironmentOptionsByProject?: Record<string, WorktreeEnvironmentOption[]>;
   codexModels?: CodexModelOption[];
 } = {}) {
-  const asCardDetailCommandResult = (
+  const asPageDetailResult = (
     value: unknown,
     projectId: string,
-    cardId: string,
+    pageId: string,
   ): unknown => {
     if (value instanceof Promise) {
       return value.then((resolved) =>
-        asCardDetailCommandResult(resolved, projectId, cardId),
+        asPageDetailResult(resolved, projectId, pageId),
       );
     }
     if (
@@ -1695,109 +1676,58 @@ function renderWorkbench({
       return {
         ok: false,
         error: {
-          code: "card_not_found",
-          message: `Card not found: ${cardId}`,
+          code: "page_not_found",
+          message: `Page not found: ${pageId}`,
           retryable: false,
         },
       };
     }
     const row = value as Record<string, unknown>;
     const standalone = row.standalone === true;
-    const title = typeof row.title === "string" ? row.title : cardId;
-    const status = typeof row.status === "string" ? row.status : "draft";
-    const created = row.created instanceof Date
-      ? row.created.toISOString()
-      : "2026-06-07T00:00:00.000Z";
-    const databaseBlockId = `database:${projectId}:primary`;
-    const intrinsic = [
-      ["isAllDay", Boolean(row.isAllDay)],
-      ["recurrence", row.recurrence ?? null],
-      ["reminders", row.reminders ?? []],
-      ["scheduleTimezone", row.scheduleTimezone ?? null],
-      ["runInTarget", row.runInTarget ?? "localProject"],
-      ["runInLocalPath", row.runInLocalPath ?? null],
-      ["runInBaseBranch", row.runInBaseBranch ?? null],
-      ["runInWorktreePath", row.runInWorktreePath ?? null],
-      ["runInEnvironmentPath", row.runInEnvironmentPath ?? null],
-    ].map(([field, fieldValue]) => ({
-      scope: "intrinsic",
-      field,
-      revision: 1,
-      value: fieldValue,
-    }));
-    const databaseFields = [
-      ["status", status],
-      ["priority", row.priority ?? null],
-      ["estimate", row.estimate ?? null],
-      ["tags", row.tags ?? []],
-      ["dueDate", row.dueDate instanceof Date
-        ? row.dueDate.toISOString().slice(0, 10)
-        : null],
-      ["scheduledStart", row.scheduledStart instanceof Date
-        ? row.scheduledStart.toISOString()
-        : null],
-      ["scheduledEnd", row.scheduledEnd instanceof Date
-        ? row.scheduledEnd.toISOString()
-        : null],
-      ["assignee", row.assignee ?? null],
-    ].map(([field, fieldValue]) => ({
-      scope: "database",
-      field,
-      databaseBlockId,
-      propertyId: `${databaseBlockId}:property:${String(field)}`,
-      revision: 1,
-      value: fieldValue,
-    }));
+    const result = buildPageDetailStoryResult(projectId, {
+      id: pageId,
+      status: (typeof row.status === "string" ? row.status : "draft") as "draft",
+      archived: false,
+      title: typeof row.title === "string" ? row.title : pageId,
+      richTitle: [],
+      description: typeof row.description === "string" ? row.description : "",
+      priority: row.priority as never,
+      estimate: row.estimate as never,
+      tags: Array.isArray(row.tags) ? row.tags as string[] : [],
+      dueDate: row.dueDate instanceof Date ? row.dueDate : undefined,
+      scheduledStart: row.scheduledStart instanceof Date
+        ? row.scheduledStart
+        : undefined,
+      scheduledEnd: row.scheduledEnd instanceof Date ? row.scheduledEnd : undefined,
+      isAllDay: Boolean(row.isAllDay),
+      recurrence: row.recurrence as never,
+      reminders: Array.isArray(row.reminders) ? row.reminders as never : [],
+      scheduleTimezone: row.scheduleTimezone as string | undefined,
+      assignee: row.assignee as string | undefined,
+      runInTarget: row.runInTarget as never,
+      runInLocalPath: row.runInLocalPath as string | undefined,
+      runInBaseBranch: row.runInBaseBranch as string | undefined,
+      runInWorktreePath: row.runInWorktreePath as string | undefined,
+      runInEnvironmentPath: row.runInEnvironmentPath as string | undefined,
+      revision: typeof row.revision === "number" ? row.revision : 1,
+      created: row.created instanceof Date
+        ? row.created
+        : new Date("2026-06-07T00:00:00.000Z"),
+      order: 0,
+    });
+    if (!standalone || !result.ok) return result;
     return {
-      ok: true,
+      ...result,
       value: {
-        version: CARD_DETAIL_CONTRACT_VERSION,
-        card: {
-          blockId: cardId,
-          projectId,
-          lifecycle: "active",
-          location: standalone
-            ? { kind: "document", documentId: "document:host" }
-            : { kind: "database", databaseBlockId },
-          locationRevision: 1,
-          metadataRevision: typeof row.revision === "number" ? row.revision : 1,
-          documentId: `document:${cardId}`,
-          documentGeneration: 1,
-          documentHeadSeq: 1,
-          documentAuthority: "ydoc_primary",
-          content: {
-            projectedSeq: 1,
-            title,
-            richTitle: plainTextToPortableRichText(title),
-            preview: "",
-            plainText: title,
+        ...result.value,
+        page: {
+          ...result.value.page,
+          parent: {
+            kind: "library" as const,
+            libraryId: result.value.libraryId,
           },
-          createdAt: created,
-          updatedAt: created,
         },
-        document: {
-          readiness: "ready",
-          schemaKey: "nodex.card",
-          schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
-        },
-        properties: {
-          projectId,
-          storeEpoch: "store-epoch:test",
-          changeLogSeq: 1,
-          cardBlockId: cardId,
-          metadataRevision: typeof row.revision === "number" ? row.revision : 1,
-          fields: standalone ? intrinsic : [...intrinsic, ...databaseFields],
-        },
-        databaseContext: standalone
-          ? { kind: "standalone" }
-          : {
-              kind: "member",
-              membership: {
-                id: `membership:${cardId}`,
-                databaseBlockId,
-                revision: 1,
-              },
-            },
+        dataSourceContext: { kind: "standalone" as const },
       },
     };
   };
@@ -2062,12 +1992,6 @@ function renderWorkbench({
         generatedAt: 1,
       };
     }
-    if (channel === "database-views:snapshot") {
-      return makePrimaryDatabaseViewSnapshot(
-        String(args[0] ?? "alpha"),
-        String(args[1] ?? "database-view:alpha:primary-kanban"),
-      );
-    }
     if (channel === "board:summary:get") {
       const projectId = String(args[0] ?? "alpha");
       if (projectId === "beta") {
@@ -2135,17 +2059,17 @@ function renderWorkbench({
         ],
       };
     }
-    if (channel === "card:get") {
+    if (channel === "pages:detail:get") {
       const projectId = String(args[0] ?? "");
-      const cardId = String(args[1] ?? "");
+      const pageId = String(args[1] ?? "");
       if (cardGetOverride) {
-        const overridden = cardGetOverride(projectId, cardId);
+        const overridden = cardGetOverride(projectId, pageId);
         if (overridden !== undefined) {
-          return asCardDetailCommandResult(overridden, projectId, cardId);
+          return asPageDetailResult(overridden, projectId, pageId);
         }
       }
-      if (cardId === "card-beta") {
-        return asCardDetailCommandResult({
+      if (pageId === "card-beta") {
+        return asPageDetailResult({
           id: "card-beta",
           projectId: "beta",
           status: "in_progress",
@@ -2156,10 +2080,10 @@ function renderWorkbench({
           created: new Date("2026-06-07T00:00:00.000Z"),
           order: 0,
           revision: 1,
-        }, projectId, cardId);
+        }, projectId, pageId);
       }
-      if (cardId === "card-2") {
-        return asCardDetailCommandResult({
+      if (pageId === "card-2") {
+        return asPageDetailResult({
           id: "card-2",
           projectId: "alpha",
           status: "in_progress",
@@ -2170,12 +2094,12 @@ function renderWorkbench({
           created: new Date("2026-06-07T00:00:00.000Z"),
           order: 1,
           revision: 1,
-        }, projectId, cardId);
+        }, projectId, pageId);
       }
-      if (cardId !== "card-1") {
-        return asCardDetailCommandResult(null, projectId, cardId);
+      if (pageId !== "card-1") {
+        return asPageDetailResult(null, projectId, pageId);
       }
-      return asCardDetailCommandResult({
+      return asPageDetailResult({
         id: "card-1",
         projectId: "alpha",
         status: "in_progress",
@@ -2186,12 +2110,12 @@ function renderWorkbench({
         created: new Date("2026-06-07T00:00:00.000Z"),
         order: 0,
         revision: 1,
-      }, projectId, cardId);
+      }, projectId, pageId);
     }
     if (channel === "database-rows:details:get") {
-      const input = (args[1] ?? {}) as { cardIds?: string[] };
-      return (input.cardIds ?? []).flatMap((cardId) => (
-        cardId === "card-beta"
+      const input = (args[1] ?? {}) as { pageIds?: string[] };
+      return (input.pageIds ?? []).flatMap((pageId) => (
+        pageId === "card-beta"
           ? [{
               id: "card-beta",
               projectId: "beta",
@@ -2204,7 +2128,7 @@ function renderWorkbench({
               order: 0,
               revision: 1,
             }]
-          : cardId === "card-2"
+          : pageId === "card-2"
             ? [{
                 id: "card-2",
                 projectId: "alpha",
@@ -2217,7 +2141,7 @@ function renderWorkbench({
                 order: 1,
                 revision: 1,
               }]
-          : cardId === "card-1"
+          : pageId === "card-1"
             ? [{
                 id: "card-1",
                 projectId: "alpha",
@@ -2704,7 +2628,7 @@ function renderWorkbench({
   ) => void = () => undefined;
   let requestPanelTabClose: () => void = () => undefined;
   let requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => void = () => undefined;
-  let openCommandPalette: (mode?: "root" | "chats" | "cards" | "files", initialQuery?: string) => void = () => undefined;
+  let openCommandPalette: (mode?: "root" | "chats" | "pages" | "files", initialQuery?: string) => void = () => undefined;
   type TestSidebarState = NonNullable<ComponentProps<typeof WorkbenchShell>["sidebar"]>;
 
   function WorkbenchShellTestHarness() {
@@ -2727,7 +2651,7 @@ function renderWorkbench({
       useState<WorkbenchPanelTabCloseCommandRequest | null>(panelTabCloseRequest);
     const [commandPaletteRequest, setCommandPaletteRequest] = useState({
       tick: 0,
-      mode: "root" as "root" | "chats" | "cards" | "files",
+      mode: "root" as "root" | "chats" | "pages" | "files",
       initialQuery: "",
     });
     requestWorkbenchNavigation = (direction, source = direction === "back" ? "sidebar_back" : "sidebar_forward") => {
@@ -2770,21 +2694,21 @@ function renderWorkbench({
         activeDbViewPrefs={null}
         searchByProject={searchByProject}
         dbViewPrefsByProject={dbViewPrefsByProject}
-        spaces={projects.map((project) => ({
+        projectRefs={projects.map((project) => ({
           projectId: project.id,
           colorToken: "var(--accent-blue)",
           initial: project.name.slice(0, 1).toUpperCase(),
         }))}
         sidebar={sidebarState}
-        cardStageCloseRef={createRef()}
+        pageStageCloseRef={createRef()}
         setDbProject={(projectId) => {
           setDbProjectCalls.push(projectId);
           setDbProjectId(projectId);
         }}
         setSearchQuery={() => undefined}
         setDbViewPrefs={() => undefined}
-        openCardStage={() => undefined}
-        onLeaveCardStageCard={() => undefined}
+        openPageStage={() => undefined}
+        onLeavePageStage={() => undefined}
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onDeleteProject={async () => false}
@@ -2839,7 +2763,7 @@ function renderWorkbench({
     ...result,
     setDbProjectCalls,
     navigationStateChanges,
-    openCommandPalette: (mode?: "root" | "chats" | "cards" | "files", initialQuery?: string) => {
+    openCommandPalette: (mode?: "root" | "chats" | "pages" | "files", initialQuery?: string) => {
       openCommandPalette(mode, initialQuery);
     },
     requestWorkbenchNavigation: (
@@ -2880,7 +2804,7 @@ function installTerminalEventApiMock(): TerminalEventListenerMap {
 beforeEach(() => {
   terminalSessionStore.disposeEventSubscriptions();
   resetDatabaseRowDetailStoreForTests();
-  resetCardDetailStoreForTests();
+  resetPageDetailStoreForTests();
   __resetNodexToastStoreForTests();
   document.body.removeAttribute("style");
   delete (window as { api?: typeof window.api }).api;
@@ -2920,14 +2844,14 @@ beforeEach(() => {
   }).__mockConnectedThreadStagePropsByThreadId;
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
   delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
-  delete (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-  delete (globalThis as { __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>> }).__mockCardStagePropsByCardId;
-  delete (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks;
-  delete (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks;
-  delete (globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts;
-  delete (globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts;
-  delete (globalThis as { __mockCardStageMountsByCardId?: Record<string, number> }).__mockCardStageMountsByCardId;
-  delete (globalThis as { __mockCardStageUnmountsByCardId?: Record<string, number> }).__mockCardStageUnmountsByCardId;
+  delete (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+  delete (globalThis as { __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>> }).__mockPageStagePropsByPageId;
+  delete (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks;
+  delete (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks;
+  delete (globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts;
+  delete (globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts;
+  delete (globalThis as { __mockPageStageMountsByPageId?: Record<string, number> }).__mockPageStageMountsByPageId;
+  delete (globalThis as { __mockPageStageUnmountsByPageId?: Record<string, number> }).__mockPageStageUnmountsByPageId;
 });
 
 afterEach(() => {
@@ -3200,7 +3124,7 @@ export type WorkbenchShellTestScope =
   | "automations-conversation"
   | "layout-panel-actions"
   | "panel-commands"
-  | "cards-shell-navigation";
+  | "pages-shell-navigation";
 
 /**
  * Registers one contiguous, mutually exclusive workflow shard. Keep new tests
@@ -3211,8 +3135,8 @@ export type WorkbenchShellTestScope =
 export function registerWorkbenchShellTests(scope: WorkbenchShellTestScope): void {
 describe(`workbench session shell / ${scope}`, () => {
   if (scope === "sidebar-core") {
-  test("keeps card-stage session tab ordering scoped to session ids", () => {
-    const order = resolveCardStageSessionTabOrder(
+  test("keeps page-stage session tab ordering scoped to session ids", () => {
+    const order = resolvePageStageSessionTabOrder(
       [
         { id: "session:first", sessionId: "first" },
         { id: "history" },
@@ -3332,6 +3256,20 @@ describe(`workbench session shell / ${scope}`, () => {
     await waitFor(() => {
       expect(getRetainedSessionIds(screen.container).includes(alphaHome.id)).toBe(true);
     });
+    await waitFor(() => {
+      expect(
+        getKanbanProjectStore(
+          "alpha",
+          "database-view:alpha:primary-kanban",
+        ).getSnapshot().loading,
+      ).toBe(false);
+    });
+    expect(
+      getKanbanProjectStore(
+        "alpha",
+        "database-view:alpha:primary-kanban",
+      ).getSnapshot().error,
+    ).toBe(null);
     await waitFor(() => {
       expect(
         getKanbanProjectStore(
@@ -3525,19 +3463,19 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(nav.closest('[data-testid="project-session-sidebar"]') !== null).toBe(true);
   });
 
-  test("sidebar Search opens the command palette in cards mode", async () => {
+  test("sidebar Search opens the command palette in pages mode", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     await act(async () => {
-      screen.openCommandPalette("cards");
+      screen.openCommandPalette("pages");
       await Promise.resolve();
     });
     await settleAsyncRender();
 
     const commandModeInput = screen.getByLabelText("Command palette search") as HTMLInputElement;
-    expect(commandModeInput.value).toBe("cards");
+    expect(commandModeInput.value).toBe("pages");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Close palette" }));
@@ -3559,7 +3497,7 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const defaultSearchInput = screen.getByLabelText("Command palette search") as HTMLInputElement;
-    expect(defaultSearchInput.value).toBe("cards");
+    expect(defaultSearchInput.value).toBe("pages");
   });
 
   test("sidebar pin button toggles a session without selecting it", async () => {
@@ -7581,20 +7519,20 @@ describe(`workbench session shell / ${scope}`, () => {
     })).toBe(true);
   });
 
-  test("full-width card-stage overlay state keeps card toolbar actions clickable after pointerdown", async () => {
+  test("full-width page-stage overlay state keeps card toolbar actions clickable after pointerdown", async () => {
     const session = makeAttachedSession({
-      id: "session:alpha:overlay-card-stage",
+      id: "session:alpha:overlay-page-stage",
       tabs: [
         {
-          id: "card-stage-tab",
-          kind: "card_stage",
+          id: "page-stage-tab",
+          kind: "page_stage",
           title: "Card One",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
       panels: makePanels({
-        rightTabIds: ["card-stage-tab"],
-        rightActiveTabId: "card-stage-tab",
+        rightTabIds: ["page-stage-tab"],
+        rightActiveTabId: "page-stage-tab",
         rightFullWidth: true,
       }),
     });
@@ -7612,24 +7550,24 @@ describe(`workbench session shell / ${scope}`, () => {
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await pointerActivate(screen.getByRole("button", { name: "Delete" }));
 
-    expect((globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks).toBe(1);
-    expect((globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks).toBe(1);
+    expect((globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks).toBe(1);
+    expect((globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks).toBe(1);
   });
 
-  test("toggles the active card-stage history overlay from the toolbar", async () => {
+  test("toggles the active page-stage history overlay from the toolbar", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:history-toggle",
       tabs: [
         {
-          id: "card-stage-tab",
-          kind: "card_stage",
+          id: "page-stage-tab",
+          kind: "page_stage",
           title: "Card One",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
       panels: makePanels({
-        rightTabIds: ["card-stage-tab"],
-        rightActiveTabId: "card-stage-tab",
+        rightTabIds: ["page-stage-tab"],
+        rightActiveTabId: "page-stage-tab",
       }),
     });
     const screen = renderWorkbench({
@@ -7639,39 +7577,39 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.queryByTestId("card-history-panel")).toBe(null);
-    let cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    expect(cardStageProps?.historyPanelActive).toBe(false);
+    expect(screen.queryByTestId("page-history-panel")).toBe(null);
+    let pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    expect(pageStageProps?.historyPanelActive).toBe(false);
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await settleAsyncRender();
 
-    const openedPanel = screen.getByTestId("card-history-panel");
+    const openedPanel = screen.getByTestId("page-history-panel");
     expect(openedPanel.getAttribute("data-project-id")).toBe("alpha");
-    expect(openedPanel.getAttribute("data-card-id")).toBe("card-1");
-    cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    expect(cardStageProps?.historyPanelActive).toBe(true);
+    expect(openedPanel.getAttribute("data-uuid-v7")).toBe("card-1");
+    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    expect(pageStageProps?.historyPanelActive).toBe(true);
     const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
-    expect(typeof historyPanelProps?.onCardMutated).toBe("function");
+    expect(typeof historyPanelProps?.onPageMutated).toBe("function");
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await settleAsyncRender();
 
-    expect(screen.queryByTestId("card-history-panel")).toBe(null);
-    cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    expect(cardStageProps?.historyPanelActive).toBe(false);
+    expect(screen.queryByTestId("page-history-panel")).toBe(null);
+    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    expect(pageStageProps?.historyPanelActive).toBe(false);
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await settleAsyncRender();
     await pointerActivate(screen.getByRole("button", { name: "Close history panel" }));
     await settleAsyncRender();
 
-    expect(screen.queryByTestId("card-history-panel")).toBe(null);
-    cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    expect(cardStageProps?.historyPanelActive).toBe(false);
+    expect(screen.queryByTestId("page-history-panel")).toBe(null);
+    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    expect(pageStageProps?.historyPanelActive).toBe(false);
   });
 
-  test("closes the card-stage history modal when the owning tab closes", async () => {
+  test("closes the page-stage history modal when the owning tab closes", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:history-close-owner",
       tabs: [
@@ -7682,15 +7620,15 @@ describe(`workbench session shell / ${scope}`, () => {
           config: { projectId: "alpha", view: "kanban" },
         },
         {
-          id: "card-stage-tab",
-          kind: "card_stage",
+          id: "page-stage-tab",
+          kind: "page_stage",
           title: "Card One",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
       panels: makePanels({
-        rightTabIds: ["db-tab", "card-stage-tab"],
-        rightActiveTabId: "card-stage-tab",
+        rightTabIds: ["db-tab", "page-stage-tab"],
+        rightActiveTabId: "page-stage-tab",
       }),
     });
     const screen = renderWorkbench({
@@ -7702,13 +7640,13 @@ describe(`workbench session shell / ${scope}`, () => {
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await settleAsyncRender();
-    expect(screen.queryByTestId("card-history-panel") !== null).toBe(true);
+    expect(screen.queryByTestId("page-history-panel") !== null).toBe(true);
 
     await pointerActivate(screen.getByRole("button", { name: "Close Card One tab" }));
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.queryByTestId("card-history-panel")).toBe(null);
+    expect(screen.queryByTestId("page-history-panel")).toBe(null);
     const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
     expect(historyPanelProps?.open).toBe(false);
   });
@@ -8428,9 +8366,9 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByRole("button", { name: /Files/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /Side chat/ }) !== null).toBe(true);
     expect(screen.getByRole("button", { name: /DB View/ }) !== null).toBe(true);
-    expect(screen.getByRole("button", { name: /Card Stage/ }) !== null).toBe(true);
+    expect(screen.getByRole("button", { name: /Page/ }) !== null).toBe(true);
     expect(actionText.indexOf("Side chat") < actionText.indexOf("DB View")).toBe(true);
-    expect(actionText.indexOf("DB View") < actionText.indexOf("Card Stage")).toBe(true);
+    expect(actionText.indexOf("DB View") < actionText.indexOf("Page")).toBe(true);
     expect(textContent(actionGrid).includes("⌃⇧G")).toBe(true);
     expect(textContent(actionGrid).includes("⌃`")).toBe(true);
     expect(textContent(actionGrid).includes("Ctrl+T")).toBe(true);
@@ -8451,7 +8389,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Terminal") !== null).toBe(true);
     expect(within(menu).queryByText("DB View")).toBe(null);
-    expect(within(menu).queryByText("Card Stage")).toBe(null);
+    expect(within(menu).queryByText("Page")).toBe(null);
     expect(textContent(menu).includes("⌃`")).toBe(true);
   });
 
@@ -8471,7 +8409,7 @@ describe(`workbench session shell / ${scope}`, () => {
     const menuText = textContent(menu);
     expect(menuText.indexOf("Review") < menuText.indexOf("Terminal")).toBe(true);
     expect(menuText.indexOf("Side chat") < menuText.indexOf("DB View")).toBe(true);
-    expect(menuText.indexOf("DB View") < menuText.indexOf("Card Stage")).toBe(true);
+    expect(menuText.indexOf("DB View") < menuText.indexOf("Page")).toBe(true);
   });
 
   test("empty right panel DB View action creates the current project tab directly", async () => {
@@ -8524,8 +8462,16 @@ describe(`workbench session shell / ${scope}`, () => {
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Open DB view" }) !== null).toBe(true);
     });
-    expect(screen.getByRole("option", { name: /Alpha/ }) !== null).toBe(true);
-    expect(screen.getByRole("option", { name: /Beta/ }) !== null).toBe(true);
+    await waitFor(() => {
+      expect(invokeCalls.some((call) =>
+        call[0] === "database-module:read"
+        && (call[2] as { read?: { mode?: string } } | undefined)?.read?.mode === "database"
+      )).toBe(true);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /Alpha/ }) !== null).toBe(true);
+      expect(screen.getByRole("option", { name: /Beta/ }) !== null).toBe(true);
+    });
 
     invokeCalls = [];
     await act(async () => {
@@ -8562,7 +8508,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByRole("tab", { name: /Beta project, DB View/ }) !== null).toBe(true);
   });
 
-  test("empty right panel Card Stage action groups current-project cards before other projects", async () => {
+  test("empty right panel Page action groups current-Project Pages before other Projects", async () => {
     const emptySession = makeSession({
       id: "session:alpha:card-picker",
       tabs: [],
@@ -8575,11 +8521,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    await pointerActivate(screen.getByRole("button", { name: /Card Stage/ }));
+    await pointerActivate(screen.getByRole("button", { name: /Page/ }));
     await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: "Open card stage" }) !== null).toBe(true);
+      expect(screen.getByRole("dialog", { name: "Open Page" }) !== null).toBe(true);
     });
-    expect(screen.getByRole("combobox", { name: "Open card stage" }) !== null).toBe(true);
+    expect(screen.getByRole("combobox", { name: "Open Page" }) !== null).toBe(true);
     expect(screen.getByText("Current project") !== null).toBe(true);
     expect(screen.getByText("Other projects") !== null).toBe(true);
 
@@ -8587,7 +8533,7 @@ describe(`workbench session shell / ${scope}`, () => {
       expect(screen.getByRole("option", { name: /Card One/ }) !== null).toBe(true);
       expect(screen.getByRole("option", { name: /Beta Card/ }) !== null).toBe(true);
     });
-    const dialogText = textContent(screen.getByRole("dialog", { name: "Open card stage" }));
+    const dialogText = textContent(screen.getByRole("dialog", { name: "Open Page" }));
     expect(dialogText.indexOf("Current project") < dialogText.indexOf("Other projects")).toBe(true);
     expect(dialogText.indexOf("Card One") < dialogText.indexOf("Beta Card")).toBe(true);
 
@@ -8599,9 +8545,9 @@ describe(`workbench session shell / ${scope}`, () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
-      && JSON.stringify(call[1]).includes('"kind":"card_stage"')
+      && JSON.stringify(call[1]).includes('"kind":"page_stage"')
       && JSON.stringify(call[1]).includes('"projectId":"beta"')
-      && JSON.stringify(call[1]).includes('"cardId":"card-beta"')
+      && JSON.stringify(call[1]).includes('"pageId":"card-beta"')
     )).toBe(true);
   });
 
@@ -8859,7 +8805,7 @@ describe(`workbench session shell / ${scope}`, () => {
 
     const menu = screen.getByRole("menu");
     expect(within(menu).getByText("DB View") !== null).toBe(true);
-    expect(within(menu).getByText("Card Stage") !== null).toBe(true);
+    expect(within(menu).getByText("Page") !== null).toBe(true);
     expect(within(menu).getByText("Browser") !== null).toBe(true);
     expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Files") !== null).toBe(true);
@@ -9598,28 +9544,28 @@ describe(`workbench session shell / ${scope}`, () => {
     )).toBe(true);
   });
 
-  test("panel tab cycling between durable card stages keeps editors mounted and active-scoped", async () => {
-    const firstCardTab = makeSessionTab({
+  test("panel tab cycling between durable page stages keeps editors mounted and active-scoped", async () => {
+    const firstPageTab = makeSessionTab({
       id: "session:alpha:database-view:card-1",
       sessionId: "session:alpha:database-view",
       projectId: "alpha",
-      kind: "card_stage",
+      kind: "page_stage",
       title: "Card One",
       order: 0,
-      config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+      config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
     });
-    const secondCardTab = makeSessionTab({
+    const secondPageTab = makeSessionTab({
       id: "session:alpha:database-view:card-2",
       sessionId: "session:alpha:database-view",
       projectId: "alpha",
-      kind: "card_stage",
+      kind: "page_stage",
       title: "Card Two",
       order: 1,
-      config: { projectId: "alpha", cardId: "card-2", titleSnapshot: "Card Two" },
+      config: { projectId: "alpha", pageId: "card-2", titleSnapshot: "Card Two" },
     });
     const session = makeSession({
-      tabs: [firstCardTab, secondCardTab],
-      rightLayout: makePanelLayout([firstCardTab.id, secondCardTab.id], firstCardTab.id),
+      tabs: [firstPageTab, secondPageTab],
+      rightLayout: makePanelLayout([firstPageTab.id, secondPageTab.id], firstPageTab.id),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -9628,19 +9574,19 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const state = globalThis as {
-      __mockCardStageMountsByCardId?: Record<string, number>;
-      __mockCardStageUnmountsByCardId?: Record<string, number>;
-      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
+      __mockPageStageMountsByPageId?: Record<string, number>;
+      __mockPageStageUnmountsByPageId?: Record<string, number>;
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
     };
-    expect(state.__mockCardStageMountsByCardId?.["card-1"]).toBe(1);
-    expect(state.__mockCardStageMountsByCardId?.["card-2"]).toBe(1);
-    expect(state.__mockCardStageUnmountsByCardId?.["card-1"] ?? 0).toBe(0);
-    expect(state.__mockCardStagePropsByCardId?.["card-1"]?.isActivePanelTab).toBe(true);
-    expect(state.__mockCardStagePropsByCardId?.["card-2"]?.isActivePanelTab).toBe(false);
+    expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(1);
+    expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-1"] ?? 0).toBe(0);
+    expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockPageStagePropsByPageId?.["card-2"]?.isActivePanelTab).toBe(false);
 
     const firstEditor = screen.container.querySelector('[aria-label="Mock editor card-1"]');
     if (!(firstEditor instanceof HTMLElement)) {
-      throw new Error("Expected first card stage editor");
+      throw new Error("Expected first page stage editor");
     }
 
     invokeCalls = [];
@@ -9660,18 +9606,18 @@ describe(`workbench session shell / ${scope}`, () => {
       input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
-      && input.tabId === secondCardTab.id
+      && input.tabId === secondPageTab.id
     )).toBe(true);
-    expect(state.__mockCardStageMountsByCardId?.["card-1"]).toBe(1);
-    expect(state.__mockCardStageMountsByCardId?.["card-2"]).toBe(1);
-    expect(state.__mockCardStageUnmountsByCardId?.["card-1"] ?? 0).toBe(0);
-    expect(state.__mockCardStageUnmountsByCardId?.["card-2"] ?? 0).toBe(0);
-    expect(state.__mockCardStagePropsByCardId?.["card-1"]?.isActivePanelTab).toBe(false);
-    expect(state.__mockCardStagePropsByCardId?.["card-2"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(1);
+    expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-1"] ?? 0).toBe(0);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-2"] ?? 0).toBe(0);
+    expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(false);
+    expect(state.__mockPageStagePropsByPageId?.["card-2"]?.isActivePanelTab).toBe(true);
 
     const secondEditor = screen.container.querySelector('[aria-label="Mock editor card-2"]');
     if (!(secondEditor instanceof HTMLElement)) {
-      throw new Error("Expected second card stage editor");
+      throw new Error("Expected second page stage editor");
     }
 
     invokeCalls = [];
@@ -9691,14 +9637,14 @@ describe(`workbench session shell / ${scope}`, () => {
       input.sessionId === "session:alpha:database-view"
       && input.panelId === "right"
       && input.leafId === "main"
-      && input.tabId === firstCardTab.id
+      && input.tabId === firstPageTab.id
     )).toBe(true);
-    expect(state.__mockCardStageMountsByCardId?.["card-1"]).toBe(1);
-    expect(state.__mockCardStageMountsByCardId?.["card-2"]).toBe(1);
-    expect(state.__mockCardStageUnmountsByCardId?.["card-1"] ?? 0).toBe(0);
-    expect(state.__mockCardStageUnmountsByCardId?.["card-2"] ?? 0).toBe(0);
-    expect(state.__mockCardStagePropsByCardId?.["card-1"]?.isActivePanelTab).toBe(true);
-    expect(state.__mockCardStagePropsByCardId?.["card-2"]?.isActivePanelTab).toBe(false);
+    expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(1);
+    expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-1"] ?? 0).toBe(0);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-2"] ?? 0).toBe(0);
+    expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockPageStagePropsByPageId?.["card-2"]?.isActivePanelTab).toBe(false);
   });
 
   test("native panel tab cycle requests work while NFM editor content is focused", async () => {
@@ -10429,7 +10375,7 @@ describe(`workbench session shell / ${scope}`, () => {
 
   }
 
-  if (scope === "cards-shell-navigation") {
+  if (scope === "pages-shell-navigation") {
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
@@ -10464,15 +10410,15 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.queryAllByRole("tablist").length > 0).toBe(true);
   });
 
-  test("opens full-width single-group DB cards as renderer-local previews in a new right group", async () => {
+  test("opens full-width single-group database pages as renderer-local previews in a new right group", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -10496,7 +10442,7 @@ describe(`workbench session shell / ${scope}`, () => {
     })).toBe(false);
   });
 
-  test("opens durable DB card-stage tabs in the active group when the right panel is not full-width", async () => {
+  test("opens durable DB page-stage tabs in the active group when the right panel is not full-width", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
@@ -10508,11 +10454,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (
+      await (props?.openPageStage as (
         projectId: string,
-        cardId: string,
+        pageId: string,
         title?: string,
         options?: { openMode?: "preview" | "durable" },
       ) => Promise<void> | void)(
@@ -10533,10 +10479,10 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(input?.panelId).toBe("right");
     expect("targetLeafId" in (input ?? {})).toBe(false);
     expect("clientTabId" in (input ?? {})).toBe(false);
-    expect(input?.kind).toBe("card_stage");
+    expect(input?.kind).toBe("page_stage");
     expect(JSON.stringify(input?.config)).toBe(JSON.stringify({
       projectId: "alpha",
-      cardId: "card-1",
+      pageId: "card-1",
       titleSnapshot: "Card One",
     }));
 
@@ -10546,17 +10492,17 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-session-panels:ensure-right-leaf")).toBe(false);
   });
 
-  test("creates a right group before opening durable DB card-stage tabs from full-width single-group DB tabs", async () => {
+  test("creates a right group before opening durable DB page-stage tabs from full-width single-group DB tabs", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (
+      await (props?.openPageStage as (
         projectId: string,
-        cardId: string,
+        pageId: string,
         title?: string,
         options?: { openMode?: "preview" | "durable" },
       ) => Promise<void> | void)(
@@ -10581,15 +10527,15 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).toBe(`right:${input?.targetLeafId ?? ""}`);
   });
 
-  test("pins card-stage previews after panel interaction", async () => {
+  test("pins page-stage previews after panel interaction", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -10611,11 +10557,11 @@ describe(`workbench session shell / ${scope}`, () => {
 
     invokeCalls = [];
     const editor = screen.container.querySelector(".nfm-editor .ProseMirror");
-    if (!(editor instanceof HTMLElement)) throw new Error("Expected card stage editor preview");
+    if (!(editor instanceof HTMLElement)) throw new Error("Expected page stage editor preview");
     editor.focus();
     expect(document.activeElement).toBe(editor);
-    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
-    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
+    expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
     await pointerDownAndSettle(editor);
 
     await waitFor(() => {
@@ -10627,29 +10573,29 @@ describe(`workbench session shell / ${scope}`, () => {
       expect(input?.panelId).toBe("right");
       expect(input?.targetLeafId).toBe(previewLeafId);
       expect(input?.clientTabId).toBe(previewTabId);
-      expect(input?.kind).toBe("card_stage");
+      expect(input?.kind).toBe("page_stage");
       expect(input?.title).toBe("Card One");
       expect(JSON.stringify(input?.config)).toBe(JSON.stringify({
         projectId: "alpha",
-        cardId: "card-1",
+        pageId: "card-1",
         titleSnapshot: "Card One",
       }));
     });
     expect(screen.container.querySelector(".nfm-editor .ProseMirror")).toBe(editor);
     expect(document.activeElement).toBe(editor);
-    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
-    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
+    expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
   });
 
-  test("double-clicking a card-stage preview tab label pins it without remounting", async () => {
+  test("double-clicking a page-stage preview tab label pins it without remounting", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -10661,8 +10607,8 @@ describe(`workbench session shell / ${scope}`, () => {
     const previewTab = screen.getByRole("tab", { name: "Card One" });
     const previewTabId = previewTab.closest("[data-panel-tab-id]")?.getAttribute("data-panel-tab-id");
     expect(typeof previewTabId).toBe("string");
-    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
-    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
+    expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
 
     invokeCalls = [];
     await act(async () => {
@@ -10677,26 +10623,26 @@ describe(`workbench session shell / ${scope}`, () => {
       expect(createCall !== undefined).toBe(true);
       const input = createCall?.[1] as Record<string, unknown> | undefined;
       expect(input?.clientTabId).toBe(previewTabId);
-      expect(input?.kind).toBe("card_stage");
+      expect(input?.kind).toBe("page_stage");
     });
 
     const durableTab = screen.getByRole("tab", { name: "Card One" });
     expect(durableTab.closest("[data-panel-tab-id]")?.getAttribute("data-panel-tab-id")).toBe(previewTabId);
     expect(durableTab.closest('[data-app-shell-tab-preview="true"]')).toBe(null);
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
-    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
-    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
+    expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
   });
 
-  test("card-stage preview close control does not pin before closing", async () => {
+  test("page-stage preview close control does not pin before closing", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -10711,15 +10657,15 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBe(false);
   });
 
-  test("card-stage preview delete control does not pin before deleting", async () => {
+  test("page-stage preview delete control does not pin before deleting", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -10732,18 +10678,18 @@ describe(`workbench session shell / ${scope}`, () => {
     invokeCalls = [];
     await pointerActivate(screen.getByRole("button", { name: "Delete" }));
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBe(false);
-    expect((globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks).toBe(1);
+    expect((globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks).toBe(1);
   });
 
-  test("replaces the current card-stage preview when another DB card opens", async () => {
+  test("replaces the current page-stage preview when another DB card opens", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -10752,7 +10698,7 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-2",
         "Card Two",
@@ -10769,7 +10715,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBe(false);
   });
 
-  test("opens cross-project DB cards as previews owned by the active session project", async () => {
+  test("opens cross-project database pages as previews owned by the active session project", async () => {
     const screen = renderWorkbench({
       projects: [makeProject(), makeProject("beta", "Beta")],
     });
@@ -10777,9 +10723,9 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "beta",
         "card-beta",
         "Beta Card",
@@ -10793,7 +10739,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBe(false);
   });
 
-  test("renders cross-project card-stage tabs from their target project", async () => {
+  test("renders cross-project page-stage tabs from their target project", async () => {
     const session = makeSession({
       tabs: [
         {
@@ -10809,10 +10755,10 @@ describe(`workbench session shell / ${scope}`, () => {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Beta Card",
           panelId: "right",
-          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+          config: { projectId: "beta", pageId: "card-beta", titleSnapshot: "Beta Card" },
         },
       ],
     });
@@ -10827,22 +10773,22 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    const cardModel = cardStageProps?.card as {
-      card?: { id?: string };
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    const pageModel = pageStageProps?.page as {
+      page?: { id?: string };
     } | undefined;
-    const documentAuthority = cardStageProps?.documentAuthority as {
+    const documentAuthority = pageStageProps?.documentAuthority as {
       kind?: string;
       descriptor?: { projectId?: string; ownerBlockId?: string };
     } | undefined;
-    expect(cardStageProps?.projectId).toBe("beta");
-    expect(cardModel?.card?.id).toBe("card-beta");
+    expect(pageStageProps?.projectId).toBe("beta");
+    expect(pageModel?.page?.id).toBe("card-beta");
     expect(documentAuthority?.kind).toBe("yjs");
     expect(documentAuthority?.descriptor?.projectId).toBe("beta");
     expect(documentAuthority?.descriptor?.ownerBlockId).toBe("card-beta");
   });
 
-  test("card-stage editor can start a new thread in the current blank session", async () => {
+  test("page-stage editor can start a new thread in the current blank session", async () => {
     const session = makeBlankSession({
       id: "session:alpha:card-empty",
       tabs: [
@@ -10850,10 +10796,10 @@ describe(`workbench session shell / ${scope}`, () => {
           id: "card-tab",
           sessionId: "session:alpha:card-empty",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Card One",
           panelId: "right",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
       panels: makePanels({
@@ -10868,16 +10814,16 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    expect(cardStageProps?.sessionId).toBe("session:alpha:card-empty");
-    expect(cardStageProps?.canStartThreadInSession).toBe(true);
-    const startThread = cardStageProps?.onStartNewSessionThreadFromEditor as ((input: {
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    expect(pageStageProps?.sessionId).toBe("session:alpha:card-empty");
+    expect(pageStageProps?.canStartThreadInSession).toBe(true);
+    const startThread = pageStageProps?.onStartNewSessionThreadFromEditor as ((input: {
       projectId: string;
       targetSessionId?: string;
       prompt: string;
     }) => Promise<{ threadId: string; sessionId?: string }>) | undefined;
     if (!startThread) {
-      throw new Error("missing card-stage start-thread callback");
+      throw new Error("missing page-stage start-thread callback");
     }
 
     let result: { threadId: string; sessionId?: string } | null = null;
@@ -10908,7 +10854,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
   });
 
-  test("card-stage editor can open a mentioned thread session", async () => {
+  test("page-stage editor can open a mentioned thread session", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:card-open-source",
       threadId: "thread-source",
@@ -10917,10 +10863,10 @@ describe(`workbench session shell / ${scope}`, () => {
           id: "card-tab",
           sessionId: "session:alpha:card-open-source",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Card One",
           panelId: "right",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
       panels: makePanels({
@@ -10935,8 +10881,8 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    const openThread = cardStageProps?.onOpenCodexThread as ((threadId: string) => Promise<void>) | undefined;
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    const openThread = pageStageProps?.onOpenCodexThread as ((threadId: string) => Promise<void>) | undefined;
     expect(typeof openThread).toBe("function");
     if (!openThread) return;
 
@@ -10954,7 +10900,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(getThreadRow(screen.container, "Mention target").getAttribute("data-app-action-sidebar-thread-active")).toBe("true");
   });
 
-  test("labels cross-project card-stage tabs with their target project", async () => {
+  test("labels cross-project page-stage tabs with their target project", async () => {
     const session = makeSession({
       tabs: [
         {
@@ -10970,10 +10916,10 @@ describe(`workbench session shell / ${scope}`, () => {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Stale Beta Card",
           panelId: "right",
-          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Stale Beta Card" },
+          config: { projectId: "beta", pageId: "card-beta", titleSnapshot: "Stale Beta Card" },
         },
       ],
       rightLayout: makePanelLayout(["db-tab", "card-tab"], "card-tab"),
@@ -10993,11 +10939,11 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent).toBe("Beta");
     expect(screen.getByLabelText("Close Beta project, Beta Card tab") !== null).toBe(true);
 
-    const cardStageProps = (globalThis as {
-      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
-    }).__mockCardStagePropsByCardId?.["card-beta"];
-    const publishLiveTitle = cardStageProps?.onTitleChange as ((title: string) => void) | undefined;
-    const disposeLiveTitle = cardStageProps?.onTitleSourceDispose as (() => void) | undefined;
+    const pageStageProps = (globalThis as {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId?.["card-beta"];
+    const publishLiveTitle = pageStageProps?.onTitleChange as ((title: string) => void) | undefined;
+    const disposeLiveTitle = pageStageProps?.onTitleSourceDispose as (() => void) | undefined;
     expect(typeof publishLiveTitle).toBe("function");
     expect(typeof disposeLiveTitle).toBe("function");
     if (!publishLiveTitle || !disposeLiveTitle) return;
@@ -11042,17 +10988,17 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:update")).toBe(false);
   });
 
-  test("keeps same-project card-stage tabs unprefixed while preserving default title tooltips", async () => {
+  test("keeps same-project page-stage tabs unprefixed while preserving default title tooltips", async () => {
     const session = makeSession({
       tabs: [
         {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Card One",
           panelId: "right",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
     });
@@ -11086,10 +11032,10 @@ describe(`workbench session shell / ${scope}`, () => {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Beta Card",
           panelId: "right",
-          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+          config: { projectId: "beta", pageId: "card-beta", titleSnapshot: "Beta Card" },
         },
       ],
     });
@@ -11128,7 +11074,7 @@ describe(`workbench session shell / ${scope}`, () => {
     })).toBe(true);
   });
 
-  test("shows a card-stage skeleton while card detail hydration is pending", async () => {
+  test("shows a page-stage skeleton while card detail hydration is pending", async () => {
     let resolveCardDetail!: (value: unknown) => void;
     const pendingCardDetail = new Promise<unknown>((resolve) => {
       resolveCardDetail = resolve;
@@ -11139,17 +11085,17 @@ describe(`workbench session shell / ${scope}`, () => {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Card One",
           panelId: "right",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
     });
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, cardId) => cardId === "card-1"
+      cardGetOverride: (_projectId, pageId) => pageId === "card-1"
         ? pendingCardDetail
         : undefined,
     });
@@ -11158,10 +11104,10 @@ describe(`workbench session shell / ${scope}`, () => {
     const loadingShell = screen.getByRole("status", { name: "Loading Card One" });
     expect(loadingShell !== null).toBe(true);
     expect(within(loadingShell).queryByRole("button", { name: "Close" })).toBeNull();
-    expect(within(loadingShell).getByRole("button", { name: "Card actions" }).hasAttribute("disabled")).toBe(true);
+    expect(within(loadingShell).getByRole("button", { name: "Page actions" }).hasAttribute("disabled")).toBe(true);
     expect(within(loadingShell).getByRole("button", { name: "History" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.queryByText("Card not found") === null).toBe(true);
-    expect(screen.queryByText("Card:card-1") === null).toBe(true);
+    expect(screen.queryByText("Page not found") === null).toBe(true);
+    expect(screen.queryByText("Page:card-1") === null).toBe(true);
 
     await act(async () => {
       resolveCardDetail({
@@ -11180,9 +11126,9 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     await settleAsyncRender();
 
-    expect(screen.getByText("Card:card-1") !== null).toBe(true);
+    expect(screen.getByText("Page:card-1") !== null).toBe(true);
     expect(screen.queryByRole("status", { name: "Loading Card One" }) === null).toBe(true);
-    expect(screen.queryByText("Card not found") === null).toBe(true);
+    expect(screen.queryByText("Page not found") === null).toBe(true);
   });
 
   test("opens a Document-parented Card without requiring a Database row", async () => {
@@ -11192,12 +11138,12 @@ describe(`workbench session shell / ${scope}`, () => {
           id: "nested-card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Nested Card",
           panelId: "right",
           config: {
             projectId: "alpha",
-            cardId: "nested-card",
+            pageId: "nested-card",
             titleSnapshot: "Nested Card",
           },
         },
@@ -11206,9 +11152,9 @@ describe(`workbench session shell / ${scope}`, () => {
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, cardId) => cardId === "nested-card"
+      cardGetOverride: (_projectId, pageId) => pageId === "nested-card"
         ? {
-            id: cardId,
+            id: pageId,
             title: "Nested Card",
             description: "Independent body",
             archived: false,
@@ -11221,11 +11167,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.getByText("Card:nested-card") !== null).toBe(true);
+    expect(screen.getByText("Page:nested-card") !== null).toBe(true);
     const props = (globalThis as {
-      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
-    }).__mockCardStagePropsByCardId?.["nested-card"];
-    const model = props?.card as {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId?.["nested-card"];
+    const model = props?.page as {
       databaseContext?: { kind?: string };
     } | undefined;
     expect(model?.databaseContext?.kind).toBe("standalone");
@@ -11233,19 +11179,19 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(props?.onMove).toBeUndefined();
   });
 
-  test("persists the ancestor trail when a card stage opens a nested card tab", async () => {
+  test("persists the ancestor trail when a page stage opens a nested card tab", async () => {
     const session = makeSession({
       tabs: [
         {
           id: "parent-card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Parent Card",
           panelId: "right",
           config: {
             projectId: "alpha",
-            cardId: "parent-card",
+            pageId: "parent-card",
             titleSnapshot: "Parent Card",
           },
         },
@@ -11254,9 +11200,9 @@ describe(`workbench session shell / ${scope}`, () => {
     renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, cardId) => cardId === "parent-card"
+      cardGetOverride: (_projectId, pageId) => pageId === "parent-card"
         ? {
-            id: cardId,
+            id: pageId,
             title: "Parent Card",
             description: "Parent body",
             archived: false,
@@ -11271,20 +11217,20 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as {
-      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
-    }).__mockCardStagePropsByCardId?.["parent-card"];
-    const onOpenCard = props?.onOpenCard as ((input: {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId?.["parent-card"];
+    const onOpenPage = props?.onOpenPage as ((input: {
       projectId: string;
-      cardId: string;
+      pageId: string;
       titleSnapshot?: string;
     }) => void) | undefined;
-    expect(typeof onOpenCard).toBe("function");
+    expect(typeof onOpenPage).toBe("function");
 
     invokeCalls = [];
     await act(async () => {
-      onOpenCard?.({
+      onOpenPage?.({
         projectId: "alpha",
-        cardId: "nested-card",
+        pageId: "nested-card",
         titleSnapshot: "Nested Card",
       });
       await Promise.resolve();
@@ -11295,62 +11241,62 @@ describe(`workbench session shell / ${scope}`, () => {
     const input = createCall?.[1] as {
       config?: {
         projectId?: string;
-        cardId?: string;
+        pageId?: string;
         ancestors?: unknown;
       };
     } | undefined;
     expect(input?.config).toEqual({
       projectId: "alpha",
-      cardId: "nested-card",
+      pageId: "nested-card",
       titleSnapshot: "Nested Card",
       ancestors: [{
-        cardId: "parent-card",
+        pageId: "parent-card",
       }],
     });
   });
 
-  test("renders card detail load failures as load errors instead of missing cards", async () => {
+  test("renders Page detail load failures as load errors instead of missing pages", async () => {
     const session = makeSession({
       tabs: [
         {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Card One",
           panelId: "right",
-          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
         },
       ],
     });
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, cardId) => {
-        if (cardId !== "card-1") return undefined;
+      cardGetOverride: (_projectId, pageId) => {
+        if (pageId !== "card-1") return undefined;
         throw new Error("Database is unavailable");
       },
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.getByText("Could not load card") !== null).toBe(true);
+    expect(screen.getByText("Could not load Page") !== null).toBe(true);
     expect(screen.getByText(/Database is unavailable/) !== null).toBe(true);
-    expect(screen.queryByText("Card not found") === null).toBe(true);
+    expect(screen.queryByText("Page not found") === null).toBe(true);
     expect(screen.queryByRole("button", { name: "Close tab" }) === null).toBe(true);
   });
 
-  test("renders a missing card-stage state instead of a blank tab", async () => {
+  test("renders a missing page-stage state instead of a blank tab", async () => {
     const session = makeSession({
       tabs: [
         {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Missing Beta Card",
           panelId: "right",
-          config: { projectId: "beta", cardId: "missing-card", titleSnapshot: "Missing Beta Card" },
+          config: { projectId: "beta", pageId: "missing-card", titleSnapshot: "Missing Beta Card" },
         },
       ],
     });
@@ -11361,22 +11307,22 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.getByText("Card not found") !== null).toBe(true);
+    expect(screen.getByText("Page not found") !== null).toBe(true);
     expect(screen.getByRole("button", { name: "Close tab" }) !== null).toBe(true);
-    expect(screen.queryByText("Card:missing") === null).toBe(true);
+    expect(screen.queryByText("Page:missing") === null).toBe(true);
   });
 
-  test("falls back to the content project id when a cross-project card tab project is missing", async () => {
+  test("falls back to the content project id when a cross-project Page tab project is missing", async () => {
     const session = makeSession({
       tabs: [
         {
           id: "card-tab",
           sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          kind: "card_stage",
+          kind: "page_stage",
           title: "Beta Card",
           panelId: "right",
-          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+          config: { projectId: "beta", pageId: "card-beta", titleSnapshot: "Beta Card" },
         },
       ],
     });
@@ -11392,7 +11338,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent).toBe("beta");
   });
 
-  test("marks cards active in the DB view when selected card-stage tabs are visible", async () => {
+  test("marks pages active in the database view when selected Page Stage tabs are visible", async () => {
     const rightLayout = splitProjectSessionPanelLeaf(
       makePanelLayout(["db-tab", "card-tab"], "db-tab"),
       {
@@ -11434,10 +11380,10 @@ describe(`workbench session shell / ${scope}`, () => {
                 id: "card-tab",
                 sessionId: "session:alpha:database-view",
                 projectId: "alpha",
-                kind: "card_stage",
+                kind: "page_stage",
                 title: "Card One",
                 panelId: "right",
-                config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+                config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
               },
             ],
           }),
@@ -11448,11 +11394,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const activeCardIds = props?.activePanelCardStageCardIds as ReadonlySet<string> | undefined;
-    expect(activeCardIds?.has("card-1") ?? false).toBe(true);
+    const activePageIds = props?.activePanelPageStagePageIds as ReadonlySet<string> | undefined;
+    expect(activePageIds?.has("card-1") ?? false).toBe(true);
   });
 
-  test("marks cards active in the DB view when a card-stage preview is visible", async () => {
+  test("marks pages active in the database view when a Page Stage preview is visible", async () => {
     const rightLayout = splitProjectSessionPanelLeaf(
       makePanelLayout(["db-tab", "browser-tab"], "db-tab"),
       {
@@ -11508,9 +11454,9 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -11520,11 +11466,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const nextProps = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const activeCardIds = nextProps?.activePanelCardStageCardIds as ReadonlySet<string> | undefined;
-    expect(activeCardIds?.has("card-1") ?? false).toBe(true);
+    const activePageIds = nextProps?.activePanelPageStagePageIds as ReadonlySet<string> | undefined;
+    expect(activePageIds?.has("card-1") ?? false).toBe(true);
   });
 
-  test("does not mark cards active from selected card-stage tabs in collapsed panels", async () => {
+  test("does not mark pages active from selected Page Stage tabs in collapsed panels", async () => {
     const panels = makePanels({
       rightTabIds: ["db-tab"],
       rightActiveTabId: "db-tab",
@@ -11552,10 +11498,10 @@ describe(`workbench session shell / ${scope}`, () => {
                 id: "card-tab",
                 sessionId: "session:alpha:database-view",
                 projectId: "alpha",
-                kind: "card_stage",
+                kind: "page_stage",
                 title: "Card One",
                 panelId: "bottom",
-                config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+                config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
               },
             ],
           }),
@@ -11566,11 +11512,11 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const activeCardIds = props?.activePanelCardStageCardIds as ReadonlySet<string> | undefined;
-    expect(activeCardIds?.has("card-1") ?? false).toBe(false);
+    const activePageIds = props?.activePanelPageStagePageIds as ReadonlySet<string> | undefined;
+    expect(activePageIds?.has("card-1") ?? false).toBe(false);
   });
 
-  test("focusing an existing card tab from the DB tab preserves full-width right panel mode", async () => {
+  test("focusing an existing Page tab from the database tab preserves full-width right panel mode", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
@@ -11589,10 +11535,10 @@ describe(`workbench session shell / ${scope}`, () => {
                 id: "card-tab",
                 sessionId: "session:alpha:database-view",
                 projectId: "alpha",
-                kind: "card_stage",
+                kind: "page_stage",
                 title: "Card One",
                 panelId: "right",
-                config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+                config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
               },
             ],
             rightLayout: makePanelLayout(["session:alpha:database-view:db", "card-tab"], "session:alpha:database-view:db"),
@@ -11604,9 +11550,9 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",
@@ -11626,7 +11572,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.queryByRole("button", { name: "Restore panel width" }) !== null).toBe(true);
   });
 
-  test("opens cards from a split DB tab in the nearest right tab group", async () => {
+  test("opens pages from a split database tab in the nearest right tab group", async () => {
     const rightLayout = splitProjectSessionPanelLeaf(
       makePanelLayout(["db-tab", "browser-tab"], "db-tab"),
       {
@@ -11681,9 +11627,9 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(typeof props?.openCardStage).toBe("function");
+    expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
         "alpha",
         "card-1",
         "Card One",

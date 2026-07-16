@@ -193,13 +193,13 @@
   --spacing-panel: 1.5rem;
   --color-background-surface: var(--gray-0);
   --color-background-elevated-primary-opaque: var(--gray-0);
-  --card-stage-body-gutter-inline: calc(var(--spacing) * 18);
-  --card-stage-body-content-max-width: 48rem;
-  --card-stage-body-max-width: calc(
-    var(--card-stage-body-content-max-width) +
-      var(--card-stage-body-gutter-inline) * 2
+  --page-stage-body-gutter-inline: calc(var(--spacing) * 18);
+  --page-stage-body-content-max-width: 48rem;
+  --page-stage-body-max-width: calc(
+    var(--page-stage-body-content-max-width) +
+      var(--page-stage-body-gutter-inline) * 2
   );
-  --pane-content-max-width: var(--card-stage-body-content-max-width);
+  --pane-content-max-width: var(--page-stage-body-content-max-width);
   --diffs-font-family: var(--font-mono);
   --diffs-font-size: var(--vscode-editor-font-size, 14px);
   --diffs-line-height: calc(var(--diffs-font-size, 14px) * 1.8);

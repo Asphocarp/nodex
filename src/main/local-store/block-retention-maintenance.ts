@@ -505,6 +505,22 @@ const collectCandidateClosure = (
     throw new Error("Retention Block identities changed before retirement");
   }
   options.faultInjector?.("after_identity_retirement", candidate.rootBlockId);
+  database.prepare(
+    `DELETE FROM database_view_page_positions
+     WHERE page_block_id IN (${placeholders(blockIds.length)})`,
+  ).run(...blockIds);
+  database.prepare(
+    `DELETE FROM data_source_page_memberships
+     WHERE page_block_id IN (${placeholders(blockIds.length)})`,
+  ).run(...blockIds);
+  database.prepare(
+    `DELETE FROM library_block_placements
+     WHERE block_id IN (${placeholders(blockIds.length)})`,
+  ).run(...blockIds);
+  database.prepare(
+    `DELETE FROM pages
+     WHERE block_id IN (${placeholders(blockIds.length)})`,
+  ).run(...blockIds);
   if (documentIds.length > 0) {
     const ownerships = database
       .prepare(

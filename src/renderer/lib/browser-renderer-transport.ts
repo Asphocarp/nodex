@@ -20,9 +20,9 @@ import type {
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
 import type {
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
 } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
@@ -32,24 +32,15 @@ import {
   decodeOwnedDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
 import {
-  decodeCardTargetReadModelHttp,
+  decodePageTargetReadModelHttp,
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
 import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
-import { parseCardMetadataPropertySnapshotCommandResult } from "../../shared/card-metadata-property-snapshot-transport";
-import { parseCardDetailCommandResult } from "../../shared/card-detail";
+import { parsePageDetailResult } from "../../shared/page-detail";
 import {
-  parseDatabaseCatalogSnapshotCommandResult,
-  parseDatabaseManagementSnapshotCommandResult,
-  parseDatabaseMutationCommandResult,
-  parseDatabaseReadCommandResult,
-  parseDatabaseViewSnapshotCommandResult,
-  parsePrimaryDatabaseViewSnapshotCommandResult,
-} from "../../shared/database-transport";
-import type {
-  GeneralDatabaseDescriptor,
-  GeneralDatabaseViewQuery,
-} from "../../shared/database-query";
+  parseDatabaseApplyResult,
+  parseDatabaseModuleReadResult,
+} from "../../shared/database-module-transport";
 import {
   parseDocumentOperationCommandResult,
   type DocumentMutationRequest,
@@ -60,11 +51,6 @@ import {
   type AdditionalDocumentCommandResult,
 } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
-import {
-  parseCardProjectTransferCommandResult,
-  type CardProjectTransferCommandResult,
-} from "../../shared/card-project-transfer";
-import type { PublicCardProjectTransferIntent } from "../../shared/card-project-transfer-transport";
 import type { BlockTransferCommandResult } from "../../shared/block-transfer";
 import {
   decodeBlockTransferHttpResult,
@@ -81,16 +67,17 @@ import type {
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 import {
-  parseCardLifecycleMutationCommandResult,
-  type CardLifecycleMutationCommandResult,
-  type CardLifecycleMutationRequest,
-} from "../../shared/card-lifecycle";
-import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
-import type { ListCardHistoryRequest } from "../../shared/card-history";
+  parsePageLifecycleMutationCommandResult,
+  type PageLifecycleMutationCommandResult,
+  type PageLifecycleMutationRequest,
+} from "../../shared/page-lifecycle";
+import type { PageLifecyclePreflightResult } from "../../shared/page-lifecycle-runtime";
+import { parsePageLifecyclePreflightResult } from "../../shared/page-lifecycle-transport";
+import type { ListPageHistoryRequest } from "../../shared/page-history";
 import {
-  parseCardHistoryCommandResult,
-  type CardHistoryCommandResult,
-} from "../../shared/card-history-transport";
+  parsePageHistoryCommandResult,
+  type PageHistoryCommandResult,
+} from "../../shared/page-history-transport";
 
 const decodeDocumentHistoryResponse = <T>(
   value: unknown,
@@ -897,38 +884,34 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return parseBlockPropertyMutationCommandResult(await response.json());
     }
-    case "cards:metadata-properties:snapshot": {
-      const [projectId, cardBlockId] = args as [string, string];
+    case "pages:detail:get": {
+      const [projectId, pageId] = args as [string, string];
       const response = await fetch(
         toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/cards/${encodeURIComponent(cardBlockId)}/metadata-property-snapshot`,
+          `/api/projects/${encodeURIComponent(projectId)}/pages/${encodeURIComponent(pageId)}`,
         ),
         { headers: { Accept: "application/json" } },
       );
-      return parseCardMetadataPropertySnapshotCommandResult(
-        await response.json(),
-      );
+      return parsePageDetailResult(await response.json());
     }
-    case "cards:lifecycle:preflight": {
-      const [projectId, cardId] = args as [string, string];
+    case "pages:lifecycle:preflight": {
+      const [projectId, pageId] = args as [string, string];
       const response = await fetch(
         toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/card-lifecycle-preflight?cardId=${encodeURIComponent(cardId)}`,
+          `/api/projects/${encodeURIComponent(projectId)}/page-lifecycle-preflight?pageId=${encodeURIComponent(pageId)}`,
         ),
         { headers: { Accept: "application/json" } },
       );
-      return parseDatabaseReadCommandResult(
-        await response.json(),
-      ) as CardLifecyclePreflightResult;
+      return parsePageLifecyclePreflightResult(await response.json());
     }
-    case "cards:lifecycle:apply": {
+    case "pages:lifecycle:apply": {
       const [projectId, request] = args as [
         string,
-        CardLifecycleMutationRequest,
+        PageLifecycleMutationRequest,
       ];
       const response = await fetch(
         toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/card-lifecycle-mutations`,
+          `/api/projects/${encodeURIComponent(projectId)}/page-lifecycle-mutations`,
         ),
         {
           method: "POST",
@@ -939,13 +922,13 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           body: JSON.stringify(request),
         },
       );
-      return parseCardLifecycleMutationCommandResult(await response.json());
+      return parsePageLifecycleMutationCommandResult(await response.json());
     }
-    case "databases:mutate": {
+    case "database-module:read": {
       const [projectId, request] = args as [string, unknown];
       const response = await fetch(
         toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/database-mutations`,
+          `/api/projects/${encodeURIComponent(projectId)}/database-module/read`,
         ),
         {
           method: "POST",
@@ -956,106 +939,45 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           body: JSON.stringify(request),
         },
       );
-      return parseDatabaseMutationCommandResult(await response.json());
+      return parseDatabaseModuleReadResult(await response.json());
     }
-    case "databases:catalog:get": {
-      const [projectId] = args as [string];
-      const response = await fetch(
-        toApiUrl(`/api/projects/${encodeURIComponent(projectId)}/databases`),
-        { headers: { Accept: "application/json" } },
-      );
-      return parseDatabaseCatalogSnapshotCommandResult(await response.json());
-    }
-    case "databases:management:get": {
-      const [projectId] = args as [string];
+    case "database-module:apply": {
+      const [projectId, request] = args as [string, unknown];
       const response = await fetch(
         toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/databases/management`,
+          `/api/projects/${encodeURIComponent(projectId)}/database-module/apply`,
         ),
-        { headers: { Accept: "application/json" } },
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(request),
+        },
       );
-      return parseDatabaseManagementSnapshotCommandResult(
-        await response.json(),
-      );
+      return parseDatabaseApplyResult(await response.json());
     }
-    case "databases:descriptor:get": {
-      const [projectId, databaseBlockId] = args as [string, string];
-      const response = await fetch(
-        toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseBlockId)}`,
-        ),
-        { headers: { Accept: "application/json" } },
-      );
-      return parseDatabaseReadCommandResult<GeneralDatabaseDescriptor>(
-        await response.json(),
-      );
-    }
-    case "databases:primary:get": {
-      const [projectId] = args as [string];
-      const response = await fetch(
-        toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/databases/primary`,
-        ),
-        { headers: { Accept: "application/json" } },
-      );
-      return parseDatabaseReadCommandResult<GeneralDatabaseDescriptor>(
-        await response.json(),
-      );
-    }
-    case "database-views:primary:snapshot": {
-      const [projectId] = args as [string];
-      const response = await fetch(
-        toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/database-views/primary/snapshot`,
-        ),
-        { headers: { Accept: "application/json" } },
-      );
-      return parsePrimaryDatabaseViewSnapshotCommandResult(
-        await response.json(),
-      );
-    }
-    case "database-views:snapshot": {
-      const [projectId, viewId] = args as [string, string];
-      const response = await fetch(
-        toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/database-views/${encodeURIComponent(viewId)}/snapshot`,
-        ),
-        { headers: { Accept: "application/json" } },
-      );
-      return parseDatabaseViewSnapshotCommandResult(await response.json());
-    }
-    case "database-views:query": {
-      const [projectId, viewId] = args as [string, string];
-      const response = await fetch(
-        toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/database-views/${encodeURIComponent(viewId)}/query`,
-        ),
-        { headers: { Accept: "application/json" } },
-      );
-      return parseDatabaseReadCommandResult<GeneralDatabaseViewQuery>(
-        await response.json(),
-      );
-    }
-    case "card-target:resolve": {
+    case "page-target:resolve": {
       const [input] = args as [
         {
           requestingProjectId: string;
-          targetBlockId: string;
+          targetPageId: string;
         },
       ];
       const res = await fetch(
         toApiUrl(
           `/api/projects/${encodeURIComponent(input.requestingProjectId)}` +
-            `/card-targets/${encodeURIComponent(input.targetBlockId)}`,
+            `/page-targets/${encodeURIComponent(input.targetPageId)}`,
         ),
       );
       if (res.status === 404) return null;
       if (!res.ok) {
         throw new Error(
-          `Card target lookup failed with status ${res.status}`,
+          `Page target lookup failed with status ${res.status}`,
         );
       }
-      return decodeCardTargetReadModelHttp(await res.json());
+      return decodePageTargetReadModelHttp(await res.json());
     }
     case "database-view:reference:get": {
       const [input] = args as [
@@ -1084,7 +1006,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return decodeDatabaseViewReadModelHttp(await res.json());
     }
     case "database-rows:details:get": {
-      const [projectId, input] = args as [string, { cardIds: string[] }];
+      const [projectId, input] = args as [string, { pageIds: string[] }];
       const res = await fetch(
         toApiUrl(
           `/api/projects/${encodeURIComponent(projectId)}/database-rows/details`,
@@ -1098,11 +1020,11 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       if (!res.ok) return [];
       return res.json();
     }
-    case "cards:search": {
+    case "pages:search": {
       const [input] = args as [
         { projectIds: string[]; query: string; limit?: number },
       ];
-      const res = await fetch(toApiUrl("/api/cards/search"), {
+      const res = await fetch(toApiUrl("/api/pages/search"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
@@ -1110,19 +1032,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       if (!res.ok) return [];
       return res.json();
     }
-    case "card:get": {
-      const [projectId, cardId] = args as [string, string];
-      const params = new URLSearchParams({ cardId });
-      const res = await fetch(
-        toApiUrl(
-          `/api/projects/${encodeURIComponent(projectId)}/card?${params.toString()}`,
-        ),
-      );
-      return parseCardDetailCommandResult(await res.json());
-    }
     case "database-row:get": {
-      const [projectId, cardId, status] = args as [string, string, string?];
-      const params = new URLSearchParams({ cardId });
+      const [projectId, pageId, status] = args as [string, string, string?];
+      const params = new URLSearchParams({ pageId });
       if (status) params.set("status", status);
       const res = await fetch(
         toApiUrl(
@@ -1163,14 +1075,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return res.json();
     }
-    case "card:occurrence:complete": {
+    case "page:occurrence:complete": {
       const [projectId, input, sessionId] = args as [
         string,
-        CardOccurrenceCompleteInput,
+        PageOccurrenceCompleteInput,
         string?,
       ];
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card-occurrence/complete`),
+        toApiUrl(`/api/projects/${projectId}/page-occurrence/complete`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1183,14 +1095,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return res.json();
     }
-    case "card:occurrence:skip": {
+    case "page:occurrence:skip": {
       const [projectId, input, sessionId] = args as [
         string,
-        CardOccurrenceActionInput,
+        PageOccurrenceActionInput,
         string?,
       ];
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card-occurrence/skip`),
+        toApiUrl(`/api/projects/${projectId}/page-occurrence/skip`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1203,14 +1115,14 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return res.json();
     }
-    case "card:occurrence:update": {
+    case "page:occurrence:update": {
       const [projectId, input, sessionId] = args as [
         string,
-        CardOccurrenceUpdateInput,
+        PageOccurrenceUpdateInput,
         string?,
       ];
       const res = await fetch(
-        toApiUrl(`/api/projects/${projectId}/card-occurrence`),
+        toApiUrl(`/api/projects/${projectId}/page-occurrence`),
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2215,7 +2127,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 
 type ProjectEventName =
   | "board-changed"
-  | "card-target-changed"
+  | "page-target-changed"
   | "database-changed"
   | "project-sessions-changed";
 
@@ -2268,7 +2180,7 @@ const ensureBrowserProjectEventStream = (
       const eventName = event.event;
       if (
         eventName !== "board-changed" &&
-        eventName !== "card-target-changed" &&
+        eventName !== "page-target-changed" &&
         eventName !== "database-changed" &&
         eventName !== "project-sessions-changed"
       ) {
@@ -2325,14 +2237,14 @@ function subscribeBoardChanges(
   });
 }
 
-function subscribeCardTargetChanges(
+function subscribePageTargetChanges(
   projectId: string,
-  callback: (event: import("../../shared/card-target-events").CardTargetChangedEvent) => void,
+  callback: (event: import("../../shared/page-target-events").PageTargetChangedEvent) => void,
 ): () => void {
   return subscribeBrowserProjectEvent(
     projectId,
-    "card-target-changed",
-    (event) => callback(event as unknown as import("../../shared/card-target-events").CardTargetChangedEvent),
+    "page-target-changed",
+    (event) => callback(event as unknown as import("../../shared/page-target-events").PageTargetChangedEvent),
   );
 }
 
@@ -2538,29 +2450,29 @@ function subscribeWindowFocusChanges(
 
 export const browserRendererTransport = {
   kind: "browser" as const,
-  readCardLifecyclePreflight(
+  readPageLifecyclePreflight(
     projectId: string,
-    cardId: string,
-  ): Promise<CardLifecyclePreflightResult> {
+    pageId: string,
+  ): Promise<PageLifecyclePreflightResult> {
     return invoke(
-      "cards:lifecycle:preflight",
+      "pages:lifecycle:preflight",
       projectId,
-      cardId,
-    ) as Promise<CardLifecyclePreflightResult>;
+      pageId,
+    ) as Promise<PageLifecyclePreflightResult>;
   },
-  mutateCardLifecycle(
+  mutatePageLifecycle(
     projectId: string,
-    request: CardLifecycleMutationRequest,
-  ): Promise<CardLifecycleMutationCommandResult> {
+    request: PageLifecycleMutationRequest,
+  ): Promise<PageLifecycleMutationCommandResult> {
     return invoke(
-      "cards:lifecycle:apply",
+      "pages:lifecycle:apply",
       projectId,
       request,
-    ) as Promise<CardLifecycleMutationCommandResult>;
+    ) as Promise<PageLifecycleMutationCommandResult>;
   },
-  async listCardHistory(
-    request: ListCardHistoryRequest,
-  ): Promise<CardHistoryCommandResult> {
+  async listPageHistory(
+    request: ListPageHistoryRequest,
+  ): Promise<PageHistoryCommandResult> {
     const query = new URLSearchParams();
     if (request.pageSize !== undefined) {
       query.set("pageSize", String(request.pageSize));
@@ -2577,11 +2489,11 @@ export const browserRendererTransport = {
     const suffix = query.size === 0 ? "" : `?${query.toString()}`;
     const response = await fetch(
       toApiUrl(
-        `/api/projects/${encodeURIComponent(request.projectId)}/cards/${encodeURIComponent(request.cardBlockId)}/history${suffix}`,
+        `/api/projects/${encodeURIComponent(request.requestingProjectId)}/pages/${encodeURIComponent(request.pageId)}/history${suffix}`,
       ),
       { headers: { Accept: "application/json" } },
     );
-    return parseCardHistoryCommandResult(await response.json());
+    return parsePageHistoryCommandResult(await response.json());
   },
   async getOwnedDocumentDescriptor(
     projectId: string,
@@ -2678,25 +2590,6 @@ export const browserRendererTransport = {
     );
     return parseAdditionalDocumentCommandResult(await response.json());
   },
-  async transferCardProject(
-    sourceProjectId: string,
-    intent: PublicCardProjectTransferIntent,
-  ): Promise<CardProjectTransferCommandResult> {
-    const response = await fetch(
-      toApiUrl(
-        `/api/projects/${encodeURIComponent(sourceProjectId)}/card-transfers`,
-      ),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(intent),
-      },
-    );
-    return parseCardProjectTransferCommandResult(await response.json());
-  },
   async transferBlocks(
     projectId: string,
     intent: PublicBlockTransferIntent,
@@ -2784,7 +2677,7 @@ export const browserRendererTransport = {
   },
   invoke,
   subscribeBoardChanges,
-  subscribeCardTargetChanges,
+  subscribePageTargetChanges,
   subscribeDatabaseChanges,
   subscribeProjectSessionChanges,
   subscribeProjectChanges,

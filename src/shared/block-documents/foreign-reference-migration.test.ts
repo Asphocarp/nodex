@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "./block-document-codec";
 import { isLegacyForeignBodyReference } from "./derived-records";
 import {
@@ -12,7 +12,7 @@ import {
 
 const legacyDocument = () => {
   let sequence = 0;
-  return createCardDocumentGenesis({
+  return createPageDocumentGenesis({
     documentId: "document:legacy-reference-host",
     title: "Host",
     nfm: [
@@ -31,8 +31,8 @@ const legacyDocument = () => {
 describe("foreign reference Document migration", () => {
   test("replaces legacy projections with childless canonical references and preserves source IDs", () => {
     const source = legacyDocument();
-    const before = materializeCardDocument(source.document);
-    const cardReferenceId = before.blockTree[0]?.id ?? "";
+    const before = materializePageDocument(source.document);
+    const pageReferenceId = before.blockTree[0]?.id ?? "";
     const cardToggleId = before.blockTree[1]?.id ?? "";
     const queryId = before.blockTree[2]?.id ?? "";
     const removedToggleChildIds = before.blockTree[1]?.children.map(
@@ -41,12 +41,12 @@ describe("foreign reference Document migration", () => {
 
     const migration = migrateForeignReferences(source.document, [
       {
-        kind: "card",
-        sourceBlockId: cardReferenceId,
+        kind: "page",
+        sourceBlockId: pageReferenceId,
         targetBlockId: "card-a",
       },
       {
-        kind: "card",
+        kind: "page",
         sourceBlockId: cardToggleId,
         targetBlockId: "recovered-card",
       },
@@ -58,28 +58,28 @@ describe("foreign reference Document migration", () => {
       },
     ]);
 
-    expect(materializeCardDocument(source.document).nfm).toBe(before.nfm);
+    expect(materializePageDocument(source.document).nfm).toBe(before.nfm);
     expect(migration.materialization.references.some(isLegacyForeignBodyReference)).toBe(false);
     expect(migration.migratedBlockIds.join(",")).toBe(
-      [cardReferenceId, cardToggleId, queryId].join(","),
+      [pageReferenceId, cardToggleId, queryId].join(","),
     );
     expect(migration.removedDescendantBlockIds.join(",")).toBe(
       removedToggleChildIds.join(","),
     );
-    expect(migration.materialization.blockTree[0]?.id).toBe(cardReferenceId);
+    expect(migration.materialization.blockTree[0]?.id).toBe(pageReferenceId);
     expect(migration.materialization.blockTree[1]?.id).toBe(cardToggleId);
     expect(migration.materialization.blockTree[1]?.children.length).toBe(0);
     expect(migration.materialization.blockTree[2]?.id).toBe(queryId);
     expect(migration.materialization.nfm).toBe([
-      '<mention-card url="nodex://cards/card-a" />',
-      '<mention-card url="nodex://cards/recovered-card" />',
+      '<page-ref url="nodex://pages/card-a" />',
+      '<page-ref url="nodex://pages/recovered-card" />',
       `<database-view-ref database-view="database-view:inline:${queryId}" display-hint="Project B" />`,
     ].join("\n"));
 
     const replay = new Y.Doc({ guid: source.document.guid });
     Y.applyUpdate(replay, Y.encodeStateAsUpdate(source.document));
     Y.applyUpdate(replay, migration.update);
-    expect(materializeCardDocument(replay).nfm).toBe(
+    expect(materializePageDocument(replay).nfm).toBe(
       migration.materialization.nfm,
     );
     replay.destroy();
@@ -89,7 +89,7 @@ describe("foreign reference Document migration", () => {
   test("fails without mutating the source when a resolution is missing or has the wrong kind", () => {
     const source = legacyDocument();
     const before = Y.encodeStateAsUpdate(source.document);
-    const references = materializeCardDocument(source.document).references.filter(
+    const references = materializePageDocument(source.document).references.filter(
       isLegacyForeignBodyReference,
     );
     let error: unknown;

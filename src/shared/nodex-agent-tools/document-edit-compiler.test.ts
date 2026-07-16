@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
-  createCardDocumentGenesis,
-  type CardDocumentMaterialization,
+  createPageDocumentGenesis,
+  type PageDocumentMaterialization,
 } from "../block-documents/block-document-codec";
 import {
   AgentDocumentEditCompilerError,
@@ -15,9 +15,9 @@ const ETAG = `nxe1.${"a".repeat(43)}`;
 function materialization(
   nfm: string,
   title = "Before",
-): CardDocumentMaterialization {
+): PageDocumentMaterialization {
   let nextId = 0;
-  const genesis = createCardDocumentGenesis({
+  const genesis = createPageDocumentGenesis({
     documentId: "document-1",
     title,
     nfm,
@@ -147,7 +147,7 @@ describe("Nodex Agent Document edit compiler", () => {
   });
 
   test("requires explicit safety intent before deleting an owned Card shell", () => {
-    const current = materialization('<card uuid="nested-card" />\nKeep');
+    const current = materialization('<page uuid="nested-card" />\nKeep');
     const compile = (allowDeletingOwnedBlocks: boolean | undefined) =>
       compileAgentDocumentEdit({
         documentId: "document-1",

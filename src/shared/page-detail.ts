@@ -1,0 +1,647 @@
+import {
+  stableStringifyBlockPropertyJson,
+  type BlockPropertyJsonValue,
+} from "./block-property-mutations";
+import type {
+  DatabaseContainerRecord,
+  DataSourcePageValue,
+  DataSourcePropertyRecord,
+  DataSourceRecord,
+} from "./database-module";
+import {
+  parseDatabasePropertyConfig,
+  type DatabaseJsonValue,
+  type DatabasePropertyValueType,
+} from "./database-kernel";
+import { parsePage, type Page } from "./page";
+
+export const PAGE_DETAIL_CONTRACT_VERSION = 1 as const;
+
+export interface PageIntrinsicProperty {
+  readonly key: string;
+  readonly valueType: "null" | "boolean" | "number" | "string" | "json";
+  readonly value: BlockPropertyJsonValue;
+  readonly revision: number;
+}
+
+export type PageDataSourceContext =
+  | { readonly kind: "standalone" }
+  | {
+      readonly kind: "member";
+      readonly membership: {
+        readonly membershipId: string;
+        readonly dataSourceId: string;
+        readonly revision: number;
+        readonly createdAt: string;
+      };
+      readonly database: DatabaseContainerRecord;
+      readonly dataSource: DataSourceRecord;
+      readonly properties: readonly DataSourcePropertyRecord[];
+      readonly values: Readonly<Record<string, DataSourcePageValue>>;
+    };
+
+export interface PageDetail {
+  readonly version: typeof PAGE_DETAIL_CONTRACT_VERSION;
+  readonly projectId: string;
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly changeLogSeq: number;
+  readonly page: Page;
+  readonly document: {
+    readonly readiness: "pending_genesis" | "ready" | "failed";
+    readonly schemaKey: string;
+    readonly schemaVersion: number;
+  };
+  readonly intrinsicProperties: readonly PageIntrinsicProperty[];
+  readonly dataSourceContext: PageDataSourceContext;
+}
+
+export type PageDetailErrorCode =
+  | "invalid_request"
+  | "store_not_initialized"
+  | "project_not_found"
+  | "page_not_found"
+  | "authorization_denied"
+  | "page_detail_corrupt"
+  | "unknown";
+
+export interface PageDetailError {
+  readonly code: PageDetailErrorCode;
+  readonly message: string;
+  readonly retryable: boolean;
+}
+
+export type PageDetailResult =
+  | { readonly ok: true; readonly value: PageDetail }
+  | { readonly ok: false; readonly error: PageDetailError };
+
+export class PageDetailContractError extends TypeError {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "PageDetailContractError";
+  }
+}
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const identity = (value: unknown, label: string): string => {
+  if (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    value === value.trim()
+  ) {
+    return value;
+  }
+  throw new PageDetailContractError(`${label} must be a canonical identity`);
+};
+
+const exactKeys = (
+  value: Readonly<Record<string, unknown>>,
+  label: string,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): void => {
+  const allowed = new Set([...required, ...optional]);
+  for (const key of required) {
+    if (Object.hasOwn(value, key)) continue;
+    throw new PageDetailContractError(`${label}.${key} is required`);
+  }
+  for (const key of Object.keys(value)) {
+    if (allowed.has(key)) continue;
+    throw new PageDetailContractError(`${label}.${key} is not supported`);
+  }
+};
+
+const boundedText = (
+  value: unknown,
+  label: string,
+  allowEmpty = false,
+): string => {
+  if (
+    typeof value === "string" &&
+    value.length <= 1_000_000 &&
+    (allowEmpty || value.length > 0)
+  ) {
+    return value;
+  }
+  throw new PageDetailContractError(`${label} must be a bounded string`);
+};
+
+const revision = (value: unknown, label: string): number => {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  throw new PageDetailContractError(`${label} must be a non-negative revision`);
+};
+
+const portableJson = (
+  value: unknown,
+  label: string,
+): BlockPropertyJsonValue => {
+  try {
+    return JSON.parse(
+      stableStringifyBlockPropertyJson(value),
+    ) as BlockPropertyJsonValue;
+  } catch (error) {
+    throw new PageDetailContractError(`${label} must be bounded portable JSON`, {
+      cause: error,
+    });
+  }
+};
+
+const valueType = (
+  value: unknown,
+  label: string,
+): DatabasePropertyValueType => {
+  if (
+    value === "text" ||
+    value === "number" ||
+    value === "checkbox" ||
+    value === "select" ||
+    value === "multi_select" ||
+    value === "date" ||
+    value === "datetime" ||
+    value === "person"
+  ) {
+    return value;
+  }
+  throw new PageDetailContractError(`${label} is unsupported`);
+};
+
+const parseDatabase = (
+  value: unknown,
+  libraryId: string,
+): DatabaseContainerRecord => {
+  if (!isRecord(value)) {
+    throw new PageDetailContractError("pageDetail.database must be an object");
+  }
+  exactKeys(value, "pageDetail.database", [
+    "databaseId",
+    "libraryId",
+    "name",
+    "lifecycle",
+    "defaultViewId",
+    "accessRevision",
+    "metadataRevision",
+    "createdAt",
+    "updatedAt",
+  ]);
+  const databaseLibraryId = identity(
+    value.libraryId,
+    "pageDetail.database.libraryId",
+  );
+  if (databaseLibraryId !== libraryId) {
+    throw new PageDetailContractError(
+      "Page Detail Database belongs to another Library",
+    );
+  }
+  if (value.lifecycle !== "active" && value.lifecycle !== "archived") {
+    throw new PageDetailContractError(
+      "pageDetail.database.lifecycle is invalid",
+    );
+  }
+  return {
+    databaseId: identity(value.databaseId, "pageDetail.database.databaseId"),
+    libraryId: databaseLibraryId,
+    name: boundedText(value.name, "pageDetail.database.name"),
+    lifecycle: value.lifecycle,
+    defaultViewId: value.defaultViewId === null
+      ? null
+      : identity(value.defaultViewId, "pageDetail.database.defaultViewId"),
+    accessRevision: revision(
+      value.accessRevision,
+      "pageDetail.database.accessRevision",
+    ),
+    metadataRevision: revision(
+      value.metadataRevision,
+      "pageDetail.database.metadataRevision",
+    ),
+    createdAt: boundedText(value.createdAt, "pageDetail.database.createdAt"),
+    updatedAt: boundedText(value.updatedAt, "pageDetail.database.updatedAt"),
+  };
+};
+
+const parseDataSource = (
+  value: unknown,
+  libraryId: string,
+  databaseId: string,
+): DataSourceRecord => {
+  if (!isRecord(value)) {
+    throw new PageDetailContractError("pageDetail.dataSource must be an object");
+  }
+  exactKeys(value, "pageDetail.dataSource", [
+    "dataSourceId",
+    "libraryId",
+    "homeDatabaseId",
+    "name",
+    "schemaKey",
+    "schemaRevision",
+    "lifecycle",
+    "rankKey",
+    "createdAt",
+    "updatedAt",
+  ]);
+  const sourceLibraryId = identity(
+    value.libraryId,
+    "pageDetail.dataSource.libraryId",
+  );
+  const homeDatabaseId = identity(
+    value.homeDatabaseId,
+    "pageDetail.dataSource.homeDatabaseId",
+  );
+  if (sourceLibraryId !== libraryId || homeDatabaseId !== databaseId) {
+    throw new PageDetailContractError(
+      "Page Detail Data Source ownership coordinates diverge",
+    );
+  }
+  if (value.lifecycle !== "active" && value.lifecycle !== "archived") {
+    throw new PageDetailContractError(
+      "pageDetail.dataSource.lifecycle is invalid",
+    );
+  }
+  return {
+    dataSourceId: identity(
+      value.dataSourceId,
+      "pageDetail.dataSource.dataSourceId",
+    ),
+    libraryId: sourceLibraryId,
+    homeDatabaseId,
+    name: boundedText(value.name, "pageDetail.dataSource.name"),
+    schemaKey: identity(value.schemaKey, "pageDetail.dataSource.schemaKey"),
+    schemaRevision: revision(
+      value.schemaRevision,
+      "pageDetail.dataSource.schemaRevision",
+    ),
+    lifecycle: value.lifecycle,
+    rankKey: identity(value.rankKey, "pageDetail.dataSource.rankKey"),
+    createdAt: boundedText(value.createdAt, "pageDetail.dataSource.createdAt"),
+    updatedAt: boundedText(value.updatedAt, "pageDetail.dataSource.updatedAt"),
+  };
+};
+
+const parseProperty = (
+  value: unknown,
+  index: number,
+  dataSourceId: string,
+): DataSourcePropertyRecord => {
+  const label = `pageDetail.properties[${index}]`;
+  if (!isRecord(value)) {
+    throw new PageDetailContractError(`${label} must be an object`);
+  }
+  exactKeys(value, label, [
+    "propertyId",
+    "dataSourceId",
+    "key",
+    "name",
+    "valueType",
+    "config",
+    "rankKey",
+    "lifecycle",
+    "revision",
+    "createdAt",
+    "updatedAt",
+  ]);
+  const propertyDataSourceId = identity(
+    value.dataSourceId,
+    `${label}.dataSourceId`,
+  );
+  if (propertyDataSourceId !== dataSourceId || value.lifecycle !== "active") {
+    throw new PageDetailContractError(
+      `${label} is not an active property of the Page Data Source`,
+    );
+  }
+  const propertyValueType = valueType(value.valueType, `${label}.valueType`);
+  const rawConfig = portableJson(value.config, `${label}.config`);
+  if (!isRecord(rawConfig)) {
+    throw new PageDetailContractError(`${label}.config must be an object`);
+  }
+  let config: Readonly<Record<string, DatabaseJsonValue>>;
+  try {
+    config = parseDatabasePropertyConfig(
+      propertyValueType,
+      rawConfig as Readonly<Record<string, DatabaseJsonValue>>,
+    );
+  } catch (error) {
+    throw new PageDetailContractError(`${label}.config is invalid`, {
+      cause: error,
+    });
+  }
+  return {
+    propertyId: identity(value.propertyId, `${label}.propertyId`),
+    dataSourceId: propertyDataSourceId,
+    key: identity(value.key, `${label}.key`),
+    name: boundedText(value.name, `${label}.name`),
+    valueType: propertyValueType,
+    config,
+    rankKey: identity(value.rankKey, `${label}.rankKey`),
+    lifecycle: "active",
+    revision: revision(value.revision, `${label}.revision`),
+    createdAt: boundedText(value.createdAt, `${label}.createdAt`),
+    updatedAt: boundedText(value.updatedAt, `${label}.updatedAt`),
+  };
+};
+
+const parseValues = (
+  value: unknown,
+  properties: readonly DataSourcePropertyRecord[],
+): Readonly<Record<string, DataSourcePageValue>> => {
+  if (!isRecord(value)) {
+    throw new PageDetailContractError("pageDetail.values must be an object");
+  }
+  const propertiesById = new Map(
+    properties.map((property) => [property.propertyId, property]),
+  );
+  const result: Record<string, DataSourcePageValue> = {};
+  for (const [propertyId, raw] of Object.entries(value)) {
+    const property = propertiesById.get(propertyId);
+    if (!property || !isRecord(raw)) {
+      throw new PageDetailContractError(
+        `pageDetail.values.${propertyId} has no matching property`,
+      );
+    }
+    exactKeys(raw, `pageDetail.values.${propertyId}`, [
+      "propertyId",
+      "valueType",
+      "value",
+      "revision",
+    ]);
+    if (
+      identity(raw.propertyId, `pageDetail.values.${propertyId}.propertyId`) !==
+        propertyId ||
+      valueType(raw.valueType, `pageDetail.values.${propertyId}.valueType`) !==
+        property.valueType
+    ) {
+      throw new PageDetailContractError(
+        `pageDetail.values.${propertyId} diverges from its schema`,
+      );
+    }
+    result[propertyId] = {
+      propertyId,
+      valueType: property.valueType,
+      value: portableJson(raw.value, `pageDetail.values.${propertyId}.value`),
+      revision: revision(
+        raw.revision,
+        `pageDetail.values.${propertyId}.revision`,
+      ),
+    };
+  }
+  return result;
+};
+
+const parseDataSourceContext = (
+  value: Readonly<Record<string, unknown>>,
+  page: Page,
+  libraryId: string,
+): PageDataSourceContext => {
+  if (value.kind === "standalone") {
+    exactKeys(value, "pageDetail.dataSourceContext", ["kind"]);
+    if (page.parent.kind === "data_source") {
+      throw new PageDetailContractError(
+        "A Data Source-parented Page cannot have standalone context",
+      );
+    }
+    return { kind: "standalone" };
+  }
+  if (value.kind !== "member") {
+    throw new PageDetailContractError("Page Detail Data Source context is invalid");
+  }
+  exactKeys(value, "pageDetail.dataSourceContext", [
+    "kind",
+    "membership",
+    "database",
+    "dataSource",
+    "properties",
+    "values",
+  ]);
+  if (!isRecord(value.membership) || !Array.isArray(value.properties)) {
+    throw new PageDetailContractError(
+      "Page Detail Data Source membership payload is invalid",
+    );
+  }
+  exactKeys(value.membership, "pageDetail.membership", [
+    "membershipId",
+    "dataSourceId",
+    "revision",
+    "createdAt",
+  ]);
+  const membershipDataSourceId = identity(
+    value.membership.dataSourceId,
+    "pageDetail.membership.dataSourceId",
+  );
+  if (
+    page.parent.kind !== "data_source" ||
+    page.parent.dataSourceId !== membershipDataSourceId
+  ) {
+    throw new PageDetailContractError(
+      "Page parent and Data Source membership diverge",
+    );
+  }
+  const database = parseDatabase(value.database, libraryId);
+  const dataSource = parseDataSource(
+    value.dataSource,
+    libraryId,
+    database.databaseId,
+  );
+  if (dataSource.dataSourceId !== membershipDataSourceId) {
+    throw new PageDetailContractError(
+      "Page membership and Data Source identity diverge",
+    );
+  }
+  const properties = value.properties.map((property, index) =>
+    parseProperty(property, index, dataSource.dataSourceId),
+  );
+  if (
+    new Set(properties.map((property) => property.propertyId)).size !==
+      properties.length ||
+    new Set(properties.map((property) => property.key)).size !== properties.length
+  ) {
+    throw new PageDetailContractError(
+      "Page Detail properties must have unique identities and keys",
+    );
+  }
+  return {
+    kind: "member",
+    membership: {
+      membershipId: identity(
+        value.membership.membershipId,
+        "pageDetail.membership.membershipId",
+      ),
+      dataSourceId: membershipDataSourceId,
+      revision: revision(
+        value.membership.revision,
+        "pageDetail.membership.revision",
+      ),
+      createdAt: boundedText(
+        value.membership.createdAt,
+        "pageDetail.membership.createdAt",
+      ),
+    },
+    database,
+    dataSource,
+    properties,
+    values: parseValues(value.values, properties),
+  };
+};
+
+const errorCodes = new Set<PageDetailErrorCode>([
+  "invalid_request",
+  "store_not_initialized",
+  "project_not_found",
+  "page_not_found",
+  "authorization_denied",
+  "page_detail_corrupt",
+  "unknown",
+]);
+
+export const parsePageDetailResult = (value: unknown): PageDetailResult => {
+  if (!isRecord(value)) {
+    throw new PageDetailContractError("Page Detail result must be an object");
+  }
+  if (value.ok === false && isRecord(value.error)) {
+    exactKeys(value, "pageDetailResult", ["ok", "error"]);
+    exactKeys(value.error, "pageDetailResult.error", [
+      "code",
+      "message",
+      "retryable",
+    ]);
+    const code = value.error.code;
+    if (
+      typeof code !== "string" ||
+      !errorCodes.has(code as PageDetailErrorCode) ||
+      typeof value.error.message !== "string" ||
+      typeof value.error.retryable !== "boolean"
+    ) {
+      throw new PageDetailContractError("Page Detail error is invalid");
+    }
+    return {
+      ok: false,
+      error: {
+        code: code as PageDetailErrorCode,
+        message: value.error.message,
+        retryable: value.error.retryable,
+      },
+    };
+  }
+  if (value.ok !== true || !isRecord(value.value)) {
+    throw new PageDetailContractError("Page Detail result envelope is invalid");
+  }
+  exactKeys(value, "pageDetailResult", ["ok", "value"]);
+  const detail = value.value;
+  exactKeys(detail, "pageDetail", [
+    "version",
+    "projectId",
+    "libraryId",
+    "storeEpoch",
+    "changeLogSeq",
+    "page",
+    "document",
+    "intrinsicProperties",
+    "dataSourceContext",
+  ]);
+  if (
+    detail.version !== PAGE_DETAIL_CONTRACT_VERSION ||
+    !isRecord(detail.document) ||
+    !Array.isArray(detail.intrinsicProperties) ||
+    !isRecord(detail.dataSourceContext)
+  ) {
+    throw new PageDetailContractError("Page Detail payload is invalid");
+  }
+  exactKeys(detail.document, "pageDetail.document", [
+    "readiness",
+    "schemaKey",
+    "schemaVersion",
+  ]);
+  const page = parsePage(detail.page);
+  const projectId = identity(detail.projectId, "pageDetail.projectId");
+  const libraryId = identity(detail.libraryId, "pageDetail.libraryId");
+  const storeEpoch = identity(detail.storeEpoch, "pageDetail.storeEpoch");
+  if (page.libraryId !== libraryId) {
+    throw new PageDetailContractError("Page Detail Library coordinate diverges");
+  }
+  if (
+    detail.document.readiness !== "pending_genesis" &&
+    detail.document.readiness !== "ready" &&
+    detail.document.readiness !== "failed"
+  ) {
+    throw new PageDetailContractError("Page Detail readiness is invalid");
+  }
+  const documentReadiness = detail.document.readiness as
+    | "pending_genesis"
+    | "ready"
+    | "failed";
+  const document = {
+    readiness: documentReadiness,
+    schemaKey: identity(
+      detail.document.schemaKey,
+      "pageDetail.document.schemaKey",
+    ),
+    schemaVersion: revision(
+      detail.document.schemaVersion,
+      "pageDetail.document.schemaVersion",
+    ),
+  };
+  const changeLogSeq = revision(
+    detail.changeLogSeq,
+    "pageDetail.changeLogSeq",
+  );
+  const intrinsicProperties: PageIntrinsicProperty[] = [];
+  for (const [index, property] of detail.intrinsicProperties.entries()) {
+    if (!isRecord(property)) {
+      throw new PageDetailContractError(
+        `pageDetail.intrinsicProperties[${index}] is invalid`,
+      );
+    }
+    const label = `pageDetail.intrinsicProperties[${index}]`;
+    exactKeys(property, label, ["key", "valueType", "value", "revision"]);
+    const intrinsicValueType = property.valueType;
+    const intrinsicValue = portableJson(property.value, `${label}.value`);
+    if (
+      (intrinsicValueType === "null" && intrinsicValue !== null) ||
+      (intrinsicValueType === "boolean" && typeof intrinsicValue !== "boolean") ||
+      (intrinsicValueType === "number" && typeof intrinsicValue !== "number") ||
+      (intrinsicValueType === "string" && typeof intrinsicValue !== "string") ||
+      (intrinsicValueType !== "null" &&
+        intrinsicValueType !== "boolean" &&
+        intrinsicValueType !== "number" &&
+        intrinsicValueType !== "string" &&
+        intrinsicValueType !== "json")
+    ) {
+      throw new PageDetailContractError(`${label}.valueType is invalid`);
+    }
+    intrinsicProperties.push({
+      key: identity(property.key, `${label}.key`),
+      valueType: intrinsicValueType,
+      value: intrinsicValue,
+      revision: revision(property.revision, `${label}.revision`),
+    });
+  }
+  if (
+    new Set(intrinsicProperties.map((property) => property.key)).size !==
+    intrinsicProperties.length
+  ) {
+    throw new PageDetailContractError(
+      "Page Detail intrinsic property keys must be unique",
+    );
+  }
+  const dataSourceContext = parseDataSourceContext(
+    detail.dataSourceContext,
+    page,
+    libraryId,
+  );
+  return {
+    ok: true,
+    value: {
+      version: PAGE_DETAIL_CONTRACT_VERSION,
+      projectId,
+      libraryId,
+      storeEpoch,
+      changeLogSeq,
+      page,
+      document,
+      intrinsicProperties,
+      dataSourceContext,
+    },
+  };
+};

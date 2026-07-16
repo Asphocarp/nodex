@@ -1,21 +1,21 @@
 import { describe, expect, test } from "vitest";
-import type { BoardSummary, CardSummary } from "./types";
+import type { BoardSummary, DatabasePageSummary } from "./types";
 import {
-  collectPlacedCardIds,
-  createCardElement,
-  getCardIdFromElement,
-  getCardTitleHintFromElement,
-  haveSameCardIds,
-  syncPlacedCardIds,
-  updateCardElements,
+  collectPlacedPageIds,
+  createPageElement,
+  getPageIdFromElement,
+  getPageTitleHintFromElement,
+  haveSamePageIds,
+  syncPlacedPageIds,
+  updatePageElements,
 } from "./canvas-card-elements";
 
-function cardElement(cardId: string) {
+function cardElement(pageId: string) {
   return {
     type: "rectangle",
     customData: {
       type: "nodex-card",
-      cardId,
+      pageId,
       columnId: "draft",
     },
   };
@@ -26,24 +26,24 @@ function sortedJson(ids: ReadonlySet<string>) {
 }
 
 describe("canvas-card-elements placed card helpers", () => {
-  test("collectPlacedCardIds keeps only Nodex card elements", () => {
-    const ids = collectPlacedCardIds([
+  test("collectPlacedPageIds keeps only Nodex card elements", () => {
+    const ids = collectPlacedPageIds([
       cardElement("card-1"),
       { type: "ellipse" },
-      { type: "rectangle", customData: { type: "other", cardId: "foreign-card" } },
+      { type: "rectangle", customData: { type: "other", pageId: "foreign-card" } },
       cardElement("card-2"),
     ]);
 
     expect(sortedJson(ids)).toBe(JSON.stringify(["card-1", "card-2"]));
   });
 
-  test("collectPlacedCardIds ignores invalid customData", () => {
-    const ids = collectPlacedCardIds([
+  test("collectPlacedPageIds ignores invalid customData", () => {
+    const ids = collectPlacedPageIds([
       null,
       undefined,
       { customData: { type: "nodex-card" } },
-      { customData: { type: "nodex-card", cardId: 42 } },
-      { customData: { type: "nodex-card", cardId: "" } },
+      { customData: { type: "nodex-card", pageId: 42 } },
+      { customData: { type: "nodex-card", pageId: "" } },
       cardElement("card-1"),
     ]);
 
@@ -60,28 +60,28 @@ describe("canvas-card-elements placed card helpers", () => {
       label: { text: "Stale label" },
     };
 
-    expect(getCardIdFromElement(element)).toBe("standalone-card");
-    expect(getCardTitleHintFromElement(element)).toBe("Standalone");
+    expect(getPageIdFromElement(element)).toBe("standalone-card");
+    expect(getPageTitleHintFromElement(element)).toBe("Standalone");
   });
 
-  test("haveSameCardIds compares set membership regardless of insertion order", () => {
+  test("haveSamePageIds compares set membership regardless of insertion order", () => {
     const left = new Set(["card-1", "card-2"]);
     const right = new Set(["card-2", "card-1"]);
     const different = new Set(["card-1", "card-3"]);
 
-    expect(haveSameCardIds(left, right)).toBe(true);
-    expect(haveSameCardIds(left, different)).toBe(false);
+    expect(haveSamePageIds(left, right)).toBe(true);
+    expect(haveSamePageIds(left, different)).toBe(false);
   });
 
-  test("syncPlacedCardIds returns previous state when card IDs are unchanged", () => {
+  test("syncPlacedPageIds returns previous state when card IDs are unchanged", () => {
     const previous = new Set(["card-1", "card-2"]);
 
-    const same = syncPlacedCardIds(previous, [
+    const same = syncPlacedPageIds(previous, [
       cardElement("card-2"),
       { type: "rectangle" },
       cardElement("card-1"),
     ]);
-    const changed = syncPlacedCardIds(previous, [cardElement("card-1")]);
+    const changed = syncPlacedPageIds(previous, [cardElement("card-1")]);
 
     expect(same === previous).toBe(true);
     expect(changed === previous).toBe(false);
@@ -93,9 +93,9 @@ describe("canvas-card-elements placed card helpers", () => {
       id: "card-1",
       title: "One",
       priority: undefined,
-    } as CardSummary;
+    } as DatabasePageSummary;
 
-    const element = createCardElement(card, { x: 1, y: 2 });
+    const element = createPageElement(card, { x: 1, y: 2 });
 
     expect(JSON.stringify(element.customData)).toBe(
       JSON.stringify({
@@ -116,7 +116,7 @@ describe("canvas-card-elements placed card helpers", () => {
       label: { text: "Old title" },
     };
     let calls = 0;
-    const updated = updateCardElements(
+    const updated = updatePageElements(
       [element],
       {
         columns: [
@@ -128,7 +128,7 @@ describe("canvas-card-elements placed card helpers", () => {
                 id: "card-1",
                 title: "Fresh title",
                 priority: "p1-high",
-              } as CardSummary,
+              } as DatabasePageSummary,
             ],
           },
         ],
@@ -147,6 +147,6 @@ describe("canvas-card-elements placed card helpers", () => {
     expect(calls).toBe(1);
     expect(updated?.[0]?.version).toBe(5);
     expect(updated?.[0]?.versionNonce).toBe(3);
-    expect(getCardIdFromElement(updated?.[0])).toBe("card-1");
+    expect(getPageIdFromElement(updated?.[0])).toBe("card-1");
   });
 });

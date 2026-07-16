@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { BoardSummary, CardStatus, CardSummary } from "@/lib/types";
+import type { BoardSummary, WorkflowStatus, DatabasePageSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 
-function createCard(id: string, status: CardStatus, order: number): CardSummary {
+function createPage(id: string, status: WorkflowStatus, order: number): DatabasePageSummary {
   return {
     id,
     status,
@@ -19,13 +19,13 @@ function createCard(id: string, status: CardStatus, order: number): CardSummary 
   };
 }
 
-function createBoard(columns: Record<CardStatus, string[]>): BoardSummary {
-  const orderedStatuses: CardStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
+function createBoard(columns: Record<WorkflowStatus, string[]>): BoardSummary {
+  const orderedStatuses: WorkflowStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
   return {
     columns: orderedStatuses.map((status) => ({
       id: status,
       name: status,
-      cards: (columns[status] ?? []).map((id, index) => createCard(id, status, index)),
+      cards: (columns[status] ?? []).map((id, index) => createPage(id, status, index)),
     })),
   };
 }
@@ -50,7 +50,7 @@ describe("resolveFilteredDropOrder", () => {
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
-      draggedCardIds: ["moved"],
+      draggedPageIds: ["moved"],
       targetColumnId: "in_progress",
       targetVisibleIndex: 1,
     });
@@ -77,7 +77,7 @@ describe("resolveFilteredDropOrder", () => {
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
-      draggedCardIds: ["moved"],
+      draggedPageIds: ["moved"],
       targetColumnId: "in_progress",
       targetVisibleIndex: 2,
     });
@@ -104,7 +104,7 @@ describe("resolveFilteredDropOrder", () => {
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
-      draggedCardIds: ["visible-a"],
+      draggedPageIds: ["visible-a"],
       targetColumnId: "in_progress",
       targetVisibleIndex: 1,
     });
@@ -131,7 +131,7 @@ describe("resolveFilteredDropOrder", () => {
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
-      draggedCardIds: ["visible-b"],
+      draggedPageIds: ["visible-b"],
       targetColumnId: "in_progress",
       targetVisibleIndex: 1,
     });
@@ -151,7 +151,7 @@ describe("resolveFilteredDropOrder", () => {
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard: board,
-      draggedCardIds: ["a"],
+      draggedPageIds: ["a"],
       targetColumnId: "in_progress",
       targetVisibleIndex: 1,
     });

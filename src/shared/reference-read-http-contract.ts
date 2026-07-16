@@ -1,9 +1,9 @@
 import { z } from "zod";
 import {
-  CARD_STATUS_ORDER,
-  type CardSummary,
+  WORKFLOW_STATUS_ORDER,
+  type DatabasePageSummary,
 } from "./types";
-import type { CardTargetReadModel } from "./card-targets";
+import type { PageTargetReadModel } from "./page-targets";
 import type {
   DatabaseViewJsonValue,
   DatabaseViewReadModel,
@@ -68,9 +68,9 @@ const RecurrenceEndConditionSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-const CardSummaryHttpSchema = z.object({
+const PageSummaryHttpSchema = z.object({
   id: z.string(),
-  status: z.enum(CARD_STATUS_ORDER),
+  status: z.enum(WORKFLOW_STATUS_ORDER),
   archived: z.boolean(),
   title: z.string(),
   richTitle: PortableRichTextHttpSchema,
@@ -103,54 +103,50 @@ const CardSummaryHttpSchema = z.object({
   hasDescription: z.boolean(),
 });
 
-const CardContentSummaryHttpSchema = z.object({
-  blockId: z.string(),
-  projectId: z.string(),
+const PageContentSummaryHttpSchema = z.object({
+  pageId: z.string(),
+  libraryId: z.string(),
   lifecycle: z.enum(["active", "archived", "deleted"]),
-  location: z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("space"), rankKey: z.string().nullable() }),
-    z.object({ kind: z.literal("document"), documentId: z.string() }),
-    z.object({ kind: z.literal("database"), databaseBlockId: z.string() }),
+  parent: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("library"), libraryId: z.string() }),
+    z.object({ kind: z.literal("page"), pageId: z.string() }),
+    z.object({ kind: z.literal("data_source"), dataSourceId: z.string() }),
   ]),
-  locationRevision: z.number().int().positive(),
-  metadataRevision: z.number().int().positive(),
+  parentRevision: z.number().int().nonnegative(),
+  metadataRevision: z.number().int().nonnegative(),
   documentId: z.string(),
   documentGeneration: z.number().int().positive(),
   documentHeadSeq: z.number().int().nonnegative(),
-  documentAuthority: z.enum(["legacy_shadow", "ydoc_primary"]),
-  content: z.object({
-    projectedSeq: z.number().int().nonnegative(),
-    title: z.string(),
-    richTitle: PortableRichTextHttpSchema,
-    preview: z.string(),
-    plainText: z.string(),
-  }).nullable(),
+  title: z.string(),
+  richTitle: PortableRichTextHttpSchema,
+  preview: z.string(),
+  plainText: z.string(),
   createdAt: HttpIsoDateStringSchema,
   updatedAt: HttpIsoDateStringSchema,
 });
-const ActiveCardContentSummaryHttpSchema = CardContentSummaryHttpSchema.extend({
+const ActivePageContentSummaryHttpSchema = PageContentSummaryHttpSchema.extend({
   lifecycle: z.enum(["active", "archived"]),
 });
 
-const CardTargetReadModelHttpSchema = z.discriminatedUnion("status", [
+const PageTargetReadModelHttpSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("missing"),
-    targetBlockId: z.string(),
+    targetPageId: z.string(),
   }),
   z.object({
     status: z.literal("invalid_target"),
-    targetBlockId: z.string(),
+    targetPageId: z.string(),
     actualBlockType: z.string(),
   }),
   z.object({
     status: z.literal("deleted"),
-    targetBlockId: z.string(),
-    projectId: z.string(),
+    targetPageId: z.string(),
+    libraryId: z.string(),
   }),
   z.object({
     status: z.literal("available"),
-    targetBlockId: z.string(),
-    card: ActiveCardContentSummaryHttpSchema,
+    targetPageId: z.string(),
+    page: ActivePageContentSummaryHttpSchema,
     document: z.object({
       readiness: z.enum(["pending_genesis", "ready", "failed"]),
       schemaKey: z.string(),
@@ -183,7 +179,7 @@ const DatabaseViewReadModelHttpSchema = z.object({
     updatedAt: HttpIsoDateStringSchema,
   }),
   rows: z.array(z.object({
-    card: CardSummaryHttpSchema,
+    page: PageSummaryHttpSchema,
     groupKey: z.string().nullable(),
     rankKey: z.string(),
   })),
@@ -214,16 +210,16 @@ const decode = <T>(
   );
 };
 
-export const decodeCardSummaryHttp = (value: unknown): CardSummary =>
-  decode(CardSummaryHttpSchema, value, "Card summary");
+export const decodePageSummaryHttp = (value: unknown): DatabasePageSummary =>
+  decode(PageSummaryHttpSchema, value, "Page summary");
 
-export const decodeCardTargetReadModelHttp = (
+export const decodePageTargetReadModelHttp = (
   value: unknown,
-): CardTargetReadModel =>
+): PageTargetReadModel =>
   decode(
-    CardTargetReadModelHttpSchema,
+    PageTargetReadModelHttpSchema,
     value,
-    "Card target read model",
+    "Page target read model",
   );
 
 export const decodeDatabaseViewReadModelHttp = (

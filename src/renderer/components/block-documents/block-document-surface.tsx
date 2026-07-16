@@ -11,7 +11,7 @@ import {
 import { ChevronRight, CircleAlert } from "lucide-react";
 import type { Awareness } from "y-protocols/awareness";
 import type {
-  CardDocumentEnvelope,
+  PageDocumentEnvelope,
   OwnedDocumentDescriptor,
 } from "../../../shared/block-documents";
 import type { OwnedDocumentEnvelope } from "../../../shared/block-documents/document-schema-adapters";
@@ -31,10 +31,10 @@ import {
 import type { DocumentSyncAdapter } from "@/lib/nodex-y-provider";
 import type {
   OwnedBlockDocumentModel,
-  ReadyCardBlockDocumentDescriptor,
+  ReadyPageBlockDocumentDescriptor,
 } from "@/lib/owned-block-document";
 
-export type PrimaryCardBlockDocumentDescriptor = ReadyCardBlockDocumentDescriptor;
+export type PrimaryPageBlockDocumentDescriptor = ReadyPageBlockDocumentDescriptor;
 
 export type PrimaryOwnedBlockDocumentDescriptor =
   OwnedDocumentDescriptor & {
@@ -47,8 +47,8 @@ export type BlockDocumentLocalAwarenessState = Readonly<
   Record<string, unknown>
 >;
 
-export interface BlockDocumentSurfaceValue extends CardDocumentEnvelope {
-  readonly descriptor: PrimaryCardBlockDocumentDescriptor;
+export interface BlockDocumentSurfaceValue extends PageDocumentEnvelope {
+  readonly descriptor: PrimaryPageBlockDocumentDescriptor;
   readonly runtime: BlockDocumentSurfaceRuntime;
   readonly awareness: Awareness;
   readonly clientSessionId: string;
@@ -72,7 +72,7 @@ export interface BlockDocumentSurfaceDependencies {
 
 export interface BlockDocumentSurfaceProps {
   readonly projectId: string;
-  readonly descriptor: PrimaryCardBlockDocumentDescriptor;
+  readonly descriptor: PrimaryPageBlockDocumentDescriptor;
   /** Retained inactive tabs continue syncing content but publish no presence. */
   readonly isActive: boolean;
   readonly localAwarenessState?: BlockDocumentLocalAwarenessState;
@@ -592,14 +592,14 @@ export function OwnedBlockDocumentSurface(
   );
 }
 
-/** Card-named compatibility surface with a statically typed title root. */
+/** Legacy-named compatibility surface with a statically typed Page title root. */
 export function BlockDocumentSurface(props: BlockDocumentSurfaceProps) {
   return (
     <OwnedBlockDocumentSurface {...props}>
       {(surface) => {
-        if (surface.kind !== "card") {
+        if (surface.kind !== "page") {
           throw new TypeError(
-            "Card surface resolved a non-Card Document schema",
+            "Page surface resolved a non-Page Document schema",
           );
         }
         return props.children({

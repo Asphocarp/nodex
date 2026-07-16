@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } f
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { Column } from "./column";
 import { type CardPropertyUpdateInput } from "./card";
-import type { OpenCardStageOptions } from "./open-card-stage";
+import type { OpenPageStageOptions } from "./open-page-stage";
 import {
   emptyCardSelection,
   normalizeCardSelection,
@@ -10,7 +10,7 @@ import {
   type CardSelectionState,
 } from "./card-selection";
 import { KanbanBoardScrollContainer } from "./view-scroll-containers";
-import { buildCardDeepLink } from "@/lib/card-deeplink";
+import { buildPageDeepLink } from "@/lib/page-deeplink";
 import {
   getKanbanColumnLayout,
   readKanbanColumnLayoutPrefs,
@@ -29,13 +29,13 @@ import {
   type DbViewPrefs,
 } from "../../lib/db-view-prefs";
 import type {
-  CardSummary,
-  CardStatus,
-  CardCreatePlacement,
-  CardInput,
+  DatabasePageSummary,
+  WorkflowStatus,
+  PageCreatePlacement,
+  PageInput,
   Project,
 } from "@/lib/types";
-import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
+import { buildPageSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import {
   buildKanbanCardDragData,
   isKanbanCardDragData,
@@ -51,7 +51,7 @@ import { resolveKanbanDropFeedback } from "./drop-feedback";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
   blockTransferDropLabel,
-  buildDocumentToDatabaseTransferIntent,
+  buildBlockToDataSourceTransferIntent,
   endLocalBlockDragSession,
   hasDragType,
   NODEX_BLOCK_TRANSFER_DRAG_MIME,
@@ -64,17 +64,17 @@ import { useKanbanElementDragMonitor } from "./use-kanban-element-drag-monitor";
 import { transferBlocks } from "@/lib/api";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
-type KanbanCardOpenMode = NonNullable<OpenCardStageOptions["openMode"]>;
-type CardType = CardSummary;
+type KanbanCardOpenMode = NonNullable<OpenPageStageOptions["openMode"]>;
+type CardType = DatabasePageSummary;
 
 function hasSameCardSelection(
   left: CardSelectionState,
   right: CardSelectionState,
 ): boolean {
-  if (left.cardIds.size !== right.cardIds.size) return false;
+  if (left.pageIds.size !== right.pageIds.size) return false;
 
-  for (const cardId of left.cardIds) {
-    if (!right.cardIds.has(cardId)) return false;
+  for (const pageId of left.pageIds) {
+    if (!right.pageIds.has(pageId)) return false;
   }
 
   return true;
@@ -86,15 +86,15 @@ interface KanbanBoardProps {
   projects: Project[];
   searchQuery: string;
   dbViewPrefs: DbViewPrefs | null;
-  openCardStage: (
+  openPageStage: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
-    options?: OpenCardStageOptions,
+    options?: OpenPageStageOptions,
   ) => void;
-  cardStageCardId: string | undefined;
-  activePanelCardStageCardIds?: ReadonlySet<string>;
-  cardStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  pageStagePageId: string | undefined;
+  activePanelPageStagePageIds?: ReadonlySet<string>;
+  pageStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   scrollStateKey?: string | null;
 }
 
@@ -104,10 +104,10 @@ export function KanbanBoard({
   projects,
   searchQuery,
   dbViewPrefs,
-  openCardStage,
-  cardStageCardId,
-  activePanelCardStageCardIds,
-  cardStageCloseRef,
+  openPageStage,
+  pageStagePageId,
+  activePanelPageStagePageIds,
+  pageStageCloseRef,
   scrollStateKey,
 }: KanbanBoardProps) {
   const mutationAuditSessionId = useMutationAuditSessionId();
@@ -126,12 +126,11 @@ export function KanbanBoard({
     databaseView,
     loading,
     error,
-    createCard,
-    updateCard,
-    deleteCard,
-    moveCard,
-    moveCards,
-    moveCardToProject,
+    createPage,
+    updatePage,
+    deletePage,
+    movePage,
+    movePages,
     refresh,
   } =
     useKanban({
@@ -154,7 +153,7 @@ export function KanbanBoard({
     columnId: string;
     message: string;
   } | null>(null);
-  const [activeDraggedCardIds, setActiveDraggedCardIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [activeDraggedPageIds, setActiveDraggedPageIds] = useState<ReadonlySet<string>>(() => new Set());
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [columnLayoutPrefs, setColumnLayoutPrefs] = useState<KanbanColumnLayoutPrefs>(
@@ -182,17 +181,17 @@ export function KanbanBoard({
     return {
       ...board,
       columns: board.columns.map((column, columnIndex) => {
-        const columnCards = column.cards.map<DbViewCardRecord>((card, cardIndex) => ({
+        const columnCards = column.cards.map<DbViewCardRecord>((card, pageIndex) => ({
           ...card,
           columnId: column.id,
           columnName: column.name,
-          boardIndex: columnIndex * 100_000 + cardIndex,
+          boardIndex: columnIndex * 100_000 + pageIndex,
         }));
         const filteredByRules = filterDbViewCards(columnCards, viewPrefs.rules);
         const filteredBySearch = hasSearchFilter
           ? filteredByRules.filter((card) =>
             matchesSearchTokens(
-              `${buildCardSearchText(card)} ${card.columnName.toLowerCase()}`,
+              `${buildPageSearchText(card)} ${card.columnName.toLowerCase()}`,
               searchTokens,
             ))
           : filteredByRules;
@@ -224,18 +223,7 @@ export function KanbanBoard({
     [projectId, projects],
   );
 
-  const contextMenuProjects = useMemo(
-    () => projects.map((project) => ({
-      id: project.id,
-      name: project.name,
-      icon: project.icon,
-      description: project.description,
-      primaryWorkspaceRoot: project.primaryWorkspaceRoot,
-    })),
-    [projects],
-  );
-
-  const selectedCardIds = cardSelection.cardIds;
+  const selectedPageIds = cardSelection.pageIds;
 
   const resolveColumnSurface = useCallback((columnId: string): HTMLElement | null => {
     if (typeof document === "undefined") return null;
@@ -249,10 +237,11 @@ export function KanbanBoard({
       selection: cardSelection,
       instanceId: dragInstanceId,
       projectId,
-      activeCard: card,
-      databaseBlockId: databaseView?.databaseBlockId ?? "unavailable",
+      activePage: card,
+      databaseBlockId: databaseView?.databaseId ?? "unavailable",
+      dataSourceId: databaseView?.dataSourceId ?? "unavailable",
       storeEpoch: databaseView?.storeEpoch ?? "unavailable",
-      columnId: columnId as CardStatus,
+      columnId: columnId as WorkflowStatus,
     }),
     [board, cardSelection, databaseView, dragInstanceId, filteredBoard, projectId],
   );
@@ -261,11 +250,11 @@ export function KanbanBoard({
     setDropIndicator(null);
     setActiveDropColumnId(null);
     setBlockedDropMessage(null);
-    setActiveDraggedCardIds(new Set());
+    setActiveDraggedPageIds(new Set());
   }, []);
 
   const handleExternalBlockDragOver = useCallback(
-    (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+    (columnId: WorkflowStatus, event: React.DragEvent<HTMLDivElement>) => {
       if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
       const transfersBlocks = hasDragType(
         event.dataTransfer,
@@ -282,7 +271,7 @@ export function KanbanBoard({
         event.clientY,
       );
       setActiveDropColumnId(columnId);
-      const label = blockTransferDropLabel(mode, "database");
+      const label = blockTransferDropLabel(mode, "data_source");
       setDropIndicator((current) =>
         current?.columnId === columnId &&
         current.index === index &&
@@ -296,7 +285,7 @@ export function KanbanBoard({
   );
 
   const handleExternalBlockDragLeave = useCallback(
-    (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+    (columnId: WorkflowStatus, event: React.DragEvent<HTMLDivElement>) => {
       if (!shouldHandleNativeCrossSurfaceDrag(event.dataTransfer)) return;
       const next = event.relatedTarget;
       if (next instanceof Node && event.currentTarget.contains(next)) return;
@@ -311,7 +300,7 @@ export function KanbanBoard({
   );
 
   const handleExternalBlockDrop = useCallback(
-    async (columnId: CardStatus, event: React.DragEvent<HTMLDivElement>) => {
+    async (columnId: WorkflowStatus, event: React.DragEvent<HTMLDivElement>) => {
       const session = resolveLocalBlockDragDropSession(event.dataTransfer);
       if (!session) return;
       const authoritativePayload = session.payload;
@@ -338,18 +327,18 @@ export function KanbanBoard({
       const destinationCards = filteredBoard?.columns.find(
         (column) => column.id === columnId,
       )?.cards ?? [];
-      const beforeCardBlockId = destinationCards[destinationIndex]?.id;
+      const beforePageId = destinationCards[destinationIndex]?.id;
       const result = await transferBlocks(
         projectId,
-        buildDocumentToDatabaseTransferIntent({
+        buildBlockToDataSourceTransferIntent({
           operationId: crypto.randomUUID(),
           projectId,
           storeEpoch: databaseView.storeEpoch,
           payload: authoritativePayload,
-          databaseBlockId: databaseView.databaseBlockId,
+          dataSourceId: databaseView.dataSourceId,
           viewId: databaseView.databaseViewId,
           groupKey: columnId,
-          ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
+          ...(beforePageId ? { beforePageId } : {}),
           altKey: event.altKey,
         }),
       );
@@ -367,12 +356,12 @@ export function KanbanBoard({
     dropTargets: ReadonlyArray<{ data: Record<string | symbol, unknown> }>,
     pointer: { x: number; y: number } | null,
   ) => {
-    const dragCardIds = dragData.dragItems.map((entry) => entry.card.id);
+    const dragPageIds = dragData.dragItems.map((entry) => entry.card.id);
     const destination = resolveKanbanDropLocation({
       visibleBoard: filteredBoard,
       dropTargets,
       sourceData: dragData,
-      draggedCardIds: dragCardIds,
+      draggedPageIds: dragPageIds,
       pointerY: pointer?.y ?? null,
       resolveColumnSurface,
     });
@@ -395,7 +384,7 @@ export function KanbanBoard({
     const sharedSourceColumnId = dragData.dragItems.every(
       (entry) => entry.columnId === dragData.dragItems[0]?.columnId,
     )
-      ? (dragData.dragItems[0]?.columnId as CardStatus | undefined)
+      ? (dragData.dragItems[0]?.columnId as WorkflowStatus | undefined)
       : undefined;
     const newOrder = dropIntent.kind === "reorder" || dropIntent.kind === "reorder-with-patch"
       ? dropIntent.newOrder
@@ -404,9 +393,9 @@ export function KanbanBoard({
       ? dropIntent.fieldPatch
       : undefined;
 
-    if (dragCardIds.length > 1) {
-      const moved = await moveCards({
-        cardIds: dragCardIds,
+    if (dragPageIds.length > 1) {
+      const moved = await movePages({
+        pageIds: dragPageIds,
         ...(sharedSourceColumnId ? { fromStatus: sharedSourceColumnId } : {}),
         toStatus: destination.columnId,
         ...(typeof newOrder === "number" ? { newOrder } : {}),
@@ -415,13 +404,13 @@ export function KanbanBoard({
       if (!moved) return;
 
       setCardSelection({
-        cardIds: new Set(dragCardIds),
+        pageIds: new Set(dragPageIds),
       });
       return;
     }
 
-    const moved = await moveCard({
-      cardId: dragData.sourceCardId,
+    const moved = await movePage({
+      pageId: dragData.sourcePageId,
       fromStatus: dragData.sourceColumnId,
       toStatus: destination.columnId,
       ...(typeof newOrder === "number" ? { newOrder } : {}),
@@ -433,8 +422,8 @@ export function KanbanBoard({
   }, [
     board,
     filteredBoard,
-    moveCard,
-    moveCards,
+    movePage,
+    movePages,
     resolveColumnSurface,
     viewPrefs.rules,
   ]);
@@ -461,13 +450,13 @@ export function KanbanBoard({
           return;
         }
 
-        setActiveDraggedCardIds(new Set(source.data.dragItems.map((entry) => entry.card.id)));
+        setActiveDraggedPageIds(new Set(source.data.dragItems.map((entry) => entry.card.id)));
         setActiveDropColumnId(null);
         setBlockedDropMessage(null);
         setDropIndicator(null);
         if (
-          selectedCardIds.size > 0
-          && !selectedCardIds.has(source.data.sourceCardId)
+          selectedPageIds.size > 0
+          && !selectedPageIds.has(source.data.sourcePageId)
         ) {
           setCardSelection(emptyCardSelection());
         }
@@ -485,7 +474,7 @@ export function KanbanBoard({
           visibleBoard: filteredBoard,
           dropTargets: location.current.dropTargets as Array<{ data: Record<string | symbol, unknown> }>,
           sourceData: source.data,
-          draggedCardIds: source.data.dragItems.map((entry) => entry.card.id),
+          draggedPageIds: source.data.dragItems.map((entry) => entry.card.id),
           pointerY: pointer.y,
           resolveColumnSurface,
         });
@@ -584,25 +573,25 @@ export function KanbanBoard({
 
   const handleAddCard = useCallback(async (
     columnId: string,
-    input: CardInput,
-    placement: CardCreatePlacement = "bottom",
+    input: PageInput,
+    placement: PageCreatePlacement = "bottom",
   ) => {
-    await createCard(columnId, input, placement);
-  }, [createCard]);
+    await createPage(columnId, input, placement);
+  }, [createPage]);
 
-  const openCardStageFromCard = useCallback(async (
+  const openPageStageFromCard = useCallback(async (
     card: CardType,
     openMode: KanbanCardOpenMode,
   ) => {
-    if (openMode === "preview" && cardStageCardId === card.id) {
-      await cardStageCloseRef?.current?.();
+    if (openMode === "preview" && pageStagePageId === card.id) {
+      await pageStageCloseRef?.current?.();
       return;
     }
-    openCardStage(projectId, card.id, card.title, { openMode });
+    openPageStage(projectId, card.id, card.title, { openMode });
   }, [
-    cardStageCardId,
-    cardStageCloseRef,
-    openCardStage,
+    pageStagePageId,
+    pageStageCloseRef,
+    openPageStage,
     projectId,
   ]);
 
@@ -621,101 +610,76 @@ export function KanbanBoard({
 
     if (openMode === "preview" && event.detail > 1) return;
 
-    if (selectedCardIds.size > 0) {
+    if (selectedPageIds.size > 0) {
       setCardSelection(emptyCardSelection());
     }
 
     clearPendingCardPreviewOpen();
     if (openMode === "durable") {
-      void openCardStageFromCard(card, "durable");
+      void openPageStageFromCard(card, "durable");
       return;
     }
 
     pendingCardPreviewOpenRef.current = setTimeout(() => {
       pendingCardPreviewOpenRef.current = null;
-      void openCardStageFromCard(card, "preview");
+      void openPageStageFromCard(card, "preview");
     }, KANBAN_CARD_PREVIEW_OPEN_DELAY_MS);
   }, [
     clearPendingCardPreviewOpen,
-    openCardStageFromCard,
-    selectedCardIds.size,
+    openPageStageFromCard,
+    selectedPageIds.size,
   ]);
 
-  const handleCardMenuOpen = useCallback((cardId: string) => {
+  const handleCardMenuOpen = useCallback((pageId: string) => {
     setCardSelection({
-      cardIds: new Set([cardId]),
+      pageIds: new Set([pageId]),
     });
   }, []);
 
-  const handleDeleteCardFromMenu = useCallback(
+  const handleDeletePageFromMenu = useCallback(
     async ({
-      cardId,
+      pageId,
       columnId,
     }: {
-      cardId: string;
+      pageId: string;
       columnId: string;
     }) => {
-      const deleted = await deleteCard(columnId, cardId);
+      const deleted = await deletePage(columnId, pageId);
       if (!deleted) {
         await refresh();
         return;
       }
 
-      if (cardStageCardId === cardId) {
-        await cardStageCloseRef?.current?.();
+      if (pageStagePageId === pageId) {
+        await pageStageCloseRef?.current?.();
       }
 
       setCardSelection(emptyCardSelection());
     },
-    [cardStageCardId, cardStageCloseRef, deleteCard, refresh],
+    [pageStagePageId, pageStageCloseRef, deletePage, refresh],
   );
 
   const handleCopyCardLinkFromMenu = useCallback(
     async ({
-      cardId,
+      pageId,
     }: {
-      cardId: string;
+      pageId: string;
       projectId: string;
     }) => {
-      await writeTextToClipboard(buildCardDeepLink({ cardId }));
+      await writeTextToClipboard(buildPageDeepLink({ pageId: pageId }));
     },
     [],
   );
 
-  const handleMoveCardToProjectFromMenu = useCallback(
+  const handleUpdatePageProperty = useCallback(
     async ({
-      cardId,
-      sourceStatus,
-      targetProjectId,
-    }: {
-      cardId: string;
-      sourceStatus: CardType["status"];
-      targetProjectId: string;
-    }) => {
-      const moved = await moveCardToProject({
-        cardId,
-        sourceStatus,
-        targetProjectId,
-      });
-      if (!moved) {
-        await refresh();
-        return;
-      }
-
-      setCardSelection(emptyCardSelection());
-    },
-    [moveCardToProject, refresh],
-  );
-
-  const handleUpdateCardProperty = useCallback(
-    async ({
-      cardId,
+      pageId,
       columnId,
       property,
       value,
     }: CardPropertyUpdateInput) => {
       const column = board?.columns.find((candidate) => candidate.id === columnId);
-      const card = column?.cards.find((candidate) => candidate.id === cardId);
+      const card = column?.cards.find((candidate) => candidate.id === pageId);
       if (!card) {
         return;
       }
@@ -724,7 +688,7 @@ export function KanbanBoard({
         if ((card.priority ?? "none") === value) {
           return;
         }
-        await updateCard(columnId, cardId, {
+        await updatePage(columnId, pageId, {
           priority: value === "none" ? null : (value as CardType["priority"]),
         });
         return;
@@ -735,15 +699,15 @@ export function KanbanBoard({
         return;
       }
 
-      await updateCard(columnId, cardId, {
+      await updatePage(columnId, pageId, {
         estimate: nextEstimate as CardType["estimate"],
       });
     },
-    [board, updateCard],
+    [board, updatePage],
   );
 
   const updateColumnLayout = useCallback((
-    columnId: CardStatus,
+    columnId: WorkflowStatus,
     patch: { collapsed?: boolean; width?: number },
   ) => {
     setColumnLayoutPrefs((current) => {
@@ -796,14 +760,13 @@ export function KanbanBoard({
               layout={getKanbanColumnLayout(columnLayoutPrefs, column.id)}
               onAddCard={handleAddCard}
               onEditCard={handleEditCard}
-              onUpdateCardProperty={handleUpdateCardProperty}
+              onUpdatePageProperty={handleUpdatePageProperty}
               onCollapsedChange={(columnId, collapsed) => updateColumnLayout(columnId, { collapsed })}
               onWidthChange={(columnId, width) => updateColumnLayout(columnId, { width })}
-              onMoveCardToProjectFromMenu={handleMoveCardToProjectFromMenu}
-              onDeleteCardFromMenu={handleDeleteCardFromMenu}
+              onDeletePageFromMenu={handleDeletePageFromMenu}
               onCopyCardLinkFromMenu={handleCopyCardLinkFromMenu}
-              onOpenCardMenu={handleCardMenuOpen}
-              cardDropDisabled={!dropCapabilities.allowCardTargets}
+              onOpenPageMenu={handleCardMenuOpen}
+              cardDropDisabled={!dropCapabilities.allowPageTargets}
               columnDropDisabled={!dropCapabilities.allowColumnTargets}
               dropIndicatorIndex={
                 dropIndicator?.columnId === column.id
@@ -815,17 +778,16 @@ export function KanbanBoard({
                   ? dropIndicator.label
                   : undefined
               }
-              draggedCardIds={activeDraggedCardIds}
+              draggedPageIds={activeDraggedPageIds}
               isDropTargetActive={activeDropColumnId === column.id}
               dropBlockedMessage={
                 blockedDropMessage?.columnId === column.id
                   ? blockedDropMessage.message
                   : undefined
               }
-              focusedCardId={cardStageCardId}
-              activePanelCardStageCardIds={activePanelCardStageCardIds}
-              selectedCardIds={selectedCardIds}
-              contextMenuProjects={contextMenuProjects}
+              focusedPageId={pageStagePageId}
+              activePanelPageStagePageIds={activePanelPageStagePageIds}
+              selectedPageIds={selectedPageIds}
               onExternalBlockDragOver={handleExternalBlockDragOver}
               onExternalBlockDragLeave={handleExternalBlockDragLeave}
               onExternalBlockDrop={(columnId, event) => {

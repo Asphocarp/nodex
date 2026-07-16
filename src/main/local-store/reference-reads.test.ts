@@ -3,13 +3,14 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { getDatabasePath } from "./config";
 import { closeDatabase, initializeDatabase } from "./database";
 import { createProject } from "./projects";
+import { putProjectResourceGrantInDatabase } from "./project-resource-grants";
 import {
   readProjectScopedDatabaseViewReference,
-  resolveProjectScopedCardTarget,
+  resolveProjectScopedPageTarget,
 } from "./reference-reads";
 
 const supportsBetterSqlite = (() => {
@@ -30,7 +31,7 @@ const skipTest = (test as typeof test & { skip: typeof test }).skip;
 const sqliteTest = supportsBetterSqlite ? test : skipTest;
 
 describe("Project-scoped canonical reference reads", () => {
-  sqliteTest("allows cross-Project targets only from an existing host scope", async () => {
+  sqliteTest("allows cross-Project targets only through an explicit resource grant", async () => {
     closeDatabase();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-reference-read-"));
     process.env.NODEX_DIR = tempDir;
@@ -38,10 +39,10 @@ describe("Project-scoped canonical reference reads", () => {
       await initializeDatabase();
       const hostProject = createProject({ name: "Host" });
       const targetProject = createProject({ name: "Target" });
-      const targetCard = await createCard(targetProject.id, "draft", {
+      const targetCard = await createPage(targetProject.id, "draft", {
         title: "Target Card",
       });
-      const siblingCard = await createCard(targetProject.id, "draft", {
+      const siblingCard = await createPage(targetProject.id, "draft", {
         title: "Sibling Card",
       });
       closeDatabase();
@@ -60,7 +61,7 @@ describe("Project-scoped canonical reference reads", () => {
           schemaVersion: 1,
           filter: { any: [] },
           sort: [{ field: "board-order", direction: "asc" }],
-          options: { includeHostCard: false },
+          options: { includeHostPage: false },
         });
         database.prepare(`
           INSERT INTO database_views (
@@ -84,13 +85,19 @@ describe("Project-scoped canonical reference reads", () => {
         insertPosition.run(targetCard.id, targetProject.id, "a", now, now);
         insertPosition.run(siblingCard.id, targetProject.id, "b", now, now);
 
-        const card = resolveProjectScopedCardTarget({
+        putProjectResourceGrantInDatabase(database, {
+          projectId: hostProject.id,
+          root: { kind: "database", databaseId: databaseBlock.block_id },
+          access: "read",
+        }, now);
+
+        const card = resolveProjectScopedPageTarget({
           requestingProjectId: hostProject.id,
-          targetBlockId: targetCard.id,
+          targetPageId: targetCard.id,
         }, database);
         expect(card?.status).toBe("available");
         if (card?.status === "available") {
-          expect(card.card.projectId).toBe(targetProject.id);
+          expect(card.page.libraryId).toBe(targetProject.libraryId);
         }
         const view = readProjectScopedDatabaseViewReference({
           requestingProjectId: hostProject.id,
@@ -103,12 +110,12 @@ describe("Project-scoped canonical reference reads", () => {
           databaseViewId: "view:target",
           hostBlockId: targetCard.id,
         }, database);
-        expect(withoutHost?.rows.map((row) => row.card.id).join(",")).toBe(
+        expect(withoutHost?.rows.map((row) => row.page.id).join(",")).toBe(
           siblingCard.id,
         );
-        expect(resolveProjectScopedCardTarget({
+        expect(resolveProjectScopedPageTarget({
           requestingProjectId: "missing-project",
-          targetBlockId: targetCard.id,
+          targetPageId: targetCard.id,
         }, database) === null).toBe(true);
         expect(readProjectScopedDatabaseViewReference({
           requestingProjectId: "missing-project",

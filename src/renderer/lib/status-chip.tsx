@@ -1,9 +1,9 @@
 import type { SVGProps } from "react";
-import type { CardStatus } from "../../shared/card-status";
-import { CARD_STATUS_LABELS } from "../../shared/card-status";
+import type { WorkflowStatus } from "../../shared/workflow-status";
+import { WORKFLOW_STATUS_LABELS } from "../../shared/workflow-status";
 import { cn } from "./utils";
 
-type StatusVisualId = CardStatus | "archived";
+type StatusVisualId = WorkflowStatus | "archived";
 
 type StatusTone = {
   dotColor: string;
@@ -177,7 +177,7 @@ function resolveStatusVisualId(statusId?: string | null, label?: string | null):
 function resolveStatusLabel(statusId: StatusVisualId, label?: string | null): string {
   if (label?.trim()) return label;
   if (statusId === "archived") return "Archived";
-  return CARD_STATUS_LABELS[statusId];
+  return WORKFLOW_STATUS_LABELS[statusId];
 }
 
 function appendIconPaths(
@@ -202,7 +202,7 @@ export function getStatusStyle(statusId?: string | null, label?: string | null):
   return resolved ? columnStyles[resolved] : FALLBACK_STATUS_STYLE;
 }
 
-export function getStatusIdByLabel(label: string): CardStatus | undefined {
+export function getStatusIdByLabel(label: string): WorkflowStatus | undefined {
   const resolved = STATUS_ID_BY_LABEL[label];
   return resolved && resolved !== "archived" ? resolved : undefined;
 }

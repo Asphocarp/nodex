@@ -15,6 +15,10 @@ import { buildSettingsPath } from "./workbench-settings-routes";
 const PROJECTS = [
   {
     id: "default",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active" as const,
+    bindingRevision: 1,
     name: "Nodex",
     description: "",
     sources: [{ root: "/Users/asc/repo/nodex2", order: 0 }],
@@ -86,7 +90,7 @@ async function renderOverlay(path = buildSettingsPath("backups")) {
         onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
         activeProjectId="default"
-        sidebarTopLevelSectionOrder={["recents", "cards", "threads", "files"]}
+        sidebarTopLevelSectionOrder={["recents", "pages", "threads", "files"]}
         sidebarTopLevelSections={makeDefaultSidebarTopLevelSectionsPrefs()}
         onSidebarTopLevelSectionVisibleChange={() => {}}
         threadQueueFollowUpsEnabled={false}

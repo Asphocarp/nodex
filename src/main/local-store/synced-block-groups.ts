@@ -1,12 +1,12 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { createUuidV7 } from "../../shared/card-id";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import * as Y from "yjs";
 import {
   stableStringifyBlockPropertyJson,
   type BlockPropertyJsonValue,
 } from "../../shared/block-property-mutations";
-import { isUuidV7 } from "../../shared/card-id";
+import { isUuidV7 } from "../../shared/uuid-v7";
 import {
   populateBlockDocumentBodyFromBlockTree,
   populateBlockDocumentBodyFromNfm,

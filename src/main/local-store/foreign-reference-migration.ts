@@ -1,24 +1,24 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { createUuidV7, isUuidV7 } from "../../shared/card-id";
+import { createUuidV7, isUuidV7 } from "../../shared/uuid-v7";
 import {
-  CARD_STATUS_LABELS,
-  isCardStatus,
-  type CardStatus,
-} from "../../shared/card-status";
+  WORKFLOW_STATUS_LABELS,
+  isWorkflowStatus,
+  type WorkflowStatus,
+} from "../../shared/workflow-status";
 import {
-  MAX_CARD_ASSIGNEE_LENGTH,
-  MAX_CARD_TAG_COUNT,
-  MAX_CARD_TAG_LENGTH,
-  MAX_CARD_TITLE_LENGTH,
-} from "../../shared/card-limits";
+  MAX_PAGE_ASSIGNEE_LENGTH,
+  MAX_PAGE_TAG_COUNT,
+  MAX_PAGE_TAG_LENGTH,
+  MAX_PAGE_TITLE_LENGTH,
+} from "../../shared/page-limits";
 import {
   collectLegacyProjectionRootIds,
   migrateForeignReferences,
   type ForeignReferenceResolution,
 } from "../../shared/block-documents";
 import {
-  materializeCardDocument,
+  materializePageDocument,
   type BlockTreeNode,
 } from "../../shared/block-documents/block-document-codec";
 import {
@@ -34,11 +34,11 @@ import { parseNfm } from "../../shared/nfm/parser";
 import { serializeNfm } from "../../shared/nfm/serializer";
 import type { NfmBlock, NfmCardToggle } from "../../shared/nfm/types";
 import type {
-  CardCreateInput,
+  PageCreateInput,
   Estimate,
   Priority,
 } from "../../shared/types";
-import { summarizeCardDescription } from "../../shared/card-summary";
+import { summarizePageDescription } from "../../shared/page-summary";
 import {
   applyLegacyShadowDocumentUpdate,
   loadLegacyShadowBlockDocumentForMigration,
@@ -50,7 +50,7 @@ import {
 } from "./database-views";
 import { getDb } from "./database";
 import * as descriptionRevisionService from "./description-revisions";
-import { persistCardDocumentMaterialization } from "./document-materializations";
+import { persistPageDocumentMaterialization } from "./document-materializations";
 
 /** Shipped-store import only; current runtime never owns foreign bodies. */
 const DEFAULT_BATCH_LIMIT = 50;
@@ -145,8 +145,8 @@ export interface ForeignReferenceMigrationBatchResult {
 export interface ForeignReferenceMigrationDependencies {
   readonly createRecoveredCard?: (input: {
     readonly projectId: string;
-    readonly status: CardStatus;
-    readonly card: CardCreateInput;
+    readonly status: WorkflowStatus;
+    readonly card: PageCreateInput;
   }) => Promise<unknown>;
   readonly upsertInlineDatabaseView?: (
     input: UpsertLegacyInlineDatabaseViewInput,
@@ -192,7 +192,7 @@ const readReadyLegacyDocuments = (
   INNER JOIN blocks owner ON owner.id = ownership.block_id
   WHERE document.authority = 'legacy_shadow'
     AND document.readiness = 'ready'
-    AND owner.type = 'card'
+    AND owner.type = 'page'
   ORDER BY owner.project_id, owner.id
 `,
     )
@@ -203,7 +203,7 @@ const projectionMatches = (
   input: {
     readonly generation: number;
     readonly headSeq: number;
-    readonly materialization: ReturnType<typeof materializeCardDocument>;
+    readonly materialization: ReturnType<typeof materializePageDocument>;
   },
 ): boolean =>
   Boolean(
@@ -242,7 +242,7 @@ const synchronizeLegacyMaterializations = (
       candidate.document_id,
     );
     try {
-      const materialization = materializeCardDocument(loaded.document);
+      const materialization = materializePageDocument(loaded.document);
       const row = readProjection.get(candidate.document_id) as
         StoredMaterializationRow | undefined;
       if (
@@ -254,7 +254,7 @@ const synchronizeLegacyMaterializations = (
       ) {
         continue;
       }
-      persistCardDocumentMaterialization(database, {
+      persistPageDocumentMaterialization(database, {
         documentId: candidate.document_id,
         generation: loaded.head.generation,
         projectedSeq: loaded.head.headSeq,
@@ -377,7 +377,7 @@ const readTargetCard = (
   `,
     )
     .get(targetBlockId) as TargetCardRow | undefined;
-  if (!row || row.type !== "card" || row.title === null) return null;
+  if (!row || row.type !== "page" || row.title === null) return null;
   return row;
 };
 
@@ -413,7 +413,7 @@ const isCanonicalReferenceIdentity = (value: string): boolean =>
   value === value.trim() &&
   value.length <= MAX_BLOCK_ID_LENGTH;
 
-const reserveUnresolvedCardTarget = (
+const reserveUnresolvedPageTarget = (
   database: Database.Database,
   candidate: CandidateDocumentRow,
   targetBlockId: string,
@@ -566,7 +566,7 @@ const inlineText = (block: NfmCardToggle): string =>
 interface RecoveryMeta {
   readonly priority?: Priority | null;
   readonly estimate?: Estimate | null;
-  readonly status?: CardStatus;
+  readonly status?: WorkflowStatus;
   readonly tags: readonly string[];
 }
 
@@ -585,16 +585,16 @@ const ESTIMATE_BY_META_TOKEN: Readonly<Record<string, Estimate>> = {
   XL: "xl",
 };
 const STATUS_BY_META_TOKEN = new Map(
-  Object.entries(CARD_STATUS_LABELS).map(([status, label]) => [
+  Object.entries(WORKFLOW_STATUS_LABELS).map(([status, label]) => [
     label,
-    status as CardStatus,
+    status as WorkflowStatus,
   ]),
 );
 
 const parseRecoveryMeta = (meta: string): RecoveryMeta => {
   let priority: Priority | null | undefined;
   let estimate: Estimate | null | undefined;
-  let status: CardStatus | undefined;
+  let status: WorkflowStatus | undefined;
   const tags: string[] = [];
   for (const match of meta.matchAll(/\[([^\]]+)\]/g)) {
     const token = match[1]?.trim();
@@ -630,7 +630,7 @@ const parseRecoveryMeta = (meta: string): RecoveryMeta => {
 
 const recoveryContent = (
   block: NfmCardToggle,
-): Omit<CardCreateInput, "id"> & { readonly projectId?: string } => {
+): Omit<PageCreateInput, "id"> & { readonly projectId?: string } => {
   const snapshot = decodeSnapshot(block.snapshot);
   const meta = parseRecoveryMeta(block.meta);
   const title =
@@ -638,8 +638,8 @@ const recoveryContent = (
   const tags = [...new Set([...(snapshot?.tags ?? []), ...meta.tags])];
   const status =
     meta.status ??
-    (isCardStatus(block.sourceStatus) ? block.sourceStatus : undefined) ??
-    (isCardStatus(snapshot?.status) ? snapshot.status : undefined);
+    (isWorkflowStatus(block.sourceStatus) ? block.sourceStatus : undefined) ??
+    (isWorkflowStatus(snapshot?.status) ? snapshot.status : undefined);
   return {
     title,
     // The live host subtree is the newest editable copy. Snapshot body text is
@@ -675,12 +675,12 @@ const recoveryContent = (
 };
 
 const sanitizeRecoveryCardInput = (
-  input: Omit<CardCreateInput, "id" | "status">,
-): Omit<CardCreateInput, "id" | "status"> => {
+  input: Omit<PageCreateInput, "id" | "status">,
+): Omit<PageCreateInput, "id" | "status"> => {
   const normalizedTags = input.tags
     ? [
-        ...new Set(input.tags.map((tag) => tag.slice(0, MAX_CARD_TAG_LENGTH))),
-      ].slice(0, MAX_CARD_TAG_COUNT)
+        ...new Set(input.tags.map((tag) => tag.slice(0, MAX_PAGE_TAG_LENGTH))),
+      ].slice(0, MAX_PAGE_TAG_COUNT)
     : undefined;
   const invalidRange =
     input.scheduledStart instanceof Date &&
@@ -693,10 +693,10 @@ const sanitizeRecoveryCardInput = (
     input.isAllDay === true && !hasAllDayPair ? false : input.isAllDay;
   return {
     ...input,
-    title: input.title.slice(0, MAX_CARD_TITLE_LENGTH),
+    title: input.title.slice(0, MAX_PAGE_TITLE_LENGTH),
     ...(normalizedTags ? { tags: normalizedTags } : {}),
     ...(input.assignee !== undefined
-      ? { assignee: input.assignee.slice(0, MAX_CARD_ASSIGNEE_LENGTH) }
+      ? { assignee: input.assignee.slice(0, MAX_PAGE_ASSIGNEE_LENGTH) }
       : {}),
     ...(invalidRange ? { scheduledEnd: undefined } : {}),
     ...(isAllDay !== undefined ? { isAllDay } : {}),
@@ -907,7 +907,7 @@ const markLedgersFailed = (
 };
 
 const legacyRunTarget = (
-  target: CardCreateInput["runInTarget"],
+  target: PageCreateInput["runInTarget"],
 ): string => {
   if (target === "newWorktree") return "new_worktree";
   if (target === "cloud") return "cloud";
@@ -925,8 +925,8 @@ const createDefaultRecoveredCard = async (
   database: Database.Database,
   input: {
   readonly projectId: string;
-  readonly status: CardStatus;
-  readonly card: CardCreateInput;
+  readonly status: WorkflowStatus;
+  readonly card: PageCreateInput;
   },
 ): Promise<void> => {
   const cardId = input.card.id;
@@ -936,7 +936,7 @@ const createDefaultRecoveredCard = async (
     );
   }
   const description = input.card.description ?? "";
-  const summary = summarizeCardDescription(description);
+  const summary = summarizePageDescription(description);
   const nextOrder = database
     .prepare(
       `
@@ -1012,7 +1012,7 @@ const resolveCardProjection = async (
 ): Promise<{
   readonly resolution: Extract<
     ForeignReferenceResolution,
-    { readonly kind: "card" }
+    { readonly kind: "page" }
   >;
   readonly ledger: LedgerRow;
   readonly recovered: boolean;
@@ -1048,7 +1048,7 @@ const resolveCardProjection = async (
     });
     return {
       resolution: {
-        kind: "card",
+        kind: "page",
         sourceBlockId: reference.sourceBlockId,
         targetBlockId: resolvedTarget.id,
       },
@@ -1064,7 +1064,7 @@ const resolveCardProjection = async (
     });
     return {
       resolution: {
-        kind: "card",
+        kind: "page",
         sourceBlockId: reference.sourceBlockId,
         targetBlockId: legacyTarget.id,
       },
@@ -1090,7 +1090,7 @@ const resolveCardProjection = async (
     ledger = setLedgerTarget(database, reference.sourceBlockId, {
       targetBlockId: unresolvedTargetId,
     });
-    reserveUnresolvedCardTarget(
+    reserveUnresolvedPageTarget(
       database,
       candidate,
       unresolvedTargetId,
@@ -1098,7 +1098,7 @@ const resolveCardProjection = async (
     );
     return {
       resolution: {
-        kind: "card",
+        kind: "page",
         sourceBlockId: reference.sourceBlockId,
         targetBlockId: unresolvedTargetId,
       },
@@ -1163,7 +1163,7 @@ const resolveCardProjection = async (
   });
   return {
     resolution: {
-      kind: "card",
+      kind: "page",
       sourceBlockId: reference.sourceBlockId,
       targetBlockId: recoveredCardId,
     },
@@ -1202,7 +1202,7 @@ const toLegacyInlineProps = (
 const resolveDocument = async (
   database: Database.Database,
   candidate: CandidateDocumentRow,
-  materialization: ReturnType<typeof materializeCardDocument>,
+  materialization: ReturnType<typeof materializePageDocument>,
   dependencies: Required<
     Pick<
       ForeignReferenceMigrationDependencies,
@@ -1416,7 +1416,7 @@ export const migrateLegacyForeignReferences = async (
         candidate.document_id,
       );
       try {
-        const materialization = materializeCardDocument(loaded.document);
+        const materialization = materializePageDocument(loaded.document);
         const resolved = await resolveDocument(
           database,
           candidate,

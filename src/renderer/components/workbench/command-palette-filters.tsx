@@ -1,14 +1,14 @@
 import {
-  CARD_STATUS_LABELS,
-  CARD_STATUS_ORDER,
-  type CardStatus,
-} from "../../../shared/card-status";
+  WORKFLOW_STATUS_LABELS,
+  WORKFLOW_STATUS_ORDER,
+  type WorkflowStatus,
+} from "../../../shared/workflow-status";
 import {
-  cloneCommandPaletteCardFilters,
-  getDefaultCommandPaletteCardFilters,
-  hasActiveCommandPaletteCardFilters,
-  summarizeCommandPaletteCardFilters,
-  type CommandPaletteCardFilters,
+  cloneCommandPalettePageFilters,
+  getDefaultCommandPalettePageFilters,
+  hasActiveCommandPalettePageFilters,
+  summarizeCommandPalettePageFilters,
+  type CommandPalettePageFilters,
 } from "../../lib/command-palette";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
@@ -67,16 +67,16 @@ function toggleString(values: string[], value: string): string[] {
     : [...values, value];
 }
 
-function toggleStatus(values: CardStatus[], value: CardStatus): CardStatus[] {
+function toggleStatus(values: WorkflowStatus[], value: WorkflowStatus): WorkflowStatus[] {
   return values.includes(value)
     ? values.filter((candidate) => candidate !== value)
     : [...values, value];
 }
 
 function togglePriority(
-  values: CommandPaletteCardFilters["priorities"],
-  value: CommandPaletteCardFilters["priorities"][number],
-): CommandPaletteCardFilters["priorities"] {
+  values: CommandPalettePageFilters["priorities"],
+  value: CommandPalettePageFilters["priorities"][number],
+): CommandPalettePageFilters["priorities"] {
   return values.includes(value)
     ? values.filter((candidate) => candidate !== value)
     : [...values, value];
@@ -119,7 +119,7 @@ function FilterValueRow({
   );
 }
 
-export function CommandPaletteCardFilterPopover({
+export function CommandPalettePageFilterPopover({
   open,
   onOpenChange,
   filters,
@@ -132,15 +132,15 @@ export function CommandPaletteCardFilterPopover({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  filters: CommandPaletteCardFilters;
+  filters: CommandPalettePageFilters;
   availableTags: string[];
   availableAssignees: string[];
   availableProjects: CommandPaletteProjectFilterOption[];
   disabled: boolean;
-  onChange: (update: (prev: CommandPaletteCardFilters) => CommandPaletteCardFilters) => void;
+  onChange: (update: (prev: CommandPalettePageFilters) => CommandPalettePageFilters) => void;
   children: React.ReactNode;
 }) {
-  const filterActive = hasActiveCommandPaletteCardFilters(filters);
+  const filterActive = hasActiveCommandPalettePageFilters(filters);
 
   return (
     <NodexPopover open={open && !disabled} onOpenChange={onOpenChange}>
@@ -151,7 +151,7 @@ export function CommandPaletteCardFilterPopover({
           <button
             type="button"
             className={TEXT_BTN}
-            onClick={() => onChange(() => getDefaultCommandPaletteCardFilters())}
+            onClick={() => onChange(() => getDefaultCommandPalettePageFilters())}
             disabled={!filterActive}
           >
             Reset
@@ -159,14 +159,14 @@ export function CommandPaletteCardFilterPopover({
         </div>
 
         <FilterValueRow label="Status">
-          {CARD_STATUS_ORDER.map((status) => (
+          {WORKFLOW_STATUS_ORDER.map((status) => (
             <FilterChip
               key={`status:${status}`}
               active={filters.statuses.includes(status)}
-              label={CARD_STATUS_LABELS[status]}
+              label={WORKFLOW_STATUS_LABELS[status]}
               onClick={() =>
                 onChange((prev) => ({
-                  ...cloneCommandPaletteCardFilters(prev),
+                  ...cloneCommandPalettePageFilters(prev),
                   statuses: toggleStatus(prev.statuses, status),
                 }))}
             />
@@ -181,7 +181,7 @@ export function CommandPaletteCardFilterPopover({
               label={TOGGLE_LIST_PRIORITY_CHIP_LABELS[priority]}
               onClick={() =>
                 onChange((prev) => ({
-                  ...cloneCommandPaletteCardFilters(prev),
+                  ...cloneCommandPalettePageFilters(prev),
                   priorities: togglePriority(prev.priorities, priority),
                 }))}
             />
@@ -191,7 +191,7 @@ export function CommandPaletteCardFilterPopover({
             label={TOGGLE_LIST_EMPTY_PRIORITY_LABEL}
             onClick={() =>
               onChange((prev) => ({
-                ...cloneCommandPaletteCardFilters(prev),
+                ...cloneCommandPalettePageFilters(prev),
                 includeEmptyPriority: !prev.includeEmptyPriority,
               }))}
           />
@@ -202,8 +202,8 @@ export function CommandPaletteCardFilterPopover({
             value={filters.tagMode}
             onValueChange={(value) =>
               onChange((prev) => ({
-                ...cloneCommandPaletteCardFilters(prev),
-                tagMode: value as CommandPaletteCardFilters["tagMode"],
+                ...cloneCommandPalettePageFilters(prev),
+                tagMode: value as CommandPalettePageFilters["tagMode"],
               }))}
             options={TOGGLE_LIST_TAG_FILTER_MODES.map((mode) => ({
               value: mode,
@@ -225,7 +225,7 @@ export function CommandPaletteCardFilterPopover({
                 label={tag}
                 onClick={() =>
                   onChange((prev) => ({
-                    ...cloneCommandPaletteCardFilters(prev),
+                    ...cloneCommandPalettePageFilters(prev),
                     tags: toggleString(prev.tags, tag),
                   }))}
               />
@@ -244,7 +244,7 @@ export function CommandPaletteCardFilterPopover({
                 label={assignee}
                 onClick={() =>
                   onChange((prev) => ({
-                    ...cloneCommandPaletteCardFilters(prev),
+                    ...cloneCommandPalettePageFilters(prev),
                     assignees: toggleString(prev.assignees, assignee),
                   }))}
               />
@@ -263,7 +263,7 @@ export function CommandPaletteCardFilterPopover({
                 label={project.label}
                 onClick={() =>
                   onChange((prev) => ({
-                    ...cloneCommandPaletteCardFilters(prev),
+                    ...cloneCommandPalettePageFilters(prev),
                     projectIds: toggleString(prev.projectIds, project.id),
                   }))}
               />
@@ -275,16 +275,16 @@ export function CommandPaletteCardFilterPopover({
   );
 }
 
-export function CommandPaletteCardFiltersSummaryRow({
+export function CommandPalettePageFiltersSummaryRow({
   filters,
   projectNameById,
   onOpenFilter,
 }: {
-  filters: CommandPaletteCardFilters;
+  filters: CommandPalettePageFilters;
   projectNameById: ReadonlyMap<string, string>;
   onOpenFilter: () => void;
 }) {
-  const summaries = summarizeCommandPaletteCardFilters(filters, projectNameById);
+  const summaries = summarizeCommandPalettePageFilters(filters, projectNameById);
   if (summaries.length === 0) {
     return null;
   }

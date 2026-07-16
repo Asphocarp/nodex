@@ -246,7 +246,7 @@ interface NfmSideMenuSurfaceProps {
   canUseBackgroundColor: boolean;
   canSendBlocks: boolean;
   sourceProjectId: string | null;
-  sourceCardId: string | null;
+  sourcePageId: string | null;
   textColor: string;
   backgroundColor: string;
   footerPrimary: string | null;
@@ -263,7 +263,7 @@ interface NfmSideMenuSurfaceProps {
   onMoveBlocksToDestination: (destination: NfmMoveToDestination) => Promise<void> | void;
   renderMoveToMenu?: (props: {
     sourceProjectId: string | null;
-    sourceCardId: string | null;
+    sourcePageId: string | null;
     onAccept: (destination: NfmMoveToDestination) => Promise<void> | void;
     onClose: () => void;
     resultScope?: NfmMoveToResultScope;
@@ -1010,7 +1010,7 @@ function NfmSideMenuSubmenu({
   canUseBackgroundColor,
   canSendBlocks,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   textColor,
   backgroundColor,
   onTurnInto,
@@ -1025,7 +1025,7 @@ function NfmSideMenuSubmenu({
   | "canUseBackgroundColor"
   | "canSendBlocks"
   | "sourceProjectId"
-  | "sourceCardId"
+  | "sourcePageId"
   | "textColor"
   | "backgroundColor"
   | "onTurnInto"
@@ -1045,12 +1045,12 @@ function NfmSideMenuSubmenu({
   }, []);
   const cardInMenuProps = {
     sourceProjectId,
-    sourceCardId,
+    sourcePageId,
     onAccept: onMoveBlocksToDestination,
     onClose: closeCardInAndRestoreFocus,
     resultScope: "db-only" as const,
-    ariaLabel: "Card in destination",
-    placeholder: "Card in…",
+    ariaLabel: "Page in destination",
+    placeholder: "Page in…",
   };
 
   return (
@@ -1095,7 +1095,7 @@ function NfmSideMenuSubmenu({
                   setCardInOpen(true);
                 }}
               >
-                Card in
+                Page in
               </NfmSideMenuSubmenuRow>
             </NodexPopoverAnchor>
             <NfmEditorPopoverContent
@@ -1103,7 +1103,7 @@ function NfmSideMenuSubmenu({
               align="start"
               sideOffset={6}
               alignOffset={-4}
-              aria-label="Card in"
+              aria-label="Page in"
               data-nfm-side-menu-submenu="true"
               className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
               style={{ width: 330 }}
@@ -1180,7 +1180,7 @@ export function NfmSideMenuSurface({
   canUseBackgroundColor,
   canSendBlocks,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   textColor,
   backgroundColor,
   footerPrimary,
@@ -1231,7 +1231,7 @@ export function NfmSideMenuSurface({
     if (submenu === "move-to") {
       const moveToMenuProps = {
         sourceProjectId,
-        sourceCardId,
+        sourcePageId,
         onAccept: onMoveBlocksToDestination,
         onClose: closeSubmenuAndRestoreFocus,
       };
@@ -1239,7 +1239,7 @@ export function NfmSideMenuSurface({
       return renderMoveToMenu?.(moveToMenuProps) ?? (
         <NfmMoveToMenu
           sourceProjectId={sourceProjectId}
-          sourceCardId={sourceCardId}
+          sourcePageId={sourcePageId}
           onAccept={onMoveBlocksToDestination}
           onClose={closeSubmenuAndRestoreFocus}
         />
@@ -1255,7 +1255,7 @@ export function NfmSideMenuSurface({
         canUseBackgroundColor={canUseBackgroundColor}
         canSendBlocks={canSendBlocks}
         sourceProjectId={sourceProjectId}
-        sourceCardId={sourceCardId}
+        sourcePageId={sourcePageId}
         textColor={textColor}
         backgroundColor={backgroundColor}
         onTurnInto={onTurnInto}
@@ -1731,7 +1731,7 @@ function NfmSideMenuPopup({
         canUseBackgroundColor={colorSupport.background}
         canSendBlocks={runtimeSnapshot.canSendBlocks}
         sourceProjectId={runtimeSnapshot.sourceProjectId}
-        sourceCardId={runtimeSnapshot.sourceCardId}
+        sourcePageId={runtimeSnapshot.sourcePageId}
         textColor={toStringProp(block.props, "textColor")}
         backgroundColor={toStringProp(block.props, "backgroundColor")}
         footerPrimary={null}

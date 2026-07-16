@@ -31,7 +31,7 @@ import { columnStyles } from "../column";
 import { CalendarEventBlock } from "./calendar-event-block";
 import { CalendarInlineCreator } from "./calendar-inline-creator";
 import { OccurrenceScopeDialog } from "./occurrence-scope-dialog";
-import type { Card as CardType, OccurrenceEditScope } from "@/lib/types";
+import type { DatabasePage as PageType, OccurrenceEditScope } from "@/lib/types";
 import { ARCHIVED_CARD_OPTION_ID } from "@/lib/kanban-options";
 import {
   applyPreviewToScheduledEvents,
@@ -53,8 +53,8 @@ import {
   useRetainedScrollPosition,
 } from "@/lib/retained-scroll-position";
 
-interface ScheduledCard extends Omit<CardType, "scheduledStart" | "scheduledEnd"> {
-  cardId?: string;
+interface ScheduledPage extends Omit<PageType, "scheduledStart" | "scheduledEnd"> {
+  pageId?: string;
   columnId: string;
   columnName: string;
   scheduledStart: Date;
@@ -64,7 +64,7 @@ interface ScheduledCard extends Omit<CardType, "scheduledStart" | "scheduledEnd"
   isRecurring?: boolean;
   thisAndFutureEquivalentToAll?: boolean;
 }
-type GroupedScheduledCard = ScheduledCard & { lane: number; totalLanes: number };
+type GroupedScheduledPage = ScheduledPage & { lane: number; totalLanes: number };
 
 interface DragState {
   dayIndex: number;
@@ -81,7 +81,7 @@ interface CreatorState {
 interface EventInteractionState {
   pointerId: number;
   eventId: string;
-  cardId: string;
+  pageId: string;
   occurrenceStart: Date;
   columnId: string;
   mode: Exclude<CalendarEventInteractionMode, "move">;
@@ -99,7 +99,7 @@ interface AllDayMovePreview {
 }
 
 interface ActiveMoveDragState extends CalendarMoveDragSession {
-  cardId: string;
+  pageId: string;
   occurrenceStart: Date;
   columnId: string;
   accentColor: string;
@@ -114,7 +114,7 @@ interface MoveDragGhost {
 
 interface PendingScopedUpdate {
   columnId: string;
-  cardId: string;
+  pageId: string;
   occurrenceStart: Date;
   scheduledStart: Date;
   scheduledEnd: Date;
@@ -128,15 +128,15 @@ interface PendingScopedUpdate {
 interface CalendarGridProps {
   visibleDays: Date[];
   createRequestId: number;
-  scheduledCards: ScheduledCard[];
-  cardStageCardId: string | undefined;
-  onClickCard: (card: ScheduledCard) => void;
-  onCreateCard: (title: string, start: Date, end: Date) => void;
-  onCompleteOccurrence: (cardId: string, occurrenceStart: Date) => void;
-  onSkipOccurrence: (cardId: string, occurrenceStart: Date) => void;
-  onUpdateCardSchedule: (
+  scheduledPages: ScheduledPage[];
+  pageStagePageId: string | undefined;
+  onClickPage: (page: ScheduledPage) => void;
+  onCreatePage: (title: string, start: Date, end: Date) => void;
+  onCompleteOccurrence: (pageId: string, occurrenceStart: Date) => void;
+  onSkipOccurrence: (pageId: string, occurrenceStart: Date) => void;
+  onUpdatePageSchedule: (
     columnId: string,
-    cardId: string,
+    pageId: string,
     occurrenceStart: Date,
     scheduledStart: Date,
     scheduledEnd: Date,
@@ -273,13 +273,13 @@ function hasCalendarEventDragMime(dataTransfer: DataTransfer | null): boolean {
 export function CalendarGrid({
   visibleDays,
   createRequestId,
-  scheduledCards,
-  cardStageCardId,
-  onClickCard,
-  onCreateCard,
+  scheduledPages,
+  pageStagePageId,
+  onClickPage,
+  onCreatePage,
   onCompleteOccurrence,
   onSkipOccurrence,
-  onUpdateCardSchedule,
+  onUpdatePageSchedule,
   onNavigatePrev,
   onNavigateNext,
   allDayLaneHeight,
@@ -506,9 +506,9 @@ export function CalendarGrid({
     });
   }, [createRequestId, visibleDays]);
 
-  const cardById = useMemo(
-    () => new Map(scheduledCards.map((card) => [card.id, card])),
-    [scheduledCards],
+  const pageById = useMemo(
+    () => new Map(scheduledPages.map((page) => [page.id, page])),
+    [scheduledPages],
   );
 
   const isMoveDragPreviewActiveNow = Boolean(
@@ -517,20 +517,20 @@ export function CalendarGrid({
     && eventPreview.eventId === activeMoveDragEventId,
   );
 
-  const previewedCards = useMemo(
+  const previewedPages = useMemo(
     () =>
-      applyPreviewToScheduledEvents(scheduledCards, eventPreview, visibleDays, {
+      applyPreviewToScheduledEvents(scheduledPages, eventPreview, visibleDays, {
         freezeLayout: isMoveDragPreviewActiveNow,
       }),
-    [eventPreview, isMoveDragPreviewActiveNow, scheduledCards, visibleDays],
+    [eventPreview, isMoveDragPreviewActiveNow, scheduledPages, visibleDays],
   );
 
   const movePreviewOverlay = useMemo(
     () =>
-      resolveMovePreviewOverlayEvent(cardById, eventPreview, visibleDays, {
+      resolveMovePreviewOverlayEvent(pageById, eventPreview, visibleDays, {
         isMovePreviewActive: isMoveDragPreviewActiveNow,
       }),
-    [cardById, eventPreview, isMoveDragPreviewActiveNow, visibleDays],
+    [pageById, eventPreview, isMoveDragPreviewActiveNow, visibleDays],
   );
 
   const findDayIndex = useCallback(
@@ -548,13 +548,13 @@ export function CalendarGrid({
       return;
     }
 
-    const card = scheduledCards.find((scheduledCard) => scheduledCard.id === pendingEventId);
-    if (!card) return;
+    const page = scheduledPages.find((scheduledPage) => scheduledPage.id === pendingEventId);
+    if (!page) return;
 
-    const dayIndex = findDayIndex(card.scheduledStart);
+    const dayIndex = findDayIndex(page.scheduledStart);
     if (dayIndex !== preview.dayIndex) return;
 
-    const range = slotRangeFromDates(card.scheduledStart, card.scheduledEnd);
+    const range = slotRangeFromDates(page.scheduledStart, page.scheduledEnd);
     if (
       range.startSlot !== preview.range.startSlot ||
       range.endSlot !== preview.range.endSlot
@@ -563,7 +563,7 @@ export function CalendarGrid({
     }
 
     clearPendingDropPreview(pendingEventId);
-  }, [clearPendingDropPreview, findDayIndex, scheduledCards]);
+  }, [clearPendingDropPreview, findDayIndex, scheduledPages]);
 
   const resolvePointerDropTarget = useCallback(
     (
@@ -677,25 +677,25 @@ export function CalendarGrid({
   const startResizeInteraction = useCallback(
     (
       event: React.PointerEvent<HTMLElement>,
-      card: ScheduledCard,
+      page: ScheduledPage,
       mode: EventInteractionState["mode"],
     ) => {
       if (event.button !== 0) return;
 
-      const originDayIndex = findDayIndex(card.scheduledStart);
+      const originDayIndex = findDayIndex(page.scheduledStart);
       if (originDayIndex < 0) return;
 
-      const originRange = slotRangeFromDates(card.scheduledStart, card.scheduledEnd);
+      const originRange = slotRangeFromDates(page.scheduledStart, page.scheduledEnd);
 
       event.currentTarget.setPointerCapture(event.pointerId);
       clearPendingDropPreview();
 
       eventInteractionRef.current = {
         pointerId: event.pointerId,
-        eventId: card.id,
-        cardId: card.cardId ?? card.id,
-        occurrenceStart: card.occurrenceStart ?? card.scheduledStart,
-        columnId: card.columnId,
+        eventId: page.id,
+        pageId: page.pageId ?? page.id,
+        occurrenceStart: page.occurrenceStart ?? page.scheduledStart,
+        columnId: page.columnId,
         mode,
         originDayIndex,
         originRange,
@@ -706,7 +706,7 @@ export function CalendarGrid({
 
       setCreatorState(null);
       setDragState(null);
-      setEventPreviewSynced(createCalendarEventPreview(card.id, originDayIndex, originRange));
+      setEventPreviewSynced(createCalendarEventPreview(page.id, originDayIndex, originRange));
     },
     [clearPendingDropPreview, findDayIndex, setEventPreviewSynced],
   );
@@ -759,10 +759,10 @@ export function CalendarGrid({
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
-      const card = cardById.get(interaction.eventId);
+      const page = pageById.get(interaction.eventId);
       const preview = eventPreviewRef.current;
 
-      if (canceled || !card) {
+      if (canceled || !page) {
         clearPendingDropPreview(interaction.eventId);
         setEventPreviewSynced(null);
         return;
@@ -811,30 +811,30 @@ export function CalendarGrid({
       }
 
       const rangeDates = slotRangeToDates(dayDate, nextPreview.range);
-      const isRecurringEvent = card.isRecurring || Boolean(card.recurrence);
+      const isRecurringEvent = page.isRecurring || Boolean(page.recurrence);
       if (isRecurringEvent) {
         clearPendingDropPreview(interaction.eventId);
         setEventPreviewSynced(null);
         setPendingScopedUpdate({
           columnId: interaction.columnId,
-          cardId: interaction.cardId,
+          pageId: interaction.pageId,
           occurrenceStart: interaction.occurrenceStart,
           scheduledStart: rangeDates.start,
           scheduledEnd: rangeDates.end,
           isAllDay: false,
-          eventTitle: card.title,
-          fromLabel: formatScheduleLabel(card.scheduledStart, card.scheduledEnd, Boolean(card.isAllDay)),
+          eventTitle: page.title,
+          fromLabel: formatScheduleLabel(page.scheduledStart, page.scheduledEnd, Boolean(page.isAllDay)),
           toLabel: formatScheduleLabel(rangeDates.start, rangeDates.end),
-          thisAndFutureEquivalentToAll: Boolean(card.thisAndFutureEquivalentToAll),
+          thisAndFutureEquivalentToAll: Boolean(page.thisAndFutureEquivalentToAll),
         });
         return;
       }
 
       setEventPreviewSynced(nextPreview);
       armPendingDropPreview(interaction.eventId);
-      void onUpdateCardSchedule(
+      void onUpdatePageSchedule(
         interaction.columnId,
-        interaction.cardId,
+        interaction.pageId,
         interaction.occurrenceStart,
         rangeDates.start,
         rangeDates.end,
@@ -843,22 +843,22 @@ export function CalendarGrid({
     },
     [
       armPendingDropPreview,
-      cardById,
+      pageById,
       clearPendingDropPreview,
-      onUpdateCardSchedule,
+      onUpdatePageSchedule,
       resolvePointerGridPosition,
       setEventPreviewSynced,
       visibleDays,
     ],
   );
 
-  const handleCardOpen = useCallback((card: ScheduledCard) => {
+  const handlePageOpen = useCallback((page: ScheduledPage) => {
     const suppress = suppressOpenRef.current;
-    if (suppress && suppress.eventId === card.id && suppress.until > Date.now()) {
+    if (suppress && suppress.eventId === page.id && suppress.until > Date.now()) {
       return;
     }
-    onClickCard(card);
-  }, [onClickCard]);
+    onClickPage(page);
+  }, [onClickPage]);
 
   const updateMoveDragPreview = useCallback((target: CalendarMoveDropTarget | null) => {
     const drag = activeMoveDragRef.current;
@@ -916,38 +916,38 @@ export function CalendarGrid({
     const drag = activeMoveDragRef.current;
     if (!drag) return false;
 
-    const card = cardById.get(drag.eventId);
-    if (!card) return false;
+    const page = pageById.get(drag.eventId);
+    if (!page) return false;
 
     const nextSchedule = resolveCalendarMoveDropSchedule(drag, target, visibleDays);
     if (!nextSchedule) return false;
 
     const unchanged = nextSchedule.isAllDay
-      ? Boolean(card.isAllDay)
-      && isSameDay(card.scheduledStart, nextSchedule.start)
-      && resolveAllDaySpanDays(card.scheduledStart, card.scheduledEnd)
+      ? Boolean(page.isAllDay)
+      && isSameDay(page.scheduledStart, nextSchedule.start)
+      && resolveAllDaySpanDays(page.scheduledStart, page.scheduledEnd)
       === resolveAllDaySpanDays(nextSchedule.start, nextSchedule.end)
-      : !card.isAllDay
-      && card.scheduledStart.getTime() === nextSchedule.start.getTime()
-      && card.scheduledEnd.getTime() === nextSchedule.end.getTime();
+      : !page.isAllDay
+      && page.scheduledStart.getTime() === nextSchedule.start.getTime()
+      && page.scheduledEnd.getTime() === nextSchedule.end.getTime();
 
     if (unchanged) return false;
 
-    const isRecurringEvent = card.isRecurring || Boolean(card.recurrence);
+    const isRecurringEvent = page.isRecurring || Boolean(page.recurrence);
     if (isRecurringEvent) {
       clearPendingDropPreview(drag.eventId);
       setEventPreviewSynced(null);
       setPendingScopedUpdate({
         columnId: drag.columnId,
-        cardId: drag.cardId,
+        pageId: drag.pageId,
         occurrenceStart: drag.occurrenceStart,
         scheduledStart: nextSchedule.start,
         scheduledEnd: nextSchedule.end,
         isAllDay: nextSchedule.isAllDay,
-        eventTitle: card.title,
-        fromLabel: formatScheduleLabel(card.scheduledStart, card.scheduledEnd, Boolean(card.isAllDay)),
+        eventTitle: page.title,
+        fromLabel: formatScheduleLabel(page.scheduledStart, page.scheduledEnd, Boolean(page.isAllDay)),
         toLabel: formatScheduleLabel(nextSchedule.start, nextSchedule.end, nextSchedule.isAllDay),
-        thisAndFutureEquivalentToAll: Boolean(card.thisAndFutureEquivalentToAll),
+        thisAndFutureEquivalentToAll: Boolean(page.thisAndFutureEquivalentToAll),
       });
       return false;
     }
@@ -965,9 +965,9 @@ export function CalendarGrid({
       armPendingDropPreview(drag.eventId);
     }
 
-    void onUpdateCardSchedule(
+    void onUpdatePageSchedule(
       drag.columnId,
-      drag.cardId,
+      drag.pageId,
       drag.occurrenceStart,
       nextSchedule.start,
       nextSchedule.end,
@@ -977,9 +977,9 @@ export function CalendarGrid({
     return !nextSchedule.isAllDay;
   }, [
     armPendingDropPreview,
-    cardById,
+    pageById,
     clearPendingDropPreview,
-    onUpdateCardSchedule,
+    onUpdatePageSchedule,
     setEventPreviewSynced,
     visibleDays,
   ]);
@@ -1017,13 +1017,13 @@ export function CalendarGrid({
     [visibleDays],
   );
 
-  const startMoveDrag = useCallback((event: React.DragEvent<HTMLElement>, card: ScheduledCard) => {
+  const startMoveDrag = useCallback((event: React.DragEvent<HTMLElement>, page: ScheduledPage) => {
     if (eventInteractionRef.current) return;
 
-    const originDayIndex = findDayIndex(card.scheduledStart);
+    const originDayIndex = findDayIndex(page.scheduledStart);
     if (originDayIndex < 0) return;
 
-    const originRange = slotRangeFromDates(card.scheduledStart, card.scheduledEnd);
+    const originRange = slotRangeFromDates(page.scheduledStart, page.scheduledEnd);
     const durationSlots = originRange.endSlot - originRange.startSlot + 1;
     const dropTarget = resolvePointerDropTarget(event.clientX, event.clientY);
     const pointerSlot =
@@ -1034,40 +1034,40 @@ export function CalendarGrid({
       0,
       Math.min(pointerSlot - originRange.startSlot, durationSlots - 1),
     );
-    const accentColor = columnStyles[card.columnId]?.accentColor ?? "#8E8B86";
+    const accentColor = columnStyles[page.columnId]?.accentColor ?? "#8E8B86";
     const defaultScheduleLabel = formatScheduleLabel(
-      card.scheduledStart,
-      card.scheduledEnd,
-      Boolean(card.isAllDay),
+      page.scheduledStart,
+      page.scheduledEnd,
+      Boolean(page.isAllDay),
     );
 
     activeMoveDragRef.current = {
-      eventId: card.id,
-      cardId: card.cardId ?? card.id,
-      occurrenceStart: card.occurrenceStart ?? card.scheduledStart,
-      columnId: card.columnId,
+      eventId: page.id,
+      pageId: page.pageId ?? page.id,
+      occurrenceStart: page.occurrenceStart ?? page.scheduledStart,
+      columnId: page.columnId,
       originDayIndex,
       originRange,
-      originIsAllDay: Boolean(card.isAllDay),
-      originalDurationMs: Math.max(60_000, card.scheduledEnd.getTime() - card.scheduledStart.getTime()),
-      originalAllDaySpanDays: resolveAllDaySpanDays(card.scheduledStart, card.scheduledEnd),
+      originIsAllDay: Boolean(page.isAllDay),
+      originalDurationMs: Math.max(60_000, page.scheduledEnd.getTime() - page.scheduledStart.getTime()),
+      originalAllDaySpanDays: resolveAllDaySpanDays(page.scheduledStart, page.scheduledEnd),
       grabOffsetSlots,
       accentColor,
       defaultScheduleLabel,
     };
 
     completedMoveDropRef.current = null;
-    suppressOpenRef.current = { eventId: card.id, until: Date.now() + 250 };
+    suppressOpenRef.current = { eventId: page.id, until: Date.now() + 250 };
     clearPendingDropPreview();
     setCreatorState(null);
     setDragState(null);
     setEventPreviewSynced(null);
     setAllDayMovePreview(null);
     setMoveDropRegion(dropTarget?.region ?? "outside");
-    setActiveMoveDragEventId(card.id);
+    setActiveMoveDragEventId(page.id);
     clearMoveDragGhost();
     moveDragGhostRef.current = createCalendarMoveDragGhost({
-      title: card.title,
+      title: page.title,
       accentColor,
       scheduleLabel: defaultScheduleLabel,
     });
@@ -1076,8 +1076,8 @@ export function CalendarGrid({
     const dragImage = createHiddenCalendarEventDragImage();
 
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(CALENDAR_EVENT_DRAG_MIME, card.id);
-    event.dataTransfer.setData("text/plain", card.title);
+    event.dataTransfer.setData(CALENDAR_EVENT_DRAG_MIME, page.id);
+    event.dataTransfer.setData("text/plain", page.title);
     event.dataTransfer.setDragImage(dragImage, 0, 0);
     requestAnimationFrame(() => dragImage.remove());
   }, [
@@ -1089,9 +1089,9 @@ export function CalendarGrid({
     updateMoveDragGhost,
   ]);
 
-  const endMoveDrag = useCallback((cardId: string) => {
+  const endMoveDrag = useCallback((pageId: string) => {
     const drag = activeMoveDragRef.current;
-    if (!drag || drag.eventId !== cardId) return;
+    if (!drag || drag.eventId !== pageId) return;
 
     const completed = completedMoveDropRef.current;
     const preserveTimedPreview = completed?.eventId === drag.eventId && completed.preserveTimedPreview;
@@ -1162,10 +1162,10 @@ export function CalendarGrid({
 
   const handleCreateCommit = useCallback(
     (title: string, start: Date, end: Date) => {
-      onCreateCard(title, start, end);
+      onCreatePage(title, start, end);
       setCreatorState(null);
     },
-    [onCreateCard],
+    [onCreatePage],
   );
 
   const handleCreateCancel = useCallback(() => {
@@ -1187,9 +1187,9 @@ export function CalendarGrid({
         const effectiveScope = pending.thisAndFutureEquivalentToAll && scope === "this-and-future"
           ? "all"
           : scope;
-        await onUpdateCardSchedule(
+        await onUpdatePageSchedule(
           pending.columnId,
-          pending.cardId,
+          pending.pageId,
           pending.occurrenceStart,
           pending.scheduledStart,
           pending.scheduledEnd,
@@ -1203,7 +1203,7 @@ export function CalendarGrid({
         setPendingScopedUpdate(null);
       }
     },
-    [onUpdateCardSchedule, pendingScopedUpdate, scopeDialogBusy],
+    [onUpdatePageSchedule, pendingScopedUpdate, scopeDialogBusy],
   );
 
   const clampAllDayLaneHeight = useCallback((height: number) => {
@@ -1401,25 +1401,25 @@ export function CalendarGrid({
   const renderDayStyle = renderBufferDays > 0
     ? { width: dayColWidth, flexShrink: 0 }
     : { flex: 1 };
-  const timedCardsByRenderDay = useMemo(() => {
-    const byDay = new Map<string, GroupedScheduledCard[]>();
-    const timedCards = previewedCards.filter((card) => !card.isAllDay);
+  const timedPagesByRenderDay = useMemo(() => {
+    const byDay = new Map<string, GroupedScheduledPage[]>();
+    const timedPages = previewedPages.filter((page) => !page.isAllDay);
 
     for (const day of renderDays) {
       const key = toDayKey(day);
       if (byDay.has(key)) continue;
 
-      const dayCards = timedCards.filter((card) => isSameDay(card.scheduledStart, day));
-      byDay.set(key, groupOverlapping(dayCards));
+      const dayPages = timedPages.filter((page) => isSameDay(page.scheduledStart, day));
+      byDay.set(key, groupOverlapping(dayPages));
     }
 
     return byDay;
-  }, [previewedCards, renderDays]);
+  }, [previewedPages, renderDays]);
 
   const packedAllDaySegments = useMemo(() => {
-    const allDayCards = scheduledCards.filter((card) => Boolean(card.isAllDay));
-    return packAllDaySegments(buildAllDaySegments(allDayCards, renderDays));
-  }, [renderDays, scheduledCards]);
+    const allDayPages = scheduledPages.filter((page) => Boolean(page.isAllDay));
+    return packAllDaySegments(buildAllDaySegments(allDayPages, renderDays));
+  }, [renderDays, scheduledPages]);
 
   const allDayContentHeight = useMemo(() => {
     if (packedAllDaySegments.length === 0) return ALL_DAY_EVENT_HEIGHT;
@@ -1430,7 +1430,7 @@ export function CalendarGrid({
   const allDayMoveOverlay = useMemo(() => {
     if (!allDayMovePreview) return null;
 
-    const sourceEvent = cardById.get(allDayMovePreview.eventId);
+    const sourceEvent = pageById.get(allDayMovePreview.eventId);
     if (!sourceEvent) return null;
 
     const startDayIndex = allDayMovePreview.startDayIndex + renderBufferDays;
@@ -1445,7 +1445,7 @@ export function CalendarGrid({
       startDayIndex: clippedStartDayIndex,
       endDayIndex: clippedEndDayIndex,
     };
-  }, [allDayMovePreview, cardById, renderBufferDays, renderDays.length]);
+  }, [allDayMovePreview, pageById, renderBufferDays, renderDays.length]);
 
   return (
     <>
@@ -1590,7 +1590,7 @@ export function CalendarGrid({
                         }}
                         onDragStart={(dragEvent) => startMoveDrag(dragEvent, event)}
                         onDragEnd={() => endMoveDrag(event.id)}
-                        onClick={() => handleCardOpen(event)}
+                        onClick={() => handlePageOpen(event)}
                       >
                         {event.title}
                       </button>
@@ -1676,7 +1676,7 @@ export function CalendarGrid({
                 const visibleIdx = renderIdx - renderBufferDays;
                 const isBuffer = visibleIdx < 0 || visibleIdx >= visibleDays.length;
                 const isToday = isSameDay(day, now);
-                const events = timedCardsByRenderDay.get(toDayKey(day)) ?? [];
+                const events = timedPagesByRenderDay.get(toDayKey(day)) ?? [];
                 const moveOverlayForDay =
                   movePreviewOverlay &&
                     isSameDay(movePreviewOverlay.scheduledStart, day)
@@ -1745,7 +1745,7 @@ export function CalendarGrid({
                           hourHeight={hourHeight}
                           lane={event.lane}
                           totalLanes={event.totalLanes}
-                          isActive={(event.cardId ?? event.id) === cardStageCardId}
+                          isActive={(event.pageId ?? event.id) === pageStagePageId}
                           isInteracting={Boolean(eventPreview && eventPreview.eventId === event.id && !isDragSourceGhost)}
                           interactive={!isBuffer}
                           priority={event.priority}
@@ -1761,17 +1761,17 @@ export function CalendarGrid({
                             ? undefined
                             : () =>
                               onCompleteOccurrence(
-                                event.cardId ?? event.id,
+                                event.pageId ?? event.id,
                                 event.occurrenceStart ?? event.scheduledStart,
                               )}
                           onSkip={isArchivedEvent
                             ? undefined
                             : () =>
                               onSkipOccurrence(
-                                event.cardId ?? event.id,
+                                event.pageId ?? event.id,
                                 event.occurrenceStart ?? event.scheduledStart,
                               )}
-                          onOpen={() => handleCardOpen(event)}
+                          onOpen={() => handlePageOpen(event)}
                           onDragStartMove={(dragEvent) => {
                             startMoveDrag(dragEvent, event);
                           }}

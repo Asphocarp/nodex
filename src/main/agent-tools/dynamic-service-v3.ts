@@ -1,10 +1,10 @@
 import type {
   AgentDocumentEditEffects,
   NodexAgentAuthorizationPreview,
-  NodexAgentCardUpdateOutput,
-  NodexAgentCreateCardsCommand,
-  NodexAgentDuplicateCardCommand,
-  NodexAgentMoveCardsCommand,
+  NodexAgentPageUpdateOutput,
+  NodexAgentCreatePagesCommand,
+  NodexAgentDuplicatePageCommand,
+  NodexAgentMovePagesCommand,
   NodexAgentTransferAuthorizationEvidence,
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
@@ -26,36 +26,36 @@ import {
   toolFailure,
   withExecutionTimeout,
   type NodexAgentDynamicExecutionContext,
-} from "./dynamic-service";
+} from "./dynamic-service-core";
 
 const NODEX_AGENT_EXECUTION_TIMEOUT_MS = 30_000;
 const MAX_AUTHORIZATION_MARKDOWN_PREVIEW_CHARS = 1_600;
 
-type CardDestination =
-  | { readonly kind: "space" }
-  | { readonly kind: "card"; readonly cardId: string }
-  | { readonly kind: "database"; readonly databaseBlockId: string };
+type PageDestination =
+  | { readonly kind: "library" }
+  | { readonly kind: "page"; readonly pageId: string }
+  | { readonly kind: "data_source"; readonly dataSourceId: string };
 
-type CardUpdateInput =
-  | NodexAgentV3ToolInput<"update_card">
-  | NodexAgentV3ToolInput<"advanced_update_card">;
+type PageUpdateInput =
+  | NodexAgentV3ToolInput<"update_page">
+  | NodexAgentV3ToolInput<"advanced_update_page">;
 
 export type NodexAgentV3Writer = Pick<
   typeof blockMutationWriter,
   | "readNodexAgentV3Tool"
-  | "prepareNodexAgentCardUpdate"
-  | "completeNodexAgentCardUpdate"
-  | "prepareNodexAgentCreateCards"
-  | "prepareNodexAgentDuplicateCard"
-  | "prepareNodexAgentMoveCards"
+  | "prepareNodexAgentPageUpdate"
+  | "completeNodexAgentPageUpdate"
+  | "prepareNodexAgentCreatePages"
+  | "prepareNodexAgentDuplicatePage"
+  | "prepareNodexAgentMovePages"
 >;
 
 export type NodexAgentV3DocumentHub = Pick<
   typeof documentSyncHub,
   | "applyDocumentMutation"
-  | "executeNodexAgentCreateCards"
-  | "executeNodexAgentDuplicateCard"
-  | "executeNodexAgentMoveCards"
+  | "executeNodexAgentCreatePages"
+  | "executeNodexAgentDuplicatePage"
+  | "executeNodexAgentMovePages"
 >;
 
 export interface NodexAgentV3DynamicServiceOptions {
@@ -64,26 +64,16 @@ export interface NodexAgentV3DynamicServiceOptions {
   readonly executionTimeoutMs?: number;
 }
 
-function destinationLabel(destination: CardDestination): string {
-  if (destination.kind === "space") return "Project Space";
-  if (destination.kind === "card") return `Card ${destination.cardId}`;
-  return `Database ${destination.databaseBlockId}`;
+function destinationLabel(destination: PageDestination): string {
+  if (destination.kind === "library") return "Library";
+  if (destination.kind === "page") return `Page ${destination.pageId}`;
+  return `Data Source ${destination.dataSourceId}`;
 }
 
-function destinationResource(destination: CardDestination): string {
-  if (destination.kind === "space") return "space";
-  if (destination.kind === "card") return `card:${destination.cardId}`;
-  return `database:${destination.databaseBlockId}`;
-}
-
-function sourceResource(source:
-  | { readonly kind: "space" }
-  | { readonly kind: "document"; readonly documentId: string }
-  | { readonly kind: "database"; readonly databaseBlockId: string }
-): string {
-  if (source.kind === "space") return "space";
-  if (source.kind === "document") return `document:${source.documentId}`;
-  return `database:${source.databaseBlockId}`;
+function destinationResource(destination: PageDestination): string {
+  if (destination.kind === "library") return "library";
+  if (destination.kind === "page") return `page:${destination.pageId}`;
+  return `data_source:${destination.dataSourceId}`;
 }
 
 function boundedMarkdownPreview(markdown: string): string | undefined {
@@ -93,33 +83,33 @@ function boundedMarkdownPreview(markdown: string): string | undefined {
   return `${normalized.slice(0, MAX_AUTHORIZATION_MARKDOWN_PREVIEW_CHARS)}\n…`;
 }
 
-function createCardsPreview(
-  input: NodexAgentV3ToolInput<"create_cards">,
-  cards: readonly {
+function createPagesPreview(
+  input: NodexAgentV3ToolInput<"create_pages">,
+  pages: readonly {
     readonly title: string;
     readonly bodyBlockCount: number;
     readonly targetMarkdown: string;
   }[],
 ): NodexAgentAuthorizationPreview {
-  const blocks = cards.reduce((total, card) => total + card.bodyBlockCount, 0);
-  const preview = boundedMarkdownPreview(cards.map((card) => [
-    `# ${card.title}`,
-    card.targetMarkdown,
+  const blocks = pages.reduce((total, page) => total + page.bodyBlockCount, 0);
+  const preview = boundedMarkdownPreview(pages.map((page) => [
+    `# ${page.title}`,
+    page.targetMarkdown,
   ].filter(Boolean).join("\n\n")).join("\n\n---\n\n"));
   return {
-    title: `Create ${cards.length} Card${cards.length === 1 ? "" : "s"}`,
-    summary: `Create ${cards.length} complete Card${cards.length === 1 ? "" : "s"} with ${blocks} body Block${blocks === 1 ? "" : "s"}.`,
+    title: `Create ${pages.length} Page${pages.length === 1 ? "" : "s"}`,
+    summary: `Create ${pages.length} complete Page${pages.length === 1 ? "" : "s"} with ${blocks} body Block${blocks === 1 ? "" : "s"}.`,
     details: [
       { label: "Destination", value: destinationLabel(input.destination) },
-      { label: "Cards", value: cards.map((card) => card.title).join(", ") },
+      { label: "Pages", value: pages.map((page) => page.title).join(", ") },
     ],
     ...(preview ? { markdownPreview: preview } : {}),
   };
 }
 
-function cardUpdatePreview(
-  tool: "update_card" | "advanced_update_card",
-  input: CardUpdateInput,
+function pageUpdatePreview(
+  tool: "update_page" | "advanced_update_page",
+  input: PageUpdateInput,
   effects: AgentDocumentEditEffects,
   targetMarkdown: string,
 ): NodexAgentAuthorizationPreview {
@@ -128,15 +118,15 @@ function cardUpdatePreview(
     effects.updatedBlockIds.length > 0 ? `${effects.updatedBlockIds.length} update` : null,
     effects.movedBlockIds.length > 0 ? `${effects.movedBlockIds.length} move` : null,
     effects.deletedBlockIds.length > 0 ? `${effects.deletedBlockIds.length} delete` : null,
-    tool === "update_card" && "title" in input && input.title ? "title update" : null,
+    tool === "update_page" && "title" in input && input.title ? "title update" : null,
   ].filter((entry): entry is string => entry !== null);
   const preview = boundedMarkdownPreview(targetMarkdown);
   return {
-    title: tool === "update_card" ? "Update Card" : "Advanced Card update",
-    summary: counts.length > 0 ? counts.join(", ") : "Update Card content.",
+    title: tool === "update_page" ? "Update Page" : "Advanced Page update",
+    summary: counts.length > 0 ? counts.join(", ") : "Update Page content.",
     details: [
-      { label: "Card", value: input.cardId },
-      ...(tool === "update_card" && "body" in input && input.body
+      { label: "Page", value: input.pageId },
+      ...(tool === "update_page" && "body" in input && input.body
         ? [{ label: "Method", value: input.body.kind }]
         : []),
     ],
@@ -144,16 +134,16 @@ function cardUpdatePreview(
   };
 }
 
-function moveCardsPreview(
-  input: NodexAgentV3ToolInput<"move_cards">,
+function movePagesPreview(
+  input: NodexAgentV3ToolInput<"move_pages">,
   authorization: NodexAgentTransferAuthorizationEvidence,
 ): NodexAgentAuthorizationPreview {
   return {
-    title: `Move ${input.cardIds.length} Card${input.cardIds.length === 1 ? "" : "s"}`,
-    summary: "Move the selected Cards and their complete owned content atomically.",
+    title: `Move ${input.pageIds.length} Page${input.pageIds.length === 1 ? "" : "s"}`,
+    summary: "Move the selected Pages and their complete owned content atomically.",
     details: [
       { label: "Destination", value: destinationLabel(input.destination) },
-      { label: "Cards", value: input.cardIds.join(", ") },
+      { label: "Pages", value: input.pageIds.join(", ") },
       ...(authorization.documentIds.length > 0
         ? [{
             label: "Document scope",
@@ -164,15 +154,15 @@ function moveCardsPreview(
   };
 }
 
-function duplicateCardPreview(
-  input: NodexAgentV3ToolInput<"duplicate_card">,
+function duplicatePagePreview(
+  input: NodexAgentV3ToolInput<"duplicate_page">,
   authorization: NodexAgentTransferAuthorizationEvidence,
 ): NodexAgentAuthorizationPreview {
   return {
-    title: "Duplicate Card",
-    summary: "Copy the complete Card ownership subtree with fresh identities.",
+    title: "Duplicate Page",
+    summary: "Copy the complete Page ownership subtree with fresh identities.",
     details: [
-      { label: "Source Card", value: input.cardId },
+      { label: "Source Page", value: input.pageId },
       { label: "Destination", value: destinationLabel(input.destination) },
       ...(authorization.documentIds.length > 0
         ? [{
@@ -184,33 +174,33 @@ function duplicateCardPreview(
   };
 }
 
-function createCardsFootprint(
+function createPagesFootprint(
   projectId: string,
-  command: NodexAgentCreateCardsCommand,
+  command: NodexAgentCreatePagesCommand,
 ): NodexAgentAuthorizationFootprint {
   return authorizationFootprint({
-    tool: "create_cards",
+    tool: "create_pages",
     projectId,
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
-      ...command.cards.map((card) => `card:${card.cardId}`),
+      ...command.pages.map((page) => `page:${page.pageId}`),
     ],
     deletions: [],
-    transformations: command.cards.map((card) =>
-      `card.create:${card.cardId}:body-blocks:${card.bodyBlockIds.length}`
+    transformations: command.pages.map((page) =>
+      `page.create:${page.pageId}:body-blocks:${page.bodyBlockIds.length}`
     ),
   });
 }
 
-function cardUpdateFootprint(
+function pageUpdateFootprint(
   projectId: string,
-  tool: "update_card" | "advanced_update_card",
-  input: CardUpdateInput,
+  tool: "update_page" | "advanced_update_page",
+  input: PageUpdateInput,
   effects: AgentDocumentEditEffects,
 ): NodexAgentAuthorizationFootprint {
   const destructive = effects.deletedBlockIds.length > 0
-    || (tool === "update_card"
+    || (tool === "update_page"
       && "body" in input
       && input.body?.kind === "replace");
   return authorizationFootprint({
@@ -218,7 +208,7 @@ function cardUpdateFootprint(
     projectId,
     effect: destructive ? "destructive" : "write",
     resources: [
-      `card:${input.cardId}`,
+      `page:${input.pageId}`,
       ...effects.createdBlockIds.map((id) => `block:${id}`),
       ...effects.updatedBlockIds.map((id) => `block:${id}`),
       ...effects.movedBlockIds.map((id) => `block:${id}`),
@@ -228,7 +218,7 @@ function cardUpdateFootprint(
       ...effects.deletedBlockIds.map((id) => `block:${id}`),
       ...effects.deletedOwnerBlockIds.map((id) => `owner:${id}`),
     ],
-    transformations: tool === "update_card"
+    transformations: tool === "update_page"
       ? [
           ...("title" in input && input.title ? ["title.set"] : []),
           ...("body" in input && input.body ? [`body.${input.body.kind}`] : []),
@@ -237,47 +227,41 @@ function cardUpdateFootprint(
   });
 }
 
-function moveCardsFootprint(
+function movePagesFootprint(
   projectId: string,
-  command: NodexAgentMoveCardsCommand,
+  command: NodexAgentMovePagesCommand,
 ): NodexAgentAuthorizationFootprint {
-  const sources = command.transfers.map((step) =>
-    step.normalizedInput.mode === "move"
-      ? sourceResource(step.normalizedInput.from)
-      : "copy-source:current"
-  );
   return authorizationFootprint({
-    tool: "move_cards",
+    tool: "move_pages",
     projectId,
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
-      ...sources,
-      ...command.input.cardIds.map((cardId) => `card:${cardId}`),
+      ...command.input.pageIds.map((pageId) => `page:${pageId}`),
       ...command.leaseDocuments.map((lease) => `document:${lease.documentId}`),
     ],
     deletions: [],
-    transformations: command.input.cardIds.map((cardId) =>
-      `card.move:${cardId}->${command.input.destination.kind}`
+    transformations: command.input.pageIds.map((pageId) =>
+      `page.move:${pageId}->${command.input.destination.kind}`
     ),
   });
 }
 
-function duplicateCardFootprint(
+function duplicatePageFootprint(
   projectId: string,
-  command: NodexAgentDuplicateCardCommand,
+  command: NodexAgentDuplicatePageCommand,
 ): NodexAgentAuthorizationFootprint {
   return authorizationFootprint({
-    tool: "duplicate_card",
+    tool: "duplicate_page",
     projectId,
     effect: "write",
     resources: [
-      `card:${command.input.cardId}`,
+      `page:${command.input.pageId}`,
       destinationResource(command.input.destination),
       ...command.leaseDocuments.map((lease) => `document:${lease.documentId}`),
     ],
     deletions: [],
-    transformations: [`card.duplicate:${command.input.cardId}->${command.input.destination.kind}`],
+    transformations: [`page.duplicate:${command.input.pageId}->${command.input.destination.kind}`],
   });
 }
 
@@ -348,19 +332,19 @@ export class NodexAgentV3DynamicService {
         }
         return result.output;
       },
-      advanced_query_database: async ({ input, context }) => {
+      query_data_source: async ({ input, context }) => {
         const result = (await this.writer.readNodexAgentV3Tool({
-          tool: "advanced_query_database",
+          tool: "query_data_source",
           projectId: projectRequired(context),
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
-        if (result.tool !== "advanced_query_database") {
+        if (result.tool !== "query_data_source") {
           throw new Error("Nodex v3 read tool mismatch");
         }
         return result.output;
       },
-      create_cards: async ({ input, context }) => {
+      create_pages: async ({ input, context }) => {
         const projectId = projectRequired(context);
         const request = {
           threadId: context.threadId,
@@ -370,19 +354,19 @@ export class NodexAgentV3DynamicService {
         };
         const prepared = await prepareAuthorizedWrite(context, {
           prepare: async () => {
-            const result = (await this.writer.prepareNodexAgentCreateCards(request)).result;
+            const result = (await this.writer.prepareNodexAgentCreatePages(request)).result;
             if (!result.ok) return fail({ error: result.error });
             return result.value;
           },
-          footprint: (value) => createCardsFootprint(projectId, value.command),
+          footprint: (value) => createPagesFootprint(projectId, value.command),
           authorization: (value) => ({
-            tool: "create_cards",
-            preview: createCardsPreview(input, value.previews),
+            tool: "create_pages",
+            preview: createPagesPreview(input, value.previews),
           }),
         });
         if (prepared.kind === "completed") return prepared.output;
         const result = await withExecutionTimeout(
-          async () => await this.documentHub.executeNodexAgentCreateCards(
+          async () => await this.documentHub.executeNodexAgentCreatePages(
             prepared.command,
             prepared.leaseDocuments,
           ),
@@ -391,11 +375,11 @@ export class NodexAgentV3DynamicService {
         if (!result.ok) return fail({ error: result.error });
         return result.value.output;
       },
-      update_card: async ({ input, context }) =>
-        await this.executeCardUpdate("update_card", input, context),
-      advanced_update_card: async ({ input, context }) =>
-        await this.executeCardUpdate("advanced_update_card", input, context),
-      move_cards: async ({ input, context }) => {
+      update_page: async ({ input, context }) =>
+        await this.executePageUpdate("update_page", input, context),
+      advanced_update_page: async ({ input, context }) =>
+        await this.executePageUpdate("advanced_update_page", input, context),
+      move_pages: async ({ input, context }) => {
         const projectId = projectRequired(context);
         const request = {
           threadId: context.threadId,
@@ -405,25 +389,25 @@ export class NodexAgentV3DynamicService {
         };
         const prepared = await prepareAuthorizedWrite(context, {
           prepare: async () => {
-            const result = (await this.writer.prepareNodexAgentMoveCards(request)).result;
+            const result = (await this.writer.prepareNodexAgentMovePages(request)).result;
             if (!result.ok) return fail({ error: result.error });
             return result.value;
           },
-          footprint: (value) => moveCardsFootprint(projectId, value.command),
+          footprint: (value) => movePagesFootprint(projectId, value.command),
           authorization: (value) => ({
-            tool: "move_cards",
-            preview: moveCardsPreview(input, value.authorization),
+            tool: "move_pages",
+            preview: movePagesPreview(input, value.authorization),
           }),
         });
         if (prepared.kind === "completed") return prepared.output;
         const result = await withExecutionTimeout(
-          async () => await this.documentHub.executeNodexAgentMoveCards(prepared.command),
+          async () => await this.documentHub.executeNodexAgentMovePages(prepared.command),
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
         return result.value.output;
       },
-      duplicate_card: async ({ input, context }) => {
+      duplicate_page: async ({ input, context }) => {
         const projectId = projectRequired(context);
         const request = {
           threadId: context.threadId,
@@ -433,19 +417,19 @@ export class NodexAgentV3DynamicService {
         };
         const prepared = await prepareAuthorizedWrite(context, {
           prepare: async () => {
-            const result = (await this.writer.prepareNodexAgentDuplicateCard(request)).result;
+            const result = (await this.writer.prepareNodexAgentDuplicatePage(request)).result;
             if (!result.ok) return fail({ error: result.error });
             return result.value;
           },
-          footprint: (value) => duplicateCardFootprint(projectId, value.command),
+          footprint: (value) => duplicatePageFootprint(projectId, value.command),
           authorization: (value) => ({
-            tool: "duplicate_card",
-            preview: duplicateCardPreview(input, value.authorization),
+            tool: "duplicate_page",
+            preview: duplicatePagePreview(input, value.authorization),
           }),
         });
         if (prepared.kind === "completed") return prepared.output;
         const result = await withExecutionTimeout(
-          async () => await this.documentHub.executeNodexAgentDuplicateCard(prepared.command),
+          async () => await this.documentHub.executeNodexAgentDuplicatePage(prepared.command),
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
@@ -455,37 +439,37 @@ export class NodexAgentV3DynamicService {
     this.registry = createNodexV3DynamicToolRegistry(handlers);
   }
 
-  private async executeCardUpdate(
-    tool: "update_card" | "advanced_update_card",
-    input: CardUpdateInput,
+  private async executePageUpdate(
+    tool: "update_page" | "advanced_update_page",
+    input: PageUpdateInput,
     context: NodexAgentDynamicExecutionContext,
-  ): Promise<NodexAgentCardUpdateOutput> {
+  ): Promise<NodexAgentPageUpdateOutput> {
     const projectId = projectRequired(context);
-    const request = tool === "update_card"
+    const request = tool === "update_page"
       ? {
           tool,
           threadId: context.threadId,
           callId: context.callId,
           projectId,
-          input: input as NodexAgentV3ToolInput<"update_card">,
+          input: input as NodexAgentV3ToolInput<"update_page">,
         }
       : {
           tool,
           threadId: context.threadId,
           callId: context.callId,
           projectId,
-          input: input as NodexAgentV3ToolInput<"advanced_update_card">,
+          input: input as NodexAgentV3ToolInput<"advanced_update_page">,
         };
     const prepared = await prepareAuthorizedWrite(context, {
       prepare: async () => {
-        const result = (await this.writer.prepareNodexAgentCardUpdate(request)).result;
+        const result = (await this.writer.prepareNodexAgentPageUpdate(request)).result;
         if (!result.ok) return fail({ error: result.error });
         return result.value;
       },
-      footprint: (value) => cardUpdateFootprint(projectId, tool, input, value.effects),
+      footprint: (value) => pageUpdateFootprint(projectId, tool, input, value.effects),
       authorization: (value) => ({
         tool,
-        preview: cardUpdatePreview(tool, input, value.effects, value.targetMarkdown),
+        preview: pageUpdatePreview(tool, input, value.effects, value.targetMarkdown),
       }),
     });
     if (prepared.kind === "completed") return prepared.output;
@@ -494,12 +478,12 @@ export class NodexAgentV3DynamicService {
       this.executionTimeoutMs,
     );
     if (!mutationResult.ok) return fail(mapDocumentMutationFailure(mutationResult.error));
-    const completed = (await this.writer.completeNodexAgentCardUpdate({
+    const completed = (await this.writer.completeNodexAgentPageUpdate({
       tool,
       threadId: context.threadId,
       callId: context.callId,
       projectId,
-      cardId: input.cardId,
+      pageId: input.pageId,
       result: mutationResult.value,
     })).result;
     if (!completed.ok) return fail({ error: completed.error });

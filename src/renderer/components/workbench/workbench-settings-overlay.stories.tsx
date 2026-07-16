@@ -22,6 +22,10 @@ import {
 const PROJECTS: Project[] = [
   {
     id: "default",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Nodex",
     description: "",
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
@@ -465,12 +469,12 @@ function SettingsRouteShellStory({
         activeProjectId="default"
         initialLocalEnvironmentProjectId={null}
         initialLocalEnvironmentConfigPath={null}
-        sidebarTopLevelSectionOrder={["files", "threads", "recents", "cards"]}
+        sidebarTopLevelSectionOrder={["files", "threads", "recents", "pages"]}
         sidebarTopLevelSections={{
           files: { visible: true, itemLimit: 10 },
           threads: { visible: true, itemLimit: 10 },
           recents: { visible: true, itemLimit: 10 },
-          cards: { visible: true, itemLimit: 10 },
+          pages: { visible: true, itemLimit: 10 },
         }}
         onSidebarTopLevelSectionVisibleChange={() => {}}
         threadQueueFollowUpsEnabled={true}

@@ -1,183 +1,169 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { GeneralDatabaseCatalog } from "../../../shared/database-query";
-import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import type {
+  DatabaseContainerDescriptor,
+  DataSourceDescriptor,
+} from "../../../shared/database-module";
 import { DatabaseManagementDialog } from "./database-management-dialog";
 
-const timestamp = "2026-07-12T00:00:00.000Z";
-const catalog: GeneralDatabaseCatalog = {
-  databases: [
+const timestamp = "2026-07-16T00:00:00.000Z";
+const libraryId = "library:story";
+const databaseId = "database:story";
+const dataSourceId = "source:story";
+
+const databases: readonly DatabaseContainerDescriptor[] = [{
+  database: {
+    databaseId,
+    libraryId,
+    name: "Product work",
+    lifecycle: "active",
+    defaultViewId: "view:board",
+    accessRevision: 1,
+    metadataRevision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  },
+  dataSources: [{
+    dataSourceId,
+    libraryId,
+    homeDatabaseId: databaseId,
+    name: "Pages",
+    schemaKey: "nodex.pages",
+    schemaRevision: 4,
+    lifecycle: "active",
+    rankKey: "a",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }],
+  views: [
     {
-      database: {
-        blockId: "database-primary",
-        projectId: "project-nodex",
-        name: "Product work",
-        isPrimary: true,
-        schemaKey: "nodex.database",
-        schemaRevision: 4,
-        metadataRevision: 1,
-        createdAt: timestamp,
-        updatedAt: timestamp,
+      viewId: "view:board",
+      databaseId,
+      dataSourceId,
+      name: "Board",
+      kind: "kanban",
+      config: {
+        schemaKey: "nodex.database-view",
+        schemaVersion: 1,
+        filter: { kind: "group", operator: "and", children: [] },
+        sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
+        group: { propertyId: "property:status" },
+        display: { propertyIds: ["property:priority", "property:tags"], showTitle: true },
       },
-      properties: [
-        {
-          id: "property-status",
-          databaseBlockId: "database-primary",
-          key: "status",
-          name: "Status",
-          valueType: "select",
-          config: {
-            options: [
-              { id: "draft", name: "Draft" },
-              { id: "in_progress", name: "In progress" },
-              { id: "done", name: "Done" },
-            ],
-          },
-          rankKey: "1",
-          lifecycle: "active",
-          revision: 1,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        },
-        {
-          id: "property-estimate",
-          databaseBlockId: "database-primary",
-          key: "estimate",
-          name: "Estimate",
-          valueType: "number",
-          config: {},
-          rankKey: "2",
-          lifecycle: "active",
-          revision: 1,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        },
-      ],
-      views: [
-        {
-          id: "view-board",
-          databaseBlockId: "database-primary",
-          projectId: "project-nodex",
-          name: "Roadmap",
-          kind: "kanban",
-          config: {
-            schemaKey: "nodex.database-view",
-            schemaVersion: 1,
-            filter: { kind: "group", operator: "and", children: [] },
-            sort: [],
-            group: { propertyId: "property-status" },
-            display: { propertyIds: ["property-estimate"], showTitle: true },
-          },
-          isPrimary: true,
-          revision: 1,
-          rankKey: "1",
-          lifecycle: "active",
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        },
-        {
-          id: "view-calendar",
-          databaseBlockId: "database-primary",
-          projectId: "project-nodex",
-          name: "Shipping calendar",
-          kind: "calendar",
-          config: {
-            schemaKey: "nodex.database-view",
-            schemaVersion: 1,
-            filter: { kind: "group", operator: "and", children: [] },
-            sort: [],
-            group: null,
-            display: { propertyIds: [], showTitle: true },
-          },
-          isPrimary: false,
-          revision: 1,
-          rankKey: "2",
-          lifecycle: "active",
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        },
-      ],
+      isDefault: true,
+      revision: 3,
+      rankKey: "a",
+      lifecycle: "active",
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
     {
-      database: {
-        blockId: "database-research",
-        projectId: "project-nodex",
-        name: "Research library",
-        isPrimary: false,
-        schemaKey: "nodex.database",
-        schemaRevision: 1,
-        metadataRevision: 1,
-        createdAt: timestamp,
-        updatedAt: timestamp,
+      viewId: "view:calendar",
+      databaseId,
+      dataSourceId,
+      name: "Upcoming",
+      kind: "calendar",
+      config: {
+        schemaKey: "nodex.database-view",
+        schemaVersion: 1,
+        filter: { kind: "group", operator: "and", children: [] },
+        sort: [],
+        group: null,
+        display: { propertyIds: ["property:due"], showTitle: true },
       },
-      properties: [],
-      views: [],
+      isDefault: false,
+      revision: 1,
+      rankKey: "b",
+      lifecycle: "active",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ],
+}];
+
+const source: DataSourceDescriptor = {
+  dataSource: databases[0]!.dataSources[0]!,
+  properties: [
+    {
+      propertyId: "property:status",
+      dataSourceId,
+      key: "status",
+      name: "Status",
+      valueType: "select",
+      config: { options: [{ id: "draft", name: "Draft" }, { id: "done", name: "Done" }] },
+      rankKey: "a",
+      lifecycle: "active",
+      revision: 2,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: "property:priority",
+      dataSourceId,
+      key: "priority",
+      name: "Priority",
+      valueType: "select",
+      config: { options: [{ id: "high", name: "High" }] },
+      rankKey: "b",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: "property:tags",
+      dataSourceId,
+      key: "tags",
+      name: "Tags",
+      valueType: "multi_select",
+      config: { options: [{ id: "agent", name: "Agent" }] },
+      rankKey: "c",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    {
+      propertyId: "property:due",
+      dataSourceId,
+      key: "due_date",
+      name: "Due date",
+      valueType: "date",
+      config: {},
+      rankKey: "d",
+      lifecycle: "active",
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
     },
   ],
 };
 
 const meta = {
-  title: "Workbench/Database manager",
+  title: "Workbench/Database Management",
   component: DatabaseManagementDialog,
-  parameters: { layout: "fullscreen" },
   args: {
     open: true,
-    catalog,
-    cards: [
-      {
-        card: {
-          blockId: "card-block-first",
-          projectId: "project-nodex",
-          lifecycle: "active",
-          location: { kind: "space", rankKey: "1" },
-          locationRevision: 1,
-          metadataRevision: 3,
-          documentId: "document-block-first",
-          documentGeneration: 1,
-          documentHeadSeq: 8,
-          documentAuthority: "ydoc_primary",
-          content: {
-            projectedSeq: 8,
-            title: "Finish Block-first authority",
-            richTitle: plainTextToPortableRichText("Finish Block-first authority"),
-            preview: "Membership is durable and singular.",
-            plainText: "Membership is durable and singular.",
-          },
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        },
-        membership: {
-          id: "membership-block-first",
-          databaseBlockId: "database-primary",
-          cardBlockId: "card-block-first",
-          revision: 1,
-          createdAt: timestamp,
-        },
-        positions: [
-          {
-            viewId: "view-board",
-            groupKey: null,
-            rankKey: "1",
-            revision: 1,
-          },
-        ],
-      },
-    ],
-    selectedDatabaseBlockId: "database-primary",
     onOpenChange: () => undefined,
+    databases,
+    source,
+    selectedDatabaseId: databaseId,
     onSelectDatabase: () => undefined,
-    onCreateDatabase: () => undefined,
     onCreateProperty: () => undefined,
     onDeleteProperty: () => undefined,
     onCreateView: () => undefined,
     onUpdateView: () => undefined,
     onDeleteView: () => undefined,
-    onSetMembership: () => undefined,
     onPutPropertyOption: () => undefined,
     onDeletePropertyOption: () => undefined,
   },
+  parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof DatabaseManagementDialog>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const ProjectSchema: Story = {};
+export const SingleSource: Story = {};
+export const Busy: Story = { args: { busy: true } };
+export const ErrorState: Story = {
+  args: { error: "View changed in another window. Reloaded current authority." },
+};

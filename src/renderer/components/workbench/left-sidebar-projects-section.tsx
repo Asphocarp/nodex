@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { Project, ProjectCreateInput, ProjectUpdateInput } from "../../lib/types";
-import type { SpaceRef } from "../../lib/use-workbench-state";
+import type { ProjectRef } from "../../lib/use-workbench-state";
 import {
   CodexProjectRow,
   CodexSidebarSection,
@@ -9,9 +9,9 @@ import { SidebarProjectsSectionActions } from "./sidebar-projects-section-action
 
 interface SidebarProjectsSectionProps {
   projects: Project[];
-  spaces: SpaceRef[];
+  projectRefs: ProjectRef[];
   activeProjectId: string;
-  onSelectSpace: (projectId: string) => void;
+  onSelectProject: (projectId: string) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
@@ -20,16 +20,16 @@ interface SidebarProjectsSectionProps {
   projectPickerOpenTick: number;
 }
 
-function resolveOrderedProjects(projects: Project[], spaces: SpaceRef[]) {
+function resolveOrderedProjects(projects: Project[], projectRefs: ProjectRef[]) {
   const projectById = new Map(projects.map((project) => [project.id, project]));
   const seen = new Set<string>();
   const orderedProjects: Array<{ project: Project; colorToken?: string }> = [];
 
-  for (const space of spaces) {
-    const project = projectById.get(space.projectId);
+  for (const projectRef of projectRefs) {
+    const project = projectById.get(projectRef.projectId);
     if (!project || seen.has(project.id)) continue;
     seen.add(project.id);
-    orderedProjects.push({ project, colorToken: space.colorToken });
+    orderedProjects.push({ project, colorToken: projectRef.colorToken });
   }
 
   for (const project of projects) {
@@ -43,19 +43,19 @@ function resolveOrderedProjects(projects: Project[], spaces: SpaceRef[]) {
 
 export function SidebarProjectsSection({
   projects,
-  spaces,
+  projectRefs,
   activeProjectId,
   expanded,
   onToggleExpanded,
-  onSelectSpace,
+  onSelectProject,
   onCreateProject,
   onDeleteProject,
   onUpdateProject,
   projectPickerOpenTick,
 }: SidebarProjectsSectionProps) {
   const orderedProjects = useMemo(
-    () => resolveOrderedProjects(projects, spaces),
-    [projects, spaces],
+    () => resolveOrderedProjects(projects, projectRefs),
+    [projects, projectRefs],
   );
 
   return (
@@ -81,7 +81,7 @@ export function SidebarProjectsSection({
                 project={project}
                 active={isActive}
                 expanded={isActive}
-                onActivate={() => onSelectSpace(project.id)}
+                onActivate={() => onSelectProject(project.id)}
                 onUpdateProject={onUpdateProject}
                 onDeleteProject={onDeleteProject}
               />

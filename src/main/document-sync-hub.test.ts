@@ -31,11 +31,6 @@ import {
   type AdditionalDocumentCommandResult,
 } from "../shared/additional-document-commands";
 import type {
-  CardProjectTransferIntent,
-  CardProjectTransferReceipt,
-  CardProjectTransferRequest,
-} from "../shared/card-project-transfer";
-import type {
   CanvasSceneMutationCommandResult,
   CanvasSceneMutationRequest,
 } from "../shared/block-documents/canvas-scene-sync";
@@ -46,14 +41,9 @@ import type {
 } from "../shared/block-transfer";
 import {
   CreateInputSchema,
-  CreateCardsV3InputSchema,
-  CreateCardsV3OutputSchema,
-  CreateOutputSchema,
-  TransferBlocksInputSchema,
-  TransferBlocksOutputSchema,
-  type NodexAgentCreateCardCommand,
-  type NodexAgentCreateCardsCommand,
-  type NodexAgentTransferCommand,
+  CreatePagesV3InputSchema,
+  CreatePagesV3OutputSchema,
+  type NodexAgentCreatePagesCommand,
 } from "../shared/nodex-agent-tools";
 import {
   DocumentSyncHub,
@@ -259,93 +249,48 @@ const createBackend = (
   },
 });
 
-const nodexAgentCreateCommand = (): NodexAgentCreateCardCommand => ({
-  threadId: "thread-1",
-  callId: "call-create",
-  projectId: "project-1",
-  requestHash: "a".repeat(64),
-  mutationId: "nodex-create:test",
-  storeEpoch: "epoch-1",
-  input: CreateInputSchema.parse({
-    resource: { kind: "card", title: { kind: "plain", text: "Created" } },
+const nodexAgentCreateCardsCommand = (): NodexAgentCreatePagesCommand => {
+  const pageInput = CreateInputSchema.parse({
+    resource: { kind: "page", title: { kind: "plain", text: "Created" } },
     destination: {
       kind: "document",
       documentId: "doc-source",
       at: { kind: "end" },
     },
-  }),
-  cardId: "card-created",
-  bodyBlockIds: ["body-created"],
-  primaryMembershipId: "membership-primary",
-  targetMembershipId: "membership-target",
-  destination: {
-    kind: "document",
-    documentId: "doc-source",
-    generation: 1,
-    expectedHeadSeq: 0,
-  },
-});
-
-const nodexAgentCreateCardsCommand = (): NodexAgentCreateCardsCommand => {
-  const card = nodexAgentCreateCommand();
+  });
   return {
-    threadId: card.threadId,
+    threadId: "thread-1",
     callId: "call-create-cards",
-    projectId: card.projectId,
+    projectId: "project-1",
     requestHash: "c".repeat(64),
     mutationId: "nodex-create-cards:test",
-    storeEpoch: card.storeEpoch,
-    input: CreateCardsV3InputSchema.parse({
-      destination: { kind: "card", cardId: "card-parent" },
-      cards: [{ title: "Created A" }, { title: "Created B" }],
+    storeEpoch: "epoch-1",
+    input: CreatePagesV3InputSchema.parse({
+      destination: { kind: "page", pageId: "card-parent" },
+      pages: [{ title: "Created A" }, { title: "Created B" }],
     }),
-    destination: card.destination,
-    cards: [
+    destination: {
+      kind: "document",
+      documentId: "doc-source",
+      generation: 1,
+      expectedHeadSeq: 0,
+    },
+    pages: [
       {
-        input: card.input,
-        cardId: "card-created-a",
+        input: pageInput,
+        pageId: "card-created-a",
         bodyBlockIds: ["body-created-a"],
         primaryMembershipId: "membership-primary-a",
         targetMembershipId: "membership-target-a",
       },
       {
-        input: card.input,
-        cardId: "card-created-b",
+        input: pageInput,
+        pageId: "card-created-b",
         bodyBlockIds: ["body-created-b"],
         primaryMembershipId: "membership-primary-b",
         targetMembershipId: "membership-target-b",
       },
     ],
-  };
-};
-
-const nodexAgentTransferCommand = (): NodexAgentTransferCommand => {
-  const intent = blockTransferIntent();
-  const preparation = blockTransferPreparation(intent, 0, 0);
-  return {
-    threadId: "thread-1",
-    callId: "call-transfer",
-    projectId: intent.projectId,
-    requestHash: "b".repeat(64),
-    mutationId: intent.operationId,
-    storeEpoch: intent.storeEpoch,
-    input: TransferBlocksInputSchema.parse({
-      mode: "copy",
-      blockIds: ["card-source"],
-      destination: {
-        kind: "document",
-        documentId: "doc-target",
-        at: { kind: "end" },
-      },
-    }),
-    transfer: preparation.request,
-    destination: {
-      kind: "document",
-      documentId: "doc-target",
-      generation: 1,
-      expectedHeadSeq: 0,
-    },
-    leaseDocuments: preparation.leaseDocuments,
   };
 };
 
@@ -438,23 +383,8 @@ const relocationResult = (
   committedAt: "2026-07-11T00:00:00.000Z",
 });
 
-const cardProjectTransferIntent = (): CardProjectTransferIntent => ({
-  version: 2,
-  operationId: "card-transfer-1",
-  sourceProjectId: "project-source",
-  targetProjectId: "project-target",
-  cardId: "card-root",
-  target: {
-    databaseBlockId: "database-target",
-    viewId: "view-target",
-    status: "in_progress",
-  },
-  clientSessionId: "transfer-caller",
-  actor: { kind: "test" },
-});
-
 const blockTransferIntent = (): BlockTransferIntent => ({
-  version: 1,
+  version: 2,
   operationId: "block-transfer-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -462,7 +392,7 @@ const blockTransferIntent = (): BlockTransferIntent => ({
   actor: { kind: "test" },
   mode: "copy",
   rootBlockIds: ["card-source"],
-  source: { kind: "database", databaseBlockId: "database-source" },
+  source: { kind: "data_source", dataSourceId: "source-a" },
   target: { kind: "document", documentId: "doc-target" },
 });
 
@@ -473,10 +403,12 @@ const blockTransferPreparation = (
 ): BlockTransferPreparation => ({
   request: {
     ...intent,
+    version: 1,
     expectedLocationRevisions: { "card-source": 1 },
     source: {
       kind: "database",
       databaseBlockId: "database-source",
+      dataSourceId: "source-a",
       memberships: {
         "card-source": { membershipId: "membership-source", revision: 1 },
       },
@@ -534,106 +466,6 @@ const blockTransferReceipt = (
   affectedDatabaseBlockIds: ["database-source"],
   changeLogSeq: 20,
   committedAt: "2026-07-13T00:00:00.000Z",
-});
-
-const cardProjectTransferRequest = (
-  intent: CardProjectTransferIntent,
-  rootHeadSeq: number,
-  nestedHeadSeq: number,
-): CardProjectTransferRequest => ({
-  version: 2,
-  operationId: intent.operationId,
-  storeEpoch: "epoch-1",
-  sourceProjectId: intent.sourceProjectId,
-  targetProjectId: intent.targetProjectId,
-  cardId: intent.cardId,
-  expectedBlocks: [
-    {
-      blockId: "card-root",
-      type: "card",
-      lifecycle: "active",
-      location: { kind: "space" },
-      locationRevision: 1,
-      metadataRevision: 1,
-    },
-    {
-      blockId: "template-owned",
-      type: "reusable_template_source",
-      lifecycle: "active",
-      location: { kind: "document", documentId: "doc-card-root" },
-      locationRevision: 1,
-      metadataRevision: 1,
-    },
-  ],
-  expectedDocuments: [
-    {
-      ownerBlockId: "card-root",
-      documentId: "doc-card-root",
-      generation: 1,
-      headSeq: rootHeadSeq,
-      schemaKey: "nodex.card",
-      schemaVersion: 2,
-    },
-    {
-      ownerBlockId: "template-owned",
-      documentId: "doc-template-owned",
-      generation: 1,
-      headSeq: nestedHeadSeq,
-      schemaKey: "nodex.reusable-template",
-      schemaVersion: 1,
-    },
-  ],
-  expectedMemberships: [
-    {
-      cardBlockId: "card-root",
-      membershipId: "membership-source",
-      databaseBlockId: "database-source",
-      databaseSchemaRevision: 1,
-      membershipRevision: 1,
-      statusPropertyId: "property-status-source",
-      statusValueRevision: 1,
-      status: "draft",
-    },
-  ],
-  target: {
-    databaseBlockId: intent.target.databaseBlockId,
-    databaseSchemaRevision: 1,
-    viewId: intent.target.viewId,
-    viewRevision: 1,
-    status: intent.target.status,
-  },
-  clientSessionId: intent.clientSessionId,
-  actor: intent.actor,
-});
-
-const cardProjectTransferReceipt = (
-  intent: CardProjectTransferIntent,
-  duplicate: boolean,
-): CardProjectTransferReceipt => ({
-  version: 2,
-  operationId: intent.operationId,
-  storeEpoch: "epoch-1",
-  sourceProjectId: intent.sourceProjectId,
-  targetProjectId: intent.targetProjectId,
-  cardId: intent.cardId,
-  duplicate,
-  movedBlockIds: ["card-root", "template-owned"],
-  movedDocumentIds: ["doc-card-root", "doc-template-owned"],
-  sourceMembershipIds: ["membership-source"],
-  targetMembershipIds: { "card-root": "membership-target" },
-  blockMetadataRevisions: { "card-root": 2, "template-owned": 2 },
-  rootLocationRevision: 2,
-  documentHeads: {
-    "doc-card-root": { generation: 1, headSeq: 2 },
-    "doc-template-owned": { generation: 1, headSeq: 4 },
-  },
-  targetDatabaseBlockId: intent.target.databaseBlockId,
-  targetDatabaseSchemaRevision: 1,
-  targetViewId: intent.target.viewId,
-  targetStatus: intent.target.status,
-  targetViewRankKey: "3000",
-  changeLogSeq: 10,
-  committedAt: "2026-07-12T00:00:00.000Z",
 });
 
 const syncSubscription = async (
@@ -1860,246 +1692,22 @@ describe("DocumentSyncHub", () => {
     expect(retainedSync.ok).toBe(true);
   });
 
-  test("leases every owned Document, recompiles after flush, and skips leases on exact retry", async () => {
-    const intent = cardProjectTransferIntent();
-    let prepareCalls = 0;
-    let applyCalls = 0;
-    let committed = false;
-    const hub = new DocumentSyncHub({
-      ...createBackend(),
-      prepareCardProjectTransfer: async (received) => {
-        prepareCalls += 1;
-        if (committed) {
-          return {
-            ok: true,
-            value: {
-              kind: "committed",
-              intent: received,
-              receipt: cardProjectTransferReceipt(received, true),
-            },
-          };
-        }
-        const flushed = prepareCalls > 1;
-        return {
-          ok: true,
-          value: {
-            kind: "prepared",
-            intent: received,
-            request: cardProjectTransferRequest(
-              received,
-              flushed ? 2 : 1,
-              flushed ? 4 : 3,
-            ),
-          },
-        };
-      },
-      applyCardProjectTransfer: async (request) => {
-        applyCalls += 1;
-        expect(request.expectedDocuments[0]?.headSeq).toBe(2);
-        expect(request.expectedDocuments[1]?.headSeq).toBe(4);
-        committed = true;
-        return { ok: true, value: cardProjectTransferReceipt(intent, false) };
-      },
-    });
-    const rootSurface = new FakeTarget(80);
-    const nestedSurface = new FakeTarget(81);
-    subscribe(hub, rootSurface, "doc-card-root", "surface-root");
-    subscribe(hub, nestedSurface, "doc-template-owned", "surface-nested");
-    await syncSubscription(
-      hub,
-      rootSurface,
-      "doc-card-root",
-      "surface-root",
-    );
-    await syncSubscription(
-      hub,
-      nestedSurface,
-      "doc-template-owned",
-      "surface-nested",
-    );
-    clearSent(rootSurface, nestedSurface);
-
-    const pending = hub.transferCardProject(intent);
-    await waitUntil(() =>
-      [rootSurface, nestedSurface].every((surface) =>
-        surface.sent.some(
-          (delivery) =>
-            (delivery.value as DocumentSyncRealtimeEvent).kind ===
-            "relocation-lease-prepare",
-        ),
-      ),
-    );
-    for (const surface of [rootSurface, nestedSurface]) {
-      const prepare = surface.sent
-        .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
-        .find(
-          (
-            event,
-          ): event is Extract<
-            DocumentSyncRealtimeEvent,
-            { kind: "relocation-lease-prepare" }
-          > => event.kind === "relocation-lease-prepare",
-        );
-      if (!prepare) throw new Error("Missing Card transfer lease prepare");
-      expect(
-        hub.respondToRelocationLease(surface, {
-          response: "ack",
-          leaseId: prepare.leaseId,
-          documentId: prepare.documentId,
-          clientSessionId: prepare.clientSessionId,
-          storeEpoch: prepare.storeEpoch,
-          generation: prepare.generation,
-          headSeq: prepare.expectedHeadSeq + 1,
-        }).ok,
-      ).toBe(true);
-    }
-    const result = await pending;
-    expect(result.ok).toBe(true);
-    expect(prepareCalls).toBe(2);
-    expect(applyCalls).toBe(1);
-    for (const surface of [rootSurface, nestedSurface]) {
-      const kinds = surface.sent.map(
-        (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
-      );
-      expect(kinds.includes("resync-required")).toBe(true);
-      expect(kinds.includes("relocation-lease-release")).toBe(true);
-    }
-
-    clearSent(rootSurface, nestedSurface);
-    const retry = await hub.transferCardProject({
-      ...intent,
-      clientSessionId: "retry-session",
-      actor: { kind: "retry" },
-    });
-    expect(retry.ok).toBe(true);
-    if (retry.ok) expect(retry.value.duplicate).toBe(true);
-    expect(prepareCalls).toBe(3);
-    expect(applyCalls).toBe(1);
-    for (const surface of [rootSurface, nestedSurface]) {
-      expect(
-        surface.sent.some(
-          (delivery) =>
-            (delivery.value as DocumentSyncRealtimeEvent).kind ===
-            "relocation-lease-prepare",
-        ),
-      ).toBe(false);
-      expect(
-        surface.sent.some(
-          (delivery) =>
-            (delivery.value as DocumentSyncRealtimeEvent).kind ===
-            "resync-required",
-        ),
-      ).toBe(true);
-    }
-  });
-
-  test("leases and fans out an Agent Card create into a live Document", async () => {
-    const command = nodexAgentCreateCommand();
-    let executeCalls = 0;
-    const hub = new DocumentSyncHub({
-      ...createBackend(),
-      executeNodexAgentCreate: async () => {
-        executeCalls += 1;
-        return {
-          ok: true,
-          value: {
-            output: CreateOutputSchema.parse({
-              data: {
-                resource: {
-                  kind: "card",
-                  blockId: "card-created",
-                  documentId: "document:card-created",
-                  location: { kind: "space" },
-                  bodyBlockCount: 1,
-                  createdBodyBlockIds: ["body-created"],
-                },
-              },
-            }),
-            duplicate: false,
-            documentCommits: [{
-              documentId: "doc-source",
-              generation: 1,
-              baseHeadSeq: 0,
-              headSeq: 1,
-              updateId: "agent-create-target",
-              update: new Uint8Array([7]),
-              stateVector: new Uint8Array([8]),
-            }],
-            affectedDatabaseBlockIds: ["database-primary"],
-            changeLogSeq: 10,
-          },
-        };
-      },
-    });
-    const surface = new FakeTarget(90);
-    subscribe(hub, surface, "doc-source", "surface-agent-create");
-    await syncSubscription(hub, surface, "doc-source", "surface-agent-create");
-    clearSent(surface);
-
-    const leaseDocuments = [{
-      documentId: "doc-source",
-      generation: 1,
-      expectedHeadSeq: 0,
-    }];
-    const pending = hub.executeNodexAgentCreate(command, leaseDocuments);
-    await waitUntil(() => surface.sent.some(
-      (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind
-        === "relocation-lease-prepare",
-    ));
-    expect(executeCalls).toBe(0);
-    const prepare = surface.sent
-      .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
-      .find((event): event is Extract<
-        DocumentSyncRealtimeEvent,
-        { kind: "relocation-lease-prepare" }
-      > => event.kind === "relocation-lease-prepare");
-    if (!prepare) throw new Error("Missing Agent create lease prepare");
-    expect(hub.respondToRelocationLease(surface, {
-      response: "ack",
-      leaseId: prepare.leaseId,
-      documentId: prepare.documentId,
-      clientSessionId: prepare.clientSessionId,
-      storeEpoch: prepare.storeEpoch,
-      generation: prepare.generation,
-      headSeq: prepare.expectedHeadSeq,
-    }).ok).toBe(true);
-
-    const result = await pending;
-    expect(result.ok).toBe(true);
-    expect(executeCalls).toBe(1);
-    expect(surface.sent.some(
-      (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind
-        === "document-update",
-    )).toBe(true);
-    expect(surface.sent.some(
-      (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind
-        === "relocation-lease-release",
-    )).toBe(true);
-
-    const mismatched = await hub.executeNodexAgentCreate(command, []);
-    expect(mismatched).toMatchObject({
-      ok: false,
-      error: { code: "internal_error" },
-    });
-    expect(executeCalls).toBe(1);
-  });
-
   test("leases one prepared Document closure for an atomic Agent Card batch", async () => {
     const command = nodexAgentCreateCardsCommand();
     let executeCalls = 0;
     const hub = new DocumentSyncHub({
       ...createBackend(),
-      executeNodexAgentCreateCards: async () => {
+      executeNodexAgentCreatePages: async () => {
         executeCalls += 1;
         return {
           ok: true,
           value: {
-            output: CreateCardsV3OutputSchema.parse({
+            output: CreatePagesV3OutputSchema.parse({
               data: {
-                cards: command.cards.map((card) => ({
-                  cardId: card.cardId,
-                  location: { kind: "card", cardId: "card-parent" },
-                  bodyBlocksCreated: card.bodyBlockIds.length,
+                pages: command.pages.map((page) => ({
+                  pageId: page.pageId,
+                  location: { kind: "page", pageId: "card-parent" },
+                  bodyBlocksCreated: page.bodyBlockIds.length,
                 })),
                 created: 2,
               },
@@ -2118,116 +1726,15 @@ describe("DocumentSyncHub", () => {
       expectedHeadSeq: 0,
     }];
 
-    const result = await hub.executeNodexAgentCreateCards(command, leaseDocuments);
+    const result = await hub.executeNodexAgentCreatePages(command, leaseDocuments);
     expect(result.ok).toBe(true);
     expect(executeCalls).toBe(1);
-    const mismatched = await hub.executeNodexAgentCreateCards(command, []);
+    const mismatched = await hub.executeNodexAgentCreatePages(command, []);
     expect(mismatched).toMatchObject({
       ok: false,
       error: { code: "internal_error" },
     });
     expect(executeCalls).toBe(1);
-  });
-
-  test("leases the prepared Document closure for an Agent Block transfer", async () => {
-    const command = nodexAgentTransferCommand();
-    let executeCalls = 0;
-    const hub = new DocumentSyncHub({
-      ...createBackend(),
-      executeNodexAgentTransfer: async () => {
-        executeCalls += 1;
-        return {
-          ok: true,
-          value: {
-            output: TransferBlocksOutputSchema.parse({
-              data: {
-                mode: "copy",
-                results: [{
-                  sourceBlockId: "card-source",
-                  resultBlockId: "card-copy",
-                  location: { kind: "document", documentId: "doc-target" },
-                  transformation: "preserved",
-                }],
-                copiedBlockIds: { "card-source": "card-copy" },
-              },
-            }),
-            duplicate: false,
-            documentCommits: [
-              {
-                documentId: "doc-owned-source",
-                generation: 1,
-                baseHeadSeq: 0,
-                headSeq: 1,
-                updateId: "agent-transfer-source",
-                update: new Uint8Array([9]),
-                stateVector: new Uint8Array([1]),
-              },
-              {
-                documentId: "doc-target",
-                generation: 1,
-                baseHeadSeq: 0,
-                headSeq: 1,
-                updateId: "agent-transfer-target",
-                update: new Uint8Array([10]),
-                stateVector: new Uint8Array([1]),
-              },
-            ],
-            affectedDatabaseBlockIds: ["database-source"],
-            changeLogSeq: 12,
-          },
-        };
-      },
-    });
-    const sourceSurface = new FakeTarget(92);
-    const targetSurface = new FakeTarget(93);
-    subscribe(hub, sourceSurface, "doc-owned-source", "surface-agent-source");
-    subscribe(hub, targetSurface, "doc-target", "surface-agent-target");
-    await syncSubscription(
-      hub,
-      sourceSurface,
-      "doc-owned-source",
-      "surface-agent-source",
-    );
-    await syncSubscription(hub, targetSurface, "doc-target", "surface-agent-target");
-    clearSent(sourceSurface, targetSurface);
-
-    const pending = hub.executeNodexAgentTransfer(command);
-    await waitUntil(() => [sourceSurface, targetSurface].every((surface) =>
-      surface.sent.some((delivery) =>
-        (delivery.value as DocumentSyncRealtimeEvent).kind
-          === "relocation-lease-prepare"
-      )
-    ));
-    expect(executeCalls).toBe(0);
-    for (const surface of [sourceSurface, targetSurface]) {
-      const prepare = surface.sent
-        .map((delivery) => delivery.value as DocumentSyncRealtimeEvent)
-        .find((event): event is Extract<
-          DocumentSyncRealtimeEvent,
-          { kind: "relocation-lease-prepare" }
-        > => event.kind === "relocation-lease-prepare");
-      if (!prepare) throw new Error("Missing Agent transfer lease prepare");
-      expect(hub.respondToRelocationLease(surface, {
-        response: "ack",
-        leaseId: prepare.leaseId,
-        documentId: prepare.documentId,
-        clientSessionId: prepare.clientSessionId,
-        storeEpoch: prepare.storeEpoch,
-        generation: prepare.generation,
-        headSeq: prepare.expectedHeadSeq,
-      }).ok).toBe(true);
-    }
-
-    const result = await pending;
-    expect(result.ok).toBe(true);
-    expect(executeCalls).toBe(1);
-    for (const surface of [sourceSurface, targetSurface]) {
-      const kinds = surface.sent.map(
-        (delivery) => (delivery.value as DocumentSyncRealtimeEvent).kind,
-      );
-      expect(kinds).toContain("document-update");
-      expect(kinds).toContain("relocation-lease-release");
-    }
   });
 
   test("coordinates BlockTransfer over every source-owned and target Document", async () => {

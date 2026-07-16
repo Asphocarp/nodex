@@ -9,7 +9,7 @@ import {
 import type { RendererClientRouter } from "../codex/renderer-client-router";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { getDb } from "../local-store/database";
-import type { NodexAgentDynamicAuthorizationInput } from "./dynamic-service";
+import type { NodexAgentDynamicAuthorizationInput } from "./dynamic-service-core";
 
 export type NodexAgentAuthorizationOutcome =
   | NodexAgentAuthorizationDecision

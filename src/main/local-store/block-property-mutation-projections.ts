@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
-import { rebuildCardReadModelProjection } from "./card-read-store";
-import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
+import { rebuildPageReadModelProjection } from "./page-read-store";
+import { refreshScheduledPageIndexProjection } from "./scheduled-page-store";
 
 /**
  * Rebuild property-derived disposable projections inside the caller's
@@ -11,16 +11,16 @@ import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
 export const rebuildBlockPropertyMutationProjections = (
   database: Database.Database,
   projectId: string,
-  cardIds: readonly string[],
+  pageIds: readonly string[],
   updatedAt: string,
 ): void => {
-  const uniqueCardIds = [...new Set(cardIds)].sort();
-  if (uniqueCardIds.length === 0) return;
-  refreshScheduledCardIndexProjection(
+  const uniquePageIds = [...new Set(pageIds)].sort();
+  if (uniquePageIds.length === 0) return;
+  refreshScheduledPageIndexProjection(
     database,
     projectId,
-    uniqueCardIds,
+    uniquePageIds,
     updatedAt,
   );
-  rebuildCardReadModelProjection(database, projectId, uniqueCardIds);
+  rebuildPageReadModelProjection(database, projectId, uniquePageIds);
 };

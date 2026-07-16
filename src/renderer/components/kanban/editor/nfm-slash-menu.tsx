@@ -38,16 +38,16 @@ import { useAllBoards } from "@/lib/use-all-boards";
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type {
-  CommandPaletteCard,
+  CommandPalettePage,
   CommandPaletteThread,
 } from "@/lib/command-palette";
 import {
-  buildCommandPaletteCardDescriptionSearchScopeKey,
-  buildCommandPaletteCardItemsFromBoardSummaries,
-  searchCommandPaletteCardDescriptions,
-  selectCommandPaletteCardResults,
-  type CommandPaletteCardDescriptionSearchBatch,
-} from "@/lib/command-palette-card-results";
+  buildCommandPalettePageDescriptionSearchScopeKey,
+  buildCommandPalettePageItemsFromBoardSummaries,
+  searchCommandPalettePageDescriptions,
+  selectCommandPalettePageResults,
+  type CommandPalettePageDescriptionSearchBatch,
+} from "@/lib/command-palette-page-results";
 import {
   listCommandPaletteThreadItems,
   searchCommandPaletteThreadContent,
@@ -55,7 +55,7 @@ import {
   type CommandPaletteThreadContentSearchBatch,
 } from "@/lib/command-palette-chat-search";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
-import { useCommandPaletteCardSearchIndex } from "@/lib/use-command-palette-card-search-index";
+import { useCommandPalettePageSearchIndex } from "@/lib/use-command-palette-page-search-index";
 import {
   NFM_SUGGESTION_MENU_FLOATING_OPTIONS,
   NFM_SUGGESTION_MENU_PORTAL_ELEMENT,
@@ -67,7 +67,7 @@ import {
   CodexThreadIcon,
   NfmSideMenuTableHeaderIcon,
 } from "@/components/shared/icons";
-import { CARD_STATUS_LABELS } from "../../../../shared/card-status";
+import { WORKFLOW_STATUS_LABELS } from "../../../../shared/workflow-status";
 import {
   buildDateMentionQueryMatches,
   isDateMentionQuery,
@@ -78,7 +78,7 @@ import { dateMentionPayloadToProps } from "./date-mention-chip";
 
 interface NfmSlashMenuProps {
   projectId: string;
-  allowCardReferences?: boolean;
+  allowPageReferences?: boolean;
 }
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
@@ -440,7 +440,7 @@ export function getNfmSlashMenuCustomItems(
 
 export function NfmSlashMenu({
   projectId,
-  allowCardReferences = true,
+  allowPageReferences = true,
 }: NfmSlashMenuProps) {
   const editor = useBlockNoteEditor();
 
@@ -471,21 +471,21 @@ export function NfmSlashMenu({
       />
       <MentionMenu
         projectId={projectId}
-        allowCardReferences={allowCardReferences}
+        allowPageReferences={allowPageReferences}
       />
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// @ mention for cards and Codex threads
+// @ mention for pages and Codex threads
 // ---------------------------------------------------------------------------
 
 const CURRENT_PROJECT_MENTION_GROUP = "Current project";
 const DATE_MENTION_GROUP = "Dates";
 const REMINDER_MENTION_GROUP = "Reminders";
 const CHAT_MENTION_GROUP = "Chats";
-const CARD_MENTION_GROUP = "Cards";
+const CARD_MENTION_GROUP = "Pages";
 
 type ThreadMentionSubtextInput = Pick<
   CommandPaletteThread,
@@ -496,7 +496,7 @@ type ThreadMentionSubtextInput = Pick<
 
 function resolveMentionSearchPreviewExcerpt(
   searchPreview:
-    | CommandPaletteCard["searchPreview"]
+    | CommandPalettePage["searchPreview"]
     | CommandPaletteThread["searchPreview"]
     | undefined,
 ): string | null {
@@ -507,7 +507,7 @@ function resolveMentionSearchPreviewExcerpt(
 function appendMentionSearchPreviewSubtext(
   baseSubtext: string,
   searchPreview:
-    | CommandPaletteCard["searchPreview"]
+    | CommandPalettePage["searchPreview"]
     | CommandPaletteThread["searchPreview"]
     | undefined,
 ): string {
@@ -519,7 +519,7 @@ function appendMentionSearchPreviewSubtext(
 function buildMentionTooltipContent(
   contextText: string,
   searchPreview:
-    | CommandPaletteCard["searchPreview"]
+    | CommandPalettePage["searchPreview"]
     | CommandPaletteThread["searchPreview"]
     | undefined,
 ): ReactNode {
@@ -584,9 +584,9 @@ export function resolveThreadMentionSubtext(
     .join(" / ");
 }
 
-function resolveCardMentionContext(item: CommandPaletteCard): string {
+function resolvePageMentionContext(item: CommandPalettePage): string {
   const columnName = item.columnName.trim();
-  const stateLabel = CARD_STATUS_LABELS[item.card.status];
+  const stateLabel = WORKFLOW_STATUS_LABELS[item.page.status];
   const shouldShowStateLabel =
     normalizeMentionContextPart(columnName) !==
     normalizeMentionContextPart(stateLabel);
@@ -603,9 +603,9 @@ function normalizeMentionContextPart(value: string): string {
     .toLowerCase();
 }
 
-function resolveCardMentionSubtext(item: CommandPaletteCard): string {
+function resolvePageMentionSubtext(item: CommandPalettePage): string {
   return appendMentionSearchPreviewSubtext(
-    resolveCardMentionContext(item),
+    resolvePageMentionContext(item),
     item.searchPreview,
   );
 }
@@ -627,13 +627,13 @@ function resolveCommandPaletteThreadMentionSubtext(
   );
 }
 
-export function buildNfmCardMentionBlock(
-  item: CommandPaletteCard,
+export function buildNfmPageMentionBlock(
+  item: CommandPalettePage,
 ): Record<string, unknown> {
   return {
-    type: "cardRef",
+    type: "pageRef",
     props: {
-      targetBlockId: item.card.id,
+      targetBlockId: item.page.id,
     },
   };
 }
@@ -704,22 +704,22 @@ export function buildNfmDateMentionSuggestionItems(
   );
 }
 
-export function buildNfmCardMentionSuggestionItem(
+export function buildNfmPageMentionSuggestionItem(
   editor: unknown,
-  item: CommandPaletteCard,
+  item: CommandPalettePage,
   options: { group?: string } = {},
 ): NfmSuggestionItem {
-  const contextText = resolveCardMentionContext(item);
+  const contextText = resolvePageMentionContext(item);
   return {
-    title: item.card.title || "Untitled",
-    subtext: resolveCardMentionSubtext(item),
+    title: item.page.title || "Untitled",
+    subtext: resolvePageMentionSubtext(item),
     aliases: [],
     group: options.group ?? CARD_MENTION_GROUP,
     hint: null,
     tooltipContent: buildMentionTooltipContent(contextText, item.searchPreview),
     icon: <FileText className="size-4" aria-hidden="true" />,
     onItemClick: () => {
-      insertBlock(editor, buildNfmCardMentionBlock(item));
+      insertBlock(editor, buildNfmPageMentionBlock(item));
     },
   };
 }
@@ -765,26 +765,26 @@ function partitionMentionResultsByActiveProject<
 export function buildNfmMentionSuggestionItems({
   editor,
   query = "",
-  cardResults,
+  pageResults,
   threadResults,
 }: {
   editor: unknown;
   query?: string;
-  cardResults: readonly CommandPaletteCard[];
+  pageResults: readonly CommandPalettePage[];
   threadResults: readonly CommandPaletteThread[];
 }): DefaultReactSuggestionItem[] {
   const { activeProjectItems: activeProjectThreads, otherItems: otherThreads } =
     partitionMentionResultsByActiveProject(threadResults);
-  const { activeProjectItems: activeProjectCards, otherItems: otherCards } =
-    partitionMentionResultsByActiveProject(cardResults);
+  const { activeProjectItems: activeProjectPages, otherItems: otherPages } =
+    partitionMentionResultsByActiveProject(pageResults);
   const currentProjectItems = [
     ...activeProjectThreads.map((item) =>
       buildNfmThreadMentionSuggestionItem(editor, item, {
         group: CURRENT_PROJECT_MENTION_GROUP,
       }),
     ),
-    ...activeProjectCards.map((item) =>
-      buildNfmCardMentionSuggestionItem(editor, item, {
+    ...activeProjectPages.map((item) =>
+      buildNfmPageMentionSuggestionItem(editor, item, {
         group: CURRENT_PROJECT_MENTION_GROUP,
       }),
     ),
@@ -796,8 +796,8 @@ export function buildNfmMentionSuggestionItems({
         group: CHAT_MENTION_GROUP,
       }),
     ),
-    ...otherCards.map((item) =>
-      buildNfmCardMentionSuggestionItem(editor, item, {
+    ...otherPages.map((item) =>
+      buildNfmPageMentionSuggestionItem(editor, item, {
         group: CARD_MENTION_GROUP,
       }),
     ),
@@ -810,16 +810,16 @@ export function buildNfmMentionSuggestionItems({
 
 interface NfmMentionSearchState {
   editor: unknown;
-  cardItems: CommandPaletteCard[];
-  cardSearchIndex: ReturnType<typeof useCommandPaletteCardSearchIndex>;
-  projectIdsForCardSearch: string[];
+  pageItems: CommandPalettePage[];
+  pageSearchIndex: ReturnType<typeof useCommandPalettePageSearchIndex>;
+  projectIdsForPageSearch: string[];
 }
 
 export interface NfmMentionGetItemsLoaders {
-  searchCardDescriptions: typeof searchCommandPaletteCardDescriptions;
+  searchPageDescriptions: typeof searchCommandPalettePageDescriptions;
   listThreadItems: typeof listCommandPaletteThreadItems;
   searchThreadContent: typeof searchCommandPaletteThreadContent;
-  selectCardResults: typeof selectCommandPaletteCardResults;
+  selectPageResults: typeof selectCommandPalettePageResults;
   selectChatResults: typeof selectCommandPaletteChatResults;
   createThreadSearchIndex: typeof createCommandPaletteThreadSearchIndex;
 }
@@ -827,23 +827,23 @@ export interface NfmMentionGetItemsLoaders {
 interface NfmMentionGetItemsInput {
   editor: unknown;
   projectId: string;
-  cardItems: CommandPaletteCard[];
-  cardSearchIndex: ReturnType<typeof useCommandPaletteCardSearchIndex>;
-  projectIdsForCardSearch: string[];
+  pageItems: CommandPalettePage[];
+  pageSearchIndex: ReturnType<typeof useCommandPalettePageSearchIndex>;
+  projectIdsForPageSearch: string[];
   loaders?: NfmMentionGetItemsLoaders;
 }
 
 const DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS: NfmMentionGetItemsLoaders = {
-  searchCardDescriptions: searchCommandPaletteCardDescriptions,
+  searchPageDescriptions: searchCommandPalettePageDescriptions,
   listThreadItems: listCommandPaletteThreadItems,
   searchThreadContent: searchCommandPaletteThreadContent,
-  selectCardResults: selectCommandPaletteCardResults,
+  selectPageResults: selectCommandPalettePageResults,
   selectChatResults: selectCommandPaletteChatResults,
   createThreadSearchIndex: createCommandPaletteThreadSearchIndex,
 };
 
-type NfmCardDescriptionSearchResults = Awaited<
-  ReturnType<NfmMentionGetItemsLoaders["searchCardDescriptions"]>
+type NfmPageDescriptionSearchResults = Awaited<
+  ReturnType<NfmMentionGetItemsLoaders["searchPageDescriptions"]>
 >;
 
 type NfmThreadContentSearchResults = Awaited<
@@ -852,28 +852,28 @@ type NfmThreadContentSearchResults = Awaited<
 
 interface NfmMentionAsyncSearchResults {
   key: string;
-  cardDescriptionSearchResults?: NfmCardDescriptionSearchResults;
+  pageDescriptionSearchResults?: NfmPageDescriptionSearchResults;
   threadContentSearchResults?: NfmThreadContentSearchResults;
 }
 
 function buildNfmMentionAsyncSearchKey({
   activeProjectId,
-  projectIdsForCardSearch,
+  projectIdsForPageSearch,
   query,
 }: {
   activeProjectId: string;
-  projectIdsForCardSearch: readonly string[];
+  projectIdsForPageSearch: readonly string[];
   query: string;
 }) {
-  return JSON.stringify([activeProjectId, projectIdsForCardSearch, query]);
+  return JSON.stringify([activeProjectId, projectIdsForPageSearch, query]);
 }
 
 export function useNfmMentionGetItems({
   editor,
   projectId,
-  cardItems,
-  cardSearchIndex,
-  projectIdsForCardSearch,
+  pageItems,
+  pageSearchIndex,
+  projectIdsForPageSearch,
   loaders = DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS,
 }: NfmMentionGetItemsInput): (
   query: string,
@@ -896,7 +896,7 @@ export function useNfmMentionGetItems({
     null,
   );
   const latestAsyncSearchKeyRef = useRef<string | null>(null);
-  const cardDescriptionSearchRequestRef = useRef<{
+  const pageDescriptionSearchRequestRef = useRef<{
     key: string;
     id: number;
   } | null>(null);
@@ -909,18 +909,18 @@ export function useNfmMentionGetItems({
   const loadersRef = useRef(loaders);
   const searchStateRef = useRef<NfmMentionSearchState>({
     editor,
-    cardItems,
-    cardSearchIndex,
-    projectIdsForCardSearch,
+    pageItems,
+    pageSearchIndex,
+    projectIdsForPageSearch,
   });
 
   projectIdRef.current = projectId;
   loadersRef.current = loaders;
   searchStateRef.current = {
     editor,
-    cardItems,
-    cardSearchIndex,
-    projectIdsForCardSearch,
+    pageItems,
+    pageSearchIndex,
+    projectIdsForPageSearch,
   };
 
   const bumpAsyncRefresh = useCallback(() => {
@@ -986,11 +986,11 @@ export function useNfmMentionGetItems({
 
   const ensureAsyncSearches = useCallback(
     ({
-      projectIdsForCardSearch: currentProjectIdsForCardSearch,
+      projectIdsForPageSearch: currentProjectIdsForPageSearch,
       query,
       requestKey,
     }: {
-      projectIdsForCardSearch: readonly string[];
+      projectIdsForPageSearch: readonly string[];
       query: string;
       requestKey: string;
     }) => {
@@ -1011,26 +1011,26 @@ export function useNfmMentionGetItems({
       const currentLoaders = loadersRef.current;
 
       if (
-        currentProjectIdsForCardSearch.length > 0 &&
-        currentResults.cardDescriptionSearchResults === undefined &&
-        cardDescriptionSearchRequestRef.current?.key !== requestKey
+        currentProjectIdsForPageSearch.length > 0 &&
+        currentResults.pageDescriptionSearchResults === undefined &&
+        pageDescriptionSearchRequestRef.current?.key !== requestKey
       ) {
         const requestId = asyncRequestIdRef.current + 1;
         asyncRequestIdRef.current = requestId;
-        cardDescriptionSearchRequestRef.current = {
+        pageDescriptionSearchRequestRef.current = {
           key: requestKey,
           id: requestId,
         };
 
         void currentLoaders
-          .searchCardDescriptions({
-            projectIds: currentProjectIdsForCardSearch,
+          .searchPageDescriptions({
+            projectIds: currentProjectIdsForPageSearch,
             query,
           })
           .then((results) => {
             if (
               latestAsyncSearchKeyRef.current !== requestKey ||
-              cardDescriptionSearchRequestRef.current?.id !== requestId
+              pageDescriptionSearchRequestRef.current?.id !== requestId
             ) {
               return;
             }
@@ -1040,14 +1040,14 @@ export function useNfmMentionGetItems({
                 ? asyncSearchResultsRef.current
                 : { key: requestKey }),
               key: requestKey,
-              cardDescriptionSearchResults: results,
+              pageDescriptionSearchResults: results,
             };
             bumpAsyncRefresh();
           })
           .catch(() => {
             if (
               latestAsyncSearchKeyRef.current !== requestKey ||
-              cardDescriptionSearchRequestRef.current?.id !== requestId
+              pageDescriptionSearchRequestRef.current?.id !== requestId
             ) {
               return;
             }
@@ -1057,7 +1057,7 @@ export function useNfmMentionGetItems({
                 ? asyncSearchResultsRef.current
                 : { key: requestKey }),
               key: requestKey,
-              cardDescriptionSearchResults: [],
+              pageDescriptionSearchResults: [],
             };
             bumpAsyncRefresh();
           });
@@ -1121,22 +1121,22 @@ export function useNfmMentionGetItems({
 
       const {
         editor: currentEditor,
-        cardItems: currentCardItems,
-        cardSearchIndex: currentCardSearchIndex,
-        projectIdsForCardSearch: currentProjectIdsForCardSearch,
+        pageItems: currentPageItems,
+        pageSearchIndex: currentPageSearchIndex,
+        projectIdsForPageSearch: currentProjectIdsForPageSearch,
       } = searchStateRef.current;
       const currentLoaders = loadersRef.current;
       const activeProjectId = projectIdRef.current;
       const requestKey = buildNfmMentionAsyncSearchKey({
         activeProjectId,
-        projectIdsForCardSearch: currentProjectIdsForCardSearch,
+        projectIdsForPageSearch: currentProjectIdsForPageSearch,
         query,
       });
       latestAsyncSearchKeyRef.current = requestKey;
 
       void loadThreadItems();
       ensureAsyncSearches({
-        projectIdsForCardSearch: currentProjectIdsForCardSearch,
+        projectIdsForPageSearch: currentProjectIdsForPageSearch,
         query,
         requestKey,
       });
@@ -1149,17 +1149,17 @@ export function useNfmMentionGetItems({
         threadItemsRef.current?.activeProjectId === activeProjectId
           ? threadItemsRef.current.items
           : [];
-      const cardDescriptionSearchScopeKey =
-        buildCommandPaletteCardDescriptionSearchScopeKey(
-          currentProjectIdsForCardSearch,
+      const pageDescriptionSearchScopeKey =
+        buildCommandPalettePageDescriptionSearchScopeKey(
+          currentProjectIdsForPageSearch,
         );
-      const cardDescriptionSearchBatch:
-        CommandPaletteCardDescriptionSearchBatch | undefined =
-        asyncResults?.cardDescriptionSearchResults
+      const pageDescriptionSearchBatch:
+        CommandPalettePageDescriptionSearchBatch | undefined =
+        asyncResults?.pageDescriptionSearchResults
           ? {
               query,
-              scopeKey: cardDescriptionSearchScopeKey,
-              results: asyncResults.cardDescriptionSearchResults,
+              scopeKey: pageDescriptionSearchScopeKey,
+              results: asyncResults.pageDescriptionSearchResults,
               loading: false,
             }
           : undefined;
@@ -1172,14 +1172,14 @@ export function useNfmMentionGetItems({
               loading: false,
             }
           : undefined;
-      const cardResults = currentLoaders.selectCardResults({
+      const pageResults = currentLoaders.selectPageResults({
         query,
-        cards: currentCardItems,
-        cardSearchIndex: currentCardSearchIndex,
-        cardDescriptionSearchBatch,
-        cardDescriptionSearchScopeKey,
-        metadataCardLimit: 24,
-        mergedCardLimit: 24,
+        pages: currentPageItems,
+        pageSearchIndex: currentPageSearchIndex,
+        pageDescriptionSearchBatch,
+        pageDescriptionSearchScopeKey,
+        metadataPageLimit: 24,
+        mergedPageLimit: 24,
         preferActiveProject: true,
       });
       const threadResults = currentLoaders.selectChatResults({
@@ -1194,7 +1194,7 @@ export function useNfmMentionGetItems({
       return buildNfmMentionSuggestionItems({
         editor: currentEditor,
         query,
-        cardResults,
+        pageResults,
         threadResults,
       });
     },
@@ -1209,35 +1209,35 @@ export function useNfmMentionGetItems({
 
 function MentionMenu({
   projectId,
-  allowCardReferences,
+  allowPageReferences,
 }: {
   projectId: string;
-  allowCardReferences: boolean;
+  allowPageReferences: boolean;
 }) {
   const editor = useBlockNoteEditor();
   const { boards, projects } = useAllBoards();
-  const cardItems = useMemo(
+  const pageItems = useMemo(
     () =>
-      allowCardReferences
-        ? buildCommandPaletteCardItemsFromBoardSummaries({
+      allowPageReferences
+        ? buildCommandPalettePageItemsFromBoardSummaries({
             projects,
             boardMap: boards,
             activeProjectId: projectId,
           })
         : [],
-    [allowCardReferences, boards, projectId, projects],
+    [allowPageReferences, boards, projectId, projects],
   );
-  const cardSearchIndex = useCommandPaletteCardSearchIndex(cardItems);
-  const projectIdsForCardSearch = useMemo(
-    () => (allowCardReferences ? projects.map((project) => project.id) : []),
-    [allowCardReferences, projects],
+  const pageSearchIndex = useCommandPalettePageSearchIndex(pageItems);
+  const projectIdsForPageSearch = useMemo(
+    () => (allowPageReferences ? projects.map((project) => project.id) : []),
+    [allowPageReferences, projects],
   );
   const getItems = useNfmMentionGetItems({
     editor,
     projectId,
-    cardItems,
-    cardSearchIndex,
-    projectIdsForCardSearch,
+    pageItems,
+    pageSearchIndex,
+    projectIdsForPageSearch,
   });
 
   return (

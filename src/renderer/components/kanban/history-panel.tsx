@@ -26,22 +26,22 @@ import {
 import { cn } from "@/lib/utils";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
-  CARD_HISTORY_CONTRACT_VERSION,
-  DEFAULT_CARD_HISTORY_PAGE_SIZE,
-  type CardHistoryCursor,
-  type CardHistoryEntry,
-} from "../../../shared/card-history";
+  PAGE_HISTORY_CONTRACT_VERSION,
+  DEFAULT_PAGE_HISTORY_PAGE_SIZE,
+  type PageHistoryCursor,
+  type PageHistoryEntry,
+} from "../../../shared/page-history";
 import {
   DOCUMENT_VERSION_CONTRACT_VERSION,
   type DocumentVersionDetail,
   type PrepareDocumentVersionRestore,
 } from "../../../shared/block-documents/document-history";
 import { ReadonlyNfmBlockNotePreview } from "./editor/readonly-nfm-blocknote-preview";
-import { mergeCardHistoryEntries } from "./card-history-view-model";
+import { mergePageHistoryEntries } from "./page-history-view-model";
 import {
   getDocumentVersion,
   getOwnedDocumentDescriptor,
-  listCardHistory,
+  listPageHistory,
   restoreDocumentVersion,
 } from "./history-panel-deps";
 
@@ -57,17 +57,17 @@ const HISTORY_FILTERS: ReadonlyArray<{
 
 interface HistoryPanelProps {
   projectId: string;
-  cardId: string | null;
-  cardTitle?: string;
-  cardNfm?: string;
+  pageId: string | null;
+  pageTitle?: string;
+  pageNfm?: string;
   projectWorkspacePath?: string | null;
   open: boolean;
   onClose: () => void;
-  onCardMutated?: () => void;
+  onPageMutated?: () => void;
 }
 
 const matchesFilter = (
-  entry: CardHistoryEntry,
+  entry: PageHistoryEntry,
   filter: HistoryFilter,
 ): boolean => {
   if (filter === "revisions") return entry.kind === "document_version";
@@ -76,13 +76,13 @@ const matchesFilter = (
 
 export function HistoryPanel({
   projectId,
-  cardId,
-  cardTitle,
-  cardNfm,
+  pageId,
+  pageTitle,
+  pageNfm,
   projectWorkspacePath,
   open,
   onClose,
-  onCardMutated,
+  onPageMutated,
 }: HistoryPanelProps) {
   const auditSessionId = useMutationAuditSessionId();
   const requestSerialRef = useRef(0);
@@ -91,8 +91,8 @@ export function HistoryPanel({
     readonly entryId: string;
     readonly request: PrepareDocumentVersionRestore;
   } | null>(null);
-  const [entries, setEntries] = useState<readonly CardHistoryEntry[]>([]);
-  const [nextCursor, setNextCursor] = useState<CardHistoryCursor | null>(null);
+  const [entries, setEntries] = useState<readonly PageHistoryEntry[]>([]);
+  const [nextCursor, setNextCursor] = useState<PageHistoryCursor | null>(null);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [filter, setFilter] = useState<HistoryFilter>("revisions");
   const [loading, setLoading] = useState(false);
@@ -107,7 +107,7 @@ export function HistoryPanel({
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
-  const loadFirstPage = useCallback(async (targetCardId: string) => {
+  const loadFirstPage = useCallback(async (targetPageId: string) => {
     const requestSerial = requestSerialRef.current + 1;
     requestSerialRef.current = requestSerial;
     setLoading(true);
@@ -118,11 +118,11 @@ export function HistoryPanel({
     setSelectedEntryId(null);
     setPreviewCache(new Map());
     try {
-      const result = await listCardHistory({
-        version: CARD_HISTORY_CONTRACT_VERSION,
-        projectId,
-        cardBlockId: targetCardId,
-        pageSize: DEFAULT_CARD_HISTORY_PAGE_SIZE,
+      const result = await listPageHistory({
+        version: PAGE_HISTORY_CONTRACT_VERSION,
+        requestingProjectId: projectId,
+        pageId: targetPageId,
+        pageSize: DEFAULT_PAGE_HISTORY_PAGE_SIZE,
       });
       if (requestSerial !== requestSerialRef.current) return;
       if (!result.ok) {
@@ -143,16 +143,16 @@ export function HistoryPanel({
       if (requestSerial !== requestSerialRef.current) return;
       setEntries([]);
       setNextCursor(null);
-      setTimelineError(toErrorMessage(error, "Couldn’t load Card history."));
+      setTimelineError(toErrorMessage(error, "Couldn’t load Page history."));
     } finally {
       if (requestSerial === requestSerialRef.current) setLoading(false);
     }
   }, [projectId]);
 
   useEffect(() => {
-    if (!open || !cardId) return;
-    void loadFirstPage(cardId);
-  }, [cardId, loadFirstPage, open]);
+    if (!open || !pageId) return;
+    void loadFirstPage(pageId);
+  }, [pageId, loadFirstPage, open]);
 
   useEffect(() => {
     if (open) return;
@@ -266,25 +266,25 @@ export function HistoryPanel({
   }, [navigate]);
 
   const handleLoadOlder = useCallback(async () => {
-    if (!cardId || !nextCursor || loadingOlder) return;
+    if (!pageId || !nextCursor || loadingOlder) return;
     const cursor = nextCursor;
     const requestSerial = requestSerialRef.current;
     setLoadingOlder(true);
     setTimelineError(null);
     try {
-      const result = await listCardHistory({
-        version: CARD_HISTORY_CONTRACT_VERSION,
-        projectId,
-        cardBlockId: cardId,
+      const result = await listPageHistory({
+        version: PAGE_HISTORY_CONTRACT_VERSION,
+        requestingProjectId: projectId,
+        pageId: pageId,
         before: cursor,
-        pageSize: DEFAULT_CARD_HISTORY_PAGE_SIZE,
+        pageSize: DEFAULT_PAGE_HISTORY_PAGE_SIZE,
       });
       if (requestSerial !== requestSerialRef.current) return;
       if (!result.ok) {
         setTimelineError(result.error.message);
         return;
       }
-      setEntries((current) => mergeCardHistoryEntries(current, result.value.entries));
+      setEntries((current) => mergePageHistoryEntries(current, result.value.entries));
       setNextCursor(result.value.nextCursor);
     } catch (error) {
       if (requestSerial !== requestSerialRef.current) return;
@@ -292,12 +292,12 @@ export function HistoryPanel({
     } finally {
       if (requestSerial === requestSerialRef.current) setLoadingOlder(false);
     }
-  }, [cardId, loadingOlder, nextCursor, projectId]);
+  }, [pageId, loadingOlder, nextCursor, projectId]);
 
   const handleRestore = useCallback(async () => {
     if (
       restoreInFlightRef.current ||
-      !cardId ||
+      !pageId ||
       !selectedEntry ||
       selectedEntry.recovery.kind !== "restore_document_version"
     ) {
@@ -309,12 +309,12 @@ export function HistoryPanel({
     try {
       let pendingRestore = pendingRestoreRef.current;
       if (!pendingRestore || pendingRestore.entryId !== selectedEntry.id) {
-        const descriptor = await getOwnedDocumentDescriptor(projectId, cardId);
+        const descriptor = await getOwnedDocumentDescriptor(projectId, pageId);
         if (descriptor.readiness !== "ready") {
-          throw new Error("This Card must finish syncing before it can be restored.");
+          throw new Error("This Page must finish syncing before it can be restored.");
         }
         if (descriptor.documentId !== selectedEntry.recovery.documentId) {
-          throw new Error("This revision no longer belongs to the Card document.");
+          throw new Error("This revision no longer belongs to the Page document.");
         }
         pendingRestore = {
           entryId: selectedEntry.id,
@@ -356,8 +356,8 @@ export function HistoryPanel({
       }
       pendingRestoreRef.current = null;
       setConfirmingRestore(false);
-      onCardMutated?.();
-      await loadFirstPage(cardId);
+      onPageMutated?.();
+      await loadFirstPage(pageId);
     } catch (error) {
       setRestoreError(toErrorMessage(error, "Couldn’t restore this revision."));
     } finally {
@@ -366,9 +366,9 @@ export function HistoryPanel({
     }
   }, [
     auditSessionId,
-    cardId,
+    pageId,
     loadFirstPage,
-    onCardMutated,
+    onPageMutated,
     projectId,
     selectedEntry,
   ]);
@@ -376,9 +376,9 @@ export function HistoryPanel({
   if (!open) return null;
 
   const previewTitle =
-    selectedPreview?.materialization.kind === "card"
+    selectedPreview?.materialization.kind === "page"
       ? selectedPreview.materialization.title
-      : cardTitle;
+      : pageTitle;
 
   return (
     <NodexDialog
@@ -401,13 +401,13 @@ export function HistoryPanel({
           "md:grid-cols-[minmax(0,1fr)_20rem]",
         )}
       >
-        <NodexDialogTitle className="sr-only">Card history</NodexDialogTitle>
+        <NodexDialogTitle className="sr-only">Page history</NodexDialogTitle>
 
         <section className="flex min-h-0 min-w-0 flex-col bg-token-main-surface-primary">
           <header className="flex h-11 shrink-0 items-center gap-2 border-b-[0.5px] border-token-border px-3">
             <History className="icon-2xs shrink-0 text-token-description-foreground" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-token-text-secondary">
-              {previewTitle ?? cardTitle ?? "Untitled Card"}
+              {previewTitle ?? pageTitle ?? "Untitled Page"}
             </span>
             {selectedIsCurrent ? (
               <span className="hidden shrink-0 text-xs text-token-description-foreground sm:block">
@@ -425,30 +425,31 @@ export function HistoryPanel({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
             {loading ? (
-              <HistoryEmptyState>Loading Card history…</HistoryEmptyState>
+              <HistoryEmptyState>Loading Page history…</HistoryEmptyState>
             ) : timelineError && entries.length === 0 ? (
               <HistoryEmptyState>{timelineError}</HistoryEmptyState>
             ) : selectedIsCurrent ? (
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
                 <HistoryCurrentRevisionPreview
                   projectId={projectId}
-                  cardId={cardId}
-                  title={cardTitle}
-                  nfm={cardNfm}
+                  pageId={pageId}
+                  title={pageTitle}
+                  nfm={pageNfm}
                   projectWorkspacePath={projectWorkspacePath}
                 />
               </div>
             ) : entries.length === 0 ? (
-              <HistoryEmptyState>No durable revisions for this Card yet.</HistoryEmptyState>
+              <HistoryEmptyState>No durable revisions for this Page yet.</HistoryEmptyState>
             ) : selectedEntry ? (
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
                 {selectedEntry.kind === "document_version" ? (
                   <HistoryRevisionPreview
+                    projectId={projectId}
                     entry={selectedEntry}
                     detail={selectedPreview}
                     loading={previewLoading}
                     error={previewError}
-                    fallbackTitle={cardTitle}
+                    fallbackTitle={pageTitle}
                     projectWorkspacePath={projectWorkspacePath}
                   />
                 ) : (
@@ -465,7 +466,7 @@ export function HistoryPanel({
           <header className="flex shrink-0 items-start gap-2 px-3 py-3">
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-base font-medium text-token-text-primary">
-                Card history
+                Page history
               </h2>
               <p className="mt-0.5 truncate text-xs text-token-description-foreground">
                 Exact content revisions and durable activity
@@ -476,7 +477,7 @@ export function HistoryPanel({
               variant="ghost"
               size="icon-xs"
               className="rounded-full text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-text-primary"
-              aria-label="Close Card history"
+              aria-label="Close Page history"
               onClick={onClose}
             >
               <XIcon className="icon-2xs shrink-0" />
@@ -577,13 +578,13 @@ export function HistoryPanel({
 
 export function HistoryCurrentRevisionPreview({
   projectId,
-  cardId,
+  pageId,
   title,
   nfm = "",
   projectWorkspacePath,
 }: {
   projectId: string;
-  cardId: string | null;
+  pageId: string | null;
   title?: string;
   nfm?: string;
   projectWorkspacePath?: string | null;
@@ -594,14 +595,14 @@ export function HistoryCurrentRevisionPreview({
         Current content
       </p>
       <h2 className="wrap-break-word text-xl/snug-plus font-semibold tracking-normal text-token-text-primary">
-        {title || "Untitled Card"}
+        {title || "Untitled Page"}
       </h2>
       <div className="mt-5 min-h-32">
-        {cardId && nfm.trim() ? (
+        {pageId && nfm.trim() ? (
           <ReadonlyNfmBlockNotePreview
             content={nfm}
             projectId={projectId}
-            cardId={cardId}
+            pageId={pageId}
             historyId="current"
             projectWorkspacePath={projectWorkspacePath}
             className="text-token-text-primary"
@@ -619,6 +620,7 @@ export function HistoryCurrentRevisionPreview({
 }
 
 export function HistoryRevisionPreview({
+  projectId,
   entry,
   detail,
   loading,
@@ -626,7 +628,8 @@ export function HistoryRevisionPreview({
   fallbackTitle,
   projectWorkspacePath,
 }: {
-  entry: Extract<CardHistoryEntry, { kind: "document_version" }>;
+  projectId: string;
+  entry: Extract<PageHistoryEntry, { kind: "document_version" }>;
   detail: DocumentVersionDetail | null;
   loading: boolean;
   error: string | null;
@@ -648,7 +651,7 @@ export function HistoryRevisionPreview({
     );
   }
 
-  const title = materialization.kind === "card"
+  const title = materialization.kind === "page"
     ? materialization.title
     : fallbackTitle ?? "Document revision";
   return (
@@ -667,14 +670,14 @@ export function HistoryRevisionPreview({
         ) : null}
       </div>
       <h2 className="wrap-break-word text-xl/snug-plus font-semibold tracking-normal text-token-text-primary">
-        {title || "Untitled Card"}
+        {title || "Untitled Page"}
       </h2>
       <div className="mt-5 min-h-32">
         {materialization.nfm.trim() ? (
           <ReadonlyNfmBlockNotePreview
             content={materialization.nfm}
-            projectId={entry.projectId}
-            cardId={entry.cardBlockId}
+            projectId={projectId}
+            pageId={entry.pageId}
             historyId={entry.versionMetadata.versionId}
             projectWorkspacePath={projectWorkspacePath}
             className="text-token-text-primary"
@@ -684,7 +687,7 @@ export function HistoryRevisionPreview({
         )}
       </div>
       <p className="mt-5 text-xs text-token-description-foreground">
-        This revision contains the Card title and body. Restoring saves the
+        This revision contains the Page title and body. Restoring saves the
         current state first, then creates a new forward change.
       </p>
     </article>
@@ -695,7 +698,7 @@ export function HistoryTimelineDetails({
   entry,
   children,
 }: {
-  entry: CardHistoryEntry;
+  entry: PageHistoryEntry;
   children?: ReactNode;
 }) {
   const metadata = collectEntryMetadata(entry);
@@ -749,7 +752,7 @@ function HistoryRecoveryFooter({
   onCancel,
   onConfirm,
 }: {
-  entry: CardHistoryEntry | null;
+  entry: PageHistoryEntry | null;
   confirming: boolean;
   restoring: boolean;
   error: string | null;
@@ -812,7 +815,7 @@ function HistoryEntryRow({
   selected,
   onSelect,
 }: {
-  entry: CardHistoryEntry;
+  entry: PageHistoryEntry;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -855,7 +858,7 @@ function CurrentHistoryEntryRow({
     <button
       type="button"
       aria-pressed={selected}
-      aria-label="Current Card content"
+      aria-label="Current Page content"
       onClick={onSelect}
       className={cn(
         "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left",
@@ -879,7 +882,7 @@ function HistoryKindIcon({
   entry,
   className,
 }: {
-  entry: CardHistoryEntry;
+  entry: PageHistoryEntry;
   className?: string;
 }) {
   if (entry.kind === "document_version") {
@@ -900,7 +903,7 @@ function HistoryEmptyState({ children }: { children: ReactNode }) {
 }
 
 const collectEntryMetadata = (
-  entry: CardHistoryEntry,
+  entry: PageHistoryEntry,
 ): ReadonlyArray<readonly [string, string]> => {
   const common: Array<readonly [string, string]> = [
     ["Committed", formatAbsoluteTimestamp(entry.occurredAt)],
@@ -933,7 +936,7 @@ const collectEntryMetadata = (
   ];
 };
 
-const formatRecoveryUnavailable = (entry: CardHistoryEntry): string => {
+const formatRecoveryUnavailable = (entry: PageHistoryEntry): string => {
   if (entry.recovery.kind !== "unavailable") return "";
   switch (entry.recovery.reason) {
     case "document_generation_changed":
@@ -946,25 +949,25 @@ const formatRecoveryUnavailable = (entry: CardHistoryEntry): string => {
 };
 
 const formatEvidenceReason = (
-  reason: Extract<CardHistoryEntry["evidence"], { status: "unavailable" }>["reason"],
+  reason: Extract<PageHistoryEntry["evidence"], { status: "unavailable" }>["reason"],
 ): string => reason.replaceAll("_", " ");
 
 const formatDirection = (
-  direction: Extract<CardHistoryEntry, { kind: "block_relocation" }>["direction"],
+  direction: Extract<PageHistoryEntry, { kind: "block_relocation" }>["direction"],
 ): string => {
   switch (direction) {
-    case "into_card":
-      return "Into Card";
-    case "out_of_card":
-      return "Out of Card";
-    case "within_card":
-      return "Within Card";
+    case "into_page":
+      return "Into Page";
+    case "out_of_page":
+      return "Out of Page";
+    case "within_page":
+      return "Within Page";
     case "unknown":
       return "Unknown";
   }
 };
 
-const formatEntryCategory = (entry: CardHistoryEntry): string => {
+const formatEntryCategory = (entry: PageHistoryEntry): string => {
   if (entry.kind === "document_version") {
     return formatRevisionKind(entry.versionMetadata.revisionKind);
   }
@@ -978,7 +981,7 @@ const formatOptionalCount = (value: number | null): string =>
   value === null ? "Unknown" : String(value);
 
 const formatRevisionKind = (
-  kind: Extract<CardHistoryEntry, { kind: "document_version" }>[
+  kind: Extract<PageHistoryEntry, { kind: "document_version" }>[
     "versionMetadata"
   ]["revisionKind"],
 ): string => {

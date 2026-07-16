@@ -25,9 +25,9 @@ export interface ProjectDeletionRuntime {
 }
 
 /**
- * Keep Project deletion in the same FIFO as every Document mutation. Hub
- * authorization and project-list fanout are revoked only after SQLite has
- * atomically retired every Block identity and committed the deletion.
+ * Keep Project archival in the same FIFO as content mutations. Project-list
+ * fanout occurs only after the archived lifecycle and binding revision commit;
+ * Library Documents remain mounted/readable according to current grants.
  */
 export const createProjectDeletionRuntime = (
   dependencies: ProjectDeletionRuntimeDependencies,

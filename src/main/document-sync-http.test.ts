@@ -84,7 +84,7 @@ const createApp = (options?: {
           elements: [],
           appState: {},
           files: {},
-          cardReferences: [],
+          pageReferences: [],
           plainText: "",
           preview: "",
         },
@@ -116,13 +116,13 @@ const createApp = (options?: {
     getOwnedDocumentDescriptor: async (projectId: string, ownerBlockId: string) => ({
       projectId,
       ownerBlockId,
-      ownerType: "card",
+      ownerType: "page",
       ownerLifecycle: "active",
       documentId: "document-1",
       storeEpoch: "store-1",
       generation: 1,
       headSeq: 0,
-      schemaKey: "nodex.card",
+      schemaKey: "nodex.page",
       schemaVersion: 2,
       readiness: "ready",
       sync: { kind: "yjs", stateVector: new Uint8Array([1]) },
@@ -133,20 +133,21 @@ const createApp = (options?: {
         : success({
             projectId,
             ownerBlockId,
-            ownerType: "card",
+            ownerType: "page",
             ownerLifecycle: "active",
             documentId: "document-1",
             storeEpoch: "store-1",
             generation: 1,
             headSeq: 0,
-            schemaKey: "nodex.card",
+            schemaKey: "nodex.page",
             schemaVersion: 2,
             readiness: "ready",
             sync: { kind: "yjs", stateVector: new Uint8Array([2]) },
           }),
-    getDocumentProjectId: async (documentId) =>
-      documentId === "document-1" || documentId === "canvas-1"
-        ? success("project-1")
+    authorizeDocumentAccess: async (projectId, documentId, access) =>
+      projectId === "project-1" &&
+      (documentId === "document-1" || documentId === "canvas-1")
+        ? success({ projectId, documentId, access, authorized: true as const })
         : {
             ok: false,
             error: {

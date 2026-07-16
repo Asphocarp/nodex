@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_CARD_WRITE_BODY_BYTES } from "../card-limits";
+import { MAX_PAGE_WRITE_BODY_BYTES } from "../page-limits";
 import {
   BlockIdSchema,
   BlockLocationSchema,
@@ -14,9 +14,9 @@ import {
   ViewIdSchema,
 } from "./base-schemas";
 
-const NfmContentSchema = z.string().max(MAX_CARD_WRITE_BODY_BYTES).refine(
-  (content) => new TextEncoder().encode(content).byteLength <= MAX_CARD_WRITE_BODY_BYTES,
-  `NFM content must be at most ${MAX_CARD_WRITE_BODY_BYTES} UTF-8 bytes`,
+const NfmContentSchema = z.string().max(MAX_PAGE_WRITE_BODY_BYTES).refine(
+  (content) => new TextEncoder().encode(content).byteLength <= MAX_PAGE_WRITE_BODY_BYTES,
+  `NFM content must be at most ${MAX_PAGE_WRITE_BODY_BYTES} UTF-8 bytes`,
 );
 
 export const DatabaseValueDraftSchema = z.strictObject({
@@ -50,7 +50,7 @@ export const CreateDestinationSchema = z.discriminatedUnion("kind", [
 
 export const CreateInputSchema = z.strictObject({
   resource: z.strictObject({
-    kind: z.literal("card"),
+    kind: z.literal("page"),
     title: TextInputSchema,
     body: z.strictObject({
       format: z.literal("nfm"),
@@ -66,7 +66,7 @@ export const CreateInputSchema = z.strictObject({
 
 export const CreateDataSchema = z.strictObject({
   resource: z.strictObject({
-    kind: z.literal("card"),
+    kind: z.literal("page"),
     blockId: BlockIdSchema,
     documentId: DocumentIdSchema,
     location: BlockLocationSchema,
@@ -85,8 +85,8 @@ export const CreateDataSchema = z.strictObject({
 export const CreateOutputSchema = createToolSuccessSchema(CreateDataSchema);
 
 export const ExactNfmPatchSchema = z.strictObject({
-  oldNfm: z.string().min(1).max(MAX_CARD_WRITE_BODY_BYTES),
-  newNfm: z.string().max(MAX_CARD_WRITE_BODY_BYTES),
+  oldNfm: z.string().min(1).max(MAX_PAGE_WRITE_BODY_BYTES),
+  newNfm: z.string().max(MAX_PAGE_WRITE_BODY_BYTES),
   expectedMatches: z.number().int().min(1).max(100).optional(),
 });
 

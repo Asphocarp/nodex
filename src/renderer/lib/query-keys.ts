@@ -32,9 +32,9 @@ export const queryKeys = {
     owned: (projectId: string, ownerBlockId: string) =>
       ["blockDocuments", "owned", projectId, ownerBlockId] as const,
   },
-  cardTargets: {
+  pageTargets: {
     byId: (requestingProjectId: string, targetBlockId: string) => [
-      "cardTargets",
+      "pageTargets",
       requestingProjectId,
       targetBlockId,
     ] as const,

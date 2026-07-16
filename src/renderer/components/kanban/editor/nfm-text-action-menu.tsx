@@ -133,7 +133,7 @@ const NFM_TEXT_ACTION_MENU_SELECTION_KEY = "nfmTextActionMenuActionPopover";
 
 interface TextActionMoveToMenuRenderProps {
   sourceProjectId: string | null;
-  sourceCardId: string | null;
+  sourcePageId: string | null;
   onAccept: (destination: NfmMoveToDestination) => Promise<void> | void;
   onClose: () => void;
   resultScope?: NfmMoveToResultScope;
@@ -189,7 +189,7 @@ export interface NfmTextActionMenuSurfaceProps {
   nodexRows: TextActionNodexRow[];
   showReferenceMocks?: boolean;
   sourceProjectId?: string | null;
-  sourceCardId?: string | null;
+  sourcePageId?: string | null;
   sendToThreadProjectNameById?: Readonly<Record<string, string>>;
   sendToThreadPreferredTarget?: NfmSendToThreadPreferredTarget | null;
   onSelectBlockType: (item: TextActionBlockTypeItem) => void;
@@ -1114,7 +1114,7 @@ const TextActionSkillRow = forwardRef<HTMLDivElement, TextActionSkillRowProps>(f
 function TextActionMoveToRow({
   row,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   onMoveBlocksToDestination,
   renderMoveToMenu,
   open,
@@ -1122,7 +1122,7 @@ function TextActionMoveToRow({
 }: {
   row: TextActionNodexRow;
   sourceProjectId: string | null;
-  sourceCardId: string | null;
+  sourcePageId: string | null;
   onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
   renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
   open: boolean;
@@ -1145,7 +1145,7 @@ function TextActionMoveToRow({
 
   const menuProps: TextActionMoveToMenuRenderProps = {
     sourceProjectId,
-    sourceCardId,
+    sourcePageId,
     onAccept: async (destination) => {
       if (!onMoveBlocksToDestination) return;
       await onMoveBlocksToDestination(destination);
@@ -1298,7 +1298,7 @@ function TextActionAiPane({
   nodexRows,
   showReferenceMocks = false,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   sendToThreadProjectNameById,
   sendToThreadPreferredTarget,
   onNodexRow,
@@ -1312,7 +1312,7 @@ function TextActionAiPane({
   | "nodexRows"
   | "showReferenceMocks"
   | "sourceProjectId"
-  | "sourceCardId"
+  | "sourcePageId"
   | "sendToThreadProjectNameById"
   | "sendToThreadPreferredTarget"
   | "onNodexRow"
@@ -1375,7 +1375,7 @@ function TextActionAiPane({
                     key={row.key}
                     row={row}
                     sourceProjectId={sourceProjectId ?? null}
-                    sourceCardId={sourceCardId ?? null}
+                    sourcePageId={sourcePageId ?? null}
                     onMoveBlocksToDestination={onMoveBlocksToDestination}
                     renderMoveToMenu={renderMoveToMenu}
                     open={activePopover === "move-to"}
@@ -1455,7 +1455,7 @@ export function NfmTextActionMenuSurface({
   nodexRows,
   showReferenceMocks = false,
   sourceProjectId = null,
-  sourceCardId = null,
+  sourcePageId = null,
   sendToThreadProjectNameById,
   sendToThreadPreferredTarget = null,
   onSelectBlockType,
@@ -1644,7 +1644,7 @@ export function NfmTextActionMenuSurface({
             nodexRows={nodexRows}
             showReferenceMocks={showReferenceMocks}
             sourceProjectId={sourceProjectId}
-            sourceCardId={sourceCardId}
+            sourcePageId={sourcePageId}
             sendToThreadProjectNameById={sendToThreadProjectNameById}
             sendToThreadPreferredTarget={sendToThreadPreferredTarget}
             onNodexRow={onNodexRow}
@@ -1793,7 +1793,7 @@ export function NfmTextActionMenu() {
       nodexRows={nodexRows}
       showReferenceMocks={import.meta.env.DEV}
       sourceProjectId={runtime.sourceProjectId ?? null}
-      sourceCardId={runtime.sourceCardId ?? null}
+      sourcePageId={runtime.sourcePageId ?? null}
       sendToThreadProjectNameById={runtime.sendToThreadProjectNameById}
       sendToThreadPreferredTarget={runtime.sendToThreadPreferredTarget ?? null}
       onSelectBlockType={selectBlockType}

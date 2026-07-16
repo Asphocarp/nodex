@@ -163,12 +163,12 @@ describe("nfm side menu model", () => {
     });
     const rows = flattenNfmSideMenuRows(sections);
     const fitWidth = rows.find(({ row }) => row.key === "table-fit-width")?.row;
-    const createCards = rows.find(({ row }) => row.key === "table-create-cards-from-rows")?.row;
+    const createPages = rows.find(({ row }) => row.key === "table-create-cards-from-rows")?.row;
 
     expect(fitWidth?.enabled).toBe(false);
     expect(typeof fitWidth?.mockReason).toBe("string");
-    expect(createCards?.badge).toBe("Nodex");
-    expect(createCards?.enabled).toBe(false);
+    expect(createPages?.badge).toBe("Nodex");
+    expect(createPages?.enabled).toBe(false);
   });
 
   test("resolves section titles from top-level selected block descriptors", () => {
@@ -178,7 +178,7 @@ describe("nfm side menu model", () => {
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "heading", props: { level: 2 } }])).toBe("Heading 2");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "heading", props: { level: 3, isToggleable: true } }])).toBe("Toggle heading 3");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "callout" }])).toBe("Callout");
-    expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "cardRef" }])).toBe("Card mention");
+    expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "pageRef" }])).toBe("Page mention");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "unknownType" }])).toBe("Block");
     expect(resolveNfmSideMenuScopeTitle([
       { id: "a", type: "paragraph" },

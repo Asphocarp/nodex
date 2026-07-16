@@ -7,8 +7,8 @@ import type {
   WorkbenchLayoutThreadsStageTab,
 } from "../workbench-layout";
 import {
-  WorkbenchLayoutCardStageStateSchema,
-  WorkbenchRecentCardSessionSchema,
+  WorkbenchLayoutPageStageStateSchema,
+  WorkbenchRecentPageSessionSchema,
   WorkbenchStageIdSchema,
   WorkbenchStageNavDirectionSchema,
   WorkbenchViewSchema,
@@ -77,30 +77,100 @@ export const WorkbenchLayoutFilesStageTabSchema = z.object({
   title: z.string(),
 }) satisfies z.ZodType<WorkbenchLayoutFilesStageTab>;
 
-export const WorkbenchLayoutSnapshotSchema = z.object({
-  version: z.literal(1),
-  dbProjectId: z.string(),
-  activeProjectSessionId: z.string().nullable().catch(null),
-  threadsProjectId: z.string(),
-  viewsByProject: ViewRecordSchema,
-  searchByProject: StringRecordSchema.catch({}),
-  dbViewPrefsByProject: UnknownRecordSchema.catch({}),
-  spaceOrder: z.array(z.string()).catch([]),
-  focusedStage: WorkbenchStageIdSchema,
-  stageNavDirection: WorkbenchStageNavDirectionSchema,
-  sidebar: WorkbenchLayoutSidebarSnapshotSchema,
-  dock: WorkbenchLayoutDockSnapshotSchema,
-  sidebarStageExpandedByProject: BooleanRecordByIdSchema.catch({}),
-  sidebarSectionExpandedByProject: BooleanRecordByIdSchema.catch({}),
-  sidebarSectionShowAllByProject: BooleanRecordByIdSchema.catch({}),
-  activeCardsTabId: z.string(),
-  activeRecentSessionId: z.string().nullable(),
-  recentCardSessions: z.array(WorkbenchRecentCardSessionSchema).catch([]),
-  cardStage: WorkbenchLayoutCardStageStateSchema,
-  threadsTabs: z.array(WorkbenchLayoutThreadsStageTabSchema).catch([]),
-  activeThreadsTabId: z.string(),
-  filesTabs: z.array(WorkbenchLayoutFilesStageTabSchema).catch([]),
-  activeFilesTabId: z.string(),
-  stagePanelWidths: NumberRecordSchema.catch({}),
-  slidingWindowPaneCount: z.number().finite().catch(2),
-}) satisfies z.ZodType<WorkbenchLayoutSnapshot>;
+const migratePageStageDockIdentity = (value: unknown): unknown => {
+  if (value === "cardstage") return "pagestage";
+  if (Array.isArray(value)) return value.map(migratePageStageDockIdentity);
+  if (typeof value !== "object" || value === null) return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      migratePageStageDockIdentity(entry),
+    ]),
+  );
+};
+
+const migrateWorkbenchLayoutSnapshot = (value: unknown): unknown => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return value;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (record.version === 2) {
+    return {
+      ...record,
+      projectOrder: record.projectOrder ?? record.spaceOrder ?? [],
+    };
+  }
+  if (record.version !== 1) return value;
+  const legacyPageStage = record.pageStage ?? record.cardStage;
+  const pageStage =
+    typeof legacyPageStage === "object"
+      && legacyPageStage !== null
+      && !Array.isArray(legacyPageStage)
+      ? {
+          ...legacyPageStage,
+          pageId:
+            (legacyPageStage as Record<string, unknown>).pageId
+            ?? (legacyPageStage as Record<string, unknown>).cardId
+            ?? null,
+        }
+      : legacyPageStage;
+  const legacySessions = Array.isArray(record.recentPageSessions)
+    ? record.recentPageSessions
+    : Array.isArray(record.recentCardSessions)
+      ? record.recentCardSessions
+      : [];
+  const recentPageSessions = legacySessions.map((session) => {
+    if (typeof session !== "object" || session === null || Array.isArray(session)) {
+      return session;
+    }
+    const sessionRecord = session as Record<string, unknown>;
+    return {
+      ...sessionRecord,
+      pageId: sessionRecord.pageId ?? sessionRecord.cardId,
+    };
+  });
+
+  return {
+    ...record,
+    version: 2,
+    projectOrder: record.projectOrder ?? record.spaceOrder ?? [],
+    focusedStage: record.focusedStage === "cards" ? "pages" : record.focusedStage,
+    activePagesTabId: record.activePagesTabId ?? record.activeCardsTabId ?? "",
+    recentPageSessions,
+    pageStage,
+    dock: migratePageStageDockIdentity(record.dock),
+  };
+};
+
+export const WorkbenchLayoutSnapshotSchema = z.preprocess(
+  migrateWorkbenchLayoutSnapshot,
+  z.object({
+    version: z.literal(2),
+    dbProjectId: z.string(),
+    activeProjectSessionId: z.string().nullable().catch(null),
+    threadsProjectId: z.string(),
+    viewsByProject: ViewRecordSchema,
+    searchByProject: StringRecordSchema.catch({}),
+    dbViewPrefsByProject: UnknownRecordSchema.catch({}),
+    projectOrder: z.array(z.string()).catch([]),
+    focusedStage: WorkbenchStageIdSchema,
+    stageNavDirection: WorkbenchStageNavDirectionSchema,
+    sidebar: WorkbenchLayoutSidebarSnapshotSchema,
+    dock: WorkbenchLayoutDockSnapshotSchema,
+    sidebarStageExpandedByProject: BooleanRecordByIdSchema.catch({}),
+    sidebarSectionExpandedByProject: BooleanRecordByIdSchema.catch({}),
+    sidebarSectionShowAllByProject: BooleanRecordByIdSchema.catch({}),
+    activePagesTabId: z.string(),
+    activeRecentSessionId: z.string().nullable(),
+    recentPageSessions: z.array(WorkbenchRecentPageSessionSchema).catch([]),
+    pageStage: WorkbenchLayoutPageStageStateSchema,
+    threadsTabs: z.array(WorkbenchLayoutThreadsStageTabSchema).catch([]),
+    activeThreadsTabId: z.string(),
+    filesTabs: z.array(WorkbenchLayoutFilesStageTabSchema).catch([]),
+    activeFilesTabId: z.string(),
+    stagePanelWidths: NumberRecordSchema.catch({}),
+    slidingWindowPaneCount: z.number().finite().catch(2),
+  }),
+) satisfies z.ZodType<WorkbenchLayoutSnapshot>;

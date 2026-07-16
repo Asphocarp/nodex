@@ -35,7 +35,7 @@ describe("Column", () => {
       },
       onAddCard: async () => {},
       onEditCard: () => {},
-      onUpdateCardProperty: async () => {},
+      onUpdatePageProperty: async () => {},
       onCollapsedChange: () => {},
       onWidthChange: () => {},
       dropBlockedMessage: "Sorted by title; switch to Board Order to manually rank.",
@@ -59,7 +59,7 @@ describe("Column", () => {
       },
       onAddCard: async () => {},
       onEditCard: () => {},
-      onUpdateCardProperty: async () => {},
+      onUpdatePageProperty: async () => {},
       onCollapsedChange: () => {},
       onWidthChange: () => {},
       isDropTargetActive: true,
@@ -98,12 +98,12 @@ describe("Column", () => {
         width: 320,
         collapsed: false,
       },
-      activePanelCardStageCardIds: new Set(["card-1"]),
+      activePanelPageStagePageIds: new Set(["card-1"]),
       onAddCard: async () => {},
       onEditCard: (_columnId, _card, _event, openMode) => {
         lastMode = openMode;
       },
-      onUpdateCardProperty: async () => {},
+      onUpdatePageProperty: async () => {},
       onCollapsedChange: () => {},
       onWidthChange: () => {},
     }));

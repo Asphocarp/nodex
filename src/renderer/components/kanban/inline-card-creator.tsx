@@ -12,11 +12,11 @@ import {
   NodexDropdownChoiceMenu,
 } from "@/components/ui/dropdown";
 import { estimateStyles, estimateOptions } from "@/lib/types";
-import type { CardInput, Priority, Estimate } from "@/lib/types";
+import type { PageInput, Priority, Estimate } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface InlineCardCreatorProps {
-  onSave: (input: CardInput) => Promise<void>;
+  onSave: (input: PageInput) => Promise<void>;
   onCancel: () => void;
 }
 

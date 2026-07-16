@@ -25,7 +25,7 @@ export interface DockSplit {
 export type DockTreeNode = DockLeaf | DockSplit;
 
 const DEFAULT_TABS: DockTab[] = [
-  { id: "cardstage", kind: "cardstage", title: "Card" },
+  { id: "cardstage", kind: "cardstage", title: "Page" },
   { id: "history", kind: "history", title: "History" },
 ];
 

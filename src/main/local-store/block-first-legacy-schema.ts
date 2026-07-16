@@ -1,7 +1,6 @@
 import type Database from "better-sqlite3";
 
 export const LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER = [
-  "card_project_transfer_write_fences",
   "card_search_units_fts",
   "card_search_units",
   "card_history_snapshots",

@@ -1,36 +1,34 @@
 export type {
   Priority,
   Estimate,
-  CardStatus,
-  Card,
-  CardSummary,
-  CardRunInTarget,
+  WorkflowStatus,
+  DatabasePage,
+  DatabasePageSummary,
+  PageRunInTarget,
   BoardSummary,
   BoardSummaryColumn,
   ClipboardPasteInspectionResult,
-  CardInput,
-  CardCreateInput,
-  CardUpdateField,
-  CardUpdateResult,
+  PageInput,
+  PageCreateInput,
+  PageUpdateField,
+  PageUpdateResult,
   DatabaseRowsDetailsInput,
-  CardSearchInput,
-  CardSearchResult,
+  PageSearchInput,
+  PageSearchResult,
   CommandPaletteThreadContentSearchInput,
   CommandPaletteThreadContentSearchResult,
   CommandPaletteThreadIndexUpdatedEvent,
   CommandPaletteThreadListInput,
   CommandPaletteThreadSummary,
-  CardCreatePlacement,
-  CalendarOccurrence,
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
+  PageCreatePlacement,
+  PageOccurrence,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
   OccurrenceActionSource,
   OccurrenceEditScope,
-  MoveCardInput,
-  MoveCardToProjectInput,
-  MoveCardToProjectResult,
-  MoveCardsInput,
+  MovePageInput,
+  MovePagesInput,
   RecurrenceConfig,
   RecurrenceEndCondition,
   RecurrenceFrequency,
@@ -371,9 +369,9 @@ export type {
 export { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "../../shared/types";
 
 export type {
-  WorkbenchLayoutCardStageState,
+  WorkbenchLayoutPageStageState,
   WorkbenchLayoutFilesStageTab,
-  WorkbenchRecentCardSession,
+  WorkbenchRecentPageSession,
   WorkbenchLayoutStageId,
   WorkbenchLayoutStageNavDirection,
   WorkbenchLayoutSnapshot,
@@ -391,7 +389,7 @@ export type {
   WindowSessionSeed,
 } from "../../shared/window-session";
 
-import type { Estimate, CardUpdateResult } from "../../shared/types";
+import type { Estimate, PageUpdateResult } from "../../shared/types";
 
 export const estimateStyles: Record<
   Estimate,
@@ -421,8 +419,8 @@ export const estimateOptions: Array<{
   })),
 ];
 
-export type CardUpdateMutationResult =
-  | CardUpdateResult
+export type PageUpdateMutationResult =
+  | PageUpdateResult
   | {
       status: "error";
       error: string;

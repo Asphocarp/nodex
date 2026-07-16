@@ -50,7 +50,7 @@ function installHeadingRailGeometry(rightGapPx = 64) {
       if (this.matches("[data-heading-rail-scroll='true']")) {
         return makeRect({ left: 0, width: 1000, height: 700 });
       }
-      if (this.matches("[data-card-stage-body='true']")) {
+      if (this.matches("[data-page-stage-body='true']")) {
         return makeRect({ left: 1000 - 720 - rightGapPx, width: 720, height: 1600 });
       }
       return originalGetBoundingClientRect.call(this);
@@ -103,13 +103,13 @@ function HeadingRailHarness({
     <NodexTooltipProvider>
       <div
         ref={setPortalElement}
-        data-card-stage-heading-navigation-portal-target="true"
+        data-page-stage-heading-navigation-portal-target="true"
       >
         <div
           ref={setScrollElement}
           data-heading-rail-scroll="true"
         >
-          <div data-card-stage-body="true">
+          <div data-page-stage-body="true">
             <div ref={setEditorElement}>
               {document.map((block) => (
                 <div

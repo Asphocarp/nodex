@@ -12,9 +12,9 @@ import type {
   DatabaseViewFilterNode,
   DatabaseViewFilterOperator,
   DatabaseViewSort,
-  GeneralDatabaseViewConfig,
+  DatabaseViewConfig,
 } from "../../../shared/database-kernel";
-import type { GeneralDatabasePropertyDefinition } from "../../../shared/database-query";
+import type { DataSourcePropertyRecord } from "../../../shared/database-module";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import {
   appendDatabaseViewFilterChild,
@@ -32,10 +32,10 @@ import {
 import { cn } from "@/lib/utils";
 
 interface DatabaseViewConfigEditorProps {
-  readonly config: GeneralDatabaseViewConfig;
-  readonly properties: readonly GeneralDatabasePropertyDefinition[];
+  readonly config: DatabaseViewConfig;
+  readonly properties: readonly DataSourcePropertyRecord[];
   readonly disabled?: boolean;
-  readonly onChange: (config: GeneralDatabaseViewConfig) => void;
+  readonly onChange: (config: DatabaseViewConfig) => void;
 }
 
 const selectClass = cn(
@@ -58,15 +58,17 @@ const FILTER_OPERATOR_LABELS: Readonly<Record<DatabaseViewFilterOperator, string
 };
 
 const activeProperties = (
-  properties: readonly GeneralDatabasePropertyDefinition[],
-): readonly GeneralDatabasePropertyDefinition[] =>
+  properties: readonly DataSourcePropertyRecord[],
+): readonly DataSourcePropertyRecord[] =>
   properties.filter((property) => property.lifecycle === "active");
 
 const propertyForClause = (
-  properties: readonly GeneralDatabasePropertyDefinition[],
+  properties: readonly DataSourcePropertyRecord[],
   clause: DatabaseViewFilterClause,
-): GeneralDatabasePropertyDefinition | null =>
-  properties.find((property) => property.id === clause.propertyId) ?? null;
+): DataSourcePropertyRecord | null =>
+  properties.find(
+    (property) => property.propertyId === clause.propertyId,
+  ) ?? null;
 
 const stringValue = (value: DatabaseJsonValue | undefined): string =>
   typeof value === "string" ? value : "";
@@ -86,7 +88,7 @@ function FilterValueField({
   onChange,
 }: {
   readonly clause: DatabaseViewFilterClause;
-  readonly property: GeneralDatabasePropertyDefinition;
+  readonly property: DataSourcePropertyRecord;
   readonly disabled: boolean;
   readonly onChange: (value: DatabaseJsonValue) => void;
 }) {
@@ -182,7 +184,7 @@ function FilterNodeEditor({
   readonly node: DatabaseViewFilterNode;
   readonly path: DatabaseViewFilterPath;
   readonly depth: number;
-  readonly properties: readonly GeneralDatabasePropertyDefinition[];
+  readonly properties: readonly DataSourcePropertyRecord[];
   readonly disabled: boolean;
   readonly onUpdate: (path: DatabaseViewFilterPath, node: DatabaseViewFilterNode) => void;
   readonly onRemove: (path: DatabaseViewFilterPath) => void;
@@ -209,17 +211,19 @@ function FilterNodeEditor({
       <div className="flex min-h-8 flex-wrap items-center gap-1.5">
         <select
           aria-label={`Filter property ${property.name}`}
-          value={property.id}
+          value={property.propertyId}
           disabled={disabled}
           onChange={(event) => {
-            const nextProperty = properties.find((candidate) => candidate.id === event.target.value);
+            const nextProperty = properties.find(
+              (candidate) => candidate.propertyId === event.target.value,
+            );
             if (!nextProperty) return;
             onUpdate(path, databaseFilterClauseWithProperty(node, nextProperty));
           }}
           className={cn(selectClass, "max-w-40")}
         >
           {properties.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+            <option key={candidate.propertyId} value={candidate.propertyId}>{candidate.name}</option>
           ))}
         </select>
         <select
@@ -331,7 +335,7 @@ function FilterNodeEditor({
         ))}
         {node.children.length === 0 ? (
           <p className="px-1 pb-1 text-xs text-token-description-foreground">
-            No rules. This {node.operator === "and" ? "matches every" : "matches no"} Card.
+            No rules. This {node.operator === "and" ? "matches every" : "matches no"} Page.
           </p>
         ) : null}
       </div>
@@ -361,7 +365,7 @@ function SortEditor({
   onChange,
 }: {
   readonly sorts: readonly DatabaseViewSort[];
-  readonly properties: readonly GeneralDatabasePropertyDefinition[];
+  readonly properties: readonly DataSourcePropertyRecord[];
   readonly disabled: boolean;
   readonly onChange: (sorts: readonly DatabaseViewSort[]) => void;
 }) {
@@ -381,7 +385,7 @@ function SortEditor({
             <option value="manual">Manual order</option>
             <option value="title">Title</option>
             {properties.map((property) => (
-              <option key={property.id} value={`property:${property.id}`}>{property.name}</option>
+              <option key={property.propertyId} value={`property:${property.propertyId}`}>{property.name}</option>
             ))}
           </select>
           <select
@@ -568,12 +572,12 @@ export function DatabaseViewConfigEditor({
         >
           <option value="">No grouping</option>
           {properties.map((property) => (
-            <option key={property.id} value={property.id}>{property.name}</option>
+            <option key={property.propertyId} value={property.propertyId}>{property.name}</option>
           ))}
         </select>
       </ConfigSection>
 
-      <ConfigSection title="Display" detail="Visible Card properties">
+      <ConfigSection title="Display" detail="Visible Page properties">
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
           <label className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
             <input
@@ -589,9 +593,9 @@ export function DatabaseViewConfigEditor({
             Title
           </label>
           {properties.map((property) => {
-            const visible = config.display.propertyIds.includes(property.id);
+            const visible = config.display.propertyIds.includes(property.propertyId);
             return (
-              <label key={property.id} className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
+              <label key={property.propertyId} className="inline-flex h-7 items-center gap-2 text-xs text-token-text-secondary">
                 <input
                   type="checkbox"
                   checked={visible}
@@ -601,8 +605,10 @@ export function DatabaseViewConfigEditor({
                     display: {
                       ...config.display,
                       propertyIds: event.target.checked
-                        ? [...config.display.propertyIds, property.id]
-                        : config.display.propertyIds.filter((id) => id !== property.id),
+                        ? [...config.display.propertyIds, property.propertyId]
+                        : config.display.propertyIds.filter(
+                            (id) => id !== property.propertyId,
+                          ),
                     },
                   })}
                   className="size-3.5 accent-(--accent-blue)"

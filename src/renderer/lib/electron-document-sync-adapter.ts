@@ -439,8 +439,15 @@ const subscriptionKey = (request: DocumentSyncSubscribeRequest): string =>
 
 export function createElectronDocumentSyncAdapter(
   bridge: ElectronRendererBridge,
+  projectId: string,
 ): DocumentSyncAdapter {
+  if (!projectId || projectId !== projectId.trim()) {
+    throw new TypeError("projectId must be an exact non-empty identity");
+  }
   const subscriptions = new Map<string, SubscriptionEntry>();
+  const scope = <Request extends { readonly documentId: string }>(
+    request: Request,
+  ): Request & { readonly projectId: string } => ({ ...request, projectId });
 
   const invokeCommand = async <T>(
     channel: string,
@@ -468,7 +475,7 @@ export function createElectronDocumentSyncAdapter(
 
     const command = invokeCommand<DocumentSyncSubscriptionAck>(
       "document-sync:subscribe",
-      entry.request,
+      scope(entry.request),
     ).then((result) => {
       if (result.ok && result.value.subscribed !== true) {
         entry.remoteSubscription = null;
@@ -513,7 +520,7 @@ export function createElectronDocumentSyncAdapter(
       return normalizeSyncResult(
         await invokeCommand<DocumentSyncResponse>(
           "document-sync:sync",
-          request,
+          scope(request),
         ),
       );
     },
@@ -526,7 +533,7 @@ export function createElectronDocumentSyncAdapter(
       return normalizeApplyResult(
         await invokeCommand<DocumentSyncApplyAck>(
           "document-sync:apply",
-          request,
+          scope(request),
         ),
       );
     },
@@ -538,7 +545,7 @@ export function createElectronDocumentSyncAdapter(
       }
       return invokeCommand<DocumentAwarenessPublishAck>(
         "document-sync:awareness:publish",
-        request,
+        scope(request),
       );
     },
     respondToRelocationLease: async (
@@ -552,7 +559,7 @@ export function createElectronDocumentSyncAdapter(
       return normalizeRelocationLeaseResponse(
         await invokeCommand<DocumentRelocationLeaseResponseAck>(
           "document-sync:relocation-lease:respond",
-          request,
+          scope(request),
         ),
       );
     },
@@ -617,7 +624,7 @@ export function createElectronDocumentSyncAdapter(
           if (!entry?.remoteSubscribed) {
             return;
           }
-          await invokeCommand("document-sync:unsubscribe", request);
+          await invokeCommand("document-sync:unsubscribe", scope(request));
         })();
       };
     },

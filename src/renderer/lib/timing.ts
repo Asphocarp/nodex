@@ -9,5 +9,5 @@ export const EDITOR_SYNC_DEBOUNCE_MS = 400;
 /** Blur delay for tag dropdown (allows click on items before closing) */
 export const TAG_BLUR_DELAY_MS = 150;
 
-/** Debounce delay for persisting card-stage scroll position on scroll */
+/** Debounce delay for persisting page-stage scroll position on scroll */
 export const SCROLL_SAVE_DEBOUNCE_MS = 300;

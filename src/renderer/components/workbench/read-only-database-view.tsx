@@ -11,17 +11,17 @@ import {
   type DatabaseJsonValue,
 } from "../../../shared/database-kernel";
 import type {
-  GeneralDatabasePropertyDefinition,
-  GeneralDatabaseRow,
-} from "../../../shared/database-query";
-import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
+  DataSourcePageRow,
+  DataSourcePropertyRecord,
+} from "../../../shared/database-module";
+import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import { NodexIconButton } from "@/components/ui/button";
-import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
+import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
 import {
   databaseViewSupportsManualReorder,
   buildDatabaseViewMoveOperations,
   buildDatabaseViewPropertyValueOperations,
-  canMoveDatabaseViewCard,
+  canMoveDatabaseViewPage,
   commitDatabaseViewOperations,
 } from "@/lib/database-view-row-mutations";
 import type {
@@ -37,11 +37,11 @@ import { cn } from "@/lib/utils";
 interface DurableDatabaseViewProps {
   readonly model: DatabaseViewRenderModel;
   readonly searchQuery: string;
-  readonly openCardStage: (
+  readonly openPageStage: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
-    options?: OpenCardStageOptions,
+    options?: OpenPageStageOptions,
   ) => void;
   readonly onCommitted?: () => void | Promise<void>;
   readonly commitOperations?: typeof commitDatabaseViewOperations;
@@ -52,17 +52,17 @@ const valueInputClass = cn(
   "text-token-text-secondary outline-none hover:bg-token-foreground/8 focus:border-token-focus-border",
 );
 
-const rowByBlockId = (
+const rowByPageId = (
   model: DatabaseViewRenderModel,
-  blockId: string,
-): GeneralDatabaseRow | null =>
-  model.query.rows.find((row) => row.card.blockId === blockId) ?? null;
+  pageId: string,
+): DataSourcePageRow | null =>
+  model.query.rows.find((row) => row.page.pageId === pageId) ?? null;
 
 const searchablePropertyValues = (
   model: DatabaseViewRenderModel,
-  blockId: string,
+  pageId: string,
 ): string => {
-  const row = rowByBlockId(model, blockId);
+  const row = rowByPageId(model, pageId);
   if (!row) return "";
   return Object.values(row.values)
     .map((value) => stableStringifyDatabaseJson(value.value))
@@ -87,7 +87,7 @@ function DatabasePropertyValueEditor({
   disabled,
   onChange,
 }: {
-  readonly property: GeneralDatabasePropertyDefinition;
+  readonly property: DataSourcePropertyRecord;
   readonly value: DatabaseJsonValue | undefined;
   readonly revision: number;
   readonly disabled: boolean;
@@ -183,7 +183,7 @@ function DatabasePropertyValueEditor({
     <label className="inline-flex min-w-0 items-center gap-1 text-[11px] text-token-description-foreground">
       <span className="shrink-0">{property.name}</span>
       <input
-        key={`${property.id}:${revision}:${initialValue}`}
+        key={`${property.propertyId}:${revision}:${initialValue}`}
         type={inputType}
         aria-label={label}
         defaultValue={initialValue}
@@ -209,21 +209,23 @@ function DatabasePropertyValueEditor({
 
 const displayedProperties = (
   model: DatabaseViewRenderModel,
-): readonly GeneralDatabasePropertyDefinition[] => {
+): readonly DataSourcePropertyRecord[] => {
   const visible = new Set(model.query.view.config.display.propertyIds);
   return model.query.properties.filter(
-    (property) => property.lifecycle === "active" && visible.has(property.id),
+    (property) =>
+      property.lifecycle === "active"
+      && visible.has(property.propertyId),
   );
 };
 
-function DurableCardSurface({
+function DurablePageSurface({
   model,
   row,
   compact,
   busy,
   canMoveUp,
   canMoveDown,
-  openCardStage,
+  openPageStage,
   onSetValue,
   onMove,
 }: {
@@ -233,15 +235,15 @@ function DurableCardSurface({
   readonly busy: boolean;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
-  readonly openCardStage: DurableDatabaseViewProps["openCardStage"];
+  readonly openPageStage: DurableDatabaseViewProps["openPageStage"];
   readonly onSetValue: (
-    cardBlockId: string,
+    pageId: string,
     propertyId: string,
     value: DatabaseJsonValue,
   ) => void;
-  readonly onMove: (cardBlockId: string, direction: "up" | "down") => void;
+  readonly onMove: (pageId: string, direction: "up" | "down") => void;
 }) {
-  const authority = rowByBlockId(model, row.blockId);
+  const authority = rowByPageId(model, row.pageId);
   if (!authority) return null;
   const properties = displayedProperties(model);
   const showTitle = model.query.view.config.display.showTitle;
@@ -253,19 +255,19 @@ function DurableCardSurface({
       <div className="flex min-h-6 items-center gap-1">
         <button
           type="button"
-          aria-label={`Open Card ${row.title}`}
+          aria-label={`Open Page ${row.title}`}
           className={cn(
             "min-w-0 flex-1 text-left text-sm text-token-text-primary outline-none",
             showTitle ? "truncate" : "text-token-description-foreground",
           )}
-          onClick={() => openCardStage(
+          onClick={() => openPageStage(
             model.projectId,
-            row.blockId,
+            row.pageId,
             row.title,
             { openMode: "preview" },
           )}
         >
-          {showTitle ? row.title || "Untitled" : "Open Card"}
+          {showTitle ? row.title || "Untitled" : "Open Page"}
         </button>
         {databaseViewSupportsManualReorder(model) ? (
           <div className="flex shrink-0 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100">
@@ -274,14 +276,14 @@ function DurableCardSurface({
               size="xs"
               ariaLabel={`Move ${row.title} up`}
               disabled={busy || !canMoveUp}
-              onClick={() => onMove(row.blockId, "up")}
+              onClick={() => onMove(row.pageId, "up")}
             />
             <NodexIconButton
               icon={ArrowDown}
               size="xs"
               ariaLabel={`Move ${row.title} down`}
               disabled={busy || !canMoveDown}
-              onClick={() => onMove(row.blockId, "down")}
+              onClick={() => onMove(row.pageId, "down")}
             />
           </div>
         ) : null}
@@ -289,15 +291,16 @@ function DurableCardSurface({
       {properties.length > 0 ? (
         <div className={cn("mt-1.5 flex min-w-0 flex-wrap gap-x-2 gap-y-1", compact && "flex-col items-start")}>
           {properties.map((property) => {
-            const current = authority.values[property.id];
+            const current = authority.values[property.propertyId];
             return (
               <DatabasePropertyValueEditor
-                key={property.id}
+                key={property.propertyId}
                 property={property}
                 value={current?.value}
                 revision={current?.revision ?? 0}
                 disabled={busy}
-                onChange={(value) => onSetValue(row.blockId, property.id, value)}
+                onChange={(value) =>
+                  onSetValue(row.pageId, property.propertyId, value)}
               />
             );
           })}
@@ -309,7 +312,7 @@ function DurableCardSurface({
 
 const calendarProperty = (
   model: DatabaseViewRenderModel,
-): GeneralDatabasePropertyDefinition | null => {
+): DataSourcePropertyRecord | null => {
   const visible = displayedProperties(model).find(
     (property) => property.valueType === "date" || property.valueType === "datetime",
   );
@@ -324,10 +327,11 @@ const calendarProperty = (
 const calendarDateKey = (
   model: DatabaseViewRenderModel,
   row: DatabaseViewRenderRow,
-  property: GeneralDatabasePropertyDefinition | null,
+  property: DataSourcePropertyRecord | null,
 ): string | null => {
   if (!property) return null;
-  const value = rowByBlockId(model, row.blockId)?.values[property.id]?.value;
+  const value = rowByPageId(model, row.pageId)
+    ?.values[property.propertyId]?.value;
   if (typeof value !== "string" || value.length < 10) return null;
   return value.slice(0, 10);
 };
@@ -357,14 +361,10 @@ const calendarSections = (
     }));
 };
 
-/**
- * Historical export name retained for call-site compatibility. The surface is
- * now writable through the selected durable View and Database identities.
- */
-export function ReadOnlyDatabaseView({
+export function DatabaseViewSurface({
   model,
   searchQuery,
-  openCardStage,
+  openPageStage,
   onCommitted,
   commitOperations = commitDatabaseViewOperations,
 }: DurableDatabaseViewProps) {
@@ -384,7 +384,7 @@ export function ReadOnlyDatabaseView({
         : column.rows.filter((row) =>
             matchesSearchTokens(
               normalizeSearchText(
-                `${row.title} ${row.preview} ${row.plainText} ${row.tags.join(" ")} ${searchablePropertyValues(model, row.blockId)}`,
+                `${row.title} ${row.preview} ${row.plainText} ${row.tags.join(" ")} ${searchablePropertyValues(model, row.pageId)}`,
               ),
               searchTokens,
             )),
@@ -415,24 +415,24 @@ export function ReadOnlyDatabaseView({
   };
 
   const setValue = (
-    cardBlockId: string,
+    pageId: string,
     propertyId: string,
     value: DatabaseJsonValue,
   ) => void commit(buildDatabaseViewPropertyValueOperations({
     model,
-    cardBlockId,
+    pageId,
     propertyId,
     value,
   }));
-  const move = (cardBlockId: string, direction: "up" | "down") =>
-    void commit(buildDatabaseViewMoveOperations({ model, cardBlockId, direction }));
-  const cardProps = (row: DatabaseViewRenderRow) => ({
+  const move = (pageId: string, direction: "up" | "down") =>
+    void commit(buildDatabaseViewMoveOperations({ model, pageId, direction }));
+  const pageProps = (row: DatabaseViewRenderRow) => ({
       model,
       row,
       busy,
-      canMoveUp: canMoveDatabaseViewCard({ model, cardBlockId: row.blockId, direction: "up" }),
-      canMoveDown: canMoveDatabaseViewCard({ model, cardBlockId: row.blockId, direction: "down" }),
-      openCardStage,
+      canMoveUp: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "up" }),
+      canMoveDown: canMoveDatabaseViewPage({ model, pageId: row.pageId, direction: "down" }),
+      openPageStage,
       onSetValue: setValue,
       onMove: move,
     } as const);
@@ -457,7 +457,7 @@ export function ReadOnlyDatabaseView({
               </div>
               <div className="flex flex-col gap-1">
                 {column.rows.map((row) => (
-                  <DurableCardSurface key={row.blockId} compact {...cardProps(row)} />
+                  <DurablePageSurface key={row.pageId} compact {...pageProps(row)} />
                 ))}
               </div>
             </section>
@@ -475,7 +475,7 @@ export function ReadOnlyDatabaseView({
                 </div>
                 <div className="space-y-1">
                   {section.rows.map((row) => (
-                    <DurableCardSurface key={row.blockId} compact={false} {...cardProps(row)} />
+                    <DurablePageSurface key={row.pageId} compact={false} {...pageProps(row)} />
                   ))}
                 </div>
               </section>
@@ -491,7 +491,7 @@ export function ReadOnlyDatabaseView({
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
             {allRows.map((row) => (
-              <DurableCardSurface key={row.blockId} compact {...cardProps(row)} />
+              <DurablePageSurface key={row.pageId} compact {...pageProps(row)} />
             ))}
           </div>
         </div>
@@ -505,7 +505,7 @@ export function ReadOnlyDatabaseView({
             </div>
             <div className="space-y-1">
               {allRows.map((row) => (
-                <DurableCardSurface key={row.blockId} compact={false} {...cardProps(row)} />
+                <DurablePageSurface key={row.pageId} compact={false} {...pageProps(row)} />
               ))}
             </div>
           </div>

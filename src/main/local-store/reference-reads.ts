@@ -1,16 +1,17 @@
 import type Database from "better-sqlite3";
 import type {
-  CardTargetReadModel,
-  ResolveCardTargetInput,
-} from "../../shared/card-targets";
+  PageTargetReadModel,
+  ResolvePageTargetInput,
+} from "../../shared/page-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
 import { evaluateDatabaseViewRows } from "../../shared/database-views";
-import { resolveCardTarget } from "./card-targets";
+import { resolvePageTarget } from "./page-targets";
 import { getDb } from "./database";
 import { readDatabaseViewById } from "./database-views";
+import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
 
 const projectScopeExists = (
   projectId: string,
@@ -28,19 +29,24 @@ const projectScopeExists = (
 };
 
 /**
- * Resolve a globally stable Card identity from a real host Project scope.
- *
- * Nodex is currently a single-user local store, so every Project in the same
- * store is readable. Keeping the requesting scope explicit gives a future
- * remote authority one place to enforce ACLs without putting Project hints
- * back into canonical reference Blocks.
+ * Resolve a globally stable Page identity through current Project authority.
+ * References carry no access: the binding or an explicit recursive grant must
+ * independently authorize the target Page.
  */
-export const resolveProjectScopedCardTarget = (
-  input: ResolveCardTargetInput,
+export const resolveProjectScopedPageTarget = (
+  input: ResolvePageTargetInput,
   database: Database.Database = getDb(),
-): CardTargetReadModel | null => {
+): PageTargetReadModel | null => {
   if (!projectScopeExists(input.requestingProjectId, database)) return null;
-  return resolveCardTarget(input.targetBlockId, database);
+  const authorization = authorizeProjectResourceInDatabase(database, {
+    projectId: input.requestingProjectId,
+    resource: { kind: "page", pageId: input.targetPageId },
+    action: "read",
+  });
+  if (!authorization.allowed) {
+    return { status: "missing", targetPageId: input.targetPageId };
+  }
+  return resolvePageTarget(input.targetPageId, database);
 };
 
 /**
@@ -59,7 +65,7 @@ export const readProjectScopedDatabaseViewReference = (
     FROM blocks
     WHERE id = ?
       AND project_id = ?
-      AND type = 'card'
+      AND type = 'page'
       AND lifecycle != 'deleted'
     LIMIT 1
   `).get(input.hostBlockId, input.requestingProjectId)

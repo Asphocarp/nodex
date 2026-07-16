@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { render } from "@/test/dom";
-import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
@@ -27,6 +27,10 @@ const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 function makeProject(id: string, name: string, icon?: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon,
@@ -39,7 +43,7 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
   return {
     id,
     status,
@@ -153,7 +157,7 @@ function renderSideMenuSurface({
         canUseBackgroundColor={true}
         canSendBlocks={true}
         sourceProjectId="default"
-        sourceCardId="source-card"
+        sourcePageId="source-card"
         textColor="default"
         backgroundColor="default"
         footerPrimary={footerPrimary}
@@ -242,7 +246,7 @@ function StatefulSideMenuSurface({
       canUseBackgroundColor={true}
       canSendBlocks={true}
       sourceProjectId="default"
-      sourceCardId="source-card"
+      sourcePageId="source-card"
       textColor="default"
       backgroundColor="default"
       footerPrimary="Last edited locally"
@@ -501,7 +505,7 @@ describe("nfm side menu surface", () => {
     expect(mainDialog.contains(submenuDialog)).toBe(false);
   });
 
-  test("opens a DB-only Card in picker from Turn into", async () => {
+  test("opens a DB-only Page in picker from Turn into", async () => {
     const calls = {
       destinations: [] as NfmMoveToDestination[],
     };
@@ -521,14 +525,14 @@ describe("nfm side menu surface", () => {
 
       fireEvent.click(view.getByRole("option", { name: /Turn into/ }));
       await view.findByRole("dialog", { name: "Turn into" });
-      fireEvent.pointerEnter(view.getByRole("menuitem", { name: "Card in" }));
+      fireEvent.pointerEnter(view.getByRole("menuitem", { name: "Page in" }));
 
-      const cardInDialog = await view.findByRole("dialog", { name: "Card in" });
-      expect(cardInDialog.getAttribute("data-nfm-side-menu-submenu")).toBe("true");
-      expect(view.getByRole("combobox", { name: "Card in destination" })).not.toBeNull();
-      expect(view.getByPlaceholderText("Card in…")).not.toBeNull();
+      const pageInDialog = await view.findByRole("dialog", { name: "Page in" });
+      expect(pageInDialog.getAttribute("data-nfm-side-menu-submenu")).toBe("true");
+      expect(view.getByRole("combobox", { name: "Page in destination" })).not.toBeNull();
+      expect(view.getByPlaceholderText("Page in…")).not.toBeNull();
       expect(view.getByText("DB")).not.toBeNull();
-      expect(view.queryByText("Card")).toBe(null);
+      expect(view.queryByText("Page")).toBe(null);
       expect(view.queryByText("Target card")).toBe(null);
 
       const rendererDbRow = view
@@ -557,7 +561,7 @@ describe("nfm side menu surface", () => {
     }
   });
 
-  test("opens the reference Move to popover with grouped DB and Card results", async () => {
+  test("opens the reference Move to popover with grouped DB and Page results", async () => {
     const calls = {
       destinations: [] as NfmMoveToDestination[],
     };
@@ -577,7 +581,7 @@ describe("nfm side menu surface", () => {
     expect(mainDialog.contains(submenuDialog)).toBe(false);
     expect(view.getByRole("combobox", { name: "Move blocks to" })).not.toBeNull();
     expect(view.getByText("DB")).not.toBeNull();
-    expect(view.getByText("Card")).not.toBeNull();
+    expect(view.getByText("Page")).not.toBeNull();
     expect(view.queryByText("Move to card")).toBe(null);
     expect(view.queryByText("Move to DB")).toBe(null);
 
@@ -621,17 +625,17 @@ describe("nfm side menu surface", () => {
       target: { value: "targt car" },
     });
 
-    const targetCard = await waitFor(() => view.getByRole("option", { name: /Target card/ }));
-    fireEvent.click(targetCard);
+    const targetPage = await waitFor(() => view.getByRole("option", { name: /Target card/ }));
+    fireEvent.click(targetPage);
 
     await waitFor(() => {
       const destination = calls.destinations[0];
-      if (!destination || destination.kind !== "card") {
+      if (!destination || destination.kind !== "page") {
         throw new Error("Card destination was not accepted.");
       }
       expect(destination.projectId).toBe("default");
       expect(destination.columnId).toBe("draft");
-      expect(destination.cardId).toBe("target-card");
+      expect(destination.pageId).toBe("target-card");
     });
   });
 
@@ -641,7 +645,7 @@ describe("nfm side menu surface", () => {
         projects={MOVE_TO_PROJECTS}
         boardMap={MOVE_TO_BOARD_MAP}
         sourceProjectId="default"
-        sourceCardId="source-card"
+        sourcePageId="source-card"
         loading={true}
         loadError={null}
         onAccept={() => undefined}
@@ -659,7 +663,7 @@ describe("nfm side menu surface", () => {
         projects={MOVE_TO_PROJECTS}
         boardMap={MOVE_TO_BOARD_MAP}
         sourceProjectId="default"
-        sourceCardId="source-card"
+        sourcePageId="source-card"
         loading={false}
         loadError={null}
         initialQuery="zzzz"
@@ -676,7 +680,7 @@ describe("nfm side menu surface", () => {
         projects={MOVE_TO_PROJECTS}
         boardMap={MOVE_TO_BOARD_MAP}
         sourceProjectId="default"
-        sourceCardId="source-card"
+        sourcePageId="source-card"
         loading={false}
         loadError="Something went wrong"
         onAccept={() => undefined}

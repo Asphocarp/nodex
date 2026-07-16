@@ -35,7 +35,7 @@ Single-block labels:
 | `image` | `Image` |
 | `callout` | `Callout` |
 | `table` | `Table` |
-| `cardRef` | `Card mention` |
+| `pageRef` | `Page mention` |
 | `cardToggle` | `Card` |
 | `toggleListInlineView` | `Toggle list view` |
 | `threadSection` | `Thread section` |

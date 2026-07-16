@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "./block-document-codec";
 import {
   LegacyNfmShadowTranslationError,
-  translateLegacyNfmIntoCardDocument,
+  translateLegacyNfmIntoPageDocument,
 } from "./legacy-nfm-shadow-translator";
 
 const flatten = (
@@ -33,7 +33,7 @@ const encodedState = (document: Y.Doc): string =>
 describe("LegacyNfmShadowTranslator", () => {
   test("preserves IDs across text, property, and custom Block edits", () => {
     let nextId = 0;
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "legacy-shadow-edits",
       title: "Before",
       nfm: [
@@ -46,7 +46,7 @@ describe("LegacyNfmShadowTranslator", () => {
     });
     const before = flatten(genesis.materialization.blockTree);
 
-    const result = translateLegacyNfmIntoCardDocument({
+    const result = translateLegacyNfmIntoPageDocument({
       document: genesis.document,
       authority: "legacy_shadow",
       readiness: "ready",
@@ -72,7 +72,7 @@ describe("LegacyNfmShadowTranslator", () => {
 
   test("preserves moved and nested IDs while allocating only inserted Blocks", () => {
     let nextId = 0;
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "legacy-shadow-structure",
       title: "Structure",
       nfm: "Alpha\nBeta\nGamma",
@@ -81,7 +81,7 @@ describe("LegacyNfmShadowTranslator", () => {
     const [alpha, beta, gamma] = flatten(genesis.materialization.blockTree);
     let allocationCount = 0;
 
-    const result = translateLegacyNfmIntoCardDocument({
+    const result = translateLegacyNfmIntoPageDocument({
       document: genesis.document,
       authority: "legacy_shadow",
       readiness: "ready",
@@ -106,7 +106,7 @@ describe("LegacyNfmShadowTranslator", () => {
 
   test("aligns an edited Block after a leading insertion", () => {
     let nextId = 0;
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "legacy-shadow-sequence",
       title: "Sequence",
       nfm: "First sentence\nSecond sentence",
@@ -115,7 +115,7 @@ describe("LegacyNfmShadowTranslator", () => {
     const [first, second] = flatten(genesis.materialization.blockTree);
     let allocationCount = 0;
 
-    const result = translateLegacyNfmIntoCardDocument({
+    const result = translateLegacyNfmIntoPageDocument({
       document: genesis.document,
       authority: "legacy_shadow",
       readiness: "ready",
@@ -134,7 +134,7 @@ describe("LegacyNfmShadowTranslator", () => {
   });
 
   test("replays the relative update on replicas and ignores duplicate delivery", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "legacy-shadow-replay",
       title: "Replay before",
       nfm: "Parent\n\tChild",
@@ -147,7 +147,7 @@ describe("LegacyNfmShadowTranslator", () => {
     const replica = new Y.Doc({ guid: genesis.document.guid });
     Y.applyUpdate(replica, genesis.update);
 
-    const result = translateLegacyNfmIntoCardDocument({
+    const result = translateLegacyNfmIntoPageDocument({
       document: genesis.document,
       authority: "legacy_shadow",
       readiness: "ready",
@@ -158,8 +158,8 @@ describe("LegacyNfmShadowTranslator", () => {
 
     expect(encodedState(genesis.document)).toBe(sourceBefore);
     Y.applyUpdate(replica, result.update);
-    expect(materializeCardDocument(replica).title).toBe("Replay after");
-    expect(materializeCardDocument(replica).nfm).toBe(
+    expect(materializePageDocument(replica).title).toBe("Replay after");
+    expect(materializePageDocument(replica).nfm).toBe(
       result.materialization.nfm,
     );
     const vectorAfterFirstApply = Array.from(Y.encodeStateVector(replica)).join(
@@ -170,7 +170,7 @@ describe("LegacyNfmShadowTranslator", () => {
       vectorAfterFirstApply,
     );
 
-    const repeated = translateLegacyNfmIntoCardDocument({
+    const repeated = translateLegacyNfmIntoPageDocument({
       document: replica,
       authority: "legacy_shadow",
       readiness: "ready",
@@ -183,7 +183,7 @@ describe("LegacyNfmShadowTranslator", () => {
   });
 
   test("returns a true empty update for a normalized no-op", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "legacy-shadow-noop",
       title: "No-op",
       nfm: "Same body",
@@ -191,7 +191,7 @@ describe("LegacyNfmShadowTranslator", () => {
     });
     let allocations = 0;
 
-    const result = translateLegacyNfmIntoCardDocument({
+    const result = translateLegacyNfmIntoPageDocument({
       document: genesis.document,
       authority: "legacy_shadow",
       readiness: "ready",
@@ -209,7 +209,7 @@ describe("LegacyNfmShadowTranslator", () => {
   });
 
   test("rejects the wrong authority/readiness and leaves the source unchanged", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "legacy-shadow-guards",
       title: "Guarded",
       nfm: "Existing",
@@ -220,7 +220,7 @@ describe("LegacyNfmShadowTranslator", () => {
     let readinessError = false;
 
     try {
-      translateLegacyNfmIntoCardDocument({
+      translateLegacyNfmIntoPageDocument({
         document: genesis.document,
         authority: "ydoc_primary",
         readiness: "ready",
@@ -231,7 +231,7 @@ describe("LegacyNfmShadowTranslator", () => {
       authorityError = error instanceof LegacyNfmShadowTranslationError;
     }
     try {
-      translateLegacyNfmIntoCardDocument({
+      translateLegacyNfmIntoPageDocument({
         document: genesis.document,
         authority: "legacy_shadow",
         readiness: "pending_genesis",
@@ -248,7 +248,7 @@ describe("LegacyNfmShadowTranslator", () => {
   });
 
   test("validates a candidate before mutation and remains pure on allocation failure", () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "legacy-shadow-failure-purity",
       title: "Pure",
       nfm: "Existing",
@@ -258,7 +258,7 @@ describe("LegacyNfmShadowTranslator", () => {
     let error: unknown;
 
     try {
-      translateLegacyNfmIntoCardDocument({
+      translateLegacyNfmIntoPageDocument({
         document: genesis.document,
         authority: "legacy_shadow",
         readiness: "ready",
@@ -272,6 +272,6 @@ describe("LegacyNfmShadowTranslator", () => {
 
     expect(error instanceof LegacyNfmShadowTranslationError).toBe(true);
     expect(encodedState(genesis.document)).toBe(before);
-    expect(materializeCardDocument(genesis.document).nfm).toBe("Existing");
+    expect(materializePageDocument(genesis.document).nfm).toBe("Existing");
   });
 });

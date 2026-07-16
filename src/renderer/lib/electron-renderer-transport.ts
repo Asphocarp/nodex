@@ -18,7 +18,7 @@ import type {
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type { CardTargetChangedEvent } from "../../shared/card-target-events";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
@@ -31,8 +31,6 @@ import type {
 } from "../../shared/block-documents/document-operations";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
-import type { CardProjectTransferCommandResult } from "../../shared/card-project-transfer";
-import type { PublicCardProjectTransferIntent } from "../../shared/card-project-transfer-transport";
 import type { BlockTransferCommandResult } from "../../shared/block-transfer";
 import type { PublicBlockTransferIntent } from "../../shared/block-transfer-transport";
 import type {
@@ -46,12 +44,12 @@ import type {
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 import type {
-  CardLifecycleMutationCommandResult,
-  CardLifecycleMutationRequest,
-} from "../../shared/card-lifecycle";
-import type { CardLifecyclePreflightResult } from "../../shared/card-lifecycle-runtime";
-import type { ListCardHistoryRequest } from "../../shared/card-history";
-import type { CardHistoryCommandResult } from "../../shared/card-history-transport";
+  PageLifecycleMutationCommandResult,
+  PageLifecycleMutationRequest,
+} from "../../shared/page-lifecycle";
+import type { PageLifecyclePreflightResult } from "../../shared/page-lifecycle-runtime";
+import type { ListPageHistoryRequest } from "../../shared/page-history";
+import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -60,28 +58,28 @@ export function createElectronRendererTransport(
 ) {
   return {
     kind: "electron" as const,
-    readCardLifecyclePreflight(projectId: string, cardId: string) {
+    readPageLifecyclePreflight(projectId: string, pageId: string) {
       return bridge.invoke(
-        "cards:lifecycle:preflight",
+        "pages:lifecycle:preflight",
         projectId,
-        cardId,
-      ) as Promise<CardLifecyclePreflightResult>;
+        pageId,
+      ) as Promise<PageLifecyclePreflightResult>;
     },
-    mutateCardLifecycle(
+    mutatePageLifecycle(
       projectId: string,
-      request: CardLifecycleMutationRequest,
+      request: PageLifecycleMutationRequest,
     ) {
       return bridge.invoke(
-        "cards:lifecycle:apply",
+        "pages:lifecycle:apply",
         projectId,
         request,
-      ) as Promise<CardLifecycleMutationCommandResult>;
+      ) as Promise<PageLifecycleMutationCommandResult>;
     },
-    listCardHistory(request: ListCardHistoryRequest) {
+    listPageHistory(request: ListPageHistoryRequest) {
       return bridge.invoke(
-        "cards:history:list",
+        "pages:history:list",
         request,
-      ) as Promise<CardHistoryCommandResult>;
+      ) as Promise<PageHistoryCommandResult>;
     },
     getOwnedDocumentDescriptor(projectId: string, ownerBlockId: string) {
       return bridge.invoke(
@@ -98,8 +96,7 @@ export function createElectronRendererTransport(
       ) as Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
     },
     createDocumentSyncAdapter(projectId: string) {
-      void projectId;
-      return createElectronDocumentSyncAdapter(bridge);
+      return createElectronDocumentSyncAdapter(bridge, projectId);
     },
     createCanvasSceneSyncAdapter(projectId: string) {
       return createElectronCanvasSceneSyncAdapter(bridge, projectId);
@@ -125,16 +122,6 @@ export function createElectronRendererTransport(
         projectId,
         request,
       ) as Promise<AdditionalDocumentCommandResult>;
-    },
-    transferCardProject(
-      sourceProjectId: string,
-      intent: PublicCardProjectTransferIntent,
-    ) {
-      return bridge.invoke(
-        "cards:project-transfer",
-        sourceProjectId,
-        intent,
-      ) as Promise<CardProjectTransferCommandResult>;
     },
     transferBlocks(
       projectId: string,
@@ -197,13 +184,13 @@ export function createElectronRendererTransport(
         callback(payload);
       });
     },
-    subscribeCardTargetChanges(
+    subscribePageTargetChanges(
       projectId: string,
-      callback: (event: CardTargetChangedEvent) => void,
+      callback: (event: PageTargetChangedEvent) => void,
     ) {
-      return bridge.on("card-target-changed", (...args: unknown[]) => {
-        const payload = args[0] as CardTargetChangedEvent | undefined;
-        if (!payload || payload.projectId !== projectId) return;
+      return bridge.on("page-target-changed", (...args: unknown[]) => {
+        const payload = args[0] as PageTargetChangedEvent | undefined;
+        if (!payload) return;
         callback(payload);
       });
     },

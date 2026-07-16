@@ -14,7 +14,7 @@ const emptyScene = {
   elements: [],
   appState: {},
   files: {},
-  cardReferences: [],
+  pageReferences: [],
   plainText: "",
   preview: "",
 };

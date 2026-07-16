@@ -46,7 +46,7 @@ export type CanvasSceneAppState = Readonly<
   Record<string, CanvasSceneJsonValue>
 >;
 
-export interface CanvasSceneCardReference {
+export interface CanvasScenePageReference {
   readonly sourceElementId: string;
   readonly targetBlockId: string;
   readonly titleHint?: string;
@@ -58,7 +58,7 @@ export interface PortableCanvasScene {
   readonly elements: readonly CanvasSceneElement[];
   readonly appState: CanvasSceneAppState;
   readonly files: Readonly<Record<string, CanvasSceneFile>>;
-  readonly cardReferences: readonly CanvasSceneCardReference[];
+  readonly pageReferences: readonly CanvasScenePageReference[];
   readonly plainText: string;
   readonly preview: string;
 }
@@ -271,7 +271,7 @@ const normalizeRuntimeJson = (
   }
 };
 
-const canonicalizeCardReference = (
+const canonicalizePageReference = (
   element: CanvasSceneElement,
 ): CanvasSceneElement => {
   const customData = element.customData;
@@ -336,7 +336,7 @@ export const canonicalizeCanvasSceneElement = (
       `Canvas element ${id}.index must be a bounded string when present`,
     );
   }
-  return canonicalizeCardReference(record);
+  return canonicalizePageReference(record);
 };
 
 export const chooseCanvasSceneElementWinner = (
@@ -470,9 +470,9 @@ export const canvasSceneElementOrderKey = (
     ? element.index
     : `legacy:${fallbackOrdinal.toString(16).padStart(16, "0")}`;
 
-const readCardReference = (
+const readPageReference = (
   element: CanvasSceneElement,
-): CanvasSceneCardReference | null => {
+): CanvasScenePageReference | null => {
   const customData = element.customData;
   if (!isRecord(customData) || customData.type !== "nodex-card-reference") {
     return null;
@@ -547,11 +547,11 @@ export const materializePortableCanvasScene = (input: {
     );
   }
   const appState = pickPortableCanvasSceneAppState(input.appState);
-  const cardReferences = elements
+  const pageReferences = elements
     .filter((element) => element.isDeleted !== true)
-    .map(readCardReference)
+    .map(readPageReference)
     .filter(
-      (reference): reference is CanvasSceneCardReference => reference !== null,
+      (reference): reference is CanvasScenePageReference => reference !== null,
     );
   const plainText = elements
     .map(elementPlainText)
@@ -564,7 +564,7 @@ export const materializePortableCanvasScene = (input: {
     elements,
     appState,
     files,
-    cardReferences,
+    pageReferences,
     plainText,
     preview: plainText.replace(/\s+/gu, " ").trim().slice(0, 280),
   };
@@ -578,7 +578,7 @@ export const canonicalPortableCanvasSceneFingerprint = (
     elements: scene.elements,
     appState: scene.appState,
     files: scene.files,
-    cardReferences: scene.cardReferences,
+    pageReferences: scene.pageReferences,
   });
 
 const semanticElement = (element: CanvasSceneElement): CanvasSceneElement =>
@@ -610,7 +610,7 @@ export const parsePortableCanvasScene = (value: unknown): PortableCanvasScene =>
     !Array.isArray(value.elements) ||
     !isRecord(value.appState) ||
     !isRecord(value.files) ||
-    !Array.isArray(value.cardReferences) ||
+    !Array.isArray(value.pageReferences) ||
     typeof value.plainText !== "string" ||
     typeof value.preview !== "string"
   ) {

@@ -8,18 +8,18 @@ import {
 } from "./database-views";
 import {
   evaluateDatabaseViewFilter,
-  parseGeneralDatabaseViewConfig,
+  parseDatabaseViewConfig,
 } from "./database-kernel";
-import type { CardSummary } from "./types";
+import type { DatabasePageSummary } from "./types";
 
 const encodeBase64Url = (value: string): string =>
   btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 
-const makeCard = (
+const makePage = (
   id: string,
-  status: CardSummary["status"],
-  priority: CardSummary["priority"],
-): CardSummary => ({
+  status: DatabasePageSummary["status"],
+  priority: DatabasePageSummary["priority"],
+): DatabasePageSummary => ({
   id,
   status,
   archived: false,
@@ -66,27 +66,27 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
     },
     rows: [
       {
-        card: makeCard("host-card", "in_progress", "p0-critical"),
+        page: makePage("host-card", "in_progress", "p0-critical"),
         groupKey: null,
         rankKey: "a",
       },
       {
-        card: makeCard("filtered-backlog", "backlog", "p0-critical"),
+        page: makePage("filtered-backlog", "backlog", "p0-critical"),
         groupKey: null,
         rankKey: "b",
       },
       {
-        card: makeCard("p1-b", "in_progress", "p1-high"),
+        page: makePage("p1-b", "in_progress", "p1-high"),
         groupKey: null,
         rankKey: "same",
       },
       {
-        card: makeCard("p1-a", "in_progress", "p1-high"),
+        page: makePage("p1-a", "in_progress", "p1-high"),
         groupKey: null,
         rankKey: "same",
       },
       {
-        card: makeCard("p0-other", "in_progress", "p0-critical"),
+        page: makePage("p0-other", "in_progress", "p0-critical"),
         groupKey: null,
         rankKey: "z",
       },
@@ -124,9 +124,9 @@ describe("durable Database View contracts", () => {
       },
     });
 
-    expect(parseGeneralDatabaseViewConfig(config)).toEqual(config);
+    expect(parseDatabaseViewConfig(config)).toEqual(config);
     expect(config.schemaKey).toBe("nodex.database-view");
-    expect(config.options?.includeHostCard).toBe(true);
+    expect(config.options?.includeHostPage).toBe(true);
     expect(config.sort.map((sort) => sort.field.kind)).toEqual([
       "property",
       "created",
@@ -329,18 +329,18 @@ describe("durable Database View contracts", () => {
       view: { ...base.view, config: JSON.parse(JSON.stringify(config)) },
       rows: [
         {
-          card: makeCard("empty", "draft", undefined),
+          page: makePage("empty", "draft", undefined),
           groupKey: "draft",
           rankKey: "a",
         },
         {
-          card: makeCard("prioritized", "draft", "p1-high"),
+          page: makePage("prioritized", "draft", "p1-high"),
           groupKey: "draft",
           rankKey: "b",
         },
       ],
     });
-    expect(rows.map((row) => row.card.id).join(",")).toBe("prioritized");
+    expect(rows.map((row) => row.page.id).join(",")).toBe("prioritized");
   });
 
   test("evaluates migrated filter, stable sort, and host inclusion semantics", () => {
@@ -348,12 +348,12 @@ describe("durable Database View contracts", () => {
     const rows = evaluateDatabaseViewRows(excludesHost, {
       hostBlockId: "host-card",
     });
-    expect(rows.map((row) => row.card.id).join(",")).toBe("p0-other,p1-a,p1-b");
+    expect(rows.map((row) => row.page.id).join(",")).toBe("p0-other,p1-a,p1-b");
 
     const includesHost = makeReadModel(true);
     expect(
       evaluateDatabaseViewRows(includesHost, { hostBlockId: "host-card" })
-        .map((row) => row.card.id)
+        .map((row) => row.page.id)
         .join(","),
     ).toBe("host-card,p0-other,p1-a,p1-b");
   });
@@ -375,7 +375,7 @@ describe("durable Database View contracts", () => {
     const rows = evaluateDatabaseViewRows(malformed, {
       hostBlockId: "host-card",
     });
-    expect(rows.map((row) => row.card.id).join(",")).toBe(
+    expect(rows.map((row) => row.page.id).join(",")).toBe(
       "filtered-backlog,p0-other,p1-a,p1-b",
     );
   });
@@ -395,8 +395,8 @@ describe("durable Database View contracts", () => {
       rows: [
         {
           ...model.rows[0],
-          card: {
-            ...model.rows[0].card,
+          page: {
+            ...model.rows[0].page,
             id: "done",
             status: "done",
             created: new Date("2026-01-03T00:00:00.000Z"),
@@ -406,8 +406,8 @@ describe("durable Database View contracts", () => {
         },
         {
           ...model.rows[0],
-          card: {
-            ...model.rows[0].card,
+          page: {
+            ...model.rows[0].page,
             id: "draft-old",
             status: "draft",
             created: new Date("2026-01-01T00:00:00.000Z"),
@@ -417,8 +417,8 @@ describe("durable Database View contracts", () => {
         },
         {
           ...model.rows[0],
-          card: {
-            ...model.rows[0].card,
+          page: {
+            ...model.rows[0].page,
             id: "draft-new",
             status: "draft",
             created: new Date("2026-01-02T00:00:00.000Z"),
@@ -428,8 +428,8 @@ describe("durable Database View contracts", () => {
         },
         {
           ...model.rows[0],
-          card: {
-            ...model.rows[0].card,
+          page: {
+            ...model.rows[0].page,
             id: "progress",
             status: "in_progress",
           },
@@ -441,7 +441,7 @@ describe("durable Database View contracts", () => {
 
     expect(
       evaluateDatabaseViewRows(boardModel, { hostBlockId: "host-card" })
-        .map((row) => row.card.id)
+        .map((row) => row.page.id)
         .join(","),
     ).toBe("draft-new,draft-old,progress,done");
   });

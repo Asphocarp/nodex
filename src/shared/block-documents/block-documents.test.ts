@@ -2,15 +2,15 @@ import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
   BlockDocumentValidationError,
-  CardDocumentRootValidationError,
+  PageDocumentRootValidationError,
   UnsupportedXmlNodeError,
   assertValidBlockDocument,
-  assertValidCardDocumentRoots,
+  assertValidPageDocumentRoots,
   BodyOnlyBlockDocumentRootValidationError,
   captureXmlSubtreeAt,
   cloneXmlSubtree,
   createBodyOnlyBlockDocument,
-  createCardDocument,
+  createPageDocument,
   createSyncedBlockDocument,
   deleteXmlSubtreeAt,
   encodeXmlSubtree,
@@ -22,7 +22,7 @@ import {
   inspectRegisteredOwnedBlockDocument,
   inspectHistoricalOwnedBlockDocument,
   listBlockDocumentSchemaAdapters,
-  openCardDocument,
+  openPageDocument,
   replaceYTextWithPortableRichText,
   REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_KEY,
   REUSABLE_TEMPLATE_DOCUMENT_SCHEMA_VERSION,
@@ -81,7 +81,7 @@ const getFirstText = (element: Y.XmlElement): Y.XmlText => {
 
 describe("Card block document envelope", () => {
   test("owns a stable title and body shared-type pair", () => {
-    const envelope = createCardDocument({
+    const envelope = createPageDocument({
       documentId: "document-card-1",
       initialTitle: "Shared title",
     });
@@ -89,17 +89,17 @@ describe("Card block document envelope", () => {
     expect(envelope.documentId).toBe("document-card-1");
     expect(envelope.title.toString()).toBe("Shared title");
     expect(envelope.body.length).toBe(1);
-    expect(openCardDocument(envelope.document).title).toBe(envelope.title);
-    expect(openCardDocument(envelope.document).body).toBe(envelope.body);
+    expect(openPageDocument(envelope.document).title).toBe(envelope.title);
+    expect(openPageDocument(envelope.document).body).toBe(envelope.body);
   });
 
   test("rejects a document whose canonical roots have incompatible Yjs types", () => {
-    const document = new Y.Doc({ guid: "invalid-card-document" });
+    const document = new Y.Doc({ guid: "invalid-page-document" });
     document.getXmlFragment("title");
 
     let error: unknown;
     try {
-      openCardDocument(document);
+      openPageDocument(document);
     } catch (caught) {
       error = caught;
     }
@@ -108,7 +108,7 @@ describe("Card block document envelope", () => {
   });
 
   test("resolves typed roots after loading an encoded update into a fresh Y.Doc", () => {
-    const source = createCardDocument({
+    const source = createPageDocument({
       documentId: "document-persisted-source",
       initialTitle: "Persisted title",
     });
@@ -117,7 +117,7 @@ describe("Card block document envelope", () => {
 
     const reloaded = new Y.Doc({ guid: "document-persisted-reloaded" });
     Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(source.document));
-    const envelope = openCardDocument(reloaded);
+    const envelope = openPageDocument(reloaded);
 
     expect(envelope.title.toString()).toBe("Persisted title");
     expect(assertValidBlockDocument(envelope.body)[0]?.id).toBe(
@@ -126,7 +126,7 @@ describe("Card block document envelope", () => {
   });
 
   test("accepts canonical rich title Delta and materializes portable semantics", () => {
-    const envelope = createCardDocument({ documentId: "document-rich-title" });
+    const envelope = createPageDocument({ documentId: "document-rich-title" });
     replaceYTextWithPortableRichText(envelope.title, [
       { type: "text", text: "Rich ", styles: { bold: true } },
       {
@@ -139,13 +139,13 @@ describe("Card block document envelope", () => {
     ]);
 
     const inspection = inspectRegisteredOwnedBlockDocument(envelope.document, {
-      ownerType: "card",
-      schemaKey: "nodex.card",
+      ownerType: "page",
+      schemaKey: "nodex.page",
       schemaVersion: 2,
     });
 
     expect(inspection.materialization).toMatchObject({
-      kind: "card",
+      kind: "page",
       title: "Rich title@thread:thread-rich-title",
       richTitle: [
         { type: "text", text: "Rich ", styles: { bold: true } },
@@ -170,16 +170,16 @@ describe("Card block document envelope", () => {
 
     let error: unknown;
     try {
-      assertValidCardDocumentRoots(reloaded);
+      assertValidPageDocumentRoots(reloaded);
     } catch (caught) {
       error = caught;
     }
 
-    expect(error instanceof CardDocumentRootValidationError).toBe(true);
+    expect(error instanceof PageDocumentRootValidationError).toBe(true);
   });
 
   test("rejects unsupported named roots carried by an encoded update", () => {
-    const source = createCardDocument({
+    const source = createPageDocument({
       documentId: "document-hidden-root-source",
     });
     source.document
@@ -190,12 +190,12 @@ describe("Card block document envelope", () => {
 
     let error: unknown;
     try {
-      assertValidCardDocumentRoots(reloaded);
+      assertValidPageDocumentRoots(reloaded);
     } catch (caught) {
       error = caught;
     }
 
-    expect(error instanceof CardDocumentRootValidationError).toBe(true);
+    expect(error instanceof PageDocumentRootValidationError).toBe(true);
   });
 });
 
@@ -213,7 +213,7 @@ describe("registered document-bearing Block envelopes", () => {
         .join(","),
     ).toBe(
       [
-        "card/nodex.card@2:block_tree/yjs",
+        "page/nodex.page@2:block_tree/yjs",
         "reusable_template_source/nodex.reusable-template@1:block_tree/yjs",
         "synced_block_source/nodex.synced-block@1:block_tree/yjs",
       ].join(","),
@@ -221,31 +221,31 @@ describe("registered document-bearing Block envelopes", () => {
   });
 
   test("keeps the retired plain Card schema historical-only", () => {
-    const legacy = createCardDocument({
-      documentId: "document-legacy-card-history",
+    const legacy = createPageDocument({
+      documentId: "document-legacy-page-history",
       initialTitle: "Legacy plain title",
     });
     expect(() =>
       getRegisteredBlockDocumentSchemaAdapter({
-        ownerType: "card",
-        schemaKey: "nodex.card",
+        ownerType: "page",
+        schemaKey: "nodex.page",
         schemaVersion: 1,
       }),
     ).toThrow("No owned Document Adapter is registered");
     expect(
       getHistoricalBlockDocumentSchemaAdapterForSchema({
-        schemaKey: "nodex.card",
+        schemaKey: "nodex.page",
         schemaVersion: 1,
       }).ownerType,
-    ).toBe("card");
+    ).toBe("page");
     expect(
       inspectHistoricalOwnedBlockDocument(legacy.document, {
-        ownerType: "card",
-        schemaKey: "nodex.card",
+        ownerType: "page",
+        schemaKey: "nodex.page",
         schemaVersion: 1,
       }).materialization,
     ).toMatchObject({
-      kind: "card",
+      kind: "page",
       schemaVersion: 1,
       title: "Legacy plain title",
       richTitle: [
@@ -362,7 +362,7 @@ describe("registered document-bearing Block envelopes", () => {
 
 describe("Block document structural validation", () => {
   test("indexes nested application block IDs and their owning parents", () => {
-    const envelope = createCardDocument({ documentId: "document-scan" });
+    const envelope = createPageDocument({ documentId: "document-scan" });
     const nested = createBlock("block-child", "Child");
     const root = getOnlyElement(envelope.body);
     root.insert(0, [createBlock("block-root", "Root", [nested])]);
@@ -379,7 +379,7 @@ describe("Block document structural validation", () => {
   });
 
   test("reports missing and duplicate application identities", () => {
-    const envelope = createCardDocument({ documentId: "document-invalid" });
+    const envelope = createPageDocument({ documentId: "document-invalid" });
     const group = getOnlyElement(envelope.body);
     const missing = createBlock("temporary", "Missing");
     missing.removeAttribute("id");
@@ -405,7 +405,7 @@ describe("Block document structural validation", () => {
   });
 
   test("rejects body content outside the BlockNote blockGroup/container hierarchy", () => {
-    const envelope = createCardDocument({ documentId: "document-rogue-body" });
+    const envelope = createPageDocument({ documentId: "document-rogue-body" });
     const rogueParagraph = new Y.XmlElement("paragraph");
     const rogueText = new Y.XmlText();
     rogueText.insert(0, "outside a Block container");
@@ -425,7 +425,7 @@ describe("Block document structural validation", () => {
   });
 
   test("rejects multiple root block groups", () => {
-    const envelope = createCardDocument({
+    const envelope = createPageDocument({
       documentId: "document-multiple-roots",
     });
     envelope.body.insert(1, [new Y.XmlElement("blockGroup")]);
@@ -435,7 +435,7 @@ describe("Block document structural validation", () => {
   });
 
   test("rejects Y.XmlText embeds that the relocation codec cannot encode", () => {
-    const envelope = createCardDocument({ documentId: "document-text-embed" });
+    const envelope = createPageDocument({ documentId: "document-text-embed" });
     const group = getOnlyElement(envelope.body);
     const block = createBlock("embed-block", "Before");
     group.insert(0, [block]);
@@ -448,7 +448,7 @@ describe("Block document structural validation", () => {
   });
 
   test("rejects nested shared types in XML attributes before persistence", () => {
-    const envelope = createCardDocument({
+    const envelope = createPageDocument({
       documentId: "document-shared-attribute",
     });
     const group = getOnlyElement(envelope.body);
@@ -483,7 +483,7 @@ describe("portable Y.Xml subtree codec", () => {
   });
 
   test("clones nested IDs and formatting, then replays source and target updates idempotently", () => {
-    const source = createCardDocument({ documentId: "document-source" });
+    const source = createPageDocument({ documentId: "document-source" });
     const sourceGroup = getOnlyElement(source.body);
     sourceGroup.insert(0, [
       createBlock("block-root", "Formatted", [
@@ -491,13 +491,13 @@ describe("portable Y.Xml subtree codec", () => {
       ]),
     ]);
 
-    const target = createCardDocument({ documentId: "document-target" });
+    const target = createPageDocument({ documentId: "document-target" });
     const targetGroup = getOnlyElement(target.body);
 
-    const sourceReplica = openCardDocument(
+    const sourceReplica = openPageDocument(
       new Y.Doc({ guid: "document-source-replica" }),
     );
-    const targetReplica = openCardDocument(
+    const targetReplica = openPageDocument(
       new Y.Doc({ guid: "document-target-replica" }),
     );
     Y.applyUpdate(

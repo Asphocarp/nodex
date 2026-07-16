@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import {
   type Project,
   type ProjectCreateInput,
+  type ProjectLifecycleInput,
   type ProjectOrderInput,
   type ProjectPinnedInput,
   type ProjectPinnedOrderInput,
@@ -11,6 +12,7 @@ import {
   type ProjectUpdateInput,
 } from "../../shared/types";
 import {
+  ProjectLifecycleInputSchema,
   ProjectOrderInputSchema,
   ProjectPinnedInputSchema,
   ProjectPinnedOrderInputSchema,
@@ -24,11 +26,17 @@ import { dbNotifier } from "./notifier";
 import { insertInitialDatabaseViewSession } from "./project-session-defaults";
 import {
   ensureBlockFoundationForProject,
+  ensureLocalProfileLibrary,
+  primaryDatabaseBlockId,
 } from "./schema";
 import { ensurePrimaryCanvasDocument } from "./primary-canvas-document";
 
 interface DbProjectRow {
   id: string;
+  library_id: string;
+  database_block_id: string;
+  lifecycle: "active" | "inactive" | "archived";
+  binding_revision: number;
   name: string;
   description: string;
   icon: string;
@@ -102,6 +110,10 @@ function rowToProject(database: Database.Database, row: DbProjectRow): Project {
   const sources = readProjectSources(database, row.id);
   return {
     id: row.id,
+    libraryId: row.library_id,
+    databaseId: row.database_block_id,
+    lifecycle: row.lifecycle,
+    bindingRevision: row.binding_revision,
     name: row.name,
     description: row.description,
     icon: normalizeProjectIcon(row.icon),
@@ -140,6 +152,7 @@ function orderedProjectIds(database: Database.Database): string[] {
     SELECT p.id
     FROM projects p
     LEFT JOIN project_order po ON po.project_id = p.id
+    WHERE p.lifecycle <> 'archived'
     ORDER BY COALESCE(po."order", 999999), p.created ASC
   `).all() as Array<{ id: string }>;
   return rows.map((row) => row.id);
@@ -198,6 +211,17 @@ export function requireProjectId(projectId: string): string {
   return canonicalProjectId;
 }
 
+export function requireActiveProjectId(projectId: string): string {
+  const canonicalProjectId = requireProjectId(projectId);
+  const project = getProject(canonicalProjectId);
+  if (!project || project.lifecycle !== "active") {
+    throw new Error(
+      `Project ${canonicalProjectId} is ${project?.lifecycle ?? "missing"} and cannot start work`,
+    );
+  }
+  return canonicalProjectId;
+}
+
 export function listProjects(): Project[] {
   const database = getDb();
   const rows = database.prepare(`
@@ -205,6 +229,7 @@ export function listProjects(): Project[] {
     FROM projects p
     LEFT JOIN project_order po ON po.project_id = p.id
     LEFT JOIN pinned_project_order ppo ON ppo.project_id = p.id
+    WHERE p.lifecycle <> 'archived'
     ORDER BY COALESCE(po."order", 999999), p.created ASC
   `).all() as DbProjectRow[];
   return rows.map((row) => rowToProject(database, row));
@@ -223,6 +248,8 @@ export function createProject(input: ProjectCreateInput): Project {
   const database = getDb();
   const now = new Date().toISOString();
   const projectId = randomUUID();
+  const { libraryId } = ensureLocalProfileLibrary(database, now);
+  const databaseBlockId = primaryDatabaseBlockId(projectId);
   const sources = normalizeProjectSources(input.sources);
   const name = resolveProjectName(input, sources);
   const description = input.description ?? "";
@@ -231,9 +258,20 @@ export function createProject(input: ProjectCreateInput): Project {
   const txn = database.transaction(() => {
     database.prepare('UPDATE project_order SET "order" = "order" + 1').run();
     database.prepare(`
-      INSERT INTO projects (id, name, description, icon, created, updated)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(projectId, name, description, icon, now, now);
+      INSERT INTO projects (
+        id, library_id, database_block_id, lifecycle, binding_revision,
+        name, description, icon, created, updated
+      ) VALUES (?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)
+    `).run(
+      projectId,
+      libraryId,
+      databaseBlockId,
+      name,
+      description,
+      icon,
+      now,
+      now,
+    );
     database.prepare(`
       INSERT INTO project_order (project_id, "order", updated)
       VALUES (?, 0, ?)
@@ -282,6 +320,45 @@ export function updateProject(projectId: string, updates: ProjectUpdateInput): P
     }
   });
   txn();
+
+  dbNotifier.notifyProjectsChanged("update", canonicalProjectId);
+  return getProject(canonicalProjectId);
+}
+
+export function setProjectLifecycle(
+  projectId: string,
+  input: ProjectLifecycleInput,
+): Project | null {
+  const parsed = ProjectLifecycleInputSchema.parse(input);
+  const canonicalProjectId = resolveProjectId(projectId);
+  if (!canonicalProjectId) return null;
+
+  const database = getDb();
+  const current = readProjectRow(database, canonicalProjectId);
+  if (!current) return null;
+  if (current.lifecycle === parsed.lifecycle) return rowToProject(database, current);
+
+  const now = new Date().toISOString();
+  database.transaction(() => {
+    database.prepare(`
+      UPDATE projects
+      SET lifecycle = ?, binding_revision = binding_revision + 1, updated = ?
+      WHERE id = ?
+    `).run(parsed.lifecycle, now, canonicalProjectId);
+
+    if (parsed.lifecycle === "archived") {
+      database.prepare("DELETE FROM pinned_project_order WHERE project_id = ?")
+        .run(canonicalProjectId);
+      database.prepare("DELETE FROM project_order WHERE project_id = ?")
+        .run(canonicalProjectId);
+      return;
+    }
+    if (current.lifecycle !== "archived") return;
+    database.prepare(`
+      INSERT INTO project_order (project_id, "order", updated)
+      SELECT ?, COALESCE(MAX("order"), -1) + 1, ? FROM project_order
+    `).run(canonicalProjectId, now);
+  })();
 
   dbNotifier.notifyProjectsChanged("update", canonicalProjectId);
   return getProject(canonicalProjectId);
@@ -363,6 +440,11 @@ export function setPinnedProjectOrder(input: ProjectPinnedOrderInput): Project[]
 export function resolveProjectRunContext(projectId: string): ProjectRunContext {
   const project = getProject(projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);
+  if (project.lifecycle !== "active") {
+    throw new Error(
+      `Project ${projectId} is ${project.lifecycle} and cannot start work`,
+    );
+  }
   const workspaceRoots = project.sources.map((source) => source.root);
   return {
     canonicalProjectId: project.id,

@@ -1,20 +1,19 @@
 import { describe, expect, test } from "vitest";
 import { BlockMutationWriter, type BlockMutationWorkerLike } from "./block-mutation-writer";
 import type { BoardChangeEvent } from "../shared/ipc-api";
-import type { CardTargetChangedEvent } from "../shared/card-target-events";
+import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type { BlockMutationMetrics, BlockMutationWorkerMessage, BlockMutationWorkerRequest } from "./block-mutation-worker-protocol";
-import type { CardSummary } from "../shared/types";
+import type { DatabasePageSummary } from "../shared/types";
 import type {
   DocumentMutationRequest,
   DocumentSyncApplyRequest,
   RelocateBlocks,
 } from "../shared/block-documents";
 import type { BlockPropertyMutationRequest } from "../shared/block-property-mutations";
-import type { DatabaseMutationRequest } from "../shared/database-kernel";
+import type { DatabaseApply } from "../shared/database-module";
 import type { DatabaseChangeEvent } from "../shared/database-events";
-import type { CardLifecycleMutationRequest } from "../shared/card-lifecycle";
+import type { PageLifecycleMutationRequest } from "../shared/page-lifecycle";
 import type { AdditionalDocumentCommandRequest } from "../shared/additional-document-commands";
-import type { CardProjectTransferRequest } from "../shared/card-project-transfer";
 import type {
   CanvasSceneMutationRequest,
   CanvasSceneSyncRequest,
@@ -75,7 +74,7 @@ class FakeWorker implements BlockMutationWorkerLike {
   }
 }
 
-function makeSummary(overrides: Partial<CardSummary> = {}): CardSummary {
+function makeSummary(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   return {
     id: "card-1",
     status: "draft",
@@ -121,46 +120,7 @@ function makeMetrics(mutationId: string): BlockMutationMetrics {
 }
 
 describe("BlockMutationWriter", () => {
-  test("routes Nodex Agent reads through the worker without publishing mutation events", async () => {
-    const worker = new FakeWorker();
-    const published: BoardChangeEvent[] = [];
-    const writer = new BlockMutationWriter({
-      createWorker: () => worker,
-      publishBoardEvent: (event) => published.push(event),
-    });
-    const pending = writer.readNodexAgentTool({
-      tool: "get_context",
-      projectId: null,
-      access: { read: "unavailable", write: "unavailable", domains: [] },
-      input: {},
-    });
-    const command = worker.messages[0];
-    expect(command?.type).toBe("readNodexAgentTool");
-    if (!command || command.type !== "readNodexAgentTool") return;
-    worker.emitMessage({
-      id: command.id,
-      ok: true,
-      result: {
-        ok: false,
-        error: {
-          code: "project_context_required",
-          message: "Project context is required",
-          retryable: false,
-          recovery: "start_new_task",
-        },
-      },
-      events: [],
-      metrics: makeMetrics(command.mutationId),
-    });
-
-    expect((await pending).result).toMatchObject({
-      ok: false,
-      error: { code: "project_context_required" },
-    });
-    expect(published).toEqual([]);
-  });
-
-  test("routes v3 Card-first reads through the worker without publishing mutation events", async () => {
+  test("routes v3 Page reads through the worker without publishing mutation events", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];
     const writer = new BlockMutationWriter({
@@ -237,7 +197,7 @@ describe("BlockMutationWriter", () => {
             elements: [],
             appState: {},
             files: {},
-            cardReferences: [],
+            pageReferences: [],
             plainText: "",
             preview: "",
           },
@@ -299,120 +259,6 @@ describe("BlockMutationWriter", () => {
       metrics: makeMetrics(mutationCommand.mutationId),
     });
     expect((await mutationPending).ok).toBe(true);
-  });
-
-  test("publishes source and target Database invalidations once for a Card transfer", async () => {
-    const worker = new FakeWorker();
-    const databaseEvents: DatabaseChangeEvent[] = [];
-    const writer = new BlockMutationWriter({
-      createWorker: () => worker,
-      publishBoardEvent: () => undefined,
-      publishDatabaseEvent: (event) => databaseEvents.push(event),
-    });
-    const input: CardProjectTransferRequest = {
-      version: 2,
-      operationId: "transfer-writer-1",
-      storeEpoch: "epoch-1",
-      sourceProjectId: "project-a",
-      targetProjectId: "project-b",
-      cardId: "card-1",
-      expectedBlocks: [
-        {
-          blockId: "card-1",
-          type: "card",
-          lifecycle: "active",
-          location: { kind: "space" },
-          locationRevision: 1,
-          metadataRevision: 1,
-        },
-      ],
-      expectedDocuments: [
-        {
-          ownerBlockId: "card-1",
-          documentId: "document-card-1",
-          generation: 1,
-          headSeq: 2,
-          schemaKey: "nodex.card",
-          schemaVersion: 2,
-        },
-      ],
-      expectedMemberships: [
-        {
-          cardBlockId: "card-1",
-          membershipId: "membership-a",
-          databaseBlockId: "database-a",
-          databaseSchemaRevision: 1,
-          membershipRevision: 1,
-          statusPropertyId: "property-status-a",
-          statusValueRevision: 1,
-          status: "draft",
-        },
-      ],
-      target: {
-        databaseBlockId: "database-b",
-        databaseSchemaRevision: 2,
-        viewId: "view-b",
-        viewRevision: 3,
-        status: "in_progress",
-      },
-      clientSessionId: "window-1",
-      actor: { kind: "electron_renderer" },
-    };
-    const pending = writer.applyCardProjectTransfer(input);
-    const request = worker.messages[0];
-    if (!request || request.type !== "applyCardProjectTransfer") {
-      throw new Error("Expected Card transfer writer request");
-    }
-    worker.emitMessage({
-      id: request.id,
-      ok: true,
-      result: {
-        ok: true,
-        value: {
-          version: 2,
-          operationId: input.operationId,
-          storeEpoch: input.storeEpoch,
-          sourceProjectId: input.sourceProjectId,
-          targetProjectId: input.targetProjectId,
-          cardId: input.cardId,
-          duplicate: false,
-          movedBlockIds: ["card-1"],
-          movedDocumentIds: ["document-card-1"],
-          sourceMembershipIds: ["membership-a"],
-          targetMembershipIds: { "card-1": "membership-b" },
-          blockMetadataRevisions: { "card-1": 2 },
-          rootLocationRevision: 2,
-          documentHeads: {
-            "document-card-1": { generation: 1, headSeq: 2 },
-          },
-          targetDatabaseBlockId: "database-b",
-          targetDatabaseSchemaRevision: 2,
-          targetViewId: "view-b",
-          targetStatus: "in_progress",
-          targetViewRankKey: "3000",
-          changeLogSeq: 8,
-          committedAt: "2026-07-12T00:00:00.000Z",
-        },
-      },
-      events: [],
-      metrics: makeMetrics(request.mutationId),
-    });
-    const result = await pending;
-    expect(result.ok).toBe(true);
-    expect(databaseEvents.length).toBe(2);
-    expect(databaseEvents[0]?.projectId).toBe("project-a");
-    expect(databaseEvents[0]?.affectedDatabaseBlockIds.join(",")).toBe(
-      "database-a",
-    );
-    expect(databaseEvents[1]?.projectId).toBe("project-b");
-    expect(databaseEvents[1]?.affectedDatabaseBlockIds.join(",")).toBe(
-      "database-b",
-    );
-    expect(
-      databaseEvents.every(
-        (event) => event.sourceKind === "card_project_transfer",
-      ),
-    ).toBe(true);
   });
 
   test("preserves an additional Document command and strict receipt through the FIFO", async () => {
@@ -576,138 +422,33 @@ describe("BlockMutationWriter", () => {
     expect(envelope.result.value.changeLogSeq).toBe(7);
   });
 
-  test("preserves an atomic Database operation batch through the FIFO", async () => {
+  test("carries canonical Database Module commands and publishes one invalidation", async () => {
     const worker = new FakeWorker();
     const databaseEvents: DatabaseChangeEvent[] = [];
     const writer = new BlockMutationWriter({
       createWorker: () => worker,
-      publishBoardEvent: () => undefined,
       publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
-    const input: DatabaseMutationRequest = {
+    const input: DatabaseApply = {
       version: 1,
-      operationId: "database-operation-1",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      clientSessionId: "trusted-window-1",
-      actor: { kind: "electron_renderer" },
-      operations: [
-        {
-          kind: "set_value",
-          cardBlockId: "card-1",
-          databaseBlockId: "database-1",
-          propertyId: "status-property",
-          expectedValueRevision: 1,
-          value: "done",
-        },
-        {
-          kind: "position_card",
-          viewId: "view-1",
-          cardBlockId: "card-1",
-          expectedPositionRevision: 1,
-          groupKey: "done",
-        },
-      ],
-    };
-
-    const pending = writer.applyDatabaseMutation(input);
-    const request = worker.messages[0];
-    expect(request?.type).toBe("applyDatabaseMutation");
-    if (!request || request.type !== "applyDatabaseMutation") return;
-    expect(request.payload.operationId).toBe("database-operation-1");
-    expect(request.payload.operations.length).toBe(2);
-    worker.emitMessage({
-      id: request.id,
-      ok: true,
-      result: {
-        ok: true,
-        value: {
-          version: 1,
-          operationId: "database-operation-1",
-          projectId: "project-1",
-          storeEpoch: "epoch-1",
-          operationKinds: ["set_value", "position_card"],
-          affectedDatabaseBlockIds: ["database-1"],
-          duplicate: false,
-          payload: { operationResults: [] },
-          changeLogSeq: 9,
-          committedAt: "2026-07-11T00:00:00.000Z",
-        },
-      },
-      events: [],
-      metrics: makeMetrics(request.mutationId),
-    });
-
-    const envelope = await pending;
-    expect(envelope.result.ok).toBe(true);
-    if (!envelope.result.ok) return;
-    expect(envelope.result.value.operationKinds.join(",")).toBe(
-      "set_value,position_card",
-    );
-    expect(envelope.result.value.changeLogSeq).toBe(9);
-    expect(databaseEvents.length).toBe(1);
-    expect(databaseEvents[0]?.affectedDatabaseBlockIds.join(",")).toBe(
-      "database-1",
-    );
-
-    const duplicatePending = writer.applyDatabaseMutation(input);
-    const duplicateRequest = worker.messages[1];
-    if (!duplicateRequest || duplicateRequest.type !== "applyDatabaseMutation") {
-      throw new Error("Expected duplicate Database request");
-    }
-    worker.emitMessage({
-      id: duplicateRequest.id,
-      ok: true,
-      result: {
-        ok: true,
-        value: {
-          ...envelope.result.value,
-          duplicate: true,
-        },
-      },
-      events: [],
-      metrics: makeMetrics(duplicateRequest.mutationId),
-    });
-    const duplicate = await duplicatePending;
-    expect(duplicate.result.ok && duplicate.result.value.duplicate).toBe(true);
-    expect(databaseEvents.length).toBe(1);
-
-  });
-
-  test("publishes schema-only Database receipts without inventing Card summary events", async () => {
-    const worker = new FakeWorker();
-    const boardEvents: BoardChangeEvent[] = [];
-    const databaseEvents: DatabaseChangeEvent[] = [];
-    const writer = new BlockMutationWriter({
-      createWorker: () => worker,
-      publishBoardEvent: (event) => boardEvents.push(event),
-      publishDatabaseEvent: (event) => databaseEvents.push(event),
-    });
-    const input: DatabaseMutationRequest = {
-      version: 1,
-      operationId: "database-schema-operation-1",
+      operationId: "database-module-operation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
       actor: { kind: "test" },
-      operations: [
-        {
-          kind: "put_property",
-          databaseBlockId: "database-1",
-          propertyId: "property-1",
-          expectedDatabaseSchemaRevision: 1,
-          expectedPropertyRevision: 0,
-          key: "owner",
-          name: "Owner",
-          valueType: "person",
-          config: {},
-        },
-      ],
+      operations: [{
+        kind: "set_value",
+        pageId: "page-1",
+        dataSourceId: "source-1",
+        propertyId: "property-1",
+        expectedValueRevision: 1,
+        value: "done",
+      }],
     };
-    const pending = writer.applyDatabaseMutation(input);
+
+    const pending = writer.applyDatabaseModule(input);
     const request = worker.messages[0];
-    if (!request || request.type !== "applyDatabaseMutation") {
-      throw new Error("Expected Database schema request");
-    }
+    expect(request?.type).toBe("applyDatabaseModule");
+    if (!request || request.type !== "applyDatabaseModule") return;
     worker.emitMessage({
       id: request.id,
       ok: true,
@@ -717,23 +458,34 @@ describe("BlockMutationWriter", () => {
           version: 1,
           operationId: input.operationId,
           projectId: input.projectId,
+          libraryId: "library-1",
           storeEpoch: input.storeEpoch,
-          operationKinds: ["put_property"],
-          affectedDatabaseBlockIds: ["database-1"],
           duplicate: false,
-          payload: {},
-          changeLogSeq: 10,
-          committedAt: "2026-07-11T00:00:00.000Z",
+          operationKinds: ["set_value"],
+          affectedDatabaseIds: ["database-1"],
+          affectedDataSourceIds: ["source-1"],
+          affectedPageIds: ["page-1"],
+          affectedViewIds: ["view-1"],
+          committedRevisions: { "value:page-1:property-1": 2 },
+          changeLogSeq: 11,
+          committedAt: "2026-07-16T00:00:00.000Z",
         },
       },
       events: [],
       metrics: makeMetrics(request.mutationId),
     });
-    await pending;
 
-    expect(boardEvents.length).toBe(0);
-    expect(databaseEvents.length).toBe(1);
-    expect(databaseEvents[0]?.sourceKind).toBe("database_mutation");
+    const result = await pending;
+    expect(result.result.ok).toBe(true);
+    expect(databaseEvents).toEqual([
+      expect.objectContaining({
+        sourceKind: "database_module",
+        affectedDatabaseIds: ["database-1"],
+        affectedDataSourceIds: ["source-1"],
+        affectedPageIds: ["page-1"],
+        affectedViewIds: ["view-1"],
+      }),
+    ]);
   });
 
   test("preserves BlockTransfer binaries and publishes one Database invalidation", async () => {
@@ -819,7 +571,7 @@ describe("BlockMutationWriter", () => {
       expect.objectContaining({
         sourceKind: "block_transfer",
         operationId: input.operationId,
-        affectedDatabaseBlockIds: ["database-1"],
+        affectedDatabaseIds: ["database-1"],
       }),
     ]);
   });
@@ -830,33 +582,31 @@ describe("BlockMutationWriter", () => {
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
-    const pending = writer.readCardLifecyclePreflight(
+    const pending = writer.readPageLifecyclePreflight(
       "project-1",
       "card-1",
     );
     const request = worker.messages[0];
-    expect(request?.type).toBe("readCardLifecyclePreflight");
-    if (!request || request.type !== "readCardLifecyclePreflight") return;
+    expect(request?.type).toBe("readPageLifecyclePreflight");
+    if (!request || request.type !== "readPageLifecyclePreflight") return;
     expect(request.payload.projectId).toBe("project-1");
-    expect(request.payload.cardId).toBe("card-1");
+    expect(request.payload.pageId).toBe("card-1");
     worker.emitMessage({
       id: request.id,
       ok: true,
       result: {
-        ok: true,
-        value: {
-          version: 1,
-          projectId: "project-1",
-          storeEpoch: "epoch-1",
-          changeLogSeq: 4,
-          value: null,
+        ok: false,
+        error: {
+          code: "page_not_found",
+          message: "Page does not exist",
+          retryable: false,
         },
       },
       events: [],
       metrics: { ...makeMetrics(request.mutationId), eventCount: 0 },
     });
     const envelope = await pending;
-    expect(envelope.result.ok).toBe(true);
+    expect(envelope.result.ok).toBe(false);
     expect(envelope.events.length).toBe(0);
   });
 
@@ -868,24 +618,24 @@ describe("BlockMutationWriter", () => {
       publishBoardEvent: () => undefined,
       publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
-    const input: CardLifecycleMutationRequest = {
+    const input: PageLifecycleMutationRequest = {
       version: 1,
-      operationId: "card-lifecycle-operation-1",
+      operationId: "page-lifecycle-operation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
       clientSessionId: "trusted-window-1",
       actor: { kind: "electron_renderer", windowId: "window-1" },
       operation: {
-        kind: "archive_card",
-        cardId: "card-1",
+        kind: "archive_page",
+        pageId: "card-1",
         expectedMetadataRevision: 3,
       },
     };
 
-    const pending = writer.applyCardLifecycleMutation(input);
+    const pending = writer.applyPageLifecycleMutation(input);
     const request = worker.messages[0];
-    expect(request?.type).toBe("applyCardLifecycleMutation");
-    if (!request || request.type !== "applyCardLifecycleMutation") return;
+    expect(request?.type).toBe("applyPageLifecycleMutation");
+    if (!request || request.type !== "applyPageLifecycleMutation") return;
     expect(request.payload.operationId).toBe(input.operationId);
     expect(request.payload.storeEpoch).toBe(input.storeEpoch);
     expect(request.payload.clientSessionId).toBe(input.clientSessionId);
@@ -900,19 +650,20 @@ describe("BlockMutationWriter", () => {
           operationId: input.operationId,
           projectId: input.projectId,
           storeEpoch: input.storeEpoch,
-          operationKind: "archive_card",
-          cardId: "card-1",
+          operationKind: "archive_page",
+          pageId: "card-1",
           duplicate: false,
           metadataRevision: 4,
-          locationRevision: 1,
+          parentRevision: 1,
           lifecycle: "archived",
           documentId: "document:card-1",
           documentGeneration: 1,
           documentHeadSeq: 1,
-          databaseBlockId: "database-1",
+          databaseId: "database-1",
+          dataSourceId: "database-1:initial",
           membershipId: "membership-1",
           viewId: "view-1",
-          topLevelRankKey: "a0",
+          libraryRankKey: "a0",
           viewRankKey: "a0",
           createdBlockIds: [],
           changeLogSeq: 10,
@@ -930,16 +681,16 @@ describe("BlockMutationWriter", () => {
     expect(envelope.result.value.lifecycle).toBe("archived");
     expect(envelope.result.value.changeLogSeq).toBe(10);
     expect(databaseEvents.length).toBe(1);
-    expect(databaseEvents[0]?.sourceKind).toBe("card_lifecycle");
-    expect(databaseEvents[0]?.affectedDatabaseBlockIds.join(",")).toBe(
+    expect(databaseEvents[0]?.sourceKind).toBe("page_lifecycle");
+    expect(databaseEvents[0]?.affectedDatabaseIds.join(",")).toBe(
       "database-1",
     );
 
-    const duplicatePending = writer.applyCardLifecycleMutation(input);
+    const duplicatePending = writer.applyPageLifecycleMutation(input);
     const duplicateRequest = worker.messages[1];
     if (
       !duplicateRequest ||
-      duplicateRequest.type !== "applyCardLifecycleMutation"
+      duplicateRequest.type !== "applyPageLifecycleMutation"
     ) {
       throw new Error("Expected duplicate lifecycle request");
     }
@@ -957,14 +708,14 @@ describe("BlockMutationWriter", () => {
     expect(duplicate.result.ok && duplicate.result.value.duplicate).toBe(true);
     expect(databaseEvents.length).toBe(1);
 
-    const rejectedPending = writer.applyCardLifecycleMutation({
+    const rejectedPending = writer.applyPageLifecycleMutation({
       ...input,
-      operationId: "card-lifecycle-operation-rejected",
+      operationId: "page-lifecycle-operation-rejected",
     });
     const rejectedRequest = worker.messages[2];
     if (
       !rejectedRequest ||
-      rejectedRequest.type !== "applyCardLifecycleMutation"
+      rejectedRequest.type !== "applyPageLifecycleMutation"
     ) {
       throw new Error("Expected rejected lifecycle request");
     }
@@ -977,8 +728,8 @@ describe("BlockMutationWriter", () => {
           code: "metadata_revision_conflict",
           message: "metadata changed",
           retryable: false,
-          operationId: "card-lifecycle-operation-rejected",
-          cardId: "card-1",
+          operationId: "page-lifecycle-operation-rejected",
+          pageId: "card-1",
           expectedRevision: 3,
           actualRevision: 4,
         },
@@ -1189,13 +940,13 @@ describe("BlockMutationWriter", () => {
   test("publishes committed board and Card target events once after the worker ACK", async () => {
     const worker = new FakeWorker();
     const published: BoardChangeEvent[] = [];
-    const publishedTargets: CardTargetChangedEvent[] = [];
+    const publishedTargets: PageTargetChangedEvent[] = [];
     const writer = new BlockMutationWriter({
       createWorker: () => worker,
       publishBoardEvent: (event) => {
         published.push(event);
       },
-      publishCardTargetEvent: (event) => {
+      publishPageTargetEvent: (event) => {
         publishedTargets.push(event);
       },
     });
@@ -1242,13 +993,13 @@ describe("BlockMutationWriter", () => {
         changeType: "update",
         columnId: "draft",
         status: "draft",
-        cardId: "card-1",
+        pageId: "card-1",
         summary,
         mutationId: firstRequest.mutationId,
       }],
       targetEvents: [{
-        projectId: "project-1",
-        targetBlockId: "card-1",
+        libraryId: "library-1",
+        targetPageId: "card-1",
         changeKind: "content",
         document: { id: input.documentId, generation: 1, headSeq: 4 },
       }],
@@ -1337,7 +1088,7 @@ describe("BlockMutationWriter", () => {
         changeType: "update",
         columnId: "draft",
         status: "draft",
-        cardId: "card-1",
+        pageId: "card-1",
         summary: makeSummary(),
         mutationId: request.mutationId,
       }],
@@ -1504,13 +1255,13 @@ describe("BlockMutationWriter", () => {
       result: {
         projectId: "project-1",
         ownerBlockId: "card-1",
-        ownerType: "card",
+        ownerType: "page",
         ownerLifecycle: "active",
         documentId: "document:card-1",
         storeEpoch: "store-1",
         generation: 1,
         headSeq: 3,
-        schemaKey: "nodex.card",
+        schemaKey: "nodex.page",
         schemaVersion: 2,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array([1, 2]) },

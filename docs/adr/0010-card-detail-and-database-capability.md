@@ -1,6 +1,6 @@
 # ADR 0010: Card Detail is independent from Database membership
 
-- Status: Superseded in part by ADR 0013
+- Status: Superseded by ADR 0017
 - Date: 2026-07-14
 - Owners: Nodex maintainers
 - Extends: ADR 0001, ADR 0003, ADR 0006, and ADR 0007

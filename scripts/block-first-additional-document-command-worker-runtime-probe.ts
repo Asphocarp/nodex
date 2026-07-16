@@ -14,7 +14,7 @@ import {
   ADDITIONAL_DOCUMENT_COMMAND_VERSION,
   parseAdditionalDocumentCommandRequest,
 } from "../src/shared/additional-document-commands";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,

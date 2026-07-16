@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import type { DatabaseViewReadModel } from "../../../../shared/database-views";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
-import type { CardSummary } from "@/lib/types";
+import type { DatabasePageSummary } from "@/lib/types";
 import { DatabaseViewReferenceSurface } from "@/components/block-documents/reference-block-surfaces";
 import {
   BlockDisclosureStateStore,
@@ -14,8 +14,8 @@ import {
 const makeCard = (
   id: string,
   title: string,
-  status: CardSummary["status"],
-): CardSummary => ({
+  status: DatabasePageSummary["status"],
+): DatabasePageSummary => ({
   id,
   status,
   archived: false,
@@ -49,7 +49,7 @@ const VIEW: DatabaseViewReadModel = {
     makeCard("bf-07", "Cut history and search over", "backlog"),
     makeCard("bf-08", "Generalize durable Database views", "draft"),
     makeCard("bf-09", "Add document-bearing Block types", "draft"),
-  ].map((card, index) => ({ card, groupKey: null, rankKey: String(index) })),
+  ].map((card, index) => ({ page: card, groupKey: null, rankKey: String(index) })),
 };
 
 function DatabaseViewReferenceStory() {
@@ -70,7 +70,7 @@ function DatabaseViewReferenceStory() {
           disclosureStore={disclosureStore}
           activationBudget={activationBudget}
           visibilityOverride
-          onOpenCard={() => undefined}
+          onOpenPage={() => undefined}
           renderDocument={({ card }) => (
             <div className="py-2 text-sm text-token-text-secondary">
               Independent Y.Doc surface for {card.title}

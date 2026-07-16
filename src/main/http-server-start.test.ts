@@ -100,7 +100,7 @@ describe("http server startup options", () => {
     expect(responses.every((response) => response.status === 404)).toBe(true);
   });
 
-  test("retires ordinary Card title and body snapshot HTTP writes", async () => {
+  test("does not expose retired Card title or body snapshot HTTP writes", async () => {
     const options = getHttpServerOptions(51283);
     const responses = await Promise.all([
       options.fetch(
@@ -122,14 +122,6 @@ describe("http server startup options", () => {
       ),
     ]);
     expect(responses[0]?.status).toBe(404);
-    expect(responses[1]?.status).toBe(410);
-    const descriptionPayload = await responses[1]?.json() as {
-      error?: string;
-      replacement?: string;
-    };
-    expect(descriptionPayload.error?.includes("Card Document") ?? false).toBe(true);
-    expect(descriptionPayload.replacement).toBe(
-      "POST /api/projects/:projectId/documents/:documentId/mutations",
-    );
+    expect(responses[1]?.status).toBe(404);
   });
 });

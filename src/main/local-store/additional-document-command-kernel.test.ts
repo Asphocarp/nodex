@@ -4,10 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
-import { createUuidV7 } from "../../shared/card-id";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { ADDITIONAL_DOCUMENT_COMMAND_VERSION } from "../../shared/additional-document-commands";
 import {
-  createDetachedCardDocumentFromBlockTree,
+  createDetachedPageDocumentFromBlockTree,
   type BlockTreeNode,
 } from "../../shared/block-documents/block-document-codec";
 import { applyAdditionalDocumentCommand } from "./additional-document-command-kernel";
@@ -51,7 +51,7 @@ const paragraph = (
   children,
 });
 
-const seedCardDocument = (
+const seedPageDocument = (
   database: Database.Database,
   input: {
     readonly projectId: string;
@@ -68,7 +68,7 @@ const seedCardDocument = (
         id, project_id, type, lifecycle, location_kind,
         containing_document_id, location_revision, metadata_revision,
         created_at, updated_at
-      ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+      ) VALUES (?, ?, 'page', 'active', 'space', NULL, 1, 1, ?, ?)
     `,
     )
     .run(input.cardId, input.projectId, now, now);
@@ -88,7 +88,7 @@ const seedCardDocument = (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority,
         genesis_source_revision, created_at, updated_at
-      ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
+      ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', '',
         'pending_genesis', 'legacy_shadow', NULL, ?, ?)
     `,
     )
@@ -101,7 +101,7 @@ const seedCardDocument = (
     `,
     )
     .run(input.cardId, input.documentId, input.projectId, now);
-  const detached = createDetachedCardDocumentFromBlockTree({
+  const detached = createDetachedPageDocumentFromBlockTree({
     documentId: input.documentId,
     title: input.cardId,
     blockTree: input.blockTree,
@@ -200,7 +200,7 @@ describe("additional Document authoritative command kernel", () => {
         const childBlockId = createUuidV7();
         const referenceBlockId = createUuidV7();
         const sourceBlockId = createUuidV7();
-        seedCardDocument(database, {
+        seedPageDocument(database, {
           projectId,
           cardId: hostCardId,
           documentId: "document:sync-host",
@@ -411,7 +411,7 @@ describe("additional Document authoritative command kernel", () => {
         const targetAnchorId = createUuidV7();
         const templateSourceId = createUuidV7();
         const templateRootId = createUuidV7();
-        seedCardDocument(database, {
+        seedPageDocument(database, {
           projectId,
           cardId: targetCardId,
           documentId: "document:target",
@@ -665,14 +665,14 @@ describe("additional Document authoritative command kernel", () => {
           }),
         );
         if (!created.ok) throw new Error(created.error.message);
-        seedCardDocument(database, {
+        seedPageDocument(database, {
           projectId,
           cardId: referenceHostCardId,
           documentId: "document:reference-host",
           blockTree: [
             {
               id: referenceBlockId,
-              type: "cardRef",
+              type: "pageRef",
               props: {
                 targetBlockId: referencedOwnerId,
               },

@@ -4,8 +4,8 @@ import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
-  buildNfmCardMentionBlock,
-  buildNfmCardMentionSuggestionItem,
+  buildNfmPageMentionBlock,
+  buildNfmPageMentionSuggestionItem,
   buildNfmDateMentionInlineContent,
   buildNfmMentionSuggestionItems,
   buildNfmThreadMentionInlineContent,
@@ -22,8 +22,8 @@ import {
   NFM_SUGGESTION_MENU_Z_INDEX,
 } from "./nfm-blocknote-floating-ui";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
-import type { CommandPaletteCard, CommandPaletteThread } from "@/lib/command-palette";
-import type { CardSummary, CodexThreadSummary, Project } from "@/lib/types";
+import type { CommandPalettePage, CommandPaletteThread } from "@/lib/command-palette";
+import type { DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 
 function makeItems(): DefaultReactSuggestionItem[] {
@@ -108,6 +108,10 @@ function createMentionThread(overrides: Partial<CodexThreadSummary> = {}): Codex
 function createMentionProject(): Project {
   return {
     id: "project-1",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Alpha",
     description: "",
     sources: [],
@@ -119,11 +123,11 @@ function createMentionProject(): Project {
   };
 }
 
-function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
+function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   const descriptionPreview = overrides.descriptionPreview ?? "Add shared mention search.";
-  const title = overrides.title ?? "Mention search card";
+  const title = overrides.title ?? "Mention search page";
   return {
-    id: overrides.id ?? "card-1",
+    id: overrides.id ?? "page-1",
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     descriptionPreview,
@@ -153,16 +157,16 @@ function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
   };
 }
 
-function makePaletteCard(overrides: Partial<CommandPaletteCard> = {}): CommandPaletteCard {
-  const card = overrides.card ?? makeCard();
+function makePalettePage(overrides: Partial<CommandPalettePage> = {}): CommandPalettePage {
+  const page = overrides.page ?? makePage();
   return {
-    kind: "card",
-    id: overrides.id ?? `${overrides.projectId ?? "project-1"}:${card.id}`,
+    kind: "page",
+    id: overrides.id ?? `${overrides.projectId ?? "project-1"}:${page.id}`,
     projectId: overrides.projectId ?? "project-1",
     projectName: overrides.projectName ?? "Alpha",
     projectIcon: overrides.projectIcon ?? "",
     columnName: overrides.columnName ?? "Doing",
-    card,
+    page,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,
@@ -197,7 +201,7 @@ function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): Comma
 }
 
 describe("NfmSlashMenu", () => {
-  test("slash commands never create unresolved Card or legacy Database references", () => {
+  test("slash commands never create unresolved Page or legacy Database references", () => {
     const items = getNfmSlashMenuCustomItems({});
     const keys = items
       .map((item) => (item as { key?: string }).key ?? "")
@@ -221,8 +225,8 @@ describe("NfmSlashMenu", () => {
 
   test("mention suggestion builders expose command-palette snippets in compact row tooltips", () => {
     const editor = {};
-    const cardItem = buildNfmCardMentionSuggestionItem(editor, makePaletteCard({
-      card: makeCard({ id: "card-snippet", title: "Searchable card", status: "backlog" }),
+    const cardItem = buildNfmPageMentionSuggestionItem(editor, makePalettePage({
+      page: makePage({ id: "page-snippet", title: "Searchable page", status: "backlog" }),
       searchPreview: {
         excerpt: "Description-only vector clock hit.",
         segments: [{ text: "Description-only vector clock hit.", highlight: true }],
@@ -237,9 +241,9 @@ describe("NfmSlashMenu", () => {
       },
     }));
 
-    expect(cardItem.group).toBe("Cards");
+    expect(cardItem.group).toBe("Pages");
     expect(cardItem.subtext?.includes("Description-only vector clock")).toBe(true);
-    expect(cardItem.subtext?.includes("card-snippet")).toBe(false);
+    expect(cardItem.subtext?.includes("page-snippet")).toBe(false);
     expect(resolveNfmSuggestionHint(cardItem)).toBe(null);
     expect(threadItem.group).toBe("Chats");
     expect(threadItem.subtext?.includes("Transcript-only approval heuristic")).toBe(true);
@@ -247,10 +251,10 @@ describe("NfmSlashMenu", () => {
     expect(resolveNfmSuggestionHint(threadItem)).toBe(null);
   });
 
-  test("mention payload helpers preserve cardRef and threadMention storage shapes", () => {
-    const cardBlock = buildNfmCardMentionBlock(makePaletteCard({
+  test("mention payload helpers preserve pageRef and threadMention storage shapes", () => {
+    const pageRefBlock = buildNfmPageMentionBlock(makePalettePage({
       projectId: "project-2",
-      card: makeCard({ id: "card-2" }),
+      page: makePage({ id: "page-2" }),
     })) as {
       type?: string;
       props?: Record<string, unknown> & {
@@ -261,11 +265,11 @@ describe("NfmSlashMenu", () => {
       threadId: "thr-payload",
     })) as Array<{ type?: string; props?: { uuid?: string } } | string>;
 
-    expect(cardBlock.type).toBe("cardRef");
-    expect(cardBlock.props?.targetBlockId).toBe("card-2");
-    expect(Object.hasOwn(cardBlock.props ?? {}, "displayHint")).toBe(false);
-    expect(Object.hasOwn(cardBlock.props ?? {}, "sourceProjectId")).toBe(false);
-    expect(Object.hasOwn(cardBlock.props ?? {}, "cardId")).toBe(false);
+    expect(pageRefBlock.type).toBe("pageRef");
+    expect(pageRefBlock.props?.targetBlockId).toBe("page-2");
+    expect(Object.hasOwn(pageRefBlock.props ?? {}, "displayHint")).toBe(false);
+    expect(Object.hasOwn(pageRefBlock.props ?? {}, "sourceProjectId")).toBe(false);
+    expect(Object.hasOwn(pageRefBlock.props ?? {}, "pageId")).toBe(false);
     const firstThreadContent = threadContent[0];
     expect(typeof firstThreadContent === "string").toBe(false);
     if (typeof firstThreadContent === "string") return;
@@ -274,7 +278,7 @@ describe("NfmSlashMenu", () => {
     expect(threadContent[1]).toBe(" ");
   });
 
-  test("mention suggestion mapping groups current-project chats and cards first", () => {
+  test("mention suggestion mapping groups current-project chats and Pages first", () => {
     const items = buildNfmMentionSuggestionItems({
       editor: {},
       threadResults: [
@@ -302,15 +306,15 @@ describe("NfmSlashMenu", () => {
           inActiveProject: false,
         }),
       ],
-      cardResults: [
-        makePaletteCard({
+      pageResults: [
+        makePalettePage({
           projectId: "project-2",
           projectName: "Beta",
-          card: makeCard({ id: "other-card", title: "Other project card" }),
+          page: makePage({ id: "other-page", title: "Other project page" }),
           inActiveProject: false,
         }),
-        makePaletteCard({
-          card: makeCard({ id: "active-card", title: "Current project card" }),
+        makePalettePage({
+          page: makePage({ id: "active-page", title: "Current project page" }),
           inActiveProject: true,
         }),
       ],
@@ -319,7 +323,7 @@ describe("NfmSlashMenu", () => {
     expect(items.length).toBe(7);
     expect(items[0]?.title).toBe("Current project thread");
     expect(items[0]?.group).toBe("Current project");
-    expect(items[1]?.title).toBe("Current project card");
+    expect(items[1]?.title).toBe("Current project page");
     expect(items[1]?.group).toBe("Current project");
     expect(items[2]?.title).toBe("Today");
     expect(items[2]?.group).toBe("Dates");
@@ -329,8 +333,8 @@ describe("NfmSlashMenu", () => {
     expect(items[4]?.group).toBe("Chats");
     expect(items[5]?.title).toBe("Projectless thread");
     expect(items[5]?.group).toBe("Chats");
-    expect(items[6]?.title).toBe("Other project card");
-    expect(items[6]?.group).toBe("Cards");
+    expect(items[6]?.title).toBe("Other project page");
+    expect(items[6]?.group).toBe("Pages");
   });
 
   test("mention suggestion mapping preserves search-preview-only matches without substring filtering", () => {
@@ -344,13 +348,13 @@ describe("NfmSlashMenu", () => {
           segments: [{ text: "Only transcript content matched the query.", highlight: true }],
         },
       })],
-      cardResults: [makePaletteCard({
-        card: makeCard({
-          title: "Unrelated card title",
+      pageResults: [makePalettePage({
+        page: makePage({
+          title: "Unrelated page title",
         }),
         searchPreview: {
-          excerpt: "Only card description matched the query.",
-          segments: [{ text: "Only card description matched the query.", highlight: true }],
+          excerpt: "Only page description matched the query.",
+          segments: [{ text: "Only page description matched the query.", highlight: true }],
         },
       })],
     });
@@ -359,7 +363,7 @@ describe("NfmSlashMenu", () => {
     expect(items[0]?.group).toBe("Current project");
     expect(items[0]?.subtext?.includes("Only transcript content")).toBe(true);
     expect(items[1]?.group).toBe("Current project");
-    expect(items[1]?.subtext?.includes("Only card description")).toBe(true);
+    expect(items[1]?.subtext?.includes("Only page description")).toBe(true);
     expect(items[2]?.title).toBe("Today");
     expect(items[3]?.title).toBe("Now");
   });
@@ -369,7 +373,7 @@ describe("NfmSlashMenu", () => {
       editor: {},
       query: "today",
       threadResults: [makePaletteThread({ title: "Current project thread" })],
-      cardResults: [makePaletteCard({ card: makeCard({ title: "Current project card" }) })],
+      pageResults: [makePalettePage({ page: makePage({ title: "Current project page" }) })],
     });
 
     expect(items.length > 0).toBe(true);
@@ -538,7 +542,7 @@ describe("NfmSlashMenu", () => {
       onItemClick: () => undefined,
     })).toBe("/custom-command");
     expect(resolveNfmSuggestionHint({
-      title: "Mention card",
+      title: "Mention page",
       badge: "@",
       onItemClick: () => undefined,
     })).toBe("@");
@@ -664,11 +668,11 @@ describe("NfmSlashMenu", () => {
           segments: [{ text: "Compact transcript snippet.", highlight: true }],
         },
       })),
-      buildNfmCardMentionSuggestionItem({}, makePaletteCard({
-        card: makeCard({ id: "raw-card-id", title: "Searchable card" }),
+      buildNfmPageMentionSuggestionItem({}, makePalettePage({
+        page: makePage({ id: "raw-uuid-v7", title: "Searchable page" }),
         searchPreview: {
-          excerpt: "Compact card snippet.",
-          segments: [{ text: "Compact card snippet.", highlight: true }],
+          excerpt: "Compact page snippet.",
+          segments: [{ text: "Compact page snippet.", highlight: true }],
         },
       })),
     ];
@@ -698,14 +702,14 @@ describe("NfmSlashMenu", () => {
     expect(tooltipText.includes("Alpha")).toBe(true);
     expect(tooltipText.includes("Compact transcript snippet.")).toBe(true);
     expect(tooltipText.includes("raw-thread-id")).toBe(false);
-    expect(tooltipText.includes("raw-card-id")).toBe(false);
+    expect(tooltipText.includes("raw-uuid-v7")).toBe(false);
     expect(tooltipText.includes(rawCwd)).toBe(false);
   });
 
-  test("card mention tooltips suppress duplicate column and status labels", async () => {
-    const item = buildNfmCardMentionSuggestionItem({}, makePaletteCard({
+  test("page mention tooltips suppress duplicate column and status labels", async () => {
+    const item = buildNfmPageMentionSuggestionItem({}, makePalettePage({
       columnName: "Draft",
-      card: makeCard({ id: "draft-card", title: "Draft card", status: "draft" }),
+      page: makePage({ id: "draft-page", title: "Draft page", status: "draft" }),
     }));
     const view = renderSuggestionMenu(
       {

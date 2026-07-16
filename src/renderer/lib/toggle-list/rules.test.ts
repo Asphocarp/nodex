@@ -182,7 +182,7 @@ describe("toggle-list rules", () => {
     expect(ranked.map((card) => card.id).join(",")).toBe("a-card,b-card,c-card");
   });
 
-  test("filterCards excludes cards passed in excludedCardIds", () => {
+  test("filterCards excludes cards passed in excludedPageIds", () => {
     const cards = [
       makeCard({ id: "host-card", title: "Host card" }),
       makeCard({ id: "other-card", title: "Other card", boardIndex: 1 }),
@@ -192,7 +192,7 @@ describe("toggle-list rules", () => {
       cards,
       makeSettings(),
       "",
-      { excludedCardIds: new Set(["host-card"]) },
+      { excludedPageIds: new Set(["host-card"]) },
     );
 
     expect(filtered.length).toBe(1);

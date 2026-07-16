@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { MAX_CARD_TITLE_LENGTH } from "../card-limits";
+import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
 import {
   parseInlineMarkdownTitle,
   serializeInlineMarkdownTitle,
@@ -43,8 +43,8 @@ describe("Agent inline Markdown titles", () => {
       "# Heading",
       "- List item",
       "▶ Toggle",
-      '<card uuid="card-1" />',
-      '<mention-card url="nodex://cards/card-1" />',
+      '<page uuid="card-1" />',
+      '<page-ref url="nodex://pages/card-1" />',
       "parent\tchild",
       "first\nsecond",
       "first<br>second",
@@ -56,8 +56,8 @@ describe("Agent inline Markdown titles", () => {
   });
 
   test("enforces the canonical title length rather than markup length", () => {
-    expect(() => parseInlineMarkdownTitle("x".repeat(MAX_CARD_TITLE_LENGTH))).not.toThrow();
-    expect(() => parseInlineMarkdownTitle("x".repeat(MAX_CARD_TITLE_LENGTH + 1))).toThrow(
+    expect(() => parseInlineMarkdownTitle("x".repeat(MAX_PAGE_TITLE_LENGTH))).not.toThrow();
+    expect(() => parseInlineMarkdownTitle("x".repeat(MAX_PAGE_TITLE_LENGTH + 1))).toThrow(
       /exceeds/u,
     );
   });

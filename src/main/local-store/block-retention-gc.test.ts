@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
-import { createCardDocumentGenesis } from "../../shared/block-documents/block-document-codec";
+import { createPageDocumentGenesis } from "../../shared/block-documents/block-document-codec";
 import {
   closeDatabase,
   getDb,
@@ -18,7 +18,7 @@ import {
   type BlockRetentionGcCandidate,
 } from "./block-retention-gc";
 import {
-  isCanvasCardReferenceProjectionCurrent,
+  isCanvasPageReferenceProjectionCurrent,
   isCanvasFileProjectionCurrent,
 } from "./canvas-scene-projection-equivalence";
 
@@ -107,7 +107,7 @@ const seedOwnedDocument = (
   seedBlock(database, {
     id: input.ownerBlockId,
     projectId: input.projectId,
-    type: "card",
+    type: "page",
     lifecycle: input.lifecycle,
   });
   const now = new Date().toISOString();
@@ -118,7 +118,7 @@ const seedOwnedDocument = (
         id, project_id, generation, head_seq, schema_key, schema_version,
         state_vector, state_hash, readiness, authority,
         genesis_source_revision, created_at, updated_at
-      ) VALUES (?, ?, 1, ?, 'nodex.card', 2, X'', '',
+      ) VALUES (?, ?, 1, ?, 'nodex.page', 2, X'', '',
         'ready', 'ydoc_primary', NULL, ?, ?)
     `,
     )
@@ -200,10 +200,10 @@ describe("Block retention GC kernel", () => {
     ];
 
     expect(
-      isCanvasCardReferenceProjectionCurrent(authority, sqliteBinaryOrder),
+      isCanvasPageReferenceProjectionCurrent(authority, sqliteBinaryOrder),
     ).toBe(true);
     expect(
-      isCanvasCardReferenceProjectionCurrent(authority, [
+      isCanvasPageReferenceProjectionCurrent(authority, [
         ...sqliteBinaryOrder.slice(0, 2),
         { source_element_id: "sIV", target_block_id: "another-card" },
       ]),
@@ -315,7 +315,7 @@ describe("Block retention GC kernel", () => {
       seedBlock(database, {
         id: "gc:missing-ownership",
         projectId,
-        type: "card",
+        type: "page",
       });
       expect(
         hasBlocker(
@@ -384,7 +384,7 @@ describe("Block retention GC kernel", () => {
             version_id, document_id, project_id, generation, base_head_seq,
             schema_key, schema_version, cause, label, actor_json,
             full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
-          ) VALUES (?, ?, ?, 1, 0, 'nodex.card', 2, 'test', NULL, '{}',
+          ) VALUES (?, ?, ?, 1, 0, 'nodex.page', 2, 'test', NULL, '{}',
             X'01', X'', ?, 1, ?)`,
         )
         .run("version:gc-evidence", "document:gc-evidence", projectId, hash, now);
@@ -449,7 +449,7 @@ describe("Block retention GC kernel", () => {
       seedBlock(database, {
         id: "gc:database-card",
         projectId,
-        type: "card",
+        type: "page",
       });
       const primary = database
         .prepare(
@@ -474,7 +474,7 @@ describe("Block retention GC kernel", () => {
       database
         .prepare(
           `INSERT INTO database_memberships (
-            id, database_block_id, card_block_id, project_id,
+            id, database_block_id, page_block_id, project_id,
             revision, created_at, removed_at
           ) VALUES (?, ?, ?, ?, 1, ?, NULL)`,
         )
@@ -495,13 +495,13 @@ describe("Block retention GC kernel", () => {
           `INSERT INTO project_session_tabs (
             id, session_id, project_id, panel_id, kind, title,
             config_json, state_key, state_json, "order", created_at, updated_at
-          ) VALUES (?, ?, ?, 'right', 'card_stage', 'GC card', ?, 0, '{}', 99, ?, ?)`,
+          ) VALUES (?, ?, ?, 'right', 'page_stage', 'GC card', ?, 0, '{}', 99, ?, ?)`,
         )
         .run(
           "tab:gc-card",
           session.id,
           projectId,
-          JSON.stringify({ projectId, cardId: "gc:database-card" }),
+          JSON.stringify({ projectId, pageId: "gc:database-card" }),
           now,
           now,
         );
@@ -518,7 +518,7 @@ describe("Block retention GC kernel", () => {
       seedBlock(database, {
         id: "gc:cross-target",
         projectId: targetProjectId,
-        type: "card",
+        type: "page",
       });
       seedOwnedDocument(database, {
         ownerBlockId: "gc:cross-host",
@@ -552,7 +552,7 @@ describe("Block retention GC kernel", () => {
           `INSERT INTO project_session_tabs (
             id, session_id, project_id, panel_id, kind, title,
             config_json, state_key, state_json, "order", created_at, updated_at
-          ) VALUES (?, ?, ?, 'right', 'card_stage', 'Cross target', ?, 0, '{}', 99, ?, ?)`,
+          ) VALUES (?, ?, ?, 'right', 'page_stage', 'Cross target', ?, 0, '{}', 99, ?, ?)`,
         )
         .run(
           "tab:gc-cross-target",
@@ -560,7 +560,7 @@ describe("Block retention GC kernel", () => {
           hostProject.id,
           JSON.stringify({
             projectId: targetProjectId,
-            cardId: "gc:cross-target",
+            pageId: "gc:cross-target",
           }),
           now,
           now,
@@ -572,7 +572,7 @@ describe("Block retention GC kernel", () => {
       seedBlock(database, {
         id: "gc:historical-target",
         projectId: targetProjectId,
-        type: "card",
+        type: "page",
       });
       seedOwnedDocument(database, {
         ownerBlockId: "gc:history-host",
@@ -583,10 +583,10 @@ describe("Block retention GC kernel", () => {
       seedBlockTreeProjection(database, {
         documentId: "document:gc-history-host",
       });
-      const detached = createCardDocumentGenesis({
+      const detached = createPageDocumentGenesis({
         documentId: "document:gc-history-host",
         title: "Historical host",
-        nfm: '<mention-card url="nodex://cards/gc%3Ahistorical-target" />',
+        nfm: '<page-ref url="nodex://pages/gc%3Ahistorical-target" />',
         allocateBlockId: () => "gc:historical-source",
       });
       try {
@@ -598,7 +598,7 @@ describe("Block retention GC kernel", () => {
               version_id, document_id, project_id, generation, base_head_seq,
               schema_key, schema_version, cause, label, actor_json,
               full_update_blob, state_vector, checkpoint_hash, byte_length, created_at
-            ) VALUES (?, ?, ?, 1, 0, 'nodex.card', 2, 'test', NULL, '{}',
+            ) VALUES (?, ?, ?, 1, 0, 'nodex.page', 2, 'test', NULL, '{}',
               ?, ?, ?, ?, ?)`,
           )
           .run(

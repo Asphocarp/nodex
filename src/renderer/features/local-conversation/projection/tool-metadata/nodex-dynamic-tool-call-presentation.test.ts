@@ -26,14 +26,14 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
   test("makes search and create targets visible in compact transcript labels", () => {
     const search = resolveNodexDynamicToolCallPresentation(call(
       "search",
-      { query: "migrtion", target: "cards" },
-      { data: { target: "cards", results: [{ kind: "card" }, { kind: "card" }] } },
+      { query: "migrtion", target: "pages" },
+      { data: { target: "pages", results: [{ kind: "page" }, { kind: "page" }] } },
     ));
     const create = resolveNodexDynamicToolCallPresentation(call(
       "create",
       {
         resource: {
-          kind: "card",
+          kind: "page",
           title: { kind: "plain", text: "Migration plan" },
           body: { format: "nfm", content: "# Plan\nDetails" },
         },
@@ -44,7 +44,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
       },
     ));
 
-    expect(search?.label).toBe("Searched cards for “migrtion” · 2 results");
+    expect(search?.label).toBe("Searched pages for “migrtion” · 2 results");
     expect(create?.label).toBe("Created “Migration plan” · 2 body blocks");
   });
 
@@ -126,7 +126,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
       data: {
         resource: {
           id: "card-launch",
-          type: "card",
+          type: "page",
           title: { markdown: "**Launch** plan" },
           lifecycle: "active",
           location: { kind: "space" },
@@ -142,29 +142,29 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
         rows: [{}, {}],
       },
     }));
-    const advanced = resolveNodexDynamicToolCallPresentation(call("advanced_query_database", {
-      databaseBlockId: "database-tasks",
+    const advanced = resolveNodexDynamicToolCallPresentation(call("query_data_source", {
+      dataSourceId: "source-tasks",
       filter: { kind: "condition" },
     }, {
-      data: { database: { name: "Tasks" }, rows: [{}] },
+      data: { dataSource: { name: "Tasks" }, rows: [{}] },
     }));
 
     expect(fetch?.label).toBe("Fetched “Launch plan” as markdown");
     expect(view?.label).toBe("Queried view “Roadmap” · 2 rows");
-    expect(advanced?.label).toBe("Queried database “Tasks” · 1 row");
+    expect(advanced?.label).toBe("Queried data source “Tasks” · 1 row");
   });
 
-  test("summarizes v3 Card creation, movement, and fresh duplicate identity", () => {
-    const create = resolveNodexDynamicToolCallPresentation(call("create_cards", {
-      destination: { kind: "database", databaseBlockId: "db-1" },
-      cards: [
+  test("summarizes v4 Page creation, movement, and fresh duplicate identity", () => {
+    const create = resolveNodexDynamicToolCallPresentation(call("create_pages", {
+      destination: { kind: "data_source", dataSourceId: "source-1" },
+      pages: [
         { title: "Alpha" },
         { title: "Beta" },
         { title: "Gamma" },
       ],
     }, {
       data: {
-        cards: [
+        pages: [
           { bodyBlocksCreated: 2 },
           { bodyBlocksCreated: 0 },
           { bodyBlocksCreated: 1 },
@@ -172,29 +172,29 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
         created: 3,
       },
     }));
-    const move = resolveNodexDynamicToolCallPresentation(call("move_cards", {
-      cardIds: ["card-a", "card-b"],
-      destination: { kind: "card", cardId: "parent-1" },
+    const move = resolveNodexDynamicToolCallPresentation(call("move_pages", {
+      pageIds: ["page-a", "page-b"],
+      destination: { kind: "page", pageId: "parent-1" },
     }));
-    const duplicate = resolveNodexDynamicToolCallPresentation(call("duplicate_card", {
-      cardId: "source-1",
-      destination: { kind: "space" },
+    const duplicate = resolveNodexDynamicToolCallPresentation(call("duplicate_page", {
+      pageId: "page-source-1",
+      destination: { kind: "library" },
     }, {
-      data: { sourceCardId: "source-1", cardId: "copy-1" },
+      data: { sourcePageId: "page-source-1", pageId: "page-copy-1" },
     }));
 
     expect(create?.label).toBe(
-      "Created 3 cards: “Alpha”, “Beta” +1 in database “db-1” · 3 body blocks",
+      "Created 3 pages: “Alpha”, “Beta” +1 in data source “source-1” · 3 body blocks",
     );
-    expect(move?.label).toBe("Moved 2 cards to card “parent-1”");
+    expect(move?.label).toBe("Moved 2 pages to page “parent-1”");
     expect(duplicate?.label).toBe(
-      "Duplicated card “source-1” → “copy-1” to Project Space",
+      "Duplicated page “page-source-1” → “page-copy-1” to Library",
     );
   });
 
   test("renders v3 Nested Markdown patches as a bounded diff and separates stable Block edits", () => {
-    const update = resolveNodexDynamicToolCallPresentation(call("update_card", {
-      cardId: "card-1",
+    const update = resolveNodexDynamicToolCallPresentation(call("update_page", {
+      pageId: "page-1",
       body: {
         kind: "patch",
         patches: [
@@ -203,8 +203,8 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
         ],
       },
     }));
-    const advanced = resolveNodexDynamicToolCallPresentation(call("advanced_update_card", {
-      cardId: "card-1",
+    const advanced = resolveNodexDynamicToolCallPresentation(call("advanced_update_page", {
+      pageId: "page-1",
       edits: [
         { kind: "update", blockId: "block-1" },
         { kind: "delete", blockId: "block-2" },
@@ -212,7 +212,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
     }));
 
     expect(update?.label).toBe(
-      "Updated card “card-1” · 2 Nested Markdown patches",
+      "Updated page “page-1” · 2 Nested Markdown patches",
     );
     expect(update?.markdownChange?.additions).toBe(2);
     expect(update?.markdownChange?.deletions).toBe(2);
@@ -224,7 +224,7 @@ describe("resolveNodexDynamicToolCallPresentation", () => {
       "added:- [x] Ship",
     ]);
     expect(advanced?.label).toBe(
-      "Updated card “card-1” · 2 stable block changes, 1 delete",
+      "Updated page “page-1” · 2 stable block changes, 1 delete",
     );
     expect(advanced?.markdownChange).toBeNull();
   });

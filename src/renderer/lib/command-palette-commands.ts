@@ -152,8 +152,8 @@ export function buildCommandPaletteCommands(
     command("searchChats", "Suggested", "Search chats", "Search chats by title, project, path, and content", ["search", "chat", "thread"], 1200, {
       shortcut: shortcutLabel("searchChats", "CmdOrCtrl+G"),
     }),
-    command("searchCards", "Suggested", "Search cards", "Search cards with Nodex card filters", ["search", "card", "kanban", "task"], 1190, {
-      shortcut: shortcutLabel("searchCards", "CmdOrCtrl+P"),
+    command("searchPages", "Suggested", "Search pages", "Search pages with Nodex page filters", ["search", "page", "kanban", "task"], 1190, {
+      shortcut: shortcutLabel("searchPages", "CmdOrCtrl+P"),
     }),
     ...maybeMockCommand("searchFiles", "Suggested", "Search files", "Search workspace files", ["search", "file", "workspace"], 1180, shortcutLabel("searchFiles")),
     command("newThread", "Chat", "New chat", "Start a new chat in the active project", ["new", "chat", "thread", "session"], 1120, {

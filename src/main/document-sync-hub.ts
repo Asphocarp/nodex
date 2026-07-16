@@ -61,16 +61,7 @@ import {
   type AdditionalDocumentHeadRevision,
 } from "../shared/additional-document-commands";
 import {
-  cardProjectTransferIntentFromRequest,
-  cardProjectTransferIntentsEqual,
-  parseCardProjectTransferIntent,
-  type CardProjectTransferCommandResult,
-  type CardProjectTransferIntent,
-  type CardProjectTransferPreparation,
-  type CardProjectTransferReceipt,
-  type CardProjectTransferRequest,
-} from "../shared/card-project-transfer";
-import {
+  blockTransferIntentFromRequest,
   canonicalizeBlockTransferLogicalIntent,
   parseBlockTransferIntent,
   type BlockTransferCommandError,
@@ -82,17 +73,13 @@ import {
   type BlockTransferRequest,
 } from "../shared/block-transfer";
 import type {
-  ExecuteNodexAgentCreateResult,
-  ExecuteNodexAgentCreateCardsResult,
-  ExecuteNodexAgentDuplicateCardResult,
-  ExecuteNodexAgentMoveCardsResult,
-  ExecuteNodexAgentTransferResult,
-  NodexAgentCreateCardCommand,
-  NodexAgentCreateCardsCommand,
-  NodexAgentDuplicateCardCommand,
-  NodexAgentMoveCardsCommand,
+  ExecuteNodexAgentCreatePagesResult,
+  ExecuteNodexAgentDuplicatePageResult,
+  ExecuteNodexAgentMovePagesResult,
+  NodexAgentCreatePagesCommand,
+  NodexAgentDuplicatePageCommand,
+  NodexAgentMovePagesCommand,
   NodexAgentLeaseDocument,
-  NodexAgentTransferCommand,
 } from "../shared/nodex-agent-tools";
 import { safeSendToWebContents } from "./ipc-safe-send";
 import {
@@ -143,12 +130,6 @@ export interface DocumentSyncDurableBackend {
   applyAdditionalDocumentCommand?(
     request: AdditionalDocumentCommandRequest,
   ): Promise<AdditionalDocumentCommandResult>;
-  prepareCardProjectTransfer?(
-    intent: CardProjectTransferIntent,
-  ): Promise<CardProjectTransferCommandResult<CardProjectTransferPreparation>>;
-  applyCardProjectTransfer?(
-    request: CardProjectTransferRequest,
-  ): Promise<CardProjectTransferCommandResult>;
   lookupCommittedBlockTransfer?(
     intent: BlockTransferIntent,
   ): Promise<BlockTransferCommandResult<BlockTransferReceipt | null>>;
@@ -158,21 +139,15 @@ export interface DocumentSyncDurableBackend {
   applyBlockTransfer?(
     request: BlockTransferRequest,
   ): Promise<BlockTransferCommandResult>;
-  executeNodexAgentCreate?(
-    command: NodexAgentCreateCardCommand,
-  ): Promise<ExecuteNodexAgentCreateResult>;
-  executeNodexAgentCreateCards?(
-    command: NodexAgentCreateCardsCommand,
-  ): Promise<ExecuteNodexAgentCreateCardsResult>;
-  executeNodexAgentDuplicateCard?(
-    command: NodexAgentDuplicateCardCommand,
-  ): Promise<ExecuteNodexAgentDuplicateCardResult>;
-  executeNodexAgentMoveCards?(
-    command: NodexAgentMoveCardsCommand,
-  ): Promise<ExecuteNodexAgentMoveCardsResult>;
-  executeNodexAgentTransfer?(
-    command: NodexAgentTransferCommand,
-  ): Promise<ExecuteNodexAgentTransferResult>;
+  executeNodexAgentCreatePages?(
+    command: NodexAgentCreatePagesCommand,
+  ): Promise<ExecuteNodexAgentCreatePagesResult>;
+  executeNodexAgentDuplicatePage?(
+    command: NodexAgentDuplicatePageCommand,
+  ): Promise<ExecuteNodexAgentDuplicatePageResult>;
+  executeNodexAgentMovePages?(
+    command: NodexAgentMovePagesCommand,
+  ): Promise<ExecuteNodexAgentMovePagesResult>;
 }
 
 export interface DocumentSyncHubOptions {
@@ -293,44 +268,6 @@ const additionalDocumentResultMatchesRequest = (
     result.value.storeEpoch === request.storeEpoch &&
     result.value.operationKind === request.operation.kind &&
     result.value.semanticHash === expectedSemanticHash
-  );
-};
-
-const cardProjectTransferFailure = (
-  intent: Pick<CardProjectTransferIntent, "operationId" | "cardId"> | null,
-  code: import("../shared/card-project-transfer").CardProjectTransferErrorCode,
-  message: string,
-  retryable = false,
-): CardProjectTransferCommandResult => ({
-  ok: false,
-  error: {
-    code,
-    message: message.length <= 4_096 ? message : `${message.slice(0, 4_095)}…`,
-    retryable,
-    ...(intent
-      ? { operationId: intent.operationId, cardId: intent.cardId }
-      : {}),
-  },
-});
-
-const preparedCardTransferMatchesIntent = (
-  intent: CardProjectTransferIntent,
-  preparation: CardProjectTransferPreparation,
-): boolean => {
-  if (!cardProjectTransferIntentsEqual(intent, preparation.intent)) {
-    return false;
-  }
-  if (preparation.kind === "committed") {
-    return (
-      preparation.receipt.operationId === intent.operationId &&
-      preparation.receipt.sourceProjectId === intent.sourceProjectId &&
-      preparation.receipt.targetProjectId === intent.targetProjectId &&
-      preparation.receipt.cardId === intent.cardId
-    );
-  }
-  return cardProjectTransferIntentsEqual(
-    intent,
-    cardProjectTransferIntentFromRequest(preparation.request),
   );
 };
 
@@ -568,72 +505,9 @@ const blockTransferPreparationMatchesIntent = (
   try {
     return (
       canonicalizeBlockTransferLogicalIntent(intent) ===
-      canonicalizeBlockTransferLogicalIntent({
-        version: preparation.request.version,
-        operationId: preparation.request.operationId,
-        projectId: preparation.request.projectId,
-        storeEpoch: preparation.request.storeEpoch,
-        ...(preparation.request.clientSessionId
-          ? { clientSessionId: preparation.request.clientSessionId }
-          : {}),
-        actor: preparation.request.actor,
-        mode: preparation.request.mode,
-        rootBlockIds: preparation.request.rootBlockIds,
-        source:
-          preparation.request.source.kind === "space"
-            ? { kind: "space" }
-            : preparation.request.source.kind === "document"
-              ? {
-                  kind: "document",
-                  documentId: preparation.request.source.documentId,
-                }
-              : {
-                  kind: "database",
-                  databaseBlockId:
-                    preparation.request.source.databaseBlockId,
-                },
-        target:
-          preparation.request.target.kind === "space"
-            ? {
-                kind: "space",
-                ...(preparation.request.target.beforeBlockId
-                  ? {
-                      beforeBlockId:
-                        preparation.request.target.beforeBlockId,
-                    }
-                  : {}),
-              }
-            : preparation.request.target.kind === "document"
-              ? {
-                  kind: "document",
-                  documentId: preparation.request.target.documentId,
-                  ...(preparation.request.target.parentBlockId
-                    ? {
-                        parentBlockId:
-                          preparation.request.target.parentBlockId,
-                      }
-                    : {}),
-                  ...(preparation.request.target.beforeBlockId
-                    ? {
-                        beforeBlockId:
-                          preparation.request.target.beforeBlockId,
-                      }
-                    : {}),
-                }
-              : {
-                  kind: "database",
-                  databaseBlockId:
-                    preparation.request.target.databaseBlockId,
-                  viewId: preparation.request.target.viewId,
-                  groupKey: preparation.request.target.groupKey,
-                  ...(preparation.request.target.beforeCardBlockId
-                    ? {
-                        beforeCardBlockId:
-                          preparation.request.target.beforeCardBlockId,
-                      }
-                    : {}),
-                },
-      })
+      canonicalizeBlockTransferLogicalIntent(
+        blockTransferIntentFromRequest(preparation.request),
+      )
     );
   } catch {
     return false;
@@ -649,10 +523,10 @@ const sameBlockTransferDocumentClosure = (
     (head, index) => head.documentId === right[index]?.documentId,
   );
 
-const nodexAgentCreateFailure = (
+const nodexAgentCreatePagesFailure = (
   message: string,
   recovery: "get_block_again" | "none" = "none",
-): ExecuteNodexAgentCreateResult => ({
+): ExecuteNodexAgentCreatePagesResult => ({
   ok: false,
   error: {
     code: recovery === "get_block_again" ? "conflict" : "internal_error",
@@ -662,10 +536,10 @@ const nodexAgentCreateFailure = (
   },
 });
 
-const nodexAgentCreateCardsFailure = (
+const nodexAgentDuplicatePageFailure = (
   message: string,
   recovery: "get_block_again" | "none" = "none",
-): ExecuteNodexAgentCreateCardsResult => ({
+): ExecuteNodexAgentDuplicatePageResult => ({
   ok: false,
   error: {
     code: recovery === "get_block_again" ? "conflict" : "internal_error",
@@ -675,36 +549,10 @@ const nodexAgentCreateCardsFailure = (
   },
 });
 
-const nodexAgentDuplicateCardFailure = (
+const nodexAgentMovePagesFailure = (
   message: string,
   recovery: "get_block_again" | "none" = "none",
-): ExecuteNodexAgentDuplicateCardResult => ({
-  ok: false,
-  error: {
-    code: recovery === "get_block_again" ? "conflict" : "internal_error",
-    message,
-    retryable: false,
-    recovery,
-  },
-});
-
-const nodexAgentMoveCardsFailure = (
-  message: string,
-  recovery: "get_block_again" | "none" = "none",
-): ExecuteNodexAgentMoveCardsResult => ({
-  ok: false,
-  error: {
-    code: recovery === "get_block_again" ? "conflict" : "internal_error",
-    message,
-    retryable: false,
-    recovery,
-  },
-});
-
-const nodexAgentTransferFailure = (
-  message: string,
-  recovery: "get_block_again" | "none" = "none",
-): ExecuteNodexAgentTransferResult => ({
+): ExecuteNodexAgentMovePagesResult => ({
   ok: false,
   error: {
     code: recovery === "get_block_again" ? "conflict" : "internal_error",
@@ -715,11 +563,9 @@ const nodexAgentTransferFailure = (
 });
 
 type NodexAgentLeasedMutationResult =
-  | ExecuteNodexAgentCreateResult
-  | ExecuteNodexAgentCreateCardsResult
-  | ExecuteNodexAgentDuplicateCardResult
-  | ExecuteNodexAgentMoveCardsResult
-  | ExecuteNodexAgentTransferResult;
+  | ExecuteNodexAgentCreatePagesResult
+  | ExecuteNodexAgentDuplicatePageResult
+  | ExecuteNodexAgentMovePagesResult;
 
 type SuccessfulNodexAgentLeasedMutation = Extract<
   NodexAgentLeasedMutationResult,
@@ -749,7 +595,6 @@ export class DocumentSyncHub {
   private blockTransferLeaseSequence = 0;
   private documentMutationLeaseSequence = 0;
   private additionalDocumentLeaseSequence = 0;
-  private cardProjectTransferLeaseSequence = 0;
 
   constructor(
     backend: DocumentSyncDurableBackend,
@@ -1436,192 +1281,6 @@ export class DocumentSyncHub {
     return result;
   };
 
-  transferCardProject = async (
-    rawIntent: CardProjectTransferIntent,
-  ): Promise<CardProjectTransferCommandResult> => {
-    let intent: CardProjectTransferIntent;
-    try {
-      intent = parseCardProjectTransferIntent(rawIntent);
-    } catch (error) {
-      return cardProjectTransferFailure(
-        null,
-        "invalid_card_project_transfer_request",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-    const prepareTransfer = this.backend.prepareCardProjectTransfer;
-    const applyTransfer = this.backend.applyCardProjectTransfer;
-    if (!prepareTransfer || !applyTransfer) {
-      return cardProjectTransferFailure(
-        intent,
-        "unknown",
-        "The durable Card Project transfer writer is unavailable",
-        true,
-      );
-    }
-
-    let initial;
-    try {
-      initial = await prepareTransfer(intent);
-    } catch {
-      return cardProjectTransferFailure(
-        intent,
-        "unknown",
-        "Card Project transfer preparation failed",
-        true,
-      );
-    }
-    if (!initial.ok) return initial;
-    if (!preparedCardTransferMatchesIntent(intent, initial.value)) {
-      return cardProjectTransferFailure(
-        intent,
-        "invalid_card_project_transfer_request",
-        "The durable writer prepared a different Card transfer intent",
-      );
-    }
-    if (initial.value.kind === "committed") {
-      this.fanoutCardProjectTransferResync(initial.value.receipt);
-      return { ok: true, value: initial.value.receipt };
-    }
-
-    const initialRequest = initial.value.request;
-    const leaseId = this.createCardProjectTransferLeaseId();
-    this.setCardProjectTransferLeaseBoundary(leaseId, initialRequest);
-    let preparedLease;
-    try {
-      preparedLease = await this.relocationLeaseCoordinator.prepare({
-        leaseId,
-        documents: initialRequest.expectedDocuments.map((document) => ({
-          documentId: document.documentId,
-          generation: document.generation,
-          expectedHeadSeq: document.headSeq,
-        })),
-      });
-    } catch {
-      this.cancelRelocationLease(leaseId);
-      return cardProjectTransferFailure(
-        intent,
-        "coordination_failed",
-        "Card Project transfer write lease preparation failed",
-        true,
-      );
-    }
-    if (!preparedLease.ok) {
-      this.relocationLeaseBoundaries.delete(leaseId);
-      return cardProjectTransferFailure(
-        intent,
-        "coordination_failed",
-        preparedLease.error.message,
-        preparedLease.error.code !== "invalid_request" &&
-          preparedLease.error.code !== "lease_id_collision",
-      );
-    }
-
-    let flushed;
-    try {
-      flushed = await prepareTransfer(intent);
-    } catch {
-      this.cancelRelocationLease(leaseId);
-      return cardProjectTransferFailure(
-        intent,
-        "unknown",
-        "Card Project transfer flush verification failed",
-        true,
-      );
-    }
-    if (!flushed.ok) {
-      this.cancelRelocationLease(leaseId);
-      return flushed;
-    }
-    if (!preparedCardTransferMatchesIntent(intent, flushed.value)) {
-      this.cancelRelocationLease(leaseId);
-      return cardProjectTransferFailure(
-        intent,
-        "invalid_card_project_transfer_request",
-        "The flushed preparation changed Card transfer intent",
-      );
-    }
-    if (flushed.value.kind === "committed") {
-      this.cancelRelocationLease(leaseId);
-      this.fanoutCardProjectTransferResync(flushed.value.receipt);
-      return { ok: true, value: flushed.value.receipt };
-    }
-
-    const request = flushed.value.request;
-    const resolvedHeads = new Map(
-      preparedLease.value.resolvedHeads.map((head) => [head.documentId, head]),
-    );
-    const initialDocumentIds = initialRequest.expectedDocuments.map(
-      (document) => document.documentId,
-    );
-    const flushedDocumentIds = request.expectedDocuments.map(
-      (document) => document.documentId,
-    );
-    const sameDocumentClosure =
-      initialDocumentIds.length === flushedDocumentIds.length &&
-      initialDocumentIds.every(
-        (documentId, index) => documentId === flushedDocumentIds[index],
-      );
-    const observedEveryFlushedHead = request.expectedDocuments.every(
-      (document) => {
-        const resolved = resolvedHeads.get(document.documentId);
-        return (
-          resolved !== undefined &&
-          resolved.generation === document.generation &&
-          document.headSeq >= resolved.headSeq
-        );
-      },
-    );
-    if (
-      !sameDocumentClosure ||
-      resolvedHeads.size !== request.expectedDocuments.length ||
-      !observedEveryFlushedHead
-    ) {
-      this.cancelRelocationLease(leaseId);
-      return cardProjectTransferFailure(
-        intent,
-        "document_head_conflict",
-        "The writer did not observe every leased Document head in the final authority closure",
-        true,
-      );
-    }
-    this.setCardProjectTransferLeaseBoundary(leaseId, request);
-
-    let result: CardProjectTransferCommandResult;
-    try {
-      result = await applyTransfer(request);
-    } catch {
-      this.cancelRelocationLease(leaseId);
-      return cardProjectTransferFailure(
-        intent,
-        "unknown",
-        "Card Project transfer commit failed",
-        true,
-      );
-    }
-    if (!result.ok) {
-      this.cancelRelocationLease(leaseId);
-      return result;
-    }
-
-    this.setCardProjectTransferResultBoundary(leaseId, result.value);
-    try {
-      this.fanoutCardProjectTransferResync(result.value);
-    } catch {
-      // The durable receipt plus release fallback is sufficient for repair.
-    }
-    const released = this.relocationLeaseCoordinator.release(leaseId);
-    if (!released.ok) {
-      this.publishCardProjectTransferReleaseFallback(
-        leaseId,
-        result.value,
-      );
-      this.fanoutCardProjectTransferResync(result.value);
-    }
-    this.relocationLeaseBoundaries.delete(leaseId);
-    return result;
-  };
-
   transferBlocks = async (
     rawIntent: BlockTransferIntent,
   ): Promise<BlockTransferCommandResult> => {
@@ -1944,51 +1603,14 @@ export class DocumentSyncHub {
     return result;
   };
 
-  executeNodexAgentCreate = async (
-    command: NodexAgentCreateCardCommand,
+  executeNodexAgentCreatePages = async (
+    command: NodexAgentCreatePagesCommand,
     leaseDocuments: readonly NodexAgentLeaseDocument[],
-  ): Promise<ExecuteNodexAgentCreateResult> => {
-    const execute = this.backend.executeNodexAgentCreate;
+  ): Promise<ExecuteNodexAgentCreatePagesResult> => {
+    const execute = this.backend.executeNodexAgentCreatePages;
     if (!execute) {
-      return nodexAgentCreateFailure("The durable Agent create writer is unavailable");
-    }
-    const expectedLeaseDocuments = command.destination.kind === "document"
-      ? [{
-          documentId: command.destination.documentId,
-          generation: command.destination.generation,
-          expectedHeadSeq: command.destination.expectedHeadSeq,
-        }]
-      : [];
-    const exactLeaseInput = expectedLeaseDocuments.length === leaseDocuments.length
-      && expectedLeaseDocuments.every((expected, index) => {
-        const received = leaseDocuments[index];
-        return received?.documentId === expected.documentId
-          && received.generation === expected.generation
-          && received.expectedHeadSeq === expected.expectedHeadSeq;
-      });
-    if (!exactLeaseInput) {
-      return nodexAgentCreateFailure(
-        "Agent create lease closure does not match its prepared destination",
-      );
-    }
-    return await this.executeNodexAgentLeasedMutation({
-      storeEpoch: command.storeEpoch,
-      leaseDocuments,
-      execute: async () => await execute(command),
-      failure: nodexAgentCreateFailure,
-      operationLabel: "Agent create",
-      conflictMessage: "Destination Document changed while preparing Card creation",
-    });
-  };
-
-  executeNodexAgentCreateCards = async (
-    command: NodexAgentCreateCardsCommand,
-    leaseDocuments: readonly NodexAgentLeaseDocument[],
-  ): Promise<ExecuteNodexAgentCreateCardsResult> => {
-    const execute = this.backend.executeNodexAgentCreateCards;
-    if (!execute) {
-      return nodexAgentCreateCardsFailure(
-        "The durable Agent Card batch writer is unavailable",
+      return nodexAgentCreatePagesFailure(
+        "The durable Agent Page batch writer is unavailable",
       );
     }
     const expectedLeaseDocuments = command.destination.kind === "document"
@@ -2006,74 +1628,55 @@ export class DocumentSyncHub {
           && received.expectedHeadSeq === expected.expectedHeadSeq;
       });
     if (!exactLeaseInput) {
-      return nodexAgentCreateCardsFailure(
-        "Agent Card batch lease closure does not match its prepared destination",
+      return nodexAgentCreatePagesFailure(
+        "Agent Page batch lease closure does not match its prepared destination",
       );
     }
     return await this.executeNodexAgentLeasedMutation({
       storeEpoch: command.storeEpoch,
       leaseDocuments,
       execute: async () => await execute(command),
-      failure: nodexAgentCreateCardsFailure,
-      operationLabel: "Agent Card batch create",
-      conflictMessage: "Destination Document changed while preparing Card creation",
+      failure: nodexAgentCreatePagesFailure,
+      operationLabel: "Agent Page batch create",
+      conflictMessage: "Destination Document changed while preparing Page creation",
     });
   };
 
-  executeNodexAgentDuplicateCard = async (
-    command: NodexAgentDuplicateCardCommand,
-  ): Promise<ExecuteNodexAgentDuplicateCardResult> => {
-    const execute = this.backend.executeNodexAgentDuplicateCard;
+  executeNodexAgentDuplicatePage = async (
+    command: NodexAgentDuplicatePageCommand,
+  ): Promise<ExecuteNodexAgentDuplicatePageResult> => {
+    const execute = this.backend.executeNodexAgentDuplicatePage;
     if (!execute) {
-      return nodexAgentDuplicateCardFailure(
-        "The durable Agent Card duplicate writer is unavailable",
+      return nodexAgentDuplicatePageFailure(
+        "The durable Agent Page duplicate writer is unavailable",
       );
     }
     return await this.executeNodexAgentLeasedMutation({
       storeEpoch: command.storeEpoch,
       leaseDocuments: command.leaseDocuments,
       execute: async () => await execute(command),
-      failure: nodexAgentDuplicateCardFailure,
-      operationLabel: "Agent Card duplicate",
-      conflictMessage: "A duplicated Card Document changed while preparing the copy",
+      failure: nodexAgentDuplicatePageFailure,
+      operationLabel: "Agent Page duplicate",
+      conflictMessage: "A duplicated Page Document changed while preparing the copy",
     });
   };
 
-  executeNodexAgentMoveCards = async (
-    command: NodexAgentMoveCardsCommand,
-  ): Promise<ExecuteNodexAgentMoveCardsResult> => {
-    const execute = this.backend.executeNodexAgentMoveCards;
+  executeNodexAgentMovePages = async (
+    command: NodexAgentMovePagesCommand,
+  ): Promise<ExecuteNodexAgentMovePagesResult> => {
+    const execute = this.backend.executeNodexAgentMovePages;
     if (!execute) {
-      return nodexAgentMoveCardsFailure(
-        "The durable Agent Card move writer is unavailable",
+      return nodexAgentMovePagesFailure(
+        "The durable Agent Page move writer is unavailable",
       );
     }
     return await this.executeNodexAgentLeasedMutation({
       storeEpoch: command.storeEpoch,
       leaseDocuments: command.leaseDocuments,
       execute: async () => await execute(command),
-      failure: nodexAgentMoveCardsFailure,
-      operationLabel: "Agent Card move",
-      conflictMessage: "A moved Card Document changed while preparing relocation",
-    });
-  };
-
-  executeNodexAgentTransfer = async (
-    command: NodexAgentTransferCommand,
-  ): Promise<ExecuteNodexAgentTransferResult> => {
-    const execute = this.backend.executeNodexAgentTransfer;
-    if (!execute) {
-      return nodexAgentTransferFailure(
-        "The durable Agent transfer writer is unavailable",
-      );
-    }
-    return await this.executeNodexAgentLeasedMutation({
-      storeEpoch: command.storeEpoch,
-      leaseDocuments: command.leaseDocuments,
-      execute: async () => await execute(command),
-      failure: nodexAgentTransferFailure,
-      operationLabel: "Agent transfer",
-      conflictMessage: "A transferred Document changed while preparing Block transfer",
+      failure: nodexAgentMovePagesFailure,
+      operationLabel: "Agent Page move",
+      conflictMessage: "A moved Page Document changed while preparing relocation",
     });
   };
 
@@ -2592,11 +2195,6 @@ export class DocumentSyncHub {
     return `additional-document-lease:${this.additionalDocumentLeaseSequence.toString(36)}`;
   }
 
-  private createCardProjectTransferLeaseId(): string {
-    this.cardProjectTransferLeaseSequence += 1;
-    return `card-project-transfer-lease:${this.cardProjectTransferLeaseSequence.toString(36)}`;
-  }
-
   private setSingleDocumentLeaseBoundary(
     leaseId: string,
     boundary: HubRelocationDocumentBoundary,
@@ -2688,46 +2286,6 @@ export class DocumentSyncHub {
       storeEpoch,
       leasedHeads.map((leased) => committedById.get(leased.documentId) ?? leased),
     );
-  }
-
-  private setCardProjectTransferLeaseBoundary(
-    leaseId: string,
-    request: CardProjectTransferRequest,
-  ): void {
-    this.relocationLeaseBoundaries.set(leaseId, {
-      leaseId,
-      documents: new Map(
-        request.expectedDocuments.map((document) => [
-          document.documentId,
-          {
-            documentId: document.documentId,
-            storeEpoch: request.storeEpoch,
-            generation: document.generation,
-            headSeq: document.headSeq,
-          },
-        ]),
-      ),
-    });
-  }
-
-  private setCardProjectTransferResultBoundary(
-    leaseId: string,
-    receipt: CardProjectTransferReceipt,
-  ): void {
-    this.relocationLeaseBoundaries.set(leaseId, {
-      leaseId,
-      documents: new Map(
-        Object.entries(receipt.documentHeads).map(([documentId, head]) => [
-          documentId,
-          {
-            documentId,
-            storeEpoch: receipt.storeEpoch,
-            generation: head.generation,
-            headSeq: head.headSeq,
-          },
-        ]),
-      ),
-    });
   }
 
   private setRelocationLeaseBoundary(
@@ -2960,21 +2518,6 @@ export class DocumentSyncHub {
     }
   }
 
-  private fanoutCardProjectTransferResync(
-    receipt: CardProjectTransferReceipt,
-  ): void {
-    for (const [documentId, head] of Object.entries(receipt.documentHeads)) {
-      this.fanout(documentId, {
-        kind: "resync-required",
-        documentId,
-        storeEpoch: receipt.storeEpoch,
-        generation: head.generation,
-        headSeq: head.headSeq,
-        reason: "event-gap",
-      });
-    }
-  }
-
   private publishAdditionalDocumentReleaseFallback(
     leaseId: string,
     storeEpoch: string,
@@ -3001,35 +2544,6 @@ export class DocumentSyncHub {
               documentId: head.documentId,
               clientSessionId: subscription.clientSessionId,
               storeEpoch,
-              generation: head.generation,
-              headSeq: head.headSeq,
-            } satisfies DocumentSyncRealtimeEvent,
-          ],
-        );
-      }
-    }
-  }
-
-  private publishCardProjectTransferReleaseFallback(
-    leaseId: string,
-    receipt: CardProjectTransferReceipt,
-  ): void {
-    for (const [documentId, head] of Object.entries(receipt.documentHeads)) {
-      const keys = this.subscriptionKeysByDocument.get(documentId);
-      if (!keys) continue;
-      for (const key of keys) {
-        const subscription = this.subscriptions.get(key);
-        if (!subscription) continue;
-        safeSendToWebContents(
-          subscription.target,
-          DOCUMENT_SYNC_EVENT_CHANNEL,
-          [
-            {
-              kind: "relocation-lease-release",
-              leaseId,
-              documentId,
-              clientSessionId: subscription.clientSessionId,
-              storeEpoch: receipt.storeEpoch,
               generation: head.generation,
               headSeq: head.headSeq,
             } satisfies DocumentSyncRealtimeEvent,

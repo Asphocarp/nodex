@@ -2,15 +2,15 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import {
   createBlockDocumentNfmContentParitySignature,
-  createCardDocumentGenesis,
-  materializeCardDocument,
-  type CardDocumentMaterialization,
+  createPageDocumentGenesis,
+  materializePageDocument,
+  type PageDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
-import { translateLegacyNfmIntoCardDocument } from "../../shared/block-documents/legacy-nfm-shadow-translator";
-import { createUuidV7FromTimestamp } from "../../shared/card-id";
+import { translateLegacyNfmIntoPageDocument } from "../../shared/block-documents/legacy-nfm-shadow-translator";
+import { createUuidV7FromTimestamp } from "../../shared/uuid-v7";
 import {
   applyLegacyShadowDocumentUpdate,
-  initializeCardDocumentGenesis,
+  initializePageDocumentGenesis,
   loadLegacyShadowBlockDocument,
 } from "./block-document-store";
 import {
@@ -37,7 +37,7 @@ interface LegacyCardSourceRow {
   readonly created: string;
 }
 
-interface LegacyCardDocumentRow {
+interface LegacyPageDocumentRow {
   readonly document_id: string;
   readonly document_project_id: string;
   readonly generation: number;
@@ -88,7 +88,7 @@ export interface LegacyCardShadowProcessorProbeResult {
   readonly pendingJobs: number;
   readonly processingJobs: number;
   readonly currentCards: number;
-  readonly readyCurrentCardDocuments: number;
+  readonly readyCurrentPageDocuments: number;
   readonly allCurrentCardsReady: boolean;
   readonly allCurrentCardContentInParity: boolean;
 }
@@ -152,10 +152,10 @@ const readCardSource = (
   return row ?? null;
 };
 
-const readCardDocument = (
+const readPageDocument = (
   database: Database.Database,
   documentId: string,
-): LegacyCardDocumentRow => {
+): LegacyPageDocumentRow => {
   const row = database
     .prepare(
       `
@@ -177,7 +177,7 @@ const readCardDocument = (
     WHERE document.id = ?
   `,
     )
-    .get(documentId) as LegacyCardDocumentRow | undefined;
+    .get(documentId) as LegacyPageDocumentRow | undefined;
   if (row) return row;
   throw new LegacyCardShadowProcessorError(
     `Legacy shadow Document ${documentId} is missing its owner`,
@@ -207,7 +207,7 @@ const assertClaimFence = (
 const assertLatestSourceMatchesJob = (
   job: LegacyCardShadowJob,
   source: LegacyCardSourceRow | null,
-  document: LegacyCardDocumentRow,
+  document: LegacyPageDocumentRow,
 ): void => {
   if (document.document_id !== job.documentId) {
     throw new LegacyCardShadowProcessorError(
@@ -216,7 +216,7 @@ const assertLatestSourceMatchesJob = (
   }
   if (
     document.owner_block_id !== job.cardId ||
-    document.owner_type !== "card"
+    document.owner_type !== "page"
   ) {
     throw new LegacyCardShadowProcessorError(
       `Document ${job.documentId} is not owned by Card ${job.cardId}`,
@@ -300,7 +300,7 @@ const createDeterministicBlockIdAllocator = (
 
 const assertContentParity = (
   source: LegacyCardSourceRow,
-  materialization: CardDocumentMaterialization,
+  materialization: PageDocumentMaterialization,
 ): void => {
   const sourceNfmSignature = createBlockDocumentNfmContentParitySignature(
     source.description,
@@ -324,14 +324,14 @@ const loadPersistedMaterialization = (
 ): {
   readonly generation: number;
   readonly headSeq: number;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
 } => {
   const loaded = loadLegacyShadowBlockDocument(database, documentId);
   try {
     return {
       generation: loaded.head.generation,
       headSeq: loaded.head.headSeq,
-      materialization: materializeCardDocument(loaded.document),
+      materialization: materializePageDocument(loaded.document),
     };
   } finally {
     loaded.document.destroy();
@@ -342,20 +342,20 @@ const applyLatestSource = (
   database: Database.Database,
   job: LegacyCardShadowJob,
   source: LegacyCardSourceRow,
-  document: LegacyCardDocumentRow,
+  document: LegacyPageDocumentRow,
 ): { readonly headSeq: number; readonly changed: boolean } => {
   const allocateBlockId = createDeterministicBlockIdAllocator(source, job);
   const storeEpoch = readStoreEpoch(database);
 
   if (document.readiness === "pending_genesis") {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: job.documentId,
       title: source.title,
       nfm: source.description,
       allocateBlockId,
     });
     try {
-      const ack = initializeCardDocumentGenesis(database, {
+      const ack = initializePageDocumentGenesis(database, {
         documentId: job.documentId,
         storeEpoch,
         generation: document.generation,
@@ -372,9 +372,9 @@ const applyLatestSource = (
   }
 
   const loaded = loadLegacyShadowBlockDocument(database, job.documentId);
-  let translation: ReturnType<typeof translateLegacyNfmIntoCardDocument>;
+  let translation: ReturnType<typeof translateLegacyNfmIntoPageDocument>;
   try {
-    translation = translateLegacyNfmIntoCardDocument({
+    translation = translateLegacyNfmIntoPageDocument({
       document: loaded.document,
       authority: loaded.authority,
       readiness: "ready",
@@ -446,7 +446,7 @@ const processClaimedJobTransaction = (
   }
 
   const source = readCardSource(database, job.cardId);
-  const document = readCardDocument(database, job.documentId);
+  const document = readPageDocument(database, job.documentId);
   assertLatestSourceMatchesJob(job, source, document);
   if (job.operation === "delete") {
     markLegacyCardShadowJobApplied(database, job, document.head_seq);
@@ -589,7 +589,7 @@ const verifyCurrentCardParity = (
   let readyDocuments = 0;
   let allInParity = true;
   for (const card of cards) {
-    const document = readCardDocument(database, `document:${card.id}`);
+    const document = readPageDocument(database, `document:${card.id}`);
     if (
       document.readiness !== "ready" ||
       document.authority !== "legacy_shadow"
@@ -660,7 +660,7 @@ export const runLegacyCardShadowProcessorProbe = (
     pendingJobs,
     processingJobs,
     currentCards: parity.currentCards,
-    readyCurrentCardDocuments: parity.readyDocuments,
+    readyCurrentPageDocuments: parity.readyDocuments,
     allCurrentCardsReady:
       drain.exhausted &&
       failedJobs === 0 &&

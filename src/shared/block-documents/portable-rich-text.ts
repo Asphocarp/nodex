@@ -1,5 +1,5 @@
 import type * as Y from "yjs";
-import { MAX_CARD_TITLE_LENGTH } from "../card-limits";
+import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
 import {
   normalizeDateMention,
   type NfmDateMentionDateFormat,
@@ -304,9 +304,9 @@ export const canonicalizePortableRichText = (value: unknown): PortableRichText =
     throw new PortableRichTextError("canonical richTitle has too many segments");
   }
   const plainText = portableRichTextPlainText(result);
-  if (plainText.length > MAX_CARD_TITLE_LENGTH) {
+  if (plainText.length > MAX_PAGE_TITLE_LENGTH) {
     throw new PortableRichTextError(
-      `richTitle plain text exceeds ${MAX_CARD_TITLE_LENGTH} characters`,
+      `richTitle plain text exceeds ${MAX_PAGE_TITLE_LENGTH} characters`,
     );
   }
   if (new TextEncoder().encode(portableRichTextSemanticSource(result)).byteLength > MAX_PORTABLE_RICH_TEXT_BYTES) {

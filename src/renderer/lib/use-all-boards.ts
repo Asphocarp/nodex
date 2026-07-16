@@ -16,7 +16,7 @@ interface BoardSummaryQueryResult {
 }
 
 /**
- * Fetches boards for every project. Used by card pickers and @ mention menus.
+ * Fetches boards for every project. Used by Page pickers and @ mention menus.
  */
 export function useBoardsForProjects(
   projects: readonly Project[],
@@ -118,7 +118,7 @@ export function useBoardsForProjects(
 }
 
 /**
- * Fetches boards for every project. Used by card pickers and @ mention menus.
+ * Fetches boards for every project. Used by Page pickers and @ mention menus.
  */
 export function useAllBoards() {
   const {

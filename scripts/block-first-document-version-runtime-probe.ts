@@ -8,7 +8,7 @@ import {
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
 import { getOwnedBlockDocumentDescriptor } from "../src/main/local-store/block-document-cutover";
-import { createCard } from "../src/main/local-store/cards";
+import { createPage } from "../src/main/local-store/database-pages";
 import {
   closeDatabase,
   getDb,
@@ -28,8 +28,8 @@ import {
   restoreDocumentVersion,
 } from "../src/main/local-store/block-document-operations";
 import { createProject } from "../src/main/local-store/projects";
-import { openCardDocument } from "../src/shared/block-documents";
-import { materializeCardDocument } from "../src/shared/block-documents/block-document-codec";
+import { openPageDocument } from "../src/shared/block-documents";
+import { materializePageDocument } from "../src/shared/block-documents/block-document-codec";
 import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../src/shared/block-documents/document-history";
 import type {
   OwnedDocumentMaterialization,
@@ -81,7 +81,7 @@ const editPrimaryDocument = (
   const loaded = loadPrimaryBlockDocument(database, documentId);
   try {
     const before = Y.encodeStateVector(loaded.document);
-    const envelope = openCardDocument(loaded.document);
+    const envelope = openPageDocument(loaded.document);
     const bodyText = findFirstXmlText(envelope.body);
     invariant(bodyText, "Expected a text Block in the seeded Card");
     loaded.document.transact(() => {
@@ -131,7 +131,7 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Document version runtime probe" });
-    const card = await createCard(project.id, "draft", {
+    const card = await createPage(project.id, "draft", {
       title: "Checkpoint title",
       description: "Checkpoint body",
     });
@@ -347,7 +347,7 @@ const main = async (): Promise<void> => {
       descriptor.documentId,
     );
     try {
-      const envelope = openCardDocument(restoredDocument.document);
+      const envelope = openPageDocument(restoredDocument.document);
       const bodyText = findFirstXmlText(envelope.body);
       invariant(
         envelope.title.toString() === "Checkpoint title" &&
@@ -417,7 +417,7 @@ const main = async (): Promise<void> => {
       { length: 520 },
       (_, index) => `Large restore paragraph ${index}`,
     ).join("\n\n");
-    const largeCard = await createCard(project.id, "draft", {
+    const largeCard = await createPage(project.id, "draft", {
       title: "Large restore",
       description: largeNfm,
     });
@@ -532,7 +532,7 @@ const main = async (): Promise<void> => {
     );
     try {
       invariant(
-        materializeCardDocument(restoredLargeDocument.document).blockTree.length ===
+        materializePageDocument(restoredLargeDocument.document).blockTree.length ===
           largeMaterialization.blockTree.length,
         "Oversized restore did not reproduce the immutable BlockTree",
       );

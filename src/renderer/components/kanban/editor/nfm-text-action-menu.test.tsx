@@ -3,7 +3,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CommandPaletteThread } from "@/lib/command-palette";
-import type { BoardSummary, CardSummary, CodexThreadSummary, Project } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary, CodexThreadSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import {
   TEXT_ACTION_RECENT_COLOR_STORAGE_KEY,
@@ -22,6 +22,10 @@ const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 function makeProject(id: string, name: string, icon?: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon,
@@ -34,7 +38,7 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+function makeCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
   return {
     id,
     status,
@@ -200,7 +204,7 @@ function renderTextActionMenu(
         ]}
         showReferenceMocks={true}
         sourceProjectId="default"
-        sourceCardId="source-card"
+        sourcePageId="source-card"
         sendToThreadProjectNameById={{ default: "Default" }}
         onSelectBlockType={(item) => {
           actions.blockTypes.push(item.key);
@@ -673,7 +677,7 @@ describe("nfm text action menu surface", () => {
     expect(view.queryByRole("menuitem", { name: "Duplicate" }) === null).toBe(true);
   });
 
-  test("opens the shared move-to popover and submits DB and Card destinations", async () => {
+  test("opens the shared move-to popover and submits DB and Page destinations", async () => {
     const { actions, view } = renderTextActionMenu({
       renderMoveToMenu: (props) => (
         <NfmMoveToMenuSurface
@@ -693,7 +697,7 @@ describe("nfm text action menu surface", () => {
 
     expect(Boolean(view.getByRole("combobox", { name: "Move blocks to" }))).toBe(true);
     expect(Boolean(view.getByText("DB"))).toBe(true);
-    expect(Boolean(view.getByText("Card"))).toBe(true);
+    expect(Boolean(view.getByText("Page"))).toBe(true);
     expect(view.queryByText("Move to card") === null).toBe(true);
     expect(view.queryByText("Turn into cards") === null).toBe(true);
     expect(view.queryByText("Source card") === null).toBe(true);
@@ -729,13 +733,13 @@ describe("nfm text action menu surface", () => {
       expect(actions.moveDestinations.length).toBe(2);
     });
     const cardDestination = actions.moveDestinations[1];
-    expect(cardDestination?.kind).toBe("card");
-    if (cardDestination?.kind !== "card") {
+    expect(cardDestination?.kind).toBe("page");
+    if (cardDestination?.kind !== "page") {
       throw new Error("expected card destination");
     }
     expect(cardDestination.projectId).toBe("default");
     expect(cardDestination.columnId).toBe("draft");
-    expect(cardDestination.cardId).toBe("target-card");
+    expect(cardDestination.pageId).toBe("target-card");
   });
 
   test("hover-opening the send-to-chat picker does not autofocus search", async () => {

@@ -1,9 +1,9 @@
 import type {
   NfmBlock,
   NfmCardToggle,
-  NfmCard,
   NfmCardRef,
-  NfmMentionCard,
+  NfmPageRef,
+  NfmPage,
   NfmDatabaseViewRef,
   NfmColor,
   NfmInlineContent,
@@ -20,7 +20,7 @@ import { normalizeOrderedListStart } from "./ordered-list";
 import { parseInlineContent } from "./parser-inline";
 import { tryParseGfmTable, tryParseNfmTableXml } from "./table";
 import { getXmlAttr } from "./xml-attributes";
-import { parseCardDeepLink } from "../card-deeplink";
+import { parsePageDeepLink } from "../page-deeplink";
 
 /**
  * Parse a Notion-flavored Markdown string into a block tree.
@@ -185,10 +185,10 @@ export function parseNfm(input: string): NfmBlock[] {
       }
     }
 
-    if (content.trimStart().startsWith("<mention-card")) {
-      const mentionCard = parseMentionCard(content.trim());
-      if (mentionCard) {
-        addBlock(mentionCard, indent);
+    if (content.trimStart().startsWith("<page-ref")) {
+      const pageRef = parsePageRef(content.trim());
+      if (pageRef) {
+        addBlock(pageRef, indent);
         i++;
         continue;
       }
@@ -204,10 +204,28 @@ export function parseNfm(input: string): NfmBlock[] {
       }
     }
 
+    if (content.trimStart().startsWith("<page")) {
+      const page = parsePage(content.trim());
+      if (page) {
+        addBlock(page, indent);
+        i++;
+        continue;
+      }
+    }
+
+    // Decode-only historical Page spellings.
+    if (content.trimStart().startsWith("<mention-card")) {
+      const pageRef = parseLegacyMentionCard(content.trim());
+      if (pageRef) {
+        addBlock(pageRef, indent);
+        i++;
+        continue;
+      }
+    }
     if (content.trimStart().startsWith("<card")) {
-      const card = parseCard(content.trim());
-      if (card) {
-        addBlock(card, indent);
+      const page = parseLegacyCard(content.trim());
+      if (page) {
+        addBlock(page, indent);
         i++;
         continue;
       }
@@ -595,28 +613,54 @@ function parseReusableTemplateRef(
   };
 }
 
-function parseCard(line: string): NfmCard | null {
-  const match = line.match(/^<card(?:\s+([^>]*))?\s*\/>$/);
+function parsePage(line: string): NfmPage | null {
+  const match = line.match(/^<page(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
   const uuid = getXmlAttr(match[1] ?? "", "uuid");
   return {
-    type: "card",
+    type: "page",
     ...(uuid === undefined ? {} : { uuid }),
     children: [],
   };
 }
 
-function parseMentionCard(line: string): NfmMentionCard | null {
+function parsePageRef(line: string): NfmPageRef | null {
+  const match = line.match(/^<page-ref(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  const url = getXmlAttr(match[1] ?? "", "url") ?? "";
+  const target = parsePageDeepLink(url);
+  if (!target) {
+    throw new TypeError("Page reference URL must identify a Nodex Page");
+  }
+  return {
+    type: "pageRef",
+    targetBlockId: target.pageId,
+    children: [],
+  };
+}
+
+function parseLegacyCard(line: string): NfmPage | null {
+  const match = line.match(/^<card(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  const uuid = getXmlAttr(match[1] ?? "", "uuid");
+  return {
+    type: "page",
+    ...(uuid === undefined ? {} : { uuid }),
+    children: [],
+  };
+}
+
+function parseLegacyMentionCard(line: string): NfmPageRef | null {
   const match = line.match(/^<mention-card(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
   const url = getXmlAttr(match[1] ?? "", "url") ?? "";
-  const target = parseCardDeepLink(url);
+  const target = parsePageDeepLink(url);
   if (!target) {
-    throw new TypeError("Card mention URL must identify a Nodex Card");
+    throw new TypeError("Historical Page mention URL is invalid");
   }
   return {
-    type: "mentionCard",
-    targetBlockId: target.cardId,
+    type: "pageRef",
+    targetBlockId: target.pageId,
     children: [],
   };
 }
@@ -635,21 +679,21 @@ function isToggleListPropertyKey(
   return value === "priority" || value === "estimate" || value === "status" || value === "tags";
 }
 
-function parseCardRef(line: string): NfmMentionCard | NfmCardRef | null {
+function parseCardRef(line: string): NfmPageRef | NfmCardRef | null {
   const match = line.match(/^<card-ref(?:\s+([^>]*))?\s*\/>$/);
   if (!match) return null;
 
   const attrString = match[1] ?? "";
   const targetBlockId = getXmlAttr(attrString, "target-block");
   const sourceProjectId = getXmlAttr(attrString, "project") ?? "default";
-  const cardId = getXmlAttr(attrString, "card") ?? "";
+  const pageId = getXmlAttr(attrString, "card") ?? "";
 
   if (targetBlockId !== undefined) {
     if (targetBlockId.length === 0 || targetBlockId !== targetBlockId.trim()) {
       throw new TypeError("Historical Card reference has an invalid target-block");
     }
     return {
-      type: "mentionCard",
+      type: "pageRef",
       targetBlockId,
       children: [],
     };
@@ -658,7 +702,7 @@ function parseCardRef(line: string): NfmMentionCard | NfmCardRef | null {
   return {
     type: "cardRef",
     sourceProjectId,
-    cardId,
+    pageId,
     children: [],
   };
 }
@@ -689,7 +733,7 @@ function parseCardToggle(
   if (!openMatch) return null;
 
   const attrString = openMatch[1] ?? "";
-  const cardId = getXmlAttr(attrString, "card") ?? "";
+  const pageId = getXmlAttr(attrString, "card") ?? "";
   const meta = getXmlAttr(attrString, "meta") ?? "";
   const snapshot = getXmlAttr(attrString, "snapshot");
   const sourceProjectId = getXmlAttr(attrString, "project");
@@ -731,7 +775,7 @@ function parseCardToggle(
   return {
     block: {
       type: "cardToggle",
-      cardId,
+      pageId,
       meta,
       ...(snapshot ? { snapshot } : {}),
       ...(sourceProjectId ? { sourceProjectId } : {}),

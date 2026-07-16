@@ -45,10 +45,10 @@ import {
 import { DbViewToolbar } from "./db-view-toolbar";
 import { DatabaseManagementDialogController } from "./database-management-dialog-controller";
 import { MainViewHost } from "./main-view-host";
-import { CardStage } from "./workbench-card-stage";
+import { PageStage } from "./workbench-page-stage";
 import { OwnedBlockDocumentBoundary } from "@/components/block-documents/owned-block-document-boundary";
-import { CardStageToolbar } from "@/components/kanban/card-stage/toolbar";
-import { CardStageContentSkeleton } from "@/components/kanban/card-stage/content-skeleton";
+import { PageStageToolbar } from "@/components/kanban/page-stage/toolbar";
+import { PageStageContentSkeleton } from "@/components/kanban/page-stage/content-skeleton";
 import { HistoryPanel } from "./workbench-history-panel";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import {
@@ -87,7 +87,7 @@ import { WorkbenchAutomationsRouteShell, WorkbenchAutomationSidePanelTab } from 
 import { buildAutomationsPath } from "./workbench-automations-routes";
 import { PendingWorktreeRoute } from "./pending-worktree-route";
 import { WorkbenchProcessManagerDialog } from "./workbench-process-manager-dialog";
-import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
+import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarProjectsSectionActions } from "./sidebar-projects-section-actions";
 import {
@@ -144,20 +144,20 @@ import {
 import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automations";
 import { useKanban } from "@/lib/use-kanban";
 import { ensureFreshDatabaseViewBoard } from "@/lib/kanban-store";
-import { fetchCardDetail, useCardDetail } from "@/lib/card-detail-store";
-import { useCardTargetReadModels } from "@/lib/block-reference-queries";
-import { resolveCardStageBreadcrumbTarget } from "@/lib/card-stage-breadcrumb-target";
+import { fetchPageDetail, usePageDetail } from "@/lib/page-detail-store";
+import { usePageTargetReadModels } from "@/lib/block-reference-queries";
+import { resolvePageStageBreadcrumbTarget } from "@/lib/page-stage-breadcrumb-target";
 import {
-  projectCardDetailToStageModel,
-  type CardStageDatabaseProperties,
-} from "@/lib/card-stage-card";
-import { commitCardDetailMetadataPatch } from "@/lib/card-detail-metadata-runtime";
-import { readCardStageContentWidthPreference } from "@/lib/card-stage-layout";
+  projectPageDetailToStageModel,
+  type PageStageDatabaseProperties,
+} from "@/lib/page-stage-page";
+import { commitPageDetailMetadataPatch } from "@/lib/page-detail-metadata-runtime";
+import { readPageStageContentWidthPreference } from "@/lib/page-stage-layout";
 import {
-  createCardStageTabTitleStore,
-  makeCardStageTabTitleKey,
-  type CardStageTabTitleStore,
-} from "@/lib/card-stage-tab-title-store";
+  createPageStageTabTitleStore,
+  makePageStageTabTitleKey,
+  type PageStageTabTitleStore,
+} from "@/lib/page-stage-tab-title-store";
 import { cn } from "@/lib/utils";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
@@ -258,9 +258,9 @@ import {
 } from "@/lib/smart-prefix-parsing";
 import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "@/lib/types";
 import type {
-  Card,
-  CardRunInTarget,
-  CardInput,
+  DatabasePage,
+  PageRunInTarget,
+  PageInput,
   CodexAccountSnapshot,
   CodexBackgroundTerminalRow,
   CodexCollaborationModeKind,
@@ -300,11 +300,11 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import type {
-  ProjectSessionCardStageAncestor,
-  ProjectSessionCardStageTabConfig,
+  ProjectSessionPageStageAncestor,
+  ProjectSessionPageStageTabConfig,
   TerminalSessionSnapshot,
 } from "../../../shared/types";
-import { appendCardStageAncestor } from "../../../shared/card-stage-ancestors";
+import { appendPageStageAncestor } from "../../../shared/page-stage-ancestors";
 import type { ThreadActionControllerInput, ThreadStageActions } from "@/features/local-conversation";
 import type {
   ThreadOpenSideChatInput,
@@ -326,12 +326,12 @@ import {
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
 import {
-  type RecentCardSession,
-  type SpaceRef,
+  type RecentPageSession,
+  type ProjectRef,
   type WorkbenchView,
 } from "@/lib/use-workbench-state";
-import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
-import { buildSessionDeepLink } from "@/lib/card-deeplink";
+import type { PageStageSessionSnapshot } from "@/components/kanban/page-stage/types";
+import { buildSessionDeepLink } from "@/lib/page-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { showNativeContextMenu } from "@/lib/native-context-menu";
 import {
@@ -400,7 +400,7 @@ import {
   CodexSidebarSection,
   CodexSidebarThreadRow,
   CodexSidebarTopActionButton,
-  resolveCodexCardSearchShortcutLabel,
+  resolveCodexPageSearchShortcutLabel,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
 import { RenameChatDialog } from "./rename-chat-dialog";
@@ -556,7 +556,7 @@ const CODEX_PANEL_OPTION_ACTION_ORDER: PanelNewTabActionKind[] = [
 ];
 const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
   "db_view",
-  "card_stage",
+  "page_stage",
 ];
 const NODEX_PANEL_OPTION_ACTION_KIND_SET = new Set<ProjectSessionTab["kind"]>(
   NODEX_PANEL_OPTION_ACTION_ORDER,
@@ -715,13 +715,13 @@ type ProjectSessionRenderableTab =
   | BackgroundAgentPanelTab
   | ProcessOutputPanelTab;
 
-interface CardStageHistoryModalContext {
+interface PageStageHistoryModalContext {
   sessionId: string;
   tabId: string;
   projectId: string;
-  cardId: string;
-  cardTitle?: string;
-  cardNfm?: string;
+  pageId: string;
+  pageTitle?: string;
+  pageNfm?: string;
 }
 
 interface RetainedSessionEntry {
@@ -804,10 +804,10 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     Icon: Table2,
   },
   {
-    kind: "card_stage",
+    kind: "page_stage",
     defaultPanelId: "right",
-    label: "Card Stage",
-    description: "Open a project card",
+    label: "Page",
+    description: "Open a Library Page",
     Icon: SquareKanban,
   },
 ];
@@ -909,7 +909,7 @@ interface WorkbenchShellProps {
   activeDbViewPrefs: DbViewPrefs | null;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  spaces?: SpaceRef[];
+  projectRefs?: ProjectRef[];
   sidebar?: {
     collapsed: boolean;
     width: number;
@@ -917,21 +917,21 @@ interface WorkbenchShellProps {
     topLevelSections?: SidebarTopLevelSectionsPrefs;
     collapsibleSections?: SidebarCollapsibleSectionsState;
   };
-  cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
-  cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
-  cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
+  pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
+  pageStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  pageStageSessionSnapshotRef?: React.MutableRefObject<PageStageSessionSnapshot | null>;
   pendingReminderOpen?: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   } | null;
-  pendingCardDeepLinkOpen?: {
+  pendingPageDeepLinkOpen?: {
     projectId: string;
-    cardId: string;
+    pageId: string;
   } | null;
-  onCardDeepLinkHandled?: (payload: {
+  onPageDeepLinkHandled?: (payload: {
     projectId: string;
-    cardId: string;
+    pageId: string;
   }) => void;
   pendingSessionOpen?: {
     projectId: string | null;
@@ -944,19 +944,19 @@ interface WorkbenchShellProps {
     view: SupportedDbView,
     update: (prev: DbViewPrefs) => DbViewPrefs,
   ) => void;
-  openCardStage: (
+  openPageStage: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
-    options?: OpenCardStageOptions,
+    options?: OpenPageStageOptions,
   ) => void;
   onReminderHandled?: (payload: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   }) => void;
   onOpenProjectSessionInNewWindow?: (session: ProjectSession) => Promise<void>;
-  onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
+  onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
@@ -980,26 +980,26 @@ interface WorkbenchShellProps {
   setSidebarSectionShowAll?: unknown;
   isSidebarSectionShowAll?: unknown;
   threadsProjectId?: unknown;
-  recentCardSessions?: RecentCardSession[];
+  recentPageSessions?: RecentPageSession[];
   activeRecentSessionId?: unknown;
   stageNavDirection?: unknown;
-  cardsTabs?: unknown;
-  activeCardsTabId?: unknown;
+  pagesTabs?: unknown;
+  activePagesTabId?: unknown;
   threadsTabs?: unknown;
   activeThreadsTabId?: unknown;
   filesTabs?: unknown;
   activeFilesTabId?: unknown;
   stagePanelWidths?: unknown;
   slidingWindowPaneCount?: unknown;
-  cardStageState?: unknown;
-  cardStageCardId?: unknown;
+  pageStageState?: unknown;
+  pageStagePageId?: unknown;
   setActiveThreadsTab?: unknown;
   setThreadsTabs?: unknown;
   setStagePanelWidths?: unknown;
   stepSlidingWindowPaneCount?: unknown;
-  closeRecentCardSession?: unknown;
-  reorderRecentCardSessions?: unknown;
-  closeCardStage?: unknown;
+  closeRecentPageSession?: unknown;
+  reorderRecentPageSessions?: unknown;
+  closePageStage?: unknown;
   projectPickerOpenTick?: number;
   taskSearchOpenTick?: number;
   diffSearchOpenTick?: unknown;
@@ -1019,26 +1019,26 @@ interface WorkbenchShellProps {
   threadRenameRequest?: WorkbenchThreadRenameCommandRequest | null;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
   navigateToRecentSession?: unknown;
-  navigateToCardsTab?: unknown;
+  navigateToPagesTab?: unknown;
   navigateToThreadTab?: unknown;
   navigateToFilesTab?: unknown;
   commandKeymapState?: CommandKeymapState | null;
 }
 
-interface OpenCardTabOptions {
+interface OpenPageTabOptions {
   sourceTabId?: string;
   openMode?: "preview" | "durable";
-  ancestors?: readonly ProjectSessionCardStageAncestor[];
+  ancestors?: readonly ProjectSessionPageStageAncestor[];
 }
 
-type OpenCardTabHandler = (
+type OpenPageTabHandler = (
   projectId: string,
-  cardId: string,
+  pageId: string,
   titleSnapshot?: string,
-  options?: OpenCardTabOptions,
+  options?: OpenPageTabOptions,
 ) => Promise<void>;
 
-export function resolveCardStageSessionTabOrder(
+export function resolvePageStageSessionTabOrder(
   tabs: readonly { id: string; kind?: string; sessionId?: string; isLabel?: boolean }[],
   activeId: string,
   overId: string,
@@ -1270,7 +1270,7 @@ function isFocusedPanelTabShortcutTargetBlocked(target: EventTarget | null): boo
 
 function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?: string }> {
   if (kind === "db_view") return Table2;
-  if (kind === "card_stage") return SquareKanban;
+  if (kind === "page_stage") return SquareKanban;
   if (kind === "terminal") return CodexSidePanelTerminalIcon;
   if (kind === "browser") return CodexSidePanelBrowserIcon;
   if (kind === "review") return CodexSidePanelReviewIcon;
@@ -1315,7 +1315,7 @@ function resolveProjectTargetTabChromeContext(
     || isBackgroundAgentPanelTab(tab)
     || isProcessOutputPanelTab(tab)
   ) return {};
-  if (tab.kind !== "db_view" && tab.kind !== "card_stage") return {};
+  if (tab.kind !== "db_view" && tab.kind !== "page_stage") return {};
   if (!("projectId" in tab.config)) return {};
 
   const targetProjectId = tab.config.projectId;
@@ -1419,8 +1419,8 @@ function isNodexPanelOptionAction(action: PanelNewTabAction): boolean {
 
 function isPanelDestinationAction(
   action: PanelNewTabAction,
-): action is PanelNewTabAction & { kind: "db_view" | "card_stage" } {
-  return action.kind === "db_view" || action.kind === "card_stage";
+): action is PanelNewTabAction & { kind: "db_view" | "page_stage" } {
+  return action.kind === "db_view" || action.kind === "page_stage";
 }
 
 function normalizeOptionalPath(value: string | null | undefined): string | undefined {
@@ -1889,12 +1889,12 @@ function buildSessionPanelRenderModel(input: SessionPanelRenderModelInput): Sess
   };
 }
 
-function collectPanelCardStageCardIdsByProject(
+function collectPanelPageStagePageIdsByProject(
   session: ProjectSession,
   model: SessionPanelRenderModel,
 ): ReadonlyMap<string, ReadonlySet<string>> {
   const byProject = new Map<string, Set<string>>();
-  const collectPanelVisibleCardStageCards = (panelId: PanelId, panelOpen: boolean) => {
+  const collectPanelVisiblePageStagePages = (panelId: PanelId, panelOpen: boolean) => {
     if (!panelOpen) return;
 
     const layout = session.panels[panelId].layout;
@@ -1910,17 +1910,17 @@ function collectPanelCardStageCardIdsByProject(
       if (!activeTab || isTransientPanelTab(activeTab)) continue;
       if (isProjectSessionFilesPreviewTab(activeTab)) continue;
 
-      const cardRef = readCardStagePanelTabCardRef(activeTab);
-      if (!cardRef) continue;
+      const pageRef = readPageStagePanelTabPageRef(activeTab);
+      if (!pageRef) continue;
 
-      const cardIds = byProject.get(cardRef.projectId) ?? new Set<string>();
-      cardIds.add(cardRef.cardId);
-      byProject.set(cardRef.projectId, cardIds);
+      const pageIds = byProject.get(pageRef.projectId) ?? new Set<string>();
+      pageIds.add(pageRef.pageId);
+      byProject.set(pageRef.projectId, pageIds);
     }
   };
 
-  collectPanelVisibleCardStageCards("right", model.sidePanelOpen);
-  collectPanelVisibleCardStageCards("bottom", model.bottomPanelOpen);
+  collectPanelVisiblePageStagePages("right", model.sidePanelOpen);
+  collectPanelVisiblePageStagePages("bottom", model.bottomPanelOpen);
   return byProject;
 }
 
@@ -2076,7 +2076,7 @@ function isRootThreadRightPanelComposerOverlayEligibleTab(
     tab.kind === "review"
     || tab.kind === "browser"
     || tab.kind === "db_view"
-    || tab.kind === "card_stage"
+    || tab.kind === "page_stage"
   );
 }
 
@@ -2208,15 +2208,15 @@ function makePreviewWorkspaceFileTab(
   };
 }
 
-function makePreviewCardStageTab(
+function makePreviewPageStageTab(
   session: ProjectSession,
   panelId: PanelId,
   leafId: string,
   input: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     titleSnapshot?: string;
-    ancestors?: readonly ProjectSessionCardStageAncestor[];
+    ancestors?: readonly ProjectSessionPageStageAncestor[];
   },
 ): ProjectSessionPreviewTab {
   const projectId = resolveProjectBoundSessionId(session);
@@ -2224,19 +2224,19 @@ function makePreviewCardStageTab(
     throw new Error("Projectless sessions cannot own project-scoped tabs");
   }
   const now = new Date().toISOString();
-  const title = input.titleSnapshot || input.cardId;
+  const title = input.titleSnapshot || input.pageId;
   return {
     id: makeClientProjectSessionTabId(),
     sessionId: session.id,
     projectId,
     browserTabId: null,
     panelId,
-    kind: "card_stage",
+    kind: "page_stage",
     title,
     order: session.tabs.filter((tab) => tab.panelId === panelId).length,
     config: {
       projectId: input.projectId,
-      cardId: input.cardId,
+      pageId: input.pageId,
       ...(input.titleSnapshot ? { titleSnapshot: input.titleSnapshot } : {}),
       ...(input.ancestors !== undefined ? { ancestors: [...input.ancestors] } : {}),
     },
@@ -2294,7 +2294,7 @@ function resolveDbCardSourceLeafId(session: ProjectSession, sourceTabId: string 
   return sourceLeafId ?? null;
 }
 
-function resolveCardTabTargetLeafId(session: ProjectSession, sourceTabId: string | undefined): string | undefined {
+function resolvePageTabTargetLeafId(session: ProjectSession, sourceTabId: string | undefined): string | undefined {
   const sourceLeafId = resolveDbCardSourceLeafId(session, sourceTabId);
   if (!sourceLeafId) return undefined;
   return findNearestProjectSessionPanelLeafToRight(session.panels.right.layout, sourceLeafId) ?? undefined;
@@ -2311,27 +2311,27 @@ function shouldEnsureRightLeafForDbCardOpen(
   return listProjectSessionPanelLeaves(session.panels.right.layout).length === 1;
 }
 
-function readCardStagePanelTabCardRef(tab: ProjectSessionTab | null | undefined): {
+function readPageStagePanelTabPageRef(tab: ProjectSessionTab | null | undefined): {
   projectId: string;
-  cardId: string;
+  pageId: string;
 } | null {
-  if (!tab || tab.kind !== "card_stage") return null;
-  if (!("projectId" in tab.config) || !("cardId" in tab.config)) return null;
+  if (!tab || tab.kind !== "page_stage") return null;
+  if (!("projectId" in tab.config) || !("pageId" in tab.config)) return null;
 
   return {
     projectId: tab.config.projectId,
-    cardId: tab.config.cardId,
+    pageId: tab.config.pageId,
   };
 }
 
-function cardStageAncestorsEqual(
-  left: readonly ProjectSessionCardStageAncestor[] | undefined,
-  right: readonly ProjectSessionCardStageAncestor[],
+function pageStageAncestorsEqual(
+  left: readonly ProjectSessionPageStageAncestor[] | undefined,
+  right: readonly ProjectSessionPageStageAncestor[],
 ): boolean {
   if ((left?.length ?? 0) !== right.length) return false;
   return right.every((ancestor, index) => {
     const candidate = left?.[index];
-    return candidate?.cardId === ancestor.cardId;
+    return candidate?.pageId === ancestor.pageId;
   });
 }
 
@@ -2370,23 +2370,23 @@ export function WorkbenchShell({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
-  spaces = [],
-  recentCardSessions = [],
+  projectRefs = [],
+  recentPageSessions = [],
   sidebar,
-  cardStageCloseRef,
-  cardStagePersistRef,
-  cardStageSessionSnapshotRef,
+  pageStageCloseRef,
+  pageStagePersistRef,
+  pageStageSessionSnapshotRef,
   pendingReminderOpen,
-  pendingCardDeepLinkOpen,
-  onCardDeepLinkHandled,
+  pendingPageDeepLinkOpen,
+  onPageDeepLinkHandled,
   pendingSessionOpen,
   setDbProject,
   setSearchQuery,
   setDbViewPrefs,
-  openCardStage,
+  openPageStage,
   onReminderHandled,
   onOpenProjectSessionInNewWindow,
-  onLeaveCardStageCard,
+  onLeavePageStage,
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
@@ -2437,7 +2437,7 @@ export function WorkbenchShell({
   const [renamePendingWorktree, setRenamePendingWorktree] =
     useState<CodexSidebarThreadItem | null>(null);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
-  const [cardStageTabTitleStore] = useState(createCardStageTabTitleStore);
+  const [pageStageTabTitleStore] = useState(createPageStageTabTitleStore);
   const [sideChatTabsBySession, setSideChatTabsBySession] = useState<Record<string, SideChatPanelTab[]>>({});
   const [sideChatActiveTabByPanel, setSideChatActiveTabByPanel] = useState<Record<string, string>>({});
   const [mcpAppTabsBySession, setMcpAppTabsBySession] = useState<Record<string, McpAppPanelTab[]>>({});
@@ -2775,7 +2775,7 @@ export function WorkbenchShell({
     projectId: activeProject?.id ?? activeProjectId,
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
-  const [cardStageHistoryModal, setCardStageHistoryModal] = useState<CardStageHistoryModalContext | null>(null);
+  const [pageStageHistoryModal, setPageStageHistoryModal] = useState<PageStageHistoryModalContext | null>(null);
   const [openPanelNewTabMenuKey, setOpenPanelNewTabMenuKey] = useState<string | null>(null);
   const activeSessionPanelModel = useMemo(() => activeRenderSession ? buildSessionPanelRenderModel({
     session: activeRenderSession,
@@ -2821,40 +2821,40 @@ export function WorkbenchShell({
   const sidePanelOpen = activeSessionPanelModel?.sidePanelOpen ?? false;
   const bottomPanelOpen = activeSessionPanelModel?.bottomPanelOpen ?? false;
   useEffect(() => {
-    setCardStageHistoryModal((current) => {
+    setPageStageHistoryModal((current) => {
       if (!current) return current;
       if (!activeSession || activeSession.id !== current.sessionId) return null;
 
       const ownerTab = activeSession.tabs.find((tab) => tab.id === current.tabId);
-      const cardRef = readCardStagePanelTabCardRef(ownerTab);
-      if (!cardRef) return null;
-      if (cardRef.projectId !== current.projectId || cardRef.cardId !== current.cardId) return null;
+      const pageRef = readPageStagePanelTabPageRef(ownerTab);
+      if (!pageRef) return null;
+      if (pageRef.projectId !== current.projectId || pageRef.pageId !== current.pageId) return null;
 
       return current;
     });
   }, [activeSession]);
-  const closeCardStageHistoryModal = useCallback(() => {
-    setCardStageHistoryModal(null);
+  const closePageStageHistoryModal = useCallback(() => {
+    setPageStageHistoryModal(null);
   }, []);
-  const toggleCardStageHistoryModal = useCallback((context: CardStageHistoryModalContext) => {
-    setCardStageHistoryModal((current) => {
+  const togglePageStageHistoryModal = useCallback((context: PageStageHistoryModalContext) => {
+    setPageStageHistoryModal((current) => {
       if (
         current
         && current.sessionId === context.sessionId
         && current.tabId === context.tabId
         && current.projectId === context.projectId
-        && current.cardId === context.cardId
+        && current.pageId === context.pageId
       ) {
         return null;
       }
       return context;
     });
   }, []);
-  const cardStageHistoryModalProject = useMemo(
-    () => cardStageHistoryModal
-      ? projects.find((project) => project.id === cardStageHistoryModal.projectId) ?? null
+  const pageStageHistoryModalProject = useMemo(
+    () => pageStageHistoryModal
+      ? projects.find((project) => project.id === pageStageHistoryModal.projectId) ?? null
       : null,
-    [cardStageHistoryModal, projects],
+    [pageStageHistoryModal, projects],
   );
   const rightPanelFullWidth = activeSessionPanelModel?.rightPanelFullWidth ?? false;
   const rightActiveRenderableTab = activeSessionPanelModel?.rightActiveRenderableTab ?? null;
@@ -5612,13 +5612,13 @@ export function WorkbenchShell({
         ...(previewTab.kind === "browser"
           ? { browserTabId: requireProjectSessionBrowserTabId(previewTab) }
           : {}),
-        ...(previewTab.kind === "card_stage" ? { clientTabId: previewTab.id } : {}),
+        ...(previewTab.kind === "page_stage" ? { clientTabId: previewTab.id } : {}),
         kind: previewTab.kind,
         title: previewTab.title,
         config: previewTabConfig,
       };
       await invoke("project-session-tabs:create", createInput);
-      if (previewTab.kind === "card_stage") {
+      if (previewTab.kind === "page_stage") {
         await refreshProjectSessions(projectId);
         clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
         return;
@@ -6312,25 +6312,25 @@ export function WorkbenchShell({
     return true;
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, projects, refreshProjectSessions, setActivePanelTab]);
 
-  const openCardTab = useCallback<OpenCardTabHandler>(async (projectId, cardId, titleSnapshot, options) => {
+  const openPageTab = useCallback<OpenPageTabHandler>(async (projectId, pageId, titleSnapshot, options) => {
     if (!activeSession || activeSession.projectId === null) {
-      openCardStage(projectId, cardId, titleSnapshot, options);
+      openPageStage(projectId, pageId, titleSnapshot, options);
       return;
     }
     const sessionProjectId = activeSession.projectId;
 
     const existing = activeSession.tabs.find((tab) =>
-      tab.kind === "card_stage"
+      tab.kind === "page_stage"
       && tab.panelId === "right"
-      && "cardId" in tab.config
-      && tab.config.cardId === cardId
+      && "pageId" in tab.config
+      && tab.config.pageId === pageId
       && tab.config.projectId === projectId,
     );
     if (existing) {
       const requestedAncestors = options?.ancestors;
-      const existingConfig = existing.config as ProjectSessionCardStageTabConfig;
+      const existingConfig = existing.config as ProjectSessionPageStageTabConfig;
       const shouldRefreshBreadcrumb = requestedAncestors !== undefined
-        && !cardStageAncestorsEqual(existingConfig.ancestors, requestedAncestors);
+        && !pageStageAncestorsEqual(existingConfig.ancestors, requestedAncestors);
       if (shouldRefreshBreadcrumb) {
         await invoke("project-session-tabs:update", existing.id, {
           config: {
@@ -6349,7 +6349,7 @@ export function WorkbenchShell({
     }
 
     const sourceLeafId = resolveDbCardSourceLeafId(activeSession, options?.sourceTabId);
-    let targetLeafId = resolveCardTabTargetLeafId(activeSession, options?.sourceTabId);
+    let targetLeafId = resolvePageTabTargetLeafId(activeSession, options?.sourceTabId);
     if (!targetLeafId && shouldEnsureRightLeafForDbCardOpen(activeSession, sourceLeafId, rightPanelFullWidth)) {
       const result = (await invoke("project-session-panels:ensure-right-leaf", {
         sessionId: activeSession.id,
@@ -6362,9 +6362,9 @@ export function WorkbenchShell({
     const matchingPreviewTab = getRenderablePanelPreviewTab(activeSession, "right", previewLeafId, previewTabsByPanel);
     if (
       options?.openMode !== "preview"
-      && matchingPreviewTab?.kind === "card_stage"
-      && "cardId" in matchingPreviewTab.config
-      && matchingPreviewTab.config.cardId === cardId
+      && matchingPreviewTab?.kind === "page_stage"
+      && "pageId" in matchingPreviewTab.config
+      && matchingPreviewTab.config.pageId === pageId
       && matchingPreviewTab.config.projectId === projectId
     ) {
       await pinPreviewTab("right", matchingPreviewTab.id, previewLeafId);
@@ -6374,11 +6374,11 @@ export function WorkbenchShell({
     if (options?.openMode === "preview") {
       setPreviewTabsByPanel((current) => ({
         ...current,
-        [makePanelPreviewKey(activeSession.id, "right", previewLeafId)]: makePreviewCardStageTab(
+        [makePanelPreviewKey(activeSession.id, "right", previewLeafId)]: makePreviewPageStageTab(
           activeSession,
           "right",
           previewLeafId,
-          { projectId, cardId, titleSnapshot, ancestors: options?.ancestors },
+          { projectId, pageId, titleSnapshot, ancestors: options?.ancestors },
         ),
       }));
       await ensureActivePanelOpenWithoutRefresh("right");
@@ -6391,11 +6391,11 @@ export function WorkbenchShell({
       projectId: sessionProjectId,
       panelId: "right",
       ...(targetLeafId ? { targetLeafId } : {}),
-      kind: "card_stage",
-      title: titleSnapshot || cardId,
+      kind: "page_stage",
+      title: titleSnapshot || pageId,
       config: {
         projectId,
-        cardId,
+        pageId: pageId,
         titleSnapshot,
         ...(options?.ancestors !== undefined
           ? { ancestors: [...options.ancestors] }
@@ -6408,7 +6408,7 @@ export function WorkbenchShell({
     activeSession,
     clearPanelPreviewTab,
     ensureActivePanelOpenWithoutRefresh,
-    openCardStage,
+    openPageStage,
     pinPreviewTab,
     previewTabsByPanel,
     refreshProjectSessions,
@@ -6418,27 +6418,27 @@ export function WorkbenchShell({
   ]);
 
   useEffect(() => {
-    if (!pendingCardDeepLinkOpen) return;
-    if (pendingCardDeepLinkOpen.projectId !== dbProjectId) return;
+    if (!pendingPageDeepLinkOpen) return;
+    if (pendingPageDeepLinkOpen.projectId !== dbProjectId) return;
 
     let cancelled = false;
     void (async () => {
-      await openCardTab(
-        pendingCardDeepLinkOpen.projectId,
-        pendingCardDeepLinkOpen.cardId,
+      await openPageTab(
+        pendingPageDeepLinkOpen.projectId,
+        pendingPageDeepLinkOpen.pageId,
         undefined,
         {
           openMode: "durable",
         },
       );
       if (cancelled) return;
-      onCardDeepLinkHandled?.(pendingCardDeepLinkOpen);
+      onPageDeepLinkHandled?.(pendingPageDeepLinkOpen);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [dbProjectId, onCardDeepLinkHandled, openCardTab, pendingCardDeepLinkOpen]);
+  }, [dbProjectId, onPageDeepLinkHandled, openPageTab, pendingPageDeepLinkOpen]);
 
   const ensureBlankSessionForProject = useCallback(async (
     projectId: string | null,
@@ -6533,7 +6533,7 @@ export function WorkbenchShell({
   const openSidebarCommandPalette = useCallback(() => {
     setCommandPaletteOpenRequest((current) => ({
       tick: current.tick + 1,
-      mode: "cards",
+      mode: "pages",
       initialQuery: "",
     }));
     setCommandPaletteOpen(true);
@@ -7218,22 +7218,22 @@ export function WorkbenchShell({
     await refreshProjectSessions(sessionProjectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions, setActivePanelTab]);
 
-  const openCardStageFromPanelPicker = useCallback(async (
-    destination: Extract<PanelDestination, { kind: "card" }>,
+  const openPageStageFromPanelPicker = useCallback(async (
+    destination: Extract<PanelDestination, { kind: "page" }>,
     panelId: PanelId,
     leafId: string,
   ) => {
     if (!activeSession || activeSession.projectId === null) {
-      openCardStage(destination.projectId, destination.cardId, destination.titleSnapshot);
+      openPageStage(destination.projectId, destination.pageId, destination.titleSnapshot);
       return;
     }
     const sessionProjectId = activeSession.projectId;
 
     const existing = activeSession.tabs.find((tab) =>
-      tab.kind === "card_stage"
+      tab.kind === "page_stage"
       && tab.panelId === panelId
-      && "cardId" in tab.config
-      && tab.config.cardId === destination.cardId
+      && "pageId" in tab.config
+      && tab.config.pageId === destination.pageId
       && tab.config.projectId === destination.projectId,
     );
     if (existing) {
@@ -7245,9 +7245,9 @@ export function WorkbenchShell({
 
     const matchingPreviewTab = getRenderablePanelPreviewTab(activeSession, panelId, leafId, previewTabsByPanel);
     if (
-      matchingPreviewTab?.kind === "card_stage"
-      && "cardId" in matchingPreviewTab.config
-      && matchingPreviewTab.config.cardId === destination.cardId
+      matchingPreviewTab?.kind === "page_stage"
+      && "pageId" in matchingPreviewTab.config
+      && matchingPreviewTab.config.pageId === destination.pageId
       && matchingPreviewTab.config.projectId === destination.projectId
     ) {
       await pinPreviewTab(panelId, matchingPreviewTab.id, leafId);
@@ -7259,12 +7259,12 @@ export function WorkbenchShell({
       projectId: sessionProjectId,
       panelId,
       targetLeafId: leafId,
-      kind: "card_stage",
-      title: destination.titleSnapshot || destination.cardId,
+      kind: "page_stage",
+      title: destination.titleSnapshot || destination.pageId,
       config: {
         projectId: destination.projectId,
-        cardId: destination.cardId,
-        titleSnapshot: destination.titleSnapshot || destination.cardId,
+        pageId: destination.pageId,
+        titleSnapshot: destination.titleSnapshot || destination.pageId,
       },
     });
     await ensureActivePanelOpenWithoutRefresh(panelId);
@@ -7273,7 +7273,7 @@ export function WorkbenchShell({
     activeSession,
     clearPanelPreviewTab,
     ensureActivePanelOpenWithoutRefresh,
-    openCardStage,
+    openPageStage,
     pinPreviewTab,
     previewTabsByPanel,
     refreshProjectSessions,
@@ -7296,8 +7296,8 @@ export function WorkbenchShell({
       return;
     }
 
-    await openCardStageFromPanelPicker(destination, panelId, leafId);
-  }, [activatePanelGroup, openCardStageFromPanelPicker, openDbViewFromPanelPicker]);
+    await openPageStageFromPanelPicker(destination, panelId, leafId);
+  }, [activatePanelGroup, openPageStageFromPanelPicker, openDbViewFromPanelPicker]);
 
   const rememberFocusedPanelGroup = useCallback((panelId: PanelId, leafId: string) => {
     focusedPanelGroupRef.current = { panelId, leafId };
@@ -7835,15 +7835,15 @@ export function WorkbenchShell({
     updateActivePanel,
   ]);
 
-  const activePanelCardStageCardIdsByProject = useMemo<ReadonlyMap<string, ReadonlySet<string>>>(() => {
+  const activePanelPageStagePageIdsByProject = useMemo<ReadonlyMap<string, ReadonlySet<string>>>(() => {
     if (!activeRenderSession || !activeSessionPanelModel) return new Map();
-    return collectPanelCardStageCardIdsByProject(activeRenderSession, activeSessionPanelModel);
+    return collectPanelPageStagePageIdsByProject(activeRenderSession, activeSessionPanelModel);
   }, [activeRenderSession, activeSessionPanelModel]);
 
   const buildPanelGroupTabsForSession = useCallback((
     session: ProjectSession,
     model: SessionPanelRenderModel,
-    visibleCardStageCardIdsByProject: ReadonlyMap<string, ReadonlySet<string>>,
+    visiblePageStagePageIdsByProject: ReadonlyMap<string, ReadonlySet<string>>,
     browserBoundsSyncTriggerByPanel: Partial<Record<PanelId, MotionValue<number>>> = {},
     sessionIsActive = false,
   ): PanelGroupTabsByPanel => {
@@ -7851,7 +7851,7 @@ export function WorkbenchShell({
     void terminalSessionVersion;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
       const transientPanelTab = isTransientPanelTab(tab);
-      const retentionMode = !transientPanelTab && tab.kind === "card_stage" ? "layout" : undefined;
+      const retentionMode = !transientPanelTab && tab.kind === "page_stage" ? "layout" : undefined;
       const title = !transientPanelTab
           && tab.kind === "terminal"
           && "terminalSessionId" in tab.config
@@ -7861,9 +7861,9 @@ export function WorkbenchShell({
               resolveTerminalTabIndex(session, tab),
             )
           : tab.title;
-      const cardStageTitleSource = !transientPanelTab && tab.kind === "card_stage"
-        ? cardStageTabTitleStore.createSource(
-            makeCardStageTabTitleKey(session.id, tab.id),
+      const pageStageTitleSource = !transientPanelTab && tab.kind === "page_stage"
+        ? pageStageTabTitleStore.createSource(
+            makePageStageTabTitleKey(session.id, tab.id),
             title,
           )
         : undefined;
@@ -7881,7 +7881,7 @@ export function WorkbenchShell({
             ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
             : undefined,
         title,
-        titleSource: cardStageTitleSource,
+        titleSource: pageStageTitleSource,
         ...chromeContext,
         icon: isSideChatPanelTab(tab)
           ? CodexSidePanelSideChatIcon
@@ -8046,26 +8046,26 @@ export function WorkbenchShell({
               activeDbViewPrefs={activeDbViewPrefs}
               searchByProject={searchByProject}
               dbViewPrefsByProject={dbViewPrefsByProject}
-              activePanelCardStageCardIdsByProject={visibleCardStageCardIdsByProject}
-              cardStageTabTitleStore={cardStageTabTitleStore}
-              cardStageCloseRef={cardStageCloseRef}
-              cardStagePersistRef={cardStagePersistRef}
-              cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
+              activePanelPageStagePageIdsByProject={visiblePageStagePageIdsByProject}
+              pageStageTabTitleStore={pageStageTabTitleStore}
+              pageStageCloseRef={pageStageCloseRef}
+              pageStagePersistRef={pageStagePersistRef}
+              pageStageSessionSnapshotRef={pageStageSessionSnapshotRef}
               pendingReminderOpen={pendingReminderOpen}
               taskSearchOpenTick={taskSearchOpenTick}
               setSearchQuery={setSearchQuery}
               setDbViewPrefs={setDbViewPrefs}
               onReminderHandled={onReminderHandled}
-              onLeaveCardStageCard={onLeaveCardStageCard}
-              onOpenCardTab={openCardTab}
+              onLeavePageStage={onLeavePageStage}
+              onOpenPageTab={openPageTab}
               onOpenFileTab={openWorkspaceFileTab}
               onEnsureBlankSessionForProject={ensureBlankSessionForProject}
               onRefreshSessions={refreshProjectSessions}
               onCloseTab={closeTab}
               onCreateTerminalTab={(panelId, leafId) => createManualTab("terminal", panelId, leafId)}
               onOpenThread={openAttachedThreadSessionById}
-              cardStageHistoryModal={cardStageHistoryModal}
-              onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
+              pageStageHistoryModal={pageStageHistoryModal}
+              onTogglePageStageHistoryModal={togglePageStageHistoryModal}
               selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
               summaryGitReviewRequest={summaryGitReviewRequest}
               browserBoundsSyncTrigger={browserBoundsSyncTriggerByPanel[tab.panelId]}
@@ -8099,23 +8099,23 @@ export function WorkbenchShell({
     activeDbViewPrefs,
     activeSearchQuery,
     activeView,
-    cardStageCloseRef,
-    cardStageHistoryModal,
-    cardStagePersistRef,
-    cardStageSessionSnapshotRef,
-    cardStageTabTitleStore,
+    pageStageCloseRef,
+    pageStageHistoryModal,
+    pageStagePersistRef,
+    pageStageSessionSnapshotRef,
+    pageStageTabTitleStore,
     closeAutomationPanelTab,
     closeTab,
     composerEnterBehavior,
     createBrowserTabToRight,
     createManualTab,
     ensureBlankSessionForProject,
-    onLeaveCardStageCard,
+    onLeavePageStage,
     onReminderHandled,
     openAutomations,
     openMcpAppSidePanel,
     openHooksSettings,
-    openCardTab,
+    openPageTab,
     openLocalEnvironmentsSettings,
     openWorkspaceFileTab,
     handleThreadQueueFollowUpsEnabledChange,
@@ -8137,7 +8137,7 @@ export function WorkbenchShell({
     summaryGitReviewRequest,
     terminalSessionVersion,
     threadQueueFollowUpsEnabled,
-    toggleCardStageHistoryModal,
+    togglePageStageHistoryModal,
   ]);
 
   const panelGroupTabs = useMemo<PanelGroupTabsByPanel>(() => {
@@ -8150,7 +8150,7 @@ export function WorkbenchShell({
     return buildPanelGroupTabsForSession(
       activeRenderSession,
       activeSessionPanelModel,
-      activePanelCardStageCardIdsByProject,
+      activePanelPageStagePageIdsByProject,
       {
         right: rightPanelMotion.animatedSize,
         bottom: bottomPanelMotion.animatedSize,
@@ -8158,7 +8158,7 @@ export function WorkbenchShell({
       true,
     );
   }, [
-    activePanelCardStageCardIdsByProject,
+    activePanelPageStagePageIdsByProject,
     activeRenderSession,
     activeSessionPanelModel,
     bottomPanelMotion.animatedSize,
@@ -8875,9 +8875,9 @@ export function WorkbenchShell({
             }
 
             if (isPanelDestinationAction(action)) {
-              const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "card-only";
-              const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open card stage";
-              const placeholder = action.kind === "db_view" ? "Open DB…" : "Open card…";
+              const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "page-only";
+              const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open Page";
+              const placeholder = action.kind === "db_view" ? "Open DB…" : "Open Page…";
               return (
                 <NodexDropdownFlyoutSubmenuItem
                   label={action.label}
@@ -9266,12 +9266,12 @@ export function WorkbenchShell({
       initialQuery={commandPaletteOpenRequest.initialQuery}
       projects={projects}
       activeProjectId={commandPaletteProjectId}
-      recentCardSessions={recentCardSessions}
+      recentPageSessions={recentPageSessions}
       commandContext={commandPaletteCommandContext}
       commandHandlers={commandPaletteCommandHandlers}
       onOpenChange={setCommandPaletteOpen}
-      onOpenCard={(projectId, cardId, titleSnapshot) => {
-        void openCardTab(projectId, cardId, titleSnapshot);
+      onOpenPage={(projectId, pageId, titleSnapshot) => {
+        void openPageTab(projectId, pageId, titleSnapshot);
       }}
       onOpenThread={openAttachedThreadSession}
     />
@@ -9299,12 +9299,12 @@ export function WorkbenchShell({
           panelCollapsedOverrides,
           activePlanKeyBySession,
         });
-    const visibleCardStageCardIdsByProject = isActive
-      ? activePanelCardStageCardIdsByProject
-      : collectPanelCardStageCardIdsByProject(session, model);
+    const visiblePageStagePageIdsByProject = isActive
+      ? activePanelPageStagePageIdsByProject
+      : collectPanelPageStagePageIdsByProject(session, model);
     const sessionPanelGroupTabs = isActive
       ? panelGroupTabs
-      : buildPanelGroupTabsForSession(session, model, visibleCardStageCardIdsByProject, {}, false);
+      : buildPanelGroupTabsForSession(session, model, visiblePageStagePageIdsByProject, {}, false);
     const latestShellMainContentWidth = shellMainContentWidth.get();
     const latestShellBodyHeight = shellBodySize.height.get();
     const inactiveRegularRightPanelWidth = clampRegularRightPanelWidth(
@@ -9805,7 +9805,7 @@ export function WorkbenchShell({
             <>
           {showInlineSidebar ? (
             <ProjectSessionSidebar
-              spaces={spaces}
+              projectRefs={projectRefs}
               activeProjectId={activeProjectId}
               activeSessionId={activeSession?.id ?? null}
               activePendingClientThreadId={pendingWorktreeClientThreadId}
@@ -9904,7 +9904,7 @@ export function WorkbenchShell({
                 <ProjectSessionSidebar
                   floating
                   header={floatingSidebarHeader}
-                  spaces={spaces}
+                  projectRefs={projectRefs}
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSession?.id ?? null}
                   activePendingClientThreadId={pendingWorktreeClientThreadId}
@@ -10057,14 +10057,14 @@ export function WorkbenchShell({
                 )}
               </main>
               <HistoryPanel
-                projectId={cardStageHistoryModal?.projectId ?? activeProjectId}
-                cardId={cardStageHistoryModal?.cardId ?? null}
-                cardTitle={cardStageHistoryModal?.cardTitle}
-                cardNfm={cardStageHistoryModal?.cardNfm}
-                projectWorkspacePath={projectWorkspaceRootOrNull(cardStageHistoryModalProject)}
-                open={cardStageHistoryModal !== null}
-                onClose={closeCardStageHistoryModal}
-                onCardMutated={() => {
+                projectId={pageStageHistoryModal?.projectId ?? activeProjectId}
+                pageId={pageStageHistoryModal?.pageId ?? null}
+                pageTitle={pageStageHistoryModal?.pageTitle}
+                pageNfm={pageStageHistoryModal?.pageNfm}
+                projectWorkspacePath={projectWorkspaceRootOrNull(pageStageHistoryModalProject)}
+                open={pageStageHistoryModal !== null}
+                onClose={closePageStageHistoryModal}
+                onPageMutated={() => {
                   void activeProjectKanban.refresh();
                 }}
               />
@@ -11450,7 +11450,7 @@ function ProjectSessionSidebar({
 }: {
   floating?: boolean;
   header?: ReactNode;
-  spaces: SpaceRef[];
+  projectRefs: ProjectRef[];
   activeProjectId: string;
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
@@ -11691,7 +11691,7 @@ function ProjectSessionSidebar({
           >
             <SidebarExpandedHeader
               productName="Nodex"
-              searchShortcutLabel={resolveCodexCardSearchShortcutLabel()}
+              searchShortcutLabel={resolveCodexPageSearchShortcutLabel()}
               newChatShortcutLabel={resolveCodexNewChatShortcutLabel()}
               scrolledContentUnderHeader={scrolledContentUnderHeader}
               onSearch={onOpenCommandPalette}
@@ -11858,7 +11858,7 @@ function PanelDestinationActionMenu({
   currentProjectId,
   onOpenDestination,
 }: {
-  action: PanelNewTabAction & { kind: "db_view" | "card_stage" };
+  action: PanelNewTabAction & { kind: "db_view" | "page_stage" };
   projects: readonly Project[];
   isMac: boolean;
   commandKeymapState?: CommandKeymapState | null;
@@ -11866,9 +11866,9 @@ function PanelDestinationActionMenu({
   onOpenDestination: (destination: PanelDestination) => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
-  const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "card-only";
-  const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open card stage";
-  const placeholder = action.kind === "db_view" ? "Open DB…" : "Open card…";
+  const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "page-only";
+  const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open Page";
+  const placeholder = action.kind === "db_view" ? "Open DB…" : "Open Page…";
 
   return (
     <NodexDropdownMenu
@@ -12152,7 +12152,7 @@ function SessionThreadPage({
   const projectId = session.projectId ?? project?.id ?? projects[0]?.id ?? "default";
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
   const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState(projectId);
-  const [selectedNewThreadRunInTarget, setSelectedNewThreadRunInTarget] = useState<CardRunInTarget>("localProject");
+  const [selectedNewThreadRunInTarget, setSelectedNewThreadRunInTarget] = useState<PageRunInTarget>("localProject");
   const [selectedNewThreadEnvironmentPath, setSelectedNewThreadEnvironmentPath] = useState<string | null>(null);
   const [newThreadEnvironmentOptions, setNewThreadEnvironmentOptions] = useState<WorktreeEnvironmentOption[]>([]);
   const [newThreadEnvironmentsLoading, setNewThreadEnvironmentsLoading] = useState(false);
@@ -12844,26 +12844,26 @@ function ProjectSessionTabPanel({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
-  activePanelCardStageCardIdsByProject,
-  cardStageTabTitleStore,
-  cardStageCloseRef,
-  cardStagePersistRef,
-  cardStageSessionSnapshotRef,
+  activePanelPageStagePageIdsByProject,
+  pageStageTabTitleStore,
+  pageStageCloseRef,
+  pageStagePersistRef,
+  pageStageSessionSnapshotRef,
   pendingReminderOpen,
   taskSearchOpenTick,
   setSearchQuery,
   setDbViewPrefs,
   onReminderHandled,
-  onLeaveCardStageCard,
-  onOpenCardTab,
+  onLeavePageStage,
+  onOpenPageTab,
   onOpenFileTab,
   onEnsureBlankSessionForProject,
   onRefreshSessions,
   onCloseTab,
   onCreateTerminalTab,
   onOpenThread,
-  cardStageHistoryModal,
-  onToggleCardStageHistoryModal,
+  pageStageHistoryModal,
+  onTogglePageStageHistoryModal,
   selectedTurnDiffReviewTarget,
   summaryGitReviewRequest,
   browserBoundsSyncTrigger,
@@ -12877,14 +12877,14 @@ function ProjectSessionTabPanel({
   activeDbViewPrefs: DbViewPrefs | null;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  activePanelCardStageCardIdsByProject: ReadonlyMap<string, ReadonlySet<string>>;
-  cardStageTabTitleStore: CardStageTabTitleStore;
-  cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
-  cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
-  cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
+  activePanelPageStagePageIdsByProject: ReadonlyMap<string, ReadonlySet<string>>;
+  pageStageTabTitleStore: PageStageTabTitleStore;
+  pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
+  pageStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  pageStageSessionSnapshotRef?: React.MutableRefObject<PageStageSessionSnapshot | null>;
   pendingReminderOpen?: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   } | null;
   taskSearchOpenTick: number;
@@ -12896,11 +12896,11 @@ function ProjectSessionTabPanel({
   ) => void;
   onReminderHandled?: (payload: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   }) => void;
-  onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
-  onOpenCardTab: OpenCardTabHandler;
+  onLeavePageStage: (snapshot: PageStageSessionSnapshot) => void;
+  onOpenPageTab: OpenPageTabHandler;
   onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<unknown>;
   onEnsureBlankSessionForProject: (
     projectId: string,
@@ -12910,8 +12910,8 @@ function ProjectSessionTabPanel({
   onCloseTab: (tabId: string) => Promise<void>;
   onCreateTerminalTab: (panelId: PanelId, leafId: string) => Promise<void> | void;
   onOpenThread: (threadId: string) => Promise<void>;
-  cardStageHistoryModal: CardStageHistoryModalContext | null;
-  onToggleCardStageHistoryModal: (context: CardStageHistoryModalContext) => void;
+  pageStageHistoryModal: PageStageHistoryModalContext | null;
+  onTogglePageStageHistoryModal: (context: PageStageHistoryModalContext) => void;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
   summaryGitReviewRequest: {
     source: GitReviewSource;
@@ -12931,38 +12931,38 @@ function ProjectSessionTabPanel({
         activeDbViewPrefs={activeDbViewPrefs}
         searchByProject={searchByProject}
         dbViewPrefsByProject={dbViewPrefsByProject}
-        activePanelCardStageCardIdsByProject={activePanelCardStageCardIdsByProject}
-        cardStageCloseRef={cardStageCloseRef}
+        activePanelPageStagePageIdsByProject={activePanelPageStagePageIdsByProject}
+        pageStageCloseRef={pageStageCloseRef}
         pendingReminderOpen={pendingReminderOpen}
         taskSearchOpenTick={taskSearchOpenTick}
         setSearchQuery={setSearchQuery}
         setDbViewPrefs={setDbViewPrefs}
         onReminderHandled={onReminderHandled}
-        onOpenCardTab={onOpenCardTab}
+        onOpenPageTab={onOpenPageTab}
         onRefreshSessions={onRefreshSessions}
       />
     );
   }
 
-  if (tab.kind === "card_stage" && "cardId" in tab.config && "projectId" in tab.config) {
-    const cardTab = tab as ProjectSessionTab & {
-      config: { projectId: string; cardId: string; titleSnapshot?: string };
+  if (tab.kind === "page_stage" && "pageId" in tab.config && "projectId" in tab.config) {
+    const pageTab = tab as ProjectSessionTab & {
+      config: { projectId: string; pageId: string; titleSnapshot?: string };
     };
     return (
-      <CardStageSessionTab
-        tab={cardTab}
-        project={projects.find((item) => item.id === cardTab.config.projectId) ?? null}
-        closeRef={cardStageCloseRef}
-        persistRef={cardStagePersistRef}
-        sessionSnapshotRef={cardStageSessionSnapshotRef}
+      <PageStageSessionTab
+        tab={pageTab}
+        project={projects.find((item) => item.id === pageTab.config.projectId) ?? null}
+        closeRef={pageStageCloseRef}
+        persistRef={pageStagePersistRef}
+        sessionSnapshotRef={pageStageSessionSnapshotRef}
         sessionId={activeSession.id}
         sessionThread={activeSession.thread ? makeThreadSummary(activeSession.thread) : null}
         canStartThreadInSession={
           !activeSession.thread
-          && activeSession.projectId === cardTab.config.projectId
+          && activeSession.projectId === pageTab.config.projectId
         }
-        titleStore={cardStageTabTitleStore}
-        onLeaveCard={onLeaveCardStageCard}
+        titleStore={pageStageTabTitleStore}
+        onLeavePage={onLeavePageStage}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
           const sessionProjectId = activeSession.projectId;
@@ -12976,7 +12976,7 @@ function ProjectSessionTabPanel({
             kind: "terminal",
             title: "Terminal",
             config: {
-              projectId: cardTab.config.projectId,
+              projectId: pageTab.config.projectId,
               terminalSessionId,
             },
           });
@@ -12985,16 +12985,16 @@ function ProjectSessionTabPanel({
         }}
         onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
         onRefreshSessions={onRefreshSessions}
-        onOpenCardTab={onOpenCardTab}
+        onOpenPageTab={onOpenPageTab}
         onOpenThread={onOpenThread}
         historyPanelActive={Boolean(
-          cardStageHistoryModal
-          && cardStageHistoryModal.sessionId === activeSession.id
-          && cardStageHistoryModal.tabId === cardTab.id
-          && cardStageHistoryModal.projectId === cardTab.config.projectId
-          && cardStageHistoryModal.cardId === cardTab.config.cardId,
+          pageStageHistoryModal
+          && pageStageHistoryModal.sessionId === activeSession.id
+          && pageStageHistoryModal.tabId === pageTab.id
+          && pageStageHistoryModal.projectId === pageTab.config.projectId
+          && pageStageHistoryModal.pageId === pageTab.config.pageId,
         )}
-        onToggleHistoryPanel={onToggleCardStageHistoryModal}
+        onToggleHistoryPanel={onTogglePageStageHistoryModal}
         isActivePanelTab={isActivePanelTab}
       />
     );
@@ -13072,14 +13072,14 @@ function DbViewSessionTab({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
-  activePanelCardStageCardIdsByProject,
-  cardStageCloseRef,
+  activePanelPageStagePageIdsByProject,
+  pageStageCloseRef,
   pendingReminderOpen,
   taskSearchOpenTick,
   setSearchQuery,
   setDbViewPrefs,
   onReminderHandled,
-  onOpenCardTab,
+  onOpenPageTab,
   onRefreshSessions,
 }: {
   sessionId: string;
@@ -13090,11 +13090,11 @@ function DbViewSessionTab({
   activeDbViewPrefs: DbViewPrefs | null;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
-  activePanelCardStageCardIdsByProject: ReadonlyMap<string, ReadonlySet<string>>;
-  cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
+  activePanelPageStagePageIdsByProject: ReadonlyMap<string, ReadonlySet<string>>;
+  pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   pendingReminderOpen?: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   } | null;
   taskSearchOpenTick: number;
@@ -13106,10 +13106,10 @@ function DbViewSessionTab({
   ) => void;
   onReminderHandled?: (payload: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   }) => void;
-  onOpenCardTab: OpenCardTabHandler;
+  onOpenPageTab: OpenPageTabHandler;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
 }) {
   const config = "view" in tab.config ? tab.config : { projectId: tab.projectId, view: activeView };
@@ -13155,7 +13155,7 @@ function DbViewSessionTab({
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
   const searchQuery = searchByProject[projectId] ?? (projectId === tab.projectId ? activeSearchQuery : "");
-  const activePanelCardStageCardIds = activePanelCardStageCardIdsByProject.get(projectId);
+  const activePanelPageStagePageIds = activePanelPageStagePageIdsByProject.get(projectId);
   const availableTags = useMemo(() => {
     if (databaseView) {
       return Array.from(
@@ -13312,7 +13312,7 @@ function DbViewSessionTab({
       />
       <DatabaseManagementDialogController
         projectId={projectId}
-        initialDatabaseBlockId={databaseView?.databaseBlockId ?? null}
+        initialDatabaseId={databaseView?.databaseId ?? null}
         open={databaseManagerOpen}
         onOpenChange={setDatabaseManagerOpen}
       />
@@ -13327,8 +13327,8 @@ function DbViewSessionTab({
           searchQuery={searchQuery}
           dbViewPrefs={dbViewPrefs}
           onUpdateDbViewPrefs={updateDbViewPrefs}
-          activePanelCardStageCardIds={activePanelCardStageCardIds}
-          cardStageCloseRef={cardStageCloseRef}
+          activePanelPageStagePageIds={activePanelPageStagePageIds}
+          pageStageCloseRef={pageStageCloseRef}
           pendingReminderOpen={pendingReminderOpen}
           calendarState={calendarState}
           calendarVisibleDays={calendarVisibleDays}
@@ -13336,8 +13336,8 @@ function DbViewSessionTab({
           onCalendarAnchorDateChange={handleCalendarAnchorDateChange}
           onReminderHandled={onReminderHandled}
           scrollStateKey={scrollStateKey}
-          openCardStage={(projectId, cardId, titleSnapshot, options) => {
-            void onOpenCardTab(projectId, cardId, titleSnapshot, {
+          openPageStage={(projectId, pageId, titleSnapshot, options) => {
+            void onOpenPageTab(projectId, pageId, titleSnapshot, {
               sourceTabId: tab.id,
               openMode: options?.openMode ?? "preview",
             });
@@ -13348,21 +13348,21 @@ function DbViewSessionTab({
   );
 }
 
-interface CardStageDatabaseCapability {
+interface PageStageDatabaseCapability {
   readonly availableTags: string[];
-  readonly onDelete: (cardId: string) => Promise<void>;
-  readonly onMove: (cardId: string, toStatus: Card["status"]) => Promise<void>;
+  readonly onDelete: (pageId: string) => Promise<void>;
+  readonly onMove: (pageId: string, toStatus: DatabasePage["status"]) => Promise<void>;
   readonly onCompleteOccurrence: (
-    cardId: string,
+    pageId: string,
     occurrenceStart: Date,
   ) => Promise<void>;
   readonly onSkipOccurrence: (
-    cardId: string,
+    pageId: string,
     occurrenceStart: Date,
   ) => Promise<void>;
 }
 
-function CardStageDatabaseCapabilityBoundary({
+function PageStageDatabaseCapabilityBoundary({
   projectId,
   sessionId,
   properties,
@@ -13370,8 +13370,8 @@ function CardStageDatabaseCapabilityBoundary({
 }: {
   projectId: string;
   sessionId: string;
-  properties: CardStageDatabaseProperties | null;
-  children: (capability: CardStageDatabaseCapability | null) => ReactNode;
+  properties: PageStageDatabaseProperties | null;
+  children: (capability: PageStageDatabaseCapability | null) => ReactNode;
 }) {
   const kanban = useKanban({
     projectId,
@@ -13391,38 +13391,38 @@ function CardStageDatabaseCapabilityBoundary({
   if (!properties) return children(null);
   return children({
     availableTags,
-    onDelete: async (cardId) => {
-      const deleted = await kanban.deleteCard(properties.status, cardId);
-      if (!deleted) throw new Error(`Card ${cardId} delete did not commit`);
+    onDelete: async (pageId) => {
+      const deleted = await kanban.deletePage(properties.status, pageId);
+      if (!deleted) throw new Error(`Page ${pageId} delete did not commit`);
     },
-    onMove: async (cardId, toStatus) => {
-      await kanban.moveCard({
+    onMove: async (pageId, toStatus) => {
+      await kanban.movePage({
         fromStatus: properties.status,
-        cardId,
+        pageId: pageId,
         toStatus,
       });
-      await fetchCardDetail(projectId, cardId);
+      await fetchPageDetail(projectId, pageId);
     },
-    onCompleteOccurrence: async (cardId, occurrenceStart) => {
+    onCompleteOccurrence: async (pageId, occurrenceStart) => {
       await kanban.completeOccurrence({
-        cardId,
+        pageId: pageId,
         occurrenceStart,
-        source: "card-stage",
+        source: "page-detail",
       });
-      await fetchCardDetail(projectId, cardId);
+      await fetchPageDetail(projectId, pageId);
     },
-    onSkipOccurrence: async (cardId, occurrenceStart) => {
+    onSkipOccurrence: async (pageId, occurrenceStart) => {
       await kanban.skipOccurrence({
-        cardId,
+        pageId: pageId,
         occurrenceStart,
-        source: "card-stage",
+        source: "page-detail",
       });
-      await fetchCardDetail(projectId, cardId);
+      await fetchPageDetail(projectId, pageId);
     },
   });
 }
 
-function CardStageSessionTab({
+function PageStageSessionTab({
   tab,
   project,
   closeRef,
@@ -13432,27 +13432,27 @@ function CardStageSessionTab({
   sessionThread,
   canStartThreadInSession,
   titleStore,
-  onLeaveCard,
+  onLeavePage,
   onClose,
   onOpenTerminal,
   onEnsureBlankSessionForProject,
   onRefreshSessions,
-  onOpenCardTab,
+  onOpenPageTab,
   onOpenThread,
   historyPanelActive,
   onToggleHistoryPanel,
   isActivePanelTab,
 }: {
-  tab: ProjectSessionTab & { config: ProjectSessionCardStageTabConfig };
+  tab: ProjectSessionTab & { config: ProjectSessionPageStageTabConfig };
   project: Project | null;
   closeRef: React.RefObject<(() => Promise<void>) | null>;
   persistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
-  sessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
+  sessionSnapshotRef?: React.MutableRefObject<PageStageSessionSnapshot | null>;
   sessionId: string;
   sessionThread: CodexThreadSummary | null;
   canStartThreadInSession: boolean;
-  titleStore: CardStageTabTitleStore;
-  onLeaveCard: (snapshot: CardStageSessionSnapshot) => void;
+  titleStore: PageStageTabTitleStore;
+  onLeavePage: (snapshot: PageStageSessionSnapshot) => void;
   onClose: () => void;
   onOpenTerminal: () => Promise<void>;
   onEnsureBlankSessionForProject: (
@@ -13460,88 +13460,87 @@ function CardStageSessionTab({
     options?: { select?: boolean },
   ) => Promise<ProjectSession>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
-  onOpenCardTab: OpenCardTabHandler;
+  onOpenPageTab: OpenPageTabHandler;
   onOpenThread: (threadId: string) => Promise<void>;
   historyPanelActive: boolean;
-  onToggleHistoryPanel: (context: CardStageHistoryModalContext) => void;
+  onToggleHistoryPanel: (context: PageStageHistoryModalContext) => void;
   isActivePanelTab: boolean;
 }) {
   const codexControl = useCodexAppServerControl(tab.config.projectId);
-  const titleStoreKey = makeCardStageTabTitleKey(sessionId, tab.id);
+  const titleStoreKey = makePageStageTabTitleKey(sessionId, tab.id);
 
-  const detailSnapshot = useCardDetail(
+  const detailSnapshot = usePageDetail(
     tab.config.projectId,
-    tab.config.cardId,
+    tab.config.pageId,
   );
   const stageProjection = useMemo(() => {
-    if (!detailSnapshot.detail) return { card: null, error: null };
+    if (!detailSnapshot.detail) return { page: null, error: null };
     try {
       return {
-        card: projectCardDetailToStageModel(detailSnapshot.detail),
+        page: projectPageDetailToStageModel(detailSnapshot.detail),
         error: null,
       };
     } catch (error) {
       return {
-        card: null,
+        page: null,
         error: error instanceof Error ? error.message : String(error),
       };
     }
   }, [detailSnapshot.detail]);
-  const card = stageProjection.card;
-  const cardLoadError = !card
+  const page = stageProjection.page;
+  const pageLoadError = !page
     ? stageProjection.error ?? (
-        detailSnapshot.error === "Card not found"
+        detailSnapshot.error === "Page not found"
           ? null
           : detailSnapshot.error
       )
     : null;
-  const cardHydrating = !card && (
+  const pageHydrating = !page && (
     detailSnapshot.loading
     || (!detailSnapshot.error && !stageProjection.error)
   );
   useLayoutEffect(() => {
-    if (!card) return;
-    titleStore.publishCommitted(titleStoreKey, card.card.title);
+    if (!page) return;
+    titleStore.publishCommitted(titleStoreKey, page.page.title);
   }, [
-    card,
+    page,
     titleStore,
     titleStoreKey,
   ]);
   useEffect(() => () => {
     titleStore.release(titleStoreKey);
   }, [titleStore, titleStoreKey]);
-  const cardAncestors = tab.config.ancestors ?? [];
-  const ancestorTargetReads = useCardTargetReadModels(
+  const pageAncestors = tab.config.ancestors ?? [];
+  const ancestorTargetReads = usePageTargetReadModels(
     project?.id ?? "",
-    cardAncestors.map((ancestor) => ancestor.cardId),
+    pageAncestors.map((ancestor) => ancestor.pageId),
   );
-  const breadcrumb = cardAncestors.length > 0 ? {
-    ancestors: cardAncestors.map((ancestor, index) => {
-      const target = resolveCardStageBreadcrumbTarget({
-        targetBlockId: ancestor.cardId,
+  const breadcrumb = pageAncestors.length > 0 ? {
+    ancestors: pageAncestors.map((ancestor, index) => {
+      const target = resolvePageStageBreadcrumbTarget({
+        targetBlockId: ancestor.pageId,
         model: ancestorTargetReads[index]?.data ?? null,
         loading: ancestorTargetReads[index]?.loading ?? false,
         error: ancestorTargetReads[index]?.error ?? null,
       });
       return {
-        projectId:
-          target.navigationTarget?.projectId ?? tab.config.projectId,
-        cardId: target.navigationTarget?.cardId ?? ancestor.cardId,
+        projectId: tab.config.projectId,
+        pageId: target.navigationTarget?.pageId ?? ancestor.pageId,
         title: target.title,
         disabled: target.navigationTarget === null,
       };
     }),
     onOpenAncestor: (
-      ancestor: { projectId: string; cardId: string; title: string },
+      ancestor: { projectId: string; pageId: string; title: string },
       ancestorIndex: number,
     ) => {
-      void onOpenCardTab(
+      void onOpenPageTab(
         ancestor.projectId,
-        ancestor.cardId,
+        ancestor.pageId,
         ancestor.title,
         {
           openMode: "durable",
-          ancestors: cardAncestors.slice(0, ancestorIndex),
+          ancestors: pageAncestors.slice(0, ancestorIndex),
         },
       );
     },
@@ -13565,7 +13564,7 @@ function CardStageSessionTab({
       runInTarget: "localProject",
     });
     if (result.kind !== "started") {
-      throw new Error("Card thread unexpectedly started in a worktree");
+      throw new Error("Page thread unexpectedly started in a worktree");
     }
     const { detail } = result;
     await onRefreshSessions(input.projectId);
@@ -13578,45 +13577,45 @@ function CardStageSessionTab({
 
   if (!project) {
     return (
-      <CardStageSessionNotice
+      <PageStageSessionNotice
         title="Project not found"
-        description="This card tab points to a project that is no longer available."
+        description="This page tab points to a project that is no longer available."
         actionLabel="Close tab"
         onAction={onClose}
       />
     );
   }
 
-  if (cardHydrating) {
+  if (pageHydrating) {
     return (
-      <CardStageSessionSkeleton
+      <PageStageSessionSkeleton
         titleSnapshot={tab.config.titleSnapshot}
         breadcrumb={breadcrumb ? {
           ...breadcrumb,
-          currentTitle: tab.config.titleSnapshot ?? tab.config.cardId,
+          currentTitle: tab.config.titleSnapshot ?? tab.config.pageId,
         } : undefined}
       />
     );
   }
 
-  if (cardLoadError) {
+  if (pageLoadError) {
     return (
-      <CardStageSessionNotice
-        title="Could not load card"
+      <PageStageSessionNotice
+        title="Could not load Page"
         description={tab.config.titleSnapshot
-          ? `Nodex could not load ${tab.config.titleSnapshot} in ${project.name}. ${cardLoadError}`
-          : `Nodex could not load this card in ${project.name}. ${cardLoadError}`}
+          ? `Nodex could not load ${tab.config.titleSnapshot} in ${project.name}. ${pageLoadError}`
+          : `Nodex could not load this page in ${project.name}. ${pageLoadError}`}
       />
     );
   }
 
-  if (!card) {
+  if (!page) {
     return (
-      <CardStageSessionNotice
-        title="Card not found"
+      <PageStageSessionNotice
+        title="Page not found"
         description={tab.config.titleSnapshot
           ? `${tab.config.titleSnapshot} is no longer available in ${project.name}.`
-          : `This card is no longer available in ${project.name}.`}
+          : `This page is no longer available in ${project.name}.`}
         actionLabel="Close tab"
         onAction={onClose}
       />
@@ -13624,33 +13623,33 @@ function CardStageSessionTab({
   }
 
   const compatibilityDatabase =
-    card.databaseContext.kind === "member"
-      ? card.databaseContext.compatibilityProperties
+    page.databaseContext.kind === "member"
+      ? page.databaseContext.compatibilityProperties
       : null;
 
   const renderDocumentSurface = (
-    databaseCapability: CardStageDatabaseCapability | null,
+    databaseCapability: PageStageDatabaseCapability | null,
   ): ReactNode => (
     <OwnedBlockDocumentBoundary
       projectId={tab.config.projectId}
-      ownerBlockId={card.card.id}
+      ownerBlockId={page.page.id}
     >
       {(documentModel, documentControls) => {
         if (documentModel.status === "loading") {
           return (
-            <CardStageSessionSkeleton
-              titleSnapshot={card.card.title}
+            <PageStageSessionSkeleton
+              titleSnapshot={page.page.title}
               breadcrumb={breadcrumb ? {
                 ...breadcrumb,
-                currentTitle: card.card.title,
+                currentTitle: page.page.title,
               } : undefined}
             />
           );
         }
         if (documentModel.status === "error") {
           return (
-            <CardStageSessionNotice
-              title="Could not open card"
+            <PageStageSessionNotice
+              title="Could not open page"
               description={documentModel.error.message}
               actionLabel="Retry"
               onAction={() => {
@@ -13661,9 +13660,9 @@ function CardStageSessionTab({
         }
         if (documentModel.status !== "ready") {
           return (
-            <CardStageSessionNotice
-              title="Card content is not ready"
-              description="This Card content is not ready to edit."
+            <PageStageSessionNotice
+              title="Page content is not ready"
+              description="This Page content is not ready to edit."
               actionLabel="Retry"
               onAction={() => {
                 void documentControls.reload();
@@ -13679,9 +13678,9 @@ function CardStageSessionTab({
         };
 
         return (
-          <CardStage
+          <PageStage
             documentAuthority={documentAuthority}
-            card={card}
+            page={page}
             projectId={tab.config.projectId}
             projectName={project.name}
             projectWorkspacePath={projectWorkspaceRootOrNull(project)}
@@ -13696,12 +13695,12 @@ function CardStageSessionTab({
               titleStore.clearLive(titleStoreKey);
             }}
             onClose={onClose}
-            onLeaveCard={onLeaveCard}
-            onUpdate={async (cardId: string, updates: Partial<CardInput>) =>
-              await commitCardDetailMetadataPatch({
+            onLeavePage={onLeavePage}
+            onUpdate={async (pageId: string, updates: Partial<PageInput>) =>
+              await commitPageDetailMetadataPatch({
                 projectId: tab.config.projectId,
-                cardBlockId: cardId,
-                mutationId: crypto.randomUUID(),
+                pageId: pageId,
+                operationId: crypto.randomUUID(),
                 clientSessionId: tab.id,
                 patch: updates,
               })}
@@ -13721,9 +13720,9 @@ function CardStageSessionTab({
               sessionId,
               tabId: tab.id,
               projectId: tab.config.projectId,
-              cardId: tab.config.cardId,
-              cardTitle: snapshot.title || tab.config.titleSnapshot,
-              cardNfm: snapshot.nfm,
+              pageId: tab.config.pageId,
+              pageTitle: snapshot.title || tab.config.titleSnapshot,
+              pageNfm: snapshot.nfm,
             })}
             historyPanelActive={historyPanelActive}
             isActivePanelTab={isActivePanelTab}
@@ -13733,11 +13732,11 @@ function CardStageSessionTab({
             canStartThreadInSession={canStartThreadInSession}
             linkedCodexThreads={[]}
             onOpenCodexThread={onOpenThread}
-            onOpenCard={({ projectId, cardId, titleSnapshot }) => {
-              const ancestors = appendCardStageAncestor(cardAncestors, {
-                cardId: tab.config.cardId,
+            onOpenPage={({ projectId, pageId, titleSnapshot }) => {
+              const ancestors = appendPageStageAncestor(pageAncestors, {
+                pageId: tab.config.pageId,
               });
-              void onOpenCardTab(projectId, cardId, titleSnapshot, {
+              void onOpenPageTab(projectId, pageId, titleSnapshot, {
                 openMode: "durable",
                 ancestors,
               });
@@ -13761,31 +13760,31 @@ function CardStageSessionTab({
   );
 
   return (
-    <CardStageDatabaseCapabilityBoundary
+    <PageStageDatabaseCapabilityBoundary
       projectId={tab.config.projectId}
       sessionId={tab.id}
       properties={compatibilityDatabase}
     >
       {renderDocumentSurface}
-    </CardStageDatabaseCapabilityBoundary>
+    </PageStageDatabaseCapabilityBoundary>
   );
 }
 
-function CardStageSessionSkeleton({
+function PageStageSessionSkeleton({
   titleSnapshot,
   breadcrumb,
 }: {
   titleSnapshot?: string;
-  breadcrumb?: ComponentPropsWithoutRef<typeof CardStageToolbar>["breadcrumb"];
+  breadcrumb?: ComponentPropsWithoutRef<typeof PageStageToolbar>["breadcrumb"];
 }) {
   const title = titleSnapshot?.trim();
   const label = titleSnapshot?.trim()
     ? `Loading ${titleSnapshot}`
     : "Loading card";
-  const limitMainContentWidth = readCardStageContentWidthPreference();
+  const limitMainContentWidth = readPageStageContentWidthPreference();
   const contentBodyClassName = cn(
-    "mx-auto w-full px-(--card-stage-body-gutter-inline)",
-    limitMainContentWidth && "max-w-(--card-stage-body-max-width)",
+    "mx-auto w-full px-(--page-stage-body-gutter-inline)",
+    limitMainContentWidth && "max-w-(--page-stage-body-max-width)",
   );
   const contentShellClassName = cn(
     "w-full",
@@ -13798,7 +13797,7 @@ function CardStageSessionSkeleton({
       aria-busy="true"
       aria-label={label}
     >
-      <CardStageToolbar
+      <PageStageToolbar
         saving={false}
         disabled={true}
         historyPanelActive={false}
@@ -13818,11 +13817,11 @@ function CardStageSessionSkeleton({
       >
         <div
           className={contentBodyClassName}
-          data-card-stage-body="true"
-          data-card-stage-body-width={limitMainContentWidth ? "constrained" : "full"}
+          data-page-stage-body="true"
+          data-page-stage-body-width={limitMainContentWidth ? "constrained" : "full"}
         >
           <div className={contentShellClassName}>
-            <CardStageContentSkeleton
+            <PageStageContentSkeleton
               titleSnapshot={title}
               announce={false}
             />
@@ -13833,7 +13832,7 @@ function CardStageSessionSkeleton({
   );
 }
 
-function CardStageSessionNotice({
+function PageStageSessionNotice({
   title,
   description,
   actionLabel,

@@ -4,9 +4,9 @@ import type {
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-} from "../../shared/block-documents/card-document";
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+} from "../../shared/block-documents/page-document";
 import type {
   DocumentSyncCommandResult,
   DocumentSyncErrorCode,
@@ -16,19 +16,19 @@ import {
   getOwnedDocumentSchemaRegistration,
 } from "../../shared/block-documents/document-schema-adapters";
 
-export const CARD_BLOCK_DOCUMENT_SCHEMA_KEY = CARD_DOCUMENT_SCHEMA_KEY;
-export const CARD_BLOCK_DOCUMENT_SCHEMA_VERSION = CARD_DOCUMENT_SCHEMA_VERSION;
+export const PAGE_BLOCK_DOCUMENT_SCHEMA_KEY = PAGE_DOCUMENT_SCHEMA_KEY;
+export const PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION = PAGE_DOCUMENT_SCHEMA_VERSION;
 
 export interface OwnedBlockDocumentRequest {
   readonly projectId: string;
   readonly ownerBlockId: BlockId;
 }
 
-export interface ReadyCardBlockDocumentDescriptor extends OwnedDocumentDescriptor {
-  readonly ownerType: "card";
+export interface ReadyPageBlockDocumentDescriptor extends OwnedDocumentDescriptor {
+  readonly ownerType: "page";
   readonly ownerLifecycle: "active";
-  readonly schemaKey: typeof CARD_BLOCK_DOCUMENT_SCHEMA_KEY;
-  readonly schemaVersion: typeof CARD_BLOCK_DOCUMENT_SCHEMA_VERSION;
+  readonly schemaKey: typeof PAGE_BLOCK_DOCUMENT_SCHEMA_KEY;
+  readonly schemaVersion: typeof PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION;
   readonly readiness: "ready";
   readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
 }
@@ -71,7 +71,7 @@ export type OwnedBlockDocumentModel =
     })
   | (OwnedBlockDocumentRequestModel & {
       readonly status: "ready";
-      readonly descriptor: ReadyCardBlockDocumentDescriptor;
+      readonly descriptor: ReadyPageBlockDocumentDescriptor;
     });
 
 export type RegisteredOwnedBlockDocumentModel =
@@ -92,7 +92,7 @@ export type OwnedBlockDocumentQuerySnapshot =
   | { readonly status: "error"; readonly error: unknown }
   | {
       readonly status: "success";
-      readonly data: ReadyCardBlockDocumentDescriptor;
+      readonly data: ReadyPageBlockDocumentDescriptor;
     };
 
 export type RegisteredOwnedBlockDocumentQuerySnapshot =
@@ -176,17 +176,17 @@ const requireDescriptorCore = (value: Record<string, unknown>): void => {
 export const validateOwnedBlockDocumentDescriptor = (
   request: OwnedBlockDocumentRequest,
   value: unknown,
-): ReadyCardBlockDocumentDescriptor => {
+): ReadyPageBlockDocumentDescriptor => {
   const requested = requireValidRequest(request);
   if (
     isRecord(value) &&
     value.projectId === requested.projectId &&
     value.ownerBlockId === requested.ownerBlockId &&
-    value.ownerType !== "card"
+    value.ownerType !== "page"
   ) {
     throw new OwnedBlockDocumentBoundaryError(
       "unsupported_owner_type",
-      "Card surfaces require a Card-owned Block Document",
+      "Page surfaces require a Page-owned Block Document",
     );
   }
   const registered = validateRegisteredOwnedBlockDocumentDescriptor(
@@ -194,16 +194,16 @@ export const validateOwnedBlockDocumentDescriptor = (
     value,
   );
   if (
-    registered.schemaKey !== CARD_BLOCK_DOCUMENT_SCHEMA_KEY ||
-    registered.schemaVersion !== CARD_BLOCK_DOCUMENT_SCHEMA_VERSION ||
+    registered.schemaKey !== PAGE_BLOCK_DOCUMENT_SCHEMA_KEY ||
+    registered.schemaVersion !== PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION ||
     registered.sync.kind !== "yjs"
   ) {
     throw new OwnedBlockDocumentBoundaryError(
       "unsupported_document_schema",
-      `Card surfaces require ${CARD_BLOCK_DOCUMENT_SCHEMA_KEY}@${CARD_BLOCK_DOCUMENT_SCHEMA_VERSION}`,
+      `Page surfaces require ${PAGE_BLOCK_DOCUMENT_SCHEMA_KEY}@${PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION}`,
     );
   }
-  return registered as ReadyCardBlockDocumentDescriptor;
+  return registered as ReadyPageBlockDocumentDescriptor;
 };
 
 export const validateRegisteredOwnedBlockDocumentDescriptor = (
@@ -301,7 +301,7 @@ const fetchDescriptor = async <T>(
 export const fetchOwnedBlockDocumentDescriptor = async (
   request: OwnedBlockDocumentRequest,
   fetcher: OwnedDocumentDescriptorFetcher,
-): Promise<ReadyCardBlockDocumentDescriptor> => {
+): Promise<ReadyPageBlockDocumentDescriptor> => {
   return fetchDescriptor(
     request,
     fetcher,
@@ -394,7 +394,7 @@ export const makeRegisteredOwnedBlockDocumentModel = (
 };
 
 export const ownedBlockDocumentIdentity = (
-  descriptor: ReadyCardBlockDocumentDescriptor,
+  descriptor: ReadyPageBlockDocumentDescriptor,
 ): {
   readonly documentId: DocumentId;
   readonly storeEpoch: string;

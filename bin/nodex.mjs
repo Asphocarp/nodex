@@ -35,7 +35,7 @@ const ESTIMATES = new Set(["xs", "s", "m", "l", "xl"]);
 const DEFAULT_LS_DESCRIPTION_CHARS = 240;
 
 const COMMANDS = new Set([
-  "serve", "ls", "get", "add", "update", "rm", "mv", "transfer", "block", "database",
+  "serve", "ls", "get", "add", "update", "rm", "mv", "block", "database",
   "history", "query", "schema", "backups", "help", "projects", "config",
 ]);
 
@@ -421,19 +421,19 @@ function apiDelete(path) {
   return apiFetch(path, { method: "DELETE" });
 }
 
-async function readCardMetadataSnapshot(config, cardId) {
+async function readPageDetail(config, pageId) {
   const result = await apiGet(
-    `${apiPrefix(config)}/cards/${encodeURIComponent(cardId)}/metadata-property-snapshot`,
+    `${apiPrefix(config)}/pages/${encodeURIComponent(pageId)}`,
   );
   if (
     result?.ok !== true ||
     result.value?.projectId !== config.project ||
-    result.value?.cardBlockId !== cardId ||
+    result.value?.page?.pageId !== pageId ||
     typeof result.value?.storeEpoch !== "string" ||
-    !Array.isArray(result.value?.fields)
+    !result.value?.dataSourceContext
   ) {
     throw new Error(
-      result?.error?.message || "Server returned an invalid Card metadata snapshot",
+      result?.error?.message || "Server returned an invalid Page Detail",
     );
   }
   return result.value;
@@ -446,74 +446,71 @@ function normalizeCliMetadataValue(field, value) {
       return value.toISOString().slice(0, 10);
     }
     if (typeof value === "string") return value.slice(0, 10);
-    throw new Error("Card dueDate must be a date or null");
+    throw new Error("Page dueDate must be a date or null");
   }
   if (field === "assignee") return typeof value === "string" ? value.trim() || null : value;
   return value;
 }
 
-function compileCliCardMetadataFields(snapshot, patch) {
-  const coordinates = new Map(snapshot.fields.map((field) => [field.field, field]));
-  const fields = [];
-  for (const [field, rawValue] of Object.entries(patch)) {
-    const coordinate = coordinates.get(field);
-    if (!coordinate) throw new Error(`Card metadata snapshot is missing ${field}`);
-    if (field === "tags") {
-      if (coordinate.scope !== "database") {
-        throw new Error("Card tags require an active Database membership");
-      }
-      const current = Array.isArray(coordinate.value) ? coordinate.value : [];
-      const target = [...new Set(rawValue)].sort();
-      const currentSet = new Set(current);
-      const targetSet = new Set(target);
-      const add = target.filter((tag) => !currentSet.has(tag));
-      const remove = current.filter((tag) => !targetSet.has(tag));
-      if (add.length === 0 && remove.length === 0) continue;
-      fields.push({
-        scope: "database",
-        cardBlockId: snapshot.cardBlockId,
-        databaseBlockId: coordinate.databaseBlockId,
-        propertyId: coordinate.propertyId,
-        operation: "add_remove",
-        add,
-        remove,
-      });
-      continue;
-    }
-    const value = normalizeCliMetadataValue(field, rawValue);
-    if (JSON.stringify(value) === JSON.stringify(coordinate.value)) continue;
-    if (coordinate.scope === "database") {
-      fields.push({
-        scope: "database",
-        cardBlockId: snapshot.cardBlockId,
-        databaseBlockId: coordinate.databaseBlockId,
-        propertyId: coordinate.propertyId,
-        operation: "set",
-        expectedRevision: coordinate.revision,
-        value,
-      });
-      continue;
-    }
-    throw new Error(`Card metadata field is not writable from the CLI: ${field}`);
+const CLI_DATABASE_FIELDS = {
+  status: "status",
+  priority: "priority",
+  estimate: "estimate",
+  tags: "tags",
+  dueDate: "due_date",
+  scheduledStart: "scheduled_start",
+  scheduledEnd: "scheduled_end",
+  assignee: "assignee",
+};
+
+function compileCliPageMetadataOperations(detail, patch) {
+  const context = detail.dataSourceContext;
+  if (context.kind !== "member") {
+    throw new Error("Page metadata requires an active Data Source parent");
   }
-  return fields;
+  const properties = new Map(
+    context.properties.map((property) => [property.key, property]),
+  );
+  const operations = [];
+  for (const [field, rawValue] of Object.entries(patch)) {
+    const propertyKey = CLI_DATABASE_FIELDS[field];
+    if (!propertyKey) throw new Error(`Page metadata field is not writable: ${field}`);
+    const property = properties.get(propertyKey);
+    if (!property) throw new Error(`Page Data Source is missing ${propertyKey}`);
+    let value = normalizeCliMetadataValue(field, rawValue);
+    if (field === "tags") {
+      value = [...new Set(rawValue)].sort();
+    }
+    const current = context.values[property.propertyId];
+    const currentValue = current?.value ??
+      (property.valueType === "multi_select" ? [] : null);
+    if (JSON.stringify(value) === JSON.stringify(currentValue)) continue;
+    operations.push({
+      kind: "set_value",
+      pageId: detail.page.pageId,
+      dataSourceId: context.dataSource.dataSourceId,
+      propertyId: property.propertyId,
+      expectedValueRevision: current?.revision ?? 0,
+      value,
+    });
+  }
+  return operations;
 }
 
-async function mutateCardMetadata(config, cardId, patch, mutationId) {
-  const snapshot = await readCardMetadataSnapshot(config, cardId);
-  const fields = compileCliCardMetadataFields(snapshot, patch);
-  if (fields.length === 0) return null;
+async function mutatePageMetadata(config, pageId, patch, mutationId) {
+  const detail = await readPageDetail(config, pageId);
+  const operations = compileCliPageMetadataOperations(detail, patch);
+  if (operations.length === 0) return null;
   const request = {
     version: 1,
-    mutationId,
+    operationId: mutationId,
     projectId: config.project,
-    storeEpoch: snapshot.storeEpoch,
-    ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
+    storeEpoch: detail.storeEpoch,
     actor: { kind: "nodex_cli" },
-    fields,
+    operations,
   };
   const send = async () =>
-    apiPost(`${apiPrefix(config)}/block-property-mutations`, request);
+    apiPost(`${apiPrefix(config)}/database-module/apply`, request);
   let result;
   try {
     result = await send();
@@ -521,52 +518,42 @@ async function mutateCardMetadata(config, cardId, patch, mutationId) {
     result = await send();
   }
   if (result?.ok !== true) {
-    throw new Error(result?.error?.message || "Card metadata mutation failed");
+    throw new Error(result?.error?.message || "Page metadata mutation failed");
   }
   return result.value;
 }
 
-async function moveCardInPrimaryDatabase(config, input, operationId) {
-  const result = await apiGet(
-    `${apiPrefix(config)}/database-views/primary/snapshot`,
-  );
-  const descriptorSnapshot = result?.value?.descriptor;
-  const querySnapshot = result?.value?.query;
-  const descriptor = descriptorSnapshot?.value;
-  const query = querySnapshot?.value;
-  if (
-    result?.ok !== true ||
-    !descriptor ||
-    !query ||
-    descriptorSnapshot.storeEpoch !== querySnapshot.storeEpoch ||
-    descriptorSnapshot.changeLogSeq !== querySnapshot.changeLogSeq
-  ) {
-    throw new Error(result?.error?.message || "Primary Database View is unavailable");
+async function movePageInDefaultDatabase(config, input, operationId) {
+  const snapshot = await readDatabaseModuleSnapshot(config, {
+    target: { kind: "project_default" },
+    mode: "query",
+  });
+  if (snapshot.value?.kind !== "query") {
+    throw new Error("Default Database View is unavailable");
   }
-  const view = descriptor.views.find(
-    (candidate) => candidate.lifecycle === "active" && candidate.isPrimary && candidate.kind === "kanban",
-  );
-  const statusProperty = descriptor.properties.find(
+  const query = snapshot.value.value;
+  const view = query.view;
+  const statusProperty = query.properties.find(
     (property) => property.lifecycle === "active" && property.key === "status",
   );
-  const row = query.rows.find((candidate) => candidate.card.blockId === input.cardId);
-  if (!view || !statusProperty || !row || query.view.id !== view.id) {
-    throw new Error(`Card ${input.cardId} is not in the primary Database View`);
+  const row = query.rows.find((candidate) => candidate.page.pageId === input.pageId);
+  if (!statusProperty || !row || view.kind !== "kanban") {
+    throw new Error(`Page ${input.pageId} is not in the default Database View`);
   }
-  const currentStatus = row.values[statusProperty.id]?.value;
+  const currentStatus = row.values[statusProperty.propertyId]?.value;
   if (currentStatus !== input.fromStatus) {
     throw new Error(
-      `Card ${input.cardId} moved from ${input.fromStatus} to ${String(currentStatus)} before this command`,
+      `Page ${input.pageId} moved from ${input.fromStatus} to ${String(currentStatus)} before this command`,
     );
   }
   const operations = [];
   if (currentStatus !== input.toStatus) {
     operations.push({
       kind: "set_value",
-      cardBlockId: input.cardId,
-      databaseBlockId: descriptor.database.blockId,
-      propertyId: statusProperty.id,
-      expectedValueRevision: row.values[statusProperty.id]?.revision ?? 0,
+      pageId: input.pageId,
+      dataSourceId: query.dataSource.dataSourceId,
+      propertyId: statusProperty.propertyId,
+      expectedValueRevision: row.values[statusProperty.propertyId]?.revision ?? 0,
       value: input.toStatus,
     });
   }
@@ -574,29 +561,29 @@ async function moveCardInPrimaryDatabase(config, input, operationId) {
   if (manual && (currentStatus !== input.toStatus || input.newOrder !== undefined)) {
     const remaining = query.rows.filter(
       (candidate) =>
-        candidate.card.blockId !== input.cardId &&
+        candidate.page.pageId !== input.pageId &&
         candidate.effectiveGroupKey === input.toStatus,
     );
     const targetIndex = input.newOrder === undefined
       ? remaining.length
       : Math.min(input.newOrder, remaining.length);
-    const beforeCardBlockId = remaining[targetIndex]?.card.blockId;
+    const beforePageId = remaining[targetIndex]?.page.pageId;
     operations.push({
-      kind: "position_card",
-      viewId: view.id,
-      cardBlockId: input.cardId,
+      kind: "position_page",
+      viewId: view.viewId,
+      pageId: input.pageId,
       expectedPositionRevision: row.position?.revision ?? 0,
       groupKey: input.toStatus,
-      ...(beforeCardBlockId ? { beforeCardBlockId } : {}),
+      ...(beforePageId ? { beforePageId } : {}),
     });
   }
   if (operations.length === 0) return null;
-  return applyDatabaseOperations(config, descriptorSnapshot, operationId, operations);
+  return applyDatabaseOperations(config, snapshot, operationId, operations);
 }
 
-async function readCardLifecyclePreflight(config, cardId) {
+async function readPageLifecyclePreflight(config, pageId) {
   const result = await apiGet(
-    `${apiPrefix(config)}/card-lifecycle-preflight?cardId=${encodeURIComponent(cardId)}`,
+    `${apiPrefix(config)}/page-lifecycle-preflight?pageId=${encodeURIComponent(pageId)}`,
   );
   const snapshot = result?.value;
   if (
@@ -609,14 +596,14 @@ async function readCardLifecyclePreflight(config, cardId) {
   ) {
     throw new Error(
       result?.error?.message ||
-        "Server returned an invalid Card lifecycle preflight",
+        "Server returned an invalid Page lifecycle preflight",
     );
   }
   return snapshot;
 }
 
-async function sendCardLifecycleMutation(config, request) {
-  const url = `${BASE_URL}${apiPrefix(config)}/card-lifecycle-mutations`;
+async function sendPageLifecycleMutation(config, request) {
+  const url = `${BASE_URL}${apiPrefix(config)}/page-lifecycle-mutations`;
   const serializedRequest = JSON.stringify(request);
   const send = async () => {
     const response = await fetch(url, {
@@ -645,16 +632,16 @@ async function sendCardLifecycleMutation(config, request) {
     result = await send();
   }
   if (result?.ok !== true) {
-    throw new Error(result?.error?.message || "Card lifecycle mutation failed");
+    throw new Error(result?.error?.message || "Page lifecycle mutation failed");
   }
   return result.value;
 }
 
-async function readCardOrNull(config, cardId) {
+async function readPageOrNull(config, pageId) {
   let response;
   try {
     response = await fetch(
-      `${BASE_URL}${apiPrefix(config)}/database-row?cardId=${encodeURIComponent(cardId)}`,
+      `${BASE_URL}${apiPrefix(config)}/database-row?pageId=${encodeURIComponent(pageId)}`,
     );
   } catch {
     throw new Error(`Cannot connect to ${BASE_URL}. Is the Nodex server running?`);
@@ -669,25 +656,25 @@ async function readCardOrNull(config, cardId) {
   return response.json();
 }
 
-async function readCanonicalCardAfterLifecycle(config, receipt) {
+async function readCanonicalPageAfterLifecycle(config, receipt) {
   const expectsDeleted = receipt.lifecycle === "deleted";
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const card = await readCardOrNull(config, receipt.cardId);
+    const page = await readPageOrNull(config, receipt.pageId);
     const matches = expectsDeleted
-      ? card === null
-      : card?.id === receipt.cardId &&
-        card.archived === (receipt.lifecycle === "archived");
-    if (matches) return card;
+      ? page === null
+      : page?.id === receipt.pageId &&
+        page.archived === (receipt.lifecycle === "archived");
+    if (matches) return page;
     if (attempt < 2) {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
   throw new Error(
-    `Canonical Card read did not reach lifecycle ${receipt.lifecycle}`,
+    `Canonical Page read did not reach lifecycle ${receipt.lifecycle}`,
   );
 }
 
-function cardLifecycleEnvelope(config, snapshot, operationId, operation) {
+function pageLifecycleEnvelope(config, snapshot, operationId, operation) {
   return {
     version: 1,
     operationId,
@@ -718,7 +705,7 @@ function requireCanonicalMutationId(value) {
   return mutationId;
 }
 
-function requireCanonicalCardId(value) {
+function requireCanonicalPageId(value) {
   if (
     typeof value === "string" &&
     value.length > 0 &&
@@ -728,7 +715,7 @@ function requireCanonicalCardId(value) {
     return value;
   }
   throw new Error(
-    "--card-id must be a canonical non-empty identity up to 512 characters",
+    "--page-id must be a canonical non-empty identity up to 512 characters",
   );
 }
 
@@ -739,20 +726,20 @@ function scopedMutationId(baseMutationId, suffix, hasMultipleMutations) {
   throw new Error("--mutation-id is too long for a multi-part content update");
 }
 
-async function prepareCardDocument(config, cardId) {
+async function preparePageDocument(config, pageId) {
   const descriptor = await apiPost(
-    `${apiPrefix(config)}/blocks/${encodeURIComponent(cardId)}/document/prepare`,
+    `${apiPrefix(config)}/blocks/${encodeURIComponent(pageId)}/document/prepare`,
     {},
   );
   if (
     descriptor?.projectId !== config.project ||
-    descriptor?.ownerBlockId !== cardId ||
+    descriptor?.ownerBlockId !== pageId ||
     typeof descriptor?.documentId !== "string" ||
     typeof descriptor?.storeEpoch !== "string" ||
     !Number.isSafeInteger(descriptor?.generation) ||
     !Number.isSafeInteger(descriptor?.headSeq)
   ) {
-    throw new Error("Server returned an invalid Card Document descriptor");
+    throw new Error("Server returned an invalid Page Document descriptor");
   }
   return descriptor;
 }
@@ -796,11 +783,11 @@ function documentMutationEnvelope(config, descriptor, input) {
   };
 }
 
-async function mutateCardContent(config, cardId, input) {
-  const descriptor = await prepareCardDocument(config, cardId);
+async function mutatePageContent(config, pageId, input) {
+  const descriptor = await preparePageDocument(config, pageId);
   const current = input.skipUnchanged
     ? await apiGet(
-        `${apiPrefix(config)}/database-row?cardId=${encodeURIComponent(cardId)}`,
+        `${apiPrefix(config)}/database-row?pageId=${encodeURIComponent(pageId)}`,
       )
     : null;
   const hasNfm = input.nfm !== undefined &&
@@ -865,21 +852,21 @@ function normalizeStatusId(input) {
   throw new Error(`Unknown status: ${input}.${suffix} Valid: ${STATUSES.map((status) => status.id).join(", ")}`);
 }
 
-// ─── Card Formatting ───
+// ─── Page Formatting ───
 
-function cardToKV(card, statusId) {
+function pageToKV(page, statusId) {
   return {
-    id: card.id,
+    id: page.id,
     status: statusId,
-    title: card.title,
-    description: card.description || "",
-    priority: card.priority,
-    estimate: card.estimate || "",
-    tags: Array.isArray(card.tags) ? card.tags.join(";") : "",
-    dueDate: card.dueDate || "",
-    assignee: card.assignee || "",
-    created: card.created,
-    order: card.order,
+    title: page.title,
+    description: page.description || "",
+    priority: page.priority,
+    estimate: page.estimate || "",
+    tags: Array.isArray(page.tags) ? page.tags.join(";") : "",
+    dueDate: page.dueDate || "",
+    assignee: page.assignee || "",
+    created: page.created,
+    order: page.order,
   };
 }
 
@@ -900,16 +887,16 @@ const LS_FULL_HEADERS = [
   "order",
 ];
 
-function cardToRow(card, statusId) {
+function pageToRow(page, statusId) {
   return {
-    id: card.id,
+    id: page.id,
     status: statusId,
-    title: card.title,
-    priority: card.priority,
-    estimate: card.estimate || "",
-    assignee: card.assignee || "",
-    tags: Array.isArray(card.tags) ? card.tags.join(";") : "",
-    order: card.order,
+    title: page.title,
+    priority: page.priority,
+    estimate: page.estimate || "",
+    assignee: page.assignee || "",
+    tags: Array.isArray(page.tags) ? page.tags.join(";") : "",
+    order: page.order,
   };
 }
 
@@ -923,26 +910,26 @@ function truncateDescription(description, maxChars) {
   return { value: `${description.slice(0, maxChars - 3)}...`, truncated: true };
 }
 
-function cardToFullRow(card, statusId, options) {
-  const description = card.description || "";
+function pageToFullRow(page, statusId, options) {
+  const description = page.description || "";
   const truncated = options.descriptionFull
     ? { value: description, truncated: false }
     : truncateDescription(description, options.descriptionChars);
 
   return {
-    id: card.id,
+    id: page.id,
     status: statusId,
-    title: card.title,
+    title: page.title,
     description: truncated.value,
     descriptionLen: description.length,
     descriptionTruncated: truncated.truncated,
-    priority: card.priority,
-    estimate: card.estimate || "",
-    tags: Array.isArray(card.tags) ? card.tags : [],
-    dueDate: card.dueDate || "",
-    assignee: card.assignee || "",
-    created: card.created,
-    order: card.order,
+    priority: page.priority,
+    estimate: page.estimate || "",
+    tags: Array.isArray(page.tags) ? page.tags : [],
+    dueDate: page.dueDate || "",
+    assignee: page.assignee || "",
+    created: page.created,
+    order: page.order,
   };
 }
 
@@ -961,8 +948,7 @@ const OPTION_ALIASES = {
   "--title": "title",
   "--name": "name", "-n": "name",
   "--label": "label",
-  "--card": "card",
-  "--card-id": "cardId",
+  "--page-id": "pageId",
   "--limit": "limit",
   "--offset": "offset",
   "--before-source": "beforeSource",
@@ -972,10 +958,6 @@ const OPTION_ALIASES = {
   "--description-chars": "descriptionChars",
   "--mutation-id": "mutationId",
   "--expected-head": "expectedHead",
-  "--target-database": "targetDatabase",
-  "--target-view": "targetView",
-  "--before-card": "beforeCard",
-  "--before-view-card": "beforeViewCard",
 };
 
 const BOOLEAN_OPTION_ALIASES = {
@@ -1014,8 +996,7 @@ const FLAG_DISPLAY = {
   title: "--title",
   name: "--name",
   label: "--label",
-  card: "--card",
-  cardId: "--card-id",
+  pageId: "--page-id",
   limit: "--limit",
   offset: "--offset",
   beforeSource: "--before-source",
@@ -1025,10 +1006,6 @@ const FLAG_DISPLAY = {
   descriptionChars: "--description-chars",
   mutationId: "--mutation-id",
   expectedHead: "--expected-head",
-  targetDatabase: "--target-database",
-  targetView: "--target-view",
-  beforeCard: "--before-card",
-  beforeViewCard: "--before-view-card",
   help: "--help",
   json: "--json",
   jsonl: "--jsonl",
@@ -1052,7 +1029,7 @@ const COMMAND_ALLOWED_FLAGS = {
     "priority", "assignee", "limit", "offset", "full", "descriptionChars", "descriptionFull",
   ]),
   get: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
-  add: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "description", "priority", "estimate", "tags", "assignee", "due", "mutationId", "cardId"]),
+  add: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId", "description", "priority", "estimate", "tags", "assignee", "due", "mutationId", "pageId"]),
   update: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "verbose", "project", "url", "sessionId",
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
@@ -1064,11 +1041,6 @@ const COMMAND_ALLOWED_FLAGS = {
     "title", "description", "clearDescription", "priority", "estimate", "tags", "clearTags",
     "assignee", "clearAssignee", "due", "clearDue", "mutationId", "expectedHead",
   ]),
-  transfer: new Set([
-    "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
-    "sessionId", "mutationId", "targetDatabase", "targetView", "beforeCard",
-    "beforeViewCard",
-  ]),
   block: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
     "sessionId", "mutationId", "expectedHead",
@@ -1079,7 +1051,7 @@ const COMMAND_ALLOWED_FLAGS = {
   ]),
   history: new Set([
     "help", "json", "jsonl", "csv", "pretty", "table", "project", "url",
-    "card", "limit", "beforeSource", "beforeOccurredAt", "beforeVersionId",
+    "page", "limit", "beforeSource", "beforeOccurredAt", "beforeVersionId",
     "beforeChangeSeq",
   ]),
   query: new Set(["help", "json", "jsonl", "csv", "pretty", "table", "project", "url", "sessionId"]),
@@ -1358,25 +1330,29 @@ async function cmdLs(positional, flags, config) {
       ? parseNonNegativeInt(flags.descriptionChars, "--description-chars")
       : DEFAULT_LS_DESCRIPTION_CHARS,
   };
-  let cards = [];
+  let pages = [];
 
   if (positional[0]) {
     const statusId = normalizeStatusId(positional[0]);
     const column = await apiGet(`${prefix}/column?id=${encodeURIComponent(statusId)}`);
-    cards = column.cards.map((card) => {
+    pages = column.cards.map((page) => {
       if (lsOptions.full) {
-        return cardToFullRow(card, column.id, lsOptions);
+        return pageToFullRow(page, column.id, lsOptions);
       }
-      return cardToRow(card, column.id);
+      return pageToRow(page, column.id);
     });
   } else {
-    const board = await apiGet(`${prefix}/board`);
-    for (const column of board.columns) {
-      for (const card of column.cards) {
+    const columns = await Promise.all(
+      STATUSES.map((status) =>
+        apiGet(`${prefix}/column?id=${encodeURIComponent(status.id)}`),
+      ),
+    );
+    for (const column of columns) {
+      for (const page of column.cards) {
         if (lsOptions.full) {
-          cards.push(cardToFullRow(card, column.id, lsOptions));
+          pages.push(pageToFullRow(page, column.id, lsOptions));
         } else {
-          cards.push(cardToRow(card, column.id));
+          pages.push(pageToRow(page, column.id));
         }
       }
     }
@@ -1384,30 +1360,30 @@ async function cmdLs(positional, flags, config) {
 
   if (flags.priority) {
     assertValidPriority(flags.priority);
-    cards = cards.filter(c => c.priority === flags.priority);
+    pages = pages.filter((page) => page.priority === flags.priority);
   }
-  if (flags.assignee) cards = cards.filter(c => c.assignee === flags.assignee);
-  if (flags.offset) cards = cards.slice(parseNonNegativeInt(flags.offset, "--offset"));
-  if (flags.limit) cards = cards.slice(0, parseNonNegativeInt(flags.limit, "--limit"));
+  if (flags.assignee) pages = pages.filter((page) => page.assignee === flags.assignee);
+  if (flags.offset) pages = pages.slice(parseNonNegativeInt(flags.offset, "--offset"));
+  if (flags.limit) pages = pages.slice(0, parseNonNegativeInt(flags.limit, "--limit"));
 
-  rowsOut(lsOptions.full ? LS_FULL_HEADERS : LS_HEADERS, cards, flags);
+  rowsOut(lsOptions.full ? LS_FULL_HEADERS : LS_HEADERS, pages, flags);
 }
 
 // ─── Command: get ───
 
 async function cmdGet(positional, flags, config) {
-  const cardId = positional[0];
-  if (!cardId) throw new Error("Usage: nodex get <card-id>");
+  const pageId = positional[0];
+  if (!pageId) throw new Error("Usage: nodex get <page-id>");
 
   const prefix = apiPrefix(config);
-  const card = await apiGet(
-    `${prefix}/database-row?cardId=${encodeURIComponent(cardId)}`
+  const page = await apiGet(
+    `${prefix}/database-row?pageId=${encodeURIComponent(pageId)}`
   );
 
   if (flags.json) {
-    jsonOut(card, flags);
+    jsonOut(page, flags);
   } else {
-    keyValueOut(cardToKV(card, card.status), flags);
+    keyValueOut(pageToKV(page, page.status), flags);
   }
 }
 
@@ -1456,23 +1432,23 @@ async function cmdBlock(positional, flags, config) {
     return;
   }
 
-  const cardId = positional[1];
-  if (!cardId) {
+  const pageId = positional[1];
+  if (!pageId) {
     throw new Error(
-      "Usage: nodex block <descriptor|export|apply|replace|title> <card-id> [value]",
+      "Usage: nodex block <descriptor|export|apply|replace|title> <page-id> [value]",
     );
   }
 
   if (action === "descriptor") {
-    keyValueOut(await prepareCardDocument(config, cardId), flags);
+    keyValueOut(await preparePageDocument(config, pageId), flags);
     return;
   }
   if (action === "export") {
-    const card = await apiGet(
-      `${apiPrefix(config)}/database-row?cardId=${encodeURIComponent(cardId)}`,
+    const page = await apiGet(
+      `${apiPrefix(config)}/database-row?pageId=${encodeURIComponent(pageId)}`,
     );
     keyValueOut(
-      { cardId, title: card.title ?? "", nfm: card.description ?? "" },
+      { pageId, title: page.title ?? "", nfm: page.description ?? "" },
       flags,
     );
     return;
@@ -1488,7 +1464,7 @@ async function cmdBlock(positional, flags, config) {
     : parseNonNegativeInt(flags.expectedHead, "--expected-head");
 
   if (action === "replace" || action === "title") {
-    const result = await mutateCardContent(config, cardId, {
+    const result = await mutatePageContent(config, pageId, {
       ...(action === "replace"
         ? { nfm: resolvedValue }
         : { title: resolvedValue }),
@@ -1497,7 +1473,7 @@ async function cmdBlock(positional, flags, config) {
     });
     keyValueOut(
       {
-        cardId,
+        pageId,
         documentId: result.descriptor.documentId,
         mutation: result.receipts[0],
       },
@@ -1518,7 +1494,7 @@ async function cmdBlock(positional, flags, config) {
   if (!Array.isArray(operations) || operations.length === 0) {
     throw new Error("Block operations must be a non-empty JSON array");
   }
-  const descriptor = await prepareCardDocument(config, cardId);
+  const descriptor = await preparePageDocument(config, pageId);
   const receipt = await sendDocumentMutation(config, descriptor, {
     ...documentMutationEnvelope(config, descriptor, {
       mutationId: requireCanonicalMutationId(flags.mutationId),
@@ -1527,39 +1503,31 @@ async function cmdBlock(positional, flags, config) {
     operations,
   });
   keyValueOut(
-    { cardId, documentId: descriptor.documentId, mutation: receipt },
+    { pageId, documentId: descriptor.documentId, mutation: receipt },
     flags,
   );
 }
 
 // ─── Command: database ───
 
-async function readDatabaseDescriptorSnapshot(config, databaseBlockId) {
-  const result = await apiGet(
-    `${apiPrefix(config)}/databases/${encodeURIComponent(databaseBlockId)}`,
+async function readDatabaseModuleSnapshot(config, read) {
+  const request = {
+    version: 1,
+    projectId: config.project,
+    read,
+  };
+  const result = await apiPost(
+    `${apiPrefix(config)}/database-module/read`,
+    request,
   );
   if (
     result?.ok !== true ||
     result?.value?.projectId !== config.project ||
     typeof result?.value?.storeEpoch !== "string" ||
-    !Number.isSafeInteger(result?.value?.changeLogSeq)
-  ) {
-    throw new Error(result?.error?.message || "Server returned an invalid Database descriptor snapshot");
-  }
-  return result.value;
-}
-
-async function readDatabaseManagementSnapshot(config) {
-  const result = await apiGet(`${apiPrefix(config)}/databases/management`);
-  if (
-    result?.ok !== true ||
-    result?.value?.projectId !== config.project ||
-    typeof result?.value?.storeEpoch !== "string" ||
     !Number.isSafeInteger(result?.value?.changeLogSeq) ||
-    !Array.isArray(result?.value?.value?.catalog?.databases) ||
-    !Array.isArray(result?.value?.value?.cards)
+    !result?.value?.value
   ) {
-    throw new Error(result?.error?.message || "Server returned an invalid Database management snapshot");
+    throw new Error(result?.error?.message || "Server returned an invalid Database Module snapshot");
   }
   return result.value;
 }
@@ -1570,12 +1538,11 @@ async function applyDatabaseOperations(config, snapshot, operationId, operations
     operationId,
     projectId: config.project,
     storeEpoch: snapshot.storeEpoch,
-    ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
     actor: { kind: "nodex_cli" },
     operations,
   };
   const send = async () =>
-    apiPost(`${apiPrefix(config)}/database-mutations`, request);
+    apiPost(`${apiPrefix(config)}/database-module/apply`, request);
   let result;
   try {
     result = await send();
@@ -1583,22 +1550,7 @@ async function applyDatabaseOperations(config, snapshot, operationId, operations
     result = await send();
   }
   if (result?.ok !== true) {
-    throw new Error(result?.error?.message || "Database mutation failed");
-  }
-  return result.value;
-}
-
-async function applyBlockTransfer(config, intent) {
-  const send = async () =>
-    apiPost(`${apiPrefix(config)}/block-transfers`, intent);
-  let result;
-  try {
-    result = await send();
-  } catch {
-    result = await send();
-  }
-  if (result?.ok !== true) {
-    throw new Error(result?.error?.message || "Block transfer failed");
+    throw new Error(result?.error?.message || "Database Module mutation failed");
   }
   return result.value;
 }
@@ -1613,22 +1565,25 @@ async function cmdDatabase(positional, flags, config) {
   }
 
   if (action === "catalog") {
-    const snapshot = await readDatabaseManagementSnapshot(config);
+    const snapshot = await readDatabaseModuleSnapshot(config, {
+      target: { kind: "project_default" },
+      mode: "catalog",
+    });
+    if (snapshot.value.kind !== "catalog") {
+      throw new Error("Server returned an invalid Database catalog");
+    }
     if (flags.json) {
       jsonOut(snapshot, flags);
       return;
     }
     rowsOut(
-      ["databaseBlockId", "name", "primary", "properties", "views", "members"],
-      snapshot.value.catalog.databases.map((descriptor) => ({
-        databaseBlockId: descriptor.database.blockId,
+      ["databaseId", "name", "defaultViewId", "dataSources", "views"],
+      snapshot.value.databases.map((descriptor) => ({
+        databaseId: descriptor.database.databaseId,
         name: descriptor.database.name,
-        primary: descriptor.database.isPrimary,
-        properties: descriptor.properties.filter((property) => property.lifecycle === "active").length,
+        defaultViewId: descriptor.database.defaultViewId ?? "",
+        dataSources: descriptor.dataSources.filter((source) => source.lifecycle === "active").length,
         views: descriptor.views.filter((view) => view.lifecycle === "active").length,
-        members: snapshot.value.cards.filter(
-          (state) => state.membership?.databaseBlockId === descriptor.database.blockId,
-        ).length,
       })),
       flags,
     );
@@ -1640,25 +1595,29 @@ async function cmdDatabase(positional, flags, config) {
   }
 
   if (action === "descriptor") {
-    keyValueOut(await readDatabaseDescriptorSnapshot(config, stableId), flags);
+    keyValueOut(await readDatabaseModuleSnapshot(config, {
+      target: { kind: "database", databaseId: stableId },
+      mode: "database",
+    }), flags);
     return;
   }
   if (action === "query") {
-    const result = await apiGet(
-      `${apiPrefix(config)}/database-views/${encodeURIComponent(stableId)}/query`,
-    );
-    if (result?.ok !== true) {
-      throw new Error(result?.error?.message || "Database View query failed");
+    const snapshot = await readDatabaseModuleSnapshot(config, {
+      target: { kind: "view", viewId: stableId },
+      mode: "query",
+    });
+    if (snapshot.value.kind !== "query") {
+      throw new Error("Server returned an invalid Database View query");
     }
     if (flags.json) {
-      jsonOut(result.value, flags);
+      jsonOut(snapshot, flags);
       return;
     }
     rowsOut(
-      ["cardBlockId", "title", "groupKey", "positionRevision", "membershipRevision"],
-      (result.value.value?.rows ?? []).map((row) => ({
-        cardBlockId: row.card.blockId,
-        title: row.card.content?.title ?? "",
+      ["pageId", "title", "groupKey", "positionRevision", "membershipRevision"],
+      snapshot.value.value.rows.map((row) => ({
+        pageId: row.page.pageId,
+        title: row.page.title,
         groupKey: row.effectiveGroupKey ?? "",
         positionRevision: row.position?.revision ?? 0,
         membershipRevision: row.membership.revision,
@@ -1668,25 +1627,46 @@ async function cmdDatabase(positional, flags, config) {
     return;
   }
   if (action === "members") {
-    const snapshot = await readDatabaseManagementSnapshot(config);
-    const descriptor = snapshot.value.catalog.databases.find(
-      (candidate) => candidate.database.blockId === stableId,
+    const descriptorSnapshot = await readDatabaseModuleSnapshot(config, {
+      target: { kind: "database", databaseId: stableId },
+      mode: "database",
+    });
+    if (descriptorSnapshot.value.kind !== "database") {
+      throw new Error(`Database not found: ${stableId}`);
+    }
+    const descriptor = descriptorSnapshot.value.value;
+    const activeSourceIds = new Set(
+      descriptor.dataSources
+        .filter((source) => source.lifecycle === "active")
+        .map((source) => source.dataSourceId),
     );
-    if (!descriptor) throw new Error(`Database not found: ${stableId}`);
-    const members = snapshot.value.cards.filter(
-      (state) => state.membership?.databaseBlockId === stableId,
+    const view = descriptor.views.find(
+      (candidate) => candidate.lifecycle === "active"
+        && candidate.viewId === descriptor.database.defaultViewId,
+    ) ?? descriptor.views.find(
+      (candidate) => candidate.lifecycle === "active"
+        && activeSourceIds.has(candidate.dataSourceId),
     );
+    if (!view) throw new Error(`Database has no active View: ${stableId}`);
+    const querySnapshot = await readDatabaseModuleSnapshot(config, {
+      target: { kind: "view", viewId: view.viewId },
+      mode: "query",
+    });
+    if (querySnapshot.value.kind !== "query") {
+      throw new Error(`Database View is unavailable: ${view.viewId}`);
+    }
+    const members = querySnapshot.value.value.rows;
     if (flags.json) {
-      jsonOut({ database: descriptor.database, cards: members }, flags);
+      jsonOut({ database: descriptor.database, pages: members }, flags);
       return;
     }
     rowsOut(
-      ["cardBlockId", "title", "membershipId", "membershipRevision"],
-      members.map((state) => ({
-        cardBlockId: state.card.blockId,
-        title: state.card.content?.title ?? "",
-        membershipId: state.membership?.id ?? "",
-        membershipRevision: state.membership?.revision ?? 0,
+      ["pageId", "title", "membershipId", "membershipRevision"],
+      members.map((row) => ({
+        pageId: row.page.pageId,
+        title: row.page.title,
+        membershipId: row.membership.membershipId,
+        membershipRevision: row.membership.revision,
       })),
       flags,
     );
@@ -1695,62 +1675,90 @@ async function cmdDatabase(positional, flags, config) {
   if (action === "membership") {
     const targetDatabaseId = positional[2];
     if (!targetDatabaseId) {
-      throw new Error("Usage: nodex database membership <card-id> <database-id|none> [view-id]");
+      throw new Error("Usage: nodex database membership <page-id> <database-id|none> [view-id]");
     }
-    const snapshot = await readDatabaseManagementSnapshot(config);
-    const state = snapshot.value.cards.find(
-      (candidate) => candidate.card.blockId === stableId,
-    );
-    if (!state) throw new Error(`Card not found: ${stableId}`);
+    const detail = await readPageDetail(config, stableId);
+    const activeMembership = detail.dataSourceContext.kind === "member"
+      ? detail.dataSourceContext.membership
+      : null;
     const operationId = requireCanonicalMutationId(flags.mutationId);
-    let target = { kind: "space" };
-    if (targetDatabaseId === "none" && !state.membership) {
-      throw new Error(`Card ${stableId} has no owning Database membership`);
+    const operations = [];
+    if (targetDatabaseId === "none" && !activeMembership) {
+      throw new Error(`Page ${stableId} has no owning Data Source membership`);
     }
-    if (targetDatabaseId !== "none") {
-      if (state.membership?.databaseBlockId === targetDatabaseId) {
-        throw new Error(`Card already belongs to Database ${targetDatabaseId}`);
+    if (targetDatabaseId === "none") {
+      operations.push({
+        kind: "transfer_page",
+        pageId: stableId,
+        expectedParentRevision: detail.page.parentRevision,
+        expectedActiveMembershipRevision: activeMembership?.revision ?? 0,
+        target: { kind: "library", libraryId: detail.libraryId },
+      });
+    } else {
+      const descriptorSnapshot = await readDatabaseModuleSnapshot(config, {
+        target: { kind: "database", databaseId: targetDatabaseId },
+        mode: "database",
+      });
+      if (descriptorSnapshot.value.kind !== "database") {
+        throw new Error(`Database not found: ${targetDatabaseId}`);
       }
-      const descriptor = snapshot.value.catalog.databases.find(
-        (candidate) => candidate.database.blockId === targetDatabaseId,
+      const descriptor = descriptorSnapshot.value.value;
+      const activeSources = descriptor.dataSources.filter(
+        (source) => source.lifecycle === "active",
       );
-      if (!descriptor) throw new Error(`Database not found: ${targetDatabaseId}`);
+      if (activeSources.length !== 1) {
+        throw new Error(
+          `Database ${targetDatabaseId} must have exactly one active Data Source in this release`,
+        );
+      }
+      const targetSource = activeSources[0];
+      if (activeMembership?.dataSourceId === targetSource.dataSourceId) {
+        throw new Error(`Page already belongs to Data Source ${targetSource.dataSourceId}`);
+      }
       const requestedViewId = positional[3];
       const selectedView = requestedViewId
         ? descriptor.views.find(
-            (view) => view.id === requestedViewId && view.lifecycle === "active",
+            (view) => view.viewId === requestedViewId
+              && view.dataSourceId === targetSource.dataSourceId
+              && view.lifecycle === "active",
           )
         : descriptor.views.find(
-            (view) => view.lifecycle === "active" && view.isPrimary,
-          ) ?? descriptor.views.find((view) => view.lifecycle === "active");
+            (view) => view.lifecycle === "active"
+              && view.dataSourceId === targetSource.dataSourceId
+              && view.isDefault,
+          ) ?? descriptor.views.find(
+            (view) => view.lifecycle === "active"
+              && view.dataSourceId === targetSource.dataSourceId,
+          );
       if (!selectedView) {
         throw new Error(`Target Database has no active View: ${targetDatabaseId}`);
       }
-      target = {
-        kind: "database",
-        databaseBlockId: targetDatabaseId,
-        viewId: selectedView.id,
-        groupKey: null,
-      };
+      operations.push(
+        {
+          kind: "transfer_page",
+          pageId: stableId,
+          expectedParentRevision: detail.page.parentRevision,
+          expectedActiveMembershipRevision: activeMembership?.revision ?? 0,
+          target: {
+            kind: "data_source",
+            dataSourceId: targetSource.dataSourceId,
+          },
+        },
+        {
+          kind: "position_page",
+          viewId: selectedView.viewId,
+          pageId: stableId,
+          expectedPositionRevision: 0,
+          groupKey: null,
+        },
+      );
     }
-    const source = state.card.location.kind === "document"
-      ? { kind: "document", documentId: state.card.location.documentId }
-      : state.card.location.kind === "database"
-        ? {
-            kind: "database",
-            databaseBlockId: state.card.location.databaseBlockId,
-          }
-        : { kind: "space" };
-    const receipt = await applyBlockTransfer(config, {
-      version: 1,
+    const receipt = await applyDatabaseOperations(
+      config,
+      detail,
       operationId,
-      projectId: config.project,
-      storeEpoch: snapshot.storeEpoch,
-      mode: "move",
-      rootBlockIds: [stableId],
-      source,
-      target,
-    });
+      operations,
+    );
     keyValueOut(receipt, flags);
     return;
   }
@@ -1769,44 +1777,33 @@ async function cmdDatabase(positional, flags, config) {
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       throw new Error("Database View patch must be a JSON object");
     }
-    const result = await apiGet(
-      `${apiPrefix(config)}/database-views/${encodeURIComponent(stableId)}/snapshot`,
-    );
-    const descriptorSnapshot = result?.value?.descriptor;
-    const querySnapshot = result?.value?.query;
-    const current = querySnapshot?.value?.view;
-    const descriptor = descriptorSnapshot?.value;
-    if (
-      result?.ok !== true ||
-      !current ||
-      !descriptor ||
-      descriptorSnapshot.storeEpoch !== querySnapshot.storeEpoch ||
-      descriptorSnapshot.changeLogSeq !== querySnapshot.changeLogSeq
-    ) {
-      throw new Error(result?.error?.message || "Server returned an invalid Database View snapshot");
+    const viewSnapshot = await readDatabaseModuleSnapshot(config, {
+      target: { kind: "view", viewId: stableId },
+      mode: "view",
+    });
+    if (viewSnapshot.value.kind !== "view") {
+      throw new Error("Server returned an invalid Database View snapshot");
     }
+    const current = viewSnapshot.value.value;
     const allowed = new Set(["name", "kind", "config"]);
     const unsupported = Object.keys(patch).find((key) => !allowed.has(key));
     if (unsupported) throw new Error(`Unsupported Database View patch field: ${unsupported}`);
-    const activeViews = descriptor.views.filter((view) => view.lifecycle === "active");
-    const index = activeViews.findIndex((view) => view.id === current.id);
-    const beforeViewId = index < 0 ? undefined : activeViews[index + 1]?.id;
     const operationId = requireCanonicalMutationId(flags.mutationId);
     const receipt = await applyDatabaseOperations(
       config,
-      descriptorSnapshot,
+      viewSnapshot,
       operationId,
       [
         {
           kind: "put_view",
-          databaseBlockId: current.databaseBlockId,
-          viewId: current.id,
+          databaseId: current.databaseId,
+          dataSourceId: current.dataSourceId,
+          viewId: current.viewId,
           expectedRevision: current.revision,
           name: patch.name ?? current.name,
           viewKind: patch.kind ?? current.kind,
           config: patch.config ?? current.config,
-          isPrimary: current.isPrimary,
-          ...(beforeViewId ? { beforeViewId } : {}),
+          isDefault: current.isDefault,
         },
       ],
     );
@@ -1828,14 +1825,16 @@ async function cmdDatabase(positional, flags, config) {
   } catch {
     throw new Error("Database operations must be valid JSON");
   }
-  const snapshot = await readDatabaseDescriptorSnapshot(config, stableId);
+  const snapshot = await readDatabaseModuleSnapshot(config, {
+    target: { kind: "database", databaseId: stableId },
+    mode: "database",
+  });
   const request = Array.isArray(parsed)
     ? {
         version: 1,
         operationId: requireCanonicalMutationId(flags.mutationId),
         projectId: config.project,
         storeEpoch: snapshot.storeEpoch,
-        ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
         actor: { kind: "nodex_cli" },
         operations: parsed,
       }
@@ -1847,9 +1846,9 @@ async function cmdDatabase(positional, flags, config) {
   }
   const result = Array.isArray(parsed)
     ? await applyDatabaseOperations(config, snapshot, request.operationId, request.operations)
-    : await apiPost(`${apiPrefix(config)}/database-mutations`, request);
+    : await apiPost(`${apiPrefix(config)}/database-module/apply`, request);
   if (!Array.isArray(parsed) && result?.ok !== true) {
-    throw new Error(result?.error?.message || "Database mutation failed");
+    throw new Error(result?.error?.message || "Database Module mutation failed");
   }
   keyValueOut(Array.isArray(parsed) ? result : result.value, flags);
 }
@@ -1862,18 +1861,18 @@ async function cmdAdd(positional, flags, config) {
   if (!statusRaw || !title) throw new Error("Usage: nodex add <status> <title> [opts]");
 
   const status = normalizeStatusId(statusRaw);
-  if (flags.mutationId !== undefined && flags.cardId === undefined) {
+  if (flags.mutationId !== undefined && flags.pageId === undefined) {
     throw new Error(
-      "--mutation-id for 'nodex add' requires --card-id so a later retry preserves both identities",
+      "--mutation-id for 'nodex add' requires --page-id so a later retry preserves both identities",
     );
   }
-  const cardId = flags.cardId === undefined
+  const pageId = flags.pageId === undefined
     ? uuidV7()
-    : requireCanonicalCardId(flags.cardId);
+    : requireCanonicalPageId(flags.pageId);
   const operationId = requireCanonicalMutationId(flags.mutationId);
   const operation = {
-    kind: "create_card",
-    cardId,
+    kind: "create_page",
+    pageId: pageId,
     status,
     title,
     nfm: "",
@@ -1891,38 +1890,38 @@ async function cmdAdd(positional, flags, config) {
   if (flags.tags !== undefined) operation.tags = parseTags(flags.tags);
   if (flags.assignee !== undefined) operation.assignee = flags.assignee;
   if (flags.due !== undefined) operation.dueDate = parseDueDate(flags.due);
-  const preflight = await readCardLifecyclePreflight(config, cardId);
+  const preflight = await readPageLifecyclePreflight(config, pageId);
   const isExplicitExactRetry =
-    flags.cardId !== undefined && flags.mutationId !== undefined;
+    flags.pageId !== undefined && flags.mutationId !== undefined;
   if (
-    (preflight.value.card || preflight.value.reservedBlockType) &&
+    (preflight.value.page || preflight.value.reservedBlockType) &&
     !isExplicitExactRetry
   ) {
-    throw new Error(`Card identity is already reserved: ${cardId}`);
+    throw new Error(`Page identity is already reserved: ${pageId}`);
   }
-  const receipt = await sendCardLifecycleMutation(
+  const receipt = await sendPageLifecycleMutation(
     config,
-    cardLifecycleEnvelope(config, preflight, operationId, operation),
+    pageLifecycleEnvelope(config, preflight, operationId, operation),
   );
-  const card = await readCanonicalCardAfterLifecycle(config, receipt);
-  if (!card) throw new Error("Created Card is missing from canonical authority");
+  const page = await readCanonicalPageAfterLifecycle(config, receipt);
+  if (!page) throw new Error("Created Page is missing from canonical authority");
 
   if (flags.json) {
-    jsonOut(card, flags);
+    jsonOut(page, flags);
     return;
   }
-  keyValueOut(cardToKV(card, status), flags);
+  keyValueOut(pageToKV(page, status), flags);
 }
 
 // ─── Command: update ───
 
 async function cmdUpdate(positional, flags, config) {
-  const cardId = positional[0];
-  if (!cardId) throw new Error("Usage: nodex update <card-id> [opts]");
+  const pageId = positional[0];
+  if (!pageId) throw new Error("Usage: nodex update <page-id> [opts]");
   assertNoConflictingClearFlags(flags);
 
   const prefix = apiPrefix(config);
-  const body = { cardId };
+  const body = { pageId };
   if (config.sessionId) body.sessionId = config.sessionId;
 
   const title = flags.title === undefined
@@ -1963,24 +1962,24 @@ async function cmdUpdate(positional, flags, config) {
   }
 
   const metadataChanged = Object.keys(body).some(
-    (key) => key !== "cardId" && key !== "sessionId",
+    (key) => key !== "pageId" && key !== "sessionId",
   );
   if (!metadataChanged && title === undefined && nfm === undefined) {
-    throw new Error("No Card update was specified");
+    throw new Error("No Page update was specified");
   }
-  const { cardId: _cardId, sessionId: _sessionId, ...metadataPatch } = body;
-  void _cardId;
+  const { pageId: _pageId, sessionId: _sessionId, ...metadataPatch } = body;
+  void _pageId;
   void _sessionId;
   const metadataResult = metadataChanged
-    ? await mutateCardMetadata(
+    ? await mutatePageMetadata(
         config,
-        cardId,
+        pageId,
         metadataPatch,
         requireCanonicalMutationId(flags.mutationId),
       )
     : null;
   const contentResult = title !== undefined || nfm !== undefined
-    ? await mutateCardContent(config, cardId, {
+    ? await mutatePageContent(config, pageId, {
         title,
         nfm,
         mutationId: flags.mutationId,
@@ -1995,88 +1994,88 @@ async function cmdUpdate(positional, flags, config) {
   if (flags.json) {
     jsonOut({
       status: "updated",
-      cardId,
+      pageId,
       ...(metadataResult ? { metadata: metadataResult } : {}),
       ...(contentResult
         ? { documentMutations: contentResult.receipts }
         : {}),
     }, flags);
   } else if (flags.verbose) {
-    const card = await apiGet(
-      `${prefix}/database-row?cardId=${encodeURIComponent(cardId)}`,
+    const page = await apiGet(
+      `${prefix}/database-row?pageId=${encodeURIComponent(pageId)}`,
     );
-    keyValueOut(cardToKV(card, card.status || "unknown"), flags);
+    keyValueOut(pageToKV(page, page.status || "unknown"), flags);
   } else {
-    rowsOut(["status", "cardId"], [{ status: "updated", cardId }], flags);
+    rowsOut(["status", "pageId"], [{ status: "updated", pageId: pageId }], flags);
   }
 }
 
 // ─── Command: rm ───
 
 async function cmdRm(positional, flags, config) {
-  const cardId = positional[0];
-  if (!cardId) throw new Error("Usage: nodex rm <card-id>");
+  const pageId = positional[0];
+  if (!pageId) throw new Error("Usage: nodex rm <page-id>");
 
   const operationId = requireCanonicalMutationId(flags.mutationId);
-  const preflight = await readCardLifecyclePreflight(config, cardId);
-  const card = preflight.value.card;
-  if (!card || card.cardId !== cardId) {
-    throw new Error(`Card does not exist: ${cardId}`);
+  const preflight = await readPageLifecyclePreflight(config, pageId);
+  const page = preflight.value.page;
+  if (!page || page.pageId !== pageId) {
+    throw new Error(`Page does not exist: ${pageId}`);
   }
   if (
-    card.lifecycle === "deleted" ||
-    card.location?.kind !== "space" ||
-    card.location.rankKey === null
+    page.lifecycle === "deleted" ||
+    page.parent.kind !== "library" ||
+    page.libraryRankKey === null
   ) {
-    throw new Error(`Card ${cardId} is not an active top-level Space Card`);
+    throw new Error(`Page ${pageId} is not an active top-level Library Page`);
   }
-  const receipt = await sendCardLifecycleMutation(
+  const receipt = await sendPageLifecycleMutation(
     config,
-    cardLifecycleEnvelope(config, preflight, operationId, {
-      kind: "delete_card",
-      cardId,
-      expectedMetadataRevision: card.metadataRevision,
-      expectedLocationRevision: card.locationRevision,
+    pageLifecycleEnvelope(config, preflight, operationId, {
+      kind: "delete_page",
+      pageId: pageId,
+      expectedMetadataRevision: page.metadataRevision,
+      expectedParentRevision: page.parentRevision,
     }),
   );
-  await readCanonicalCardAfterLifecycle(config, receipt);
+  await readCanonicalPageAfterLifecycle(config, receipt);
   if (flags.json) {
-    jsonOut({ success: true, cardId, operationId: receipt.operationId }, flags);
+    jsonOut({ success: true, pageId: pageId, operationId: receipt.operationId }, flags);
     return;
   }
-  rowsOut(["status", "cardId"], [{ status: "deleted", cardId }], flags);
+  rowsOut(["status", "pageId"], [{ status: "deleted", pageId: pageId }], flags);
 }
 
 // ─── Command: mv ───
 
 async function cmdMv(positional, flags, config) {
-  const cardId = positional[0];
+  const pageId = positional[0];
   const fromStatusRaw = positional[1];
   const toStatusRaw = positional[2];
-  if (!cardId || !fromStatusRaw || !toStatusRaw) throw new Error("Usage: nodex mv <card-id> <from-status> <to-status> [order]");
+  if (!pageId || !fromStatusRaw || !toStatusRaw) throw new Error("Usage: nodex mv <page-id> <from-status> <to-status> [order]");
   assertNoConflictingClearFlags(flags);
 
   const prefix = apiPrefix(config);
   const fromStatus = normalizeStatusId(fromStatusRaw);
   const toStatus = normalizeStatusId(toStatusRaw);
 
-  // Atomic move: asserts card is still in <from-status> (fails with 409 if already moved)
-  const body = { cardId, fromStatus, toStatus };
+  // Atomic move: asserts the Page is still in <from-status>.
+  const body = { pageId, fromStatus, toStatus };
   if (positional[3] !== undefined) body.newOrder = parseNonNegativeInt(positional[3], "order");
   if (config.sessionId) body.sessionId = config.sessionId;
 
   const operationId = requireCanonicalMutationId(flags.mutationId);
-  const moveResult = await moveCardInPrimaryDatabase(
+  const moveResult = await movePageInDefaultDatabase(
     config,
     {
-      cardId,
+      pageId,
       fromStatus,
       toStatus,
       ...(body.newOrder === undefined ? {} : { newOrder: body.newOrder }),
     },
     operationId,
   );
-  const cardUpdates = {};
+  const pageUpdates = {};
 
   const title = flags.title === undefined
     ? undefined
@@ -2089,42 +2088,42 @@ async function cmdMv(positional, flags, config) {
 
   if (flags.priority !== undefined) {
     assertValidPriority(flags.priority);
-    cardUpdates.priority = flags.priority;
+    pageUpdates.priority = flags.priority;
   }
 
   if (flags.estimate !== undefined) {
     assertValidEstimate(flags.estimate);
-    cardUpdates.estimate = flags.estimate;
+    pageUpdates.estimate = flags.estimate;
   }
 
   if (flags.clearTags) {
-    cardUpdates.tags = [];
+    pageUpdates.tags = [];
   } else if (flags.tags !== undefined) {
-    cardUpdates.tags = parseTags(flags.tags);
+    pageUpdates.tags = parseTags(flags.tags);
   }
 
   if (flags.clearAssignee) {
-    cardUpdates.assignee = "";
+    pageUpdates.assignee = "";
   } else if (flags.assignee !== undefined) {
-    cardUpdates.assignee = flags.assignee;
+    pageUpdates.assignee = flags.assignee;
   }
 
   if (flags.clearDue) {
-    cardUpdates.dueDate = null;
+    pageUpdates.dueDate = null;
   } else if (flags.due !== undefined) {
-    cardUpdates.dueDate = parseDueDate(flags.due);
+    pageUpdates.dueDate = parseDueDate(flags.due);
   }
 
-  const hasCardUpdates = Object.keys(cardUpdates).length > 0;
+  const hasPageUpdates = Object.keys(pageUpdates).length > 0;
   const hasContentUpdates = title !== undefined || nfm !== undefined;
-  let cardAfterMove = null;
+  let pageAfterMove = null;
   let contentResult = null;
 
-  if (hasCardUpdates) {
-    await mutateCardMetadata(config, cardId, cardUpdates, operationId);
+  if (hasPageUpdates) {
+    await mutatePageMetadata(config, pageId, pageUpdates, operationId);
   }
   if (hasContentUpdates) {
-    contentResult = await mutateCardContent(config, cardId, {
+    contentResult = await mutatePageContent(config, pageId, {
       title,
       nfm,
       mutationId: flags.mutationId,
@@ -2136,18 +2135,18 @@ async function cmdMv(positional, flags, config) {
     });
   }
   if (flags.verbose) {
-    cardAfterMove = await apiGet(
-      `${prefix}/database-row?cardId=${encodeURIComponent(cardId)}`
+    pageAfterMove = await apiGet(
+      `${prefix}/database-row?pageId=${encodeURIComponent(pageId)}`
     );
   }
 
   if (flags.json) {
     jsonOut({
       success: moveResult !== false,
-      cardId,
+      pageId,
       toStatus,
-      ...(cardAfterMove ? { card: cardAfterMove } : {}),
-      updated: hasCardUpdates || hasContentUpdates,
+      ...(pageAfterMove ? { page: pageAfterMove } : {}),
+      updated: hasPageUpdates || hasContentUpdates,
       ...(contentResult
         ? { documentMutations: contentResult.receipts }
         : {}),
@@ -2155,95 +2154,21 @@ async function cmdMv(positional, flags, config) {
     return;
   }
 
-  if (flags.verbose && cardAfterMove) {
-    keyValueOut(cardToKV(cardAfterMove, toStatus), flags);
+  if (flags.verbose && pageAfterMove) {
+    keyValueOut(pageToKV(pageAfterMove, toStatus), flags);
     return;
   }
 
   rowsOut(
-    ["status", "cardId", "toStatus"],
-    [{ status: "moved", cardId, toStatus }],
+    ["status", "pageId", "toStatus"],
+    [{ status: "moved", pageId: pageId, toStatus }],
     flags
   );
 }
 
-// ─── Command: transfer ───
-
-async function cmdTransfer(positional, flags, config) {
-  const cardId = positional[0];
-  const targetProjectId = positional[1];
-  const targetStatusRaw = positional[2];
-  if (!cardId || !targetProjectId || !targetStatusRaw) {
-    throw new Error(
-      "Usage: nodex transfer <card-id> <target-project> <target-status> [options]",
-    );
-  }
-  assertValidProjectId(targetProjectId);
-  const targetStatus = normalizeStatusId(targetStatusRaw);
-  const hasTargetDatabase = flags.targetDatabase !== undefined;
-  const hasTargetView = flags.targetView !== undefined;
-  if (hasTargetDatabase !== hasTargetView) {
-    throw new Error(
-      "--target-database and --target-view must be provided together",
-    );
-  }
-
-  let targetDatabaseBlockId = flags.targetDatabase;
-  let targetViewId = flags.targetView;
-  if (!targetDatabaseBlockId || !targetViewId) {
-    const descriptorResult = await apiGet(
-      `/api/projects/${encodeURIComponent(targetProjectId)}/databases/primary`,
-    );
-    const descriptor = descriptorResult?.value?.value;
-    const primaryView = descriptor?.views?.find(
-      (view) => view?.isPrimary === true && view?.lifecycle === "active",
-    );
-    if (
-      descriptorResult?.ok !== true ||
-      !descriptor?.database?.blockId ||
-      !primaryView?.id
-    ) {
-      throw new Error(
-        descriptorResult?.error?.message ||
-          "Target Project has no active primary Database View",
-      );
-    }
-    targetDatabaseBlockId = descriptor.database.blockId;
-    targetViewId = primaryView.id;
-  }
-
-  const operationId = requireCanonicalMutationId(flags.mutationId);
-  const intent = {
-    version: 1,
-    operationId,
-    sourceProjectId: config.project,
-    targetProjectId,
-    cardId,
-    target: {
-      databaseBlockId: targetDatabaseBlockId,
-      viewId: targetViewId,
-      status: targetStatus,
-      ...(flags.beforeCard === undefined
-        ? {}
-        : { beforeBlockId: flags.beforeCard }),
-      ...(flags.beforeViewCard === undefined
-        ? {}
-        : { beforeViewCardId: flags.beforeViewCard }),
-    },
-  };
-  const result = await apiPost(
-    `/api/projects/${encodeURIComponent(config.project)}/card-transfers`,
-    intent,
-  );
-  if (result?.ok !== true) {
-    throw new Error(result?.error?.message || "Card Project transfer failed");
-  }
-  keyValueOut(result.value, flags);
-}
-
 // ─── Command: history ───
 
-function cardHistoryCursorQuery(flags) {
+function pageHistoryCursorQuery(flags) {
   const cursorFields = [
     flags.beforeSource,
     flags.beforeOccurredAt,
@@ -2289,24 +2214,24 @@ function cardHistoryCursorQuery(flags) {
 
 async function cmdHistory(positional, flags, config) {
   const prefix = apiPrefix(config);
-  const positionalCardId = positional[0];
+  const positionalPageId = positional[0];
   if (positional.length > 1) {
-    throw new Error("Usage: nodex history <card-id> [options]");
+    throw new Error("Usage: nodex history <page-id> [options]");
   }
-  if (flags.card && positionalCardId && flags.card !== positionalCardId) {
-    throw new Error("Card ID was provided twice with different values");
+  if (flags.page && positionalPageId && flags.page !== positionalPageId) {
+    throw new Error("Page ID was provided twice with different values");
   }
-  const cardId = flags.card ?? positionalCardId;
-  if (!cardId) throw new Error("Usage: nodex history <card-id> [options]");
+  const pageId = flags.page ?? positionalPageId;
+  if (!pageId) throw new Error("Usage: nodex history <page-id> [options]");
 
   const pageSize = flags.limit === undefined
     ? 50
     : parsePositiveIntAtMost(flags.limit, "--limit", 100);
   const result = await apiGet(
-    `${prefix}/cards/${encodeURIComponent(cardId)}/history?pageSize=${pageSize}${cardHistoryCursorQuery(flags)}`,
+    `${prefix}/pages/${encodeURIComponent(pageId)}/history?pageSize=${pageSize}${pageHistoryCursorQuery(flags)}`,
   );
   if (result?.ok !== true || !Array.isArray(result?.value?.entries)) {
-    throw new Error("Server returned an invalid Card history page");
+    throw new Error("Server returned an invalid Page history page");
   }
   const data = result.value;
 
@@ -2638,17 +2563,15 @@ Config:
   nodex config show              Show resolved config with sources
 
 Agent Commands:
-  nodex ls [status]              List cards
-  nodex get <card-id>            Get card details
-  nodex add <status> <title>     Create card
-  nodex update <card-id>         Update card
+  nodex ls [status]              List Pages
+  nodex get <page-id>            Get Page details
+  nodex add <status> <title>     Create a Page
+  nodex update <page-id>         Update a Page
   nodex block <action> [target]  Apply/export stable-ID Document operations
   nodex database <action> <id>   Query/mutate a Database by stable IDs
-  nodex rm <card-id>             Delete card
-  nodex mv <card-id> <from> <to> Move card (supports update opts)
-  nodex transfer <card> <project> <status>
-                                 Atomically transfer a Card and owned Documents
-  nodex history <card-id>        View a Card's durable history
+  nodex rm <page-id>             Delete a Page
+  nodex mv <page-id> <from> <to> Move a Page (supports update opts)
+  nodex history <page-id>        View a Page's durable history
   nodex query "<sql>" [params]   Run SQL query
   nodex schema                   Show DB schema
   nodex backups                  List backups / create / restore
@@ -2663,7 +2586,7 @@ Global Options:
   --csv             Output CSV
   --pretty          Pretty-print JSON output
   --table           Output aligned table text
-  -v, --verbose     Verbose output (e.g. full card after update)
+  -v, --verbose     Verbose output (e.g. full Page after update)
   -h, --help        Show help
 
 Config: .nodex/config.toml (CWD walk-up, then ~/.nodex/config.toml)
@@ -2686,7 +2609,7 @@ function printCommandHelp(cmd) {
   const help = {
     ls: `Usage: nodex ls [status] [options]
 
-  List cards. Without a status, lists all cards across all workflow statuses.
+  List Pages. Without a status, lists all Pages across all workflow statuses.
   Status accepts canonical ids plus ergonomic separators: draft, backlog, in_progress/in-progress, in_review/in-review, done.
 
   Options:
@@ -2695,7 +2618,7 @@ function printCommandHelp(cmd) {
     --assignee <name> Filter by assignee
     --limit <n>       Limit results
     --offset <n>      Skip first n results
-    --full            Include full card fields
+    --full            Include full Page fields
     --description-chars <n>  Truncate description to n chars (requires --full)
     --description-full       Include full description (requires --full)
     --jsonl           JSON Lines output (default)
@@ -2703,14 +2626,14 @@ function printCommandHelp(cmd) {
     --csv             CSV output
     --table           Print aligned text table`,
 
-    get: `Usage: nodex get <card-id>
+    get: `Usage: nodex get <page-id>
 
-  Get detailed card info. Status is auto-resolved.
+  Get detailed Page info. Status is auto-resolved.
   Default output format is JSON Lines.`,
 
     add: `Usage: nodex add <status> <title> [options]
 
-  Create a new card. Status accepts canonical ids plus ergonomic separators.
+  Create a new Page. Status accepts canonical ids plus ergonomic separators.
 
   Options:
     -p, --project <id>        Project (default: "default")
@@ -2720,17 +2643,17 @@ function printCommandHelp(cmd) {
     -t, --tags <t1,t2>        Comma-separated tags
     -a, --assignee <name>     Assignee
     --due <YYYY-MM-DD>        Due date
-    --card-id <id>            Stable Card Block identity (required with --mutation-id)
-    --mutation-id <id>        Stable operation identity; retry with the same --card-id
+    --page-id <id>            Stable Page identity (required with --mutation-id)
+    --mutation-id <id>        Stable operation identity; retry with the same --page-id
     --jsonl                   JSON Lines output (default)
     --json                    JSON object output
     --csv                     CSV output
     --table                   Print aligned text table`,
 
-    update: `Usage: nodex update <card-id> [options]
+    update: `Usage: nodex update <page-id> [options]
 
-  Update card properties. Status is auto-resolved.
-  Default output: updated,<card-id> (minimal). Use -v for full details.
+  Update Page properties. Status is auto-resolved.
+  Default output: updated,<page-id> (minimal). Use -v for full details.
 
   Options:
     -p, --project <id>          Project (default: "default")
@@ -2747,7 +2670,7 @@ function printCommandHelp(cmd) {
     --clear-due                 Clear due date
     --mutation-id <id>          Stable exact-retry identity for title/body changes
     --expected-head <seq>       Explicit Document CAS head for exact retry
-    -v, --verbose               Show full card details
+    -v, --verbose               Show full Page details
     --jsonl                     JSON Lines output (default)
     --json                      JSON object output
     --csv                       CSV output
@@ -2755,7 +2678,7 @@ function printCommandHelp(cmd) {
 
     block: `Usage: nodex block <action> [target] [value] [options]
 
-  Operate on the Card's Y.Doc through stable application Block IDs.
+  Operate on the Page's Y.Doc through stable application Block IDs.
 
   Actions:
     descriptor                 Print the current Document id/epoch/generation/head
@@ -2786,9 +2709,9 @@ function printCommandHelp(cmd) {
     catalog                        List Databases and owning membership counts
     descriptor <database-id>       Read schema, Views, store epoch, and cursor
     query <view-id>                Evaluate the View's durable nested filter/sort/group
-    members <database-id>          List the Database's current Card memberships
-    membership <card-id> <database-id|none> [view-id]
-                                   Add, transfer, or remove the Card membership
+    members <database-id>          List the Database's current Page memberships
+    membership <page-id> <database-id|none> [view-id]
+                                   Add, transfer, or remove the Page membership
     view-update <view-id> <json|@file|@->
                                    Update the selected durable View using exact revision CAS
     apply <database-id> <json|@file|@->
@@ -2798,7 +2721,7 @@ function printCommandHelp(cmd) {
   store epoch, and operation intent are retained for exact retries; the local
   host derives trusted audit attribution for every transport.
   Rank keys are never accepted; use beforeBlockId/beforePropertyId/beforeViewId/
-  beforeCardBlockId logical anchors.
+  beforePageId logical anchors.
 
   Options:
     -p, --project <id>             Project (default: "default")
@@ -2808,16 +2731,16 @@ function printCommandHelp(cmd) {
     --csv                          CSV output
     --table                        Print aligned text table`,
 
-    rm: `Usage: nodex rm <card-id>
+    rm: `Usage: nodex rm <page-id>
 
-  Delete a card. Status is auto-resolved.
+  Delete a Page. Status is auto-resolved.
 
   Options:
     --mutation-id <id>        Stable exact-retry identity for deletion`,
 
-    mv: `Usage: nodex mv <card-id> <from-status> <to-status> [order] [opts]
+    mv: `Usage: nodex mv <page-id> <from-status> <to-status> [order] [opts]
 
-  Move card from one workflow status to another. Fails if the card is no longer in <from-status>
+  Move a Page from one workflow status to another. Fails if the Page is no longer in <from-status>
   (e.g. already claimed by another agent). Order defaults to end of the target status.
 
   Options:
@@ -2835,34 +2758,16 @@ function printCommandHelp(cmd) {
     --clear-due                 Clear due date
     --mutation-id <id>          Stable exact-retry identity for title/body changes
     --expected-head <seq>       Explicit Document CAS head for exact retry
-    -v, --verbose               Show full card details
+    -v, --verbose               Show full Page details
     --jsonl                     JSON Lines output (default)
     --json                      JSON object output
     --csv                       CSV output
     --table                     Print aligned text table`,
 
-    transfer: `Usage: nodex transfer <card-id> <target-project> <target-status> [options]
-
-  Atomically move one top-level Card, its recursively owned document-bearing
-  Block closure, and its owning Database membership to another Project. Y.Doc
-  identities and heads remain unchanged. Reuse --mutation-id after response loss.
+    history: `Usage: nodex history <page-id> [options]
 
   Options:
-    -p, --project <id>              Source Project (default: "default")
-    --target-database <block-id>    Target Database Block (pair with --target-view)
-    --target-view <view-id>         Target durable View; omitted pair uses target primary
-    --before-card <block-id>        Logical top-level placement anchor
-    --before-view-card <block-id>   Logical target View placement anchor
-    --mutation-id <id>              Stable exact-retry operation identity
-    --jsonl                         JSON Lines output (default)
-    --json                          JSON object output
-    --csv                           CSV output
-    --table                         Print aligned text table`,
-
-    history: `Usage: nodex history <card-id> [options]
-
-  Options:
-    --card <id>                Alternate Card ID form
+    --page <id>                Alternate Page ID form
     --limit <n>                Page size from 1 to 100 (default: 50)
     --before-source <source>   Cursor source: document_version or change_log
     --before-occurred-at <ts>  Cursor timestamp from nextCursor
@@ -2877,7 +2782,7 @@ function printCommandHelp(cmd) {
 
   Execute a read-only SQL query. Parameters replace ? placeholders.
   Default output format is JSON Lines.
-  Example: nodex query "SELECT * FROM blocks WHERE type = ?" card
+  Example: nodex query "SELECT * FROM blocks WHERE type = ?" page
   Use --table for aligned text output.`,
 
     schema: `Usage: nodex schema
@@ -3193,7 +3098,6 @@ async function main() {
     update: cmdUpdate,
     rm: cmdRm,
     mv: cmdMv,
-    transfer: cmdTransfer,
     block: cmdBlock,
     database: cmdDatabase,
     history: cmdHistory,

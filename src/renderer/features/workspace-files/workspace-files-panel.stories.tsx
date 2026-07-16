@@ -9,6 +9,10 @@ const CREATED_AT = "2026-06-13T00:00:00.000Z";
 
 const project: Project = {
   id: "nodex",
+  libraryId: "library:test",
+  databaseId: "database:test:primary",
+  lifecycle: "active",
+  bindingRevision: 1,
   name: "Nodex",
   description: "",
   icon: "",

@@ -103,7 +103,7 @@ export function NfmHeadingNavigationRail({
 
   const scrollElement = scrollContainerRef.current;
   const contentElement = scrollElement?.querySelector<HTMLElement>(
-    "[data-card-stage-body='true']",
+    "[data-page-stage-body='true']",
   ) ?? null;
 
   const findHeadingTarget = useCallback((

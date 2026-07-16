@@ -145,8 +145,8 @@ export type NfmBlockType =
   | "templateRef"
   | "threadSection"
   | "cardToggle"
-  | "card"
-  | "mentionCard"
+  | "page"
+  | "pageRef"
   | "cardRef"
   | "divider"
   | "emptyBlock";
@@ -284,23 +284,23 @@ export interface NfmThreadSection extends NfmBlockBase {
 export interface NfmCardRef extends NfmBlockBase {
   type: "cardRef";
   sourceProjectId: string;
-  cardId: string;
+  pageId: string;
 }
 
-export interface NfmCard extends NfmBlockBase {
-  type: "card";
-  /** Owning Card shell identity. Missing only for decode-only historical input. */
+export interface NfmPage extends NfmBlockBase {
+  type: "page";
+  /** Owning Page shell identity. Missing only for decode-only historical input. */
   uuid?: string;
 }
 
-export interface NfmMentionCard extends NfmBlockBase {
-  type: "mentionCard";
+export interface NfmPageRef extends NfmBlockBase {
+  type: "pageRef";
   targetBlockId: string;
 }
 
 export interface NfmCardToggle extends NfmBlockBase {
   type: "cardToggle";
-  cardId: string;
+  pageId: string;
   meta: string;
   snapshot?: string;
   sourceProjectId?: string;
@@ -335,8 +335,8 @@ export type NfmBlock =
   | NfmReusableTemplateRef
   | NfmThreadSection
   | NfmCardToggle
-  | NfmCard
-  | NfmMentionCard
+  | NfmPage
+  | NfmPageRef
   | NfmCardRef
   | NfmDivider
   | NfmEmptyBlock;

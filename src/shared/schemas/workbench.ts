@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type {
-  WorkbenchRecentCardSession,
-  WorkbenchLayoutCardStageState,
+  WorkbenchRecentPageSession,
+  WorkbenchLayoutPageStageState,
   WorkbenchLayoutStageId,
   WorkbenchLayoutStageNavDirection,
   WorkbenchLayoutView,
@@ -17,7 +17,7 @@ export const WorkbenchViewSchema = z.enum([
 
 export const WorkbenchStageIdSchema = z.enum([
   "db",
-  "cards",
+  "pages",
   "threads",
   "files",
 ]) satisfies z.ZodType<WorkbenchLayoutStageId>;
@@ -27,16 +27,16 @@ export const WorkbenchStageNavDirectionSchema = z.enum([
   "right",
 ]) satisfies z.ZodType<WorkbenchLayoutStageNavDirection>;
 
-export const WorkbenchRecentCardSessionSchema = z.object({
+export const WorkbenchRecentPageSessionSchema = z.object({
   id: z.string(),
   projectId: z.string(),
-  cardId: z.string(),
+  pageId: z.string(),
   titleSnapshot: z.string(),
   lastOpenedAt: z.string(),
-}) satisfies z.ZodType<WorkbenchRecentCardSession>;
+}) satisfies z.ZodType<WorkbenchRecentPageSession>;
 
-export const WorkbenchLayoutCardStageStateSchema = z.object({
+export const WorkbenchLayoutPageStageStateSchema = z.object({
   open: z.boolean(),
   projectId: z.string(),
-  cardId: z.string().nullable(),
-}) satisfies z.ZodType<WorkbenchLayoutCardStageState>;
+  pageId: z.string().nullable(),
+}) satisfies z.ZodType<WorkbenchLayoutPageStageState>;

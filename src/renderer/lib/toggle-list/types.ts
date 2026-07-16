@@ -1,16 +1,16 @@
-import type { Card, CardStatus, Priority } from "../types";
+import type { DatabasePage, WorkflowStatus, Priority } from "../types";
 import type { SortEmptyPlacement } from "../sort-empty-placement";
 import {
-  CARD_STATUS_LABELS,
-  CARD_STATUS_ORDER,
-} from "../../../shared/card-status";
+  WORKFLOW_STATUS_LABELS,
+  WORKFLOW_STATUS_ORDER,
+} from "../../../shared/workflow-status";
 
-export const TOGGLE_LIST_STATUS_ORDER = [...CARD_STATUS_ORDER] as const;
+export const TOGGLE_LIST_STATUS_ORDER = [...WORKFLOW_STATUS_ORDER] as const;
 
-export type ToggleListStatusId = CardStatus;
+export type ToggleListStatusId = WorkflowStatus;
 
 export const TOGGLE_LIST_STATUS_LABELS: Record<ToggleListStatusId, string> = {
-  ...CARD_STATUS_LABELS,
+  ...WORKFLOW_STATUS_LABELS,
 };
 
 export const TOGGLE_LIST_PRIORITY_ORDER: Priority[] = [
@@ -150,7 +150,7 @@ export function formatPropertyName(property: ToggleListPropertyKey): string {
   }
 }
 
-export interface ToggleListCard extends Card {
+export interface ToggleListCard extends DatabasePage {
   columnId: ToggleListStatusId;
   columnName: string;
   boardIndex: number;

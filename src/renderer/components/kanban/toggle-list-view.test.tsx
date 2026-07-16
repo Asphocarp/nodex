@@ -53,14 +53,14 @@ describe("ToggleListReferenceRows", () => {
         activationBudget={activationBudget}
         visibilityOverride
         renderDocument={({ projectId, card }) => (
-          <div data-testid="owned-card-document">
+          <div data-testid="owned-page-document">
             {projectId}:{card.id}
           </div>
         )}
       />,
     );
 
-    expect(view.queryByTestId("owned-card-document") === null).toBe(true);
+    expect(view.queryByTestId("owned-page-document") === null).toBe(true);
     expect(
       view.container.querySelector('[draggable="true"]') === null,
     ).toBe(true);
@@ -72,7 +72,7 @@ describe("ToggleListReferenceRows", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(view.getByTestId("owned-card-document").textContent).toBe(
+      expect(view.getByTestId("owned-page-document").textContent).toBe(
         "project-1:card-1",
       );
     });
@@ -83,7 +83,7 @@ describe("ToggleListReferenceRows", () => {
       );
       await Promise.resolve();
     });
-    expect(view.queryByTestId("owned-card-document") === null).toBe(true);
+    expect(view.queryByTestId("owned-page-document") === null).toBe(true);
   });
 
   test("renders ordered summary metadata without loading or editing a body snapshot", () => {
@@ -145,7 +145,7 @@ describe("ToggleListReferenceRows", () => {
     expect(view.getByTitle("No estimate").textContent).toBe("—");
   });
 
-  test("opens the Card Stage from the summary row without activating its editor", () => {
+  test("opens the Page Stage from the summary row without activating its editor", () => {
     const opened: string[] = [];
     const view = render(
       <ToggleListReferenceRows
@@ -158,8 +158,8 @@ describe("ToggleListReferenceRows", () => {
         showEmptyPriority={false}
         visibilityOverride
         renderDocument={() => <div data-testid="must-stay-closed" />}
-        onOpenCard={({ projectId, cardId }) => {
-          opened.push(`${projectId}:${cardId}`);
+        onOpenPage={({ projectId, pageId }) => {
+          opened.push(`${projectId}:${pageId}`);
         }}
       />,
     );

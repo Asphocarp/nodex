@@ -1,12 +1,12 @@
 import type Database from "better-sqlite3";
 
 import {
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "../../shared/block-documents/block-document-codec";
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
-import { createUuidV7 } from "../../shared/card-id";
-import { cutoverEligibleCardDocumentsToPrimary } from "./block-document-cutover";
+import { createUuidV7 } from "../../shared/uuid-v7";
+import { cutoverEligiblePageDocumentsToPrimary } from "./block-document-cutover";
 import {
   initializeBlockDocumentGenesis,
   loadLegacyShadowBlockDocument,
@@ -21,7 +21,7 @@ const SHADOW_BATCH_SIZE = 1_000;
 const FOREIGN_REFERENCE_BATCH_SIZE = 1_000;
 const FINALIZATION_CLIENT_SESSION_ID = "block-first-finalization";
 
-interface RemainingLegacyCardDocumentRow {
+interface RemainingLegacyPageDocumentRow {
   readonly document_id: string;
   readonly owner_block_id: string;
   readonly owner_lifecycle: "active" | "archived" | "deleted";
@@ -131,9 +131,9 @@ const migrateForeignReferences = async (
   }
 };
 
-const readRemainingLegacyCardDocuments = (
+const readRemainingLegacyPageDocuments = (
   database: Database.Database,
-): readonly RemainingLegacyCardDocumentRow[] =>
+): readonly RemainingLegacyPageDocumentRow[] =>
   database
     .prepare(
       `
@@ -151,12 +151,12 @@ const readRemainingLegacyCardDocuments = (
       INNER JOIN blocks owner
         ON owner.id = ownership.block_id
        AND owner.project_id = ownership.project_id
-      WHERE owner.type = 'card'
+      WHERE owner.type = 'page'
         AND document.authority = 'legacy_shadow'
       ORDER BY document.id
     `,
     )
-    .all() as readonly RemainingLegacyCardDocumentRow[];
+    .all() as readonly RemainingLegacyPageDocumentRow[];
 
 const assertReferenceOnlyDocument = (
   database: Database.Database,
@@ -164,13 +164,13 @@ const assertReferenceOnlyDocument = (
 ): void => {
   const loaded = loadLegacyShadowBlockDocument(database, documentId);
   try {
-    const materialization = materializeCardDocument(loaded.document);
+    const materialization = materializePageDocument(loaded.document);
     const foreign = materialization.references.find(
       isLegacyForeignBodyReference,
     );
     if (!foreign) return;
     throw new BlockFirstFinalizationError(
-      `Deleted Card Document ${documentId} still contains foreign body projection ${foreign.sourceBlockId}`,
+      `Deleted Page Document ${documentId} still contains foreign body projection ${foreign.sourceBlockId}`,
     );
   } finally {
     loaded.document.destroy();
@@ -179,9 +179,9 @@ const assertReferenceOnlyDocument = (
 
 const initializeDeletedDocument = (
   database: Database.Database,
-  row: RemainingLegacyCardDocumentRow,
+  row: RemainingLegacyPageDocumentRow,
 ): void => {
-  const genesis = createCardDocumentGenesis({
+  const genesis = createPageDocumentGenesis({
     documentId: row.document_id,
     title: "",
     nfm: "",
@@ -233,10 +233,10 @@ const initializeDeletedDocument = (
   }
 };
 
-const finalizeDeletedCardDocuments = (
+const finalizeDeletedPageDocuments = (
   database: Database.Database,
 ): number => {
-  const remaining = readRemainingLegacyCardDocuments(database);
+  const remaining = readRemainingLegacyPageDocuments(database);
   for (const row of remaining) {
     if (row.owner_lifecycle !== "deleted") {
       throw new BlockFirstFinalizationError(
@@ -245,7 +245,7 @@ const finalizeDeletedCardDocuments = (
     }
     if (row.readiness === "failed") {
       throw new BlockFirstFinalizationError(
-        `Deleted Card Document ${row.document_id} is failed`,
+        `Deleted Page Document ${row.document_id} is failed`,
       );
     }
     if (row.readiness === "pending_genesis") {
@@ -270,14 +270,14 @@ const finalizeDeletedCardDocuments = (
       );
     if (updated.changes !== 1) {
       throw new BlockFirstFinalizationError(
-        `Deleted Card Document ${row.document_id} changed during authority finalization`,
+        `Deleted Page Document ${row.document_id} changed during authority finalization`,
       );
     }
   }
   return remaining.length;
 };
 
-const assertCanonicalCardDocuments = (
+const assertCanonicalPageDocuments = (
   database: Database.Database,
 ): void => {
   const invalid = database
@@ -288,7 +288,7 @@ const assertCanonicalCardDocuments = (
       FROM blocks owner
       LEFT JOIN block_documents ownership ON ownership.block_id = owner.id
       LEFT JOIN documents document ON document.id = ownership.document_id
-      WHERE owner.type = 'card'
+      WHERE owner.type = 'page'
         AND (
           document.id IS NULL
           OR document.readiness <> 'ready'
@@ -322,7 +322,7 @@ export const finalizeBlockFirstAuthority = async (
   prepareLegacyCards: () => void = () => undefined,
 ): Promise<BlockFirstFinalizationResult> => {
   // Persisted import jobs may contain obsolete toggle-disclosure parity
-  // failures even though Card Documents keep disclosure state window-local.
+  // failures even though Page Documents keep disclosure state window-local.
   // Retrying only that obsolete failure is safe: the failed attempt rolled
   // back, the job remains fenced to the same source revision, and any current
   // failure still fails closed below.
@@ -340,11 +340,11 @@ export const finalizeBlockFirstAuthority = async (
     foreignDocumentsProcessed += migrated;
     if (migrated > 0) continue;
 
-    const cutover = cutoverEligibleCardDocumentsToPrimary(database);
+    const cutover = cutoverEligiblePageDocumentsToPrimary(database);
     cutoverDocuments += cutover.cutoverDocumentIds.length;
     if (cutover.deferredForeignReferences > 0) {
       throw new BlockFirstFinalizationError(
-        `${cutover.deferredForeignReferences} Card Document(s) still contain foreign-body projections`,
+        `${cutover.deferredForeignReferences} Page Document(s) still contain foreign-body projections`,
       );
     }
     reachedFixedPoint = true;
@@ -356,8 +356,8 @@ export const finalizeBlockFirstAuthority = async (
     );
   }
 
-  const finalizedDeletedDocuments = finalizeDeletedCardDocuments(database);
-  assertCanonicalCardDocuments(database);
+  const finalizedDeletedDocuments = finalizeDeletedPageDocuments(database);
+  assertCanonicalPageDocuments(database);
   const droppedTables = dropLegacyBlockFirstTables(database);
   return {
     requeuedObsoleteParityFailures,

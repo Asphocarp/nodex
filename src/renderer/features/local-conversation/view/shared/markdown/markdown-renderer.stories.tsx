@@ -41,7 +41,7 @@ function CodeBlockParityFrame(args: { content: string }) {
         <ReadonlyNfmBlockNotePreview
           content={args.content}
           projectId="storybook-code-block-project"
-          cardId="storybook-code-block-card"
+          pageId="storybook-code-block-card"
           historyId="code-block-parity"
         />
       </section>

@@ -4,7 +4,7 @@ import type {
 } from "../../shared/block-documents/block-document-codec";
 import type { PortableRichText } from "../../shared/block-documents/portable-rich-text";
 import {
-  assessBlockSemanticContentForCard,
+  assessBlockSemanticContentForPage,
   BlockSemanticContentError,
 } from "../../shared/block-documents/block-semantic-content";
 import { prepareBlockTransfer } from "../local-store/block-transfers";
@@ -12,36 +12,38 @@ import { applyBlockTransfer } from "../local-store/block-transfers";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import { applyDatabaseMutation } from "../local-store/database-kernel";
+import { authorizeProjectResourceInDatabase } from "../local-store/project-resource-grants";
 import {
   DATABASE_MUTATION_CONTRACT_VERSION,
   databaseGroupValueFromKey,
   normalizeDatabasePropertyValue,
   parseDatabasePropertyConfig,
-  parseGeneralDatabaseViewConfig,
+  parseDatabaseViewConfig,
   type DatabaseJsonValue,
   type DatabaseMutationRequest,
   type DatabasePropertyValueType,
 } from "../../shared/database-kernel";
 import {
-  DuplicateCardV3OutputSchema,
-  MoveCardsV3OutputSchema,
+  DuplicatePageV3OutputSchema,
+  MovePagesV3OutputSchema,
+  BlockIdSchema,
   BlockLocationSchema,
   TransferBlocksInputSchema,
   TransferBlocksOutputSchema,
   type CreateInput,
   type ExecuteNodexAgentTransferResult,
-  type ExecuteNodexAgentDuplicateCardResult,
-  type ExecuteNodexAgentMoveCardsResult,
-  type NodexAgentDuplicateCardCommand,
-  type NodexAgentMoveCardsCommand,
+  type ExecuteNodexAgentDuplicatePageResult,
+  type ExecuteNodexAgentMovePagesResult,
+  type NodexAgentDuplicatePageCommand,
+  type NodexAgentMovePagesCommand,
   type NodexAgentTransferCommand,
   type NodexAgentTransferAuthorizationEvidence,
   type PrepareNodexAgentTransferRequest,
   type PrepareNodexAgentTransferResult,
-  type PrepareNodexAgentDuplicateCardRequest,
-  type PrepareNodexAgentDuplicateCardResult,
-  type PrepareNodexAgentMoveCardsRequest,
-  type PrepareNodexAgentMoveCardsResult,
+  type PrepareNodexAgentDuplicatePageRequest,
+  type PrepareNodexAgentDuplicatePageResult,
+  type PrepareNodexAgentMovePagesRequest,
+  type PrepareNodexAgentMovePagesResult,
   type PreparedNodexAgentCreateDestination,
   type TransferBlocksInput,
   type TransferBlocksOutput,
@@ -52,7 +54,7 @@ import type {
   BlockTransferReceipt,
   BlockTransferRequest,
 } from "../../shared/block-transfer";
-import { BLOCK_TRANSFER_CONTRACT_VERSION } from "../../shared/block-transfer";
+import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../../shared/block-transfer";
 import {
   nodexAgentCallIdentity,
   readNodexAgentCallReceipt,
@@ -67,7 +69,11 @@ import {
   readFailure,
   requireProject,
 } from "./read-support";
-import { requireCardDocumentId, toCardLocation } from "./card-adapter";
+import {
+  readPageLocation,
+  requirePageDocumentId,
+  requirePageStorageContext,
+} from "./page-adapter";
 import { documentBodyEtagState, titleEtagState } from "./semantic-guards";
 import { publicV3Failure } from "./v3-errors";
 
@@ -130,13 +136,34 @@ function sourceKey(block: BlockLocationRow): string {
   );
 }
 
-function sourceIntent(block: BlockLocationRow): BlockTransferIntentSource {
-  if (block.location_kind === "space") return { kind: "space" };
+function sourceIntent(
+  database: Database.Database,
+  projectId: string,
+  block: BlockLocationRow,
+): BlockTransferIntentSource {
+  if (block.location_kind === "space") {
+    const project = database.prepare(`
+      SELECT library_id AS libraryId FROM projects WHERE id = ?
+    `).get(projectId) as { readonly libraryId: string } | undefined;
+    if (!project) throw new Error(`Project ${projectId} has no Library`);
+    return { kind: "library", libraryId: project.libraryId };
+  }
   if (block.location_kind === "document" && block.containing_document_id) {
+    const page = database.prepare(`
+      SELECT block_id AS pageId FROM pages WHERE document_id = ?
+    `).get(block.containing_document_id) as
+      | { readonly pageId: string }
+      | undefined;
+    if (page) return { kind: "page", pageId: page.pageId };
     return { kind: "document", documentId: block.containing_document_id };
   }
   if (block.location_kind === "database" && block.containing_database_id) {
-    return { kind: "database", databaseBlockId: block.containing_database_id };
+    const source = database.prepare(`
+      SELECT parent_id AS dataSourceId FROM pages
+      WHERE block_id = ? AND parent_kind = 'data_source'
+    `).get(block.id) as { readonly dataSourceId: string } | undefined;
+    if (!source) throw new Error(`Page ${block.id} has no Data Source parent`);
+    return { kind: "data_source", dataSourceId: source.dataSourceId };
   }
   throw new Error(`Block ${block.id} location is inconsistent`);
 }
@@ -220,7 +247,7 @@ function transferAuthorizationEvidence(
 
   return {
     roots: Object.fromEntries(input.blocks.map((block) => {
-      if (!coercesDocumentRoots || block.type === "card") {
+      if (!coercesDocumentRoots || block.type === "page") {
         return [block.id, { type: block.type, transformation: "preserved" as const }];
       }
       const source = findDocumentBlock(sourceTree, block.id);
@@ -234,7 +261,7 @@ function transferAuthorizationEvidence(
         );
       }
       try {
-        const assessment = assessBlockSemanticContentForCard(source);
+        const assessment = assessBlockSemanticContentForPage(source);
         if (assessment.kind === "wrap") {
           return [block.id, {
             type: source.type,
@@ -267,15 +294,21 @@ function fallbackDatabaseView(
   database: Database.Database,
   projectId: string,
   databaseBlockId: string,
-): { readonly viewId: string; readonly groupKey: null } {
+): {
+  readonly viewId: string;
+  readonly dataSourceId: string;
+  readonly groupKey: null;
+} {
   const row = database.prepare(
     `
-    SELECT id
+    SELECT id, data_source_id AS dataSourceId
     FROM database_views
     WHERE database_block_id = ? AND project_id = ? AND lifecycle = 'active'
     ORDER BY is_primary DESC, rank_key, id
     LIMIT 1
-  `).get(databaseBlockId, projectId) as { readonly id: string } | undefined;
+  `).get(databaseBlockId, projectId) as
+    | { readonly id: string; readonly dataSourceId: string }
+    | undefined;
   if (!row) {
     throw new NodexAgentReadError(
       "unsupported_resource",
@@ -285,7 +318,7 @@ function fallbackDatabaseView(
       { resourceId: databaseBlockId, domainCode: "database_view_required" },
     );
   }
-  return { viewId: row.id, groupKey: null };
+  return { viewId: row.id, dataSourceId: row.dataSourceId, groupKey: null };
 }
 
 function transferTarget(
@@ -294,12 +327,34 @@ function transferTarget(
   destination: PreparedNodexAgentCreateDestination,
 ): BlockTransferIntentTarget {
   if (destination.kind === "space") {
+    const project = database.prepare(`
+      SELECT library_id AS libraryId FROM projects WHERE id = ?
+    `).get(projectId) as { readonly libraryId: string } | undefined;
+    if (!project) throw new Error(`Project ${projectId} has no Library`);
     return {
-      kind: "space",
+      kind: "library",
+      libraryId: project.libraryId,
       ...(destination.beforeBlockId ? { beforeBlockId: destination.beforeBlockId } : {}),
     };
   }
   if (destination.kind === "document") {
+    const page = database.prepare(`
+      SELECT block_id AS pageId FROM pages WHERE document_id = ?
+    `).get(destination.documentId) as
+      | { readonly pageId: string }
+      | undefined;
+    if (page) {
+      return {
+        kind: "page",
+        pageId: page.pageId,
+        ...(destination.parentBlockId
+          ? { parentBlockId: destination.parentBlockId }
+          : {}),
+        ...(destination.beforeBlockId
+          ? { beforeBlockId: destination.beforeBlockId }
+          : {}),
+      };
+    }
     return {
       kind: "document",
       documentId: destination.documentId,
@@ -312,13 +367,30 @@ function transferTarget(
     projectId,
     destination.databaseBlockId,
   );
+  const dataSourceId = "dataSourceId" in view
+    ? view.dataSourceId
+    : (database.prepare(`
+        SELECT data_source_id AS dataSourceId
+        FROM database_views
+        WHERE id = ? AND database_block_id = ? AND lifecycle = 'active'
+      `).get(view.viewId, destination.databaseBlockId) as
+        | { readonly dataSourceId: string }
+        | undefined)?.dataSourceId;
+  if (!dataSourceId) {
+    throw new NodexAgentReadError(
+      "unsupported_resource",
+      `View ${view.viewId} has no active Data Source target`,
+      false,
+      "query_database_again",
+    );
+  }
   return {
-    kind: "database",
-    databaseBlockId: destination.databaseBlockId,
+    kind: "data_source",
+    dataSourceId,
     viewId: view.viewId,
     groupKey: view.groupKey,
-    ...(destination.view?.beforeCardBlockId
-      ? { beforeCardBlockId: destination.view.beforeCardBlockId }
+    ...(destination.view?.beforePageId
+      ? { beforePageId: destination.view.beforePageId }
       : {}),
   };
 }
@@ -394,12 +466,20 @@ function prepareTransfer(
     request.projectId,
     request.input.destination as CreateInput["destination"],
   );
-  const source = sourceIntent(blocks[0] as BlockLocationRow);
+  const source = sourceIntent(
+    database,
+    request.projectId,
+    blocks[0] as BlockLocationRow,
+  );
+  const target = transferTarget(database, request.projectId, destination);
   if (
     request.input.mode === "move"
-    && source.kind === "document"
-    && destination.kind === "document"
-    && source.documentId === destination.documentId
+    && ((source.kind === "page"
+      && target.kind === "page"
+      && source.pageId === target.pageId)
+      || (source.kind === "document"
+        && target.kind === "document"
+        && source.documentId === target.documentId))
   ) {
     throw new NodexAgentReadError(
       "invalid_arguments",
@@ -410,9 +490,9 @@ function prepareTransfer(
   }
   if (
     request.input.mode === "move"
-    && source.kind === "database"
-    && destination.kind === "database"
-    && source.databaseBlockId === destination.databaseBlockId
+    && source.kind === "data_source"
+    && target.kind === "data_source"
+    && source.dataSourceId === target.dataSourceId
   ) {
     throw new NodexAgentReadError(
       "invalid_arguments",
@@ -425,7 +505,7 @@ function prepareTransfer(
   if (!storeEpoch) throw new Error("Nodex store has no epoch");
   const mutationId = existing?.mutation_id ?? `nodex-transfer:${identity}`;
   const preparation = prepareBlockTransfer(database, {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
+    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
     operationId: mutationId,
     projectId: request.projectId,
     storeEpoch,
@@ -434,7 +514,7 @@ function prepareTransfer(
     mode: request.input.mode,
     rootBlockIds: request.input.blockIds,
     source,
-    target: transferTarget(database, request.projectId, destination),
+    target,
   });
   if (!preparation.ok) {
     throw new NodexAgentReadError(
@@ -493,18 +573,18 @@ function prepareTransfer(
 
 function activeMembership(
   database: Database.Database,
-  cardId: string,
+  pageId: string,
   databaseBlockId: string,
 ) {
   const row = database.prepare(
     `
     SELECT id, revision
     FROM database_memberships
-    WHERE card_block_id = ? AND database_block_id = ? AND removed_at IS NULL
-  `).get(cardId, databaseBlockId) as
+    WHERE page_block_id = ? AND database_block_id = ? AND removed_at IS NULL
+  `).get(pageId, databaseBlockId) as
     | { readonly id: string; readonly revision: number }
     | undefined;
-  if (!row) throw new Error(`Transferred Card ${cardId} has no target membership`);
+  if (!row) throw new Error(`Transferred Page ${pageId} has no target membership`);
   return row;
 }
 
@@ -529,22 +609,22 @@ function applyDestinationValues(
   if (inputDestination.kind !== "database") return [];
   const results = receipt.resultRootBlockIds;
   const databaseReceipts = [];
-  for (const cardId of results) {
+  for (const pageId of results) {
     let membership = activeMembership(
       database,
-      cardId,
+      pageId,
       command.destination.databaseBlockId,
     );
     if (!command.destination.view) {
       const detach = applyDatabaseMutation(database, {
         version: DATABASE_MUTATION_CONTRACT_VERSION,
-        operationId: `${command.mutationId}:detach:${cardId}`,
+        operationId: `${command.mutationId}:detach:${pageId}`,
         projectId: command.projectId,
         storeEpoch: command.storeEpoch,
         actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
         operations: [{
           kind: "transfer_membership",
-          cardBlockId: cardId,
+          pageId,
           expectedMembership: {
             membershipId: membership.id,
             revision: membership.revision,
@@ -556,17 +636,17 @@ function applyDestinationValues(
       databaseReceipts.push(detach.value);
       const readd = applyDatabaseMutation(database, {
         version: DATABASE_MUTATION_CONTRACT_VERSION,
-        operationId: `${command.mutationId}:membership:${cardId}`,
+        operationId: `${command.mutationId}:membership:${pageId}`,
         projectId: command.projectId,
         storeEpoch: command.storeEpoch,
         actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
         operations: [{
           kind: "transfer_membership",
-          cardBlockId: cardId,
+          pageId,
           expectedMembership: null,
           target: {
             databaseBlockId: command.destination.databaseBlockId,
-            membershipId: `membership:${command.mutationId}:${cardId}`,
+            membershipId: `membership:${command.mutationId}:${pageId}`,
           },
         }],
       });
@@ -574,14 +654,14 @@ function applyDestinationValues(
       databaseReceipts.push(readd.value);
       membership = activeMembership(
         database,
-        cardId,
+        pageId,
         command.destination.databaseBlockId,
       );
     }
     if (!inputDestination.values?.length) continue;
     const values = applyDatabaseMutation(database, {
       version: DATABASE_MUTATION_CONTRACT_VERSION,
-      operationId: `${command.mutationId}:values:${cardId}`,
+      operationId: `${command.mutationId}:values:${pageId}`,
       projectId: command.projectId,
       storeEpoch: command.storeEpoch,
       actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
@@ -589,7 +669,7 @@ function applyDestinationValues(
         kind: "set_values",
         databaseBlockId: command.destination.databaseBlockId,
         entries: inputDestination.values.map((draft) => ({
-          cardBlockId: cardId,
+          pageId,
           propertyId: draft.propertyId,
           expectedValueRevision: currentValueRevision(
             database,
@@ -633,7 +713,7 @@ function transferOutput(
   );
   const results = command.input.blockIds.map((blockId) => {
     const evidence = evidenceBySource.get(blockId);
-    const resultBlockId = evidence?.resultCardId
+    const resultBlockId = evidence?.resultPageId
       ?? receipt.copiedBlockIds[blockId]
       ?? blockId;
     return {
@@ -746,29 +826,79 @@ function replayDuplicateOutput(receipt: NodexAgentCallReceiptRow) {
       "none",
     );
   }
-  return DuplicateCardV3OutputSchema.parse(metadata.output);
+  return DuplicatePageV3OutputSchema.parse(metadata.output);
+}
+
+type CanonicalTransferDestination =
+  | PrepareNodexAgentDuplicatePageRequest["input"]["destination"]
+  | PrepareNodexAgentMovePagesRequest["input"]["destination"];
+
+function legacyTransferDestination(
+  database: Database.Database,
+  projectId: string,
+  destination: CanonicalTransferDestination,
+): TransferBlocksInput["destination"] {
+  if (destination.kind === "library") {
+    return { kind: "space", ...(destination.at ? { at: destination.at } : {}) };
+  }
+  if (destination.kind === "page") {
+    return {
+      kind: "document",
+      documentId: requirePageDocumentId(
+        database,
+        projectId,
+        destination.pageId,
+        "create_child",
+      ),
+      at: destination.at ?? { kind: "end" },
+    };
+  }
+  const authorization = authorizeProjectResourceInDatabase(database, {
+    projectId,
+    resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
+    action: "create_child",
+  });
+  if (!authorization.allowed) {
+    throw new NodexAgentReadError(
+      authorization.reason === "resource_not_found" ? "not_found" : "authorization_denied",
+      `Data Source ${destination.dataSourceId} create denied: ${authorization.reason}`,
+      false,
+      "none",
+      { resourceId: destination.dataSourceId, domainCode: authorization.reason },
+    );
+  }
+  const source = database.prepare(`
+    SELECT home_database_block_id AS databaseBlockId
+    FROM data_sources WHERE id = ? AND lifecycle = 'active'
+  `).get(destination.dataSourceId) as { readonly databaseBlockId: string } | undefined;
+  if (!source) {
+    throw new NodexAgentReadError(
+      "not_found",
+      `Data Source ${destination.dataSourceId} was not found`,
+      false,
+      "none",
+    );
+  }
+  return {
+    kind: "database",
+    databaseBlockId: BlockIdSchema.parse(source.databaseBlockId),
+    ...(destination.values ? { values: destination.values } : {}),
+    ...(destination.view ? { view: destination.view } : {}),
+  };
 }
 
 function normalizedDuplicateInput(
   database: Database.Database,
-  request: PrepareNodexAgentDuplicateCardRequest,
+  request: PrepareNodexAgentDuplicatePageRequest,
 ): TransferBlocksInput {
-  const destination = request.input.destination.kind === "space"
-    ? request.input.destination
-    : request.input.destination.kind === "card"
-      ? {
-          kind: "document" as const,
-          documentId: requireCardDocumentId(
-            database,
-            request.projectId,
-            request.input.destination.cardId,
-          ),
-          at: request.input.destination.at ?? { kind: "end" as const },
-        }
-      : request.input.destination;
+  const destination = legacyTransferDestination(
+    database,
+    request.projectId,
+    request.input.destination,
+  );
   return TransferBlocksInputSchema.parse({
     mode: "copy",
-    blockIds: [request.input.cardId],
+    blockIds: [request.input.pageId],
     destination,
     ...(request.input.return?.includes("block_map")
       ? { return: { blockMap: true } }
@@ -776,15 +906,15 @@ function normalizedDuplicateInput(
   });
 }
 
-function prepareDuplicateCard(
+function prepareDuplicatePage(
   database: Database.Database,
-  request: PrepareNodexAgentDuplicateCardRequest,
-): PrepareNodexAgentDuplicateCardResult {
+  request: PrepareNodexAgentDuplicatePageRequest,
+): PrepareNodexAgentDuplicatePageResult {
   requireProject(database, request.projectId);
-  const key = { ...request, tool: "duplicate_card" };
+  const key = { ...request, tool: "duplicate_page" };
   const identity = nodexAgentCallIdentity(key);
   const requestHash = nodexAgentFingerprint({
-    tool: "duplicate_card",
+    tool: "duplicate_page",
     projectId: request.projectId,
     input: request.input,
   });
@@ -799,17 +929,18 @@ function prepareDuplicateCard(
     }
   }
 
-  const sourceBlock = readBlock(database, request.projectId, request.input.cardId);
-  if (sourceBlock.type !== "card") {
+  requirePageStorageContext(database, request.projectId, request.input.pageId, "read");
+  const sourceBlock = readBlock(database, request.projectId, request.input.pageId);
+  if (sourceBlock.type !== "page") {
     throw new NodexAgentReadError(
       "unsupported_resource",
-      `Block ${request.input.cardId} is not a Card`,
+      `Block ${request.input.pageId} is not a Page`,
       false,
       "none",
-      { resourceId: request.input.cardId, domainCode: "card_root_required" },
+      { resourceId: request.input.pageId, domainCode: "page_root_required" },
     );
   }
-  requireCardDocumentId(database, request.projectId, request.input.cardId);
+  requirePageDocumentId(database, request.projectId, request.input.pageId);
   const normalizedInput = normalizedDuplicateInput(database, request);
   const destination = prepareNodexAgentDestination(
     database,
@@ -818,17 +949,17 @@ function prepareDuplicateCard(
   );
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Nodex store has no epoch");
-  const mutationId = existing?.mutation_id ?? `nodex-duplicate-card:${identity}`;
+  const mutationId = existing?.mutation_id ?? `nodex-duplicate-page:${identity}`;
   const preparation = prepareBlockTransfer(database, {
-    version: BLOCK_TRANSFER_CONTRACT_VERSION,
+    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
     operationId: mutationId,
     projectId: request.projectId,
     storeEpoch,
     clientSessionId: `nodex-agent:${request.threadId}`,
     actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
     mode: "copy",
-    rootBlockIds: [request.input.cardId],
-    source: sourceIntent(sourceBlock),
+    rootBlockIds: [request.input.pageId],
+    source: sourceIntent(database, request.projectId, sourceBlock),
     target: transferTarget(database, request.projectId, destination),
   });
   if (!preparation.ok) {
@@ -845,13 +976,13 @@ function prepareDuplicateCard(
     transfer: preparation.value.request,
     documentIds: preparation.value.leaseDocuments.map((lease) => lease.documentId),
   });
-  if (authorization.roots[request.input.cardId]?.transformation !== "preserved") {
+  if (authorization.roots[request.input.pageId]?.transformation !== "preserved") {
     throw new NodexAgentReadError(
       "unsupported_resource",
-      "duplicate_card accepts only a complete Card root",
+      "duplicate_page accepts only a complete Page root",
       false,
       "none",
-      { resourceId: request.input.cardId, domainCode: "card_root_required" },
+      { resourceId: request.input.pageId, domainCode: "page_root_required" },
     );
   }
   const now = new Date().toISOString();
@@ -862,7 +993,7 @@ function prepareDuplicateCard(
         call_identity, thread_id, call_id, project_id, tool, request_hash,
         mutation_id, allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'duplicate_card', ?, ?, '[]', '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, 'duplicate_page', ?, ?, '[]', '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
@@ -896,22 +1027,22 @@ function prepareDuplicateCard(
   };
 }
 
-function duplicateCardOutput(
+function duplicatePageOutput(
   database: Database.Database,
-  command: NodexAgentDuplicateCardCommand,
+  command: NodexAgentDuplicatePageCommand,
   receipt: BlockTransferReceipt,
 ) {
-  const cardId = receipt.copiedBlockIds[command.input.cardId]
+  const pageId = receipt.copiedBlockIds[command.input.pageId]
     ?? receipt.resultRootBlockIds[0];
-  if (!cardId || cardId === command.input.cardId) {
+  if (!pageId || pageId === command.input.pageId) {
     throw new NodexAgentReadError(
       "internal_error",
-      "Card duplication did not produce a fresh Card identity",
+      "Page duplication did not produce a fresh Page identity",
       false,
       "none",
     );
   }
-  const documentId = requireCardDocumentId(database, command.projectId, cardId);
+  const documentId = requirePageDocumentId(database, command.projectId, pageId);
   const materialization = database.prepare(
     `
     SELECT title_rich_json, nfm, block_tree_json
@@ -925,7 +1056,7 @@ function duplicateCardOutput(
   if (!materialization) {
     throw new NodexAgentReadError(
       "internal_error",
-      "Duplicated Card materialization is unavailable",
+      "Duplicated Page materialization is unavailable",
       true,
       "retry_same",
     );
@@ -934,20 +1065,16 @@ function duplicateCardOutput(
     materialization.block_tree_json,
     `Document ${documentId} Block tree`,
   );
-  if (!Array.isArray(blocks)) throw new Error("Duplicated Card Block tree is invalid");
+  if (!Array.isArray(blocks)) throw new Error("Duplicated Page Block tree is invalid");
   const richTitle = parseJsonValue(
     materialization.title_rich_json,
     `Document ${documentId} rich title`,
   ) as unknown as PortableRichText;
-  return DuplicateCardV3OutputSchema.parse({
+  return DuplicatePageV3OutputSchema.parse({
     data: {
-      sourceCardId: command.input.cardId,
-      cardId,
-      location: toCardLocation(
-        database,
-        command.projectId,
-        resultLocation(database, command.projectId, cardId),
-      ),
+      sourcePageId: command.input.pageId,
+      pageId,
+      location: readPageLocation(database, command.projectId, pageId),
       bodyBlocksCreated: flattenBlocks(blocks as unknown as readonly BlockTreeNode[]).length,
       ...(command.input.return?.includes("block_map")
         ? { blockMap: receipt.copiedBlockIds }
@@ -972,11 +1099,11 @@ function duplicateCardOutput(
   });
 }
 
-function executeDuplicateCard(
+function executeDuplicatePage(
   database: Database.Database,
-  command: NodexAgentDuplicateCardCommand,
-): ExecuteNodexAgentDuplicateCardResult {
-  const key = { ...command, tool: "duplicate_card" };
+  command: NodexAgentDuplicatePageCommand,
+): ExecuteNodexAgentDuplicatePageResult {
+  const key = { ...command, tool: "duplicate_page" };
   const identity = nodexAgentCallIdentity(key);
   const callReceipt = readNodexAgentCallReceipt(database, identity);
   if (!callReceipt) {
@@ -1003,7 +1130,7 @@ function executeDuplicateCard(
   if (readBlockStoreEpoch(database) !== command.storeEpoch) {
     throw new NodexAgentReadError(
       "conflict",
-      "The Nodex store changed after Card duplication was prepared",
+      "The Nodex store changed after Page duplication was prepared",
       false,
       "get_block_again",
     );
@@ -1027,7 +1154,7 @@ function executeDuplicateCard(
     normalizedCommand,
     transferred.value,
   );
-  const output = duplicateCardOutput(database, command, transferred.value);
+  const output = duplicatePageOutput(database, command, transferred.value);
   database.prepare(
     `
     UPDATE nodex_agent_call_receipts
@@ -1052,31 +1179,31 @@ function executeDuplicateCard(
   };
 }
 
-export function prepareNodexAgentDuplicateCard(
+export function prepareNodexAgentDuplicatePage(
   database: Database.Database,
-  request: PrepareNodexAgentDuplicateCardRequest,
-): PrepareNodexAgentDuplicateCardResult {
+  request: PrepareNodexAgentDuplicatePageRequest,
+): PrepareNodexAgentDuplicatePageResult {
   try {
-    return database.transaction(() => prepareDuplicateCard(database, request)).immediate();
+    return database.transaction(() => prepareDuplicatePage(database, request)).immediate();
   } catch (error) {
     const failure = readFailure(error);
     return { ok: false, error: publicV3Failure(failure.error) };
   }
 }
 
-export function executeNodexAgentDuplicateCard(
+export function executeNodexAgentDuplicatePage(
   database: Database.Database,
-  command: NodexAgentDuplicateCardCommand,
-): ExecuteNodexAgentDuplicateCardResult {
+  command: NodexAgentDuplicatePageCommand,
+): ExecuteNodexAgentDuplicatePageResult {
   try {
-    return database.transaction(() => executeDuplicateCard(database, command)).immediate();
+    return database.transaction(() => executeDuplicatePage(database, command)).immediate();
   } catch (error) {
     const failure = readFailure(error);
     return { ok: false, error: publicV3Failure(failure.error) };
   }
 }
 
-function replayMoveCardsOutput(receipt: NodexAgentCallReceiptRow) {
+function replayMovePagesOutput(receipt: NodexAgentCallReceiptRow) {
   const metadata = parseJsonValue(
     receipt.result_metadata_json,
     `Agent call ${receipt.call_identity} result metadata`,
@@ -1084,36 +1211,28 @@ function replayMoveCardsOutput(receipt: NodexAgentCallReceiptRow) {
   if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
     throw new NodexAgentReadError(
       "internal_error",
-      "Agent Card move result metadata is invalid",
+      "Agent Page move result metadata is invalid",
       false,
       "none",
     );
   }
-  return MoveCardsV3OutputSchema.parse(metadata.output);
+  return MovePagesV3OutputSchema.parse(metadata.output);
 }
 
 function normalizedMoveInput(
   database: Database.Database,
-  request: PrepareNodexAgentMoveCardsRequest,
-  cardId: string,
+  request: PrepareNodexAgentMovePagesRequest,
+  pageId: string,
   source: BlockLocationRow,
 ): TransferBlocksInput {
-  const destination = request.input.destination.kind === "space"
-    ? request.input.destination
-    : request.input.destination.kind === "card"
-      ? {
-          kind: "document" as const,
-          documentId: requireCardDocumentId(
-            database,
-            request.projectId,
-            request.input.destination.cardId,
-          ),
-          at: request.input.destination.at ?? { kind: "end" as const },
-        }
-      : request.input.destination;
+  const destination = legacyTransferDestination(
+    database,
+    request.projectId,
+    request.input.destination,
+  );
   return TransferBlocksInputSchema.parse({
     mode: "move",
-    blockIds: [cardId],
+    blockIds: [pageId],
     from: resultLocation(database, request.projectId, source.id),
     destination,
   });
@@ -1131,7 +1250,7 @@ function uniqueLeaseDocuments(
     )) {
       throw new NodexAgentReadError(
         "conflict",
-        `Document ${lease.documentId} changed while preparing Card moves`,
+        `Document ${lease.documentId} changed while preparing Page moves`,
         false,
         "get_block_again",
       );
@@ -1143,25 +1262,25 @@ function uniqueLeaseDocuments(
   );
 }
 
-function assertExternalMoveAnchors(request: PrepareNodexAgentMoveCardsRequest): void {
-  const selected = new Set<string>(request.input.cardIds);
-  if (request.input.destination.kind === "card"
-    && selected.has(request.input.destination.cardId)) {
+function assertExternalMoveAnchors(request: PrepareNodexAgentMovePagesRequest): void {
+  const selected = new Set<string>(request.input.pageIds);
+  if (request.input.destination.kind === "page"
+    && selected.has(request.input.destination.pageId)) {
     throw new NodexAgentReadError(
       "invalid_arguments",
-      "A moved Card cannot be its own destination Card",
+      "A moved Page cannot be its own destination Page",
       false,
       "none",
     );
   }
-  const anchor = request.input.destination.kind === "database"
+  const anchor = request.input.destination.kind === "data_source"
     ? request.input.destination.view?.at
     : request.input.destination.at;
   if (anchor && (anchor.kind === "before" || anchor.kind === "after")
     && selected.has(anchor.blockId)) {
     throw new NodexAgentReadError(
       "invalid_arguments",
-      "A Card move anchor must be outside the moved Card set",
+      "A Page move anchor must be outside the moved Page set",
       false,
       "none",
       { resourceId: anchor.blockId, domainCode: "move_anchor_selected" },
@@ -1169,15 +1288,15 @@ function assertExternalMoveAnchors(request: PrepareNodexAgentMoveCardsRequest): 
   }
 }
 
-function prepareMoveCards(
+function prepareMovePages(
   database: Database.Database,
-  request: PrepareNodexAgentMoveCardsRequest,
-): PrepareNodexAgentMoveCardsResult {
+  request: PrepareNodexAgentMovePagesRequest,
+): PrepareNodexAgentMovePagesResult {
   requireProject(database, request.projectId);
-  const key = { ...request, tool: "move_cards" };
+  const key = { ...request, tool: "move_pages" };
   const identity = nodexAgentCallIdentity(key);
   const requestHash = nodexAgentFingerprint({
-    tool: "move_cards",
+    tool: "move_pages",
     projectId: request.projectId,
     input: request.input,
   });
@@ -1187,47 +1306,24 @@ function prepareMoveCards(
     if (existing.status === "committed") {
       return {
         ok: true,
-        value: { kind: "completed", output: replayMoveCardsOutput(existing) },
+        value: { kind: "completed", output: replayMovePagesOutput(existing) },
       };
     }
   }
   assertExternalMoveAnchors(request);
-  const blocks = request.input.cardIds.map((cardId) => {
-    const block = readBlock(database, request.projectId, cardId);
-    if (block.type === "card") return block;
+  const blocks = request.input.pageIds.map((pageId) => {
+    requirePageStorageContext(database, request.projectId, pageId, "move");
+    const block = readBlock(database, request.projectId, pageId);
+    if (block.type === "page") return block;
     throw new NodexAgentReadError(
       "unsupported_resource",
-      `Block ${cardId} is not a Card`,
+      `Block ${pageId} is not a Page`,
       false,
       "none",
-      { resourceId: cardId, domainCode: "card_root_required" },
+      { resourceId: pageId, domainCode: "page_root_required" },
     );
   });
-  blocks.forEach((block) => requireCardDocumentId(database, request.projectId, block.id));
-  const inputDestination = request.input.destination;
-  const hasSameDatabaseCard = inputDestination.kind === "database"
-    && blocks.some((block) =>
-      block.location_kind === "database"
-      && block.containing_database_id === inputDestination.databaseBlockId
-    );
-  if (hasSameDatabaseCard && inputDestination.kind === "database") {
-    if (!inputDestination.view) {
-      throw new NodexAgentReadError(
-        "invalid_arguments",
-        "Moving within one Database requires a destination View placement",
-        false,
-        "none",
-      );
-    }
-    if (inputDestination.values?.length) {
-      throw new NodexAgentReadError(
-        "invalid_arguments",
-        "Moving within one Database cannot change independent property values",
-        false,
-        "none",
-      );
-    }
-  }
+  blocks.forEach((block) => requirePageDocumentId(database, request.projectId, block.id));
   const normalizedInputs = blocks.map((block) =>
     normalizedMoveInput(database, request, block.id, block)
   );
@@ -1236,9 +1332,32 @@ function prepareMoveCards(
     request.projectId,
     normalizedInputs[0]?.destination as CreateInput["destination"],
   );
+  const hasSameDatabasePage = destination.kind === "database"
+    && blocks.some((block) =>
+      block.location_kind === "database"
+      && block.containing_database_id === destination.databaseBlockId
+    );
+  if (hasSameDatabasePage) {
+    if (request.input.destination.kind !== "data_source" || !request.input.destination.view) {
+      throw new NodexAgentReadError(
+        "invalid_arguments",
+        "Moving within one Data Source requires a destination View placement",
+        false,
+        "none",
+      );
+    }
+    if (request.input.destination.values?.length) {
+      throw new NodexAgentReadError(
+        "invalid_arguments",
+        "Moving within one Data Source cannot change independent property values",
+        false,
+        "none",
+      );
+    }
+  }
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Nodex store has no epoch");
-  const mutationId = existing?.mutation_id ?? `nodex-move-cards:${identity}`;
+  const mutationId = existing?.mutation_id ?? `nodex-move-pages:${identity}`;
   const transfers = [];
   const leases = [];
   for (const [index, block] of blocks.entries()) {
@@ -1248,15 +1367,15 @@ function prepareMoveCards(
       && block.containing_database_id === destination.databaseBlockId;
     if (sameDatabase) continue;
     const preparation = prepareBlockTransfer(database, {
-      version: BLOCK_TRANSFER_CONTRACT_VERSION,
-      operationId: `${mutationId}:card:${index}`,
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: `${mutationId}:page:${index}`,
       projectId: request.projectId,
       storeEpoch,
       clientSessionId: `nodex-agent:${request.threadId}`,
       actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
       mode: "move",
       rootBlockIds: [block.id],
-      source: sourceIntent(block),
+      source: sourceIntent(database, request.projectId, block),
       target: transferTarget(database, request.projectId, destination),
     });
     if (!preparation.ok) {
@@ -1268,11 +1387,11 @@ function prepareMoveCards(
         { domainCode: preparation.error.code },
       );
     }
-    transfers.push({ cardId: block.id, normalizedInput, transfer: preparation.value.request });
+    transfers.push({ pageId: block.id, normalizedInput, transfer: preparation.value.request });
     leases.push(...preparation.value.leaseDocuments);
   }
-  if (hasSameDatabaseCard) {
-    if (request.input.destination.kind !== "database" || !request.input.destination.view) {
+  if (hasSameDatabasePage) {
+    if (request.input.destination.kind !== "data_source" || !request.input.destination.view) {
       throw new NodexAgentReadError(
         "invalid_arguments",
         "Moving within one Database requires a destination View placement",
@@ -1285,7 +1404,7 @@ function prepareMoveCards(
   const authorization: NodexAgentTransferAuthorizationEvidence = {
     roots: Object.fromEntries(blocks.map((block) => [
       block.id,
-      { type: "card", transformation: "preserved" as const },
+      { type: "page", transformation: "preserved" as const },
     ])),
     documentIds: leaseDocuments.map((lease) => lease.documentId),
   };
@@ -1297,7 +1416,7 @@ function prepareMoveCards(
         call_identity, thread_id, call_id, project_id, tool, request_hash,
         mutation_id, allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'move_cards', ?, ?, '[]', '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, 'move_pages', ?, ?, '[]', '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
@@ -1353,7 +1472,7 @@ function rebaseTransferRequest(
 
 function compileFinalViewPlacement(
   database: Database.Database,
-  command: NodexAgentMoveCardsCommand,
+  command: NodexAgentMovePagesCommand,
 ): DatabaseMutationRequest | null {
   if (command.destination.kind !== "database" || !command.destination.view) return null;
   const destination = command.destination;
@@ -1370,12 +1489,12 @@ function compileFinalViewPlacement(
   if (!view || view.revision !== command.destination.view.viewRevision) {
     throw new NodexAgentReadError(
       "conflict",
-      `View ${command.destination.view.viewId} changed before Card movement`,
+      `View ${command.destination.view.viewId} changed before Page movement`,
       false,
       "query_database_again",
     );
   }
-  const config = parseGeneralDatabaseViewConfig(JSON.parse(view.config_json) as unknown);
+  const config = parseDatabaseViewConfig(JSON.parse(view.config_json) as unknown);
   const groupPropertyId = config.group?.propertyId ?? null;
   const groupKey = command.destination.view.groupKey;
   if (!groupPropertyId && groupKey !== null) {
@@ -1386,7 +1505,7 @@ function compileFinalViewPlacement(
       "query_database_again",
     );
   }
-  const placements = command.input.cardIds.map((cardId) => {
+  const placements = command.input.pageIds.map((pageId) => {
     const row = database.prepare(
       `
       SELECT membership.id AS membership_id,
@@ -1394,16 +1513,16 @@ function compileFinalViewPlacement(
         COALESCE(group_value.revision, 0) AS group_value_revision
       FROM database_memberships membership
       LEFT JOIN database_view_positions position
-        ON position.view_id = ? AND position.block_id = membership.card_block_id
+        ON position.view_id = ? AND position.block_id = membership.page_block_id
        AND position.project_id = membership.project_id
       LEFT JOIN database_property_values group_value
         ON group_value.membership_id = membership.id AND group_value.property_id = ?
-      WHERE membership.card_block_id = ? AND membership.database_block_id = ?
+      WHERE membership.page_block_id = ? AND membership.database_block_id = ?
         AND membership.project_id = ? AND membership.removed_at IS NULL
     `).get(
       destination.view?.viewId,
       groupPropertyId,
-      cardId,
+      pageId,
       destination.databaseBlockId,
       command.projectId,
     ) as {
@@ -1411,10 +1530,10 @@ function compileFinalViewPlacement(
       readonly position_revision: number;
       readonly group_value_revision: number;
     } | undefined;
-    if (row) return { cardId, ...row };
+    if (row) return { pageId, ...row };
     throw new NodexAgentReadError(
       "conflict",
-      `Card ${cardId} has no active destination Database membership`,
+      `Page ${pageId} has no active destination Database membership`,
       false,
       "query_database_again",
     );
@@ -1456,7 +1575,7 @@ function compileFinalViewPlacement(
           kind: "set_values" as const,
           databaseBlockId: command.destination.databaseBlockId,
           entries: placements.map((placement) => ({
-            cardBlockId: placement.cardId,
+            pageId: placement.pageId,
             propertyId: groupPropertyId,
             expectedValueRevision: placement.group_value_revision,
             value,
@@ -1474,32 +1593,32 @@ function compileFinalViewPlacement(
     operations: [
       ...operations,
       {
-        kind: "position_cards",
+        kind: "position_pages",
         viewId: command.destination.view.viewId,
-        cards: placements.map((placement) => ({
-          cardBlockId: placement.cardId,
+        pages: placements.map((placement) => ({
+          pageId: placement.pageId,
           expectedPositionRevision: placement.position_revision,
         })),
         groupKey,
-        ...(command.destination.view.beforeCardBlockId
-          ? { beforeCardBlockId: command.destination.view.beforeCardBlockId }
+        ...(command.destination.view.beforePageId
+          ? { beforePageId: command.destination.view.beforePageId }
           : {}),
       },
     ],
   };
 }
 
-function executeMoveCards(
+function executeMovePages(
   database: Database.Database,
-  command: NodexAgentMoveCardsCommand,
-): ExecuteNodexAgentMoveCardsResult {
-  const key = { ...command, tool: "move_cards" };
+  command: NodexAgentMovePagesCommand,
+): ExecuteNodexAgentMovePagesResult {
+  const key = { ...command, tool: "move_pages" };
   const identity = nodexAgentCallIdentity(key);
   const callReceipt = readNodexAgentCallReceipt(database, identity);
   if (!callReceipt) {
     throw new NodexAgentReadError(
       "idempotency_collision",
-      "No matching prepared Agent Card move exists",
+      "No matching prepared Agent Page move exists",
       false,
       "none",
     );
@@ -1509,7 +1628,7 @@ function executeMoveCards(
     return {
       ok: true,
       value: {
-        output: replayMoveCardsOutput(callReceipt),
+        output: replayMovePagesOutput(callReceipt),
         duplicate: true,
         documentCommits: [],
         affectedDatabaseBlockIds: [],
@@ -1520,7 +1639,7 @@ function executeMoveCards(
   if (readBlockStoreEpoch(database) !== command.storeEpoch) {
     throw new NodexAgentReadError(
       "conflict",
-      "The Nodex store changed after Card movement was prepared",
+      "The Nodex store changed after Page movement was prepared",
       false,
       "get_block_again",
     );
@@ -1537,7 +1656,7 @@ function executeMoveCards(
         transferred.error.message,
         transferred.error.retryable,
         transferred.error.reloadRequired ? "get_block_again" : "none",
-        { resourceId: step.cardId, domainCode: transferred.error.code },
+        { resourceId: step.pageId, domainCode: transferred.error.code },
       );
     }
     transferReceipts.push(transferred.value);
@@ -1576,17 +1695,13 @@ function executeMoveCards(
     }
     databaseReceipts.push(result.value);
   }
-  const output = MoveCardsV3OutputSchema.parse({
+  const output = MovePagesV3OutputSchema.parse({
     data: {
-      cards: command.input.cardIds.map((cardId) => ({
-        cardId,
-        location: toCardLocation(
-          database,
-          command.projectId,
-          resultLocation(database, command.projectId, cardId),
-        ),
+      pages: command.input.pageIds.map((pageId) => ({
+        pageId,
+        location: readPageLocation(database, command.projectId, pageId),
       })),
-      moved: command.input.cardIds.length,
+      moved: command.input.pageIds.length,
     },
   });
   database.prepare(
@@ -1614,24 +1729,24 @@ function executeMoveCards(
   };
 }
 
-export function prepareNodexAgentMoveCards(
+export function prepareNodexAgentMovePages(
   database: Database.Database,
-  request: PrepareNodexAgentMoveCardsRequest,
-): PrepareNodexAgentMoveCardsResult {
+  request: PrepareNodexAgentMovePagesRequest,
+): PrepareNodexAgentMovePagesResult {
   try {
-    return database.transaction(() => prepareMoveCards(database, request)).immediate();
+    return database.transaction(() => prepareMovePages(database, request)).immediate();
   } catch (error) {
     const failure = readFailure(error);
     return { ok: false, error: publicV3Failure(failure.error) };
   }
 }
 
-export function executeNodexAgentMoveCards(
+export function executeNodexAgentMovePages(
   database: Database.Database,
-  command: NodexAgentMoveCardsCommand,
-): ExecuteNodexAgentMoveCardsResult {
+  command: NodexAgentMovePagesCommand,
+): ExecuteNodexAgentMovePagesResult {
   try {
-    return database.transaction(() => executeMoveCards(database, command)).immediate();
+    return database.transaction(() => executeMovePages(database, command)).immediate();
   } catch (error) {
     const failure = readFailure(error);
     return { ok: false, error: publicV3Failure(failure.error) };

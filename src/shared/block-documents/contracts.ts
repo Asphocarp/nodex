@@ -48,11 +48,11 @@ export interface OwnedDocumentDescriptor
   readonly sync: OwnedDocumentSyncEngine;
 }
 
-export const MAX_CARD_DOCUMENT_UPDATE_BYTES = 2 * 1024 * 1024;
-export const MAX_CARD_DOCUMENT_STATE_BYTES = 16 * 1024 * 1024;
-export const MAX_CARD_DOCUMENT_BODY_XML_LENGTH = 4_000_000;
-export const MAX_CARD_DOCUMENT_BLOCKS = 100_000;
-export const MAX_CARD_DOCUMENT_XML_PATH_DEPTH = 512;
+export const MAX_PAGE_DOCUMENT_UPDATE_BYTES = 2 * 1024 * 1024;
+export const MAX_PAGE_DOCUMENT_STATE_BYTES = 16 * 1024 * 1024;
+export const MAX_PAGE_DOCUMENT_BODY_XML_LENGTH = 4_000_000;
+export const MAX_PAGE_DOCUMENT_BLOCKS = 100_000;
+export const MAX_PAGE_DOCUMENT_XML_PATH_DEPTH = 512;
 export const MAX_DOCUMENT_TOUCHED_BLOCK_IDS = 10_000;
 export const MAX_BLOCK_ID_LENGTH = 512;
 export const MAX_REFERENCE_DISPLAY_HINT_LENGTH = 512;

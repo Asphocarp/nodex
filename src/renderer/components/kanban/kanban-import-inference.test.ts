@@ -1,15 +1,15 @@
 import { describe, expect, test } from "vitest";
-import type { BoardSummary, CardInput, CardStatus, CardSummary } from "@/lib/types";
+import type { BoardSummary, PageInput, WorkflowStatus, DatabasePageSummary } from "@/lib/types";
 import type { DbViewRules } from "../../lib/db-view-prefs";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { resolveKanbanImportInference } from "./kanban-import-inference";
 
 function makeCard(
   id: string,
-  status: CardStatus,
+  status: WorkflowStatus,
   order: number,
-  overrides: Partial<CardSummary> = {},
-): CardSummary {
+  overrides: Partial<DatabasePageSummary> = {},
+): DatabasePageSummary {
   const title = overrides.title ?? id;
   return {
     id,
@@ -27,8 +27,8 @@ function makeCard(
   };
 }
 
-function makeBoard(columns: Partial<Record<CardStatus, CardSummary[]>>): BoardSummary {
-  const orderedStatuses: CardStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
+function makeBoard(columns: Partial<Record<WorkflowStatus, DatabasePageSummary[]>>): BoardSummary {
+  const orderedStatuses: WorkflowStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
   return {
     columns: orderedStatuses.map((status) => ({
       id: status,
@@ -226,7 +226,7 @@ describe("resolveKanbanImportInference", () => {
       }),
       targetColumnId: "in_progress",
       targetVisibleIndex: 2,
-      cards: [{ title: "Snapshot card", priority: "p4-later" } satisfies CardInput],
+      cards: [{ title: "Snapshot card", priority: "p4-later" } satisfies PageInput],
       hasSearchFilter: false,
     });
 

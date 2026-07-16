@@ -5,7 +5,7 @@ import { StrictMode } from "react";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 
-import { createCardDocumentGenesis } from "../../../../shared/block-documents/block-document-codec";
+import { createPageDocumentGenesis } from "../../../../shared/block-documents/block-document-codec";
 import { createNfmEditorModeOptions } from "./nfm-editor-source";
 
 const settleEditor = async () => {
@@ -17,7 +17,7 @@ const settleEditor = async () => {
 
 describe("collaborative NFM undo in Chromium", () => {
   test("survives the StrictMode EditorView remount and leaves remote Blocks intact", async () => {
-    const genesis = createCardDocumentGenesis({
+    const genesis = createPageDocumentGenesis({
       documentId: "document:strict-undo-browser",
       title: "Strict undo",
       nfm: "Base paragraph",

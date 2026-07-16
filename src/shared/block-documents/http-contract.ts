@@ -1,7 +1,7 @@
 import {
   MAX_BLOCK_ID_LENGTH,
-  MAX_CARD_DOCUMENT_STATE_BYTES,
-  MAX_CARD_DOCUMENT_UPDATE_BYTES,
+  MAX_PAGE_DOCUMENT_STATE_BYTES,
+  MAX_PAGE_DOCUMENT_UPDATE_BYTES,
   MAX_DOCUMENT_TOUCHED_BLOCK_IDS,
   type DocumentReadiness,
   type OwnedDocumentDescriptor,
@@ -427,7 +427,7 @@ export const decodeOwnedDocumentDescriptorHttp = (
         kind: "yjs" as const,
         stateVector: documentBytesFromBase64(
           descriptor.sync.stateVector,
-          MAX_CARD_DOCUMENT_STATE_BYTES,
+          MAX_PAGE_DOCUMENT_STATE_BYTES,
         ),
       }
     : { kind: "canvas_scene" as const };
@@ -462,7 +462,7 @@ export const decodeDocumentSyncHttpRequest = (
   const envelope = decodeDocumentHttpEnvelope(
     bytes,
     parseSyncRequestMetadata,
-    MAX_CARD_DOCUMENT_STATE_BYTES,
+    MAX_PAGE_DOCUMENT_STATE_BYTES,
   );
   return {
     documentId: assertRouteDocument(routeDocumentId),
@@ -492,7 +492,7 @@ export const decodeDocumentSyncHttpResponse = (
   const envelope = decodeDocumentHttpEnvelope(
     bytes,
     parseSyncResponseMetadata,
-    MAX_CARD_DOCUMENT_STATE_BYTES,
+    MAX_PAGE_DOCUMENT_STATE_BYTES,
   );
   return {
     documentId: envelope.metadata.documentId,
@@ -501,7 +501,7 @@ export const decodeDocumentSyncHttpResponse = (
     headSeq: envelope.metadata.headSeq,
     stateVector: documentBytesFromBase64(
       envelope.metadata.stateVector,
-      MAX_CARD_DOCUMENT_STATE_BYTES,
+      MAX_PAGE_DOCUMENT_STATE_BYTES,
     ),
     update: envelope.payload,
   };
@@ -530,7 +530,7 @@ export const decodeDocumentApplyHttpRequest = (
   const envelope = decodeDocumentHttpEnvelope(
     bytes,
     parseApplyRequestMetadata,
-    MAX_CARD_DOCUMENT_UPDATE_BYTES,
+    MAX_PAGE_DOCUMENT_UPDATE_BYTES,
   );
   return {
     documentId: assertRouteDocument(routeDocumentId),
@@ -567,7 +567,7 @@ export const decodeDocumentApplyHttpAck = (
   const envelope = decodeDocumentHttpEnvelope(
     bytes,
     parseApplyAckMetadata,
-    MAX_CARD_DOCUMENT_STATE_BYTES,
+    MAX_PAGE_DOCUMENT_STATE_BYTES,
   );
   return {
     documentId: envelope.metadata.documentId,
@@ -692,7 +692,7 @@ export const decodeDocumentRealtimeSseEvent = (
       clientSessionId: readString(record, "clientSessionId"),
       update: documentBytesFromBase64(
         readString(record, "update"),
-        MAX_CARD_DOCUMENT_UPDATE_BYTES,
+        MAX_PAGE_DOCUMENT_UPDATE_BYTES,
       ),
     };
   }

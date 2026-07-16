@@ -355,7 +355,7 @@ export const NodexAgentAuthorization: Story = {
           threadId: "thread-story",
           turnId: "turn-story",
           itemId: "call-story",
-          tool: "update_card",
+          tool: "update_page",
           effect: "write",
           preview: {
             title: "Append rollout plan",
@@ -388,7 +388,7 @@ export const NodexAgentDestructiveAuthorization: Story = {
           threadId: "thread-story",
           turnId: "turn-story",
           itemId: "call-destructive-story",
-          tool: "update_card",
+          tool: "update_page",
           effect: "destructive",
           preview: {
             title: "Replace launch brief body",

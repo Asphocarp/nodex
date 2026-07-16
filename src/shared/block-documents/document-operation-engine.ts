@@ -1,8 +1,8 @@
 import * as Y from "yjs";
 import {
-  createDetachedCardDocumentFromBlockTree,
+  createDetachedPageDocumentFromBlockTree,
   type BlockTreeNode,
-  type CardDocumentMaterialization,
+  type PageDocumentMaterialization,
 } from "./block-document-codec";
 import {
   getBlockDocumentSchemaAdapter,
@@ -17,10 +17,10 @@ import {
 } from "./block-subtree-relocation";
 import { BLOCK_GROUP_NODE_NAME } from "./block-structure";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  createCardDocument,
-} from "./card-document";
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  createPageDocument,
+} from "./page-document";
 import type {
   DocumentBlockOperation,
   DocumentBlockUpdatePatch,
@@ -79,7 +79,7 @@ export interface PrepareDocumentOperationUpdateInput {
 
 export interface PreparedDocumentOperationUpdate {
   readonly update: Uint8Array;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
   /** Application identities whose existing Yjs structs were removed/replaced. */
   readonly writeFenceBlockIds: readonly string[];
   /** True when any operation replaced title structs, even if the net title is unchanged. */
@@ -310,7 +310,7 @@ const replaceBlockContent = (
 
   let candidate;
   try {
-    candidate = createDetachedCardDocumentFromBlockTree({
+    candidate = createDetachedPageDocumentFromBlockTree({
       documentId: `${document.guid}:update:${operationIndex}`,
       blockTree: [patched],
     });
@@ -360,7 +360,7 @@ const insertBlock = (
 ): void => {
   let candidate;
   try {
-    candidate = createDetachedCardDocumentFromBlockTree({
+    candidate = createDetachedPageDocumentFromBlockTree({
       documentId: `${document.guid}:insert:${operationIndex}`,
       blockTree: [operation.block],
     });
@@ -403,7 +403,7 @@ const deleteBlock = (
   semanticBlocks: Map<string, BlockTreeNode>,
   writeFenceBlockIds: Set<string>,
 ): void => {
-  const trash = createCardDocument({
+  const trash = createPageDocument({
     documentId: `${document.guid}:delete:${operationIndex}`,
   });
   try {
@@ -621,9 +621,9 @@ export const prepareDocumentOperationUpdate = ({
   document,
   operations,
   schema = {
-    ownerType: "card",
-    schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+    ownerType: "page",
+    schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+    schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   },
   transactionOrigin = "document-operation-batch",
   allowTransientEmptyResult = false,

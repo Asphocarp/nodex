@@ -1,12 +1,12 @@
 import type { ToolFailure } from "./base-schemas";
 import type { NodexAgentAccess } from "./read-runtime";
 import type {
-  AdvancedQueryDatabaseV3InputSchema,
   FetchV3InputSchema,
   FetchV3OutputSchema,
   GetContextV3InputSchema,
   GetContextV3OutputSchema,
   QueryDatabaseV3OutputSchema,
+  QueryDataSourceV3InputSchema,
   QueryDatabaseViewV3InputSchema,
   SearchV3InputSchema,
   SearchV3OutputSchema,
@@ -36,9 +36,9 @@ export type NodexAgentV3ReadRequest =
       readonly input: z.infer<typeof QueryDatabaseViewV3InputSchema>;
     }
   | {
-      readonly tool: "advanced_query_database";
+      readonly tool: "query_data_source";
       readonly projectId: string;
-      readonly input: z.infer<typeof AdvancedQueryDatabaseV3InputSchema>;
+      readonly input: z.infer<typeof QueryDataSourceV3InputSchema>;
     };
 
 export type NodexAgentV3ReadSuccess =
@@ -59,7 +59,7 @@ export type NodexAgentV3ReadSuccess =
     }
   | {
       readonly ok: true;
-      readonly tool: "query_database_view" | "advanced_query_database";
+      readonly tool: "query_database_view" | "query_data_source";
       readonly output: z.infer<typeof QueryDatabaseV3OutputSchema>;
     };
 

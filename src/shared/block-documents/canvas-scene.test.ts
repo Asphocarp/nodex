@@ -127,7 +127,7 @@ describe("portable Canvas scene kernel", () => {
     const scene = materializePortableCanvasScene({
       elements: [
         {
-          id: "card",
+          id: "page",
           type: "rectangle",
           isDeleted: false,
           version: 1,
@@ -165,9 +165,9 @@ describe("portable Canvas scene kernel", () => {
     });
 
     expect(scene.appState).toEqual({ gridModeEnabled: true, gridSize: 20 });
-    expect(scene.cardReferences).toEqual([
+    expect(scene.pageReferences).toEqual([
       {
-        sourceElementId: "card",
+        sourceElementId: "page",
         targetBlockId: "target-card",
         titleHint: "Hint",
       },

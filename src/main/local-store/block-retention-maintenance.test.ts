@@ -5,12 +5,12 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import {
-  parseCardLifecycleMutationRequest,
-  type CardLifecycleMutationRequest,
-} from "../../shared/card-lifecycle";
-import { createUuidV7 } from "../../shared/card-id";
+  parsePageLifecycleMutationRequest,
+  type PageLifecycleMutationRequest,
+} from "../../shared/page-lifecycle";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import { readBlockStoreEpoch } from "./block-store-metadata";
-import { applyCardLifecycleMutation } from "./card-block-lifecycle";
+import { applyPageLifecycleMutation } from "./page-lifecycle";
 import {
   maintainBlockRetention,
   type BlockRetentionMaintenanceFaultPoint,
@@ -73,8 +73,8 @@ const lifecycleRequest = (
   fixture: Fixture,
   operationId: string,
   operation: Readonly<Record<string, unknown>>,
-): CardLifecycleMutationRequest =>
-  parseCardLifecycleMutationRequest({
+): PageLifecycleMutationRequest =>
+  parsePageLifecycleMutationRequest({
     version: 1,
     operationId,
     projectId: fixture.projectId,
@@ -86,9 +86,9 @@ const lifecycleRequest = (
 
 const commitLifecycle = (
   fixture: Fixture,
-  request: CardLifecycleMutationRequest,
+  request: PageLifecycleMutationRequest,
 ) => {
-  const result = applyCardLifecycleMutation(fixture.database, request);
+  const result = applyPageLifecycleMutation(fixture.database, request);
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
 };
@@ -186,8 +186,8 @@ describe("Block retention count maintenance", () => {
         const created = commitLifecycle(
           fixture,
           lifecycleRequest(fixture, "create:atomic", {
-            kind: "create_card",
-            cardId,
+            kind: "create_page",
+            pageId: cardId,
             title: "Retention atomic",
             nfm: "Retained body",
             status: "draft",
@@ -209,10 +209,10 @@ describe("Block retention count maintenance", () => {
           { now: () => "2025-01-01T00:00:00.000Z" },
         );
         const deleteRequest = lifecycleRequest(fixture, "delete:atomic", {
-          kind: "delete_card",
-          cardId,
+          kind: "delete_page",
+          pageId: cardId,
           expectedMetadataRevision: created.metadataRevision,
-          expectedLocationRevision: created.locationRevision,
+          expectedParentRevision: created.parentRevision,
         });
         const deleted = commitLifecycle(fixture, deleteRequest);
         const card = { cardId, created, deleted, deleteRequest };
@@ -381,7 +381,7 @@ describe("Block retention count maintenance", () => {
           ),
         ).toBe(true);
 
-        const retry = applyCardLifecycleMutation(
+        const retry = applyPageLifecycleMutation(
           fixture.database,
           card.deleteRequest,
         );
@@ -421,8 +421,8 @@ describe("Block retention count maintenance", () => {
         const created = commitLifecycle(
           fixture,
           lifecycleRequest(fixture, "create:pinned-revision", {
-            kind: "create_card",
-            cardId,
+            kind: "create_page",
+            pageId: cardId,
             title: "Pinned revision",
             nfm: "Keep this recovery point",
             status: "draft",
@@ -443,10 +443,10 @@ describe("Block retention count maintenance", () => {
         commitLifecycle(
           fixture,
           lifecycleRequest(fixture, "delete:pinned-revision", {
-            kind: "delete_card",
-            cardId,
+            kind: "delete_page",
+            pageId: cardId,
             expectedMetadataRevision: created.metadataRevision,
-            expectedLocationRevision: created.locationRevision,
+            expectedParentRevision: created.parentRevision,
           }),
         );
 
@@ -693,7 +693,7 @@ describe("Block retention count maintenance", () => {
              id, project_id, type, lifecycle, location_kind,
              containing_document_id, location_revision, metadata_revision,
              created_at, updated_at
-           ) VALUES (?, ?, 'card', 'deleted', 'space', NULL, 1, 1, ?, ?)`,
+           ) VALUES (?, ?, 'page', 'deleted', 'space', NULL, 1, 1, ?, ?)`,
         )
         .run(blockId, fixture.projectId, now, now);
       fixture.database
@@ -702,7 +702,7 @@ describe("Block retention count maintenance", () => {
              id, project_id, generation, head_seq, schema_key, schema_version,
              state_vector, state_hash, readiness, authority,
              genesis_source_revision, created_at, updated_at
-           ) VALUES (?, ?, 1, 0, 'nodex.card', 1, X'', '', 'ready',
+           ) VALUES (?, ?, 1, 0, 'nodex.page', 1, X'', '', 'ready',
              'ydoc_primary', NULL, ?, ?)`,
         )
         .run(documentId, fixture.projectId, now, now);
@@ -777,10 +777,10 @@ describe("Block retention count maintenance", () => {
       commitLifecycle(
         fixture,
         lifecycleRequest(fixture, "create:retention-reference-host", {
-          kind: "create_card",
-          cardId: createUuidV7(),
+          kind: "create_page",
+          pageId: createUuidV7(),
           title: "Reference host",
-          nfm: `<mention-card url="nodex://cards/${targetBlockId}" />`,
+          nfm: `<page-ref url="nodex://pages/${targetBlockId}" />`,
           status: "draft",
         }),
       );

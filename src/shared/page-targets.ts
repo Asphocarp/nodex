@@ -1,0 +1,43 @@
+import type { Page } from "./page";
+
+export interface ResolvePageTargetInput {
+  /**
+   * The Project containing the surface that resolves this target. Page IDs are
+   * globally stable, but the explicit scope is the future authorization seam.
+   */
+  readonly requestingProjectId: string;
+  readonly targetPageId: string;
+}
+
+/**
+ * Membership-independent read model for opening or previewing a Page.
+ * Database properties and View position deliberately do not participate: a
+ * Page may live in the Library, another Page, or a Data Source.
+ */
+export type PageTargetReadModel =
+  | {
+      readonly status: "missing";
+      readonly targetPageId: string;
+    }
+  | {
+      readonly status: "invalid_target";
+      readonly targetPageId: string;
+      readonly actualBlockType: string;
+    }
+  | {
+      readonly status: "deleted";
+      readonly targetPageId: string;
+      readonly libraryId: string;
+    }
+  | {
+      readonly status: "available";
+      readonly targetPageId: string;
+      readonly page: Page & {
+        readonly lifecycle: "active" | "archived";
+      };
+      readonly document: {
+        readonly readiness: "pending_genesis" | "ready" | "failed";
+        readonly schemaKey: string;
+        readonly schemaVersion: number;
+      };
+    };

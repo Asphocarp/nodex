@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import Database from "better-sqlite3";
 import {
   DocumentMaterializationStoreError,
-  persistCardDocumentMaterialization,
+  persistPageDocumentMaterialization,
 } from "./document-materializations";
 
 const supportsBetterSqlite3 = (): boolean => {
@@ -40,7 +40,7 @@ describe("document materialization store", () => {
           updated_at TEXT NOT NULL
         ) WITHOUT ROWID
       `);
-      persistCardDocumentMaterialization(database, {
+      persistPageDocumentMaterialization(database, {
         documentId: "document:test",
         generation: 1,
         projectedSeq: 7,
@@ -113,7 +113,7 @@ describe("document materialization store", () => {
   test("rejects invalid projection sequence before touching SQLite", () => {
     let rejected = false;
     try {
-      persistCardDocumentMaterialization({} as Database.Database, {
+      persistPageDocumentMaterialization({} as Database.Database, {
         documentId: "document:test",
         generation: 1,
         projectedSeq: -1,

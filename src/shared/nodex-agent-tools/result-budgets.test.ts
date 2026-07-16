@@ -12,11 +12,11 @@ import {
   TransferBlocksOutputSchema,
 } from "./write-schemas";
 import {
-  AdvancedUpdateCardV3OutputSchema,
-  CreateCardsV3OutputSchema,
-  DuplicateCardV3OutputSchema,
-  MoveCardsV3OutputSchema,
-  UpdateCardV3OutputSchema,
+  AdvancedUpdatePageV3OutputSchema,
+  CreatePagesV3OutputSchema,
+  DuplicatePageV3OutputSchema,
+  MovePagesV3OutputSchema,
+  UpdatePageV3OutputSchema,
 } from "./v3-write-schemas";
 
 const ETAG = `nxe1.${"a".repeat(43)}`;
@@ -35,7 +35,7 @@ describe("Nodex Agent result budgets", () => {
       CreateOutputSchema.parse({
         data: {
           resource: {
-            kind: "card",
+            kind: "page",
             blockId: "card-1",
             documentId: "document-1",
             location: { kind: "space" },
@@ -82,7 +82,7 @@ describe("Nodex Agent result budgets", () => {
         data: {
           block: {
             blockId: "card-1",
-            type: "card",
+            type: "page",
             title: { value: { kind: "plain", text: "Card" }, etag: ETAG },
             lifecycle: "active",
             location: { kind: "space" },
@@ -93,7 +93,7 @@ describe("Nodex Agent result budgets", () => {
         data: {
           block: {
             blockId: "card-1",
-            type: "card",
+            type: "page",
             lifecycle: "active",
             location: { kind: "space" },
           },
@@ -108,7 +108,7 @@ describe("Nodex Agent result budgets", () => {
         data: {
           block: {
             blockId: "card-1",
-            type: "card",
+            type: "page",
             lifecycle: "active",
             location: { kind: "space" },
           },
@@ -144,7 +144,7 @@ describe("Nodex Agent result budgets", () => {
       data: {
         block: {
           blockId: "card-1",
-          type: "card",
+          type: "page",
           lifecycle: "active",
           location: { kind: "space" },
         },
@@ -163,7 +163,11 @@ describe("Nodex Agent result budgets", () => {
     const output = QueryDatabaseV3OutputSchema.parse({
       data: {
         database: {
-          databaseBlockId: "database-1",
+          databaseId: "database-1",
+          name: "Tasks",
+        },
+        dataSource: {
+          dataSourceId: "source-1",
           name: "Tasks",
           properties: [{
             propertyId: "status",
@@ -172,9 +176,14 @@ describe("Nodex Agent result budgets", () => {
             config: {},
           }],
         },
-        view: { viewId: "view-1", name: "Board", kind: "kanban" },
+        view: {
+          viewId: "view-1",
+          dataSourceId: "source-1",
+          name: "Board",
+          kind: "kanban",
+        },
         rows: Array.from({ length: 13 }, (_, index) => ({
-          cardId: `card-${index + 1}`,
+          pageId: `page-${index + 1}`,
           title: `Task ${index + 1}`,
           values: { status: index % 2 === 0 ? "Todo" : "Done" },
           placement: { viewId: "view-1", groupKey: index % 2 === 0 ? "Todo" : "Done" },
@@ -192,19 +201,22 @@ describe("Nodex Agent result budgets", () => {
   test("keeps every v3 default mutation result sparse", () => {
     const effects = { created: 0, updated: 1, moved: 0, deleted: 0 };
     const outputs = [
-      UpdateCardV3OutputSchema.parse({ data: { cardId: "card-1", effects } }),
-      AdvancedUpdateCardV3OutputSchema.parse({ data: { cardId: "card-1", effects } }),
-      MoveCardsV3OutputSchema.parse({
+      UpdatePageV3OutputSchema.parse({ data: { pageId: "page-1", effects } }),
+      AdvancedUpdatePageV3OutputSchema.parse({ data: { pageId: "page-1", effects } }),
+      MovePagesV3OutputSchema.parse({
         data: {
-          cards: [{ cardId: "card-1", location: { kind: "space" } }],
+          pages: [{
+            pageId: "page-1",
+            location: { kind: "library", libraryId: "library-1" },
+          }],
           moved: 1,
         },
       }),
-      DuplicateCardV3OutputSchema.parse({
+      DuplicatePageV3OutputSchema.parse({
         data: {
-          sourceCardId: "card-1",
-          cardId: "card-2",
-          location: { kind: "space" },
+          sourcePageId: "page-1",
+          pageId: "page-2",
+          location: { kind: "library", libraryId: "library-1" },
           bodyBlocksCreated: 10,
         },
       }),
@@ -219,20 +231,20 @@ describe("Nodex Agent result budgets", () => {
     }
   });
 
-  test("scales the default create_cards result only with returned Card summaries", () => {
-    for (const cardCount of [1, 16]) {
-      const output = CreateCardsV3OutputSchema.parse({
+  test("scales the default create_pages result only with returned Page summaries", () => {
+    for (const pageCount of [1, 16]) {
+      const output = CreatePagesV3OutputSchema.parse({
         data: {
-          cards: Array.from({ length: cardCount }, (_, index) => ({
-            cardId: `card-${index + 1}`,
-            location: { kind: "space" },
+          pages: Array.from({ length: pageCount }, (_, index) => ({
+            pageId: `page-${index + 1}`,
+            location: { kind: "library", libraryId: "library-1" },
             bodyBlocksCreated: 10,
           })),
-          created: cardCount,
+          created: pageCount,
         },
       });
-      const cap = NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreateCardsBaseBytes
-        + NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreateCardsPerCardBytes * cardCount;
+      const cap = NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreatePagesBaseBytes
+        + NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreatePagesPerPageBytes * pageCount;
 
       expect(etagCount(output)).toBe(0);
       expect(JSON.stringify(output)).not.toContain("markdown");
@@ -242,15 +254,15 @@ describe("Nodex Agent result budgets", () => {
 
   test("returns one adjacent v3 ETag only for an explicitly prepared title, body, or Block", () => {
     const resource = {
-      id: "card-1",
-      type: "card",
+      id: "page-1",
+      type: "page",
       lifecycle: "active",
-      location: { kind: "space" },
+      location: { kind: "library", libraryId: "library-1" },
     } as const;
     const prepared = [
       FetchV3OutputSchema.parse({
         data: {
-          resource: { ...resource, title: { markdown: "Card", etag: ETAG } },
+          resource: { ...resource, title: { markdown: "Page", etag: ETAG } },
         },
       }),
       FetchV3OutputSchema.parse({

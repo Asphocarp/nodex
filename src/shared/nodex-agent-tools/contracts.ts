@@ -42,6 +42,11 @@ function defineNodexAgentToolContract<
   return contract;
 }
 
+/**
+ * Legacy v2 compiler contracts used only behind the canonical v3 Page tools.
+ * They retain storage-shaped inputs so old compilers can be removed as one
+ * bounded adapter instead of leaking those coordinates into the tool catalog.
+ */
 export const NODEX_AGENT_TOOL_CONTRACTS = {
   get_context: defineNodexAgentToolContract({
     description:
@@ -61,7 +66,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   search: defineNodexAgentToolContract({
     description:
-      "Discover Cards or exact document Blocks in the current Project. Card search is typo-tolerant for titles and property display values; body and Block search use exact/prefix matching and return stable identities.",
+      "Discover Pages or exact document Blocks reachable through the current Project grants. Page search is typo-tolerant for titles and property display values; body and Block search use exact/prefix matching and return stable identities.",
     inputSchema: SearchInputSchema,
     outputSchema: SearchOutputSchema,
     deferLoading: false,
@@ -77,7 +82,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   create: defineNodexAgentToolContract({
     description:
-      "Atomically create one complete Card with a title and optional multi-Block NFM body directly in Space, a Document, or a Database with initial values and View placement.",
+      "Internal compatibility compiler for atomically creating one complete Page before returning canonical Library, Page, or Data Source coordinates.",
     inputSchema: CreateInputSchema,
     outputSchema: CreateOutputSchema,
     deferLoading: true,
@@ -85,7 +90,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   edit_document: defineNodexAgentToolContract({
     description:
-      "Atomically edit one Card document and optional title. NFM insert and exact simultaneous patches use semantic matching; whole replacement and destructive stable-Block changes use narrow ifMatch ETags.",
+      "Atomically edit one Page document and optional title. NFM insert and exact simultaneous patches use semantic matching; whole replacement and destructive stable-Block changes use narrow ifMatch ETags.",
     inputSchema: EditDocumentInputSchema,
     outputSchema: EditDocumentOutputSchema,
     deferLoading: true,
@@ -104,7 +109,7 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
   }),
   transfer_blocks: defineNodexAgentToolContract({
     description:
-      "Move or copy a bounded ordered set of root Blocks between Space, Documents, and Databases. The host resolves and verifies the shared source; Database destinations can atomically set initial values and View placement.",
+      "Internal compatibility compiler for moving or copying bounded Page roots before returning canonical Library, Page, or Data Source coordinates.",
     inputSchema: TransferBlocksInputSchema,
     outputSchema: TransferBlocksOutputSchema,
     deferLoading: true,

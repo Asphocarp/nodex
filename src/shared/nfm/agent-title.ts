@@ -30,14 +30,14 @@ function portableStyles(styles: NfmStyleSet): PortableRichTextStyles {
 
 function parseTitleInlineItems(markdown: string): NfmInlineContent[] {
   if (markdown.includes("\n") || markdown.includes("\r")) {
-    throw new InlineMarkdownTitleError("Card title Markdown must be one line");
+    throw new InlineMarkdownTitleError("Page title Markdown must be one line");
   }
   if (markdown.includes("\t")) {
-    throw new InlineMarkdownTitleError("Card title Markdown cannot contain tabs");
+    throw new InlineMarkdownTitleError("Page title Markdown cannot contain tabs");
   }
   if (new TextEncoder().encode(markdown).byteLength > MAX_PORTABLE_RICH_TEXT_BYTES) {
     throw new InlineMarkdownTitleError(
-      `Card title Markdown must be at most ${MAX_PORTABLE_RICH_TEXT_BYTES} UTF-8 bytes`,
+      `Page title Markdown must be at most ${MAX_PORTABLE_RICH_TEXT_BYTES} UTF-8 bytes`,
     );
   }
   if (markdown.trim().length === 0) {
@@ -53,7 +53,7 @@ function parseTitleInlineItems(markdown: string): NfmInlineContent[] {
     || block.color !== undefined
   ) {
     throw new InlineMarkdownTitleError(
-      "Card title Markdown accepts inline content, not Block syntax",
+      "Page title Markdown accepts inline content, not Block syntax",
     );
   }
   return block.content;
@@ -67,10 +67,10 @@ function toPortableItem(item: NfmInlineContent): PortableRichTextItem {
     return item;
   }
   if (item.type === "linebreak") {
-    throw new InlineMarkdownTitleError("Card title Markdown cannot contain line breaks");
+    throw new InlineMarkdownTitleError("Page title Markdown cannot contain line breaks");
   }
   throw new InlineMarkdownTitleError(
-    `Card title Markdown does not support inline ${item.type}`,
+    `Page title Markdown does not support inline ${item.type}`,
   );
 }
 
@@ -82,7 +82,7 @@ export function parseInlineMarkdownTitle(markdown: string): PortableRichText {
   } catch (error) {
     if (error instanceof InlineMarkdownTitleError) throw error;
     throw new InlineMarkdownTitleError(
-      error instanceof Error ? error.message : "Card title Markdown is invalid",
+      error instanceof Error ? error.message : "Page title Markdown is invalid",
       { cause: error },
     );
   }
@@ -105,7 +105,7 @@ export function serializeInlineMarkdownTitle(value: PortableRichText): string {
   const reparsed = parseInlineMarkdownTitle(markdown);
   if (JSON.stringify(reparsed) !== JSON.stringify(canonical)) {
     throw new InlineMarkdownTitleError(
-      "Card title cannot be represented losslessly as inline Markdown",
+      "Page title cannot be represented losslessly as inline Markdown",
     );
   }
   return markdown;

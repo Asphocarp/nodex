@@ -1,6 +1,6 @@
 export * from "./block-structure";
 export * from "./block-subtree-relocation";
-export * from "./card-document";
+export * from "./page-document";
 export * from "./synced-block-document";
 export * from "./additional-document-bearing-blocks";
 export * from "./body-only-block-document";
@@ -21,4 +21,4 @@ export * from "./relocation";
 export * from "./xml-subtree-codec";
 export * from "./portable-rich-text";
 export * from "./block-semantic-content";
-export * from "./block-to-card-transformation";
+export * from "./block-to-page-transformation";

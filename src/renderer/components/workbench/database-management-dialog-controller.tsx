@@ -7,35 +7,32 @@ import {
 } from "react";
 import type {
   DatabaseJsonValue,
+  DatabasePropertyOption,
   DatabasePropertyValueType,
 } from "../../../shared/database-kernel";
-import type {
-  DatabaseReadSnapshot,
-  GeneralDatabaseManagement,
-} from "../../../shared/database-query";
-import { createUuidV7 } from "../../../shared/card-id";
+import type { DatabaseApplyOperation } from "../../../shared/database-module";
 import {
-  commitDatabaseManagementIntent,
+  commitDatabaseManagementOperations,
   readDatabaseManagementAuthority,
   type DatabaseManagementAuthority,
 } from "@/lib/database-management-runtime";
-import type { DatabaseManagementIntent } from "@/lib/database-management-intents";
 import { subscribeDatabaseChanges } from "@/lib/api";
-import { emptyDatabaseViewConfig } from "@/lib/database-view-authoring";
+import {
+  emptyDatabaseViewConfig,
+  readDatabasePropertyOptions,
+} from "@/lib/database-view-authoring";
 import { useMutationAuditSessionId } from "@/lib/mutation-audit-session";
 import {
   DatabaseManagementDialog,
-  type CreateDatabaseDraft,
   type CreateDatabasePropertyDraft,
   type CreateDatabaseViewDraft,
   type PutDatabasePropertyOptionDraft,
-  type SetDatabaseMembershipDraft,
   type UpdateDatabaseViewDraft,
 } from "./database-management-dialog";
 
 interface DatabaseManagementDialogControllerProps {
   readonly projectId: string;
-  readonly initialDatabaseBlockId?: string | null;
+  readonly initialDatabaseId?: string | null;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }
@@ -53,278 +50,285 @@ const propertyKey = (propertyId: string): string =>
 const messageForError = (error: unknown): string =>
   error instanceof Error ? error.message : "Database management failed";
 
+const replacePropertyOptions = (
+  property: DatabaseManagementAuthority["source"]["properties"][number],
+  options: readonly DatabasePropertyOption[],
+): Readonly<Record<string, DatabaseJsonValue>> => ({
+  ...property.config,
+  options: options.map((option): DatabaseJsonValue => ({
+    id: option.id,
+    name: option.name,
+    ...(option.color === undefined ? {} : { color: option.color }),
+  })),
+});
+
 export function DatabaseManagementDialogController({
   projectId,
-  initialDatabaseBlockId = null,
+  initialDatabaseId = null,
   open,
   onOpenChange,
 }: DatabaseManagementDialogControllerProps) {
   const clientSessionId = useMutationAuditSessionId();
-  const [snapshot, setSnapshot] =
-    useState<DatabaseReadSnapshot<GeneralDatabaseManagement> | null>(null);
-  const [selectedDatabaseBlockId, setSelectedDatabaseBlockId] =
-    useState<string | null>(initialDatabaseBlockId);
+  const [authority, setAuthority] =
+    useState<DatabaseManagementAuthority | null>(null);
+  const [selectedDatabaseId, setSelectedDatabaseId] =
+    useState<string | null>(initialDatabaseId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const readSequence = useRef(0);
-  const mutationSequence = useRef(0);
-  const snapshotRef = useRef(snapshot);
-  const selectedDatabaseBlockIdRef = useRef(selectedDatabaseBlockId);
-  snapshotRef.current = snapshot;
-  selectedDatabaseBlockIdRef.current = selectedDatabaseBlockId;
+  const selectedDatabaseIdRef = useRef(selectedDatabaseId);
+  selectedDatabaseIdRef.current = selectedDatabaseId;
 
-  const applySnapshot = useCallback((
-    next: DatabaseReadSnapshot<GeneralDatabaseManagement>,
-    preferredDatabaseBlockId?: string | null,
-  ) => {
-    const currentSnapshot = snapshotRef.current;
-    if (
-      currentSnapshot &&
-      currentSnapshot.projectId === next.projectId &&
-      currentSnapshot.storeEpoch === next.storeEpoch &&
-      currentSnapshot.changeLogSeq > next.changeLogSeq
-    ) {
-      return;
-    }
-    const candidateIds = new Set(
-      next.value?.catalog.databases.map(
-        (descriptor) => descriptor.database.blockId,
-      ),
-    );
-    const preferred = preferredDatabaseBlockId?.trim() || null;
-    const selected = selectedDatabaseBlockIdRef.current?.trim() || null;
-    const nextSelected =
-      (preferred && candidateIds.has(preferred) ? preferred : null) ??
-      (selected && candidateIds.has(selected) ? selected : null) ??
-      next.value?.catalog.databases[0]?.database.blockId ??
-      null;
-    snapshotRef.current = next;
-    selectedDatabaseBlockIdRef.current = nextSelected;
+  const applyAuthority = useCallback((next: DatabaseManagementAuthority) => {
+    const nextDatabaseId = next.selectedDatabase.database.databaseId;
+    selectedDatabaseIdRef.current = nextDatabaseId;
     startTransition(() => {
-      setSnapshot(next);
-      setSelectedDatabaseBlockId(nextSelected);
+      setAuthority(next);
+      setSelectedDatabaseId(nextDatabaseId);
     });
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (
+    preferredDatabaseId?: string | null,
+  ) => {
     const sequence = ++readSequence.current;
     try {
-      const next = await readDatabaseManagementAuthority(projectId);
+      const next = await readDatabaseManagementAuthority(
+        projectId,
+        preferredDatabaseId ?? selectedDatabaseIdRef.current,
+      );
       if (sequence !== readSequence.current) return;
-      applySnapshot(next, initialDatabaseBlockId);
+      applyAuthority(next);
       setError(null);
     } catch (nextError) {
       if (sequence !== readSequence.current) return;
       setError(messageForError(nextError));
     }
-  }, [applySnapshot, initialDatabaseBlockId, projectId]);
+  }, [applyAuthority, projectId]);
 
   useEffect(() => {
     if (!open) return;
-    setSelectedDatabaseBlockId(initialDatabaseBlockId);
-    void refresh();
+    setSelectedDatabaseId(initialDatabaseId);
+    selectedDatabaseIdRef.current = initialDatabaseId;
+    void refresh(initialDatabaseId);
     return subscribeDatabaseChanges(projectId, () => {
       void refresh();
     });
-  }, [initialDatabaseBlockId, open, projectId, refresh]);
+  }, [initialDatabaseId, open, projectId, refresh]);
+
+  const selectDatabase = (databaseId: string): void => {
+    selectedDatabaseIdRef.current = databaseId;
+    setSelectedDatabaseId(databaseId);
+    setBusy(true);
+    void refresh(databaseId).finally(() => setBusy(false));
+  };
 
   const mutate = async (
-    buildIntent: (authority: DatabaseManagementAuthority) => DatabaseManagementIntent,
-    preferredDatabaseBlockId?: string | null,
+    buildOperations: (
+      current: DatabaseManagementAuthority,
+    ) => readonly DatabaseApplyOperation[],
   ): Promise<void> => {
     setBusy(true);
     setError(null);
-    const sequence = ++mutationSequence.current;
-    let refreshAfterFailure = false;
     try {
-      const next = await commitDatabaseManagementIntent({
+      const next = await commitDatabaseManagementOperations({
         projectId,
+        preferredDatabaseId: selectedDatabaseIdRef.current,
         operationId: crypto.randomUUID(),
         clientSessionId,
-        buildIntent,
+        buildOperations,
       });
-      if (sequence !== mutationSequence.current) return;
-      applySnapshot(next, preferredDatabaseBlockId);
+      applyAuthority(next);
     } catch (nextError) {
-      if (sequence !== mutationSequence.current) return;
       setError(messageForError(nextError));
-      refreshAfterFailure = true;
+      void refresh();
     } finally {
-      if (sequence === mutationSequence.current) setBusy(false);
+      setBusy(false);
     }
-    if (refreshAfterFailure) void refresh();
-  };
-
-  const createDatabase = async (draft: CreateDatabaseDraft) => {
-    const databaseBlockId = createUuidV7();
-    const viewId = crypto.randomUUID();
-    await mutate(
-      () => ({
-        kind: "create_database",
-        databaseBlockId,
-        name: draft.name,
-        initialView: {
-          id: viewId,
-          name: "All",
-          kind: "list",
-          config: emptyDatabaseViewConfig(),
-        },
-      }),
-      databaseBlockId,
-    );
   };
 
   const createProperty = async (draft: CreateDatabasePropertyDraft) => {
     const propertyId = crypto.randomUUID();
-    await mutate((authority) => ({
-      kind: "put_property",
-      mode: "create",
-      descriptor: authority.descriptor(draft.databaseBlockId),
-      property: {
-        id: propertyId,
+    await mutate((current) => {
+      if (current.selectedDataSource.dataSourceId !== draft.dataSourceId) {
+        throw new Error("Selected Data Source changed before property creation");
+      }
+      return [{
+        kind: "put_property",
+        dataSourceId: draft.dataSourceId,
+        propertyId,
+        expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
+        expectedPropertyRevision: 0,
         key: propertyKey(propertyId),
         name: draft.name,
         valueType: draft.valueType,
         config: propertyConfig(draft.valueType),
-      },
-    }));
+      }];
+    });
   };
 
   const deleteProperty = async (
-    databaseBlockId: string,
+    dataSourceId: string,
     propertyId: string,
   ) => {
-    await mutate((authority) => ({
-      kind: "delete_property",
-      descriptor: authority.descriptor(databaseBlockId),
-      propertyId,
-    }));
+    await mutate((current) => {
+      const property = current.source.properties.find(
+        (candidate) => candidate.propertyId === propertyId,
+      );
+      if (!property || property.dataSourceId !== dataSourceId) {
+        throw new Error(`Property is unavailable: ${propertyId}`);
+      }
+      return [{
+        kind: "delete_property",
+        dataSourceId,
+        propertyId,
+        expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
+        expectedPropertyRevision: property.revision,
+      }];
+    });
   };
 
   const createView = async (draft: CreateDatabaseViewDraft) => {
     const viewId = crypto.randomUUID();
-    await mutate((authority) => ({
-      kind: "put_view",
-      mode: "create",
-      descriptor: authority.descriptor(draft.databaseBlockId),
-      view: {
-        id: viewId,
-        name: draft.name,
-        kind: draft.kind,
-        config: emptyDatabaseViewConfig(),
-        isPrimary: false,
-      },
-    }));
-  };
-
-  const deleteView = async (databaseBlockId: string, viewId: string) => {
-    await mutate((authority) => ({
-      kind: "delete_view",
-      descriptor: authority.descriptor(databaseBlockId),
-      viewId,
-    }));
-  };
-
-  const updateView = async (draft: UpdateDatabaseViewDraft) => {
-    await mutate((authority) => {
-      const descriptor = authority.descriptor(draft.databaseBlockId);
-      const view = descriptor.value?.views.find(
-        (candidate) => candidate.id === draft.viewId,
-      );
-      if (!view) throw new Error(`Database View is unavailable: ${draft.viewId}`);
-      return {
+    await mutate((current) => {
+      if (
+        current.selectedDatabase.database.databaseId !== draft.databaseId
+        || current.selectedDataSource.dataSourceId !== draft.dataSourceId
+      ) {
+        throw new Error("Selected Database changed before View creation");
+      }
+      return [{
         kind: "put_view",
-        mode: "update",
-        descriptor,
-        expectedRevision: draft.expectedRevision,
-        ...(draft.beforeViewId === undefined
-          ? {}
-          : { beforeViewId: draft.beforeViewId }),
-        view: {
-          id: view.id,
-          name: draft.name,
-          kind: draft.kind,
-          config: draft.config,
-          isPrimary: view.isPrimary,
-        },
-      };
+        databaseId: draft.databaseId,
+        dataSourceId: draft.dataSourceId,
+        viewId,
+        expectedRevision: 0,
+        name: draft.name,
+        viewKind: draft.kind,
+        config: emptyDatabaseViewConfig(),
+        isDefault: false,
+      }];
     });
   };
 
-  const setMembership = async (draft: SetDatabaseMembershipDraft) => {
-    await mutate((authority) => {
-      const targetDescriptor = draft.databaseBlockId
-        ? authority.descriptor(draft.databaseBlockId).value
-        : null;
-      const targetView = targetDescriptor?.views.find(
-        (view) => view.lifecycle === "active" && view.id === draft.viewId,
-      ) ?? targetDescriptor?.views.find(
-        (view) => view.lifecycle === "active" && view.isPrimary,
-      ) ?? targetDescriptor?.views.find((view) => view.lifecycle === "active");
-      if (draft.databaseBlockId && !targetView) {
-        throw new Error(
-          `Target Database has no active durable View: ${draft.databaseBlockId}`,
-        );
+  const updateView = async (draft: UpdateDatabaseViewDraft) => {
+    await mutate((current) => {
+      const view = current.selectedDatabase.views.find(
+        (candidate) => candidate.viewId === draft.viewId,
+      );
+      if (!view || view.revision !== draft.expectedRevision) {
+        throw new Error(`View changed before save: ${draft.viewId}`);
       }
-      return {
-        kind: "set_membership",
-        authority: authority.management,
-        cardBlockId: draft.cardBlockId,
-        target: draft.databaseBlockId && targetView
-          ? {
-              databaseBlockId: draft.databaseBlockId,
-              viewId: targetView.id,
-              ...(draft.beforeCardBlockId
-                ? { beforeCardBlockId: draft.beforeCardBlockId }
-                : {}),
-            }
-          : null,
-      };
+      return [{
+        kind: "put_view",
+        databaseId: draft.databaseId,
+        dataSourceId: draft.dataSourceId,
+        viewId: draft.viewId,
+        expectedRevision: draft.expectedRevision,
+        name: draft.name,
+        viewKind: draft.kind,
+        config: draft.config,
+        isDefault: view.isDefault,
+        ...(draft.beforeViewId === undefined
+          ? {}
+          : { beforeViewId: draft.beforeViewId }),
+      }];
+    });
+  };
+
+  const deleteView = async (databaseId: string, viewId: string) => {
+    await mutate((current) => {
+      const view = current.selectedDatabase.views.find(
+        (candidate) => candidate.viewId === viewId,
+      );
+      if (!view || view.databaseId !== databaseId) {
+        throw new Error(`View is unavailable: ${viewId}`);
+      }
+      return [{
+        kind: "delete_view",
+        databaseId,
+        viewId,
+        expectedRevision: view.revision,
+      }];
     });
   };
 
   const putPropertyOption = async (
     draft: PutDatabasePropertyOptionDraft,
   ) => {
-    await mutate((authority) => ({
-      kind: "put_property_option",
-      mode: "create",
-      descriptor: authority.descriptor(draft.databaseBlockId),
-      propertyId: draft.propertyId,
-      option: draft.option,
-    }));
+    await mutate((current) => {
+      const property = current.source.properties.find(
+        (candidate) => candidate.propertyId === draft.propertyId,
+      );
+      if (!property || property.dataSourceId !== draft.dataSourceId) {
+        throw new Error(`Property is unavailable: ${draft.propertyId}`);
+      }
+      const options = readDatabasePropertyOptions(property);
+      if (options.some((option) => option.id === draft.option.id)) {
+        throw new Error(`Property option already exists: ${draft.option.id}`);
+      }
+      return [{
+        kind: "put_property",
+        dataSourceId: draft.dataSourceId,
+        propertyId: property.propertyId,
+        expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
+        expectedPropertyRevision: property.revision,
+        key: property.key,
+        name: property.name,
+        valueType: property.valueType,
+        config: replacePropertyOptions(property, [...options, draft.option]),
+      }];
+    });
   };
 
   const deletePropertyOption = async (
-    databaseBlockId: string,
+    dataSourceId: string,
     propertyId: string,
     optionId: string,
   ) => {
-    await mutate((authority) => ({
-      kind: "delete_property_option",
-      descriptor: authority.descriptor(databaseBlockId),
-      propertyId,
-      optionId,
-    }));
+    await mutate((current) => {
+      const property = current.source.properties.find(
+        (candidate) => candidate.propertyId === propertyId,
+      );
+      if (!property || property.dataSourceId !== dataSourceId) {
+        throw new Error(`Property is unavailable: ${propertyId}`);
+      }
+      const options = readDatabasePropertyOptions(property);
+      if (!options.some((option) => option.id === optionId)) {
+        throw new Error(`Property option is unavailable: ${optionId}`);
+      }
+      return [{
+        kind: "put_property",
+        dataSourceId,
+        propertyId,
+        expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
+        expectedPropertyRevision: property.revision,
+        key: property.key,
+        name: property.name,
+        valueType: property.valueType,
+        config: replacePropertyOptions(
+          property,
+          options.filter((option) => option.id !== optionId),
+        ),
+      }];
+    });
   };
 
   return (
     <DatabaseManagementDialog
       open={open}
-      catalog={snapshot?.value?.catalog ?? { databases: [] }}
-      cards={snapshot?.value?.cards ?? []}
-      selectedDatabaseBlockId={selectedDatabaseBlockId}
-      busy={busy || snapshot === null}
+      databases={authority?.databases ?? []}
+      source={authority?.source ?? null}
+      selectedDatabaseId={selectedDatabaseId}
+      busy={busy || authority === null}
       error={error}
       onOpenChange={onOpenChange}
-      onSelectDatabase={setSelectedDatabaseBlockId}
-      onCreateDatabase={createDatabase}
+      onSelectDatabase={selectDatabase}
       onCreateProperty={createProperty}
       onDeleteProperty={deleteProperty}
       onCreateView={createView}
       onUpdateView={updateView}
       onDeleteView={deleteView}
-      onSetMembership={setMembership}
       onPutPropertyOption={putPropertyOption}
       onDeletePropertyOption={deletePropertyOption}
     />

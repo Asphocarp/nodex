@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { createDefaultDockTree, type DockTreeNode } from "./dock-layout";
-import type { CardStageState } from "./use-card-stage";
+import type { PageStageState } from "./use-page-stage";
 import type {
   FilesStageTab,
-  RecentCardSession,
+  RecentPageSession,
   SidebarGroupId,
   SidebarSectionState,
   StageId,
@@ -17,18 +17,18 @@ import type {
   NavigationSnapshot,
 } from "./workbench-navigation-history";
 import {
-  WorkbenchRecentCardSessionSchema,
+  WorkbenchRecentPageSessionSchema,
   WorkbenchStageIdSchema,
   WorkbenchStageNavDirectionSchema,
   WorkbenchViewSchema,
 } from "../../shared/schemas/workbench";
 import { parseValueWithSchema } from "../../shared/schemas/storage";
 
-const NavigationCardStageStateSchema = z.object({
+const NavigationPageStageStateSchema = z.object({
   open: z.boolean(),
   projectId: z.string(),
-  cardId: z.string().nullable(),
-}) satisfies z.ZodType<CardStageState>;
+  pageId: z.string().nullable(),
+}) satisfies z.ZodType<PageStageState>;
 const UnknownRecordSchema = z.record(z.string(), z.unknown());
 const UnknownArraySchema = z.array(z.unknown());
 
@@ -37,8 +37,8 @@ export const NavigationSnapshotSchema = z.object({
   activeView: WorkbenchViewSchema,
   focusedStage: WorkbenchStageIdSchema,
   stageNavDirection: WorkbenchStageNavDirectionSchema,
-  cardStage: NavigationCardStageStateSchema,
-  activeCardsTabId: z.string(),
+  pageStage: NavigationPageStageStateSchema,
+  activePagesTabId: z.string(),
   activeRecentSessionId: z.string().nullable(),
   threadsProjectId: z.string().min(1),
   activeThreadsTabId: z.string(),
@@ -61,11 +61,11 @@ export const NavigationHistoryStateSchema = z.object({
 const SidebarGroupIdSchema = z.enum([
   "db",
   "recents",
-  "cards",
+  "pages",
   "threads",
   "files",
 ]) satisfies z.ZodType<SidebarGroupId>;
-const WORKBENCH_STAGE_IDS = new Set<StageId>(["db", "cards", "threads", "files"]);
+const WORKBENCH_STAGE_IDS = new Set<StageId>(["db", "pages", "threads", "files"]);
 
 const ThreadsStageTabSchema = z.object({
   id: z.string(),
@@ -93,7 +93,7 @@ const SearchMapSchema = UnknownRecordSchema.transform((value) =>
     return acc;
   }, {}),
 );
-const SpaceOrderSchema = UnknownArraySchema.transform((value) =>
+const ProjectOrderSchema = UnknownArraySchema.transform((value) =>
   value.filter((item): item is string => typeof item === "string" && item.length > 0),
 );
 const SidebarStageExpandedSchema = UnknownRecordSchema.transform((value) =>
@@ -138,9 +138,9 @@ const FilesStageTabsSchema = UnknownArraySchema.transform((items) =>
     .filter((result) => result.success)
     .map((result) => result.data),
 );
-const RecentCardSessionsSchema = UnknownArraySchema.transform((items) =>
+const RecentPageSessionsSchema = UnknownArraySchema.transform((items) =>
   items
-    .map((item) => WorkbenchRecentCardSessionSchema.safeParse(item))
+    .map((item) => WorkbenchRecentPageSessionSchema.safeParse(item))
     .filter((result) => result.success)
     .map((result) => result.data),
 );
@@ -176,12 +176,12 @@ export function parseWorkbenchSearchMap(value: unknown): Record<string, string> 
   return parseValueWithSchema(value, SearchMapSchema, {});
 }
 
-export function parseWorkbenchSpaceOrder(value: unknown): string[] {
-  return parseValueWithSchema(value, SpaceOrderSchema, []);
+export function parseWorkbenchProjectOrder(value: unknown): string[] {
+  return parseValueWithSchema(value, ProjectOrderSchema, []);
 }
 
-export function parseWorkbenchRecentSessions(value: unknown, maxSessions: number): RecentCardSession[] {
-  return parseValueWithSchema(value, RecentCardSessionsSchema, []).slice(0, maxSessions);
+export function parseWorkbenchRecentSessions(value: unknown, maxSessions: number): RecentPageSession[] {
+  return parseValueWithSchema(value, RecentPageSessionsSchema, []).slice(0, maxSessions);
 }
 
 export function parseWorkbenchStageMap(value: unknown): Record<string, StageId> {

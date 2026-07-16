@@ -1,13 +1,13 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { MAX_CARD_TITLE_LENGTH } from "../../shared/card-limits";
-import { createUuidV7 } from "../../shared/card-id";
+import { MAX_PAGE_TITLE_LENGTH } from "../../shared/page-limits";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import {
   createCanonicalEmptyParagraphBlock,
-  materializeCardDocument,
+  materializePageDocument,
   type BlockTreeNode,
 } from "../../shared/block-documents/block-document-codec";
-import { assessBlockSemanticContentForCard } from "../../shared/block-documents/block-semantic-content";
+import { assessBlockSemanticContentForPage } from "../../shared/block-documents/block-semantic-content";
 import type { DocumentBlockOperation } from "../../shared/block-documents/document-operations";
 import {
   plainTextToPortableRichText,
@@ -164,7 +164,7 @@ const isPermanentlyRetiredCard = (
       .prepare(
         `SELECT 1 AS present
          FROM retired_block_identities
-         WHERE block_id = ? AND project_id = ? AND block_type = 'card'`,
+         WHERE block_id = ? AND project_id = ? AND block_type = 'page'`,
       )
       .get(candidate.cardId, candidate.projectId),
   );
@@ -416,7 +416,7 @@ const legacyProjectedTitle = (plainText: string): string => {
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .find((line) => line.length > 0);
-  return (firstLine ?? "Untitled").slice(0, MAX_CARD_TITLE_LENGTH);
+  return (firstLine ?? "Untitled").slice(0, MAX_PAGE_TITLE_LENGTH);
 };
 
 const prepareRepair = (
@@ -444,7 +444,7 @@ const prepareRepair = (
     };
   }
   try {
-    const materialization = materializeCardDocument(loaded.document);
+    const materialization = materializePageDocument(loaded.document);
     const currentRoot = materialization.blockTree.find(
       (root) => root.id === candidate.insertedRoot.id,
     );
@@ -471,7 +471,7 @@ const prepareRepair = (
 
     let assessment;
     try {
-      assessment = assessBlockSemanticContentForCard(candidate.insertedRoot);
+      assessment = assessBlockSemanticContentForPage(candidate.insertedRoot);
     } catch (error) {
       return {
         kind: "issue",

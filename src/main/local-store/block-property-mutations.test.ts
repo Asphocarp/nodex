@@ -8,7 +8,7 @@ import {
   type BlockPropertyFieldMutation,
   type BlockPropertyMutationRequest,
 } from "../../shared/block-property-mutations";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createProject } from "./projects";
 import {
@@ -64,7 +64,7 @@ const withFixture = async (
   try {
     await initializeDatabase();
     const project = createProject({ name: "Property mutations" });
-    const card = await createCard(project.id, "draft", { title: "Mutable" });
+    const card = await createPage(project.id, "draft", { title: "Mutable" });
     const database = getDb();
     const store = database
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
@@ -74,7 +74,7 @@ const withFixture = async (
         `
         SELECT database_block_id
         FROM database_memberships
-        WHERE card_block_id = ? AND project_id = ? AND removed_at IS NULL
+        WHERE page_block_id = ? AND project_id = ? AND removed_at IS NULL
       `,
       )
       .get(card.id, project.id) as { readonly database_block_id: string };
@@ -155,7 +155,7 @@ const readDatabaseValue = (
       INNER JOIN database_property_values value
         ON value.membership_id = membership.id
         AND value.property_id = property.id
-      WHERE membership.card_block_id = ?
+      WHERE membership.page_block_id = ?
         AND membership.project_id = ?
         AND membership.removed_at IS NULL
     `,
@@ -203,8 +203,8 @@ const readProjectionSnapshot = (fixture: PropertyFixture): string => {
         lifecycle, scheduled_start, scheduled_end, is_all_day,
         recurrence_json, reminders_json, schedule_timezone,
         source_metadata_revision
-      FROM scheduled_card_index
-      WHERE card_block_id = ? AND project_id = ?
+      FROM scheduled_page_index
+      WHERE page_block_id = ? AND project_id = ?
     `,
     )
     .get(fixture.cardId, fixture.projectId);
@@ -214,8 +214,8 @@ const readProjectionSnapshot = (fixture: PropertyFixture): string => {
       SELECT
         metadata_revision, database_values_json, intrinsic_properties_json,
         property_revisions_json
-      FROM card_read_model
-      WHERE card_block_id = ? AND project_id = ?
+      FROM page_read_model
+      WHERE page_block_id = ? AND project_id = ?
     `,
     )
     .get(fixture.cardId, fixture.projectId);
@@ -310,7 +310,7 @@ describe("Block property mutation store", () => {
         const request = makeRequest(fixture, "property-batch-1", [
           {
             scope: "database",
-            cardBlockId: fixture.cardId,
+            pageId: fixture.cardId,
             databaseBlockId: fixture.databaseBlockId,
             propertyId: requirePropertyId(fixture, "priority"),
             operation: "set",
@@ -529,7 +529,7 @@ describe("Block property mutation store", () => {
         const add = makeRequest(fixture, "tags-add", [
           {
             scope: "database",
-            cardBlockId: fixture.cardId,
+            pageId: fixture.cardId,
             databaseBlockId: fixture.databaseBlockId,
             propertyId: requirePropertyId(fixture, "tags"),
             operation: "add_remove",
@@ -546,7 +546,7 @@ describe("Block property mutation store", () => {
         const exchange = makeRequest(fixture, "tags-exchange", [
           {
             scope: "database",
-            cardBlockId: fixture.cardId,
+            pageId: fixture.cardId,
             databaseBlockId: fixture.databaseBlockId,
             propertyId: requirePropertyId(fixture, "tags"),
             operation: "add_remove",
@@ -578,7 +578,7 @@ describe("Block property mutation store", () => {
           makeRequest(fixture, "tags-scalar", [
             {
               scope: "database",
-              cardBlockId: fixture.cardId,
+              pageId: fixture.cardId,
               databaseBlockId: fixture.databaseBlockId,
               propertyId: requirePropertyId(fixture, "tags"),
               operation: "set",
@@ -605,7 +605,7 @@ describe("Block property mutation store", () => {
           makeRequest(fixture, "status-group", [
             {
               scope: "database",
-              cardBlockId: fixture.cardId,
+              pageId: fixture.cardId,
               databaseBlockId: fixture.databaseBlockId,
               propertyId: requirePropertyId(fixture, "status"),
               operation: "set",
@@ -622,7 +622,7 @@ describe("Block property mutation store", () => {
           makeRequest(fixture, "invalid-status", [
             {
               scope: "database",
-              cardBlockId: fixture.cardId,
+              pageId: fixture.cardId,
               databaseBlockId: fixture.databaseBlockId,
               propertyId: requirePropertyId(fixture, "status"),
               operation: "set",
@@ -692,7 +692,7 @@ describe("Block property mutation store", () => {
           makeRequest(fixture, "all-day-range", [
             {
               scope: "database",
-              cardBlockId: fixture.cardId,
+              pageId: fixture.cardId,
               databaseBlockId: fixture.databaseBlockId,
               propertyId: requirePropertyId(fixture, "scheduled_start"),
               operation: "set",
@@ -701,7 +701,7 @@ describe("Block property mutation store", () => {
             },
             {
               scope: "database",
-              cardBlockId: fixture.cardId,
+              pageId: fixture.cardId,
               databaseBlockId: fixture.databaseBlockId,
               propertyId: requirePropertyId(fixture, "scheduled_end"),
               operation: "set",
@@ -725,8 +725,8 @@ describe("Block property mutation store", () => {
             SELECT
               scheduled_start, scheduled_end, is_all_day,
               source_metadata_revision
-            FROM scheduled_card_index
-            WHERE card_block_id = ? AND project_id = ?
+            FROM scheduled_page_index
+            WHERE page_block_id = ? AND project_id = ?
           `,
           )
           .get(fixture.cardId, fixture.projectId) as {
@@ -764,7 +764,7 @@ describe("Block property mutation store", () => {
           const request = makeRequest(fixture, `fault-${point}`, [
             {
               scope: "database",
-              cardBlockId: fixture.cardId,
+              pageId: fixture.cardId,
               databaseBlockId: fixture.databaseBlockId,
               propertyId: requirePropertyId(fixture, "status"),
               operation: "set",

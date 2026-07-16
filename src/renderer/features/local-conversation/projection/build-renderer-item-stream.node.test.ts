@@ -949,7 +949,7 @@ describe("buildRendererItemStream", () => {
         threadId: "thread_1",
         turnId: "turn_1",
         itemId: "call-v3",
-        tool: "create_cards",
+        tool: "create_pages",
         effect: "write",
         preview: {
           title: "Create launch Cards",

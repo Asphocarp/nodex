@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { BlockMutationWriter } from "../src/main/block-mutation-writer";
-import { createCard } from "../src/main/local-store/cards";
+import { createPage } from "../src/main/local-store/database-pages";
 import { getDatabasePath } from "../src/main/local-store/config";
 import {
   closeDatabase,
@@ -37,7 +37,7 @@ const run = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Property worker" });
-    const card = await createCard(project.id, "draft", {
+    const card = await createPage(project.id, "draft", {
       title: "Property worker Card",
     });
     const database = getDb();
@@ -104,7 +104,7 @@ const run = async (): Promise<void> => {
     );
     invariant(
       prepared.ok && prepared.value.sync.kind === "yjs",
-      "Worker did not expose Card Document authority",
+      "Worker did not expose Page Document authority",
     );
 
     const priority = propertyCoordinates.priority;
@@ -120,7 +120,7 @@ const run = async (): Promise<void> => {
       fields: [
         {
           scope: "database",
-          cardBlockId: card.id,
+          pageId: card.id,
           databaseBlockId: membership.database_block_id,
           propertyId: priority.id,
           operation: "set",
@@ -167,7 +167,7 @@ const run = async (): Promise<void> => {
       fields: [
         {
           scope: "database",
-          cardBlockId: card.id,
+          pageId: card.id,
           databaseBlockId: membership.database_block_id,
           propertyId: status.id,
           operation: "set",

@@ -1,0 +1,209 @@
+import { describe, expect, test } from "vitest";
+
+import type {
+  DatabaseApply,
+  DatabaseApplyResult,
+  DatabaseModuleReadSnapshot,
+} from "../../shared/database-module";
+import {
+  commitDatabasePageDrag,
+  DatabasePageDragMutationError,
+  type DatabasePageDragRuntimeDependencies,
+} from "./database-page-drag-runtime";
+
+const timestamp = "2026-07-16T00:00:00.000Z";
+
+const snapshot = (): DatabaseModuleReadSnapshot => ({
+  version: 1,
+  projectId: "project-1",
+  libraryId: "library-1",
+  storeEpoch: "epoch-1",
+  changeLogSeq: 1,
+  value: {
+    kind: "query",
+    value: {
+      database: {
+        databaseId: "database-1",
+        libraryId: "library-1",
+        name: "Work",
+        lifecycle: "active",
+        defaultViewId: "view-1",
+        accessRevision: 1,
+        metadataRevision: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      dataSource: {
+        dataSourceId: "source-1",
+        libraryId: "library-1",
+        homeDatabaseId: "database-1",
+        name: "Pages",
+        schemaKey: "nodex.pages",
+        schemaRevision: 1,
+        lifecycle: "active",
+        rankKey: "a",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      view: {
+        viewId: "view-1",
+        databaseId: "database-1",
+        dataSourceId: "source-1",
+        name: "Board",
+        kind: "kanban",
+        config: {
+          schemaKey: "nodex.database-view",
+          schemaVersion: 1,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [{
+            field: { kind: "manual" },
+            direction: "asc",
+            nulls: "last",
+          }],
+          group: { propertyId: "status" },
+          display: { propertyIds: [], showTitle: true },
+        },
+        isDefault: true,
+        revision: 1,
+        rankKey: "a",
+        lifecycle: "active",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      properties: [{
+        propertyId: "status",
+        dataSourceId: "source-1",
+        key: "status",
+        name: "Status",
+        valueType: "select",
+        config: {},
+        rankKey: "a",
+        lifecycle: "active",
+        revision: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }],
+      rows: [{
+        page: {
+          pageId: "page-1",
+          libraryId: "library-1",
+          parent: { kind: "data_source", dataSourceId: "source-1" },
+          lifecycle: "active",
+          parentRevision: 1,
+          metadataRevision: 1,
+          documentId: "document:page-1",
+          documentGeneration: 1,
+          documentHeadSeq: 1,
+          title: "Page",
+          richTitle: [],
+          preview: "",
+          plainText: "",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        membership: {
+          membershipId: "membership-1",
+          dataSourceId: "source-1",
+          revision: 1,
+          createdAt: timestamp,
+        },
+        values: {
+          status: {
+            propertyId: "status",
+            valueType: "select",
+            value: "draft",
+            revision: 2,
+          },
+        },
+        position: { groupKey: "draft", rankKey: "a", revision: 3 },
+        effectiveGroupKey: "draft",
+      }],
+    },
+  },
+});
+
+const committed = (request: DatabaseApply): DatabaseApplyResult => ({
+  ok: true,
+  value: {
+    version: 1,
+    operationId: request.operationId,
+    projectId: request.projectId,
+    libraryId: "library-1",
+    storeEpoch: request.storeEpoch,
+    duplicate: true,
+    operationKinds: request.operations.map((operation) => operation.kind),
+    affectedDatabaseIds: ["database-1"],
+    affectedDataSourceIds: ["source-1"],
+    affectedPageIds: ["page-1"],
+    affectedViewIds: ["view-1"],
+    committedRevisions: {},
+    changeLogSeq: 2,
+    committedAt: timestamp,
+  },
+});
+
+describe("Database Page drag runtime", () => {
+  test("retains the exact Page apply request across a lost response retry", async () => {
+    const requests: DatabaseApply[] = [];
+    const dependencies: DatabasePageDragRuntimeDependencies = {
+      read: async () => ({ ok: true, value: snapshot() }),
+      apply: async (_projectId, request) => {
+        requests.push(request);
+        if (requests.length === 1) throw new Error("response lost");
+        return committed(request);
+      },
+    };
+
+    await expect(commitDatabasePageDrag({
+      projectId: "project-1",
+      clientSessionId: "window-1",
+      operationId: "drag-1",
+      move: {
+        pageId: "page-1",
+        fromStatus: "draft",
+        toStatus: "done",
+      },
+      dependencies,
+    })).resolves.toBe(true);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toBe(requests[1]);
+    expect(requests[0]?.actor).toEqual({
+      kind: "renderer_page_drag",
+      clientSessionId: "window-1",
+    });
+    expect(requests[0]?.operations.map((operation) => operation.kind)).toEqual([
+      "set_value",
+      "position_page",
+    ]);
+  });
+
+  test("refreshes once after a typed revision conflict", async () => {
+    let reads = 0;
+    const dependencies: DatabasePageDragRuntimeDependencies = {
+      read: async () => {
+        reads += 1;
+        return { ok: true, value: snapshot() };
+      },
+      apply: async () => ({
+        ok: false,
+        error: {
+          code: "revision_conflict",
+          message: "Page changed",
+          retryable: false,
+        },
+      }),
+    };
+
+    await expect(commitDatabasePageDrag({
+      projectId: "project-1",
+      operationId: "drag-stale",
+      move: {
+        pageId: "page-1",
+        fromStatus: "draft",
+        toStatus: "done",
+      },
+      dependencies,
+    })).rejects.toBeInstanceOf(DatabasePageDragMutationError);
+    expect(reads).toBe(2);
+  });
+});

@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { MAX_CARD_TITLE_LENGTH } from "../../shared/card-limits";
+import { MAX_PAGE_TITLE_LENGTH } from "../../shared/page-limits";
 
 export interface YTextContiguousEdit {
   /** Yjs index measured in UTF-16 code units. */
@@ -53,9 +53,9 @@ const assertCanonicalTitle = (value: unknown, field: string): string => {
   if (typeof value !== "string") {
     throw new YTextInputReconciliationError(`${field} must be a string`);
   }
-  if (value.length > MAX_CARD_TITLE_LENGTH) {
+  if (value.length > MAX_PAGE_TITLE_LENGTH) {
     throw new YTextInputReconciliationError(
-      `${field} exceeds ${MAX_CARD_TITLE_LENGTH} UTF-16 code units`,
+      `${field} exceeds ${MAX_PAGE_TITLE_LENGTH} UTF-16 code units`,
     );
   }
   return value;

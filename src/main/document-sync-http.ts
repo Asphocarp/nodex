@@ -13,13 +13,15 @@ import {
   encodeDocumentSyncHttpResponse,
 } from "../shared/block-documents/http-contract";
 import {
-  MAX_CARD_DOCUMENT_STATE_BYTES,
-  MAX_CARD_DOCUMENT_UPDATE_BYTES,
+  MAX_PAGE_DOCUMENT_STATE_BYTES,
+  MAX_PAGE_DOCUMENT_UPDATE_BYTES,
 } from "../shared/block-documents/contracts";
 import type { OwnedDocumentDescriptor } from "../shared/block-documents/contracts";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   parseDocumentRelocationLeaseResponseRequest,
+  type DocumentAccessAck,
+  type DocumentAccessKind,
   type DocumentSyncCommandError,
   type DocumentSyncCommandResult,
   type DocumentSyncRealtimeEvent,
@@ -50,18 +52,20 @@ import {
 const SSE_PING_INTERVAL_MS = 30_000;
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 const MAX_SYNC_REQUEST_BYTES =
-  MAX_DOCUMENT_HTTP_METADATA_BYTES + MAX_CARD_DOCUMENT_STATE_BYTES + 8;
+  MAX_DOCUMENT_HTTP_METADATA_BYTES + MAX_PAGE_DOCUMENT_STATE_BYTES + 8;
 const MAX_APPLY_REQUEST_BYTES =
-  MAX_DOCUMENT_HTTP_METADATA_BYTES + MAX_CARD_DOCUMENT_UPDATE_BYTES + 8;
+  MAX_DOCUMENT_HTTP_METADATA_BYTES + MAX_PAGE_DOCUMENT_UPDATE_BYTES + 8;
 const MAX_AWARENESS_REQUEST_BYTES =
   MAX_DOCUMENT_HTTP_METADATA_BYTES + MAX_DOCUMENT_AWARENESS_UPDATE_BYTES + 8;
 const MAX_RELOCATION_LEASE_RESPONSE_BYTES = 8 * 1024;
 
 export interface DocumentSyncHttpDependencies {
   readonly hub: DocumentSyncHub;
-  readonly getDocumentProjectId: (
+  readonly authorizeDocumentAccess: (
+    projectId: string,
     documentId: string,
-  ) => Promise<DocumentSyncCommandResult<string>>;
+    access: DocumentAccessKind,
+  ) => Promise<DocumentSyncCommandResult<DocumentAccessAck>>;
   readonly getOwnedDocumentDescriptor: (
     projectId: string,
     ownerBlockId: string,
@@ -283,10 +287,15 @@ const resolveProjectScope = async (
   dependencies: DocumentSyncHttpDependencies,
   projectId: string,
   documentId: string,
+  access: DocumentAccessKind = "read",
 ): Promise<DocumentSyncCommandError | null> => {
-  let result: DocumentSyncCommandResult<string>;
+  let result: DocumentSyncCommandResult<DocumentAccessAck>;
   try {
-    result = await dependencies.getDocumentProjectId(documentId);
+    result = await dependencies.authorizeDocumentAccess(
+      projectId,
+      documentId,
+      access,
+    );
   } catch {
     return commandError(
       "transport_unavailable",
@@ -295,11 +304,15 @@ const resolveProjectScope = async (
     );
   }
   if (!result.ok) return result.error;
-  if (result.value === projectId) return null;
-  return commandError(
-    "document_not_found",
-    "Document does not exist in this Project",
-  );
+  if (
+    result.value.authorized &&
+    result.value.projectId === projectId &&
+    result.value.documentId === documentId &&
+    result.value.access === access
+  ) {
+    return null;
+  }
+  return commandError("invalid_response", "Document access escaped its scope");
 };
 
 const requireBrowserClient = (
@@ -640,6 +653,13 @@ export const registerDocumentSyncHttpRoutes = (
         const request = decodeCanvasSceneMutationRequestHttp(
           await readCanvasJsonBody(context), projectId, documentId,
         );
+        const scopeError = await resolveProjectScope(
+          dependencies,
+          projectId,
+          documentId,
+          "write",
+        );
+        if (scopeError) return errorResponse(scopeError);
         const client = clients.get(projectId, request, "canvas_scene");
         if (!client) return invalidRequest("Open the Canvas event stream before mutating");
         const result = await dependencies.hub.applyCanvasSceneMutation(client.target, request);
@@ -667,6 +687,7 @@ export const registerDocumentSyncHttpRoutes = (
           dependencies,
           projectId,
           documentId,
+          "write",
         );
         if (scopeError) return errorResponse(scopeError);
         const client = requireBrowserClient(clients, projectId, request);

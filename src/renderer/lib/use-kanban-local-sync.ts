@@ -1,11 +1,11 @@
-import type { CardInput } from "./types";
+import type { PageInput } from "./types";
 
 export interface KanbanLocalPatchMutation {
   type: "patch";
   sourceInstanceId: symbol;
   columnId: string;
-  cardId: string;
-  updates: Partial<CardInput>;
+  pageId: string;
+  updates: Partial<PageInput>;
 }
 
 export interface KanbanLocalRefreshMutation {

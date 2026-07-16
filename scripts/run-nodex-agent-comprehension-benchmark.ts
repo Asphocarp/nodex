@@ -6,9 +6,9 @@ import {
 
 const [inputPath, outputPath] = process.argv.slice(2).filter((argument) => argument !== "--");
 
-if (!inputPath || inputPath === "--v3") {
+if (!inputPath || inputPath === "--v4") {
   console.log(JSON.stringify(
-    createNodexAgentComprehensionTemplate(inputPath === "--v3" ? 3 : 2),
+    createNodexAgentComprehensionTemplate(inputPath === "--v4" ? 4 : 2),
     null,
     2,
   ));

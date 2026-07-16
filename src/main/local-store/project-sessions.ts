@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./database";
-import { requireProjectId } from "./projects";
+import { requireActiveProjectId, requireProjectId } from "./projects";
 import {
   ProjectSessionCreateInputSchema,
   ProjectSessionPanelActivateInputSchema,
@@ -76,9 +76,9 @@ import type {
   ProjectSessionUpdateInput,
 } from "../../shared/types";
 import {
-  readGeneralDatabaseDescriptor,
-  readPrimaryGeneralDatabaseDescriptor,
-} from "./database-query";
+  DATABASE_MODULE_CONTRACT_VERSION,
+} from "../../shared/database-module";
+import { readDatabaseModule } from "./database-module";
 import {
   getCodexThread,
   upsertCodexThread,
@@ -286,42 +286,43 @@ function resolveActiveDatabaseViewConfig(
 ): ResolvedProjectSessionDbViewTabConfig {
   const projectId = requireProjectId(config.projectId);
   if (!config.databaseViewId) {
-    const descriptor = readPrimaryGeneralDatabaseDescriptor(projectId, database);
-    const primaryViews = descriptor?.views.filter(
-      (view) => view.lifecycle === "active" && view.isPrimary,
-    ) ?? [];
-    if (primaryViews.length !== 1) {
-      throw new Error(
-        `Legacy Database View tab cannot resolve one active primary View for Project ${projectId}`,
-      );
-    }
-    const primaryView = primaryViews[0];
+    const result = readDatabaseModule(database, {
+      version: DATABASE_MODULE_CONTRACT_VERSION,
+      projectId,
+      read: { target: { kind: "project_default" }, mode: "database" },
+    });
+    const descriptor = result.ok && result.value.value.kind === "database"
+      ? result.value.value.value
+      : null;
+    const primaryView = descriptor?.views.find(
+      (view) =>
+        view.lifecycle === "active"
+        && view.viewId === descriptor.database.defaultViewId,
+    );
     if (!primaryView) {
       throw new Error(
-        `Legacy Database View tab cannot resolve one active primary View for Project ${projectId}`,
+        `Database View tab cannot resolve the active default View for Project ${projectId}`,
       );
     }
     return {
       projectId,
-      databaseViewId: primaryView.id,
+      databaseViewId: primaryView.viewId,
       view: config.view,
     };
   }
 
-  const pointer = database.prepare(`
-    SELECT database_block_id
-    FROM database_views
-    WHERE id = ? AND project_id = ?
-    LIMIT 1
-  `).get(config.databaseViewId, projectId) as {
-    readonly database_block_id: string;
-  } | undefined;
-  const descriptor = pointer
-    ? readGeneralDatabaseDescriptor(projectId, pointer.database_block_id, database)
+  const result = readDatabaseModule(database, {
+    version: DATABASE_MODULE_CONTRACT_VERSION,
+    projectId,
+    read: {
+      target: { kind: "view", viewId: config.databaseViewId },
+      mode: "view",
+    },
+  });
+  const activeView = result.ok && result.value.value.kind === "view"
+    && result.value.value.value.lifecycle === "active"
+    ? result.value.value.value
     : null;
-  const activeView = descriptor?.views.find(
-    (view) => view.id === config.databaseViewId && view.lifecycle === "active",
-  );
   if (!activeView) {
     throw new Error(
       `Active Database View ${config.databaseViewId} was not found in Project ${projectId}`,
@@ -330,7 +331,7 @@ function resolveActiveDatabaseViewConfig(
 
   return {
     projectId,
-    databaseViewId: activeView.id,
+    databaseViewId: activeView.viewId,
     view: config.view,
   };
 }
@@ -573,6 +574,13 @@ function normalizeProjectSessionProjectId(projectId: string | null): string | nu
   return ensureProjectExists(projectId);
 }
 
+function normalizeNewProjectSessionProjectId(
+  projectId: string | null,
+): string | null {
+  if (projectId === null) return null;
+  return requireActiveProjectId(projectId);
+}
+
 function projectSessionWhereClause(projectId: string | null): {
   sql: string;
   values: Array<string | number>;
@@ -744,7 +752,7 @@ export function listProjectSessionThreadOwners(threadId: string): ProjectSession
 
 export function createProjectSession(input: ProjectSessionCreateInput): ProjectSession {
   const parsed = ProjectSessionCreateInputSchema.parse(input);
-  const projectId = normalizeProjectSessionProjectId(parsed.projectId);
+  const projectId = normalizeNewProjectSessionProjectId(parsed.projectId);
 
   const database = getDb();
   const now = new Date().toISOString();

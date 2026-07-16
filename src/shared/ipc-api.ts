@@ -1,18 +1,18 @@
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
   DocumentAwarenessPublishAck,
-  DocumentAwarenessPublishRequest,
   DocumentRelocationLeaseResponseAck,
-  DocumentRelocationLeaseResponseRequest,
   DocumentSyncApplyAck,
-  DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
   DocumentSyncRealtimeEvent,
-  DocumentSyncRequest,
   DocumentSyncResponse,
-  DocumentSyncSubscribeRequest,
   DocumentSyncSubscriptionAck,
   DocumentSyncUnsubscribeAck,
+  ProjectScopedDocumentAwarenessPublishRequest,
+  ProjectScopedDocumentRelocationLeaseResponseRequest,
+  ProjectScopedDocumentSyncApplyRequest,
+  ProjectScopedDocumentSyncRequest,
+  ProjectScopedDocumentSyncSubscribeRequest,
 } from "./block-documents/document-sync";
 import type {
   CanvasSceneMutationCommandResult,
@@ -25,8 +25,6 @@ import type {
 import type {
   OwnedDocumentDescriptor,
 } from "./block-documents/contracts";
-import type { CardProjectTransferCommandResult } from "./card-project-transfer";
-import type { PublicCardProjectTransferIntent } from "./card-project-transfer-transport";
 import type { BlockTransferCommandResult } from "./block-transfer";
 import type { PublicBlockTransferIntent } from "./block-transfer-transport";
 import type {
@@ -47,34 +45,26 @@ import type {
   BlockPropertyMutationRequest,
 } from "./block-property-mutations";
 import type {
-  DatabaseMutationCommandResult,
-  DatabaseMutationRequest,
-} from "./database-kernel";
-import type {
-  DatabaseCatalogSnapshotCommandResult,
-  DatabaseManagementSnapshotCommandResult,
-  DatabaseReadCommandResult,
-  DatabaseViewSnapshotCommandResult,
-  GeneralDatabaseDescriptor,
-  GeneralDatabaseViewQuery,
-  PrimaryDatabaseViewSnapshotCommandResult,
-} from "./database-query";
+  DatabaseApply,
+  DatabaseApplyResult,
+  DatabaseModuleReadRequest,
+  DatabaseModuleReadResult,
+} from "./database-module";
 import type { DatabaseChangeEvent } from "./database-events";
 import type {
-  CardLifecycleMutationCommandResult,
-  CardLifecycleMutationRequest,
-} from "./card-lifecycle";
-import type { CardLifecyclePreflightResult } from "./card-lifecycle-runtime";
-import type { ListCardHistoryRequest } from "./card-history";
-import type { CardHistoryCommandResult } from "./card-history-transport";
-import type { CardMetadataPropertySnapshotCommandResult } from "./card-metadata-property-snapshot-transport";
-import type { CardDetailCommandResult } from "./card-detail";
+  PageLifecycleMutationCommandResult,
+  PageLifecycleMutationRequest,
+} from "./page-lifecycle";
+import type { PageLifecyclePreflightResult } from "./page-lifecycle-runtime";
+import type { ListPageHistoryRequest } from "./page-history";
+import type { PageHistoryCommandResult } from "./page-history-transport";
+import type { PageDetailResult } from "./page-detail";
 import type { AdditionalDocumentCommandResult } from "./additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "./additional-document-command-transport";
 import type {
-  CardTargetReadModel,
-  ResolveCardTargetInput,
-} from "./card-targets";
+  PageTargetReadModel,
+  ResolvePageTargetInput,
+} from "./page-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
@@ -239,16 +229,16 @@ import type {
   UpdateWorktreeEnvironmentConfigInput,
   UpdateCodexDeveloperInstructionSettingsInput,
   UpdateCodexGitSettingsInput,
-  CalendarOccurrence,
+  PageOccurrence,
   ClipboardPasteInspectionResult,
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
-  Card,
-  CardSummary,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
+  DatabasePage,
+  DatabasePageSummary,
   DatabaseRowsDetailsInput,
-  CardSearchInput,
-  CardSearchResult,
+  PageSearchInput,
+  PageSearchResult,
   CommandPaletteThreadContentSearchInput,
   CommandPaletteThreadContentSearchResult,
   CommandPaletteThreadIndexUpdatedEvent,
@@ -409,10 +399,10 @@ export interface QueryResult {
 export interface BoardChangeEvent {
   projectId: string;
   changeType: string;
-  columnId: Card["status"];
-  status: Card["status"];
-  cardId?: string;
-  summary?: CardSummary;
+  columnId: DatabasePage["status"];
+  status: DatabasePage["status"];
+  pageId?: string;
+  summary?: DatabasePageSummary;
   mutationId?: string;
   metrics?: {
     workerDurationMs?: number;
@@ -474,13 +464,13 @@ export interface RendererDiagnosticsLogInput {
 }
 
 export interface IpcApi {
-  "cards:metadata-properties:snapshot": {
-    args: [projectId: string, cardBlockId: string];
-    result: CardMetadataPropertySnapshotCommandResult;
+  "pages:detail:get": {
+    args: [projectId: string, pageId: string];
+    result: PageDetailResult;
   };
-  "cards:history:list": {
-    args: [request: ListCardHistoryRequest];
-    result: CardHistoryCommandResult;
+  "pages:history:list": {
+    args: [request: ListPageHistoryRequest];
+    result: PageHistoryCommandResult;
   };
   "block-documents:mutate": {
     args: [
@@ -522,49 +512,25 @@ export interface IpcApi {
     args: [projectId: string, request: BlockPropertyMutationRequest];
     result: BlockPropertyMutationCommandResult;
   };
-  "cards:lifecycle:preflight": {
-    args: [projectId: string, cardId: string];
-    result: CardLifecyclePreflightResult;
+  "pages:lifecycle:preflight": {
+    args: [projectId: string, pageId: string];
+    result: PageLifecyclePreflightResult;
   };
-  "cards:lifecycle:apply": {
-    args: [projectId: string, request: CardLifecycleMutationRequest];
-    result: CardLifecycleMutationCommandResult;
+  "pages:lifecycle:apply": {
+    args: [projectId: string, request: PageLifecycleMutationRequest];
+    result: PageLifecycleMutationCommandResult;
   };
-  "databases:mutate": {
-    args: [projectId: string, request: DatabaseMutationRequest];
-    result: DatabaseMutationCommandResult;
+  "database-module:read": {
+    args: [projectId: string, request: DatabaseModuleReadRequest];
+    result: DatabaseModuleReadResult;
   };
-  "databases:catalog:get": {
-    args: [projectId: string];
-    result: DatabaseCatalogSnapshotCommandResult;
+  "database-module:apply": {
+    args: [projectId: string, request: DatabaseApply];
+    result: DatabaseApplyResult;
   };
-  "databases:management:get": {
-    args: [projectId: string];
-    result: DatabaseManagementSnapshotCommandResult;
-  };
-  "databases:descriptor:get": {
-    args: [projectId: string, databaseBlockId: string];
-    result: DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
-  };
-  "databases:primary:get": {
-    args: [projectId: string];
-    result: DatabaseReadCommandResult<GeneralDatabaseDescriptor>;
-  };
-  "database-views:primary:snapshot": {
-    args: [projectId: string];
-    result: PrimaryDatabaseViewSnapshotCommandResult;
-  };
-  "database-views:snapshot": {
-    args: [projectId: string, viewId: string];
-    result: DatabaseViewSnapshotCommandResult;
-  };
-  "database-views:query": {
-    args: [projectId: string, viewId: string];
-    result: DatabaseReadCommandResult<GeneralDatabaseViewQuery>;
-  };
-  "card-target:resolve": {
-    args: [input: ResolveCardTargetInput];
-    result: CardTargetReadModel | null;
+  "page-target:resolve": {
+    args: [input: ResolvePageTargetInput];
+    result: PageTargetReadModel | null;
   };
   "database-view:reference:get": {
     args: [input: ReadDatabaseViewReferenceInput];
@@ -579,19 +545,19 @@ export interface IpcApi {
     result: DocumentSyncCommandResult<OwnedDocumentDescriptor>;
   };
   "document-sync:subscribe": {
-    args: [request: DocumentSyncSubscribeRequest];
+    args: [request: ProjectScopedDocumentSyncSubscribeRequest];
     result: DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;
   };
   "document-sync:unsubscribe": {
-    args: [request: DocumentSyncSubscribeRequest];
+    args: [request: ProjectScopedDocumentSyncSubscribeRequest];
     result: DocumentSyncCommandResult<DocumentSyncUnsubscribeAck>;
   };
   "document-sync:sync": {
-    args: [request: DocumentSyncRequest];
+    args: [request: ProjectScopedDocumentSyncRequest];
     result: DocumentSyncCommandResult<DocumentSyncResponse>;
   };
   "document-sync:apply": {
-    args: [request: DocumentSyncApplyRequest];
+    args: [request: ProjectScopedDocumentSyncApplyRequest];
     result: DocumentSyncCommandResult<DocumentSyncApplyAck>;
   };
   "canvas-scene:subscribe": {
@@ -611,11 +577,11 @@ export interface IpcApi {
     result: CanvasSceneMutationCommandResult;
   };
   "document-sync:awareness:publish": {
-    args: [request: DocumentAwarenessPublishRequest];
+    args: [request: ProjectScopedDocumentAwarenessPublishRequest];
     result: DocumentSyncCommandResult<DocumentAwarenessPublishAck>;
   };
   "document-sync:relocation-lease:respond": {
-    args: [request: DocumentRelocationLeaseResponseRequest];
+    args: [request: ProjectScopedDocumentRelocationLeaseResponseRequest];
     result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
   };
   "blocks:transfer": {
@@ -777,26 +743,15 @@ export interface IpcApi {
   "board:summary:get": { args: [projectId: string]; result: BoardSummary };
   "database-rows:details:get": {
     args: [projectId: string, input: DatabaseRowsDetailsInput];
-    result: Card[];
+    result: DatabasePage[];
   };
-  "cards:search": {
-    args: [input: CardSearchInput];
-    result: CardSearchResult[];
-  };
-  "card:get": {
-    args: [projectId: string, cardId: string];
-    result: CardDetailCommandResult;
+  "pages:search": {
+    args: [input: PageSearchInput];
+    result: PageSearchResult[];
   };
   "database-row:get": {
-    args: [projectId: string, cardId: string, status?: Card["status"]];
-    result: Card | null;
-  };
-  "cards:project-transfer": {
-    args: [
-      sourceProjectId: string,
-      intent: PublicCardProjectTransferIntent,
-    ];
-    result: CardProjectTransferCommandResult;
+    args: [projectId: string, pageId: string, status?: DatabasePage["status"]];
+    result: DatabasePage | null;
   };
   "calendar:occurrences": {
     args: [
@@ -805,28 +760,28 @@ export interface IpcApi {
       windowEnd: Date,
       searchQuery?: string,
     ];
-    result: { occurrences: CalendarOccurrence[] };
+    result: { occurrences: PageOccurrence[] };
   };
-  "card:occurrence:complete": {
+  "page:occurrence:complete": {
     args: [
       projectId: string,
-      input: CardOccurrenceCompleteInput,
+      input: PageOccurrenceCompleteInput,
       sessionId?: string,
     ];
     result: { success: boolean; error?: string };
   };
-  "card:occurrence:skip": {
+  "page:occurrence:skip": {
     args: [
       projectId: string,
-      input: CardOccurrenceActionInput,
+      input: PageOccurrenceActionInput,
       sessionId?: string,
     ];
     result: { success: boolean; error?: string };
   };
-  "card:occurrence:update": {
+  "page:occurrence:update": {
     args: [
       projectId: string,
-      input: CardOccurrenceUpdateInput,
+      input: PageOccurrenceUpdateInput,
       sessionId?: string,
     ];
     result: { success: boolean; error?: string };
@@ -1676,13 +1631,13 @@ export interface IpcEvents {
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;
-  "card-target-changed": import("./card-target-events").CardTargetChangedEvent;
+  "page-target-changed": import("./page-target-events").PageTargetChangedEvent;
   "database-changed": DatabaseChangeEvent;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;
   "reminder:open": {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   };
   "terminal-data": TerminalDataEvent;

@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
 
-import type { Card, ReminderConfig } from "../../shared/types";
+import type { DatabasePage, ReminderConfig } from "../../shared/types";
 import {
-  expandCardOccurrences,
+  expandPageOccurrences,
   shiftUntilDateByDays,
   type RecurrenceException,
 } from "./recurrence";
 
-function createScheduledCard(overrides: Partial<Card>): Card {
+function createScheduledPage(overrides: Partial<DatabasePage>): DatabasePage {
   return {
     id: "card-1",
     status: "draft",
@@ -48,7 +48,7 @@ function dateKeyInTimezone(date: Date, timezone: string): string {
 
 describe("recurrence service", () => {
   test("expands daily recurrence with inclusive until date", () => {
-    const card = createScheduledCard({
+    const card = createScheduledPage({
       recurrence: {
         frequency: "daily",
         interval: 1,
@@ -56,7 +56,7 @@ describe("recurrence service", () => {
       },
     });
 
-    const occurrences = expandCardOccurrences(
+    const occurrences = expandPageOccurrences(
       card,
       new Date("2026-02-18T00:00:00.000Z"),
       new Date("2026-02-22T00:00:00.000Z"),
@@ -72,7 +72,7 @@ describe("recurrence service", () => {
   });
 
   test("expands weekly recurrence using selected weekdays", () => {
-    const card = createScheduledCard({
+    const card = createScheduledPage({
       recurrence: {
         frequency: "weekly",
         interval: 1,
@@ -81,7 +81,7 @@ describe("recurrence service", () => {
       },
     });
 
-    const occurrences = expandCardOccurrences(
+    const occurrences = expandPageOccurrences(
       card,
       new Date("2026-02-16T00:00:00.000Z"),
       new Date("2026-02-27T00:00:00.000Z"),
@@ -112,8 +112,8 @@ describe("recurrence service", () => {
       },
     ];
 
-    const occurrences = expandCardOccurrences(
-      createScheduledCard({}),
+    const occurrences = expandPageOccurrences(
+      createScheduledPage({}),
       new Date("2026-02-18T00:00:00.000Z"),
       new Date("2026-02-22T00:00:00.000Z"),
       { exceptions },
@@ -136,7 +136,7 @@ describe("recurrence service", () => {
 
   test("all-day recurrence keeps local midnight boundaries across DST transitions", () => {
     const timezone = "America/Los_Angeles";
-    const card = createScheduledCard({
+    const card = createScheduledPage({
       isAllDay: true,
       scheduledStart: new Date("2026-03-07T08:00:00.000Z"), // Mar 7 00:00 PST
       scheduledEnd: new Date("2026-03-08T08:00:00.000Z"), // Mar 8 00:00 PST
@@ -148,7 +148,7 @@ describe("recurrence service", () => {
       scheduleTimezone: timezone,
     });
 
-    const occurrences = expandCardOccurrences(
+    const occurrences = expandPageOccurrences(
       card,
       new Date("2026-03-07T00:00:00.000Z"),
       new Date("2026-03-12T00:00:00.000Z"),

@@ -1,22 +1,22 @@
 import type { Hono } from "hono";
 import type {
-  CardTargetReadModel,
-  ResolveCardTargetInput,
-} from "../shared/card-targets";
+  PageTargetReadModel,
+  ResolvePageTargetInput,
+} from "../shared/page-targets";
 import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "../shared/database-views";
 import {
-  HttpCardTargetParamsSchema,
+  HttpPageTargetParamsSchema,
   HttpDatabaseViewReferenceParamsSchema,
   HttpDatabaseViewReferenceQuerySchema,
 } from "../shared/schemas/http";
 
 export interface ReferenceReadHttpDependencies {
-  readonly resolveCardTarget: (
-    input: ResolveCardTargetInput,
-  ) => CardTargetReadModel | null | Promise<CardTargetReadModel | null>;
+  readonly resolvePageTarget: (
+    input: ResolvePageTargetInput,
+  ) => PageTargetReadModel | null | Promise<PageTargetReadModel | null>;
   readonly readDatabaseViewReference: (
     input: ReadDatabaseViewReferenceInput,
   ) => DatabaseViewReadModel | null | Promise<DatabaseViewReadModel | null>;
@@ -27,15 +27,15 @@ export const registerReferenceReadHttpRoutes = (
   dependencies: ReferenceReadHttpDependencies,
 ): void => {
   app.get(
-    "/api/projects/:projectId/card-targets/:targetBlockId",
+    "/api/projects/:projectId/page-targets/:pageId",
     async (context) => {
-      const parsed = HttpCardTargetParamsSchema.safeParse(context.req.param());
+      const parsed = HttpPageTargetParamsSchema.safeParse(context.req.param());
       if (!parsed.success) {
-        return context.json({ error: "Invalid Card target request" }, 400);
+        return context.json({ error: "Invalid Page target request" }, 400);
       }
-      const result = await dependencies.resolveCardTarget({
+      const result = await dependencies.resolvePageTarget({
         requestingProjectId: parsed.data.projectId,
-        targetBlockId: parsed.data.targetBlockId,
+        targetPageId: parsed.data.pageId,
       });
       if (!result) return context.json({ error: "Project not found" }, 404);
       context.header("Cache-Control", "no-store");

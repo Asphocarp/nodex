@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
-import { summarizeCardDescription } from "../../shared/card-summary";
+import { summarizePageDescription } from "../../shared/page-summary";
 import { makeProjectSessionPanelLayout } from "../../shared/project-session-panel-layout";
 import { ProjectSessionPanelsSchema } from "../../shared/schemas/project-sessions";
 import { insertInitialDatabaseViewSession } from "./project-session-defaults";
@@ -270,7 +270,7 @@ const backfillLegacyCardReadColumns = (
      WHERE id = ?`,
   );
   for (const row of rows) {
-    const summary = summarizeCardDescription(row.description);
+    const summary = summarizePageDescription(row.description);
     update.run(
       summary.descriptionPreview,
       summary.descriptionLength,

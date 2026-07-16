@@ -3,28 +3,23 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createUuidV7, isUuidV7 } from "../../shared/card-id";
+import { createUuidV7, isUuidV7 } from "../../shared/uuid-v7";
 import type {
   DatabaseMutationOperation,
   DatabaseMutationRequest,
-  GeneralDatabaseViewConfig,
+  DatabaseViewConfig,
 } from "../../shared/database-kernel";
-import { createCard } from "./cards";
+import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
   applyDatabaseMutation,
-  readDatabaseCatalogSnapshot,
-  readDatabaseViewSnapshot,
-  readPrimaryDatabaseDescriptorSnapshot,
-  readPrimaryDatabaseViewSnapshot,
-  transitionCardDatabaseParent,
+  transitionPageDatabaseParent,
   type DatabaseMutationFaultPoint,
 } from "./database-kernel";
 import {
-  queryGeneralDatabaseView,
-  readCardContentSummary,
-  readGeneralDatabaseDescriptor,
-} from "./database-query";
+  queryDatabaseViewInDatabase,
+  readDatabaseContainerDescriptorInDatabase,
+} from "./database-module";
 import { createProject } from "./projects";
 
 interface Fixture {
@@ -32,6 +27,18 @@ interface Fixture {
   readonly projectId: string;
   readonly storeEpoch: string;
 }
+
+const readDatabaseDescriptorForTest = (
+  _projectId: string,
+  databaseId: string,
+  database: Database.Database,
+) => readDatabaseContainerDescriptorInDatabase(database, databaseId);
+
+const queryDatabaseViewForTest = (
+  _projectId: string,
+  viewId: string,
+  database: Database.Database,
+) => queryDatabaseViewInDatabase(database, viewId);
 
 type TransferMembershipOperation = Extract<
   DatabaseMutationOperation,
@@ -92,8 +99,8 @@ const skipTest = (test as typeof test & { skip: typeof test }).skip;
 const sqliteTest = supportsBetterSqlite ? test : skipTest;
 
 const viewConfig = (
-  overrides: Partial<GeneralDatabaseViewConfig> = {},
-): GeneralDatabaseViewConfig => ({
+  overrides: Partial<DatabaseViewConfig> = {},
+): DatabaseViewConfig => ({
   schemaKey: "nodex.database-view",
   schemaVersion: 1,
   filter: { kind: "group", operator: "and", children: [] },
@@ -198,7 +205,7 @@ const operationThrows = (operation: () => void): boolean => {
 
 const readActiveMembership = (
   fixture: Fixture,
-  cardBlockId: string,
+  pageId: string,
 ): {
   readonly id: string;
   readonly database_block_id: string;
@@ -209,10 +216,10 @@ const readActiveMembership = (
       `
       SELECT id, database_block_id, revision
       FROM database_memberships
-      WHERE card_block_id = ? AND project_id = ? AND removed_at IS NULL
+      WHERE page_block_id = ? AND project_id = ? AND removed_at IS NULL
     `,
     )
-    .get(cardBlockId, fixture.projectId) as {
+    .get(pageId, fixture.projectId) as {
     readonly id: string;
     readonly database_block_id: string;
     readonly revision: number;
@@ -263,184 +270,6 @@ const addProperty = (
 };
 
 describe("general Database kernel", () => {
-  sqliteTest("reads the current primary Database without assuming its ID", async () => {
-    await withFixture((fixture) => {
-      const secondary = applyDatabaseMutation(
-        fixture.database,
-        request(
-          fixture,
-          "create-secondary",
-          createDatabaseOperation("database-secondary", "view-secondary"),
-        ),
-      );
-      expect(resultCode(secondary)).toBe("ok");
-      const primary = readPrimaryDatabaseDescriptorSnapshot(
-        fixture.database,
-        fixture.projectId,
-      );
-      expect(primary.ok).toBe(true);
-      if (!primary.ok || !primary.value.value) return;
-      expect(primary.value.value.database.isPrimary).toBe(true);
-      expect(
-        primary.value.value.database.blockId === testDatabaseId("database-secondary"),
-      ).toBe(false);
-      expect(primary.value.storeEpoch).toBe(fixture.storeEpoch);
-    });
-  });
-
-  sqliteTest("captures every active Database descriptor under one Project cursor", async () => {
-    await withFixture((fixture) => {
-      const created = applyDatabaseMutation(
-        fixture.database,
-        request(
-          fixture,
-          "create-catalog-secondary",
-          createDatabaseOperation("database-catalog-secondary", "view-catalog-secondary"),
-        ),
-      );
-      expect(resultCode(created)).toBe("ok");
-
-      const snapshot = readDatabaseCatalogSnapshot(
-        fixture.database,
-        fixture.projectId,
-      );
-      expect(snapshot.ok).toBe(true);
-      if (!snapshot.ok || !snapshot.value.value) return;
-      expect(snapshot.value.storeEpoch).toBe(fixture.storeEpoch);
-      expect(snapshot.value.value.databases.length).toBe(2);
-      expect(
-        snapshot.value.value.databases.some(
-          (descriptor) =>
-            descriptor.database.blockId ===
-              testDatabaseId("database-catalog-secondary") &&
-            descriptor.views.some((view) => view.id === "view-catalog-secondary"),
-        ),
-      ).toBe(true);
-      expect(
-        snapshot.value.value.databases.filter(
-          (descriptor) => descriptor.database.isPrimary,
-        ).length,
-      ).toBe(1);
-    });
-  });
-
-  sqliteTest("captures the primary descriptor and View under one cursor", async () => {
-    await withFixture((fixture) => {
-      const snapshot = readPrimaryDatabaseViewSnapshot(
-        fixture.database,
-        fixture.projectId,
-      );
-      expect(snapshot.ok).toBe(true);
-      if (!snapshot.ok) return;
-      expect(snapshot.value.descriptor.storeEpoch).toBe(fixture.storeEpoch);
-      expect(snapshot.value.query.storeEpoch).toBe(fixture.storeEpoch);
-      expect(snapshot.value.descriptor.changeLogSeq).toBe(
-        snapshot.value.query.changeLogSeq,
-      );
-      expect(snapshot.value.descriptor.value?.database.blockId).toBe(
-        snapshot.value.query.value?.database.blockId,
-      );
-      expect(snapshot.value.query.value?.view.id).toBe(
-        snapshot.value.descriptor.value?.views.find((view) => view.isPrimary)
-          ?.id,
-      );
-    });
-  });
-
-  sqliteTest("captures an arbitrary durable View with its owning Database under one cursor", async () => {
-    await withFixture((fixture) => {
-      const created = applyDatabaseMutation(
-        fixture.database,
-        request(
-          fixture,
-          "create-secondary-snapshot",
-          createDatabaseOperation("database-secondary", "view-secondary"),
-        ),
-      );
-      expect(resultCode(created)).toBe("ok");
-
-      const snapshot = readDatabaseViewSnapshot(
-        fixture.database,
-        fixture.projectId,
-        "view-secondary",
-      );
-      expect(snapshot.ok).toBe(true);
-      if (!snapshot.ok) return;
-      expect(snapshot.value.descriptor.changeLogSeq).toBe(
-        snapshot.value.query.changeLogSeq,
-      );
-      expect(snapshot.value.query.value?.view.id).toBe("view-secondary");
-      expect(snapshot.value.descriptor.value?.database.blockId).toBe(
-        testDatabaseId("database-secondary"),
-      );
-      expect(snapshot.value.query.value?.database.blockId).toBe(
-        testDatabaseId("database-secondary"),
-      );
-    });
-  });
-
-  sqliteTest("keeps the Database cursor and View value on one cross-connection read snapshot", async () => {
-    await withFixture((fixture) => {
-      const created = applyDatabaseMutation(
-        fixture.database,
-        request(
-          fixture,
-          "create-isolated-snapshot",
-          createDatabaseOperation("database-isolated", "view-isolated"),
-        ),
-      );
-      expect(resultCode(created)).toBe("ok");
-      const concurrent = new Database(fixture.database.name);
-      try {
-        concurrent.pragma("busy_timeout = 2000");
-        const snapshot = readDatabaseViewSnapshot(
-          fixture.database,
-          fixture.projectId,
-          "view-isolated",
-          {
-            afterCursorRead: () => {
-              concurrent.transaction(() => {
-                concurrent.prepare(`
-                  UPDATE database_views
-                  SET name = 'Concurrent name', updated_at = ?
-                  WHERE id = 'view-isolated' AND project_id = ?
-                `).run("2026-07-12T01:00:00.000Z", fixture.projectId);
-                concurrent.prepare(`
-                  INSERT INTO change_log (
-                    project_id, store_epoch, kind, operation_id,
-                    block_ids_json, document_ids_json,
-                    database_block_ids_json, payload_json, committed_at
-                  ) VALUES (?, ?, 'database_snapshot_test', ?, '[]', '[]', ?, '{}', ?)
-                `).run(
-                  fixture.projectId,
-                  fixture.storeEpoch,
-                  "concurrent-snapshot-write",
-                  JSON.stringify([testDatabaseId("database-isolated")]),
-                  "2026-07-12T01:00:00.000Z",
-                );
-              }).immediate();
-            },
-          },
-        );
-        expect(snapshot.ok).toBe(true);
-        if (!snapshot.ok) return;
-        expect(snapshot.value.query.value?.view.name).toBe("All");
-
-        const current = fixture.database.prepare(`
-          SELECT name FROM database_views
-          WHERE id = 'view-isolated' AND project_id = ?
-        `).get(fixture.projectId) as { readonly name: string };
-        const currentCursor = fixture.database.prepare(`
-          SELECT MAX(seq) AS seq FROM change_log WHERE project_id = ?
-        `).get(fixture.projectId) as { readonly seq: number };
-        expect(current.name).toBe("Concurrent name");
-        expect(currentCursor.seq > snapshot.value.query.changeLogSeq).toBe(true);
-      } finally {
-        concurrent.close();
-      }
-    });
-  });
-
   sqliteTest(
     "commits creation, canonical replay, rejection, and fault boundaries",
     async () => {
@@ -452,7 +281,7 @@ describe("general Database kernel", () => {
         );
         const first = applyDatabaseMutation(fixture.database, create);
         expect(resultCode(first)).toBe("ok");
-        const descriptor = readGeneralDatabaseDescriptor(
+        const descriptor = readDatabaseDescriptorForTest(
           fixture.projectId,
           testDatabaseId("database-research"),
           fixture.database,
@@ -581,7 +410,7 @@ describe("general Database kernel", () => {
           .run();
         expect(
           operationThrows(() =>
-            readGeneralDatabaseDescriptor(
+            readDatabaseDescriptorForTest(
               fixture.projectId,
               testDatabaseId("database-research"),
               fixture.database,
@@ -620,7 +449,7 @@ describe("general Database kernel", () => {
           valueType: "select",
           config: { options: [] },
         });
-        const card = await createCard(fixture.projectId, "draft", {
+        const card = await createPage(fixture.projectId, "draft", {
           title: "No arbitrary option IDs",
         });
         const membership = readActiveMembership(fixture, card.id);
@@ -630,7 +459,7 @@ describe("general Database kernel", () => {
               fixture.database,
               request(fixture, "transfer-empty-options", {
                 kind: "transfer_membership",
-                cardBlockId: card.id,
+                pageId: card.id,
                 expectedMembership: {
                   membershipId: membership.id,
                   revision: membership.revision,
@@ -651,7 +480,7 @@ describe("general Database kernel", () => {
               fixture.database,
               request(fixture, "reject-unknown-option", {
                 kind: "set_value",
-                cardBlockId: card.id,
+                pageId: card.id,
                 databaseBlockId: "database-empty-options",
                 propertyId: "property-empty-select",
                 expectedValueRevision: 1,
@@ -664,112 +493,12 @@ describe("general Database kernel", () => {
     },
   );
 
-  sqliteTest(
-    "reads a membership-independent Card without a legacy cards row and fails closed",
-    async () => {
-      await withFixture((fixture) => {
-        const now = new Date().toISOString();
-        fixture.database
-          .prepare(
-            `
-          INSERT INTO blocks (
-            id, project_id, type, lifecycle, location_kind,
-            containing_document_id, location_revision, metadata_revision,
-            created_at, updated_at
-          ) VALUES ('card-block-only', ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
-        `,
-          )
-          .run(fixture.projectId, now, now);
-        fixture.database
-          .prepare(
-            `
-          INSERT INTO top_level_block_placements (
-            block_id, project_id, rank_key, created_at, updated_at
-          ) VALUES ('card-block-only', ?, 'standalone', ?, ?)
-        `,
-          )
-          .run(fixture.projectId, now, now);
-        fixture.database
-          .prepare(
-            `
-          INSERT INTO documents (
-            id, project_id, generation, head_seq, schema_key, schema_version,
-            state_vector, state_hash, readiness, authority,
-            genesis_source_revision, created_at, updated_at
-          ) VALUES ('document-block-only', ?, 1, 0, 'nodex.card', 2,
-            X'', 'state', 'ready', 'ydoc_primary', NULL, ?, ?)
-        `,
-          )
-          .run(fixture.projectId, now, now);
-        fixture.database
-          .prepare(
-            `
-          INSERT INTO block_documents (block_id, document_id, project_id, created_at)
-          VALUES ('card-block-only', 'document-block-only', ?, ?)
-        `,
-          )
-          .run(fixture.projectId, now);
-        fixture.database
-          .prepare(
-            `
-          INSERT INTO document_materializations (
-            document_id, generation, projected_seq, schema_version,
-            title, title_rich_json, nfm, plain_text, preview, block_tree_json,
-            references_json, asset_refs_json, updated_at
-          ) VALUES ('document-block-only', 1, 0, 2,
-            'Block-only title', '[{"type":"text","text":"Block-only title","styles":{}}]',
-            '', 'Body', 'Body', '[]', '[]', '[]', ?)
-        `,
-          )
-          .run(now);
-
-        const summary = readCardContentSummary(
-          fixture.projectId,
-          "card-block-only",
-          fixture.database,
-        );
-        expect(summary?.content?.title).toBe("Block-only title");
-        expect(summary?.content?.richTitle).toEqual([
-          { type: "text", text: "Block-only title", styles: {} },
-        ]);
-        expect(
-          fixture.database
-            .prepare(
-              "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards'",
-            )
-            .get() === undefined,
-        ).toBe(true);
-        expect(
-          fixture.database
-            .prepare(
-              "SELECT 1 FROM database_memberships WHERE card_block_id = 'card-block-only' AND removed_at IS NULL",
-            )
-            .get() === undefined,
-        ).toBe(true);
-
-        fixture.database
-          .prepare(
-            "UPDATE documents SET head_seq = 1 WHERE id = 'document-block-only'",
-          )
-          .run();
-        expect(
-          operationThrows(() =>
-            readCardContentSummary(
-              fixture.projectId,
-              "card-block-only",
-              fixture.database,
-            ),
-          ),
-        ).toBe(true);
-      });
-    },
-  );
 
   sqliteTest(
     "reactivates dormant membership and restores its Database values",
     async () => {
       await withFixture(async (fixture) => {
-        const card = await createCard(fixture.projectId, "draft", {
+        const card = await createPage(fixture.projectId, "draft", {
           title: "Return to Database",
         });
         const original = readActiveMembership(fixture, card.id);
@@ -803,7 +532,7 @@ describe("general Database kernel", () => {
               fixture.database,
               request(fixture, "set-priority-before-leaving", {
                 kind: "set_value",
-                cardBlockId: card.id,
+                pageId: card.id,
                 databaseBlockId: primary.database_block_id,
                 propertyId: primary.priority_property_id,
                 expectedValueRevision: 1,
@@ -844,7 +573,7 @@ describe("general Database kernel", () => {
           operation: TransferMembershipOperation,
         ) => {
           const mutation = request(fixture, operationId, operation);
-          return transitionCardDatabaseParent(
+          return transitionPageDatabaseParent(
             fixture.database,
             {
               ...mutation,
@@ -856,7 +585,7 @@ describe("general Database kernel", () => {
         expect(() =>
           transitionMembership("leave-primary", {
                 kind: "transfer_membership",
-                cardBlockId: card.id,
+                pageId: card.id,
                 expectedMembership: {
                   membershipId: original.id,
                   revision: original.revision,
@@ -885,7 +614,7 @@ describe("general Database kernel", () => {
         expect(() =>
           transitionMembership("return-primary", {
                 kind: "transfer_membership",
-                cardBlockId: card.id,
+                pageId: card.id,
                 expectedMembership: {
                   membershipId: temporary.id,
                   revision: temporary.revision,
@@ -928,16 +657,16 @@ describe("general Database kernel", () => {
             .get(temporary.id),
         ).toEqual({ removed_at: expect.any(String) });
         expect(
-          queryGeneralDatabaseView(
+          queryDatabaseViewForTest(
             fixture.projectId,
             "view-dormant-target",
             fixture.database,
-          )?.rows.some((row) => row.card.blockId === card.id),
+          )?.rows.some((row) => row.page.pageId === card.id),
         ).toBe(false);
 
         const unpositioned = transitionMembership("return-without-position", {
           kind: "transfer_membership",
-          cardBlockId: card.id,
+          pageId: card.id,
           expectedMembership: {
             membershipId: restored.id,
             revision: restored.revision,
@@ -962,11 +691,11 @@ describe("general Database kernel", () => {
             .get(card.id),
         ).toBe(0);
         expect(
-          queryGeneralDatabaseView(
+          queryDatabaseViewForTest(
             fixture.projectId,
             "view-dormant-target",
             fixture.database,
-          )?.rows.find((row) => row.card.blockId === card.id)?.position,
+          )?.rows.find((row) => row.page.pageId === card.id)?.position,
         ).toBe(null);
       });
     },
@@ -976,10 +705,10 @@ describe("general Database kernel", () => {
     "atomically transfers membership, supports typed custom values, and isolates View order",
     async () => {
       await withFixture(async (fixture) => {
-        const first = await createCard(fixture.projectId, "draft", {
+        const first = await createPage(fixture.projectId, "draft", {
           title: "First",
         });
-        const second = await createCard(fixture.projectId, "draft", {
+        const second = await createPage(fixture.projectId, "draft", {
           title: "Second",
         });
         const create = applyDatabaseMutation(
@@ -1026,14 +755,14 @@ describe("general Database kernel", () => {
         const transfer = (
           cardId: string,
           operationId: string,
-          beforeCardBlockId?: string,
+          beforePageId?: string,
         ): void => {
           const current = readActiveMembership(fixture, cardId);
           const result = applyDatabaseMutation(
             fixture.database,
             request(fixture, operationId, {
               kind: "transfer_membership",
-              cardBlockId: cardId,
+              pageId: cardId,
               expectedMembership: {
                 membershipId: current.id,
                 revision: current.revision,
@@ -1043,9 +772,9 @@ describe("general Database kernel", () => {
                 membershipId: `membership-custom-${cardId}`,
                 viewId: "view-custom",
                 groupKey: null,
-                ...(beforeCardBlockId === undefined
+                ...(beforePageId === undefined
                   ? {}
-                  : { beforeCardBlockId }),
+                  : { beforePageId }),
               },
             }),
           );
@@ -1071,12 +800,12 @@ describe("general Database kernel", () => {
         };
         expect(oldPositions.count).toBe(0);
         expect(
-          queryGeneralDatabaseView(
+          queryDatabaseViewForTest(
             fixture.projectId,
             "view-custom",
             fixture.database,
           )
-            ?.rows.map((row) => row.card.blockId)
+            ?.rows.map((row) => row.page.pageId)
             .join(","),
         ).toBe(`${second.id},${first.id}`);
 
@@ -1102,7 +831,7 @@ describe("general Database kernel", () => {
                 fixture.database,
                 request(fixture, `set-${value.propertyId}`, {
                   kind: "set_value",
-                  cardBlockId: first.id,
+                  pageId: first.id,
                   databaseBlockId: "database-custom",
                   propertyId: value.propertyId,
                   expectedValueRevision: 1,
@@ -1118,7 +847,7 @@ describe("general Database kernel", () => {
               fixture.database,
               request(fixture, "set-multi-invalid", {
                 kind: "set_value",
-                cardBlockId: first.id,
+                pageId: first.id,
                 databaseBlockId: "database-custom",
                 propertyId: "property-multi",
                 expectedValueRevision: 1,
@@ -1133,7 +862,7 @@ describe("general Database kernel", () => {
               fixture.database,
               request(fixture, "mutate-multi-options", {
                 kind: "add_remove_value",
-                cardBlockId: first.id,
+                pageId: first.id,
                 databaseBlockId: "database-custom",
                 propertyId: "property-multi",
                 add: ["multi-b", "multi-a"],
@@ -1156,30 +885,30 @@ describe("general Database kernel", () => {
           }),
         );
         expect(resultCode(secondView)).toBe("ok");
-        for (const [cardId, beforeCardBlockId] of [
+        for (const [cardId, beforePageId] of [
           [first.id, undefined],
           [second.id, undefined],
         ] as const) {
           const result = applyDatabaseMutation(
             fixture.database,
             request(fixture, `position-${cardId}`, {
-              kind: "position_card",
+              kind: "position_page",
               viewId: "view-custom-second",
-              cardBlockId: cardId,
+              pageId: cardId,
               expectedPositionRevision: 0,
               groupKey: null,
-              ...(beforeCardBlockId === undefined ? {} : { beforeCardBlockId }),
+              ...(beforePageId === undefined ? {} : { beforePageId }),
             }),
           );
           expect(resultCode(result)).toBe("ok");
         }
         expect(
-          queryGeneralDatabaseView(
+          queryDatabaseViewForTest(
             fixture.projectId,
             "view-custom-second",
             fixture.database,
           )
-            ?.rows.map((row) => row.card.blockId)
+            ?.rows.map((row) => row.page.pageId)
             .join(","),
         ).toBe(`${first.id},${second.id}`);
 
@@ -1187,7 +916,13 @@ describe("general Database kernel", () => {
           .prepare("UPDATE blocks SET created_at = ? WHERE id = ?")
           .run("2026-07-12T02:00:00.000Z", first.id);
         fixture.database
+          .prepare("UPDATE pages SET created_at = ? WHERE block_id = ?")
+          .run("2026-07-12T02:00:00.000Z", first.id);
+        fixture.database
           .prepare("UPDATE blocks SET created_at = ? WHERE id = ?")
+          .run("2026-07-12T01:00:00.000Z", second.id);
+        fixture.database
+          .prepare("UPDATE pages SET created_at = ? WHERE block_id = ?")
           .run("2026-07-12T01:00:00.000Z", second.id);
         expect(
           resultCode(
@@ -1215,12 +950,12 @@ describe("general Database kernel", () => {
           ),
         ).toBe("ok");
         expect(
-          queryGeneralDatabaseView(
+          queryDatabaseViewForTest(
             fixture.projectId,
             "view-custom-created",
             fixture.database,
           )
-            ?.rows.map((row) => row.card.blockId)
+            ?.rows.map((row) => row.page.pageId)
             .join(","),
         ).toBe(`${first.id},${second.id}`);
 
@@ -1253,12 +988,12 @@ describe("general Database kernel", () => {
           ),
         ).toBe("ok");
         expect(
-          queryGeneralDatabaseView(
+          queryDatabaseViewForTest(
             fixture.projectId,
             "view-custom-desc",
             fixture.database,
           )
-            ?.rows.map((row) => row.card.blockId)
+            ?.rows.map((row) => row.page.pageId)
             .join(","),
         ).toBe(`${first.id},${second.id}`);
 
@@ -1286,9 +1021,9 @@ describe("general Database kernel", () => {
             applyDatabaseMutation(
               fixture.database,
               request(fixture, "wrong-derived-group", {
-                kind: "position_card",
+                kind: "position_page",
                 viewId: "view-custom-grouped",
-                cardBlockId: first.id,
+                pageId: first.id,
                 expectedPositionRevision: 0,
                 groupKey: "select-b",
               }),
@@ -1300,9 +1035,9 @@ describe("general Database kernel", () => {
             applyDatabaseMutation(
               fixture.database,
               request(fixture, "correct-derived-group", {
-                kind: "position_card",
+                kind: "position_page",
                 viewId: "view-custom-grouped",
-                cardBlockId: first.id,
+                pageId: first.id,
                 expectedPositionRevision: 0,
                 groupKey: "select-a",
               }),
@@ -1313,7 +1048,7 @@ describe("general Database kernel", () => {
           fixture.database,
           request(fixture, "move-derived-group", {
             kind: "set_value",
-            cardBlockId: first.id,
+            pageId: first.id,
             databaseBlockId: "database-custom",
             propertyId: "property-select",
             expectedValueRevision: 2,
@@ -1322,11 +1057,11 @@ describe("general Database kernel", () => {
         );
         expect(resultCode(moveGroup)).toBe("ok");
         expect(
-          queryGeneralDatabaseView(
+          queryDatabaseViewForTest(
             fixture.projectId,
             "view-custom-grouped",
             fixture.database,
-          )?.rows.find((row) => row.card.blockId === first.id)
+          )?.rows.find((row) => row.page.pageId === first.id)
             ?.effectiveGroupKey,
         ).toBe("select-b");
 
@@ -1336,7 +1071,7 @@ describe("general Database kernel", () => {
               fixture.database,
               request(fixture, "set-second-group", {
                 kind: "set_value",
-                cardBlockId: second.id,
+                pageId: second.id,
                 databaseBlockId: "database-custom",
                 propertyId: "property-select",
                 expectedValueRevision: 1,
@@ -1350,9 +1085,9 @@ describe("general Database kernel", () => {
             applyDatabaseMutation(
               fixture.database,
               request(fixture, "position-second-group", {
-                kind: "position_card",
+                kind: "position_page",
                 viewId: "view-custom-grouped",
-                cardBlockId: second.id,
+                pageId: second.id,
                 expectedPositionRevision: 0,
                 groupKey: "select-a",
               }),
@@ -1364,32 +1099,32 @@ describe("general Database kernel", () => {
           batchRequest(fixture, "board-drag", [
             {
               kind: "set_value",
-              cardBlockId: first.id,
+              pageId: first.id,
               databaseBlockId: "database-custom",
               propertyId: "property-select",
               expectedValueRevision: 3,
               value: "select-a",
             },
             {
-              kind: "position_card",
+              kind: "position_page",
               viewId: "view-custom-grouped",
-              cardBlockId: first.id,
+              pageId: first.id,
               expectedPositionRevision: 2,
               groupKey: "select-a",
-              beforeCardBlockId: second.id,
+              beforePageId: second.id,
             },
           ]),
         );
         expect(resultCode(boardDrag)).toBe("ok");
         expect(
           boardDrag.ok ? boardDrag.value.operationKinds.join(",") : "rejected",
-        ).toBe("set_value,position_card");
-        const groupedRows = queryGeneralDatabaseView(
+        ).toBe("set_value,position_page");
+        const groupedRows = queryDatabaseViewForTest(
           fixture.projectId,
           "view-custom-grouped",
           fixture.database,
         )?.rows;
-        expect(groupedRows?.map((row) => row.card.blockId).join(",")).toBe(
+        expect(groupedRows?.map((row) => row.page.pageId).join(",")).toBe(
           `${first.id},${second.id}`,
         );
         expect(groupedRows?.[0]?.position?.revision).toBe(3);

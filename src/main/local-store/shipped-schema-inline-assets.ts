@@ -5,7 +5,7 @@ import {
   parseNfm,
   serializeNfm,
 } from "../../shared/nfm";
-import { summarizeCardDescription } from "../../shared/card-summary";
+import { summarizePageDescription } from "../../shared/page-summary";
 import { materializeInlineImageAtRoot } from "./assets";
 
 const isInlineImageDataUrl = (value: string): boolean =>
@@ -116,7 +116,7 @@ export const materializeLegacyCardInlineImages = (
           ),
         );
         if (nextDescription === row.description) return changed;
-        const summary = summarizeCardDescription(nextDescription);
+        const summary = summarizePageDescription(nextDescription);
         const result = update.run(
           nextDescription,
           summary.descriptionPreview,

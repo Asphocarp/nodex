@@ -40,7 +40,7 @@ describe("workbench settings search catalog", () => {
     expect(hasSectionResult("force fixed theme", "appearance")).toBe(true);
     expect(hasSectionResult("danger-full-access", "agent")).toBe(true);
     expect(hasSectionResult("materialize inflating note", "editor")).toBe(true);
-    expect(hasSectionResult("more-properties toggle", "card")).toBe(true);
+    expect(hasSectionResult("more-properties toggle", "page")).toBe(true);
     expect(hasSectionResult("auto-create branch detached", "worktrees")).toBe(true);
     expect(hasSectionResult("CODEX_SOURCE_TREE_PATH", "local-environments")).toBe(true);
     expect(hasSectionResult("collect unreferenced tombstone", "backups")).toBe(true);

@@ -5,10 +5,10 @@ import {
   CANVAS_BLOCK_TYPE,
   CANVAS_DOCUMENT_SCHEMA_KEY,
   CANVAS_DOCUMENT_SCHEMA_VERSION,
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  assertValidCardDocumentRoots,
-  createCardDocument,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  assertValidPageDocumentRoots,
+  createPageDocument,
   type DocumentSyncCommandError,
   type OwnedDocumentDescriptor,
 } from "../../shared/block-documents";
@@ -32,14 +32,14 @@ const descriptor = (
 ): OwnedDocumentDescriptor => ({
   projectId: "project-1",
   ownerBlockId: "card-1",
-  ownerType: "card",
+  ownerType: "page",
   ownerLifecycle: "active",
   documentId: "document:card-1",
   storeEpoch: "store-1",
   generation: 1,
   headSeq: 1,
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
   sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
   ...overrides,
@@ -182,7 +182,7 @@ const createFactory =
   };
 
 const applyServerDocument = (document: Y.Doc, documentId: string): void => {
-  const server = createCardDocument({
+  const server = createPageDocument({
     documentId,
     initialTitle: "Server title",
   });
@@ -200,7 +200,7 @@ const applyServerDocument = (document: Y.Doc, documentId: string): void => {
 const never = (): Promise<void> => new Promise<void>(() => undefined);
 
 describe("BlockDocumentSurfaceRuntime", () => {
-  test("subscribes and syncs before opening or exposing the Card document", async () => {
+  test("subscribes and syncs before opening or exposing the Page document", async () => {
     const events: string[] = [];
     const providers: FakeSurfaceProvider[] = [];
     const runtime = new BlockDocumentSurfaceRuntime({
@@ -209,7 +209,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
       createProvider: createFactory(providers, events),
       openDocument: (document) => {
         events.push("open");
-        return { kind: "card", ...assertValidCardDocumentRoots(document) };
+        return { kind: "page", ...assertValidPageDocumentRoots(document) };
       },
       localCheckpointStore: null,
     });
@@ -238,7 +238,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
     await runtime.connect();
     const readyDocument = await ready;
     expect(
-      readyDocument.kind === "card"
+      readyDocument.kind === "page"
         ? readyDocument.title.toString()
         : "wrong-kind",
     ).toBe("Server title");
@@ -371,7 +371,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
     expect(errorMessage).toBe(
-      "No owned Document Adapter is registered for database/nodex.card@2",
+      "No owned Document Adapter is registered for database/nodex.page@2",
     );
     expect(providersCreated).toBe(0);
   });

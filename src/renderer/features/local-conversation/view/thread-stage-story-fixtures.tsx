@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import type {
-  Card,
+  DatabasePage,
   CodexAccountSnapshot,
   CodexCollaborationModePreset,
   CodexCommandAction,
@@ -23,7 +23,7 @@ import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
-import { buildCardDetailStoryCommandResult } from "@/components/kanban/card-stage/card-stage-story-card-detail";
+import { buildPageDetailStoryResult } from "@/components/kanban/page-stage/page-stage-story-page-detail";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
@@ -101,7 +101,7 @@ export interface ThreadStageStoryScenario {
   preset: ThreadStageStoryPreset;
   runtime: ThreadStageStoryRuntimeState;
   initialUiState?: ThreadBodyUiStateOverrides;
-  transportCard: Card;
+  transportCard: DatabasePage;
   permissionDescription: string;
   autoAction?: "openEdit" | "submitEditFailure" | "openOlderFork" | "triggerLatestFork";
   activateAutoReviewNudge?: boolean;
@@ -357,7 +357,7 @@ export function resolveThreadStageStoryPreset(preset: ThreadStageStoryPresetId):
   return THREAD_STAGE_STORY_PRESETS.find((candidate) => candidate.id === preset) ?? THREAD_STAGE_STORY_DEFAULT_PRESET;
 }
 
-function buildStoryCard(): Card {
+function buildStoryCard(): DatabasePage {
   return {
     id: STORY_CARD_ID,
     status: "in_progress",
@@ -3269,7 +3269,7 @@ export function buildThreadStageStorySurfaceModels(
 type StorybookBridge = Window["api"];
 
 function createStorybookElectronBridge(input: {
-  card: Card;
+  card: DatabasePage;
   permissionMode: CodexPermissionMode;
   permissionDescription: string;
 }): StorybookBridge {
@@ -3292,11 +3292,11 @@ function createStorybookElectronBridge(input: {
   return {
     invoke: async (channel: string, ...args: unknown[]) => {
       switch (channel) {
-        case "card:get": {
-          const [, cardId] = args as [string, string];
-          return buildCardDetailStoryCommandResult(
+        case "pages:detail:get": {
+          const [, pageId] = args as [string, string];
+          return buildPageDetailStoryResult(
             String(args[0] ?? "story-project"),
-            cardId === input.card.id ? input.card : null,
+            pageId === input.card.id ? input.card : null,
           );
         }
         case "codex:permission:custom-description:get":
@@ -3382,7 +3382,7 @@ export function StorybookElectronTransportBoundary({
   permissionDescription,
   children,
 }: {
-  card: Card;
+  card: DatabasePage;
   permissionMode: CodexPermissionMode;
   permissionDescription: string;
   children: ReactNode;

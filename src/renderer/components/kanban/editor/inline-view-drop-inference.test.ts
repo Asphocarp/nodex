@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { getDefaultToggleListSettings } from "../../../lib/toggle-list/settings";
-import type { BoardSummary, CardSummary } from "../../../lib/types";
+import type { BoardSummary, DatabasePageSummary } from "../../../lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import {
   inferInlineViewDropImport,
   type InlineViewProjectedRow,
 } from "./inline-view-drop-inference";
 
-function makeCard(id: string, overrides: Partial<CardSummary> = {}): CardSummary {
+function makeCard(id: string, overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   const title = overrides.title ?? `Card ${id}`;
   return {
     id,
@@ -52,8 +52,8 @@ describe("inline view drop inference", () => {
   test("infers target column and insert index from pointed projected rows", () => {
     const settings = getDefaultToggleListSettings();
     const projectedRows: InlineViewProjectedRow[] = [
-      { blockId: "row-1", cardId: "ideas-1", sourceStatus: "draft" },
-      { blockId: "row-2", cardId: "ideas-2", sourceStatus: "draft" },
+      { blockId: "row-1", pageId: "ideas-1", sourceStatus: "draft" },
+      { blockId: "row-2", pageId: "ideas-2", sourceStatus: "draft" },
     ];
 
     const inferred = inferInlineViewDropImport({
@@ -107,7 +107,7 @@ describe("inline view drop inference", () => {
     };
 
     const projectedRows: InlineViewProjectedRow[] = [
-      { blockId: "row-1", cardId: "ideas-2", sourceStatus: "draft" },
+      { blockId: "row-1", pageId: "ideas-2", sourceStatus: "draft" },
     ];
 
     const inferred = inferInlineViewDropImport({

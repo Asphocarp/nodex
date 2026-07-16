@@ -1,11 +1,11 @@
-import type { CardStageState } from "./use-card-stage";
+import type { PageStageState } from "./use-page-stage";
 import type { StageId, StageNavDirection, WorkbenchView } from "./use-workbench-state";
 import {
   parseNavigationHistoryState as parseNavigationHistoryStateWithSchema,
   parseNavigationSnapshot as parseNavigationSnapshotWithSchema,
 } from "./workbench-persisted-schemas";
 
-const HISTORY_STORAGE_KEY = "nodex-workbench-navigation-history-v1";
+const HISTORY_STORAGE_KEY = "nodex-workbench-navigation-history-v2";
 const MAX_HISTORY_ENTRIES = 50;
 
 export interface NavigationSnapshot {
@@ -13,8 +13,8 @@ export interface NavigationSnapshot {
   activeView: WorkbenchView;
   focusedStage: StageId;
   stageNavDirection: StageNavDirection;
-  cardStage: CardStageState;
-  activeCardsTabId: string;
+  pageStage: PageStageState;
+  activePagesTabId: string;
   activeRecentSessionId: string | null;
   threadsProjectId: string;
   activeThreadsTabId: string;

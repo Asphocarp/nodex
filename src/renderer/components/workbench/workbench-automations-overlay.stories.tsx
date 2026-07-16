@@ -142,6 +142,10 @@ const HISTORY_AUTOMATION_RUNS: CodexAutomationInboxItem[] = [
 const PROJECTS: Project[] = [
   {
     id: "nodex",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "nodex",
     description: "",
     icon: "",
@@ -154,6 +158,10 @@ const PROJECTS: Project[] = [
   },
   {
     id: "devtools-codex",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "devtools-codex",
     description: "",
     icon: "",
@@ -677,7 +685,7 @@ export const DeleteConfirmation: Story = {
   },
 };
 
-export const DiscardDraftConfirmation: Story = {
+export const DispageDraftConfirmation: Story = {
   args: {
     initialPath: buildAutomationsPath({ automationMode: "create" }),
     autoOpenDiscardDialog: true,

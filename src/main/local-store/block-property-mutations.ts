@@ -18,9 +18,9 @@ import {
   type SetIntrinsicBlockProperty,
   type UpdateDatabaseSetProperty,
 } from "../../shared/block-property-mutations";
-import type { CardInput } from "../../shared/types";
+import type { PageInput } from "../../shared/types";
 import { rebuildBlockPropertyMutationProjections } from "./block-property-mutation-projections";
-import { assertValidCardInput } from "./card-input-validation";
+import { assertValidPageInput } from "./page-input-validation";
 
 export type BlockPropertyMutationFaultPoint =
   | "after_property_values"
@@ -267,24 +267,24 @@ const validateKnownIntrinsicValue = (
       { fieldPath: path },
     );
   }
-  const candidate: Partial<CardInput> = {};
+  const candidate: Partial<PageInput> = {};
   switch (field.propertyKey) {
     case "run.target":
-      candidate.runInTarget = field.value as CardInput["runInTarget"];
+      candidate.runInTarget = field.value as PageInput["runInTarget"];
       break;
     case "run.localPath":
-      candidate.runInLocalPath = field.value as CardInput["runInLocalPath"];
+      candidate.runInLocalPath = field.value as PageInput["runInLocalPath"];
       break;
     case "run.baseBranch":
-      candidate.runInBaseBranch = field.value as CardInput["runInBaseBranch"];
+      candidate.runInBaseBranch = field.value as PageInput["runInBaseBranch"];
       break;
     case "run.worktreePath":
       candidate.runInWorktreePath =
-        field.value as CardInput["runInWorktreePath"];
+        field.value as PageInput["runInWorktreePath"];
       break;
     case "run.environmentPath":
       candidate.runInEnvironmentPath =
-        field.value as CardInput["runInEnvironmentPath"];
+        field.value as PageInput["runInEnvironmentPath"];
       break;
     case "schedule.isAllDay":
       if (typeof field.value === "boolean") return;
@@ -295,19 +295,19 @@ const validateKnownIntrinsicValue = (
         { fieldPath: path },
       );
     case "schedule.timezone":
-      candidate.scheduleTimezone = field.value as CardInput["scheduleTimezone"];
+      candidate.scheduleTimezone = field.value as PageInput["scheduleTimezone"];
       break;
     case "recurrence.config":
-      candidate.recurrence = field.value as CardInput["recurrence"];
+      candidate.recurrence = field.value as PageInput["recurrence"];
       break;
     case "reminders.config":
-      candidate.reminders = field.value as unknown as CardInput["reminders"];
+      candidate.reminders = field.value as unknown as PageInput["reminders"];
       break;
     default:
       return;
   }
   try {
-    assertValidCardInput(candidate, "update");
+    assertValidPageInput(candidate, "update");
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     reject(
@@ -325,7 +325,7 @@ const makeMutationEvidence = (
   const canonicalRequest = canonicalizeBlockPropertyMutationRequest(request);
   const targetBlockIds = uniqueSorted(
     request.fields.map((field) =>
-      field.scope === "intrinsic" ? field.blockId : field.cardBlockId,
+      field.scope === "intrinsic" ? field.blockId : field.pageId,
     ),
   );
   const databaseBlockIds = uniqueSorted(
@@ -469,7 +469,7 @@ const loadStoredOutcome = (
   };
 };
 
-const readCardBlock = (
+const readPageBlock = (
   database: Database.Database,
   request: BlockPropertyMutationRequest,
   blockId: string,
@@ -487,7 +487,7 @@ const readCardBlock = (
   if (!row) {
     return reject(
       "block_not_found",
-      `Card Block does not exist in Project ${request.projectId}: ${blockId}`,
+      `Page Block does not exist in Project ${request.projectId}: ${blockId}`,
       request,
       { fieldPath: path },
     );
@@ -495,15 +495,15 @@ const readCardBlock = (
   if (row.lifecycle !== "active") {
     reject(
       "block_not_active",
-      `Card Block is not active: ${blockId}`,
+      `Page Block is not active: ${blockId}`,
       request,
       { fieldPath: path },
     );
   }
-  if (row.type !== "card") {
+  if (row.type !== "page") {
     reject(
       "block_type_mismatch",
-      `Property mutations in this slice require a Card Block: ${blockId}`,
+      `Property mutations in this slice require a Page Block: ${blockId}`,
       request,
       { fieldPath: path },
     );
@@ -517,7 +517,7 @@ const resolveIntrinsicField = (
   field: SetIntrinsicBlockProperty,
 ): ResolvedIntrinsicField => {
   const path = makeBlockPropertyFieldPath(field);
-  readCardBlock(database, request, field.blockId, path);
+  readPageBlock(database, request, field.blockId, path);
   validateKnownIntrinsicValue(field, request, path);
   const current = database
     .prepare(
@@ -562,7 +562,7 @@ const readDatabaseScope = (
   readonly membership: DatabaseMembershipRow;
   readonly property: DatabasePropertyRow;
 } => {
-  readCardBlock(database, request, field.cardBlockId, path);
+  readPageBlock(database, request, field.pageId, path);
   const capability = database
     .prepare(
       `
@@ -596,18 +596,18 @@ const readDatabaseScope = (
       `
       SELECT id
       FROM database_memberships
-      WHERE card_block_id = ?
+      WHERE page_block_id = ?
         AND database_block_id = ?
         AND project_id = ?
         AND removed_at IS NULL
     `,
     )
-    .get(field.cardBlockId, field.databaseBlockId, request.projectId) as
+    .get(field.pageId, field.databaseBlockId, request.projectId) as
     DatabaseMembershipRow | undefined;
   if (!membership) {
     return reject(
       "membership_not_found",
-      `Card ${field.cardBlockId} is not an active member of Database ${field.databaseBlockId}`,
+      `Page ${field.pageId} is not an active member of Database ${field.databaseBlockId}`,
       request,
       { fieldPath: path },
     );
@@ -764,7 +764,7 @@ const validateDatabaseScalarValue = (
   }
   if (property.key === "assignee") {
     try {
-      assertValidCardInput({ assignee: scalarValue }, "update");
+      assertValidPageInput({ assignee: scalarValue }, "update");
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       reject(
@@ -817,7 +817,7 @@ const validateDatabaseSetValue = (
 ): void => {
   if (property.key === "tags") {
     try {
-      assertValidCardInput({ tags: [...value] }, "update");
+      assertValidPageInput({ tags: [...value] }, "update");
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       reject(
@@ -827,7 +827,7 @@ const validateDatabaseSetValue = (
         { fieldPath: path },
       );
     }
-    // The seeded Card tags property is intentionally open-ended. Its values
+    // The seeded Page tags property is intentionally open-ended. Its values
     // are application-level tag identities, so a field-level add/remove intent
     // must not require a separate Database schema mutation first. Custom
     // multi-select properties continue through the closed option validation
@@ -949,7 +949,7 @@ const resolveDatabaseField = (
     return {
       input: field,
       path,
-      blockId: field.cardBlockId,
+      blockId: field.pageId,
       membershipId: membership.id,
       propertyKey: property.key,
       valueType,
@@ -971,7 +971,7 @@ const resolveDatabaseField = (
   return {
     input: field,
     path,
-    blockId: field.cardBlockId,
+    blockId: field.pageId,
     membershipId: membership.id,
     propertyKey: property.key,
     valueType,
@@ -994,7 +994,7 @@ const readJsonPropertyRows = (
     } catch {
       reject(
         "property_value_corrupt",
-        `Card ${blockId} property ${row.key} is not valid JSON`,
+        `Page ${blockId} property ${row.key} is not valid JSON`,
         request,
       );
     }
@@ -1048,7 +1048,7 @@ const validateScheduledMetadataAfterMutation = (
           INNER JOIN database_property_values value
             ON value.membership_id = membership.id
             AND value.property_id = property.id
-          WHERE membership.card_block_id = ?
+          WHERE membership.page_block_id = ?
             AND membership.project_id = ?
             AND membership.removed_at IS NULL
         `,
@@ -1105,24 +1105,24 @@ const validateScheduledMetadataAfterMutation = (
     if ((scheduledStart === null) !== (scheduledEnd === null)) {
       reject(
         "property_value_invalid",
-        `Card ${blockId} must set or clear scheduled_start and scheduled_end together`,
+        `Page ${blockId} must set or clear scheduled_start and scheduled_end together`,
         request,
         fieldPath ? { fieldPath } : undefined,
       );
     }
     try {
-      assertValidCardInput(
+      assertValidPageInput(
         {
           scheduledStart,
           scheduledEnd,
           isAllDay: intrinsicValues.get("schedule.isAllDay") as
             boolean | undefined,
           recurrence: intrinsicValues.get("recurrence.config") as
-            CardInput["recurrence"] | undefined,
+            PageInput["recurrence"] | undefined,
           reminders: intrinsicValues.get("reminders.config") as
-            CardInput["reminders"] | undefined,
+            PageInput["reminders"] | undefined,
           scheduleTimezone: intrinsicValues.get("schedule.timezone") as
-            CardInput["scheduleTimezone"] | undefined,
+            PageInput["scheduleTimezone"] | undefined,
         },
         "update",
       );
@@ -1130,7 +1130,7 @@ const validateScheduledMetadataAfterMutation = (
       const detail = error instanceof Error ? error.message : String(error);
       reject(
         "property_value_invalid",
-        `Card ${blockId} has invalid scheduled metadata: ${detail}`,
+        `Page ${blockId} has invalid scheduled metadata: ${detail}`,
         request,
         fieldPath ? { fieldPath } : undefined,
       );
@@ -1526,9 +1526,9 @@ const persistRejectedOutcome = (
 };
 
 /**
- * Apply one field-level Card property batch on the process-wide SQLite writer.
+ * Apply one field-level Page property batch on the process-wide SQLite writer.
  * Every field is validated before the first write, then values, one metadata
- * revision per Card, the change cursor, and the immutable receipt commit in one
+ * revision per Page, the change cursor, and the immutable receipt commit in one
  * IMMEDIATE transaction.
  */
 export const applyBlockPropertyMutation = (

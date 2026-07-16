@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
 import {
-  createDetachedCardDocumentFromBlockTree,
+  createDetachedPageDocumentFromBlockTree,
   type BlockTreeNode,
 } from "../src/shared/block-documents/block-document-codec";
 import { inspectOwnedBlockDocument } from "../src/shared/block-documents/document-schema-adapters";
@@ -34,7 +34,7 @@ import {
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -98,7 +98,7 @@ const seedHost = (
       id, project_id, type, lifecycle, location_kind,
       containing_document_id, location_revision, metadata_revision,
       created_at, updated_at
-    ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+    ) VALUES (?, ?, 'page', 'active', 'space', NULL, 1, 1, ?, ?)
   `,
     )
     .run(cardId, projectId, now, now);
@@ -118,7 +118,7 @@ const seedHost = (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, state_hash, readiness, authority,
       genesis_source_revision, created_at, updated_at
-    ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
+    ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', '',
       'pending_genesis', 'legacy_shadow', NULL, ?, ?)
   `,
     )
@@ -131,7 +131,7 @@ const seedHost = (
   `,
     )
     .run(cardId, documentId, projectId, now);
-  const detached = createDetachedCardDocumentFromBlockTree({
+  const detached = createDetachedPageDocumentFromBlockTree({
     documentId,
     title: "Host",
     blockTree,

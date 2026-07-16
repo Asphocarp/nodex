@@ -8,7 +8,7 @@ import { blockMutationWriter } from "../src/main/block-mutation-writer";
 import { documentSyncHub } from "../src/main/document-sync-runtime";
 import * as backupService from "../src/main/local-store/backups";
 import { createProject } from "../src/main/local-store/projects";
-import { createCard } from "../src/main/local-store/cards";
+import { createPage } from "../src/main/local-store/database-pages";
 import {
   closeDatabase,
   initializeDatabase,
@@ -230,7 +230,7 @@ const run = async (): Promise<void> => {
     const assetsPath = path.join(directory, "assets");
     fs.mkdirSync(assetsPath, { recursive: true });
     fs.writeFileSync(path.join(assetsPath, "before.txt"), "before", "utf8");
-    const card = await createCard(project.id, "draft", {
+    const card = await createPage(project.id, "draft", {
       title: "Backup title",
       description:
         '<attachment kind="file" mode="materialized" source="nodex://assets/before.txt" name="before.txt" mime="text/plain" bytes="6" />',
@@ -241,7 +241,7 @@ const run = async (): Promise<void> => {
       project.id,
       card.id,
     );
-    invariant(prepared.ok, "Card Document was not prepared");
+    invariant(prepared.ok, "Page Document was not prepared");
     const descriptor = prepared.value;
 
     const checkpoints = [new ProbeCheckpointStore(), new ProbeCheckpointStore()];

@@ -40,15 +40,15 @@ function isToggleLikeBlock(block: ModifyShortcutBlock | undefined): boolean {
   return block.type === "heading" && block.props?.isToggleable === true;
 }
 
-function isCardOutlinerBlock(block: ModifyShortcutBlock | undefined): boolean {
-  return block?.type === "card" || block?.type === "cardRef";
+function isPageOutlinerBlock(block: ModifyShortcutBlock | undefined): boolean {
+  return block?.type === "page" || block?.type === "pageRef";
 }
 
 function isModifiableBlock(block: ModifyShortcutBlock | undefined): boolean {
   if (!block) return false;
   if (block.type === "checkListItem") return true;
   if (block.type === "image") return true;
-  if (isCardOutlinerBlock(block)) return true;
+  if (isPageOutlinerBlock(block)) return true;
   if (block.type === "threadSection") return true;
   return isToggleLikeBlock(block);
 }
@@ -100,7 +100,7 @@ function handleToggleBlock(editor: ModifyShortcutEditor, block: ModifyShortcutBl
   return true;
 }
 
-function handleCardOutlinerBlock(
+function handlePageOutlinerBlock(
   editor: ModifyShortcutEditor,
   block: ModifyShortcutBlock,
 ): boolean {
@@ -109,7 +109,7 @@ function handleCardOutlinerBlock(
   const disclosure = findBlockDescendantById<HTMLButtonElement>(
     editor.domElement,
     block.id,
-    "[data-card-outliner-caret]",
+    "[data-page-outliner-caret]",
   );
   if (!disclosure || disclosure.disabled) return true;
 
@@ -134,8 +134,8 @@ export function modifyCurrentBlock(
     return handleToggleBlock(editor, block);
   }
 
-  if (isCardOutlinerBlock(block)) {
-    return handleCardOutlinerBlock(editor, block);
+  if (isPageOutlinerBlock(block)) {
+    return handlePageOutlinerBlock(editor, block);
   }
 
   if (block.type === "image") {

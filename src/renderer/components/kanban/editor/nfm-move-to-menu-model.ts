@@ -2,7 +2,7 @@ import type { BoardSummary, Project } from "@/lib/types";
 import { normalizeSearchText } from "@/lib/search-text";
 import {
   createNfmMoveToSearchIndex,
-  type NfmMoveToCardSearchHit,
+  type NfmMoveToPageSearchHit,
   type NfmMoveToSearchResult,
 } from "./nfm-move-to-menu-search";
 
@@ -13,10 +13,10 @@ export type NfmMoveToDestination =
       columnId: string;
     }
   | {
-      kind: "card";
+      kind: "page";
       projectId: string;
       columnId: string;
-      cardId: string;
+      pageId: string;
     };
 
 export type NfmMoveToResultScope = "all" | "db-only";
@@ -42,25 +42,25 @@ export interface NfmMoveToDbColumnRow {
   destination: NfmMoveToDestination;
 }
 
-export interface NfmMoveToCardRow {
-  kind: "card";
+export interface NfmMoveToPageRow {
+  kind: "page";
   id: string;
   projectId: string;
   projectName: string;
   projectIcon?: string;
   columnId: string;
   columnName: string;
-  cardId: string;
-  cardTitle: string;
+  pageId: string;
+  pageTitle: string;
   depth: 0;
   destination: NfmMoveToDestination;
 }
 
-export type NfmMoveToRow = NfmMoveToDbRow | NfmMoveToDbColumnRow | NfmMoveToCardRow;
+export type NfmMoveToRow = NfmMoveToDbRow | NfmMoveToDbColumnRow | NfmMoveToPageRow;
 
 export interface NfmMoveToSection {
-  key: "db" | "card";
-  label: "DB" | "Card";
+  key: "db" | "page";
+  label: "DB" | "Page";
   rows: NfmMoveToRow[];
 }
 
@@ -68,15 +68,15 @@ export interface NfmMoveToSectionsInput {
   projects: readonly Project[];
   boardMap: ReadonlyMap<string, BoardSummary>;
   sourceProjectId: string | null;
-  sourceCardId: string | null;
+  sourcePageId: string | null;
   expandedProjectIds: ReadonlySet<string>;
   query: string;
   searchResult?: NfmMoveToSearchResult | null;
   resultScope?: NfmMoveToResultScope;
-  cardLimit?: number;
+  pageLimit?: number;
 }
 
-const DEFAULT_CARD_LIMIT = 60;
+const DEFAULT_PAGE_LIMIT = 60;
 
 function createDbRow(project: Project, expanded: boolean): NfmMoveToDbRow {
   return {
@@ -89,23 +89,23 @@ function createDbRow(project: Project, expanded: boolean): NfmMoveToDbRow {
   };
 }
 
-function createCardRowFromSearchHit(hit: NfmMoveToCardSearchHit): NfmMoveToCardRow {
+function createPageRowFromSearchHit(hit: NfmMoveToPageSearchHit): NfmMoveToPageRow {
   return {
-    kind: "card",
+    kind: "page",
     id: hit.id,
     projectId: hit.projectId,
     projectName: hit.projectName,
     projectIcon: hit.projectIcon,
     columnId: hit.columnId,
     columnName: hit.columnName,
-    cardId: hit.cardId,
-    cardTitle: hit.cardTitle,
+    pageId: hit.pageId,
+    pageTitle: hit.pageTitle,
     depth: 0,
     destination: {
-      kind: "card",
+      kind: "page",
       projectId: hit.projectId,
       columnId: hit.columnId,
-      cardId: hit.cardId,
+      pageId: hit.pageId,
     },
   };
 }
@@ -114,12 +114,12 @@ function resolveSearchResult({
   projects,
   boardMap,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   query,
   searchResult,
 }: Pick<
   NfmMoveToSectionsInput,
-  "projects" | "boardMap" | "sourceProjectId" | "sourceCardId" | "query" | "searchResult"
+  "projects" | "boardMap" | "sourceProjectId" | "sourcePageId" | "query" | "searchResult"
 >): NfmMoveToSearchResult | null {
   const normalizedQuery = normalizeSearchText(query);
   if (!normalizedQuery) return null;
@@ -128,7 +128,7 @@ function resolveSearchResult({
     projects,
     boardMap,
     sourceProjectId,
-    sourceCardId,
+    sourcePageId,
   }).search(query);
 }
 
@@ -147,24 +147,24 @@ export function buildNfmMoveToSections({
   projects,
   boardMap,
   sourceProjectId,
-  sourceCardId,
+  sourcePageId,
   expandedProjectIds,
   query,
   searchResult,
   resultScope = "all",
-  cardLimit = DEFAULT_CARD_LIMIT,
+  pageLimit = DEFAULT_PAGE_LIMIT,
 }: NfmMoveToSectionsInput): NfmMoveToSection[] {
   const normalizedQuery = normalizeSearchText(query);
   const resolvedSearchResult = resolveSearchResult({
     projects,
     boardMap,
     sourceProjectId,
-    sourceCardId,
+    sourcePageId,
     query,
     searchResult,
   });
   const dbRows: NfmMoveToRow[] = [];
-  const cardRows: NfmMoveToRow[] = [];
+  const pageRows: NfmMoveToRow[] = [];
 
   for (const project of projects) {
     const board = boardMap.get(project.id);
@@ -197,27 +197,27 @@ export function buildNfmMoveToSections({
 
       if (normalizedQuery || resultScope === "db-only") continue;
 
-      for (const card of column.cards) {
-        if (project.id === sourceProjectId && card.id === sourceCardId) continue;
-        if (cardRows.length >= cardLimit) continue;
+      for (const page of column.cards) {
+        if (project.id === sourceProjectId && page.id === sourcePageId) continue;
+        if (pageRows.length >= pageLimit) continue;
 
-        const cardTitle = card.title || "Untitled";
-        cardRows.push({
-          kind: "card",
-          id: `card:${project.id}:${card.id}`,
+        const pageTitle = page.title || "Untitled";
+        pageRows.push({
+          kind: "page",
+          id: `page:${project.id}:${page.id}`,
           projectId: project.id,
           projectName,
           projectIcon: project.icon,
           columnId: column.id,
           columnName: column.name,
-          cardId: card.id,
-          cardTitle,
+          pageId: page.id,
+          pageTitle,
           depth: 0,
           destination: {
-            kind: "card",
+            kind: "page",
             projectId: project.id,
             columnId: column.id,
-            cardId: card.id,
+            pageId: page.id,
           },
         });
       }
@@ -232,10 +232,10 @@ export function buildNfmMoveToSections({
   }
 
   if (resultScope === "all" && normalizedQuery && resolvedSearchResult) {
-    cardRows.push(
-      ...resolvedSearchResult.cardHits
-        .slice(0, cardLimit)
-        .map(createCardRowFromSearchHit),
+    pageRows.push(
+      ...resolvedSearchResult.pageHits
+        .slice(0, pageLimit)
+        .map(createPageRowFromSearchHit),
     );
   }
 
@@ -244,7 +244,7 @@ export function buildNfmMoveToSections({
 
   return [
     dbSection,
-    { key: "card", label: "Card", rows: cardRows },
+    { key: "page", label: "Page", rows: pageRows },
   ];
 }
 

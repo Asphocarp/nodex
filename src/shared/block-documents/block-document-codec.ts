@@ -4,7 +4,7 @@ import {
   yXmlFragmentToBlocks,
 } from "@blocknote/core/yjs";
 import * as Y from "yjs";
-import { createUuidV7 } from "../card-id";
+import { createUuidV7 } from "../uuid-v7";
 import { extractPlainText } from "../nfm/extract-text";
 import { parseNfm } from "../nfm/parser";
 import { serializeNfm } from "../nfm/serializer";
@@ -15,10 +15,10 @@ import {
   type ScannedDocumentBlock,
 } from "./block-structure";
 import {
-  assertValidCardDocumentRoots,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  createCardDocument,
-} from "./card-document";
+  assertValidPageDocumentRoots,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  createPageDocument,
+} from "./page-document";
 import type { BlockId, DocumentId } from "./contracts";
 import {
   deriveBlockDocumentRecords,
@@ -71,7 +71,7 @@ export interface BlockDocumentMaterialization {
   readonly assetRefs: readonly BlockDocumentAssetReference[];
 }
 
-export interface CardDocumentMaterialization extends BlockDocumentMaterialization {
+export interface PageDocumentMaterialization extends BlockDocumentMaterialization {
   readonly richTitle: PortableRichText;
 }
 
@@ -84,7 +84,7 @@ export interface CardDocumentMaterialization extends BlockDocumentMaterializatio
  * hidden collaborative title root.
  */
 
-export interface CreateCardDocumentGenesisInput {
+export interface CreatePageDocumentGenesisInput {
   readonly documentId: DocumentId;
   /** Plain convenience seam; richTitle is the canonical authority input. */
   readonly title?: string;
@@ -93,23 +93,23 @@ export interface CreateCardDocumentGenesisInput {
   readonly allocateBlockId?: () => BlockId;
 }
 
-export interface CardDocumentGenesis {
+export interface PageDocumentGenesis {
   readonly document: Y.Doc;
   readonly update: Uint8Array;
   readonly stateVector: Uint8Array;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
 }
 
-export interface CreateDetachedCardDocumentFromBlockTreeInput {
+export interface CreateDetachedPageDocumentFromBlockTreeInput {
   readonly documentId: DocumentId;
   readonly title?: string;
   readonly richTitle?: PortableRichText;
   readonly blockTree: readonly BlockTreeNode[];
 }
 
-export interface DetachedCardDocumentFromBlockTree {
+export interface DetachedPageDocumentFromBlockTree {
   readonly document: Y.Doc;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
 }
 
 export class BlockDocumentCodecError extends Error {
@@ -148,7 +148,7 @@ const ensureCanonicalBodyRoot = (body: Y.XmlFragment): void => {
 /**
  * BlockNote's ProseMirror schema requires at least one Block. Keeping the
  * application identity in authority data prevents the editor from inventing
- * its process-wide `initialBlockId` placeholder when an empty Card mounts.
+ * its process-wide `initialBlockId` placeholder when an empty Page mounts.
  */
 export const createCanonicalEmptyParagraphBlock = (
   blockId: BlockId,
@@ -438,35 +438,35 @@ export const materializeBlockDocumentBody = ({
   };
 };
 
-export const materializeCardDocument = (
+export const materializePageDocument = (
   document: Y.Doc,
-): CardDocumentMaterialization => {
-  const envelope = assertValidCardDocumentRoots(document);
+): PageDocumentMaterialization => {
+  const envelope = assertValidPageDocumentRoots(document);
   const richTitle = readPortableRichTextFromYText(envelope.title);
   return {
     ...materializeBlockDocumentBody({
     body: envelope.body,
-    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+    schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
     title: portableRichTextPlainText(richTitle),
-    schemaLabel: "Card",
+    schemaLabel: "Page",
     }),
     richTitle,
   };
 };
 
-export const createCardDocumentGenesis = ({
+export const createPageDocumentGenesis = ({
   documentId,
   title = "",
   richTitle,
   nfm,
   allocateBlockId = createUuidV7,
-}: CreateCardDocumentGenesisInput): CardDocumentGenesis => {
+}: CreatePageDocumentGenesisInput): PageDocumentGenesis => {
   if (richTitle !== undefined && title.length > 0) {
     throw new BlockDocumentCodecError(
-      "Card genesis accepts richTitle or plain title, not both",
+      "Page genesis accepts richTitle or plain title, not both",
     );
   }
-  const envelope = createCardDocument({
+  const envelope = createPageDocument({
     documentId,
     initialTitle: title,
     initializeBody: false,
@@ -479,7 +479,7 @@ export const createCardDocumentGenesis = ({
       );
     }
     populateBlockDocumentBodyFromNfm(envelope.body, nfm, allocateBlockId);
-    const materialization = materializeCardDocument(envelope.document);
+    const materialization = materializePageDocument(envelope.document);
     return {
       document: envelope.document,
       update: Y.encodeStateAsUpdate(envelope.document),
@@ -497,22 +497,22 @@ export const createCardDocumentGenesis = ({
 };
 
 /**
- * Build a disposable, validated Card Document from an internal stable-ID
+ * Build a disposable, validated Page Document from an internal stable-ID
  * BlockTree. This is a codec primitive for headless writers: it does not run
  * BlockNote editor commands and it never mutates an authoritative Y.Doc.
  */
-export const createDetachedCardDocumentFromBlockTree = ({
+export const createDetachedPageDocumentFromBlockTree = ({
   documentId,
   title = "",
   richTitle,
   blockTree,
-}: CreateDetachedCardDocumentFromBlockTreeInput): DetachedCardDocumentFromBlockTree => {
+}: CreateDetachedPageDocumentFromBlockTreeInput): DetachedPageDocumentFromBlockTree => {
   if (richTitle !== undefined && title.length > 0) {
     throw new BlockDocumentCodecError(
-      "Detached Card accepts richTitle or plain title, not both",
+      "Detached Page accepts richTitle or plain title, not both",
     );
   }
-  const envelope = createCardDocument({
+  const envelope = createPageDocument({
     documentId,
     initialTitle: title,
     initializeBody: false,
@@ -525,7 +525,7 @@ export const createDetachedCardDocumentFromBlockTree = ({
       );
     }
     populateBlockDocumentBodyFromBlockTree(envelope.body, blockTree);
-    const materialization = materializeCardDocument(envelope.document);
+    const materialization = materializePageDocument(envelope.document);
     const requested = flattenBlockTree(blockTree);
     const actual = flattenBlockTree(materialization.blockTree);
     const identityMatches =

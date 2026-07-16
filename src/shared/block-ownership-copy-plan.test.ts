@@ -6,25 +6,25 @@ import {
   type OwnershipClosureBlock,
   type OwnershipClosureDocument,
 } from "./block-ownership-copy-plan";
-import { isUuidV7 } from "./card-id";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "./block-documents";
+import { isUuidV7 } from "./uuid-v7";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "./block-documents";
 
 const blocks = new Map<string, OwnershipClosureBlock>([
-  ["card-a", { blockId: "card-a", blockType: "card", containingDocumentId: null }],
+  ["card-a", { blockId: "card-a", blockType: "page", containingDocumentId: null }],
   ["paragraph-a", { blockId: "paragraph-a", blockType: "paragraph", containingDocumentId: "document-a" }],
-  ["card-b", { blockId: "card-b", blockType: "card", containingDocumentId: "document-a" }],
-  ["card-ref", { blockId: "card-ref", blockType: "cardRef", containingDocumentId: "document-a" }],
+  ["card-b", { blockId: "card-b", blockType: "page", containingDocumentId: "document-a" }],
+  ["page-ref", { blockId: "page-ref", blockType: "pageRef", containingDocumentId: "document-a" }],
   ["paragraph-b", { blockId: "paragraph-b", blockType: "paragraph", containingDocumentId: "document-b" }],
   ["template-source", { blockId: "template-source", blockType: "reusable_template_source", containingDocumentId: "document-b" }],
   ["paragraph-template", { blockId: "paragraph-template", blockType: "paragraph", containingDocumentId: "document-template" }],
-  ["external-target", { blockId: "external-target", blockType: "card", containingDocumentId: null }],
+  ["external-target", { blockId: "external-target", blockType: "page", containingDocumentId: null }],
 ]);
 
 const documents = new Map<string, OwnershipClosureDocument>([
-  ["card-a", { documentId: "document-a", ownerBlockId: "card-a", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
-  ["card-b", { documentId: "document-b", ownerBlockId: "card-b", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
+  ["card-a", { documentId: "document-a", ownerBlockId: "card-a", schemaKey: "nodex.page", schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION }],
+  ["card-b", { documentId: "document-b", ownerBlockId: "card-b", schemaKey: "nodex.page", schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION }],
   ["template-source", { documentId: "document-template", ownerBlockId: "template-source", schemaKey: "nodex.reusable-template", schemaVersion: 1 }],
-  ["external-target", { documentId: "document-external", ownerBlockId: "external-target", schemaKey: "nodex.card", schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION }],
+  ["external-target", { documentId: "document-external", ownerBlockId: "external-target", schemaKey: "nodex.page", schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION }],
 ]);
 
 const reader: BlockOwnershipGraphReader = {
@@ -46,7 +46,7 @@ describe("Block ownership copy plan", () => {
       "paragraph-b",
       "template-source",
       "paragraph-template",
-      "card-ref",
+      "page-ref",
     ]);
     expect(closure.documents.map((document) => document.documentId)).toEqual([
       "document-a",

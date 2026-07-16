@@ -101,7 +101,7 @@ describe("legacy Canvas Y.Doc migration codec", () => {
       }),
     );
     expect(
-      JSON.stringify(inspection.materialization.cardReferences),
+      JSON.stringify(inspection.materialization.pageReferences),
     ).toBe(
       JSON.stringify([
         {

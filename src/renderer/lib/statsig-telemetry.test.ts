@@ -215,7 +215,7 @@ describe("Statsig renderer telemetry", () => {
     });
 
     const logged = logTelemetryEvent(" nodex:test_event ", 12, {
-      kind: "card",
+      kind: "page",
       prompt: "private prompt",
       cwd: "/Users/alice/project",
       notes: "Open https://example.test/private from /home/alice/repo",
@@ -227,7 +227,7 @@ describe("Statsig renderer telemetry", () => {
     expect(state.loggedEvents[0]?.eventName).toBe("nodex:test_event");
     expect(state.loggedEvents[0]?.value).toBe(12);
     const metadata = state.loggedEvents[0]?.metadata ?? {};
-    expect(metadata.kind).toBe("card");
+    expect(metadata.kind).toBe("page");
     expect(metadata.durationMs).toBe("42");
     expect(metadata.notes).toBe("Open [url] from /home/[user]/repo");
     expect("prompt" in metadata).toBe(false);

@@ -1,13 +1,14 @@
 import type Database from "better-sqlite3";
 import {
   createBlockDocumentNfmContentParitySignature,
-  materializeCardDocument,
-  type CardDocumentMaterialization,
+  materializePageDocument,
+  type PageDocumentMaterialization,
 } from "../../shared/block-documents/block-document-codec";
 import type {
   DocumentReadiness,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
+import type { ProjectResourceAction } from "../../shared/resource-authorization";
 import { getOwnedDocumentSchemaRegistration } from "../../shared/block-documents/document-schema-adapters";
 import { isLegacyForeignBodyReference } from "../../shared/block-documents/derived-records";
 import { loadLegacyShadowBlockDocument } from "./block-document-store";
@@ -15,6 +16,7 @@ import type {
   LegacyDocumentAuthority,
   LegacyOwnedBlockDocumentDescriptor,
 } from "./legacy-document-authority";
+import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
 
 export type { LegacyOwnedBlockDocumentDescriptor } from "./legacy-document-authority";
 
@@ -41,14 +43,14 @@ export class BlockDocumentCutoverError extends Error {
   }
 }
 
-export interface CutoverCardDocumentInput {
+export interface CutoverPageDocumentInput {
   readonly projectId: string;
   readonly ownerBlockId: string;
   readonly expectedGeneration: number;
   readonly expectedHeadSeq: number;
 }
 
-export interface CutoverEligibleCardDocumentsResult {
+export interface CutoverEligiblePageDocumentsResult {
   readonly cutoverDocumentIds: readonly string[];
   readonly alreadyPrimary: number;
   readonly deferredForeignReferences: number;
@@ -68,6 +70,12 @@ interface OwnedDocumentRow {
   readonly authority: LegacyDocumentAuthority;
   readonly state_vector: Buffer;
   readonly sync_engine: "yjs" | "canvas_scene";
+}
+
+export interface OwnedDocumentAccess {
+  readonly requestingProjectId: string;
+  readonly storageProjectId: string;
+  readonly descriptor: OwnedDocumentDescriptor;
 }
 
 interface LegacyCardContentRow {
@@ -155,6 +163,18 @@ const readOwnedDocumentRow = (
   );
 };
 
+const readOwnedDocumentRowByOwner = (
+  database: Database.Database,
+  ownerBlockId: string,
+): OwnedDocumentRow | null => {
+  const owner = database.prepare(`
+    SELECT project_id AS projectId FROM blocks WHERE id = ?
+  `).get(ownerBlockId) as { readonly projectId: string } | undefined;
+  return owner
+    ? readOwnedDocumentRow(database, owner.projectId, ownerBlockId)
+    : null;
+};
+
 const toDescriptor = (
   row: OwnedDocumentRow,
   storeEpoch: string,
@@ -181,6 +201,7 @@ const toDescriptor = (
 const toOwnedDocumentDescriptor = (
   row: OwnedDocumentRow,
   storeEpoch: string,
+  requestingProjectId = row.project_id,
 ): OwnedDocumentDescriptor => {
   if (row.authority !== "ydoc_primary") {
     throw new BlockDocumentCutoverError(
@@ -210,7 +231,7 @@ const toOwnedDocumentDescriptor = (
       }
     : { kind: "canvas_scene" as const };
   return {
-    projectId: row.project_id,
+    projectId: requestingProjectId,
     ownerBlockId: row.owner_block_id,
     ownerType: row.owner_type,
     ownerLifecycle: row.owner_lifecycle,
@@ -225,25 +246,108 @@ const toOwnedDocumentDescriptor = (
   };
 };
 
+const isPageOwner = (
+  database: Database.Database,
+  ownerBlockId: string,
+): boolean => {
+  const hasCanonicalPages = Boolean(database.prepare(`
+    SELECT 1 FROM sqlite_schema
+    WHERE type = 'table' AND name = 'pages'
+  `).get());
+  // Shipped-schema staging runs before v69 creates canonical Page authority.
+  // Its owned-Document reads remain Project-scoped until the release migration
+  // chain installs Library grants and the pages table together.
+  if (!hasCanonicalPages) return false;
+  return Boolean(database.prepare(`
+    SELECT 1 FROM pages WHERE block_id = ?
+  `).get(ownerBlockId));
+};
+
+const requirePageAuthorization = (
+  database: Database.Database,
+  requestingProjectId: string,
+  pageId: string,
+  action: Extract<ProjectResourceAction, "read" | "write">,
+): void => {
+  const authorization = authorizeProjectResourceInDatabase(database, {
+    projectId: requestingProjectId,
+    resource: { kind: "page", pageId },
+    action,
+  });
+  if (authorization.allowed) return;
+  throw new BlockDocumentCutoverError(
+    "owned_document_not_found",
+    `Page ${pageId} is not available in the requesting Project`,
+  );
+};
+
+export const getOwnedDocumentAccess = (
+  database: Database.Database,
+  requestingProjectId: string,
+  ownerBlockId: string,
+  action: Extract<ProjectResourceAction, "read" | "write">,
+): OwnedDocumentAccess => {
+  const normalizedProjectId = requireIdentity(
+    requestingProjectId,
+    "projectId",
+  );
+  const normalizedOwnerBlockId = requireIdentity(ownerBlockId, "ownerBlockId");
+  const read = database.transaction((): OwnedDocumentAccess => {
+    if (!isPageOwner(database, normalizedOwnerBlockId)) {
+      const row = readOwnedDocumentRow(
+        database,
+        normalizedProjectId,
+        normalizedOwnerBlockId,
+      );
+      return {
+        requestingProjectId: normalizedProjectId,
+        storageProjectId: row.project_id,
+        descriptor: toOwnedDocumentDescriptor(
+          row,
+          readStoreEpoch(database),
+          normalizedProjectId,
+        ),
+      };
+    }
+
+    requirePageAuthorization(
+      database,
+      normalizedProjectId,
+      normalizedOwnerBlockId,
+      action,
+    );
+    const row = readOwnedDocumentRowByOwner(database, normalizedOwnerBlockId);
+    if (!row) {
+      throw new BlockDocumentCutoverError(
+        "owned_document_not_found",
+        `Page ${normalizedOwnerBlockId} has no owned Document`,
+      );
+    }
+    if (action === "write" && row.owner_lifecycle !== "active") {
+      throw new BlockDocumentCutoverError(
+        "owner_not_writable",
+        `Page ${normalizedOwnerBlockId} is not writable`,
+      );
+    }
+    return {
+      requestingProjectId: normalizedProjectId,
+      storageProjectId: row.project_id,
+      descriptor: toOwnedDocumentDescriptor(
+        row,
+        readStoreEpoch(database),
+        normalizedProjectId,
+      ),
+    };
+  });
+  return read();
+};
+
 export const getOwnedDocumentDescriptor = (
   database: Database.Database,
   projectId: string,
   ownerBlockId: string,
-): OwnedDocumentDescriptor => {
-  const normalizedProjectId = requireIdentity(projectId, "projectId");
-  const normalizedOwnerBlockId = requireIdentity(ownerBlockId, "ownerBlockId");
-  const read = database.transaction(() =>
-    toOwnedDocumentDescriptor(
-      readOwnedDocumentRow(
-        database,
-        normalizedProjectId,
-        normalizedOwnerBlockId,
-      ),
-      readStoreEpoch(database),
-    ),
-  );
-  return read();
-};
+): OwnedDocumentDescriptor =>
+  getOwnedDocumentAccess(database, projectId, ownerBlockId, "read").descriptor;
 
 /** @deprecated Use `getOwnedDocumentDescriptor` for engine dispatch. */
 export const getOwnedBlockDocumentDescriptor = (
@@ -349,11 +453,11 @@ const assertContentAndProjectionParity = (
   database: Database.Database,
   row: OwnedDocumentRow,
   card: LegacyCardContentRow,
-): CardDocumentMaterialization => {
+): PageDocumentMaterialization => {
   const loaded = loadLegacyShadowBlockDocument(database, row.document_id);
-  let materialization: CardDocumentMaterialization;
+  let materialization: PageDocumentMaterialization;
   try {
-    materialization = materializeCardDocument(loaded.document);
+    materialization = materializePageDocument(loaded.document);
   } finally {
     loaded.document.destroy();
   }
@@ -404,7 +508,7 @@ const assertContentAndProjectionParity = (
 
 const assertNoForeignBodyReferences = (
   row: OwnedDocumentRow,
-  materialization: CardDocumentMaterialization,
+  materialization: PageDocumentMaterialization,
 ): void => {
   const foreignReference = materialization.references.find(
     isLegacyForeignBodyReference,
@@ -476,16 +580,16 @@ const assertNotLegacyForeignBodyParticipant = (
   );
 };
 
-export const cutoverCardDocumentToPrimary = (
+export const cutoverPageDocumentToPrimary = (
   database: Database.Database,
-  input: CutoverCardDocumentInput,
+  input: CutoverPageDocumentInput,
 ): LegacyOwnedBlockDocumentDescriptor => {
   const projectId = requireIdentity(input.projectId, "projectId");
   const ownerBlockId = requireIdentity(input.ownerBlockId, "ownerBlockId");
   const cutover = database.transaction((): LegacyOwnedBlockDocumentDescriptor => {
     const storeEpoch = readStoreEpoch(database);
     const row = readOwnedDocumentRow(database, projectId, ownerBlockId);
-    if (row.owner_type !== "card" || row.owner_lifecycle === "deleted") {
+    if (row.owner_type !== "page" || row.owner_lifecycle === "deleted") {
       throw new BlockDocumentCutoverError(
         "owner_not_writable",
         `Block ${ownerBlockId} is not a retained Card`,
@@ -550,17 +654,17 @@ export const cutoverCardDocumentToPrimary = (
 };
 
 /**
- * Monotonically cut over every retained, ready Card that no longer embeds a
- * foreign body. Archived Cards are read-only but keep the same owned
+ * Monotonically cut over every retained, ready Page that no longer embeds a
+ * foreign body. Archived Pages are read-only but keep the same owned
  * Document authority; deleting their compatibility row before this cutover
  * would otherwise strand that Document on legacy authority. A crash may stop
- * between Cards; rerunning is idempotent and can only advance legacy_shadow
+ * between Pages; rerunning is idempotent and can only advance legacy_shadow
  * to ydoc_primary.
  */
-export const cutoverEligibleCardDocumentsToPrimary = (
+export const cutoverEligiblePageDocumentsToPrimary = (
   database: Database.Database,
   ownerBlockIds?: readonly string[],
-): CutoverEligibleCardDocumentsResult => {
+): CutoverEligiblePageDocumentsResult => {
   const normalizedOwnerIds = ownerBlockIds
     ? Array.from(new Set(
         ownerBlockIds.map((ownerBlockId) =>
@@ -592,7 +696,7 @@ export const cutoverEligibleCardDocumentsToPrimary = (
       ON card.id = owner.id AND card.project_id = owner.project_id
     INNER JOIN block_documents ownership ON ownership.block_id = owner.id
     INNER JOIN documents document ON document.id = ownership.document_id
-    WHERE owner.type = 'card'
+    WHERE owner.type = 'page'
       AND owner.lifecycle IN ('active', 'archived')
       AND document.readiness = 'ready'
       ${ownerFilter}
@@ -615,7 +719,7 @@ export const cutoverEligibleCardDocumentsToPrimary = (
       continue;
     }
     try {
-      const descriptor = cutoverCardDocumentToPrimary(database, {
+      const descriptor = cutoverPageDocumentToPrimary(database, {
         projectId: candidate.project_id,
         ownerBlockId: candidate.owner_block_id,
         expectedGeneration: candidate.generation,

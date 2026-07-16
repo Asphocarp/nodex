@@ -30,6 +30,10 @@ vi.mock("@/lib/api", () => ({
 const PROJECTS: Project[] = [
   {
     id: "alpha",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Alpha",
     description: "",
     icon: "A",
@@ -42,6 +46,10 @@ const PROJECTS: Project[] = [
   },
   {
     id: "beta",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Beta",
     description: "",
     icon: "B",
@@ -105,18 +113,18 @@ function renderProjectRowWithSessions({
 }
 
 describe("SidebarProjectsSection", () => {
-  test("renders project rows in space order with the Codex sidebar contract", () => {
+  test("renders project rows in projectRef order with the Codex sidebar contract", () => {
     const { container, getByText, getByLabelText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        spaces={[
+        projectRefs={[
           { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
           { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
         ]}
         activeProjectId="beta"
         expanded
         onToggleExpanded={() => undefined}
-        onSelectSpace={() => undefined}
+        onSelectProject={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
         onUpdateProject={async () => null}
@@ -149,14 +157,14 @@ describe("SidebarProjectsSection", () => {
     const { getByLabelText, getByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        spaces={[
+        projectRefs={[
           { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
           { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
         ]}
         activeProjectId="alpha"
         expanded
         onToggleExpanded={() => undefined}
-        onSelectSpace={() => undefined}
+        onSelectProject={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
         onUpdateProject={async () => null}
@@ -177,14 +185,14 @@ describe("SidebarProjectsSection", () => {
     const { getByLabelText, getByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        spaces={[
+        projectRefs={[
           { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
           { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
         ]}
         activeProjectId="alpha"
         expanded
         onToggleExpanded={() => undefined}
-        onSelectSpace={() => undefined}
+        onSelectProject={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
         onUpdateProject={async () => null}
@@ -226,14 +234,14 @@ describe("SidebarProjectsSection", () => {
     const { container, queryByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        spaces={[
+        projectRefs={[
           { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
           { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
         ]}
         activeProjectId="beta"
         expanded={false}
         onToggleExpanded={() => undefined}
-        onSelectSpace={() => undefined}
+        onSelectProject={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
         onUpdateProject={async () => null}
@@ -258,14 +266,14 @@ describe("SidebarProjectsSection", () => {
     const { getByLabelText, getByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
-        spaces={[
+        projectRefs={[
           { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
           { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
         ]}
         activeProjectId="beta"
         expanded
         onToggleExpanded={() => undefined}
-        onSelectSpace={() => undefined}
+        onSelectProject={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
         onUpdateProject={async (projectId, updates) => {

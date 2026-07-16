@@ -8,30 +8,12 @@ export interface CardActionMenuEntry {
     | "open-in"
     | "copy-link"
     | "duplicate"
-    | "move-to"
     | "delete";
   label: string;
   shortcut?: string;
   disabled?: boolean;
   mockReason?: string;
   keywords: string[];
-}
-
-export interface CardMoveTarget {
-  id: string;
-  label: string;
-  description: string;
-  icon?: string;
-  isCurrent: boolean;
-  disabled: boolean;
-}
-
-export interface CardContextMenuProjectSummary {
-  id: string;
-  name: string;
-  icon?: string;
-  description?: string;
-  primaryWorkspaceRoot?: string | null;
 }
 
 interface CardActionMenuQuery {
@@ -98,12 +80,6 @@ const CARD_ACTION_MENU_ENTRIES: CardActionMenuEntry[] = [
     keywords: ["duplicate", "clone", "copy"],
   },
   {
-    id: "move-to",
-    label: "Move to",
-    shortcut: "⌘⇧P",
-    keywords: ["move", "project", "database", "workspace"],
-  },
-  {
     id: "delete",
     label: "Delete",
     shortcut: "Del",
@@ -115,7 +91,7 @@ function normalizeSearchValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function getCardActionMenuEntries(input: CardActionMenuQuery): CardActionMenuEntry[] {
+export function getPageActionMenuEntries(input: CardActionMenuQuery): CardActionMenuEntry[] {
   const { query, showMockActions } = input;
   const normalizedQuery = normalizeSearchValue(query);
   const entries = CARD_ACTION_MENU_ENTRIES.filter((entry) => showMockActions || !entry.mockReason);
@@ -128,41 +104,4 @@ export function getCardActionMenuEntries(input: CardActionMenuQuery): CardAction
     const haystack = [entry.label, entry.mockReason ? "mock" : "", ...entry.keywords].join(" ").toLowerCase();
     return haystack.includes(normalizedQuery);
   });
-}
-
-export function getCardMoveTargets(
-  projects: CardContextMenuProjectSummary[],
-  currentProjectId: string,
-  query: string,
-): CardMoveTarget[] {
-  const normalizedQuery = normalizeSearchValue(query);
-
-  return projects
-    .filter((project) => {
-      if (normalizedQuery.length === 0) {
-        return true;
-      }
-
-      const haystack = [
-        project.name,
-        project.id,
-        project.description ?? "",
-        project.primaryWorkspaceRoot ?? "",
-      ].join(" ").toLowerCase();
-      return haystack.includes(normalizedQuery);
-    })
-    .map((project) => {
-      const isCurrent = project.id === currentProjectId;
-      const secondaryText = project.description?.trim()
-        || project.primaryWorkspaceRoot?.trim();
-
-      return {
-        id: project.id,
-        label: project.name,
-        description: isCurrent ? `Current project${secondaryText ? ` · ${secondaryText}` : ""}` : (secondaryText || "Project"),
-        icon: project.icon,
-        isCurrent,
-        disabled: isCurrent,
-      };
-    });
 }

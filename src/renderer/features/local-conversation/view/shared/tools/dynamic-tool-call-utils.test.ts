@@ -313,11 +313,11 @@ describe("dynamic tool registry", () => {
       callId: "nodex-search-1",
       namespace: "nodex_app",
       tool: "search",
-      arguments: { query: "migrtion", target: "cards" },
+      arguments: { query: "migrtion", target: "pages" },
       contentItems: [{
         type: "inputText",
         text: JSON.stringify({
-          data: { target: "cards", results: [{ kind: "card" }] },
+          data: { target: "pages", results: [{ kind: "page" }] },
         }),
       }],
     });
@@ -336,7 +336,7 @@ describe("dynamic tool registry", () => {
       createdAt: 1,
       updatedAt: 1,
       dynamicToolCall: searchCall,
-    })).toBe("Searched cards for “migrtion” · 1 result");
+    })).toBe("Searched pages for “migrtion” · 1 result");
   });
 
   test("matches Electron dynamic fallback labels for completed and active rows", () => {

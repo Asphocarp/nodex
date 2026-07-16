@@ -1,14 +1,14 @@
-import type { BoardSummary, CardSummary, CardStatus, MoveCardInput } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary, WorkflowStatus, MovePageInput } from "@/lib/types";
 import type { DbViewRules, DbViewSortField } from "../../lib/db-view-prefs";
 import { DB_VIEW_SORT_FIELD_LABELS } from "../../lib/db-view-prefs";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 
 interface DragItemLike {
   columnId: string;
-  card: Pick<CardSummary, "id" | "priority" | "estimate">;
+  card: Pick<DatabasePageSummary, "id" | "priority" | "estimate">;
 }
 
-type MoveFieldPatch = NonNullable<MoveCardInput["fieldPatch"]>;
+type MoveFieldPatch = NonNullable<MovePageInput["fieldPatch"]>;
 type MoveFieldPatchField = keyof MoveFieldPatch;
 
 export type KanbanCardDragMode =
@@ -19,23 +19,23 @@ export type KanbanCardDragMode =
 export type KanbanCardDropIntent =
   | {
       kind: "reorder";
-      columnId: CardStatus;
+      columnId: WorkflowStatus;
       newOrder: number;
     }
   | {
       kind: "reorder-with-patch";
-      columnId: CardStatus;
+      columnId: WorkflowStatus;
       newOrder: number;
       fieldPatch: MoveFieldPatch;
       previewLabel: string;
     }
   | {
       kind: "move-only";
-      columnId: CardStatus;
+      columnId: WorkflowStatus;
     }
   | {
       kind: "blocked";
-      columnId: CardStatus;
+      columnId: WorkflowStatus;
       message: string;
     };
 
@@ -49,14 +49,14 @@ function getPrimarySortField(rules: DbViewRules): DbViewSortField {
   return rules.sort[0]?.field ?? "board-order";
 }
 
-function resolveSortBucketValue(card: Pick<CardSummary, "priority" | "estimate"> | undefined, field: MoveFieldPatchField) {
+function resolveSortBucketValue(card: Pick<DatabasePageSummary, "priority" | "estimate"> | undefined, field: MoveFieldPatchField) {
   if (!card) return null;
   return field === "priority"
     ? (card.priority ?? null)
     : (card.estimate ?? null);
 }
 
-function buildPreviewLabel(field: MoveFieldPatchField, value: CardSummary["priority"] | CardSummary["estimate"] | null): string {
+function buildPreviewLabel(field: MoveFieldPatchField, value: DatabasePageSummary["priority"] | DatabasePageSummary["estimate"] | null): string {
   if (field === "priority") {
     const label = value === null
       ? "Empty"
@@ -101,12 +101,12 @@ export function resolveKanbanCardDropIntent(args: {
   board: BoardSummary | null;
   visibleBoard: BoardSummary | null;
   rules: DbViewRules;
-  destinationColumnId: CardStatus;
+  destinationColumnId: WorkflowStatus;
   destinationIndex: number;
   dragItems: readonly DragItemLike[];
 }): KanbanCardDropIntent {
   const dragMode = resolveKanbanCardDragMode({ rules: args.rules });
-  const draggedCardIds = args.dragItems.map((entry) => entry.card.id);
+  const draggedPageIds = args.dragItems.map((entry) => entry.card.id);
 
   if (dragMode.kind === "manual-rank") {
     return {
@@ -115,7 +115,7 @@ export function resolveKanbanCardDropIntent(args: {
       newOrder: resolveFilteredDropOrder({
         board: args.board,
         visibleBoard: args.visibleBoard,
-        draggedCardIds,
+        draggedPageIds,
         targetColumnId: args.destinationColumnId,
         targetVisibleIndex: args.destinationIndex,
       }),
@@ -155,7 +155,7 @@ export function resolveKanbanCardDropIntent(args: {
       newOrder: resolveFilteredDropOrder({
         board: args.board,
         visibleBoard: args.visibleBoard,
-        draggedCardIds,
+        draggedPageIds,
         targetColumnId: args.destinationColumnId,
         targetVisibleIndex: visibleIndex,
       }),
@@ -176,7 +176,7 @@ export function resolveKanbanCardDropIntent(args: {
   const newOrder = resolveFilteredDropOrder({
     board: args.board,
     visibleBoard: args.visibleBoard,
-    draggedCardIds,
+    draggedPageIds,
     targetColumnId: args.destinationColumnId,
     targetVisibleIndex: visibleIndex,
   });

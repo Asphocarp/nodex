@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { invoke } from "./api";
-import type { Card, CardSummary } from "./types";
+import type { DatabasePage, DatabasePageSummary } from "./types";
 
 interface DatabaseRowDetailSnapshot {
-  card: Card | null;
+  card: DatabasePage | null;
   loading: boolean;
   error: string | null;
 }
 
 interface DatabaseRowDetailsSnapshot {
-  cards: ReadonlyMap<string, Card>;
+  cards: ReadonlyMap<string, DatabasePage>;
   loading: boolean;
   error: string | null;
 }
@@ -29,11 +29,11 @@ const EMPTY_DETAIL: DatabaseRowDetailSnapshot = {
 const listenersByKey = new Map<string, Set<Listener>>();
 const keyVersions = new Map<string, number>();
 const detailEntries = new Map<string, DatabaseRowDetailSnapshot>();
-const inFlightSingleRequests = new Map<string, Promise<Card | null>>();
-const inFlightBatchRequests = new Map<string, Promise<Card[]>>();
+const inFlightSingleRequests = new Map<string, Promise<DatabasePage | null>>();
+const inFlightBatchRequests = new Map<string, Promise<DatabasePage[]>>();
 
-function detailKey(projectId: string, cardId: string): string {
-  return `${projectId}:${cardId}`;
+function detailKey(projectId: string, pageId: string): string {
+  return `${projectId}:${pageId}`;
 }
 
 function toErrorMessage(value: unknown): string {
@@ -94,15 +94,15 @@ function getKeysVersionSnapshot(keys: readonly string[]): string {
   return keys.map((key) => `${key}:${keyVersions.get(key) ?? 0}`).join("|");
 }
 
-function isStale(card: Card | null, revision: number | undefined): boolean {
+function isStale(card: DatabasePage | null, revision: number | undefined): boolean {
   if (!card) return true;
   if (revision === undefined) return false;
   return card.revision !== revision;
 }
 
 function shouldAcceptDatabaseRowDetail(
-  existing: Card | null,
-  incoming: Card,
+  existing: DatabasePage | null,
+  incoming: DatabasePage,
   options: SetDatabaseRowDetailOptions = {},
 ): boolean {
   if (!existing) return true;
@@ -117,7 +117,7 @@ function shouldAcceptDatabaseRowDetail(
 
 function setDatabaseRowDetailEntry(
   projectId: string,
-  card: Card,
+  card: DatabasePage,
   options: SetDatabaseRowDetailOptions = {},
 ): string | null {
   const key = detailKey(projectId, card.id);
@@ -143,7 +143,7 @@ function setDatabaseRowDetailEntry(
 
 export function setDatabaseRowDetail(
   projectId: string,
-  card: Card,
+  card: DatabasePage,
   options: SetDatabaseRowDetailOptions = {},
 ): void {
   const changedKey = setDatabaseRowDetailEntry(projectId, card, options);
@@ -151,7 +151,7 @@ export function setDatabaseRowDetail(
   emitKeys([changedKey]);
 }
 
-export function setDatabaseRowDetails(projectId: string, cards: readonly Card[]): void {
+export function setDatabaseRowDetails(projectId: string, cards: readonly DatabasePage[]): void {
   if (cards.length === 0) return;
   const changedKeys = new Set<string>();
   for (const card of cards) {
@@ -161,8 +161,8 @@ export function setDatabaseRowDetails(projectId: string, cards: readonly Card[])
   if (changedKeys.size > 0) emitKeys(changedKeys);
 }
 
-export function getDatabaseRowDetail(projectId: string, cardId: string): Card | null {
-  return detailEntries.get(detailKey(projectId, cardId))?.card ?? null;
+export function getDatabaseRowDetail(projectId: string, pageId: string): DatabasePage | null {
+  return detailEntries.get(detailKey(projectId, pageId))?.card ?? null;
 }
 
 export function resetDatabaseRowDetailStoreForTests(): void {
@@ -176,10 +176,10 @@ export function resetDatabaseRowDetailStoreForTests(): void {
 
 export async function fetchDatabaseRowDetail(
   projectId: string,
-  cardId: string,
-  status?: Card["status"],
-): Promise<Card | null> {
-  const key = detailKey(projectId, cardId);
+  pageId: string,
+  status?: DatabasePage["status"],
+): Promise<DatabasePage | null> {
+  const key = detailKey(projectId, pageId);
   const existing = inFlightSingleRequests.get(key);
   if (existing) return existing;
 
@@ -202,14 +202,14 @@ export async function fetchDatabaseRowDetail(
 
   const request = (async () => {
     try {
-      const card = (await invoke("database-row:get", projectId, cardId, status)) as Card | null;
+      const card = (await invoke("database-row:get", projectId, pageId, status)) as DatabasePage | null;
       if (card) {
         setDatabaseRowDetail(projectId, card);
       } else {
         detailEntries.set(key, {
           card: null,
           loading: false,
-          error: "Card not found",
+          error: "Page not found",
         });
         emitKeys([key]);
       }
@@ -231,17 +231,17 @@ export async function fetchDatabaseRowDetail(
   return request;
 }
 
-export async function fetchDatabaseRowDetails(projectId: string, cardIds: readonly string[]): Promise<Card[]> {
-  const uniqueCardIds = Array.from(new Set(cardIds.filter(Boolean)));
-  if (uniqueCardIds.length === 0) return [];
+export async function fetchDatabaseRowDetails(projectId: string, pageIds: readonly string[]): Promise<DatabasePage[]> {
+  const uniquePageIds = Array.from(new Set(pageIds.filter(Boolean)));
+  if (uniquePageIds.length === 0) return [];
 
-  const requestKey = `${projectId}:${uniqueCardIds.slice().sort().join(",")}`;
+  const requestKey = `${projectId}:${uniquePageIds.slice().sort().join(",")}`;
   const existing = inFlightBatchRequests.get(requestKey);
   if (existing) return existing;
 
   const loadingChangedKeys = new Set<string>();
-  for (const cardId of uniqueCardIds) {
-    const key = detailKey(projectId, cardId);
+  for (const pageId of uniquePageIds) {
+    const key = detailKey(projectId, pageId);
     const currentEntry = detailEntries.get(key);
     if (currentEntry?.card && !currentEntry.error) continue;
     detailEntries.set(key, {
@@ -255,22 +255,22 @@ export async function fetchDatabaseRowDetails(projectId: string, cardIds: readon
 
   const request = (async () => {
     try {
-      const cards = (await invoke("database-rows:details:get", projectId, { cardIds: uniqueCardIds })) as Card[];
+      const cards = (await invoke("database-rows:details:get", projectId, { pageIds: uniquePageIds })) as DatabasePage[];
       const changedKeys = new Set<string>();
       for (const card of cards) {
         const changedKey = setDatabaseRowDetailEntry(projectId, card);
         if (changedKey) changedKeys.add(changedKey);
       }
 
-      const returnedCardIds = new Set(cards.map((card) => card.id));
-      for (const cardId of uniqueCardIds) {
-        if (returnedCardIds.has(cardId)) continue;
-        const key = detailKey(projectId, cardId);
+      const returnedPageIds = new Set(cards.map((card) => card.id));
+      for (const pageId of uniquePageIds) {
+        if (returnedPageIds.has(pageId)) continue;
+        const key = detailKey(projectId, pageId);
         const existingEntry = detailEntries.get(key) ?? EMPTY_DETAIL;
         const nextEntry = {
           card: null,
           loading: false,
-          error: "Card not found",
+          error: "Page not found",
         };
         if (
           existingEntry.card === nextEntry.card
@@ -287,8 +287,8 @@ export async function fetchDatabaseRowDetails(projectId: string, cardIds: readon
     } catch (error) {
       const message = toErrorMessage(error);
       const changedKeys = new Set<string>();
-      for (const cardId of uniqueCardIds) {
-        const key = detailKey(projectId, cardId);
+      for (const pageId of uniquePageIds) {
+        const key = detailKey(projectId, pageId);
         detailEntries.set(key, {
           card: detailEntries.get(key)?.card ?? null,
           loading: false,
@@ -309,11 +309,11 @@ export async function fetchDatabaseRowDetails(projectId: string, cardIds: readon
 
 export function useDatabaseRowDetail(
   projectId: string,
-  cardId: string | null | undefined,
-  status?: Card["status"],
+  pageId: string | null | undefined,
+  status?: DatabasePage["status"],
   revision?: number,
 ): DatabaseRowDetailSnapshot {
-  const key = cardId ? detailKey(projectId, cardId) : null;
+  const key = pageId ? detailKey(projectId, pageId) : null;
   const subscribe = useMemo(
     () => (listener: Listener) => (key ? subscribeKey(key, listener) : () => undefined),
     [key],
@@ -326,19 +326,19 @@ export function useDatabaseRowDetail(
   const snapshot = key ? (detailEntries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
 
   useEffect(() => {
-    if (!cardId) return;
+    if (!pageId) return;
     if (snapshot.loading) return;
     if (snapshot.error) return;
     if (!isStale(snapshot.card, revision)) return;
-    void fetchDatabaseRowDetail(projectId, cardId, status);
-  }, [cardId, projectId, revision, snapshot.card, snapshot.error, snapshot.loading, status]);
+    void fetchDatabaseRowDetail(projectId, pageId, status);
+  }, [pageId, projectId, revision, snapshot.card, snapshot.error, snapshot.loading, status]);
 
   return snapshot;
 }
 
 export function useDatabaseRowDetails(
   projectId: string,
-  summaries: readonly Pick<CardSummary, "id" | "revision">[],
+  summaries: readonly Pick<DatabasePageSummary, "id" | "revision">[],
 ): DatabaseRowDetailsSnapshot {
   const requestKey = summaries.map((card) => `${card.id}:${card.revision ?? ""}`).join("|");
   const detailKeys = useMemo(
@@ -374,7 +374,7 @@ export function useDatabaseRowDetails(
 
   return useMemo(() => {
     void requestKey;
-    const cards = new Map<string, Card>();
+    const cards = new Map<string, DatabasePage>();
     let loading = false;
     let error: string | null = null;
     for (const summary of summaries) {

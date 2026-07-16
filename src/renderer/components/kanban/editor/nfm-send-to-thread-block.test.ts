@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { blockNoteToNfm, serializeNfm } from "@/lib/nfm";
-import { isUuidV7 } from "../../../../shared/card-id";
+import { isUuidV7 } from "../../../../shared/uuid-v7";
 import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";
 
 describe("nfm send-to-thread block", () => {

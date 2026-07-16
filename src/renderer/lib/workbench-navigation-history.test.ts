@@ -39,12 +39,12 @@ function makeSnapshot(overrides: Partial<NavigationSnapshot> = {}): NavigationSn
     activeView: overrides.activeView ?? "kanban",
     focusedStage: overrides.focusedStage ?? "db",
     stageNavDirection: overrides.stageNavDirection ?? "right",
-    cardStage: overrides.cardStage ?? {
+    pageStage: overrides.pageStage ?? {
       open: false,
       projectId: "",
-      cardId: null,
+      pageId: null,
     },
-    activeCardsTabId: overrides.activeCardsTabId ?? "",
+    activePagesTabId: overrides.activePagesTabId ?? "",
     activeRecentSessionId: overrides.activeRecentSessionId ?? null,
     threadsProjectId: overrides.threadsProjectId ?? "default",
     activeThreadsTabId: overrides.activeThreadsTabId ?? "thread:new",
@@ -69,7 +69,7 @@ describe("workbench navigation history", () => {
   test("dedupes repeated snapshots at the top of the back stack", () => {
     resetStorage();
     const first = makeSnapshot();
-    const second = makeSnapshot({ focusedStage: "cards" });
+    const second = makeSnapshot({ focusedStage: "pages" });
     const initial = recordNavigationTransition({ backStack: [], forwardStack: [] }, first, second);
     const next = recordNavigationTransition(initial, second, makeSnapshot({ focusedStage: "threads" }));
 
@@ -81,7 +81,7 @@ describe("workbench navigation history", () => {
   test("clears the forward stack on fresh navigation", () => {
     resetStorage();
     const first = makeSnapshot();
-    const second = makeSnapshot({ focusedStage: "cards" });
+    const second = makeSnapshot({ focusedStage: "pages" });
     const third = makeSnapshot({ focusedStage: "threads" });
     const backState = navigateBackInHistory(
       recordNavigationTransition(
@@ -100,7 +100,7 @@ describe("workbench navigation history", () => {
   test("restores the prior snapshot when navigating back and forward", () => {
     resetStorage();
     const first = makeSnapshot();
-    const second = makeSnapshot({ focusedStage: "cards", activeCardsTabId: "session:s-1" });
+    const second = makeSnapshot({ focusedStage: "pages", activePagesTabId: "session:s-1" });
     const third = makeSnapshot({ focusedStage: "threads", activeThreadsTabId: "thr-1" });
     const history = recordNavigationTransition(
       recordNavigationTransition({ backStack: [], forwardStack: [] }, first, second),
@@ -109,7 +109,7 @@ describe("workbench navigation history", () => {
     );
 
     const backResult = navigateBackInHistory(history, third);
-    expect(backResult.snapshot?.focusedStage).toBe("cards");
+    expect(backResult.snapshot?.focusedStage).toBe("pages");
     expect(backResult.historyState.forwardStack.length).toBe(1);
     expect(backResult.historyState.forwardStack[0]?.focusedStage).toBe("threads");
 
@@ -121,7 +121,7 @@ describe("workbench navigation history", () => {
   test("persists history in session storage", () => {
     resetStorage();
     const state = writeNavigationHistoryState({
-      backStack: [makeSnapshot({ focusedStage: "cards" })],
+      backStack: [makeSnapshot({ focusedStage: "pages" })],
       forwardStack: [makeSnapshot({ focusedStage: "threads" })],
     });
 
@@ -135,7 +135,7 @@ describe("workbench navigation history", () => {
     ((globalThis as { sessionStorage?: typeof mockStorage }).sessionStorage ?? mockStorage).setItem(
       navigationHistoryStorageKey,
       JSON.stringify({
-        backStack: [{ focusedStage: "invalid" }, makeSnapshot({ focusedStage: "cards" })],
+        backStack: [{ focusedStage: "invalid" }, makeSnapshot({ focusedStage: "pages" })],
         forwardStack: ["bad-entry"],
       }),
     );
@@ -143,7 +143,7 @@ describe("workbench navigation history", () => {
     const restored = readNavigationHistoryState();
 
     expect(restored.backStack.length).toBe(1);
-    expect(restored.backStack[0]?.focusedStage).toBe("cards");
+    expect(restored.backStack[0]?.focusedStage).toBe("pages");
     expect(restored.forwardStack.length).toBe(0);
   });
 
@@ -152,7 +152,7 @@ describe("workbench navigation history", () => {
     const maxEntries = navigationHistoryTestHelpers.MAX_HISTORY_ENTRIES;
     const restored = navigationHistoryTestHelpers.normalizeNavigationHistoryState({
       backStack: Array.from({ length: maxEntries + 5 }, (_, index) =>
-        makeSnapshot({ activeCardsTabId: `session:${index}` })),
+        makeSnapshot({ activePagesTabId: `session:${index}` })),
       forwardStack: [],
     });
 

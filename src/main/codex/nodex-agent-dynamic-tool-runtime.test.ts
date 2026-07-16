@@ -23,16 +23,16 @@ describe("Nodex agent dynamic-tool runtime", () => {
 
     expect(catalog.name).toBe("nodex_app");
     expect(catalog.tools.map((tool) => tool.name)).toEqual([
-      "advanced_query_database",
-      "advanced_update_card",
-      "create_cards",
-      "duplicate_card",
+      "advanced_update_page",
+      "create_pages",
+      "duplicate_page",
       "fetch",
       "get_context",
-      "move_cards",
+      "move_pages",
+      "query_data_source",
       "query_database_view",
       "search",
-      "update_card",
+      "update_page",
     ]);
   });
 

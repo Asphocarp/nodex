@@ -1,8 +1,8 @@
 import * as Y from "yjs";
 import {
-  materializeCardDocument,
+  materializePageDocument,
   type BlockTreeNode,
-  type CardDocumentMaterialization,
+  type PageDocumentMaterialization,
 } from "./block-document-codec";
 import {
   BLOCK_CONTAINER_NODE_NAME,
@@ -14,7 +14,7 @@ import type { BlockId } from "./contracts";
 
 export type ForeignReferenceResolution =
   | {
-      readonly kind: "card";
+      readonly kind: "page";
       readonly sourceBlockId: BlockId;
       readonly targetBlockId: BlockId;
     }
@@ -27,7 +27,7 @@ export type ForeignReferenceResolution =
 
 export interface ForeignReferenceDocumentMigration {
   readonly update: Uint8Array;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
   readonly migratedBlockIds: readonly BlockId[];
   readonly removedDescendantBlockIds: readonly BlockId[];
 }
@@ -101,7 +101,10 @@ const isLegacyProjectionBlock = (block: BlockTreeNode): boolean => {
   if (block.type === "cardToggle" || block.type === "toggleListInlineView") {
     return true;
   }
-  if (block.type !== "cardRef") return false;
+  if (
+    block.type !== "cardRef"
+    && block.type !== "pageRef"
+  ) return false;
   const targetBlockId = block.props.targetBlockId;
   return typeof targetBlockId !== "string" || targetBlockId.length === 0;
 };
@@ -121,10 +124,10 @@ export const collectLegacyProjectionRootIds = (
   return ids;
 };
 
-const makeCardReferenceNode = (
-  resolution: Extract<ForeignReferenceResolution, { readonly kind: "card" }>,
+const makePageReferenceNode = (
+  resolution: Extract<ForeignReferenceResolution, { readonly kind: "page" }>,
 ): Y.XmlElement => {
-  const node = new Y.XmlElement("cardRef");
+  const node = new Y.XmlElement("pageRef");
   node.setAttribute(
     "targetBlockId",
     requireIdentity(resolution.targetBlockId, "targetBlockId"),
@@ -153,11 +156,14 @@ const replaceLegacyReference = (
   resolution: ForeignReferenceResolution,
 ): readonly BlockId[] => {
   const content = readContentNode(container);
-  const isLegacyCard = content.nodeName === "cardRef" || content.nodeName === "cardToggle";
+  const isLegacyPageProjection =
+    content.nodeName === "cardRef"
+    || content.nodeName === "pageRef"
+    || content.nodeName === "cardToggle";
   const isLegacyDatabaseQuery = content.nodeName === "toggleListInlineView";
-  if (resolution.kind === "card" && !isLegacyCard) {
+  if (resolution.kind === "page" && !isLegacyPageProjection) {
     throw new ForeignReferenceMigrationError(
-      `Block ${resolution.sourceBlockId} is not a legacy Card projection`,
+      `Block ${resolution.sourceBlockId} is not a legacy Page projection`,
     );
   }
   if (resolution.kind === "database_view" && !isLegacyDatabaseQuery) {
@@ -167,8 +173,8 @@ const replaceLegacyReference = (
   }
 
   const removedDescendantBlockIds = collectDescendantBlockIds(container);
-  const nextContent = resolution.kind === "card"
-    ? makeCardReferenceNode(resolution)
+  const nextContent = resolution.kind === "page"
+    ? makePageReferenceNode(resolution)
     : makeDatabaseViewReferenceNode(resolution);
   container.delete(0, container.length);
   container.insert(0, [nextContent]);
@@ -185,7 +191,7 @@ export const migrateForeignReferences = (
   source: Y.Doc,
   resolutions: readonly ForeignReferenceResolution[],
 ): ForeignReferenceDocumentMigration => {
-  const before = materializeCardDocument(source);
+  const before = materializePageDocument(source);
   const legacyProjectionRootIds = collectLegacyProjectionRootIds(before.blockTree);
   const legacyReferences = before.references.filter(
     (reference) =>
@@ -216,7 +222,7 @@ export const migrateForeignReferences = (
     }
     if (
       reference.kind === "legacy_card_projection"
-      && resolution.kind !== "card"
+      && resolution.kind !== "page"
     ) {
       throw new ForeignReferenceMigrationError(
         `Card projection ${reference.sourceBlockId} requires a Card resolution`,
@@ -254,7 +260,7 @@ export const migrateForeignReferences = (
       }
     }, "foreign-reference-migration");
 
-    const materialization = materializeCardDocument(clone);
+    const materialization = materializePageDocument(clone);
     if (materialization.references.some(isLegacyForeignBodyReference)) {
       throw new ForeignReferenceMigrationError(
         "Foreign reference migration left a legacy projection in the Document",

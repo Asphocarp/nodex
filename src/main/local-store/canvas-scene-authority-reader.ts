@@ -30,6 +30,11 @@ export interface CanvasSceneAuthoritySnapshot {
   readonly filesById: ReadonlyMap<string, CanvasSceneFile>;
 }
 
+export interface CanvasSceneAuthorityHashEvidence
+  extends CanvasSceneAuthoritySnapshot {
+  readonly storedSceneHash: string;
+}
+
 export class CanvasSceneAuthorityReadError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -50,11 +55,15 @@ const parseJson = (value: string, label: string): unknown => {
   }
 };
 
-/** Read and validate the normalized, authoritative Canvas scene at an exact head. */
-export const readCanvasSceneAuthoritySnapshot = (
+/**
+ * Validate every normalized Canvas row at an exact head and derive its current
+ * aggregate hash without trusting the stored aggregate hash. Schema migrations
+ * use this to distinguish a known hash-coordinate change from data corruption.
+ */
+export const readCanvasSceneAuthorityHashEvidence = (
   database: Database.Database,
   coordinate: CanvasSceneAuthorityCoordinate,
-): CanvasSceneAuthoritySnapshot => {
+): CanvasSceneAuthorityHashEvidence => {
   const sceneRow = database
     .prepare(
       `SELECT generation, head_seq, schema_version, app_state_json,
@@ -166,18 +175,33 @@ export const readCanvasSceneAuthoritySnapshot = (
     appState: appState as Readonly<Record<string, unknown>>,
     files: parsedFiles,
   });
-  if (
-    sha256(canonicalPortableCanvasSceneFingerprint(scene)) !== sceneRow.scene_hash
-  ) {
+  const sceneHash = sha256(canonicalPortableCanvasSceneFingerprint(scene));
+  return {
+    scene,
+    sceneHash,
+    storedSceneHash: sceneRow.scene_hash,
+    updatedAt: sceneRow.updated_at,
+    elementsById,
+    filesById,
+  };
+};
+
+/** Read and validate the normalized, authoritative Canvas scene at an exact head. */
+export const readCanvasSceneAuthoritySnapshot = (
+  database: Database.Database,
+  coordinate: CanvasSceneAuthorityCoordinate,
+): CanvasSceneAuthoritySnapshot => {
+  const evidence = readCanvasSceneAuthorityHashEvidence(database, coordinate);
+  if (evidence.sceneHash !== evidence.storedSceneHash) {
     throw new CanvasSceneAuthorityReadError(
       `Canvas scene hash diverges: ${coordinate.documentId}`,
     );
   }
   return {
-    scene,
-    sceneHash: sceneRow.scene_hash,
-    updatedAt: sceneRow.updated_at,
-    elementsById,
-    filesById,
+    scene: evidence.scene,
+    sceneHash: evidence.sceneHash,
+    updatedAt: evidence.updatedAt,
+    elementsById: evidence.elementsById,
+    filesById: evidence.filesById,
   };
 };

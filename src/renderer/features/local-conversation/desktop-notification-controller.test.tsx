@@ -188,7 +188,7 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "cards",
+      focusedStage: "pages",
       threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
@@ -279,7 +279,7 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "cards",
+      focusedStage: "pages",
       threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
@@ -333,7 +333,7 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "cards",
+      focusedStage: "pages",
       threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
@@ -365,7 +365,7 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "cards",
+      focusedStage: "pages",
       threadsProjectId: "project-default",
       onOpenThread: () => undefined,
     }));
@@ -402,7 +402,7 @@ describe("DesktopNotificationController", () => {
 
     render(createElement(DesktopNotificationController, {
       activeThreadId: "thread-2",
-      focusedStage: "cards",
+      focusedStage: "pages",
       threadsProjectId: "project-default",
       onOpenThread: (projectId: string, threadId: string) => {
         openThreadCalls.push([projectId, threadId]);

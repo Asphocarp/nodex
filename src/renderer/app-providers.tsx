@@ -5,7 +5,7 @@ import { CodeFontSizeProvider } from "./lib/use-code-font-size";
 import { FileLinkOpenerProvider } from "./lib/use-file-link-opener";
 import { NfmAutolinkSettingsProvider } from "./lib/use-nfm-autolink-settings";
 import { PasteResourceSettingsProvider } from "./lib/use-paste-resource-settings";
-import { CardStageCollapsedPropertiesProvider } from "./lib/use-card-stage-collapsed-properties";
+import { PageStageCollapsedPropertiesProvider } from "./lib/use-page-stage-collapsed-properties";
 import { SansFontSizeProvider } from "./lib/use-sans-font-size";
 import { SpellcheckProvider } from "./lib/use-spellcheck";
 import { CodexServiceTierSettingsProvider } from "./lib/use-codex-service-tier-settings";
@@ -113,13 +113,13 @@ export function AppProviders({ children }: AppProvidersProps) {
                   <SpellcheckProvider>
                     <CodexServiceTierSettingsProvider>
                       <CodexThreadSettingsProvider>
-                        <CardStageCollapsedPropertiesProvider>
+                        <PageStageCollapsedPropertiesProvider>
                           <CardPropertyPositionProvider>
                             <NodexTooltipProvider>
                               {children}
                             </NodexTooltipProvider>
                           </CardPropertyPositionProvider>
-                        </CardStageCollapsedPropertiesProvider>
+                        </PageStageCollapsedPropertiesProvider>
                       </CodexThreadSettingsProvider>
                     </CodexServiceTierSettingsProvider>
                   </SpellcheckProvider>

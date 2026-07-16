@@ -3,9 +3,9 @@ import { Activity, useEffect } from "react";
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  createCardDocument,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  createPageDocument,
   createSyncedBlockDocument,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
   SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
@@ -23,23 +23,23 @@ import {
   BlockDocumentSurface,
   OwnedBlockDocumentSurface,
   type BlockDocumentSurfaceDependencies,
-  type PrimaryCardBlockDocumentDescriptor,
+  type PrimaryPageBlockDocumentDescriptor,
   type PrimaryOwnedBlockDocumentDescriptor,
 } from "./block-document-surface";
 
 const descriptor = (
-  overrides: Partial<PrimaryCardBlockDocumentDescriptor> = {},
-): PrimaryCardBlockDocumentDescriptor => ({
+  overrides: Partial<PrimaryPageBlockDocumentDescriptor> = {},
+): PrimaryPageBlockDocumentDescriptor => ({
   projectId: "project-1",
   ownerBlockId: "card-1",
-  ownerType: "card",
+  ownerType: "page",
   ownerLifecycle: "active",
   documentId: "document:card-1",
   storeEpoch: "store-1",
   generation: 1,
   headSeq: 0,
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
   sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
   ...overrides,
@@ -63,7 +63,7 @@ class SurfaceTestAdapter implements DocumentSyncAdapter {
     server: {
       readonly documentId: string;
       readonly document: Y.Doc;
-    } = createCardDocument({
+    } = createPageDocument({
       documentId: "document:card-1",
       initialTitle: "Synced title",
     }),
@@ -301,13 +301,13 @@ describe("BlockDocumentSurface", () => {
 
   test("recreates independent collaborative runtimes across retained Project Activity switches", async () => {
     const alphaAdapter = new SurfaceTestAdapter(
-      createCardDocument({
+      createPageDocument({
         documentId: "document:alpha-card",
         initialTitle: "Alpha title",
       }),
     );
     const betaAdapter = new SurfaceTestAdapter(
-      createCardDocument({
+      createPageDocument({
         documentId: "document:beta-card",
         initialTitle: "Beta title",
       }),
@@ -419,7 +419,7 @@ describe("BlockDocumentSurface", () => {
         },
       },
     });
-    const mismatched: PrimaryCardBlockDocumentDescriptor = {
+    const mismatched: PrimaryPageBlockDocumentDescriptor = {
       ...descriptor(),
       projectId: "other-project",
     };

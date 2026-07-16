@@ -7,11 +7,11 @@ import {
 } from "./nodex-agent-comprehension-benchmark";
 
 describe("Nodex Agent comprehension benchmark", () => {
-  test("covers every planned v3 intent with comparable v2 and v3 selections", () => {
+  test("covers every planned current intent with comparable v2 and v4 selections", () => {
     expect(NODEX_AGENT_COMPREHENSION_CASES.length).toBeGreaterThanOrEqual(13);
     for (const entry of NODEX_AGENT_COMPREHENSION_CASES) {
       expect(entry.expectedTool[2], entry.id).toBeTypeOf("string");
-      expect(entry.expectedTool[3], entry.id).toBeTypeOf("string");
+      expect(entry.expectedTool[4], entry.id).toBeTypeOf("string");
     }
   });
 
@@ -23,7 +23,7 @@ describe("Nodex Agent comprehension benchmark", () => {
         selectedTool: "search",
         arguments: { query: "dynmic tools" },
         result: {
-          data: { target: "cards", results: [] },
+          data: { target: "pages", results: [] },
           page: { hasMore: false },
         },
         semanticSuccess: true,
@@ -75,21 +75,21 @@ describe("Nodex Agent comprehension benchmark", () => {
     const template = createNodexAgentComprehensionTemplate();
     const parsed = NodexAgentComprehensionRunSchema.parse(template);
     expect(parsed.samples).toHaveLength(NODEX_AGENT_COMPREHENSION_CASES.length);
-    const v3 = NodexAgentComprehensionRunSchema.parse(
-      createNodexAgentComprehensionTemplate(3),
+    const v4 = NodexAgentComprehensionRunSchema.parse(
+      createNodexAgentComprehensionTemplate(4),
     );
-    expect(v3.revision).toBe(3);
-    expect(v3.samples.find((sample) => sample.caseId === "duplicate-one-card")?.selectedTool)
-      .toBe("duplicate_card");
+    expect(v4.revision).toBe(4);
+    expect(v4.samples.find((sample) => sample.caseId === "duplicate-one-card")?.selectedTool)
+      .toBe("duplicate_page");
   });
 
-  test("validates v3 selections and arguments against the proposed contract", () => {
+  test("validates v4 selections and arguments against the current contract", () => {
     const summary = summarizeNodexAgentComprehensionRun({
-      revision: 3,
+      revision: 4,
       samples: [{
         caseId: "fetch-default-document",
         selectedTool: "fetch",
-        arguments: { id: "card-1" },
+        arguments: { id: "page-1" },
         semanticSuccess: true,
         correctionCalls: 0,
       }],

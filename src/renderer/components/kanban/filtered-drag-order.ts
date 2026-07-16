@@ -1,10 +1,10 @@
-import type { BoardSummary, CardStatus } from "@/lib/types";
+import type { BoardSummary, WorkflowStatus } from "@/lib/types";
 
 interface ResolveFilteredDropOrderInput {
   board: BoardSummary | null;
   visibleBoard: BoardSummary | null;
-  draggedCardIds: readonly string[];
-  targetColumnId: CardStatus;
+  draggedPageIds: readonly string[];
+  targetColumnId: WorkflowStatus;
   targetVisibleIndex: number;
 }
 
@@ -17,7 +17,7 @@ function clamp(value: number, min: number, max: number): number {
 export function resolveFilteredDropOrder({
   board,
   visibleBoard,
-  draggedCardIds,
+  draggedPageIds,
   targetColumnId,
   targetVisibleIndex,
 }: ResolveFilteredDropOrderInput): number {
@@ -31,38 +31,38 @@ export function resolveFilteredDropOrder({
     return 0;
   }
 
-  const draggedCardIdSet = new Set(draggedCardIds);
-  const fullTargetCards = fullTargetColumn.cards;
-  const visibleTargetCards = visibleTargetColumn.cards;
-  const remainingTargetCards = fullTargetCards.filter((card) => !draggedCardIdSet.has(card.id));
-  const visibleRemainingCards = visibleTargetCards.filter((card) => !draggedCardIdSet.has(card.id));
+  const draggedPageIdSet = new Set(draggedPageIds);
+  const fullTargetPages = fullTargetColumn.cards;
+  const visibleTargetPages = visibleTargetColumn.cards;
+  const remainingTargetPages = fullTargetPages.filter((card) => !draggedPageIdSet.has(card.id));
+  const visibleRemainingCards = visibleTargetPages.filter((card) => !draggedPageIdSet.has(card.id));
   const visibleInsertIndex = clamp(targetVisibleIndex, 0, visibleRemainingCards.length);
 
   if (visibleRemainingCards.length === 0) {
-    const firstDraggedIndex = fullTargetCards.findIndex((card) => draggedCardIdSet.has(card.id));
+    const firstDraggedIndex = fullTargetPages.findIndex((card) => draggedPageIdSet.has(card.id));
     if (firstDraggedIndex < 0) {
-      return remainingTargetCards.length;
+      return remainingTargetPages.length;
     }
 
-    return fullTargetCards
+    return fullTargetPages
       .slice(0, firstDraggedIndex)
-      .filter((card) => !draggedCardIdSet.has(card.id))
+      .filter((card) => !draggedPageIdSet.has(card.id))
       .length;
   }
 
   if (visibleInsertIndex < visibleRemainingCards.length) {
-    const anchorCardId = visibleRemainingCards[visibleInsertIndex]?.id;
-    const anchorIndex = remainingTargetCards.findIndex((card) => card.id === anchorCardId);
+    const anchorPageId = visibleRemainingCards[visibleInsertIndex]?.id;
+    const anchorIndex = remainingTargetPages.findIndex((card) => card.id === anchorPageId);
     if (anchorIndex >= 0) {
       return anchorIndex;
     }
   }
 
-  const lastVisibleCardId = visibleRemainingCards[visibleRemainingCards.length - 1]?.id;
-  const lastVisibleIndex = remainingTargetCards.findIndex((card) => card.id === lastVisibleCardId);
+  const lastVisiblePageId = visibleRemainingCards[visibleRemainingCards.length - 1]?.id;
+  const lastVisibleIndex = remainingTargetPages.findIndex((card) => card.id === lastVisiblePageId);
   if (lastVisibleIndex >= 0) {
     return lastVisibleIndex + 1;
   }
 
-  return remainingTargetCards.length;
+  return remainingTargetPages.length;
 }

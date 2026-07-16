@@ -1,7 +1,7 @@
 import type {
   CodexConversationSnapshot,
   CodexConversationTurn,
-  CardRunInTarget,
+  PageRunInTarget,
 } from "../../../lib/types";
 import type { ThreadBodyModel } from "../thread-stage-types";
 import { selectVisibleConversationTurnEntries } from "../selectors";
@@ -21,7 +21,7 @@ export interface ThreadBodyModelInput {
   } | null;
   isCloudNewThreadTarget: boolean;
   threadStartProgress: {
-    runInTarget: CardRunInTarget;
+    runInTarget: PageRunInTarget;
     threadId?: string | null;
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
@@ -33,7 +33,7 @@ export interface ThreadBodyModelInput {
 export type ThreadStartProgressPresentation = "hidden" | "panel";
 
 export interface ThreadStartProgressPresentationInput {
-  runInTarget: CardRunInTarget;
+  runInTarget: PageRunInTarget;
   phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
 }
 

@@ -505,8 +505,8 @@
   margin-top: 0.25em;
 }
 
-/* Card Documents keep their own Y.Doc but use the editor's native toggle gutter. */
-.nfm-editor [data-card-outliner-caret]::before {
+/* Page Documents keep their own Y.Doc but use the editor's native toggle gutter. */
+.nfm-editor [data-page-outliner-caret]::before {
   -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.835 3.25a.8.8 0 0 0-.69 1.203l5.164 8.854a.8.8 0 0 0 1.382 0l5.165-8.854a.8.8 0 0 0-.691-1.203z' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2.835 3.25a.8.8 0 0 0-.69 1.203l5.164 8.854a.8.8 0 0 0 1.382 0l5.165-8.854a.8.8 0 0 0-.691-1.203z' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
 }
@@ -1249,25 +1249,25 @@
   color: var(--vscode-terminal-foreground);
 }
 
-/* ===== Card outliner Blocks ===== */
-.nfm-editor .bn-block-content[data-content-type="card"],
-.nfm-editor .bn-block-content[data-content-type="cardRef"] {
+/* ===== Page outliner Blocks ===== */
+.nfm-editor .bn-block-content[data-content-type="page"],
+.nfm-editor .bn-block-content[data-content-type="pageRef"] {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   padding: 0;
 }
 
-/* The host editor already supplies the Card body's one native Block indent. */
+/* The host editor already supplies the Page body's one native Block indent. */
 .nfm-editor
-  [data-embedded-card-document]
+  [data-embedded-page-document]
   .bn-editor
   > .bn-block-group {
   margin-left: 0;
 }
 
-/* A nested Card body is already editable; omit BlockNote's extra tail gutter. */
-.nfm-editor [data-embedded-card-document] .bn-trailing-block {
+/* A nested Page body is already editable; omit BlockNote's extra tail gutter. */
+.nfm-editor [data-embedded-page-document] .bn-trailing-block {
   display: none;
 }
 

@@ -1,6 +1,6 @@
 # ADR 0005: Card has one exclusive parent and cross-surface drag is a Block transfer
 
-- Status: Accepted
+- Status: Superseded in part by ADR 0017
 - Date: 2026-07-13
 - Owners: Nodex maintainers
 - Supersedes: the placement-independent membership decision in ADR 0003

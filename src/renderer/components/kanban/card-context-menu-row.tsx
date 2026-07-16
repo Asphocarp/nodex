@@ -1,5 +1,4 @@
 import {
-  ChevronRight,
   Copy,
   Image,
   LayoutGrid,
@@ -30,8 +29,6 @@ function ActionIcon({ entryId }: { entryId: CardActionMenuEntry["id"] }) {
       return <Copy className={className} strokeWidth={1.8} />;
     case "duplicate":
       return <Copy className={className} strokeWidth={1.8} />;
-    case "move-to":
-      return <ChevronRight className={className} strokeWidth={1.8} />;
     case "delete":
       return <Trash2 className={className} strokeWidth={1.8} />;
   }
@@ -62,9 +59,6 @@ export function CardContextMenuActionRowContent({ entry }: { entry: CardActionMe
         <span className="shrink-0 text-xs text-token-description-foreground">
           {entry.shortcut}
         </span>
-      ) : null}
-      {entry.id === "move-to" ? (
-        <ChevronRight className="size-3.5 shrink-0 text-token-description-foreground" strokeWidth={1.9} />
       ) : null}
     </>
   );

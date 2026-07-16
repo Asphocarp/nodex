@@ -11,6 +11,10 @@ import { NodexSettingsPageSurface as SettingsPageSurface } from "../ui/settings"
 const PROJECTS: Project[] = [
   {
     id: "project-alpha",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Alpha",
     description: "",
     sources: [{ root: "/Users/asc/repo/alpha", order: 0 }],
@@ -22,6 +26,10 @@ const PROJECTS: Project[] = [
   },
   {
     id: "project-beta",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Beta",
     description: "",
     sources: [{ root: "/Users/asc/repo/beta", order: 0 }],

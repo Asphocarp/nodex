@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../../shared/block-documents";
 import {
   buildNfmMoveToSections,
@@ -15,6 +15,10 @@ const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 function makeProject(id: string, name: string, icon?: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name,
     description: "",
     icon,
@@ -27,13 +31,13 @@ function makeProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeCard(
+function makePage(
   id: string,
   title: string,
-  status: CardSummary["status"],
+  status: DatabasePageSummary["status"],
   order: number,
-  overrides: Partial<CardSummary> = {},
-): CardSummary {
+  overrides: Partial<DatabasePageSummary> = {},
+): DatabasePageSummary {
   const effectiveTitle = overrides.title ?? title;
   return {
     id,
@@ -66,9 +70,9 @@ const BOARD_MAP = new Map<string, BoardSummary>([
           id: "draft",
           name: "Draft",
           cards: [
-            makeCard("source-card", "Source", "draft", 0),
-            makeCard("draft-spec", "Draft spec", "draft", 1),
-            makeCard("command-palette", "Command palette polish", "draft", 2, {
+            makePage("source-page", "Source", "draft", 0),
+            makePage("draft-spec", "Draft spec", "draft", 1),
+            makePage("command-palette", "Command palette polish", "draft", 2, {
               tags: ["secret-tag"],
               assignee: "alex",
               descriptionPreview: "Hidden body-only OCR pipeline note.",
@@ -80,7 +84,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
         {
           id: "done",
           name: "Done",
-          cards: [makeCard("ship-plan", "Ship plan", "done", 0)],
+          cards: [makePage("ship-plan", "Ship plan", "done", 0)],
         },
       ],
     },
@@ -92,7 +96,7 @@ const BOARD_MAP = new Map<string, BoardSummary>([
         {
           id: "backlog",
           name: "Backlog",
-          cards: [makeCard("runtime", "Runtime polish", "backlog", 0)],
+          cards: [makePage("runtime", "Runtime polish", "backlog", 0)],
         },
       ],
     },
@@ -104,20 +108,20 @@ function buildSections(query = "", expandedProjectIds = new Set(["alpha"])) {
     projects: PROJECTS,
     boardMap: BOARD_MAP,
     sourceProjectId: "alpha",
-    sourceCardId: "source-card",
+    sourcePageId: "source-page",
     expandedProjectIds,
     query,
   });
 }
 
 describe("nfm move-to menu model", () => {
-  test("keeps DB before Card and expands the source project by default", () => {
+  test("keeps DB before Page and expands the source project by default", () => {
     const sections = buildSections();
     const rows = flattenNfmMoveToRows(sections);
 
-    expect(sections.map((section) => section.label).join(",")).toBe("DB,Card");
+    expect(sections.map((section) => section.label).join(",")).toBe("DB,Page");
     expect(rows.map((row) => row.id).join(",")).toBe(
-      "db:alpha,db-column:alpha:draft,db-column:alpha:done,db:beta,card:alpha:draft-spec,card:alpha:command-palette,card:alpha:ship-plan,card:beta:runtime",
+      "db:alpha,db-column:alpha:draft,db-column:alpha:done,db:beta,page:alpha:draft-spec,page:alpha:command-palette,page:alpha:ship-plan,page:beta:runtime",
     );
     expect(rows[0]?.kind).toBe("db");
     const firstRow = rows[0];
@@ -132,24 +136,24 @@ describe("nfm move-to menu model", () => {
     expect(expanded.has("alpha")).toBe(false);
   });
 
-  test("filters DB, column, and card rows while excluding the source card", () => {
-    const cardRows = flattenNfmMoveToRows(buildSections("runtime"));
+  test("filters DB, column, and page rows while excluding the source page", () => {
+    const pageRows = flattenNfmMoveToRows(buildSections("runtime"));
     const columnRows = flattenNfmMoveToRows(buildSections("done"));
     const projectRows = flattenNfmMoveToRows(buildSections("beta"));
     const sourceRows = flattenNfmMoveToRows(buildSections("source"));
 
-    expect(cardRows.map((row) => row.id).join(",")).toBe("card:beta:runtime");
-    expect(columnRows.map((row) => row.id).join(",")).toBe("db:alpha,db-column:alpha:done,card:alpha:ship-plan");
-    expect(projectRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:backlog,card:beta:runtime");
+    expect(pageRows.map((row) => row.id).join(",")).toBe("page:beta:runtime");
+    expect(columnRows.map((row) => row.id).join(",")).toBe("db:alpha,db-column:alpha:done,page:alpha:ship-plan");
+    expect(projectRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:backlog,page:beta:runtime");
     expect(sourceRows.map((row) => row.id).join(",")).toBe("");
   });
 
-  test("can restrict results to DB destinations for Card in", () => {
-    const cardTitleSections = buildNfmMoveToSections({
+  test("can restrict results to DB destinations for Page in", () => {
+    const pageTitleSections = buildNfmMoveToSections({
       projects: PROJECTS,
       boardMap: BOARD_MAP,
       sourceProjectId: "alpha",
-      sourceCardId: "source-card",
+      sourcePageId: "source-page",
       expandedProjectIds: new Set(["alpha"]),
       query: "runtime",
       resultScope: "db-only",
@@ -158,26 +162,26 @@ describe("nfm move-to menu model", () => {
       projects: PROJECTS,
       boardMap: BOARD_MAP,
       sourceProjectId: "alpha",
-      sourceCardId: "source-card",
+      sourcePageId: "source-page",
       expandedProjectIds: new Set(["alpha"]),
       query: "beta",
       resultScope: "db-only",
     });
-    const cardTitleRows = flattenNfmMoveToRows(cardTitleSections);
+    const pageTitleRows = flattenNfmMoveToRows(pageTitleSections);
     const dbRows = flattenNfmMoveToRows(dbSections);
 
-    expect(cardTitleSections.map((section) => section.label).join(",")).toBe("DB");
-    expect(cardTitleRows.map((row) => row.id).join(",")).toBe("");
+    expect(pageTitleSections.map((section) => section.label).join(",")).toBe("DB");
+    expect(pageTitleRows.map((row) => row.id).join(",")).toBe("");
     expect(dbRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:backlog");
   });
 
-  test("uses command-palette-style fuzzy and prefix card search without description-only fields", () => {
+  test("uses command-palette-style fuzzy and prefix page search without description-only fields", () => {
     const fuzzyRows = flattenNfmMoveToRows(buildSections("commnd pal"));
     const descriptionRows = flattenNfmMoveToRows(buildSections("ocr pipeline"));
     const tagRows = flattenNfmMoveToRows(buildSections("secret-tag"));
     const assigneeRows = flattenNfmMoveToRows(buildSections("alex"));
 
-    expect(fuzzyRows.map((row) => row.id).join(",")).toBe("card:alpha:command-palette");
+    expect(fuzzyRows.map((row) => row.id).join(",")).toBe("page:alpha:command-palette");
     expect(descriptionRows.map((row) => row.id).join(",")).toBe("");
     expect(tagRows.map((row) => row.id).join(",")).toBe("");
     expect(assigneeRows.map((row) => row.id).join(",")).toBe("");

@@ -4,26 +4,26 @@ import {
   type BlockDocumentAssetReference,
   type BlockDocumentReference,
   type BlockTreeNode,
-  type CardDocumentMaterialization,
+  type PageDocumentMaterialization,
 } from "./block-document-codec";
 import {
   assertValidBlockDocument,
   type ScannedDocumentBlock,
 } from "./block-structure";
 import {
-  assertValidCardDocumentRoots,
-  assertValidLegacyCardDocumentRoots,
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  createCardDocument,
-  type CardDocumentEnvelope,
-} from "./card-document";
+  assertValidPageDocumentRoots,
+  assertValidLegacyPageDocumentRoots,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  createPageDocument,
+  type PageDocumentEnvelope,
+} from "./page-document";
 import {
-  MAX_CARD_DOCUMENT_BLOCKS,
-  MAX_CARD_DOCUMENT_BODY_XML_LENGTH,
-  MAX_CARD_DOCUMENT_STATE_BYTES,
-  MAX_CARD_DOCUMENT_UPDATE_BYTES,
-  MAX_CARD_DOCUMENT_XML_PATH_DEPTH,
+  MAX_PAGE_DOCUMENT_BLOCKS,
+  MAX_PAGE_DOCUMENT_BODY_XML_LENGTH,
+  MAX_PAGE_DOCUMENT_STATE_BYTES,
+  MAX_PAGE_DOCUMENT_UPDATE_BYTES,
+  MAX_PAGE_DOCUMENT_XML_PATH_DEPTH,
   type DocumentId,
 } from "./contracts";
 import {
@@ -68,7 +68,7 @@ export interface CommonOwnedDocumentMaterialization {
 }
 
 export interface CardOwnedDocumentMaterialization extends CommonOwnedDocumentMaterialization {
-  readonly kind: "card";
+  readonly kind: "page";
   readonly title: string;
   readonly richTitle: PortableRichText;
 }
@@ -91,7 +91,7 @@ export type RegisteredOwnedDocumentMaterialization =
   | PortableCanvasScene;
 
 export type BlockTreeOwnedDocumentEnvelope =
-  | ({ readonly kind: "card" } & CardDocumentEnvelope)
+  | ({ readonly kind: "page" } & PageDocumentEnvelope)
   | ({ readonly kind: "synced_block" } & SyncedBlockDocumentEnvelope)
   | ({ readonly kind: "reusable_template" } & BodyOnlyBlockDocumentEnvelope);
 
@@ -164,11 +164,11 @@ export class BlockDocumentSchemaError extends TypeError {
 }
 
 const DEFAULT_BLOCKNOTE_LIMITS: BlockDocumentSchemaLimits = {
-  maxUpdateBytes: MAX_CARD_DOCUMENT_UPDATE_BYTES,
-  maxStateBytes: MAX_CARD_DOCUMENT_STATE_BYTES,
-  maxBodyXmlLength: MAX_CARD_DOCUMENT_BODY_XML_LENGTH,
-  maxBlocks: MAX_CARD_DOCUMENT_BLOCKS,
-  maxXmlPathDepth: MAX_CARD_DOCUMENT_XML_PATH_DEPTH,
+  maxUpdateBytes: MAX_PAGE_DOCUMENT_UPDATE_BYTES,
+  maxStateBytes: MAX_PAGE_DOCUMENT_STATE_BYTES,
+  maxBodyXmlLength: MAX_PAGE_DOCUMENT_BODY_XML_LENGTH,
+  maxBlocks: MAX_PAGE_DOCUMENT_BLOCKS,
+  maxXmlPathDepth: MAX_PAGE_DOCUMENT_XML_PATH_DEPTH,
 };
 
 const inspectBlockNoteBody = (
@@ -185,12 +185,12 @@ const inspectBlockNoteBody = (
     title,
     schemaLabel,
   });
-  if (envelope.kind === "card") {
+  if (envelope.kind === "page") {
     return {
       envelope,
       blocks,
       materialization: {
-        kind: "card",
+        kind: "page",
         ...projected,
         title: projected.title,
         richTitle: richTitle ?? [],
@@ -215,7 +215,7 @@ const assertTemplateBodyCanInstantiate = (
     if (!block) continue;
     pending.push(...block.children);
     if (
-      block.type !== "card" &&
+      block.type !== "page" &&
       block.type !== REUSABLE_TEMPLATE_SOURCE_TYPE &&
       block.type !== SYNCED_BLOCK_SOURCE_TYPE
     ) {
@@ -227,13 +227,13 @@ const assertTemplateBodyCanInstantiate = (
   }
 };
 
-const cardDocumentAdapter: BlockDocumentSchemaAdapter = {
-  kind: "card",
+const pageDocumentAdapter: BlockDocumentSchemaAdapter = {
+  kind: "page",
   contentModel: "block_tree",
   syncEngine: "yjs",
-  ownerType: "card",
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  ownerType: "page",
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   capabilities: {
     title: true,
     blockTree: true,
@@ -242,35 +242,35 @@ const cardDocumentAdapter: BlockDocumentSchemaAdapter = {
   },
   limits: DEFAULT_BLOCKNOTE_LIMITS,
   create: (documentId) => ({
-    kind: "card",
-    ...createCardDocument({ documentId }),
+    kind: "page",
+    ...createPageDocument({ documentId }),
   }),
   inspect: (document) => {
-    const envelope = assertValidCardDocumentRoots(document);
+    const envelope = assertValidPageDocumentRoots(document);
     const richTitle = readPortableRichTextFromYText(envelope.title);
     return inspectBlockNoteBody(
-      { kind: "card", ...envelope },
-      CARD_DOCUMENT_SCHEMA_VERSION,
-      "Card",
+      { kind: "page", ...envelope },
+      PAGE_DOCUMENT_SCHEMA_VERSION,
+      "Page",
       portableRichTextPlainText(richTitle),
       richTitle,
     );
   },
 };
 
-const legacyCardDocumentAdapter: HistoricalBlockDocumentSchemaAdapter = {
-  kind: "card",
+const legacyPageDocumentAdapter: HistoricalBlockDocumentSchemaAdapter = {
+  kind: "page",
   contentModel: "block_tree",
   syncEngine: "yjs",
-  ownerType: "card",
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
+  ownerType: "page",
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
   schemaVersion: 1,
   limits: DEFAULT_BLOCKNOTE_LIMITS,
   inspect: (document) => {
-    const envelope = assertValidLegacyCardDocumentRoots(document);
+    const envelope = assertValidLegacyPageDocumentRoots(document);
     const richTitle = plainTextToPortableRichText(envelope.title.toString());
     return inspectBlockNoteBody(
-      { kind: "card", ...envelope },
+      { kind: "page", ...envelope },
       1,
       "Legacy Card",
       envelope.title.toString(),
@@ -352,13 +352,13 @@ const canvasDocumentRegistration: OwnedDocumentSchemaRegistration = {
 };
 
 const schemaAdapters: readonly BlockDocumentSchemaAdapter[] = [
-  cardDocumentAdapter,
+  pageDocumentAdapter,
   syncedBlockDocumentAdapter,
   reusableTemplateDocumentAdapter,
 ] as const;
 
 const historicalSchemaAdapters: readonly HistoricalBlockDocumentSchemaAdapter[] = [
-  legacyCardDocumentAdapter,
+  legacyPageDocumentAdapter,
   ...schemaAdapters.map(
     ({ kind, contentModel, syncEngine, ownerType, schemaKey, schemaVersion, limits, inspect }) => ({
       kind,
@@ -550,10 +550,10 @@ export const inspectHistoricalOwnedBlockDocument = (
 /** Relational persistence keeps a non-null title column for Card compatibility. */
 export const toPersistedBlockDocumentMaterialization = (
   materialization: OwnedDocumentMaterialization,
-): CardDocumentMaterialization => ({
+): PageDocumentMaterialization => ({
   schemaVersion: materialization.schemaVersion,
-  title: materialization.kind === "card" ? materialization.title : "",
-  richTitle: materialization.kind === "card" ? materialization.richTitle : [],
+  title: materialization.kind === "page" ? materialization.title : "",
+  richTitle: materialization.kind === "page" ? materialization.richTitle : [],
   blockTree: materialization.blockTree,
   nfm: materialization.nfm,
   plainText: materialization.plainText,

@@ -2,7 +2,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
-import type { CardSummary } from "@/lib/types";
+import type { DatabasePageSummary } from "@/lib/types";
 import {
   BlockDisclosureStateStore,
 } from "@/lib/block-disclosure-state";
@@ -12,7 +12,7 @@ import {
 import { render } from "@/test/dom";
 import { DatabaseViewReferenceSurface } from "./reference-block-surfaces";
 
-const makeCard = (id: string, title: string): CardSummary => ({
+const makeCard = (id: string, title: string): DatabasePageSummary => ({
   id,
   status: "in_progress",
   archived: false,
@@ -43,15 +43,15 @@ describe("DatabaseViewReferenceSurface", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
-      rows: [{ card, groupKey: "draft", rankKey: "a" }],
+      rows: [{ page: card, groupKey: "draft", rankKey: "a" }],
     };
     const view = render(
       <DatabaseViewReferenceSurface
         referenceKey="card-b-view"
         displayHint=""
         model={model}
-        hostCardId="card-b"
-        ancestorCardIds={["card-a", "card-b"]}
+        hostPageId="card-b"
+        ancestorPageIds={["card-a", "card-b"]}
         visibilityOverride
         renderDocument={() => <div>Must not mount</div>}
       />,
@@ -84,7 +84,7 @@ describe("DatabaseViewReferenceSurface", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
       rows: cards.map((card, index) => ({
-        card,
+        page: card,
         groupKey: null,
         rankKey: String(index),
       })),
@@ -159,7 +159,7 @@ describe("DatabaseViewReferenceSurface", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
       rows: cards.map((card, index) => ({
-        card,
+        page: card,
         groupKey: null,
         rankKey: String(index),
       })),

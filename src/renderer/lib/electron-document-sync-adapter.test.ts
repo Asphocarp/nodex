@@ -89,6 +89,7 @@ describe("createElectronDocumentSyncAdapter", () => {
     const bridge = new FakeBridge();
     const adapter = createElectronDocumentSyncAdapter(
       bridge as unknown as ElectronRendererBridge,
+      "project-1",
     );
     const events: DocumentSyncRealtimeEvent[] = [];
     const unsubscribe = adapter.subscribe(
@@ -124,12 +125,20 @@ describe("createElectronDocumentSyncAdapter", () => {
     expect(bridge.calls.map((call) => call.channel).join(",")).toBe(
       "document-sync:subscribe,document-sync:sync,document-sync:unsubscribe",
     );
+    expect(
+      bridge.calls.every(
+        (call) =>
+          (call.args[0] as { readonly projectId?: string }).projectId ===
+          "project-1",
+      ),
+    ).toBe(true);
   });
 
   test("routes binary events only to matching document subscribers", () => {
     const bridge = new FakeBridge();
     const adapter = createElectronDocumentSyncAdapter(
       bridge as unknown as ElectronRendererBridge,
+      "project-1",
     );
     const events: DocumentSyncRealtimeEvent[] = [];
     adapter.subscribe(
@@ -176,6 +185,7 @@ describe("createElectronDocumentSyncAdapter", () => {
     const bridge = new FakeBridge();
     const adapter = createElectronDocumentSyncAdapter(
       bridge as unknown as ElectronRendererBridge,
+      "project-1",
     );
     adapter.subscribe(
       { documentId: "doc-1", clientSessionId: "session-1" },
@@ -207,6 +217,7 @@ describe("createElectronDocumentSyncAdapter", () => {
     const bridge = new FakeBridge();
     const adapter = createElectronDocumentSyncAdapter(
       bridge as unknown as ElectronRendererBridge,
+      "project-1",
     );
     const events: DocumentSyncRealtimeEvent[] = [];
     adapter.subscribe(

@@ -8,36 +8,36 @@ import {
 } from "@/lib/stage-wheel-navigation";
 import { CalendarGrid } from "./calendar/calendar-grid";
 import {
-  type CalendarOccurrence,
-  type CardSummary,
-  type CardStatus,
+  type PageOccurrence,
+  type DatabasePageSummary,
+  type WorkflowStatus,
 } from "@/lib/types";
 import { resolveOccurrenceMutationStatus } from "@/lib/calendar-occurrence-status";
 import {
   ARCHIVED_CARD_OPTION_ID,
   ARCHIVED_CARD_OPTION_NAME,
 } from "@/lib/kanban-options";
-import { createUuidV7 } from "../../../shared/card-id";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
 
 interface CalendarViewProps {
   projectId: string;
   databaseViewId: string;
   searchQuery: string;
-  openCardStage: (
+  openPageStage: (
     projectId: string,
-    cardId: string,
+    pageId: string,
     titleSnapshot?: string,
   ) => void;
-  cardStageCardId: string | undefined;
-  cardStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  pageStagePageId: string | undefined;
+  pageStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   pendingReminderOpen?: {
     projectId: string;
-    cardId: string;
+    pageId: string;
     occurrenceStart: string;
   } | null;
   onReminderHandled?: (
-    payload: { projectId: string; cardId: string; occurrenceStart: string },
+    payload: { projectId: string; pageId: string; occurrenceStart: string },
   ) => void;
   calendarState: CalendarViewState;
   visibleDays: Date[];
@@ -101,14 +101,14 @@ function resolveCalendarRenderWindow(
   return { start, endExclusive };
 }
 
-type ScheduledOccurrence = CalendarOccurrence & {
+type ScheduledOccurrence = PageOccurrence & {
   columnId: string;
   columnName: string;
   scheduledStart: Date;
   scheduledEnd: Date;
 };
 
-function toScheduledOccurrence(occurrence: CalendarOccurrence): ScheduledOccurrence | null {
+function toScheduledOccurrence(occurrence: PageOccurrence): ScheduledOccurrence | null {
   if (!occurrence.scheduledStart || !occurrence.scheduledEnd) return null;
   return {
     ...occurrence,
@@ -123,9 +123,9 @@ export function CalendarView({
   projectId,
   databaseViewId,
   searchQuery,
-  openCardStage,
-  cardStageCardId,
-  cardStageCloseRef,
+  openPageStage,
+  pageStagePageId,
+  pageStageCloseRef,
   pendingReminderOpen,
   onReminderHandled,
   calendarState,
@@ -136,10 +136,10 @@ export function CalendarView({
 }: CalendarViewProps) {
   const {
     board,
-    createCard,
-    updateCard,
-    getCard,
-    listCalendarOccurrences,
+    createPage,
+    updatePage,
+    getPage,
+    listPageOccurrences,
     completeOccurrence,
     skipOccurrence,
     updateOccurrence,
@@ -154,41 +154,41 @@ export function CalendarView({
     loadAllDayLaneHeight(projectId, dayCount),
   );
   const renderWindow = useMemo(() => resolveCalendarRenderWindow(visibleDays), [visibleDays]);
-  const [scheduledCards, setScheduledCards] = useState<ScheduledOccurrence[]>([]);
+  const [scheduledPages, setScheduledPages] = useState<ScheduledOccurrence[]>([]);
   type OccurrenceOverlay =
     | { kind: "hide" }
     | { kind: "upsert"; event: ScheduledOccurrence };
   const [occurrenceOverlayById, setOccurrenceOverlayById] = useState<Map<string, OccurrenceOverlay>>(
     () => new Map(),
   );
-  const scheduledCardsRef = useRef<ScheduledOccurrence[]>([]);
+  const scheduledPagesRef = useRef<ScheduledOccurrence[]>([]);
 
   const deferredSearch = useDeferredValue(searchQuery);
 
   useEffect(() => {
     if (!renderWindow) {
-      setScheduledCards([]);
+      setScheduledPages([]);
       return;
     }
 
     let cancelled = false;
-    void listCalendarOccurrences(
+    void listPageOccurrences(
       renderWindow.start,
       renderWindow.endExclusive,
       deferredSearch,
     ).then((occurrences) => {
       if (cancelled) return;
-      setScheduledCards(occurrences.map(toScheduledOccurrence).filter((occurrence): occurrence is ScheduledOccurrence => Boolean(occurrence)));
+      setScheduledPages(occurrences.map(toScheduledOccurrence).filter((occurrence): occurrence is ScheduledOccurrence => Boolean(occurrence)));
     });
 
     return () => {
       cancelled = true;
     };
-  }, [board, deferredSearch, listCalendarOccurrences, renderWindow]);
+  }, [board, deferredSearch, listPageOccurrences, renderWindow]);
 
   useEffect(() => {
-    scheduledCardsRef.current = scheduledCards;
-  }, [scheduledCards]);
+    scheduledPagesRef.current = scheduledPages;
+  }, [scheduledPages]);
 
   const handleShiftWheelPrev = useCallback(
     () => onCalendarAnchorDateChange((anchorDate) => shiftAnchorDateByDays(anchorDate, -1)),
@@ -210,52 +210,52 @@ export function CalendarView({
     setAllDayLaneHeight(height);
   }, []);
 
-  const masterCardsById = useMemo(() => {
-    const cards = new Map<string, { card: CardSummary; columnId: string }>();
-    if (!board) return cards;
+  const masterPagesById = useMemo(() => {
+    const pages = new Map<string, { page: DatabasePageSummary; columnId: string }>();
+    if (!board) return pages;
     for (const column of board.columns) {
-      for (const card of column.cards) {
-        cards.set(card.id, { card, columnId: column.id });
+      for (const page of column.cards) {
+        pages.set(page.id, { page, columnId: column.id });
       }
     }
-    return cards;
+    return pages;
   }, [board]);
 
-  const handleClickCard = useCallback(
-    async (card: { id: string; cardId?: string; status: CardStatus; title: string; columnId: string }) => {
-      const masterCardId = card.cardId ?? card.id;
-      const cached = masterCardsById.get(masterCardId);
+  const handleClickPage = useCallback(
+    async (page: { id: string; pageId?: string; status: WorkflowStatus; title: string; columnId: string }) => {
+      const masterPageId = page.pageId ?? page.id;
+      const cached = masterPagesById.get(masterPageId);
 
       if (cached) {
-        await cardStageCloseRef?.current?.();
-        openCardStage(projectId, cached.card.id, cached.card.title);
+        await pageStageCloseRef?.current?.();
+        openPageStage(projectId, cached.page.id, cached.page.title);
         return;
       }
 
-      const loaded = await getCard(masterCardId, card.status);
+      const loaded = await getPage(masterPageId, page.status);
       if (loaded) {
-        await cardStageCloseRef?.current?.();
-        openCardStage(projectId, loaded.id, loaded.title);
+        await pageStageCloseRef?.current?.();
+        openPageStage(projectId, loaded.id, loaded.title);
         return;
       }
 
-      await cardStageCloseRef?.current?.();
-      openCardStage(projectId, masterCardId, card.title);
+      await pageStageCloseRef?.current?.();
+      openPageStage(projectId, masterPageId, page.title);
     },
-    [cardStageCloseRef, getCard, masterCardsById, openCardStage, projectId],
+    [pageStageCloseRef, getPage, masterPagesById, openPageStage, projectId],
   );
 
-  const handleCreateCard = useCallback(
+  const handleCreatePage = useCallback(
     async (title: string, start: Date, end: Date) => {
-      const cardId = createUuidV7();
-      const optimisticEventId = `${cardId}:${start.toISOString()}`;
+      const pageId = createUuidV7();
+      const optimisticEventId = `${pageId}:${start.toISOString()}`;
       setOccurrenceOverlayById((current) => {
         const next = new Map(current);
         next.set(optimisticEventId, {
           kind: "upsert",
           event: {
             id: optimisticEventId,
-            cardId,
+            pageId: pageId,
             status: "draft",
             archived: false,
             statusName: "Draft",
@@ -276,8 +276,8 @@ export function CalendarView({
         });
         return next;
       });
-      const created = await createCard("draft", {
-        id: cardId,
+      const created = await createPage("draft", {
+        id: pageId,
         title,
         scheduledStart: start,
         scheduledEnd: end,
@@ -289,13 +289,13 @@ export function CalendarView({
         return next;
       });
     },
-    [createCard],
+    [createPage],
   );
 
-  const handleUpdateCardSchedule = useCallback(
+  const handleUpdatePageSchedule = useCallback(
     async (
       columnId: string,
-      cardId: string,
+      pageId: string,
       occurrenceStart: Date,
       scheduledStart: Date,
       scheduledEnd: Date,
@@ -308,9 +308,9 @@ export function CalendarView({
         ...(isAllDay === undefined ? {} : { isAllDay }),
       };
       if (scope) {
-        const sourceOccurrenceId = `${cardId}:${occurrenceStart.toISOString()}`;
-        const source = scheduledCardsRef.current.find((event) => event.id === sourceOccurrenceId);
-        const overlayId = `${cardId}:${scheduledStart.toISOString()}`;
+        const sourceOccurrenceId = `${pageId}:${occurrenceStart.toISOString()}`;
+        const source = scheduledPagesRef.current.find((event) => event.id === sourceOccurrenceId);
+        const overlayId = `${pageId}:${scheduledStart.toISOString()}`;
         setOccurrenceOverlayById((current) => {
           const next = new Map(current);
           next.set(sourceOccurrenceId, { kind: "hide" });
@@ -332,7 +332,7 @@ export function CalendarView({
         });
 
         const updated = await updateOccurrence({
-          cardId,
+          pageId: pageId,
           occurrenceStart,
           source: "calendar",
           scope,
@@ -348,10 +348,10 @@ export function CalendarView({
         return;
       }
 
-      const sourceOccurrenceId = `${cardId}:${occurrenceStart.toISOString()}`;
-      const source = scheduledCardsRef.current.find((event) => event.id === sourceOccurrenceId);
+      const sourceOccurrenceId = `${pageId}:${occurrenceStart.toISOString()}`;
+      const source = scheduledPagesRef.current.find((event) => event.id === sourceOccurrenceId);
       const mutationStatus = resolveOccurrenceMutationStatus(columnId, source);
-      const overlayId = `${cardId}:${scheduledStart.toISOString()}`;
+      const overlayId = `${pageId}:${scheduledStart.toISOString()}`;
       setOccurrenceOverlayById((current) => {
         const next = new Map(current);
         next.set(sourceOccurrenceId, { kind: "hide" });
@@ -372,7 +372,7 @@ export function CalendarView({
         return next;
       });
 
-      const updated = await updateCard(mutationStatus, cardId, scheduleUpdates);
+      const updated = await updatePage(mutationStatus, pageId, scheduleUpdates);
       if (updated.status === "updated") return;
       setOccurrenceOverlayById((current) => {
         const next = new Map(current);
@@ -381,19 +381,19 @@ export function CalendarView({
         return next;
       });
     },
-    [updateCard, updateOccurrence],
+    [updatePage, updateOccurrence],
   );
 
   const handleCompleteOccurrence = useCallback(
-    async (cardId: string, occurrenceStart: Date) => {
-      const key = `${cardId}:${occurrenceStart.toISOString()}`;
+    async (pageId: string, occurrenceStart: Date) => {
+      const key = `${pageId}:${occurrenceStart.toISOString()}`;
       setOccurrenceOverlayById((current) => {
         const next = new Map(current);
         next.set(key, { kind: "hide" });
         return next;
       });
       const completed = await completeOccurrence({
-        cardId,
+        pageId: pageId,
         occurrenceStart,
         source: "calendar",
       });
@@ -408,15 +408,15 @@ export function CalendarView({
   );
 
   const handleSkipOccurrence = useCallback(
-    async (cardId: string, occurrenceStart: Date) => {
-      const key = `${cardId}:${occurrenceStart.toISOString()}`;
+    async (pageId: string, occurrenceStart: Date) => {
+      const key = `${pageId}:${occurrenceStart.toISOString()}`;
       setOccurrenceOverlayById((current) => {
         const next = new Map(current);
         next.set(key, { kind: "hide" });
         return next;
       });
       const skipped = await skipOccurrence({
-        cardId,
+        pageId: pageId,
         occurrenceStart,
         source: "calendar",
       });
@@ -436,7 +436,7 @@ export function CalendarView({
       let changed = false;
       const next = new Map(current);
       for (const [id, overlay] of current) {
-        const scheduled = scheduledCards.find((event) => event.id === id);
+        const scheduled = scheduledPages.find((event) => event.id === id);
         if (overlay.kind === "hide") {
           if (!scheduled) {
             next.delete(id);
@@ -456,12 +456,12 @@ export function CalendarView({
       }
       return changed ? next : current;
     });
-  }, [occurrenceOverlayById, scheduledCards]);
+  }, [occurrenceOverlayById, scheduledPages]);
 
-  const displayScheduledCards = useMemo(() => {
-    if (occurrenceOverlayById.size === 0) return scheduledCards;
+  const displayScheduledPages = useMemo(() => {
+    if (occurrenceOverlayById.size === 0) return scheduledPages;
 
-    const byId = new Map(scheduledCards.map((event) => [event.id, event]));
+    const byId = new Map(scheduledPages.map((event) => [event.id, event]));
     for (const [id, overlay] of occurrenceOverlayById) {
       if (overlay.kind === "hide") {
         byId.delete(id);
@@ -473,16 +473,16 @@ export function CalendarView({
     return [...byId.values()].sort((left, right) => (
       left.scheduledStart.getTime() - right.scheduledStart.getTime()
     ));
-  }, [occurrenceOverlayById, scheduledCards]);
+  }, [occurrenceOverlayById, scheduledPages]);
 
   useEffect(() => {
     if (!pendingReminderOpen) return;
     if (pendingReminderOpen.projectId !== projectId) return;
 
     let cancelled = false;
-    void getCard(pendingReminderOpen.cardId).then((result) => {
+    void getPage(pendingReminderOpen.pageId).then((result) => {
       if (cancelled) return;
-      if (result) openCardStage(projectId, result.id, result.title);
+      if (result) openPageStage(projectId, result.id, result.title);
       onReminderHandled?.(pendingReminderOpen);
     });
 
@@ -490,9 +490,9 @@ export function CalendarView({
       cancelled = true;
     };
   }, [
-    getCard,
+    getPage,
     onReminderHandled,
-    openCardStage,
+    openPageStage,
     pendingReminderOpen,
     projectId,
   ]);
@@ -505,13 +505,13 @@ export function CalendarView({
       <CalendarGrid
         visibleDays={visibleDays}
         createRequestId={createRequestId}
-        scheduledCards={displayScheduledCards}
-        cardStageCardId={cardStageCardId}
-        onClickCard={handleClickCard}
-        onCreateCard={handleCreateCard}
+        scheduledPages={displayScheduledPages}
+        pageStagePageId={pageStagePageId}
+        onClickPage={handleClickPage}
+        onCreatePage={handleCreatePage}
         onCompleteOccurrence={handleCompleteOccurrence}
         onSkipOccurrence={handleSkipOccurrence}
-        onUpdateCardSchedule={handleUpdateCardSchedule}
+        onUpdatePageSchedule={handleUpdatePageSchedule}
         onNavigatePrev={handleShiftWheelPrev}
         onNavigateNext={handleShiftWheelNext}
         allDayLaneHeight={allDayLaneHeight}

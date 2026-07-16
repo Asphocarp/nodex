@@ -5,11 +5,8 @@ import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
-import * as cardOccurrences from "./local-store/card-occurrences";
-import * as cardsStore from "./local-store/cards";
-import { getDb } from "./local-store/database";
-import { readCardMetadataPropertySnapshot } from "./local-store/card-metadata-property-snapshot";
-import { readCardDetailCommand } from "./card-detail-boundary";
+import * as pageOccurrences from "./local-store/page-occurrences";
+import * as pagesStore from "./local-store/database-pages";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
 import * as sqlInspection from "./local-store/sql-inspection";
@@ -32,16 +29,13 @@ import {
   readGitBranchState,
 } from "./git-branch-service";
 import type {
-  CardOccurrenceActionInput,
-  CardOccurrenceCompleteInput,
-  CardOccurrenceUpdateInput,
-  CardSearchInput,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
+  PageSearchInput,
   DatabaseRowsDetailsInput,
 } from "../shared/types";
-import {
-  CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
-} from "../shared/card-content-authority";
-import { MAX_CARD_WRITE_BODY_BYTES } from "../shared/card-limits";
+import { MAX_PAGE_WRITE_BODY_BYTES } from "../shared/page-limits";
 import {
   MAX_IMAGE_UPLOAD_BYTES,
   MAX_RESOURCE_UPLOAD_BYTES,
@@ -55,8 +49,8 @@ import {
 import { parseAssetSource } from "../shared/assets";
 import { getLogger } from "./logging/logger";
 import {
-  HttpCardBodySchema,
-  parseOptionalCardStatus,
+  HttpPageBodySchema,
+  parseOptionalWorkflowStatus,
 } from "../shared/schemas/http";
 import {
   ProjectOrderInputSchema,
@@ -74,22 +68,22 @@ import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
 import { registerReferenceReadHttpRoutes } from "./reference-read-http";
 import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutation-http";
-import { registerDatabaseKernelHttpRoutes } from "./database-kernel-http";
+import { registerDatabaseModuleHttpRoutes } from "./database-module-http";
+import { registerPageDetailHttpRoute } from "./page-detail-http";
 import { registerDocumentMutationHttpRoute } from "./document-operation-http";
 import { registerAdditionalDocumentCommandHttpRoute } from "./additional-document-command-http";
 import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
 import {
-  registerCardLifecycleHttpRoute,
-  registerCardLifecyclePreflightHttpRoute,
-} from "./card-lifecycle-http";
-import { registerCardHistoryHttpRoute } from "./card-history-http";
-import { registerCardMetadataPropertySnapshotHttpRoute } from "./card-metadata-property-snapshot-http";
-import { registerCardProjectTransferHttpRoute } from "./card-project-transfer-http";
+  registerPageLifecycleHttpRoute,
+  registerPageLifecyclePreflightHttpRoute,
+} from "./page-lifecycle-http";
+import { registerPageHistoryHttpRoute } from "./page-history-http";
 import { registerBlockTransferHttpRoute } from "./block-transfer-http";
 import {
   readProjectScopedDatabaseViewReference,
-  resolveProjectScopedCardTarget,
+  resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
+import { authorizeProjectResource } from "./local-store/project-resource-grants";
 import {
   deleteProjectSessionTabWithBrowserCleanup,
   deleteProjectSessionWithBrowserCleanup,
@@ -110,11 +104,11 @@ const TRUSTED_BROWSER_ORIGINS = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
 ]);
-const cardWriteBodyLimit = bodyLimit({
-  maxSize: MAX_CARD_WRITE_BODY_BYTES,
+const pageWriteBodyLimit = bodyLimit({
+  maxSize: MAX_PAGE_WRITE_BODY_BYTES,
   onError: (c) =>
     c.json(
-      { error: `Card payload exceeds ${(MAX_CARD_WRITE_BODY_BYTES / (1024 * 1024)).toFixed(0)}MB limit` },
+      { error: `Page payload exceeds ${(MAX_PAGE_WRITE_BODY_BYTES / (1024 * 1024)).toFixed(0)}MB limit` },
       413,
     ),
 });
@@ -270,8 +264,12 @@ app.onError((error, c) => {
 
 registerDocumentSyncHttpRoutes(app, {
   hub: documentSyncHub,
-  getDocumentProjectId: (documentId) =>
-    blockMutationWriter.getBlockDocumentProjectId(documentId),
+  authorizeDocumentAccess: (projectId, documentId, access) =>
+    blockMutationWriter.authorizeDocumentAccess({
+      projectId,
+      documentId,
+      access,
+    }),
   getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
     (await blockMutationWriter.getOwnedDocumentDescriptor(
       projectId,
@@ -285,7 +283,7 @@ registerDocumentSyncHttpRoutes(app, {
 });
 
 registerReferenceReadHttpRoutes(app, {
-  resolveCardTarget: resolveProjectScopedCardTarget,
+  resolvePageTarget: resolveProjectScopedPageTarget,
   readDatabaseViewReference: readProjectScopedDatabaseViewReference,
 });
 
@@ -294,46 +292,27 @@ registerBlockPropertyMutationHttpRoute(app, {
     (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
 });
 
-registerCardMetadataPropertySnapshotHttpRoute(app, {
-  readSnapshot: (projectId, cardBlockId) =>
-    readCardMetadataPropertySnapshot(getDb(), projectId, cardBlockId),
+registerDatabaseModuleHttpRoutes(app, {
+  apply: async (request) =>
+    (await blockMutationWriter.applyDatabaseModule(request)).result,
+  read: async (request) =>
+    (await blockMutationWriter.readDatabaseModule(request)).result,
 });
 
-registerDatabaseKernelHttpRoutes(app, {
+registerPageDetailHttpRoute(app, {
+  read: async (projectId, pageId) =>
+    (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+});
+
+registerPageLifecyclePreflightHttpRoute(app, {
+  readPreflight: async (projectId, pageId) =>
+    (await blockMutationWriter.readPageLifecyclePreflight(projectId, pageId))
+      .result,
+});
+
+registerPageLifecycleHttpRoute(app, {
   applyMutation: async (request) =>
-    (await blockMutationWriter.applyDatabaseMutation(request)).result,
-  readDescriptor: async (projectId, databaseBlockId) =>
-    (
-      await blockMutationWriter.readDatabaseDescriptor(
-        projectId,
-        databaseBlockId,
-      )
-    ).result,
-  readCatalog: async (projectId) =>
-    (await blockMutationWriter.readDatabaseCatalog(projectId)).result,
-  readManagement: async (projectId) =>
-    (await blockMutationWriter.readDatabaseManagement(projectId)).result,
-  readPrimaryDescriptor: async (projectId) =>
-    (await blockMutationWriter.readPrimaryDatabaseDescriptor(projectId)).result,
-  readPrimaryViewSnapshot: async (projectId) =>
-    (await blockMutationWriter.readPrimaryDatabaseViewSnapshot(projectId))
-      .result,
-  readViewSnapshot: async (projectId, viewId) =>
-    (await blockMutationWriter.readDatabaseViewSnapshot(projectId, viewId))
-      .result,
-  queryView: async (projectId, viewId) =>
-    (await blockMutationWriter.queryDatabaseView(projectId, viewId)).result,
-});
-
-registerCardLifecyclePreflightHttpRoute(app, {
-  readPreflight: async (projectId, cardId) =>
-    (await blockMutationWriter.readCardLifecyclePreflight(projectId, cardId))
-      .result,
-});
-
-registerCardLifecycleHttpRoute(app, {
-  applyMutation: async (request) =>
-    (await blockMutationWriter.applyCardLifecycleMutation(request)).result,
+    (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
 });
 
 registerDocumentMutationHttpRoute(app, {
@@ -343,10 +322,6 @@ registerDocumentMutationHttpRoute(app, {
 registerAdditionalDocumentCommandHttpRoute(app, {
   applyCommand: (request) =>
     documentSyncHub.applyAdditionalDocumentCommand(request),
-});
-
-registerCardProjectTransferHttpRoute(app, {
-  transfer: (intent) => documentSyncHub.transferCardProject(intent),
 });
 
 registerBlockTransferHttpRoute(app, {
@@ -361,8 +336,8 @@ registerDocumentHistoryHttpRoutes(app, {
   restoreVersion: (request) => documentSyncHub.applyDocumentMutation(request),
 });
 
-registerCardHistoryHttpRoute(app, {
-  listHistory: (request) => blockMutationWriter.listCardHistory(request),
+registerPageHistoryHttpRoute(app, {
+  listHistory: (request) => blockMutationWriter.listPageHistory(request),
 });
 
 app.post(
@@ -625,19 +600,19 @@ function parseOccurrenceOperationId(value: unknown): string {
   throw new Error("Missing or invalid operationId");
 }
 
-function parseOccurrenceCreatedCardId(value: unknown): string {
+function parseOccurrenceCreatedPageId(value: unknown): string {
   if (typeof value === "string" && value.length > 0 && value === value.trim()) {
     return value;
   }
-  throw new Error("Missing or invalid createdCardId");
+  throw new Error("Missing or invalid createdPageId");
 }
 
 function parseOccurrenceSource(
   value: unknown,
-): CardOccurrenceActionInput["source"] {
+): PageOccurrenceActionInput["source"] {
   if (
     value === "calendar" ||
-    value === "card-stage" ||
+    value === "page-detail" ||
     value === "notification" ||
     value === "api"
   ) {
@@ -648,15 +623,15 @@ function parseOccurrenceSource(
 
 function parseOccurrenceScope(
   value: unknown,
-): CardOccurrenceUpdateInput["scope"] {
+): PageOccurrenceUpdateInput["scope"] {
   if (value === "this" || value === "this-and-future" || value === "all") {
     return value;
   }
   throw new Error("Missing or invalid occurrence scope");
 }
 
-function normalizeCardBody(body: Record<string, unknown>): Record<string, unknown> {
-  return HttpCardBodySchema.parse(body);
+function normalizePageBody(body: Record<string, unknown>): Record<string, unknown> {
+  return HttpPageBodySchema.parse(body);
 }
 
 // === Project routes ===
@@ -1250,16 +1225,6 @@ app.get("/api/projects/:projectId/board-summary", async (c) => {
   return c.json(board);
 });
 
-app.post("/api/projects/:projectId/board", cardWriteBodyLimit, (c) =>
-  c.json(
-    {
-      error:
-        "Card creation moved to the authoritative Card lifecycle mutation endpoint",
-    },
-    410,
-  ),
-);
-
 // === Asset routes ===
 
 app.post("/api/assets/resolve-path", async (c) => {
@@ -1366,28 +1331,14 @@ app.get("/api/assets/:fileName", (c) => {
   }
 });
 
-// === Card routes ===
-
-app.get("/api/projects/:projectId/card", async (c) => {
-  const projectId = c.req.param("projectId");
-  const cardId = c.req.query("cardId");
-  if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const result = readCardDetailCommand(projectId, cardId);
-  if (result.ok) return c.json(result);
-  if (result.error.code === "invalid_request") return c.json(result, 400);
-  if (result.error.code === "card_not_found") return c.json(result, 404);
-  if (result.error.code === "card_detail_corrupt") return c.json(result, 409);
-  return c.json(result, 503);
-});
-
 app.get("/api/projects/:projectId/database-row", async (c) => {
   const projectId = c.req.param("projectId");
-  const status = parseOptionalCardStatus(c.req.query("status") || undefined);
-  const cardId = c.req.query("cardId");
-  if (!cardId) return c.json({ error: "Missing cardId" }, 400);
-  const result = await cardsStore.getDatabaseRowCard(
+  const status = parseOptionalWorkflowStatus(c.req.query("status") || undefined);
+  const pageId = c.req.query("pageId");
+  if (!pageId) return c.json({ error: "Missing pageId" }, 400);
+  const result = await pagesStore.getDatabaseRowPage(
     projectId,
-    cardId,
+    pageId,
     status,
   );
   if (!result) return c.json({ error: "Not found" }, 404);
@@ -1398,63 +1349,42 @@ app.post("/api/projects/:projectId/database-rows/details", async (c) => {
   const projectId = c.req.param("projectId");
   const startedAt = Date.now();
   const body = await c.req.json().catch(() => ({}));
-  if (!isRecord(body) || !Array.isArray(body.cardIds)) {
-    return c.json({ error: "Missing cardIds" }, 400);
+  if (!isRecord(body) || !Array.isArray(body.pageIds)) {
+    return c.json({ error: "Missing pageIds" }, 400);
   }
-  const cardIds = body.cardIds.filter((cardId): cardId is string => typeof cardId === "string");
-  const cards = await boardReadModel.getDatabaseRowsDetails(projectId, { cardIds } satisfies DatabaseRowsDetailsInput);
+  const pageIds = body.pageIds.filter((pageId): pageId is string => typeof pageId === "string");
+  const pages = await boardReadModel.getDatabaseRowsDetails(projectId, { pageIds } satisfies DatabaseRowsDetailsInput);
   logger.info("database row details payload served", {
     channel: "POST /api/projects/:projectId/database-rows/details",
     projectId,
-    requestedCardCount: cardIds.length,
-    cardCount: cards.length,
-    approxPayloadBytes: approximatePayloadBytes(cards),
+    requestedPageCount: pageIds.length,
+    pageCount: pages.length,
+    approxPayloadBytes: approximatePayloadBytes(pages),
     durationMs: Date.now() - startedAt,
   });
-  return c.json(cards);
+  return c.json(pages);
 });
 
-app.post("/api/cards/search", async (c) => {
+app.post("/api/pages/search", async (c) => {
   const startedAt = Date.now();
   const body = await c.req.json().catch(() => ({}));
   if (!isRecord(body) || !Array.isArray(body.projectIds) || typeof body.query !== "string") {
     return c.json({ error: "Missing projectIds or query" }, 400);
   }
-  const input: CardSearchInput = {
+  const input: PageSearchInput = {
     projectIds: body.projectIds.filter((projectId): projectId is string => typeof projectId === "string"),
     query: body.query,
     limit: typeof body.limit === "number" ? body.limit : undefined,
   };
-  const results = await boardReadModel.searchCards(input);
-  logger.info("card search payload served", {
-    channel: "POST /api/cards/search",
+  const results = await boardReadModel.searchPages(input);
+  logger.info("Page search payload served", {
+    channel: "POST /api/pages/search",
     projectCount: input.projectIds.length,
     resultCount: results.length,
     approxPayloadBytes: approximatePayloadBytes(results),
     durationMs: Date.now() - startedAt,
   });
   return c.json(results);
-});
-
-app.put("/api/projects/:projectId/card/description", cardWriteBodyLimit, (c) => {
-  return c.json(
-    {
-      error: CARD_DOCUMENT_MUTATION_REQUIRED_MESSAGE,
-      replacement:
-        "POST /api/projects/:projectId/documents/:documentId/mutations",
-    },
-    410,
-  );
-});
-
-app.delete("/api/projects/:projectId/card", async (c) => {
-  return c.json(
-    {
-      error:
-        "Card deletion moved to the authoritative Card lifecycle mutation endpoint",
-    },
-    410,
-  );
 });
 
 app.get("/api/projects/:projectId/calendar/occurrences", async (c) => {
@@ -1466,27 +1396,27 @@ app.get("/api/projects/:projectId/calendar/occurrences", async (c) => {
   try {
     const start = parseRequiredDate("start", startRaw);
     const end = parseRequiredDate("end", endRaw);
-    const occurrences = await cardOccurrences.listCalendarOccurrences(projectId, start, end, searchQuery);
+    const occurrences = await pageOccurrences.listPageOccurrences(projectId, start, end, searchQuery);
     return c.json({ occurrences });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
   }
 });
 
-app.post("/api/projects/:projectId/card-occurrence/complete", async (c) => {
+app.post("/api/projects/:projectId/page-occurrence/complete", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json().catch(() => ({}));
   try {
     if (!isRecord(body)) throw new Error("Invalid request body");
-    if (typeof body.cardId !== "string") throw new Error("Missing cardId");
-    const input: CardOccurrenceCompleteInput = {
+    if (typeof body.pageId !== "string") throw new Error("Missing pageId");
+    const input: PageOccurrenceCompleteInput = {
       operationId: parseOccurrenceOperationId(body.operationId),
-      createdCardId: parseOccurrenceCreatedCardId(body.createdCardId),
-      cardId: body.cardId,
+      createdPageId: parseOccurrenceCreatedPageId(body.createdPageId),
+      pageId: body.pageId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
     };
-    const { result } = await blockMutationWriter.completeCardOccurrence(
+    const { result } = await blockMutationWriter.completePageOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1498,19 +1428,19 @@ app.post("/api/projects/:projectId/card-occurrence/complete", async (c) => {
   }
 });
 
-app.post("/api/projects/:projectId/card-occurrence/skip", async (c) => {
+app.post("/api/projects/:projectId/page-occurrence/skip", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json().catch(() => ({}));
   try {
     if (!isRecord(body)) throw new Error("Invalid request body");
-    if (typeof body.cardId !== "string") throw new Error("Missing cardId");
-    const input: CardOccurrenceActionInput = {
+    if (typeof body.pageId !== "string") throw new Error("Missing pageId");
+    const input: PageOccurrenceActionInput = {
       operationId: parseOccurrenceOperationId(body.operationId),
-      cardId: body.cardId,
+      pageId: body.pageId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
     };
-    const { result } = await blockMutationWriter.skipCardOccurrence(
+    const { result } = await blockMutationWriter.skipPageOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1522,31 +1452,31 @@ app.post("/api/projects/:projectId/card-occurrence/skip", async (c) => {
   }
 });
 
-app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c) => {
+app.put("/api/projects/:projectId/page-occurrence", pageWriteBodyLimit, async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json().catch(() => ({}));
   try {
     if (!isRecord(body)) throw new Error("Invalid request body");
-    if (typeof body.cardId !== "string") throw new Error("Missing cardId");
+    if (typeof body.pageId !== "string") throw new Error("Missing pageId");
     if (typeof body.scope !== "string") throw new Error("Missing scope");
     if (!isRecord(body.updates)) throw new Error("Missing updates");
-    const updates = normalizeCardBody(body.updates);
+    const updates = normalizePageBody(body.updates);
     const scope = parseOccurrenceScope(body.scope);
-    if (scope === "all" && "createdCardId" in body) {
-      throw new Error("Occurrence scope all must not include createdCardId");
+    if (scope === "all" && "createdPageId" in body) {
+      throw new Error("Occurrence scope all must not include createdPageId");
     }
-    const input: CardOccurrenceUpdateInput = {
+    const input: PageOccurrenceUpdateInput = {
       operationId: parseOccurrenceOperationId(body.operationId),
-      cardId: body.cardId,
+      pageId: body.pageId,
       occurrenceStart: parseRequiredDate("occurrenceStart", body.occurrenceStart),
       source: parseOccurrenceSource(body.source),
       scope,
       ...(scope === "all"
         ? {}
-        : { createdCardId: parseOccurrenceCreatedCardId(body.createdCardId) }),
-      updates: updates as CardOccurrenceUpdateInput["updates"],
-    } as CardOccurrenceUpdateInput;
-    const { result } = await blockMutationWriter.updateCardOccurrence(
+        : { createdPageId: parseOccurrenceCreatedPageId(body.createdPageId) }),
+      updates: updates as PageOccurrenceUpdateInput["updates"],
+    } as PageOccurrenceUpdateInput;
+    const { result } = await blockMutationWriter.updatePageOccurrence(
       projectId,
       input,
       typeof body.sessionId === "string" ? body.sessionId : undefined,
@@ -1562,7 +1492,7 @@ app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c
 
 app.get("/api/projects/:projectId/column", async (c) => {
   const projectId = c.req.param("projectId");
-  const columnId = parseOptionalCardStatus(c.req.query("id"));
+  const columnId = parseOptionalWorkflowStatus(c.req.query("id"));
   if (!columnId) return c.json({ error: "Missing id" }, 400);
   const column = await boardReadModel.readColumn(projectId, columnId);
   return c.json(column);
@@ -1634,10 +1564,14 @@ app.get("/api/projects/:projectId/events", (c) => {
           send(JSON.stringify({ event: "board-changed", ...event }));
         }
       };
-      const cardTargetHandler = (event: { projectId: string }) => {
-        if (event.projectId === projectId) {
-          send(JSON.stringify({ event: "card-target-changed", ...event }));
-        }
+      const pageTargetHandler = (event: { libraryId: string; targetPageId: string }) => {
+        const authorization = authorizeProjectResource({
+          projectId,
+          resource: { kind: "page", pageId: event.targetPageId },
+          action: "read",
+        });
+        if (!authorization.allowed || authorization.libraryId !== event.libraryId) return;
+        send(JSON.stringify({ event: "page-target-changed", ...event }));
       };
       const sessionHandler = (event: { projectId: string }) => {
         if (event.projectId === projectId) {
@@ -1651,7 +1585,7 @@ app.get("/api/projects/:projectId/events", (c) => {
       };
 
       dbNotifier.on("board-changed", handler);
-      dbNotifier.on("card-target-changed", cardTargetHandler);
+      dbNotifier.on("page-target-changed", pageTargetHandler);
       dbNotifier.on("database-changed", databaseHandler);
       dbNotifier.on("project-sessions-changed", sessionHandler);
 
@@ -1667,7 +1601,7 @@ app.get("/api/projects/:projectId/events", (c) => {
       // Cleanup when stream is cancelled
       c.req.raw.signal.addEventListener("abort", () => {
         dbNotifier.removeListener("board-changed", handler);
-        dbNotifier.removeListener("card-target-changed", cardTargetHandler);
+        dbNotifier.removeListener("page-target-changed", pageTargetHandler);
         dbNotifier.removeListener("database-changed", databaseHandler);
         dbNotifier.removeListener("project-sessions-changed", sessionHandler);
         clearInterval(pingInterval);

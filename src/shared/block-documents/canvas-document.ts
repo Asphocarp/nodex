@@ -64,7 +64,7 @@ export type CanvasSharedAppState = Readonly<
   Record<string, CanvasJsonValue>
 >;
 
-export interface CanvasCardReference {
+export interface CanvasPageReference {
   readonly sourceElementId: string;
   readonly targetBlockId: string;
   readonly titleHint?: string;
@@ -76,7 +76,7 @@ export interface CanvasSceneMaterialization {
   readonly elements: readonly CanvasElementSnapshot[];
   readonly appState: CanvasSharedAppState;
   readonly files: Readonly<Record<string, CanvasFileSnapshot>>;
-  readonly cardReferences: readonly CanvasCardReference[];
+  readonly pageReferences: readonly CanvasPageReference[];
   readonly plainText: string;
   readonly preview: string;
 }
@@ -314,7 +314,7 @@ const canonicalTitleHint = (element: CanvasElementSnapshot): string | undefined 
   return undefined;
 };
 
-const canonicalizeCardReference = (
+const canonicalizePageReference = (
   element: Readonly<Record<string, CanvasJsonValue>>,
 ): Readonly<Record<string, CanvasJsonValue>> => {
   const customData = element.customData;
@@ -370,7 +370,7 @@ export const canonicalizeCanvasElement = (
       `Canvas element ${id}.index must be a bounded string when present`,
     );
   }
-  return canonicalizeCardReference(record);
+  return canonicalizePageReference(record);
 };
 
 interface CanvasObservationNormalizationState {
@@ -935,9 +935,9 @@ const assertExactCanvasRoots = (document: Y.Doc): void => {
   );
 };
 
-const readCanvasCardReference = (
+const readCanvasPageReference = (
   element: CanvasElementSnapshot,
-): CanvasCardReference | null => {
+): CanvasPageReference | null => {
   if (element.isDeleted === true) return null;
   const customData = element.customData;
   if (!isRecord(customData) || customData.type !== "nodex-card-reference") {
@@ -1050,9 +1050,9 @@ export const inspectCanvasDocument = (
     files[id] = canonicalizeCanvasFile(value, id);
   }
   const orderedElements = elements.map(({ element }) => element);
-  const cardReferences = orderedElements
-    .map(readCanvasCardReference)
-    .filter((reference): reference is CanvasCardReference => reference !== null);
+  const pageReferences = orderedElements
+    .map(readCanvasPageReference)
+    .filter((reference): reference is CanvasPageReference => reference !== null);
   const plainText = orderedElements
     .map(elementPlainText)
     .filter((text) => text.length > 0)
@@ -1069,7 +1069,7 @@ export const inspectCanvasDocument = (
       elements: orderedElements,
       appState,
       files,
-      cardReferences,
+      pageReferences,
       plainText,
       preview: plainText.replace(/\s+/gu, " ").trim().slice(0, 280),
     },
@@ -1084,7 +1084,7 @@ export const canonicalCanvasSceneFingerprint = (
     elements: materialization.elements,
     appState: materialization.appState,
     files: materialization.files,
-    cardReferences: materialization.cardReferences,
+    pageReferences: materialization.pageReferences,
   });
 
 const canvasElementSemanticValue = (
@@ -1130,7 +1130,7 @@ export const parseCanvasSceneMaterialization = (input: {
     !Array.isArray(value.elements) ||
     !isRecord(value.appState) ||
     !isRecord(value.files) ||
-    !Array.isArray(value.cardReferences) ||
+    !Array.isArray(value.pageReferences) ||
     typeof value.plainText !== "string" ||
     typeof value.preview !== "string"
   ) {
@@ -1155,8 +1155,8 @@ export const parseCanvasSceneMaterialization = (input: {
         stableStringifyCanvasProjection(value.appState) ||
       stableStringifyCanvasProjection(derived.files) !==
         stableStringifyCanvasProjection(value.files) ||
-      stableStringifyCanvasProjection(derived.cardReferences) !==
-        stableStringifyCanvasProjection(value.cardReferences) ||
+      stableStringifyCanvasProjection(derived.pageReferences) !==
+        stableStringifyCanvasProjection(value.pageReferences) ||
       derived.plainText !== value.plainText ||
       derived.preview !== value.preview
     ) {

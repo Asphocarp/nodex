@@ -1,15 +1,15 @@
 import { useEffect, useEffectEvent } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { CardTargetReadModel } from "../../shared/card-targets";
+import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
 import {
   readDatabaseViewReference,
-  resolveCardTarget,
+  resolvePageTarget,
 } from "./api";
 import { queryKeys } from "./query-keys";
 import { resolveRendererTransport } from "./renderer-transport";
 import { createProjectBoardChangeSubscriptionHub } from "./project-board-change-subscription-hub";
-import { createProjectCardTargetChangeSubscriptionHub } from "./project-card-target-change-subscription-hub";
+import { createProjectPageTargetChangeSubscriptionHub } from "./project-page-target-change-subscription-hub";
 
 export interface ReferenceQueryResult<T> {
   readonly data: T | null;
@@ -27,54 +27,44 @@ const boardChangeSubscriptions = createProjectBoardChangeSubscriptionHub({
     resolveRendererTransport().subscribeBoardChanges(projectId, listener),
 });
 
-const cardTargetChangeSubscriptions =
-  createProjectCardTargetChangeSubscriptionHub({
+const pageTargetChangeSubscriptions =
+  createProjectPageTargetChangeSubscriptionHub({
     subscribeToProject: (projectId, listener) =>
-      resolveRendererTransport().subscribeCardTargetChanges(projectId, listener),
+      resolveRendererTransport().subscribePageTargetChanges(projectId, listener),
   });
 
-interface CardTargetChangeSubscription {
+interface PageTargetChangeSubscription {
   readonly requestingProjectId: string;
   readonly targetBlockId: string;
-  readonly targetProjectId: string | null;
 }
 
-const cardTargetQueryOptions = (
+const pageTargetQueryOptions = (
   requestingProjectId: string,
   targetBlockId: string,
 ) => ({
-  queryKey: queryKeys.cardTargets.byId(requestingProjectId, targetBlockId),
-  queryFn: () => resolveCardTarget({ requestingProjectId, targetBlockId }),
+  queryKey: queryKeys.pageTargets.byId(requestingProjectId, targetBlockId),
+  queryFn: () => resolvePageTarget({
+    requestingProjectId,
+    targetPageId: targetBlockId,
+  }),
   enabled: requestingProjectId.length > 0 && targetBlockId.length > 0,
   staleTime: 5_000,
   refetchOnWindowFocus: true,
 });
 
-const readTargetProjectId = (
-  model: CardTargetReadModel | null | undefined,
-): string | null => {
-  if (model?.status === "available") return model.card.projectId;
-  if (model?.status === "deleted") return model.projectId;
-  return null;
-};
-
-const useCardTargetChangeRefresh = (
-  targets: readonly CardTargetChangeSubscription[],
+const usePageTargetChangeRefresh = (
+  targets: readonly PageTargetChangeSubscription[],
 ): void => {
   const queryClient = useQueryClient();
-  const activeTargets = targets.flatMap((target) =>
-    target.targetProjectId
-      ? [{ ...target, targetProjectId: target.targetProjectId }]
-      : []);
-  const subscriptionFingerprint = JSON.stringify(activeTargets);
+  const subscriptionFingerprint = JSON.stringify(targets);
   const subscribeToTargets = useEffectEvent(() => {
-    const unsubscribers = activeTargets.map((target) => {
-      const queryKey = queryKeys.cardTargets.byId(
+    const unsubscribers = targets.map((target) => {
+      const queryKey = queryKeys.pageTargets.byId(
         target.requestingProjectId,
         target.targetBlockId,
       );
-      return cardTargetChangeSubscriptions.subscribe(
-        target.targetProjectId,
+      return pageTargetChangeSubscriptions.subscribe(
+        target.requestingProjectId,
         target.targetBlockId,
         JSON.stringify(queryKey),
         () => {
@@ -107,16 +97,15 @@ const useBoardChangeRefresh = (
   }, [consumerKey, projectId]);
 };
 
-export const useCardTargetReadModel = (
+export const usePageTargetReadModel = (
   requestingProjectId: string,
   targetBlockId: string,
-): ReferenceQueryResult<CardTargetReadModel> => {
+): ReferenceQueryResult<PageTargetReadModel> => {
   const enabled = requestingProjectId.length > 0 && targetBlockId.length > 0;
-  const query = useQuery(cardTargetQueryOptions(requestingProjectId, targetBlockId));
-  useCardTargetChangeRefresh([{
+  const query = useQuery(pageTargetQueryOptions(requestingProjectId, targetBlockId));
+  usePageTargetChangeRefresh([{
     requestingProjectId,
     targetBlockId,
-    targetProjectId: readTargetProjectId(query.data),
   }]);
   return {
     data: query.data ?? null,
@@ -130,18 +119,17 @@ export const useCardTargetReadModel = (
  * available target stays subscribed to its identity-specific change stream,
  * including ancestors currently collapsed into breadcrumb overflow.
  */
-export const useCardTargetReadModels = (
+export const usePageTargetReadModels = (
   requestingProjectId: string,
   targetBlockIds: readonly string[],
-): readonly ReferenceQueryResult<CardTargetReadModel>[] => {
+): readonly ReferenceQueryResult<PageTargetReadModel>[] => {
   const queries = useQueries({
     queries: targetBlockIds.map((targetBlockId) =>
-      cardTargetQueryOptions(requestingProjectId, targetBlockId)),
+      pageTargetQueryOptions(requestingProjectId, targetBlockId)),
   });
-  useCardTargetChangeRefresh(targetBlockIds.map((targetBlockId, index) => ({
+  usePageTargetChangeRefresh(targetBlockIds.map((targetBlockId) => ({
     requestingProjectId,
     targetBlockId,
-    targetProjectId: readTargetProjectId(queries[index]?.data),
   })));
 
   return queries.map((query, index) => ({

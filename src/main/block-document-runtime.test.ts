@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
-  createCardDocument,
-  openCardDocument,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
+  createPageDocument,
+  openPageDocument,
   type DocumentHead,
   type DocumentSyncApplyAck,
   type DocumentSyncApplyRequest,
@@ -74,7 +74,7 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
     }[],
   ) {
     for (const seed of seeds) {
-      const envelope = createCardDocument({
+      const envelope = createPageDocument({
         documentId: seed.documentId,
         initialTitle: seed.title,
       });
@@ -103,7 +103,7 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
     return {
       storeEpoch: identity.storeEpoch,
       authority: identity.authority,
-      ownerType: "card",
+      ownerType: "page",
       head: cloneHead(identity.head),
       document,
     };
@@ -165,7 +165,7 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
 
   appendTitleExternally = (documentId: string, suffix: string): void => {
     const source = this.requireDocument(documentId);
-    const title = openCardDocument(source.document).title;
+    const title = openPageDocument(source.document).title;
     title.insert(title.length, suffix);
     source.headSeq += 1;
   };
@@ -195,8 +195,8 @@ class InMemoryBlockDocumentAuthority implements BlockDocumentRuntimeAuthority {
         ownerBlockId: source.ownerBlockId,
         generation: source.generation,
         headSeq: source.headSeq,
-        schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+        schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
         stateVector: Y.encodeStateVector(source.document),
       },
     };
@@ -254,7 +254,7 @@ const createTitleUpdate = (
   };
   replica.on("update", listener);
   try {
-    const title = openCardDocument(replica).title;
+    const title = openPageDocument(replica).title;
     title.insert(title.length, suffix);
   } finally {
     replica.off("update", listener);
@@ -285,7 +285,7 @@ const readTitle = (sync: DocumentSyncResponse): string => {
   const replica = new Y.Doc({ guid: sync.documentId });
   try {
     Y.applyUpdate(replica, sync.update);
-    return openCardDocument(replica).title.toString();
+    return openPageDocument(replica).title.toString();
   } finally {
     replica.destroy();
   }

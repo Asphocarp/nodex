@@ -1,25 +1,25 @@
 import { describe, expect, test } from "vitest";
 import {
-  decodeCardTargetReadModelHttp,
-  decodeCardSummaryHttp,
+  decodePageTargetReadModelHttp,
+  decodePageSummaryHttp,
   decodeDatabaseViewReadModelHttp,
   ReferenceReadHttpBoundaryError,
 } from "./reference-read-http-contract";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "./block-documents";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "./block-documents";
 
 const CREATED = "2026-01-01T01:02:03.004Z";
 const DUE_DATE = "2026-01-02T05:06:07.008Z";
 const SCHEDULED_START = "2026-01-03T09:10:11.012Z";
 const SCHEDULED_END = "2026-01-03T13:14:15.016Z";
 
-const makeCardSummaryWire = () => ({
+const makePageSummaryWire = () => ({
   id: "card-1",
   status: "draft",
   archived: false,
-  title: "HTTP Card",
+  title: "HTTP Page",
   richTitle: [
     { type: "text", text: "HTTP ", styles: {} },
-    { type: "text", text: "Card", styles: { bold: true } },
+    { type: "text", text: "Page", styles: { bold: true } },
   ],
   tags: ["transport"],
   dueDate: DUE_DATE,
@@ -33,34 +33,30 @@ const makeCardSummaryWire = () => ({
   hasDescription: true,
 });
 
-const makeAvailableCardTargetWire = () => ({
+const makeAvailablePageTargetWire = () => ({
   status: "available",
-  targetBlockId: "card-1",
-  card: {
-    blockId: "card-1",
-    projectId: "target-project",
+  targetPageId: "card-1",
+  page: {
+    pageId: "card-1",
+    libraryId: "library:target",
     lifecycle: "active",
-    location: { kind: "document", documentId: "document-host" },
-    locationRevision: 2,
+    parent: { kind: "page", pageId: "page:host" },
+    parentRevision: 2,
     metadataRevision: 3,
     documentId: "document-1",
     documentGeneration: 1,
     documentHeadSeq: 9,
-    documentAuthority: "ydoc_primary",
-    content: {
-      projectedSeq: 9,
-      title: "HTTP Card",
-      richTitle: makeCardSummaryWire().richTitle,
-      preview: "Preview",
-      plainText: "Body",
-    },
+    title: "HTTP Page",
+    richTitle: makePageSummaryWire().richTitle,
+    preview: "Preview",
+    plainText: "Body",
     createdAt: CREATED,
     updatedAt: DUE_DATE,
   },
   document: {
     readiness: "ready",
-    schemaKey: "nodex.card",
-    schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+    schemaKey: "nodex.page",
+    schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   },
 });
 
@@ -77,20 +73,20 @@ const makeDatabaseViewWire = () => ({
     updatedAt: DUE_DATE,
   },
   rows: [{
-    card: makeCardSummaryWire(),
+    page: makePageSummaryWire(),
     groupKey: "draft",
     rankKey: "a0",
   }],
 });
 
 describe("reference read HTTP contract", () => {
-  test("revives every Card summary timestamp as a Date", () => {
-    const summary = decodeCardSummaryHttp(makeCardSummaryWire());
+  test("revives every Page summary timestamp as a Date", () => {
+    const summary = decodePageSummaryHttp(makePageSummaryWire());
 
     expect(summary.created instanceof Date).toBe(true);
     expect(summary.richTitle?.[1]).toEqual({
       type: "text",
-      text: "Card",
+      text: "Page",
       styles: { bold: true },
     });
     expect(summary.dueDate instanceof Date).toBe(true);
@@ -102,9 +98,9 @@ describe("reference read HTTP contract", () => {
     expect(summary.scheduledEnd?.toISOString()).toBe(SCHEDULED_END);
   });
 
-  test("strips retired and unknown Card summary fields", () => {
-    const summary = decodeCardSummaryHttp({
-      ...makeCardSummaryWire(),
+  test("strips retired and unknown Page summary fields", () => {
+    const summary = decodePageSummaryHttp({
+      ...makePageSummaryWire(),
       agentBlocked: true,
       agentStatus: "legacy",
       unknownExtension: "legacy",
@@ -115,28 +111,28 @@ describe("reference read HTTP contract", () => {
     expect("unknownExtension" in summary).toBe(false);
   });
 
-  test("keeps Card target content independent from Database row summaries", () => {
-    const cardTarget = decodeCardTargetReadModelHttp(
-      makeAvailableCardTargetWire(),
+  test("keeps Page target content independent from Database row summaries", () => {
+    const pageTarget = decodePageTargetReadModelHttp(
+      makeAvailablePageTargetWire(),
     );
     const databaseView = decodeDatabaseViewReadModelHttp(
       makeDatabaseViewWire(),
     );
 
-    expect(cardTarget.status).toBe("available");
-    if (cardTarget.status !== "available") return;
-    expect(cardTarget.card.location).toEqual({
-      kind: "document",
-      documentId: "document-host",
+    expect(pageTarget.status).toBe("available");
+    if (pageTarget.status !== "available") return;
+    expect(pageTarget.page.parent).toEqual({
+      kind: "page",
+      pageId: "page:host",
     });
-    expect(cardTarget.card.content?.richTitle[1]).toEqual({
+    expect(pageTarget.page.richTitle[1]).toEqual({
       type: "text",
-      text: "Card",
+      text: "Page",
       styles: { bold: true },
     });
-    expect(cardTarget.card.createdAt).toBe(CREATED);
-    expect(databaseView.rows[0]?.card.created instanceof Date).toBe(true);
-    expect(databaseView.rows[0]?.card.scheduledEnd?.toISOString()).toBe(
+    expect(pageTarget.page.createdAt).toBe(CREATED);
+    expect(databaseView.rows[0]?.page.created instanceof Date).toBe(true);
+    expect(databaseView.rows[0]?.page.scheduledEnd?.toISOString()).toBe(
       SCHEDULED_END,
     );
   });
@@ -148,12 +144,12 @@ describe("reference read HTTP contract", () => {
     "scheduledEnd",
   ] as const) {
     test(`rejects an invalid ${field} timestamp with a boundary error`, () => {
-      const wire = makeCardSummaryWire();
+      const wire = makePageSummaryWire();
       wire[field] = "2026-02-30T00:00:00.000Z";
       let caught: unknown;
 
       try {
-        decodeCardSummaryHttp(wire);
+        decodePageSummaryHttp(wire);
       } catch (error) {
         caught = error;
       }
@@ -165,9 +161,9 @@ describe("reference read HTTP contract", () => {
     });
   }
 
-  test("rejects malformed nested Card summaries at the reference boundary", () => {
+  test("rejects malformed nested Page summaries at the reference boundary", () => {
     const wire = makeDatabaseViewWire();
-    wire.rows[0]!.card.created = "not-a-date";
+    wire.rows[0]!.page.created = "not-a-date";
     let caught: unknown;
 
     try {
@@ -178,6 +174,6 @@ describe("reference read HTTP contract", () => {
 
     expect(caught instanceof ReferenceReadHttpBoundaryError).toBe(true);
     if (!(caught instanceof ReferenceReadHttpBoundaryError)) return;
-    expect(caught.message.includes("$.rows[0].card.created")).toBe(true);
+    expect(caught.message.includes("$.rows[0].page.created")).toBe(true);
   });
 });

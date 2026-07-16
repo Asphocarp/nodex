@@ -9,7 +9,7 @@ export interface NfmSideMenuRuntimeSnapshot {
   canSendBlocks: boolean;
   hasConvertDividerToThreadSection: boolean;
   sourceProjectId: string | null;
-  sourceCardId: string | null;
+  sourcePageId: string | null;
   onMoveBlocksToDestination: (
     destination: NfmMoveToDestination,
     fallbackBlockId: string,
@@ -31,7 +31,7 @@ const DEFAULT_SIDE_MENU_RUNTIME: NfmSideMenuRuntimeValue = {
     canSendBlocks: false,
     hasConvertDividerToThreadSection: false,
     sourceProjectId: null,
-    sourceCardId: null,
+    sourcePageId: null,
     onMoveBlocksToDestination: () => undefined,
     onConvertDividerToThreadSection: () => undefined,
     onBlockDragStart: () => undefined,

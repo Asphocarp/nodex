@@ -5,7 +5,7 @@ import { createTestQueryClient, TestQueryProvider } from "@/test/query";
 import { installWindowApi } from "@/test/browser-globals";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
-import type { BoardSummary, CardSummary, Project } from "./types";
+import type { BoardSummary, DatabasePageSummary, Project } from "./types";
 import { useAllBoards, useBoardsForProjects } from "./use-all-boards";
 
 let invokeCalls: unknown[][] = [];
@@ -13,6 +13,10 @@ let invokeCalls: unknown[][] = [];
 const PROJECTS: Project[] = [
   {
     id: "project-1",
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: "Project",
     description: "",
     sources: [],
@@ -37,6 +41,10 @@ const BOARD: BoardSummary = {
 function makeProject(id: string): Project {
   return {
     id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: id,
     description: "",
     sources: [{ root: `/tmp/${id}`, order: 0 }],
@@ -48,7 +56,7 @@ function makeProject(id: string): Project {
   };
 }
 
-function makeCardSummary(): CardSummary {
+function makeCardSummary(): DatabasePageSummary {
   return {
     id: "card-1",
     status: "in_progress",
@@ -209,7 +217,7 @@ describe("useBoardsForProjects", () => {
           changeType: "update",
           columnId: "in_progress",
           status: "in_progress",
-          cardId: summary.id,
+          pageId: summary.id,
           summary,
         });
       }

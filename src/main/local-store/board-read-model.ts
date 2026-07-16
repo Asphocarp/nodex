@@ -4,5 +4,5 @@ export {
   getDatabaseRowsDetails,
   readColumn,
   readSummaryColumn,
-  searchCards,
-} from "./cards";
+  searchPages,
+} from "./database-pages";

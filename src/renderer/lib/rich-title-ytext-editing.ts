@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { MAX_CARD_TITLE_LENGTH } from "../../shared/card-limits";
+import { MAX_PAGE_TITLE_LENGTH } from "../../shared/page-limits";
 import { PORTABLE_RICH_TEXT_ATOM_CHARACTER } from "../../shared/block-documents/portable-rich-text";
 
 export type RichTitleFormatAttribute = "bold" | "italic" | "underline" | "code";
@@ -141,7 +141,7 @@ export const applyRichTitleTextEdit = ({
   );
   const current = title.toString();
   const nextLength = current.length - (end - start) + canonicalInsert.length;
-  if (nextLength > MAX_CARD_TITLE_LENGTH) {
+  if (nextLength > MAX_PAGE_TITLE_LENGTH) {
     return { changed: false, caret: start };
   }
   if (end === start && canonicalInsert.length === 0) {

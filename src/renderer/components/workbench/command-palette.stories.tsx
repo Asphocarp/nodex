@@ -2,21 +2,21 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
 import type {
   CommandMenuMode,
-  CommandPaletteCard,
+  CommandPalettePage,
   CommandPaletteCommand,
   CommandPaletteThread,
 } from "@/lib/command-palette";
-import { createCommandPaletteCardSearchIndex } from "@/lib/command-palette-card-search";
+import { createCommandPalettePageSearchIndex } from "@/lib/command-palette-page-search";
 import { createCommandPaletteThreadSearchIndex } from "@/lib/command-palette-thread-search";
 import { buildCommandPaletteCommands } from "@/lib/command-palette-commands";
-import type { CardSummary } from "@/lib/types";
+import type { DatabasePageSummary } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { CommandPaletteSurface } from "./command-palette-surface";
 
-function makeStoryCard(overrides: Partial<CardSummary> = {}): CardSummary {
+function makeStoryPage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   const title = overrides.title ?? "Command palette shell refresh";
   return {
-    id: overrides.id ?? "palette-card",
+    id: overrides.id ?? "palette-page",
     status: overrides.status ?? "in_progress",
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
@@ -34,19 +34,19 @@ function makeStoryCard(overrides: Partial<CardSummary> = {}): CardSummary {
   };
 }
 
-function makePaletteCard(
-  overrides: Partial<Omit<CommandPaletteCard, "card">> & { card?: Partial<CardSummary> } = {},
-): CommandPaletteCard {
-  const card = makeStoryCard(overrides.card ?? {});
+function makePalettePage(
+  overrides: Partial<Omit<CommandPalettePage, "page">> & { page?: Partial<DatabasePageSummary> } = {},
+): CommandPalettePage {
+  const page = makeStoryPage(overrides.page ?? {});
   const projectId = overrides.projectId ?? "nodex";
   return {
-    kind: "card",
-    id: overrides.id ?? card.id,
+    kind: "page",
+    id: overrides.id ?? page.id,
     projectId,
     projectName: overrides.projectName ?? "Nodex",
     projectIcon: overrides.projectIcon ?? "",
     columnName: overrides.columnName ?? "In Progress",
-    card,
+    page,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,
@@ -90,15 +90,15 @@ function CommandPaletteStory({
   includeThreads?: boolean;
 }) {
   const [open, setOpen] = useState(true);
-  const cards = useMemo<CommandPaletteCard[]>(() => [
-    makePaletteCard(),
-    makePaletteCard({
+  const pages = useMemo<CommandPalettePage[]>(() => [
+    makePalettePage(),
+    makePalettePage({
       id: "side-panel-db-view",
       projectId: "codex",
       projectName: "Codex app",
       columnName: "Review",
       boardIndex: 1,
-      card: {
+      page: {
         id: "side-panel-db-view",
         title: "DB View command opens as a panel tab",
         tags: ["db", "tabs"],
@@ -167,7 +167,7 @@ function CommandPaletteStory({
       inActiveProject: false,
     }),
   ] : [], [includeThreads]);
-  const cardSearchIndex = useMemo(() => createCommandPaletteCardSearchIndex(cards), [cards]);
+  const pageSearchIndex = useMemo(() => createCommandPalettePageSearchIndex(pages), [pages]);
   const threadSearchIndex = useMemo(() => createCommandPaletteThreadSearchIndex(threads), [threads]);
 
   return (
@@ -179,12 +179,12 @@ function CommandPaletteStory({
           mode={mode}
           initialQuery={initialQuery}
           commands={commands}
-          cards={cards}
+          pages={pages}
           threads={threads}
-          cardSearchIndex={cardSearchIndex}
+          pageSearchIndex={pageSearchIndex}
           threadSearchIndex={threadSearchIndex}
           loading={false}
-          cardsLoading={false}
+          pagesLoading={false}
           chatsLoading={false}
           onChangeMode={() => undefined}
           onRequestClose={() => setOpen(false)}
@@ -210,8 +210,8 @@ export const RootCommands: Story = {
   render: () => <CommandPaletteStory mode="root" initialQuery="" />,
 };
 
-export const CardSearch: Story = {
-  render: () => <CommandPaletteStory mode="cards" initialQuery="palette" />,
+export const PageSearch: Story = {
+  render: () => <CommandPaletteStory mode="pages" initialQuery="palette" />,
 };
 
 export const ChatSearch: Story = {

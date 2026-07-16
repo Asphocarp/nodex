@@ -20,7 +20,7 @@ import type {
 import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { startHttpServer } from "./http-server";
-import { findCardLocationById } from "./local-store/cards";
+import { findPageLocationById } from "./local-store/database-pages";
 import { getDb, initializeDatabase } from "./local-store/database";
 import * as projectSessionService from "./local-store/project-sessions";
 import { dbNotifier } from "./local-store/notifier";
@@ -60,7 +60,7 @@ import {
   type CodexScheduledAutomationScheduler,
 } from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
-import { parseCardDeepLink, parseSessionDeepLink } from "../shared/card-deeplink";
+import { parsePageDeepLink, parseSessionDeepLink } from "../shared/page-deeplink";
 import {
   isWindowSessionBoundsVisible,
   WindowSessionState,
@@ -130,8 +130,8 @@ let lastFocusedWindowId: number | null = null;
 let serverUrlForWindows: string | null = null;
 let stopReminderScheduler: (() => void) | null = null;
 let databaseReady = false;
-let pendingCardDeepLinkCardId: string | null = null;
-let pendingCardDeepLinkTarget: { projectId: string; cardId: string } | null = null;
+let pendingPageDeepLinkPageId: string | null = null;
+let pendingPageDeepLinkTarget: { projectId: string; pageId: string } | null = null;
 let pendingSessionDeepLinkSessionId: string | null = null;
 let pendingSessionDeepLinkTarget: { projectId: string | null; sessionId: string } | null = null;
 const pendingCloseResolvers = new Map<number, () => void>();
@@ -566,15 +566,15 @@ function registerInitializationIpcHandlers(): void {
 
 function sendReminderOpenEvent(payload: {
   projectId: string;
-  cardId: string;
+  pageId: string;
   occurrenceStart: string;
 }): void {
   const targetWindow = getLastFocusedWindow();
   safeSendToWindow(targetWindow, "reminder:open", [payload]);
 }
 
-function flushPendingCardDeepLink(): void {
-  if (!pendingCardDeepLinkTarget) {
+function flushPendingPageDeepLink(): void {
+  if (!pendingPageDeepLinkTarget) {
     return;
   }
 
@@ -587,8 +587,8 @@ function flushPendingCardDeepLink(): void {
     return;
   }
 
-  if (safeSendToWindow(targetWindow, "deeplink:open-card", [pendingCardDeepLinkTarget])) {
-    pendingCardDeepLinkTarget = null;
+  if (safeSendToWindow(targetWindow, "deeplink:open-page", [pendingPageDeepLinkTarget])) {
+    pendingPageDeepLinkTarget = null;
   }
 }
 
@@ -611,29 +611,29 @@ function flushPendingSessionDeepLink(): void {
   }
 }
 
-function resolvePendingCardDeepLink(): void {
+function resolvePendingPageDeepLink(): void {
   if (!databaseReady) {
     return;
   }
 
-  if (!pendingCardDeepLinkCardId) {
-    flushPendingCardDeepLink();
+  if (!pendingPageDeepLinkPageId) {
+    flushPendingPageDeepLink();
     return;
   }
 
-  const cardId = pendingCardDeepLinkCardId;
-  const location = findCardLocationById(cardId);
-  pendingCardDeepLinkCardId = null;
+  const pageId = pendingPageDeepLinkPageId;
+  const location = findPageLocationById(pageId);
+  pendingPageDeepLinkPageId = null;
   if (!location) {
     return;
   }
 
-  pendingCardDeepLinkTarget = {
+  pendingPageDeepLinkTarget = {
     projectId: location.projectId,
-    cardId,
+    pageId,
   };
 
-  flushPendingCardDeepLink();
+  flushPendingPageDeepLink();
 }
 
 function resolvePendingSessionDeepLink(): void {
@@ -661,15 +661,15 @@ function resolvePendingSessionDeepLink(): void {
   flushPendingSessionDeepLink();
 }
 
-function queueCardDeepLink(cardId: string): void {
-  pendingCardDeepLinkCardId = cardId;
+function queuePageDeepLink(pageId: string): void {
+  pendingPageDeepLinkPageId = pageId;
 
   if (!databaseReady) {
     return;
   }
 
   focusLastWindow();
-  resolvePendingCardDeepLink();
+  resolvePendingPageDeepLink();
 }
 
 function queueSessionDeepLink(sessionId: string): void {
@@ -690,12 +690,12 @@ function handleIncomingDeepLink(value: string): boolean {
     return true;
   }
 
-  const cardTarget = parseCardDeepLink(value);
-  if (!cardTarget) {
+  const pageTarget = parsePageDeepLink(value);
+  if (!pageTarget) {
     return false;
   }
 
-  queueCardDeepLink(cardTarget.cardId);
+  queuePageDeepLink(pageTarget.pageId);
   return true;
 }
 
@@ -707,12 +707,12 @@ function extractDeepLinkFromArgv(argv: string[]): string | null {
       return arg;
     }
 
-    const cardTarget = parseCardDeepLink(arg);
-    if (!cardTarget) {
+    const pageTarget = parsePageDeepLink(arg);
+    if (!pageTarget) {
       continue;
     }
 
-    queueCardDeepLink(cardTarget.cardId);
+    queuePageDeepLink(pageTarget.pageId);
     return arg;
   }
 
@@ -913,7 +913,7 @@ function createWindow(
     if (appUpdateStatus) {
       safeSendToWindow(window, "app:update-status", [appUpdateStatus]);
     }
-    flushPendingCardDeepLink();
+    flushPendingPageDeepLink();
     flushPendingSessionDeepLink();
     maybeStartAutomaticAppUpdateChecks();
   });
@@ -983,7 +983,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   startBlockRetentionMaintenanceRuntime();
   startDocumentRevisionMaintenanceRuntime();
   databaseReady = true;
-  resolvePendingCardDeepLink();
+  resolvePendingPageDeepLink();
   resolvePendingSessionDeepLink();
 
   startHttpServer(serverPort);
@@ -1012,7 +1012,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
         focusLastWindow();
         sendReminderOpenEvent({
           projectId: payload.projectId,
-          cardId: payload.cardId,
+          pageId: payload.pageId,
           occurrenceStart: payload.occurrenceStart,
         });
       });
@@ -1021,7 +1021,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
         const minutes = index === 0 ? 10 : 60;
         void snoozeReminder(
           payload.projectId,
-          payload.cardId,
+          payload.pageId,
           payload.occurrenceStart,
           minutes,
         );
@@ -1044,7 +1044,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
         focusLastWindow();
         sendReminderOpenEvent({
           projectId: payload.projectId,
-          cardId: payload.cardId,
+          pageId: payload.pageId,
           occurrenceStart: payload.occurrenceStart,
         });
       });
@@ -1055,8 +1055,8 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   dbNotifier.on("board-changed", (event) => {
     broadcastToWindows("board-changed", event);
   });
-  dbNotifier.on("card-target-changed", (event) => {
-    broadcastToWindows("card-target-changed", event);
+  dbNotifier.on("page-target-changed", (event) => {
+    broadcastToWindows("page-target-changed", event);
   });
   dbNotifier.on("database-changed", (event) => {
     broadcastToWindows("database-changed", event);

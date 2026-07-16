@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { createUuidV7 } from "../../shared/card-id";
+import { createUuidV7 } from "../../shared/uuid-v7";
 import {
   canonicalizeDocumentOperationIntent,
   canonicalizeDocumentVersionRestoreIntent,
@@ -32,7 +32,7 @@ import {
   DocumentOperationEngineError,
   prepareDocumentOperationUpdate,
 } from "../../shared/block-documents/document-operation-engine";
-import { materializeCardDocument } from "../../shared/block-documents/block-document-codec";
+import { materializePageDocument } from "../../shared/block-documents/block-document-codec";
 import { portableRichTextSemanticSource } from "../../shared/block-documents/portable-rich-text";
 import {
   CANVAS_SCENE_SYNC_VERSION,
@@ -46,7 +46,7 @@ import {
 } from "../../shared/block-documents/document-schema-adapters";
 import {
   LegacyNfmShadowTranslationError,
-  replaceCardDocumentBodyFromNfm,
+  replacePageDocumentBodyFromNfm,
 } from "../../shared/block-documents/legacy-nfm-shadow-translator";
 import {
   applyStrictBlockDocumentUpdate,
@@ -709,8 +709,8 @@ const mapVersionStoreError = (
   }
 };
 
-type CardMaterialization = ReturnType<typeof materializeCardDocument>;
-type MaterializedBlock = CardMaterialization["blockTree"][number];
+type PageMaterialization = ReturnType<typeof materializePageDocument>;
+type MaterializedBlock = PageMaterialization["blockTree"][number];
 
 interface SemanticBlockCoordinate {
   readonly block: MaterializedBlock;
@@ -728,8 +728,8 @@ const flattenSemanticCoordinates = (
   ]);
 
 const deriveSemanticChangeSet = (
-  before: CardMaterialization,
-  after: CardMaterialization,
+  before: PageMaterialization,
+  after: PageMaterialization,
   writeFenceBlockIds: readonly string[],
   forceWriteFence: boolean,
   titleWriteFenceBlockId?: string,
@@ -1019,7 +1019,7 @@ const assertRestoreIdsAreRetainedTombstones = (
 
 const prepareOperationBatch = (
   request: DocumentOperationBatch,
-  document: Parameters<typeof materializeCardDocument>[0],
+  document: Parameters<typeof materializePageDocument>[0],
   ownerBlockId: string,
   schema: {
     readonly ownerType: string;
@@ -1054,10 +1054,10 @@ const prepareOperationBatch = (
 
 const prepareNfmReplacement = (
   request: ReplaceDocumentFromNfm,
-  document: Parameters<typeof materializeCardDocument>[0],
+  document: Parameters<typeof materializePageDocument>[0],
 ): PreparedMutation => {
-  const before = materializeCardDocument(document);
-  const replacement = replaceCardDocumentBodyFromNfm({
+  const before = materializePageDocument(document);
+  const replacement = replacePageDocumentBodyFromNfm({
     document,
     nfm: request.nfm,
     allocateBlockId: createUuidV7,

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { CSSProperties } from "react";
-import type { CardSummary as CardType } from "@/lib/types";
+import type { DatabasePageSummary as CardType } from "@/lib/types";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import { Card } from "./card";
 
@@ -10,8 +10,8 @@ const SAMPLE_CARD: CardType = {
   archived: false,
   title: "Refine panel-aware card focus",
   richTitle: plainTextToPortableRichText("Refine panel-aware card focus"),
-  descriptionPreview: "Selected card-stage tabs should make their matching board cards easy to spot.",
-  descriptionLength: "Selected card-stage tabs should make their matching board cards easy to spot.".length,
+  descriptionPreview: "Selected page-stage tabs should make their matching board cards easy to spot.",
+  descriptionLength: "Selected page-stage tabs should make their matching board cards easy to spot.".length,
   hasDescription: true,
   priority: "p1-high",
   estimate: "m",

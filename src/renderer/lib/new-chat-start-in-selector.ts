@@ -1,16 +1,16 @@
-import type { CardRunInTarget } from "./types";
+import type { PageRunInTarget } from "./types";
 
 export type NewChatStartInIconKey = "local" | "worktree" | "codexWeb" | "cloud" | "usage" | "external";
 
 export interface NewChatStartInTarget {
-  runInTarget: CardRunInTarget;
+  runInTarget: PageRunInTarget;
   runInEnvironmentPath?: string | null;
   worktreeStartMode?: "autoBranch" | "detachedHead";
   worktreeBranchPrefix?: string | null;
 }
 
 export interface NewChatStartInOption {
-  value: CardRunInTarget;
+  value: PageRunInTarget;
   label: string;
   iconKey: NewChatStartInIconKey;
   disabled: boolean;
@@ -19,19 +19,19 @@ export interface NewChatStartInOption {
 }
 
 export interface ResolveNewChatStartInOptionsInput {
-  selectedRunInTarget: CardRunInTarget | null | undefined;
+  selectedRunInTarget: PageRunInTarget | null | undefined;
   worktreeAvailable: boolean;
   cloudAvailable?: boolean;
 }
 
 export function normalizeNewChatStartInTarget(
-  value: CardRunInTarget | null | undefined,
-): CardRunInTarget {
+  value: PageRunInTarget | null | undefined,
+): PageRunInTarget {
   if (value === "newWorktree" || value === "cloud") return value;
   return "localProject";
 }
 
-export function getNewChatStartInTriggerLabel(target: CardRunInTarget | null | undefined): string {
+export function getNewChatStartInTriggerLabel(target: PageRunInTarget | null | undefined): string {
   const normalized = normalizeNewChatStartInTarget(target);
   if (normalized === "newWorktree") return "New worktree";
   if (normalized === "cloud") return "Send to cloud";
@@ -39,7 +39,7 @@ export function getNewChatStartInTriggerLabel(target: CardRunInTarget | null | u
 }
 
 export function getNewChatStartInTriggerIconKey(
-  target: CardRunInTarget | null | undefined,
+  target: PageRunInTarget | null | undefined,
 ): NewChatStartInIconKey {
   const normalized = normalizeNewChatStartInTarget(target);
   if (normalized === "newWorktree") return "worktree";

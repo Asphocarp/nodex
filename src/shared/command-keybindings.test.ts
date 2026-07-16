@@ -103,7 +103,7 @@ describe("command keybindings", () => {
   test("uses current command palette labels and hides unavailable shell commands", () => {
     const byId = new Map(CODEX_COMMAND_REGISTRY.map((entry) => [entry.id, entry]));
 
-    expect(byId.get("searchCards")?.title).toBe("Search cards");
+    expect(byId.get("searchPages")?.title).toBe("Search Pages");
     expect(byId.get("searchFiles")?.title).toBe("Search files");
     expect(byId.get("openCommandMenu")?.title).toBe("Open command palette");
     expect(byId.get("toggleTerminal")?.title).toBe("Open terminal tab");

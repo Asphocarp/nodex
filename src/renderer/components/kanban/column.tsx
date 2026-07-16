@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Card, type CardPropertyUpdateInput } from "./card";
-import type { OpenCardStageOptions } from "./open-card-stage";
+import type { OpenPageStageOptions } from "./open-page-stage";
 import { ColumnActionPopover } from "./column-action-popover";
 import type { DbViewDisplayPrefs } from "../../lib/db-view-prefs";
 import { DropIndicator } from "./drop-indicator";
@@ -11,15 +11,14 @@ import {
   type KanbanColumnLayout,
 } from "../../lib/kanban-column-layout";
 import { StatusChip, StatusIcon, columnStyles as sharedColumnStyles } from "../../lib/status-chip";
-import type { CardSummary, CardCreatePlacement, BoardSummaryColumn, CardInput } from "../../lib/types";
+import type { DatabasePageSummary, PageCreatePlacement, BoardSummaryColumn, PageInput } from "../../lib/types";
 import { cn } from "../../lib/utils";
-import type { CardContextMenuProjectSummary } from "./card-context-menu-model";
 import type { KanbanCardDragData } from "./pragmatic-drag-data";
 import { bindKanbanColumnDropSurface } from "./column-drop-surface";
 
 export { columnStyles } from "../../lib/status-chip";
 
-type CardType = CardSummary;
+type CardType = DatabasePageSummary;
 type ColumnType = BoardSummaryColumn;
 
 interface ColumnProps {
@@ -30,42 +29,36 @@ interface ColumnProps {
   dragInstanceId?: symbol;
   buildDragData?: (card: CardType, columnId: string) => KanbanCardDragData;
   layout: KanbanColumnLayout;
-  onAddCard: (columnId: CardType["status"], input: CardInput, placement?: CardCreatePlacement) => Promise<void>;
+  onAddCard: (columnId: CardType["status"], input: PageInput, placement?: PageCreatePlacement) => Promise<void>;
   onEditCard: (
     columnId: CardType["status"],
     card: CardType,
     event: React.MouseEvent<HTMLDivElement>,
-    openMode?: NonNullable<OpenCardStageOptions["openMode"]>,
+    openMode?: NonNullable<OpenPageStageOptions["openMode"]>,
   ) => void;
-  onUpdateCardProperty: (input: CardPropertyUpdateInput) => Promise<void>;
+  onUpdatePageProperty: (input: CardPropertyUpdateInput) => Promise<void>;
   onCollapsedChange: (columnId: CardType["status"], collapsed: boolean) => void;
   onWidthChange: (columnId: CardType["status"], width: number) => void;
-  onMoveCardToProjectFromMenu?: (input: {
-    cardId: string;
-    sourceStatus: CardType["status"];
-    targetProjectId: string;
-  }) => Promise<void> | void;
-  onDeleteCardFromMenu?: (input: {
-    cardId: string;
+  onDeletePageFromMenu?: (input: {
+    pageId: string;
     columnId: CardType["status"];
   }) => Promise<void> | void;
   onCopyCardLinkFromMenu?: (input: {
-    cardId: string;
+    pageId: string;
     projectId: string;
   }) => Promise<void> | void;
-  onOpenCardMenu?: (cardId: string) => void;
+  onOpenPageMenu?: (pageId: string) => void;
   dragDisabled?: boolean;
   cardDropDisabled?: boolean;
   columnDropDisabled?: boolean;
   dropIndicatorIndex?: number;
   dropIndicatorLabel?: string;
-  draggedCardIds?: ReadonlySet<string>;
+  draggedPageIds?: ReadonlySet<string>;
   isDropTargetActive?: boolean;
   dropBlockedMessage?: string;
-  focusedCardId?: string;
-  activePanelCardStageCardIds?: ReadonlySet<string>;
-  selectedCardIds?: ReadonlySet<string>;
-  contextMenuProjects?: CardContextMenuProjectSummary[];
+  focusedPageId?: string;
+  activePanelPageStagePageIds?: ReadonlySet<string>;
+  selectedPageIds?: ReadonlySet<string>;
   onExternalBlockDragOver?: (
     columnId: CardType["status"],
     event: React.DragEvent<HTMLDivElement>,
@@ -90,25 +83,23 @@ export const Column = memo(function Column({
   layout,
   onAddCard,
   onEditCard,
-  onUpdateCardProperty,
+  onUpdatePageProperty,
   onCollapsedChange,
   onWidthChange,
-  onMoveCardToProjectFromMenu,
-  onDeleteCardFromMenu,
+  onDeletePageFromMenu,
   onCopyCardLinkFromMenu,
-  onOpenCardMenu,
+  onOpenPageMenu,
   dragDisabled = false,
   cardDropDisabled = false,
   columnDropDisabled = false,
   dropIndicatorIndex,
   dropIndicatorLabel,
-  draggedCardIds = new Set<string>(),
+  draggedPageIds = new Set<string>(),
   isDropTargetActive = false,
   dropBlockedMessage,
-  focusedCardId,
-  activePanelCardStageCardIds,
-  selectedCardIds = new Set<string>(),
-  contextMenuProjects = [],
+  focusedPageId,
+  activePanelPageStagePageIds,
+  selectedPageIds = new Set<string>(),
   onExternalBlockDragOver,
   onExternalBlockDragLeave,
   onExternalBlockDrop,
@@ -139,7 +130,7 @@ export const Column = memo(function Column({
     accentColor: "#8E8B86",
   };
 
-  const handleSaveCard = async (input: CardInput) => {
+  const handleSaveCard = async (input: PageInput) => {
     await onAddCard(column.id, input, "top");
   };
 
@@ -157,7 +148,7 @@ export const Column = memo(function Column({
     : `${column.name} \u2014 click to add task`;
   const dropIndicatorPlacement = resolveDropIndicatorPlacement(
     column.cards,
-    draggedCardIds,
+    draggedPageIds,
     dropIndicatorIndex,
   );
   const surfaceToneClassName = isDropTargetActive ? styles.dropBg : styles.headerBg;
@@ -335,10 +326,10 @@ export const Column = memo(function Column({
                 {column.cards.map((card) => (
                   <div
                     key={card.id}
-                    data-kanban-card-id={card.id}
+                    data-kanban-uuid-v7={card.id}
                     className="relative"
                   >
-                    {dropIndicatorPlacement.beforeCardId === card.id ? (
+                    {dropIndicatorPlacement.beforePageId === card.id ? (
                           <DropIndicator
                             className="absolute inset-x-0 top-0 -translate-y-1/2"
                             label={dropIndicatorLabel}
@@ -353,32 +344,26 @@ export const Column = memo(function Column({
                       buildDragData={buildDragData}
                       dragDisabled={dragDisabled}
                       dropDisabled={cardDropDisabled}
-                      isFocused={card.id === focusedCardId}
-                      isActiveInPanel={activePanelCardStageCardIds?.has(card.id) ?? false}
-                      isSelected={selectedCardIds.has(card.id)}
+                      isFocused={card.id === focusedPageId}
+                      isActiveInPanel={activePanelPageStagePageIds?.has(card.id) ?? false}
+                      isSelected={selectedPageIds.has(card.id)}
                       onClick={(event) => onEditCard(column.id, card, event)}
                       onDoubleClick={(event) => onEditCard(column.id, card, event, "durable")}
-                      onUpdateProperty={onUpdateCardProperty}
-                      contextMenu={onMoveCardToProjectFromMenu ? {
+                      onUpdateProperty={onUpdatePageProperty}
+                      contextMenu={{
                         currentColumnId: column.id,
                         currentProjectId: projectId,
                         currentProjectName: projectName,
-                        projects: contextMenuProjects,
-                        onMoveToProject: (targetProjectId) => onMoveCardToProjectFromMenu({
-                          cardId: card.id,
-                          sourceStatus: column.id,
-                          targetProjectId,
-                        }),
-                        onDelete: ({ cardId, columnId }) => onDeleteCardFromMenu?.({
-                          cardId,
+                        onDelete: ({ pageId, columnId }) => onDeletePageFromMenu?.({
+                          pageId,
                           columnId: columnId as CardType["status"],
                         }),
-                        onCopyLink: ({ cardId, projectId }) => onCopyCardLinkFromMenu?.({
-                          cardId,
+                        onCopyLink: ({ pageId, projectId }) => onCopyCardLinkFromMenu?.({
+                          pageId,
                           projectId,
                         }),
-                        onMenuOpen: onOpenCardMenu ? () => onOpenCardMenu(card.id) : undefined,
-                      } : undefined}
+                        onMenuOpen: onOpenPageMenu ? () => onOpenPageMenu(card.id) : undefined,
+                      }}
                     />
                   </div>
                 ))}

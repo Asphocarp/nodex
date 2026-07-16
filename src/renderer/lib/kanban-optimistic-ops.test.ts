@@ -1,15 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
   buildCreateCardTransform,
-  buildMoveCardTransform,
-  buildMoveCardsTransform,
-  buildPatchCardTransform,
+  buildMovePageTransform,
+  buildMovePagesTransform,
+  buildPatchPageTransform,
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
-import type { BoardSummary, CardSummary } from "./types";
+import type { BoardSummary, DatabasePageSummary } from "./types";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 
-function createCardSummary(id: string, order: number): CardSummary {
+function createPageSummary(id: string, order: number): DatabasePageSummary {
   return {
     id,
     status: "in_progress",
@@ -41,7 +41,7 @@ function createBoard(): BoardSummary {
       {
         id: "in_progress",
         name: "In Progress",
-        cards: ["a", "b", "c", "d"].map((id, order) => createCardSummary(id, order)),
+        cards: ["a", "b", "c", "d"].map((id, order) => createPageSummary(id, order)),
       },
       {
         id: "in_review",
@@ -68,12 +68,12 @@ describe("kanban optimistic ops", () => {
 
   test("creates a Card before the stable View anchor used by the mutation", () => {
     const board = createBoard();
-    const card = createCardSummary("new", 0);
+    const card = createPageSummary("new", 0);
 
     const nextBoard = buildCreateCardTransform(
       "in_progress",
       card,
-      { beforeCardId: "c" },
+      { beforePageId: "c" },
     )(board);
 
     expect(nextBoard.columns[2]?.cards.map((item) => item.id)).toEqual([
@@ -88,12 +88,12 @@ describe("kanban optimistic ops", () => {
   test("treats equivalent projected title and structured values as a no-op", () => {
     const board = createBoard();
 
-    expect(buildPatchCardTransform("in_progress", "a", {
+    expect(buildPatchPageTransform("in_progress", "a", {
       title: "a",
       tags: [],
     })(board)).toBe(board);
 
-    const renamed = buildPatchCardTransform("in_progress", "a", {
+    const renamed = buildPatchPageTransform("in_progress", "a", {
       title: "Renamed",
     })(board);
     expect(renamed).not.toBe(board);
@@ -106,8 +106,8 @@ describe("kanban optimistic ops", () => {
   test("move-card uses post-removal insertion indices for same-column reorders", () => {
     const board = createBoard();
 
-    const nextBoard = buildMoveCardTransform({
-      cardId: "a",
+    const nextBoard = buildMovePageTransform({
+      pageId: "a",
       fromStatus: "in_progress",
       toStatus: "in_progress",
       newOrder: 1,
@@ -119,8 +119,8 @@ describe("kanban optimistic ops", () => {
   test("move-many uses post-removal insertion indices for same-column reorders", () => {
     const board = createBoard();
 
-    const nextBoard = buildMoveCardsTransform({
-      cardIds: ["a", "c"],
+    const nextBoard = buildMovePagesTransform({
+      pageIds: ["a", "c"],
       fromStatus: "in_progress",
       toStatus: "in_progress",
       newOrder: 1,
@@ -132,8 +132,8 @@ describe("kanban optimistic ops", () => {
   test("move-card applies the drag field patch before reinserting", () => {
     const board = createBoard();
 
-    const nextBoard = buildMoveCardTransform({
-      cardId: "a",
+    const nextBoard = buildMovePageTransform({
+      pageId: "a",
       fromStatus: "in_progress",
       toStatus: "in_progress",
       newOrder: 1,
@@ -146,8 +146,8 @@ describe("kanban optimistic ops", () => {
   test("move-many applies the drag field patch to every dragged card", () => {
     const board = createBoard();
 
-    const nextBoard = buildMoveCardsTransform({
-      cardIds: ["a", "c"],
+    const nextBoard = buildMovePagesTransform({
+      pageIds: ["a", "c"],
       fromStatus: "in_progress",
       toStatus: "in_progress",
       newOrder: 1,

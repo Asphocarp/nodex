@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_KEY,
   canonicalizeCanvasSceneMutationRequest,
   canonicalizeCanvasSceneMutationResult,
   encodeCanonicalCanvasSceneMutationRequest,
@@ -18,8 +18,9 @@ import {
 } from "../../shared/assets";
 import { CURRENT_SCHEMA_VERSION } from "./schema";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
+import { readCanvasPageReferenceTable } from "./legacy-page-projection-adapter";
 import {
-  isCanvasCardReferenceProjectionCurrent,
+  isCanvasPageReferenceProjectionCurrent,
   isCanvasFileProjectionCurrent,
 } from "./canvas-scene-projection-equivalence";
 import { MAX_IMAGE_UPLOAD_BYTES } from "./assets";
@@ -343,7 +344,7 @@ const validateOpenDatabase = (
     );
   }
 
-  const invalidCardOwnership = scalarCount(
+  const invalidPageOwnership = scalarCount(
     database,
     `
       SELECT COUNT(*) AS count
@@ -354,17 +355,17 @@ const validateOpenDatabase = (
       LEFT JOIN documents document
         ON document.id = ownership.document_id
         AND document.project_id = ownership.project_id
-      WHERE block.type = 'card'
+      WHERE block.type = 'page'
         AND (
           ownership.block_id IS NULL
           OR document.id IS NULL
-          OR document.schema_key <> '${CARD_DOCUMENT_SCHEMA_KEY}'
+          OR document.schema_key <> '${PAGE_DOCUMENT_SCHEMA_KEY}'
         )
     `,
   );
-  if (invalidCardOwnership > 0) {
+  if (invalidPageOwnership > 0) {
     throw new BackupStoreValidationError(
-      `Backup database has ${invalidCardOwnership} Card(s) without a valid owned Document`,
+      `Backup database has ${invalidPageOwnership} Page(s) without a valid owned Document`,
     );
   }
 
@@ -480,7 +481,7 @@ const validateOpenDatabase = (
         const projectedReferences = database
           .prepare(
             `SELECT source_element_id, target_block_id
-             FROM canvas_card_references
+             FROM ${readCanvasPageReferenceTable(database)}
              WHERE document_id = ? AND project_id = ?
                AND document_generation = ? AND projected_seq = ?
              ORDER BY source_element_id`,
@@ -495,8 +496,8 @@ const validateOpenDatabase = (
           readonly target_block_id: string;
         }[];
         if (
-          !isCanvasCardReferenceProjectionCurrent(
-            authority.scene.cardReferences,
+          !isCanvasPageReferenceProjectionCurrent(
+            authority.scene.pageReferences,
             projectedReferences,
           )
         ) {

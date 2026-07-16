@@ -6,7 +6,7 @@ import {
   resolveKanbanPriorityOption,
 } from "../../../../lib/kanban-options";
 import { cn } from "../../../../lib/utils";
-import type { Card } from "../../../../lib/types";
+import type { DatabasePage } from "../../../../lib/types";
 
 const ESTIMATE_LABEL: Record<string, string> = {
   xs: "XS",
@@ -25,7 +25,7 @@ export function CardInfoHoverCard({
   columnId,
   children,
 }: {
-  card: Card | null;
+  card: DatabasePage | null;
   columnId: string | null;
   children: ReactNode;
 }) {

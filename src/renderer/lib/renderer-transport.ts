@@ -6,26 +6,26 @@ import {
 import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import type { CardTargetChangedEvent } from "../../shared/card-target-events";
+import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 
 export interface RendererTransport {
   kind: "browser" | "electron";
-  readCardLifecyclePreflight: (
+  readPageLifecyclePreflight: (
     projectId: string,
-    cardId: string,
+    pageId: string,
   ) => Promise<
-    import("../../shared/card-lifecycle-runtime").CardLifecyclePreflightResult
+    import("../../shared/page-lifecycle-runtime").PageLifecyclePreflightResult
   >;
-  mutateCardLifecycle: (
+  mutatePageLifecycle: (
     projectId: string,
-    request: import("../../shared/card-lifecycle").CardLifecycleMutationRequest,
+    request: import("../../shared/page-lifecycle").PageLifecycleMutationRequest,
   ) => Promise<
-    import("../../shared/card-lifecycle").CardLifecycleMutationCommandResult
+    import("../../shared/page-lifecycle").PageLifecycleMutationCommandResult
   >;
-  listCardHistory: (
-    request: import("../../shared/card-history").ListCardHistoryRequest,
+  listPageHistory: (
+    request: import("../../shared/page-history").ListPageHistoryRequest,
   ) => Promise<
-    import("../../shared/card-history-transport").CardHistoryCommandResult
+    import("../../shared/page-history-transport").PageHistoryCommandResult
   >;
   getOwnedDocumentDescriptor: (
     projectId: string,
@@ -53,12 +53,6 @@ export interface RendererTransport {
     request: import("../../shared/additional-document-command-transport").PublicAdditionalDocumentCommandRequest,
   ) => Promise<
     import("../../shared/additional-document-commands").AdditionalDocumentCommandResult
-  >;
-  transferCardProject: (
-    sourceProjectId: string,
-    intent: import("../../shared/card-project-transfer-transport").PublicCardProjectTransferIntent,
-  ) => Promise<
-    import("../../shared/card-project-transfer").CardProjectTransferCommandResult
   >;
   transferBlocks: (
     projectId: string,
@@ -107,9 +101,9 @@ export interface RendererTransport {
     projectId: string,
     callback: (event: BoardChangeEvent) => void,
   ) => () => void;
-  subscribeCardTargetChanges: (
+  subscribePageTargetChanges: (
     projectId: string,
-    callback: (event: CardTargetChangedEvent) => void,
+    callback: (event: PageTargetChangedEvent) => void,
   ) => () => void;
   subscribeDatabaseChanges: (
     projectId: string,

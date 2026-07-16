@@ -1,7 +1,7 @@
 import {
-  MAX_CARD_DESCRIPTION_LENGTH,
-  MAX_CARD_TITLE_LENGTH,
-} from "../card-limits";
+  MAX_PAGE_DESCRIPTION_LENGTH,
+  MAX_PAGE_TITLE_LENGTH,
+} from "../page-limits";
 import type { BlockTreeNode, BlockTreeValue } from "./block-document-codec";
 import type { PrepareDocumentVersionRestore } from "./document-history";
 import {
@@ -469,12 +469,12 @@ const readOperation = (
   if (operation.kind === "set_title") {
     assertExactKeys(operation, label, ["kind", "title"]);
     const title = operation.title;
-    if (typeof title === "string" && title.length <= MAX_CARD_TITLE_LENGTH) {
+    if (typeof title === "string" && title.length <= MAX_PAGE_TITLE_LENGTH) {
       consumeBudget(budget, title.length, `${label}.title`);
       return { kind: "set_title", title };
     }
     throw new DocumentOperationContractError(
-      `${label}.title must be at most ${MAX_CARD_TITLE_LENGTH} characters`,
+      `${label}.title must be at most ${MAX_PAGE_TITLE_LENGTH} characters`,
     );
   }
   if (operation.kind === "set_rich_title") {
@@ -713,9 +713,9 @@ export const parseReplaceDocumentFromNfm = (
     ["richTitle"],
   );
   const nfm = envelope.record.nfm;
-  if (typeof nfm !== "string" || nfm.length > MAX_CARD_DESCRIPTION_LENGTH) {
+  if (typeof nfm !== "string" || nfm.length > MAX_PAGE_DESCRIPTION_LENGTH) {
     throw new DocumentOperationContractError(
-      `replaceDocumentFromNfm.nfm must be at most ${MAX_CARD_DESCRIPTION_LENGTH} characters`,
+      `replaceDocumentFromNfm.nfm must be at most ${MAX_PAGE_DESCRIPTION_LENGTH} characters`,
     );
   }
   let richTitle: PortableRichText | undefined;

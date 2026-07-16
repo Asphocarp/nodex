@@ -1,6 +1,6 @@
 export {
   getDocumentVersion,
   getOwnedDocumentDescriptor,
-  listCardHistory,
+  listPageHistory,
   restoreDocumentVersion,
 } from "@/lib/api";

@@ -99,7 +99,7 @@ export function ToggleListSummaryBadges({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span className={cn(BADGE_BASE, SUMMARY_BADGE_PRIMARY)}>
-        {visibleCount} {visibleCount === 1 ? "card" : "cards"}
+        {visibleCount} {visibleCount === 1 ? "page" : "cards"}
       </span>
       {filter.statuses.length < TOGGLE_LIST_STATUS_ORDER.length && (
         <span

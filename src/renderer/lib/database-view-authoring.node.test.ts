@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 import type {
   DatabaseViewFilterNode,
-  GeneralDatabaseViewConfig,
+  DatabaseViewConfig,
 } from "../../shared/database-kernel";
 import type {
-  GeneralDatabasePropertyDefinition,
-  GeneralDatabaseViewDefinition,
-} from "../../shared/database-query";
+  DatabaseViewRecord,
+  DataSourcePropertyRecord,
+} from "../../shared/database-module";
 import {
   appendDatabaseViewFilterChild,
   createDatabaseViewFilterClause,
@@ -21,9 +21,9 @@ import {
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 
-const property = (valueType: GeneralDatabasePropertyDefinition["valueType"]): GeneralDatabasePropertyDefinition => ({
-  id: `property-${valueType}`,
-  databaseBlockId: "database-1",
+const property = (valueType: DataSourcePropertyRecord["valueType"]): DataSourcePropertyRecord => ({
+  propertyId: `property-${valueType}`,
+  dataSourceId: "source-1",
   key: valueType,
   name: valueType,
   valueType,
@@ -37,10 +37,10 @@ const property = (valueType: GeneralDatabasePropertyDefinition["valueType"]): Ge
   updatedAt: timestamp,
 });
 
-const view = (id: string): GeneralDatabaseViewDefinition => ({
-  id,
-  databaseBlockId: "database-1",
-  projectId: "project-1",
+const view = (id: string): DatabaseViewRecord => ({
+  viewId: id,
+  databaseId: "database-1",
+  dataSourceId: "source-1",
   name: id,
   kind: "list",
   config: {
@@ -51,7 +51,7 @@ const view = (id: string): GeneralDatabaseViewDefinition => ({
     group: null,
     display: { propertyIds: [], showTitle: true },
   },
-  isPrimary: id === "a",
+  isDefault: id === "a",
   revision: 1,
   rankKey: id,
   lifecycle: "active",
@@ -99,14 +99,14 @@ describe("durable Database View authoring", () => {
       databaseFilterClauseWithOperator(multiSelect, "not_contains"),
     ).toEqual({
       kind: "clause",
-      propertyId: multiSelect.id,
+      propertyId: multiSelect.propertyId,
       operator: "not_contains",
       value: "one",
     });
   });
 
   test("compares canonical configs and reorders sort precedence", () => {
-    const base: GeneralDatabaseViewConfig = {
+    const base: DatabaseViewConfig = {
       schemaKey: "nodex.database-view",
       schemaVersion: 1,
       filter: { kind: "group", operator: "and", children: [] },

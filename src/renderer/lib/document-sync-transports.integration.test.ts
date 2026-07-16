@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { EventEmitter } from "node:events";
 import { Hono } from "hono";
 import * as Y from "yjs";
-import { CARD_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
 import type {
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -254,7 +254,10 @@ describe("Document sync transport parity", () => {
     const targets = [new FakeElectronTarget(1, hub), new FakeElectronTarget(2, hub)];
     try {
       const result = await runConcurrentEdit((index) =>
-        createElectronDocumentSyncAdapter(targets[index - 1]!.asBridge()),
+        createElectronDocumentSyncAdapter(
+          targets[index - 1]!.asBridge(),
+          "project-1",
+        ),
       );
       expect(result.first).toBe(result.merged);
       expect(result.second).toBe(result.merged);
@@ -275,32 +278,33 @@ describe("Document sync transport parity", () => {
       getOwnedDocumentDescriptor: async (projectId: string, ownerBlockId: string) => ({
         projectId,
         ownerBlockId,
-        ownerType: "card",
+        ownerType: "page",
         ownerLifecycle: "active",
         documentId: "document-1",
         storeEpoch: "store-1",
         generation: 1,
         headSeq: 0,
-        schemaKey: "nodex.card",
-        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+        schemaKey: "nodex.page",
+        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array() },
       }),
       prepareOwnedBlockDocument: async (projectId, ownerBlockId) => success({
         projectId,
         ownerBlockId,
-        ownerType: "card",
+        ownerType: "page",
         ownerLifecycle: "active",
         documentId: "document-1",
         storeEpoch: "store-1",
         generation: 1,
         headSeq: 0,
-        schemaKey: "nodex.card",
-        schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+        schemaKey: "nodex.page",
+        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
         readiness: "ready",
         sync: { kind: "yjs", stateVector: new Uint8Array() },
       }),
-      getDocumentProjectId: async () => success("project-1"),
+      authorizeDocumentAccess: async (projectId, documentId, access) =>
+        success({ projectId, documentId, access, authorized: true }),
     });
     const adapters = [1, 2].map(() =>
       createHttpDocumentSyncAdapter({

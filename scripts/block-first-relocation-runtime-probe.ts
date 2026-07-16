@@ -6,7 +6,7 @@ import {
   applyBlockDocumentUpdate,
   BlockDocumentStoreError,
   compactBlockDocument,
-  initializeCardDocumentGenesis,
+  initializePageDocumentGenesis,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
 import {
@@ -20,13 +20,13 @@ import {
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
-import { createUuidV7FromTimestamp } from "../src/shared/card-id";
+import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 import {
-  createCardDocumentGenesis,
-  materializeCardDocument,
+  createPageDocumentGenesis,
+  materializePageDocument,
 } from "../src/shared/block-documents/block-document-codec";
 import {
-  assertValidCardDocumentRoots,
+  assertValidPageDocumentRoots,
   locateBlockContainer,
   type RelocateBlocks,
 } from "../src/shared/block-documents";
@@ -38,12 +38,12 @@ const invariant = (condition: boolean, message: string): void => {
 
 const seedPrimaryDocument = (input: {
   readonly projectId: string;
-  readonly cardBlockId: string;
+  readonly pageId: string;
   readonly nfm: string;
   readonly blockIds: readonly string[];
 }): { readonly documentId: string; readonly headSeq: number } => {
   const database = getDb();
-  const documentId = `document:${input.cardBlockId}`;
+  const documentId = `document:${input.pageId}`;
   const now = new Date().toISOString();
   database
     .prepare(
@@ -51,10 +51,10 @@ const seedPrimaryDocument = (input: {
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
       location_revision, metadata_revision, created_at, updated_at
-    ) VALUES (?, ?, 'card', 'active', 'space', NULL, 1, 1, ?, ?)
+    ) VALUES (?, ?, 'page', 'active', 'space', NULL, 1, 1, ?, ?)
   `,
     )
-    .run(input.cardBlockId, input.projectId, now, now);
+    .run(input.pageId, input.projectId, now, now);
   database
     .prepare(
       `
@@ -64,9 +64,9 @@ const seedPrimaryDocument = (input: {
   `,
     )
     .run(
-      input.cardBlockId,
+      input.pageId,
       input.projectId,
-      `probe:${input.cardBlockId}`,
+      `probe:${input.pageId}`,
       now,
       now,
     );
@@ -76,7 +76,7 @@ const seedPrimaryDocument = (input: {
     INSERT INTO documents (
       id, project_id, generation, head_seq, schema_key, schema_version,
       state_vector, state_hash, readiness, authority, created_at, updated_at
-    ) VALUES (?, ?, 1, 0, 'nodex.card', 2, X'', '',
+    ) VALUES (?, ?, 1, 0, 'nodex.page', 2, X'', '',
       'pending_genesis', 'legacy_shadow', ?, ?)
   `,
     )
@@ -88,12 +88,12 @@ const seedPrimaryDocument = (input: {
     VALUES (?, ?, ?, ?)
   `,
     )
-    .run(input.cardBlockId, documentId, input.projectId, now);
+    .run(input.pageId, documentId, input.projectId, now);
 
   let blockIndex = 0;
-  const genesis = createCardDocumentGenesis({
+  const genesis = createPageDocumentGenesis({
     documentId,
-    title: input.cardBlockId,
+    title: input.pageId,
     nfm: input.nfm,
     allocateBlockId: () => {
       const blockId = input.blockIds[blockIndex];
@@ -110,11 +110,11 @@ const seedPrimaryDocument = (input: {
     const epoch = database
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .get() as { readonly store_epoch: string };
-    const ack = initializeCardDocumentGenesis(database, {
+    const ack = initializePageDocumentGenesis(database, {
       documentId,
       storeEpoch: epoch.store_epoch,
       generation: 1,
-      updateId: `genesis:${input.cardBlockId}`,
+      updateId: `genesis:${input.pageId}`,
       clientSessionId: "relocation-probe",
       update: genesis.update,
       finalAuthority: "ydoc_primary",
@@ -161,7 +161,7 @@ const readLocation = (
 const readNfm = (documentId: string): string => {
   const loaded = loadPrimaryBlockDocument(getDb(), documentId);
   try {
-    return materializeCardDocument(loaded.document).nfm;
+    return materializePageDocument(loaded.document).nfm;
   } finally {
     loaded.document.destroy();
   }
@@ -179,7 +179,7 @@ const clonePrimaryDocument = (documentId: string): Y.Doc => {
 };
 
 const readBlockText = (document: Y.Doc, blockId: string): Y.XmlText => {
-  const body = assertValidCardDocumentRoots(document).body;
+  const body = assertValidPageDocumentRoots(document).body;
   const container = locateBlockContainer(body, blockId).container;
   for (const node of container.createTreeWalker(() => true)) {
     if (node instanceof Y.XmlText) return node;
@@ -246,13 +246,13 @@ const run = async (): Promise<void> => {
     const project = createProject({ name: "Atomic relocation probe" });
     const source = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "relocation-source-card",
+      pageId: "relocation-source-card",
       nfm: ["A **bold**", "\tA child", "B", "C", "\tC child"].join("\n"),
       blockIds: [blockIds.a, blockIds.aChild, blockIds.b, blockIds.c, blockIds.cChild],
     });
     const target = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "relocation-target-card",
+      pageId: "relocation-target-card",
       nfm: ["Parent", "\tX", "\tY"].join("\n"),
       blockIds: [blockIds.parent, blockIds.x, blockIds.y],
     });
@@ -447,13 +447,13 @@ const run = async (): Promise<void> => {
 
     const faultSource = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "fault-source-card",
+      pageId: "fault-source-card",
       nfm: "Move me",
       blockIds: [blockIds.faultRoot],
     });
     const faultTarget = seedPrimaryDocument({
       projectId: project.id,
-      cardBlockId: "fault-target-card",
+      pageId: "fault-target-card",
       nfm: "Stay",
       blockIds: [blockIds.faultStay],
     });

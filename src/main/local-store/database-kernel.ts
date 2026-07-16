@@ -10,7 +10,7 @@ import {
   parseDatabaseMutationReceipt,
   parseDatabaseMutationRequest,
   parseDatabasePropertyConfig,
-  parseGeneralDatabaseViewConfig,
+  parseDatabaseViewConfig,
   stableStringifyDatabaseJson,
   type DatabaseJsonValue,
   type DatabaseMutationCommandError,
@@ -21,37 +21,17 @@ import {
   type DatabasePropertyValueType,
   type DatabaseViewFilterClause,
   type DatabaseViewFilterNode,
-  type GeneralDatabaseViewConfig,
+  type DatabaseViewConfig,
 } from "../../shared/database-kernel";
-import { rebuildCardReadModelProjection } from "./card-read-store";
-import { isUuidV7 } from "../../shared/card-id";
+import { rebuildPageReadModelProjection } from "./page-read-store";
+import { isUuidV7 } from "../../shared/uuid-v7";
 import {
   DatabaseFractionalRankError,
   planDatabaseFractionalRank,
   type DatabaseRankedItem,
 } from "./database-fractional-rank";
-import {
-  GeneralDatabaseQueryError,
-  queryGeneralDatabaseView,
-  readCardContentSummary,
-  readGeneralDatabaseCatalog,
-  readGeneralDatabaseDescriptor,
-  readGeneralDatabaseManagement,
-  readPrimaryGeneralDatabaseDescriptor,
-} from "./database-query";
-import {
-  DATABASE_QUERY_CONTRACT_VERSION,
-  type DatabaseReadCommandResult,
-  type DatabaseReadSnapshot,
-  type DatabaseCatalogSnapshotCommandResult,
-  type DatabaseManagementSnapshotCommandResult,
-  type DatabaseViewSnapshotCommandResult,
-  type GeneralDatabaseDescriptor,
-  type GeneralDatabaseViewQuery,
-  type PrimaryDatabaseViewSnapshotCommandResult,
-} from "../../shared/database-query";
 import { mapCompatibleDatabasePropertyValue } from "../../shared/database-property-mapping";
-import { refreshScheduledCardIndexProjection } from "./scheduled-card-store";
+import { refreshScheduledPageIndexProjection } from "./scheduled-page-store";
 
 const MUTATION_KIND = "database_operation";
 const CHANGE_KIND = "block_mutation";
@@ -106,7 +86,7 @@ interface ActiveDatabaseRow {
   readonly metadata_revision: number;
 }
 
-interface CardRow {
+interface PageRow {
   readonly id: string;
   readonly type: string;
   readonly lifecycle: string;
@@ -128,7 +108,7 @@ interface PropertyRow {
 interface MembershipRow {
   readonly id: string;
   readonly database_block_id: string;
-  readonly card_block_id: string;
+  readonly page_block_id: string;
   readonly project_id: string;
   readonly revision: number;
   readonly created_at: string;
@@ -177,16 +157,16 @@ interface AuthorityCommit {
   readonly targetBlockIds: readonly string[];
   readonly databaseBlockIds: readonly string[];
   readonly committedRevisions: Readonly<Record<string, number>>;
-  readonly projectionCardIds: readonly string[];
+  readonly projectionPageIds: readonly string[];
 }
 
-export interface CardDatabaseParentTransitionResult {
+export interface PageDatabaseParentTransitionResult {
   readonly affectedDatabaseBlockIds: readonly string[];
   readonly payload: Readonly<Record<string, DatabaseJsonValue>>;
   readonly committedRevisions: Readonly<Record<string, number>>;
 }
 
-export type CardOffDatabaseParent =
+export type PageOffDatabaseParent =
   | { readonly kind: "space"; readonly beforeBlockId?: string }
   | { readonly kind: "document"; readonly documentId: string };
 
@@ -276,20 +256,20 @@ const requestTargetBlockIds = (
       return [operation.databaseBlockId];
     case "transfer_membership":
       return uniqueSorted([
-        operation.cardBlockId,
+        operation.pageId,
         ...(operation.target ? [operation.target.databaseBlockId] : []),
       ]);
-    case "position_card":
-      return [operation.cardBlockId];
-    case "position_cards":
-      return uniqueSorted(operation.cards.map((entry) => entry.cardBlockId));
+    case "position_page":
+      return [operation.pageId];
+    case "position_pages":
+      return uniqueSorted(operation.pages.map((entry) => entry.pageId));
     case "set_value":
     case "add_remove_value":
-      return uniqueSorted([operation.cardBlockId, operation.databaseBlockId]);
+      return uniqueSorted([operation.pageId, operation.databaseBlockId]);
     case "set_values":
       return uniqueSorted([
         operation.databaseBlockId,
-        ...operation.entries.map((entry) => entry.cardBlockId),
+        ...operation.entries.map((entry) => entry.pageId),
       ]);
   }
 };
@@ -309,9 +289,9 @@ const requestDatabaseBlockIds = (
       return [operation.databaseBlockId];
     case "transfer_membership":
       return operation.target ? [operation.target.databaseBlockId] : [];
-    case "position_card":
+    case "position_page":
       return [];
-    case "position_cards":
+    case "position_pages":
       return [];
   }
 };
@@ -333,11 +313,11 @@ const expectedRevisions = (
     case "put_view":
     case "delete_view":
       return { view: operation.expectedRevision };
-    case "position_card":
+    case "position_page":
       return { position: operation.expectedPositionRevision };
-    case "position_cards":
+    case "position_pages":
       return Object.fromEntries(
-        operation.cards.map((entry, index) => [
+        operation.pages.map((entry, index) => [
           `positions[${index}]`,
           entry.expectedPositionRevision,
         ]),
@@ -462,11 +442,11 @@ const readActiveDatabase = (
   );
 };
 
-const readCard = (
+const readPage = (
   database: Database.Database,
   request: DatabaseMutationRequest,
-  cardBlockId: string,
-): CardRow => {
+  pageId: string,
+): PageRow => {
   const row = database
     .prepare(
       `
@@ -474,18 +454,18 @@ const readCard = (
       FROM blocks WHERE id = ? AND project_id = ?
     `,
     )
-    .get(cardBlockId, request.projectId) as CardRow | undefined;
-  if (!row || row.type !== "card") {
+    .get(pageId, request.projectId) as PageRow | undefined;
+  if (!row || row.type !== "page") {
     return reject(
-      "card_not_found",
-      `Card Block does not exist in Project ${request.projectId}: ${cardBlockId}`,
+      "page_not_found",
+      `Page Block does not exist in Project ${request.projectId}: ${pageId}`,
       request,
     );
   }
   if (row.lifecycle === "active") return row;
   return reject(
-    "card_not_active",
-    `Card Block is not active: ${cardBlockId}`,
+    "page_not_active",
+    `Page Block is not active: ${pageId}`,
     request,
   );
 };
@@ -508,20 +488,20 @@ const readProperty = (
 const readActiveMembership = (
   database: Database.Database,
   projectId: string,
-  cardBlockId: string,
+  pageId: string,
 ): MembershipRow | null =>
   (database
     .prepare(
       `
       SELECT
-        id, database_block_id, card_block_id, project_id,
+        id, database_block_id, page_block_id, project_id,
         revision, created_at, removed_at
       FROM database_memberships
-      WHERE card_block_id = ? AND project_id = ? AND removed_at IS NULL
+      WHERE page_block_id = ? AND project_id = ? AND removed_at IS NULL
       LIMIT 1
     `,
     )
-    .get(cardBlockId, projectId) as MembershipRow | undefined) ?? null;
+    .get(pageId, projectId) as MembershipRow | undefined) ?? null;
 
 const readView = (
   database: Database.Database,
@@ -541,7 +521,7 @@ const readView = (
 const readPosition = (
   database: Database.Database,
   viewId: string,
-  cardBlockId: string,
+  pageId: string,
 ): PositionRow | null =>
   (database
     .prepare(
@@ -550,7 +530,7 @@ const readPosition = (
       FROM database_view_positions WHERE view_id = ? AND block_id = ?
     `,
     )
-    .get(viewId, cardBlockId) as PositionRow | undefined) ?? null;
+    .get(viewId, pageId) as PositionRow | undefined) ?? null;
 
 const applyFractionalRankPlan = (input: {
   readonly request: DatabaseMutationRequest;
@@ -612,7 +592,7 @@ const viewFilterClauses = (
 };
 
 const viewPropertyIds = (
-  config: GeneralDatabaseViewConfig,
+  config: DatabaseViewConfig,
 ): readonly string[] =>
   uniqueSorted([
     ...viewFilterClauses(config.filter).map((clause) => clause.propertyId),
@@ -627,7 +607,7 @@ const validateViewConfig = (
   database: Database.Database,
   request: DatabaseMutationRequest,
   databaseBlockId: string,
-  config: GeneralDatabaseViewConfig,
+  config: DatabaseViewConfig,
 ): void => {
   const propertyIds = viewPropertyIds(config);
   if (propertyIds.length === 0) return;
@@ -706,7 +686,7 @@ const propertyIsReferencedByView = (
   return rows.some((row) => {
     try {
       return viewPropertyIds(
-        parseGeneralDatabaseViewConfig(JSON.parse(row.config_json)),
+        parseDatabaseViewConfig(JSON.parse(row.config_json)),
       ).includes(propertyId);
     } catch {
       reject(
@@ -782,16 +762,16 @@ const advanceBlockMetadata = (
   return Object.fromEntries(rows.map((row) => [row.id, row.metadata_revision]));
 };
 
-const refreshCardProjections = (
+const refreshPageProjections = (
   database: Database.Database,
   projectId: string,
-  cardIds: readonly string[],
+  pageIds: readonly string[],
   now: string,
 ): void => {
-  const ids = uniqueSorted(cardIds);
+  const ids = uniqueSorted(pageIds);
   if (ids.length === 0) return;
-  refreshScheduledCardIndexProjection(database, projectId, ids, now);
-  for (const cardId of ids) {
+  refreshScheduledPageIndexProjection(database, projectId, ids, now);
+  for (const pageId of ids) {
     const compatibilityCount = database
       .prepare(
         `
@@ -801,26 +781,26 @@ const refreshCardProjections = (
           ON property.database_block_id = membership.database_block_id
          AND property.project_id = membership.project_id
          AND property.lifecycle = 'active'
-        WHERE membership.card_block_id = ?
+        WHERE membership.page_block_id = ?
           AND membership.project_id = ?
           AND membership.removed_at IS NULL
           AND property.key IN (${PRIMARY_COMPATIBILITY_PROPERTY_KEYS.map(() => "?").join(", ")})
       `,
       )
-      .get(cardId, projectId, ...PRIMARY_COMPATIBILITY_PROPERTY_KEYS) as {
+      .get(pageId, projectId, ...PRIMARY_COMPATIBILITY_PROPERTY_KEYS) as {
       readonly count: number;
     };
     if (
       compatibilityCount.count === PRIMARY_COMPATIBILITY_PROPERTY_KEYS.length
     ) {
-      rebuildCardReadModelProjection(database, projectId, [cardId]);
+      rebuildPageReadModelProjection(database, projectId, [pageId]);
       continue;
     }
     database
       .prepare(
-        "DELETE FROM card_read_model WHERE card_block_id = ? AND project_id = ?",
+        "DELETE FROM page_read_model WHERE page_block_id = ? AND project_id = ?",
       )
-      .run(cardId, projectId);
+      .run(pageId, projectId);
   }
 };
 
@@ -999,7 +979,7 @@ const createDatabase = (
       databaseMetadata: 1,
       initialView: 1,
     },
-    projectionCardIds: [],
+    projectionPageIds: [],
   };
 };
 
@@ -1227,7 +1207,7 @@ const putProperty = (
       databaseMetadata: metadata[operation.databaseBlockId] ?? 0,
       property: propertyRevision,
     },
-    projectionCardIds: [],
+    projectionPageIds: [],
   };
 };
 
@@ -1349,7 +1329,7 @@ const deleteProperty = (
       databaseMetadata: metadata[operation.databaseBlockId] ?? 0,
       property: propertyRevision,
     },
-    projectionCardIds: [],
+    projectionPageIds: [],
   };
 };
 
@@ -1358,28 +1338,28 @@ const allocateViewPositionRank = (
   request: DatabaseMutationRequest,
   input: {
     readonly viewId: string;
-    readonly cardBlockId: string;
+    readonly pageId: string;
     readonly groupKey: string | null;
-    readonly beforeCardBlockId?: string;
+    readonly beforePageId?: string;
   },
 ): { readonly rankKey: string; readonly rebalanced: number } => {
-  if (input.beforeCardBlockId !== undefined) {
+  if (input.beforePageId !== undefined) {
     const anchor = readPosition(
       database,
       input.viewId,
-      input.beforeCardBlockId,
+      input.beforePageId,
     );
     if (!anchor) {
       return reject(
         "position_anchor_not_found",
-        `View position anchor does not exist: ${input.beforeCardBlockId}`,
+        `View position anchor does not exist: ${input.beforePageId}`,
         request,
       );
     }
     if (anchor.group_key !== input.groupKey) {
       reject(
         "position_anchor_group_mismatch",
-        `View position anchor ${input.beforeCardBlockId} belongs to another group`,
+        `View position anchor ${input.beforePageId} belongs to another group`,
         request,
       );
     }
@@ -1397,10 +1377,10 @@ const allocateViewPositionRank = (
   return applyFractionalRankPlan({
     request,
     items,
-    targetId: input.cardBlockId,
-    ...(input.beforeCardBlockId === undefined
+    targetId: input.pageId,
+    ...(input.beforePageId === undefined
       ? {}
-      : { beforeId: input.beforeCardBlockId }),
+      : { beforeId: input.beforePageId }),
     updateExisting: (id, rankKey) => {
       database
         .prepare(
@@ -1433,9 +1413,9 @@ const validatePositionGroup = (
   membershipId: string | null,
   requestedGroupKey: string | null,
 ): void => {
-  let config: GeneralDatabaseViewConfig;
+  let config: DatabaseViewConfig;
   try {
-    config = parseGeneralDatabaseViewConfig(JSON.parse(view.config_json));
+    config = parseDatabaseViewConfig(JSON.parse(view.config_json));
   } catch {
     // Legacy Views own their explicit group keys. New strict Views derive the
     // group from the configured property and are checked below.
@@ -1480,7 +1460,7 @@ interface DormantMembershipRow {
 const readDormantMembership = (
   database: Database.Database,
   request: DatabaseMutationRequest,
-  cardBlockId: string,
+  pageId: string,
   databaseBlockId: string,
 ): DormantMembershipRow | null => {
   const rows = database
@@ -1488,17 +1468,17 @@ const readDormantMembership = (
       `
       SELECT id, revision
       FROM database_memberships
-      WHERE card_block_id = ? AND database_block_id = ? AND project_id = ?
+      WHERE page_block_id = ? AND database_block_id = ? AND project_id = ?
         AND removed_at IS NOT NULL
       ORDER BY created_at DESC, revision DESC, id
       LIMIT 2
     `,
     )
-    .all(cardBlockId, databaseBlockId, request.projectId) as DormantMembershipRow[];
+    .all(pageId, databaseBlockId, request.projectId) as DormantMembershipRow[];
   if (rows.length <= 1) return rows[0] ?? null;
   return reject(
     "database_schema_conflict",
-    `Card ${cardBlockId} has multiple dormant memberships in Database ${databaseBlockId}`,
+    `Page ${pageId} has multiple dormant memberships in Database ${databaseBlockId}`,
     request,
   );
 };
@@ -1619,9 +1599,9 @@ const ensureTargetMembershipValues = (
   }
 
   if (!input.targetView) return true;
-  let viewConfig: GeneralDatabaseViewConfig;
+  let viewConfig: DatabaseViewConfig;
   try {
-    viewConfig = parseGeneralDatabaseViewConfig(
+    viewConfig = parseDatabaseViewConfig(
       JSON.parse(input.targetView.config_json) as unknown,
     );
   } catch {
@@ -1696,7 +1676,7 @@ const ensureTargetMembershipValues = (
 
 const explicitlyWrittenTargetPropertyIds = (
   request: DatabaseMutationRequest,
-  cardBlockId: string,
+  pageId: string,
   databaseBlockId: string,
 ): ReadonlySet<string> =>
   new Set(
@@ -1704,7 +1684,7 @@ const explicitlyWrittenTargetPropertyIds = (
       if (
         (operation.kind === "set_value" ||
           operation.kind === "add_remove_value") &&
-        operation.cardBlockId === cardBlockId &&
+        operation.pageId === pageId &&
         operation.databaseBlockId === databaseBlockId
       ) {
         return [operation.propertyId];
@@ -1714,7 +1694,7 @@ const explicitlyWrittenTargetPropertyIds = (
         operation.databaseBlockId === databaseBlockId
       ) {
         return operation.entries.flatMap((entry) =>
-          entry.cardBlockId === cardBlockId ? [entry.propertyId] : [],
+          entry.pageId === pageId ? [entry.propertyId] : [],
         );
       }
       return [];
@@ -1730,14 +1710,14 @@ const transferMembership = (
     >;
   },
   now: string,
-  offDatabaseParent: CardOffDatabaseParent = { kind: "space" },
+  offDatabaseParent: PageOffDatabaseParent = { kind: "space" },
 ): AuthorityCommit => {
   const operation = request.operation;
-  readCard(database, request, operation.cardBlockId);
+  readPage(database, request, operation.pageId);
   const current = readActiveMembership(
     database,
     request.projectId,
-    operation.cardBlockId,
+    operation.pageId,
   );
   const expected = operation.expectedMembership;
   if (
@@ -1749,7 +1729,7 @@ const transferMembership = (
   ) {
     reject(
       "membership_conflict",
-      `Active membership changed for Card ${operation.cardBlockId}`,
+      `Active membership changed for Page ${operation.pageId}`,
       request,
       {
         expectedRevision: expected?.revision ?? 0,
@@ -1760,14 +1740,14 @@ const transferMembership = (
   if (current?.database_block_id === operation.target?.databaseBlockId) {
     reject(
       "membership_unchanged",
-      `Card ${operation.cardBlockId} already belongs to Database ${current?.database_block_id ?? "unknown"}; use a View position operation to reorder it`,
+      `Page ${operation.pageId} already belongs to Database ${current?.database_block_id ?? "unknown"}; use a View position operation to reorder it`,
       request,
     );
   }
   if (!current && !operation.target) {
     reject(
       "membership_unchanged",
-      `Card ${operation.cardBlockId} already has zero Database memberships`,
+      `Page ${operation.pageId} already has zero Database memberships`,
       request,
     );
   }
@@ -1779,7 +1759,7 @@ const transferMembership = (
     dormantTargetMembership = readDormantMembership(
       database,
       request,
-      operation.cardBlockId,
+      operation.pageId,
       operation.target.databaseBlockId,
     );
     if (!dormantTargetMembership) {
@@ -1818,11 +1798,11 @@ const transferMembership = (
   if (operation.target && targetView && operation.target.viewId) {
     targetRank = allocateViewPositionRank(database, request, {
       viewId: operation.target.viewId,
-      cardBlockId: operation.cardBlockId,
+      pageId: operation.pageId,
       groupKey: operation.target.groupKey ?? null,
-      ...(operation.target.beforeCardBlockId === undefined
+      ...(operation.target.beforePageId === undefined
         ? {}
-        : { beforeCardBlockId: operation.target.beforeCardBlockId }),
+        : { beforePageId: operation.target.beforePageId }),
     });
   }
   const spaceRank = operation.target || offDatabaseParent.kind !== "space"
@@ -1843,7 +1823,7 @@ const transferMembership = (
           `,
           )
           .all(request.projectId) as DatabaseRankedItem[],
-        targetId: operation.cardBlockId,
+        targetId: operation.pageId,
         ...(offDatabaseParent.kind === "space" &&
         offDatabaseParent.beforeBlockId
           ? { beforeId: offDatabaseParent.beforeBlockId }
@@ -1875,7 +1855,7 @@ const transferMembership = (
       `,
       )
       .run(
-        operation.cardBlockId,
+        operation.pageId,
         request.projectId,
         current.database_block_id,
         request.projectId,
@@ -1897,7 +1877,7 @@ const transferMembership = (
     .prepare(
       "DELETE FROM top_level_block_placements WHERE block_id = ? AND project_id = ?",
     )
-    .run(operation.cardBlockId, request.projectId);
+    .run(operation.pageId, request.projectId);
   const targetLocationKind = operation.target
     ? "database"
     : offDatabaseParent.kind;
@@ -1908,7 +1888,7 @@ const transferMembership = (
       SET location_kind = ?, containing_document_id = ?,
           containing_database_id = ?, location_revision = location_revision + 1,
           updated_at = ?
-      WHERE id = ? AND project_id = ? AND type = 'card'
+      WHERE id = ? AND project_id = ? AND type = 'page'
     `,
     )
     .run(
@@ -1918,11 +1898,11 @@ const transferMembership = (
         : null,
       operation.target?.databaseBlockId ?? null,
       now,
-      operation.cardBlockId,
+      operation.pageId,
       request.projectId,
     );
   if (movedParent.changes !== 1) {
-    throw new Error("Card parent changed during atomic membership transfer");
+    throw new Error("Page parent changed during atomic membership transfer");
   }
   let committedTargetMembershipId: string | null = null;
   let committedTargetMembershipRevision: number | null = null;
@@ -1934,13 +1914,13 @@ const transferMembership = (
           `
           UPDATE database_memberships
           SET removed_at = NULL, revision = revision + 1
-          WHERE id = ? AND card_block_id = ? AND database_block_id = ?
+          WHERE id = ? AND page_block_id = ? AND database_block_id = ?
             AND project_id = ? AND removed_at IS NOT NULL AND revision = ?
         `,
         )
         .run(
           dormantTargetMembership.id,
-          operation.cardBlockId,
+          operation.pageId,
           operation.target.databaseBlockId,
           request.projectId,
           dormantTargetMembership.revision,
@@ -1955,7 +1935,7 @@ const transferMembership = (
         .prepare(
           `
         INSERT INTO database_memberships (
-          id, database_block_id, card_block_id, project_id,
+          id, database_block_id, page_block_id, project_id,
           revision, created_at, removed_at
         ) VALUES (?, ?, ?, ?, 1, ?, NULL)
       `,
@@ -1963,7 +1943,7 @@ const transferMembership = (
         .run(
           operation.target.membershipId,
           operation.target.databaseBlockId,
-          operation.cardBlockId,
+          operation.pageId,
           request.projectId,
           now,
         );
@@ -1980,7 +1960,7 @@ const transferMembership = (
         : { requestedGroupKey: operation.target.groupKey }),
       explicitlyWrittenPropertyIds: explicitlyWrittenTargetPropertyIds(
         request,
-        operation.cardBlockId,
+        operation.pageId,
         operation.target.databaseBlockId,
       ),
       now,
@@ -2006,7 +1986,7 @@ const transferMembership = (
         )
         .run(
           operation.target.viewId,
-          operation.cardBlockId,
+          operation.pageId,
           request.projectId,
           operation.target.groupKey ?? null,
           targetRank.rankKey,
@@ -2024,7 +2004,7 @@ const transferMembership = (
       `,
       )
       .run(
-        operation.cardBlockId,
+        operation.pageId,
         request.projectId,
         spaceRank.rankKey,
         now,
@@ -2034,12 +2014,12 @@ const transferMembership = (
   const metadata = advanceBlockMetadata(
     database,
     request,
-    [operation.cardBlockId],
+    [operation.pageId],
     now,
   );
   return {
     payload: {
-      cardBlockId: operation.cardBlockId,
+      pageId: operation.pageId,
       previousMembershipId: current?.id ?? null,
       previousMembershipRevision: current ? current.revision + 1 : null,
       membershipId: committedTargetMembershipId,
@@ -2049,16 +2029,16 @@ const transferMembership = (
       positionRankKey: targetRank?.rankKey ?? null,
       positionRevision: targetRank ? 1 : null,
       rebalancedPositions: targetRank?.rebalanced ?? 0,
-      cardMetadataRevision: metadata[operation.cardBlockId] ?? 0,
+      pageMetadataRevision: metadata[operation.pageId] ?? 0,
     },
-    targetBlockIds: uniqueSorted([operation.cardBlockId, ...affectedDatabases]),
+    targetBlockIds: uniqueSorted([operation.pageId, ...affectedDatabases]),
     databaseBlockIds: uniqueSorted(affectedDatabases),
     committedRevisions: {
-      cardMetadata: metadata[operation.cardBlockId] ?? 0,
+      pageMetadata: metadata[operation.pageId] ?? 0,
       membership: committedTargetMembershipRevision ?? 0,
       position: targetRank ? 1 : 0,
     },
-    projectionCardIds: [operation.cardBlockId],
+    projectionPageIds: [operation.pageId],
   };
 };
 
@@ -2066,7 +2046,7 @@ const transferMembership = (
  * Compose the proven Database membership/property transition inside a broader
  * trusted parent-transfer transaction without writing a second public receipt.
  */
-export const transitionCardDatabaseParent = (
+export const transitionPageDatabaseParent = (
   database: Database.Database,
   request: DatabaseMutationRequest & {
     readonly operation: Extract<
@@ -2075,8 +2055,8 @@ export const transitionCardDatabaseParent = (
     >;
   },
   now: string,
-  offDatabaseParent: CardOffDatabaseParent = { kind: "space" },
-): CardDatabaseParentTransitionResult => {
+  offDatabaseParent: PageOffDatabaseParent = { kind: "space" },
+): PageDatabaseParentTransitionResult => {
   const commit = transferMembership(
     database,
     request,
@@ -2267,7 +2247,7 @@ const putView = (
         : { demotedView: demotedViewRevision }),
       databaseMetadata: metadata[operation.databaseBlockId] ?? 0,
     },
-    projectionCardIds: [],
+    projectionPageIds: [],
   };
 };
 
@@ -2368,22 +2348,22 @@ const deleteView = (
       view: operation.expectedRevision + 1,
       databaseMetadata: metadata[operation.databaseBlockId] ?? 0,
     },
-    projectionCardIds: [],
+    projectionPageIds: [],
   };
 };
 
-const positionCard = (
+const positionPage = (
   database: Database.Database,
   request: DatabaseMutationRequest & {
     readonly operation: Extract<
       DatabaseMutationOperation,
-      { readonly kind: "position_card" }
+      { readonly kind: "position_page" }
     >;
   },
   now: string,
 ): AuthorityCommit => {
   const operation = request.operation;
-  readCard(database, request, operation.cardBlockId);
+  readPage(database, request, operation.pageId);
   const view = readView(database, operation.viewId);
   if (
     !view ||
@@ -2400,12 +2380,12 @@ const positionCard = (
   const membership = readActiveMembership(
     database,
     request.projectId,
-    operation.cardBlockId,
+    operation.pageId,
   );
   if (!membership || membership.database_block_id !== view.database_block_id) {
     return reject(
       "membership_conflict",
-      `Card ${operation.cardBlockId} is not a member of View ${operation.viewId}'s Database`,
+      `Page ${operation.pageId} is not a member of View ${operation.viewId}'s Database`,
       request,
     );
   }
@@ -2419,13 +2399,13 @@ const positionCard = (
   const current = readPosition(
     database,
     operation.viewId,
-    operation.cardBlockId,
+    operation.pageId,
   );
   const currentRevision = current?.revision ?? 0;
   if (currentRevision !== operation.expectedPositionRevision) {
     reject(
       "position_conflict",
-      `View position revision changed for Card ${operation.cardBlockId}`,
+      `View position revision changed for Page ${operation.pageId}`,
       request,
       {
         expectedRevision: operation.expectedPositionRevision,
@@ -2435,11 +2415,11 @@ const positionCard = (
   }
   const rank = allocateViewPositionRank(database, request, {
     viewId: operation.viewId,
-    cardBlockId: operation.cardBlockId,
+    pageId: operation.pageId,
     groupKey: operation.groupKey,
-    ...(operation.beforeCardBlockId === undefined
+    ...(operation.beforePageId === undefined
       ? {}
-      : { beforeCardBlockId: operation.beforeCardBlockId }),
+      : { beforePageId: operation.beforePageId }),
   });
   const revision = currentRevision + 1;
   if (!current) {
@@ -2454,7 +2434,7 @@ const positionCard = (
       )
       .run(
         operation.viewId,
-        operation.cardBlockId,
+        operation.pageId,
         request.projectId,
         operation.groupKey,
         rank.rankKey,
@@ -2475,7 +2455,7 @@ const positionCard = (
         rank.rankKey,
         now,
         operation.viewId,
-        operation.cardBlockId,
+        operation.pageId,
         request.projectId,
         operation.expectedPositionRevision,
       );
@@ -2484,19 +2464,19 @@ const positionCard = (
     payload: {
       viewId: operation.viewId,
       databaseBlockId: view.database_block_id,
-      cardBlockId: operation.cardBlockId,
+      pageId: operation.pageId,
       groupKey: operation.groupKey,
       positionRankKey: rank.rankKey,
       positionRevision: revision,
       rebalancedPositions: rank.rebalanced,
     },
     targetBlockIds: uniqueSorted([
-      operation.cardBlockId,
+      operation.pageId,
       view.database_block_id,
     ]),
     databaseBlockIds: [view.database_block_id],
     committedRevisions: { position: revision },
-    projectionCardIds: [],
+    projectionPageIds: [],
   };
 };
 
@@ -2512,14 +2492,14 @@ const planBulkPositionRanks = (
   request: DatabaseMutationRequest,
   input: {
     readonly items: readonly DatabaseRankedItem[];
-    readonly cardBlockIds: readonly string[];
-    readonly beforeCardBlockId?: string;
+    readonly pageIds: readonly string[];
+    readonly beforePageId?: string;
   },
 ): {
   readonly selectedRankKeys: ReadonlyMap<string, string>;
   readonly rebalancedRemainingRankKeys: ReadonlyMap<string, string>;
 } => {
-  const selected = new Set(input.cardBlockIds);
+  const selected = new Set(input.pageIds);
   const originalRemaining = new Map(
     input.items
       .filter((item) => !selected.has(item.id))
@@ -2533,20 +2513,20 @@ const planBulkPositionRanks = (
   const effectiveRanks = new Map(originalRemaining);
 
   try {
-    for (const cardBlockId of input.cardBlockIds) {
+    for (const pageId of input.pageIds) {
       const plan = planDatabaseFractionalRank({
         items: virtualItems,
-        targetId: cardBlockId,
-        ...(input.beforeCardBlockId === undefined
+        targetId: pageId,
+        ...(input.beforePageId === undefined
           ? {}
-          : { beforeId: input.beforeCardBlockId }),
+          : { beforeId: input.beforePageId }),
       });
       for (const [id, rankKey] of plan.rebalancedRankKeys) {
         effectiveRanks.set(id, rankKey);
         if (selected.has(id)) selectedRankKeys.set(id, rankKey);
       }
-      effectiveRanks.set(cardBlockId, plan.rankKey);
-      selectedRankKeys.set(cardBlockId, plan.rankKey);
+      effectiveRanks.set(pageId, plan.rankKey);
+      selectedRankKeys.set(pageId, plan.rankKey);
       virtualItems = [...effectiveRanks]
         .map(([id, rankKey]) => ({ id, rankKey }))
         .sort(compareRankedItems);
@@ -2568,12 +2548,12 @@ const planBulkPositionRanks = (
   return { selectedRankKeys, rebalancedRemainingRankKeys };
 };
 
-const positionCards = (
+const positionPages = (
   database: Database.Database,
   request: DatabaseMutationRequest & {
     readonly operation: Extract<
       DatabaseMutationOperation,
-      { readonly kind: "position_cards" }
+      { readonly kind: "position_pages" }
     >;
   },
   now: string,
@@ -2593,29 +2573,29 @@ const positionCards = (
     );
   }
   readActiveDatabase(database, request, view.database_block_id);
-  const selected = new Set(operation.cards.map((entry) => entry.cardBlockId));
+  const selected = new Set(operation.pages.map((entry) => entry.pageId));
   if (
-    operation.beforeCardBlockId !== undefined &&
-    selected.has(operation.beforeCardBlockId)
+    operation.beforePageId !== undefined &&
+    selected.has(operation.beforePageId)
   ) {
     return reject(
       "position_anchor_not_found",
-      "Bulk position anchor must be external to the moved Card set",
+      "Bulk position anchor must be external to the moved Page set",
       request,
     );
   }
 
-  const validated = operation.cards.map((entry) => {
-    readCard(database, request, entry.cardBlockId);
+  const validated = operation.pages.map((entry) => {
+    readPage(database, request, entry.pageId);
     const membership = readActiveMembership(
       database,
       request.projectId,
-      entry.cardBlockId,
+      entry.pageId,
     );
     if (!membership || membership.database_block_id !== view.database_block_id) {
       return reject(
         "membership_conflict",
-        `Card ${entry.cardBlockId} is not a member of View ${operation.viewId}'s Database`,
+        `Page ${entry.pageId} is not a member of View ${operation.viewId}'s Database`,
         request,
       );
     }
@@ -2629,13 +2609,13 @@ const positionCards = (
     const current = readPosition(
       database,
       operation.viewId,
-      entry.cardBlockId,
+      entry.pageId,
     );
     const currentRevision = current?.revision ?? 0;
     if (currentRevision !== entry.expectedPositionRevision) {
       return reject(
         "position_conflict",
-        `View position revision changed for Card ${entry.cardBlockId}`,
+        `View position revision changed for Page ${entry.pageId}`,
         request,
         {
           expectedRevision: entry.expectedPositionRevision,
@@ -2646,23 +2626,23 @@ const positionCards = (
     return { entry, current };
   });
 
-  if (operation.beforeCardBlockId !== undefined) {
+  if (operation.beforePageId !== undefined) {
     const anchor = readPosition(
       database,
       operation.viewId,
-      operation.beforeCardBlockId,
+      operation.beforePageId,
     );
     if (!anchor) {
       return reject(
         "position_anchor_not_found",
-        `View position anchor does not exist: ${operation.beforeCardBlockId}`,
+        `View position anchor does not exist: ${operation.beforePageId}`,
         request,
       );
     }
     if (anchor.group_key !== operation.groupKey) {
       return reject(
         "position_anchor_group_mismatch",
-        `View position anchor ${operation.beforeCardBlockId} belongs to another group`,
+        `View position anchor ${operation.beforePageId} belongs to another group`,
         request,
       );
     }
@@ -2681,27 +2661,27 @@ const positionCards = (
     .all(operation.viewId, operation.groupKey) as DatabaseRankedItem[];
   const rankPlan = planBulkPositionRanks(request, {
     items,
-    cardBlockIds: operation.cards.map((entry) => entry.cardBlockId),
-    ...(operation.beforeCardBlockId === undefined
+    pageIds: operation.pages.map((entry) => entry.pageId),
+    ...(operation.beforePageId === undefined
       ? {}
-      : { beforeCardBlockId: operation.beforeCardBlockId }),
+      : { beforePageId: operation.beforePageId }),
   });
   inject("bulk_after_rank_plan");
 
-  for (const [cardBlockId, rankKey] of rankPlan.rebalancedRemainingRankKeys) {
+  for (const [pageId, rankKey] of rankPlan.rebalancedRemainingRankKeys) {
     database
       .prepare(
         `UPDATE database_view_positions
          SET rank_key = ?, updated_at = ?
          WHERE view_id = ? AND block_id = ? AND project_id = ?`,
       )
-      .run(rankKey, now, operation.viewId, cardBlockId, request.projectId);
+      .run(rankKey, now, operation.viewId, pageId, request.projectId);
   }
 
   const positions = validated.map(({ entry, current }) => {
-    const rankKey = rankPlan.selectedRankKeys.get(entry.cardBlockId);
+    const rankKey = rankPlan.selectedRankKeys.get(entry.pageId);
     if (!rankKey) {
-      throw new Error(`Bulk rank plan omitted Card ${entry.cardBlockId}`);
+      throw new Error(`Bulk rank plan omitted Page ${entry.pageId}`);
     }
     const revision = entry.expectedPositionRevision + 1;
     if (!current) {
@@ -2716,7 +2696,7 @@ const positionCards = (
         )
         .run(
           operation.viewId,
-          entry.cardBlockId,
+          entry.pageId,
           request.projectId,
           operation.groupKey,
           rankKey,
@@ -2739,18 +2719,18 @@ const positionCards = (
           rankKey,
           now,
           operation.viewId,
-          entry.cardBlockId,
+          entry.pageId,
           request.projectId,
           entry.expectedPositionRevision,
         );
       if (updated.changes !== 1) {
         throw new Error(
-          `Bulk View position changed during commit for ${entry.cardBlockId}`,
+          `Bulk View position changed during commit for ${entry.pageId}`,
         );
       }
     }
     return {
-      cardBlockId: entry.cardBlockId,
+      pageId: entry.pageId,
       positionRankKey: rankKey,
       positionRevision: revision,
     };
@@ -2767,7 +2747,7 @@ const positionCards = (
     },
     targetBlockIds: uniqueSorted([
       view.database_block_id,
-      ...operation.cards.map((entry) => entry.cardBlockId),
+      ...operation.pages.map((entry) => entry.pageId),
     ]),
     databaseBlockIds: [view.database_block_id],
     committedRevisions: Object.fromEntries(
@@ -2776,7 +2756,7 @@ const positionCards = (
         position.positionRevision,
       ]),
     ),
-    projectionCardIds: [],
+    projectionPageIds: [],
   };
 };
 
@@ -2784,7 +2764,7 @@ const requireValueAuthority = (
   database: Database.Database,
   request: DatabaseMutationRequest,
   input: {
-    readonly cardBlockId: string;
+    readonly pageId: string;
     readonly databaseBlockId: string;
     readonly propertyId: string;
   },
@@ -2793,17 +2773,17 @@ const requireValueAuthority = (
   readonly property: PropertyRow;
   readonly current: PropertyValueRow | null;
 } => {
-  readCard(database, request, input.cardBlockId);
+  readPage(database, request, input.pageId);
   readActiveDatabase(database, request, input.databaseBlockId);
   const membership = readActiveMembership(
     database,
     request.projectId,
-    input.cardBlockId,
+    input.pageId,
   );
   if (!membership || membership.database_block_id !== input.databaseBlockId) {
     return reject(
       "membership_conflict",
-      `Card ${input.cardBlockId} does not belong to Database ${input.databaseBlockId}`,
+      `Page ${input.pageId} does not belong to Database ${input.databaseBlockId}`,
       request,
     );
   }
@@ -2873,9 +2853,9 @@ const reconcileGroupedViewPositions = (
         ? rawConfig.schemaKey
         : undefined;
     if (schemaKey !== "nodex.database-view") continue;
-    let config: GeneralDatabaseViewConfig;
+    let config: DatabaseViewConfig;
     try {
-      config = parseGeneralDatabaseViewConfig(rawConfig);
+      config = parseDatabaseViewConfig(rawConfig);
     } catch (error) {
       return reject(
         "view_conflict",
@@ -2887,14 +2867,14 @@ const reconcileGroupedViewPositions = (
     const position = readPosition(
       database,
       view.id,
-      input.membership.card_block_id,
+      input.membership.page_block_id,
     );
     if (!position) continue;
     const groupKey = groupedValueKey(input.value);
     if (position.group_key === groupKey) continue;
     const rank = allocateViewPositionRank(database, request, {
       viewId: view.id,
-      cardBlockId: input.membership.card_block_id,
+      pageId: input.membership.page_block_id,
       groupKey,
     });
     const update = database
@@ -2910,7 +2890,7 @@ const reconcileGroupedViewPositions = (
         rank.rankKey,
         input.now,
         view.id,
-        input.membership.card_block_id,
+        input.membership.page_block_id,
         position.revision,
       );
     if (update.changes !== 1) {
@@ -2923,21 +2903,21 @@ const reconcileGroupedViewPositions = (
   return revisions;
 };
 
-const explicitPositionViewIdsForCard = (
+const explicitPositionViewIdsForPage = (
   request: DatabaseMutationRequest,
-  cardBlockId: string,
+  pageId: string,
 ): ReadonlySet<string> =>
   // Keep the selected View on its caller-observed revision until the explicit
-  // position_card operation applies the requested logical anchor. Other Views
+  // position_page operation applies the requested logical anchor. Other Views
   // grouped by this property still reconcile as a declared derived revision in
   // the set-value operation result; no primary Database/View is special-cased.
   new Set(
     request.operations.flatMap((operation) =>
-      operation.kind === "position_card" &&
-      operation.cardBlockId === cardBlockId
+      operation.kind === "position_page" &&
+      operation.pageId === pageId
         ? [operation.viewId]
-        : operation.kind === "position_cards" &&
-            operation.cards.some((entry) => entry.cardBlockId === cardBlockId)
+        : operation.kind === "position_pages" &&
+            operation.pages.some((entry) => entry.pageId === pageId)
           ? [operation.viewId]
         : [],
     ),
@@ -3012,31 +2992,31 @@ const setValue = (
       propertyId: operation.propertyId,
       value,
       now,
-      deferredViewIds: explicitPositionViewIdsForCard(
+      deferredViewIds: explicitPositionViewIdsForPage(
         request,
-        operation.cardBlockId,
+        operation.pageId,
       ),
     },
   );
   const metadata = advanceBlockMetadata(
     database,
     request,
-    [operation.cardBlockId],
+    [operation.pageId],
     now,
   );
   return {
     payload: {
       databaseBlockId: operation.databaseBlockId,
-      cardBlockId: operation.cardBlockId,
+      pageId: operation.pageId,
       membershipId: authority.membership.id,
       propertyId: operation.propertyId,
       value,
       valueRevision: revision,
       groupedPositionRevisions,
-      cardMetadataRevision: metadata[operation.cardBlockId] ?? 0,
+      pageMetadataRevision: metadata[operation.pageId] ?? 0,
     },
     targetBlockIds: uniqueSorted([
-      operation.cardBlockId,
+      operation.pageId,
       operation.databaseBlockId,
     ]),
     databaseBlockIds: [operation.databaseBlockId],
@@ -3050,9 +3030,9 @@ const setValue = (
           ],
         ),
       ),
-      cardMetadata: metadata[operation.cardBlockId] ?? 0,
+      pageMetadata: metadata[operation.pageId] ?? 0,
     },
-    projectionCardIds: [operation.cardBlockId],
+    projectionPageIds: [operation.pageId],
   };
 };
 
@@ -3070,7 +3050,7 @@ const setValues = (
   const operation = request.operation;
   const scalarOperations = operation.entries.map((entry) => ({
     kind: "set_value" as const,
-    cardBlockId: entry.cardBlockId,
+    pageId: entry.pageId,
     databaseBlockId: operation.databaseBlockId,
     propertyId: entry.propertyId,
     expectedValueRevision: entry.expectedValueRevision,
@@ -3090,7 +3070,7 @@ const setValues = (
     if (currentRevision !== scalarOperation.expectedValueRevision) {
       return reject(
         "property_value_conflict",
-        `Property value revision changed for ${scalarOperation.propertyId} on Card ${scalarOperation.cardBlockId}`,
+        `Property value revision changed for ${scalarOperation.propertyId} on Page ${scalarOperation.pageId}`,
         request,
         {
           expectedRevision: scalarOperation.expectedValueRevision,
@@ -3132,8 +3112,8 @@ const setValues = (
         ]),
       ),
     ),
-    projectionCardIds: uniqueSorted(
-      commits.flatMap((commit) => commit.projectionCardIds),
+    projectionPageIds: uniqueSorted(
+      commits.flatMap((commit) => commit.projectionPageIds),
     ),
   };
 };
@@ -3215,31 +3195,31 @@ const addRemoveValue = (
       propertyId: operation.propertyId,
       value,
       now,
-      deferredViewIds: explicitPositionViewIdsForCard(
+      deferredViewIds: explicitPositionViewIdsForPage(
         request,
-        operation.cardBlockId,
+        operation.pageId,
       ),
     },
   );
   const metadata = advanceBlockMetadata(
     database,
     request,
-    [operation.cardBlockId],
+    [operation.pageId],
     now,
   );
   return {
     payload: {
       databaseBlockId: operation.databaseBlockId,
-      cardBlockId: operation.cardBlockId,
+      pageId: operation.pageId,
       membershipId: authority.membership.id,
       propertyId: operation.propertyId,
       value,
       valueRevision: revision,
       groupedPositionRevisions,
-      cardMetadataRevision: metadata[operation.cardBlockId] ?? 0,
+      pageMetadataRevision: metadata[operation.pageId] ?? 0,
     },
     targetBlockIds: uniqueSorted([
-      operation.cardBlockId,
+      operation.pageId,
       operation.databaseBlockId,
     ]),
     databaseBlockIds: [operation.databaseBlockId],
@@ -3253,9 +3233,9 @@ const addRemoveValue = (
           ],
         ),
       ),
-      cardMetadata: metadata[operation.cardBlockId] ?? 0,
+      pageMetadata: metadata[operation.pageId] ?? 0,
     },
-    projectionCardIds: [operation.cardBlockId],
+    projectionPageIds: [operation.pageId],
   };
 };
 
@@ -3336,24 +3316,24 @@ const executeOperationAuthority = (
         },
         now,
       );
-    case "position_card":
-      return positionCard(
+    case "position_page":
+      return positionPage(
         database,
         request as DatabaseMutationRequest & {
           readonly operation: Extract<
             DatabaseMutationOperation,
-            { readonly kind: "position_card" }
+            { readonly kind: "position_page" }
           >;
         },
         now,
       );
-    case "position_cards":
-      return positionCards(
+    case "position_pages":
+      return positionPages(
         database,
         request as DatabaseMutationRequest & {
           readonly operation: Extract<
             DatabaseMutationOperation,
-            { readonly kind: "position_cards" }
+            { readonly kind: "position_pages" }
           >;
         },
         now,
@@ -3432,8 +3412,8 @@ const executeBatchAuthority = (
         ]),
       ),
     ),
-    projectionCardIds: uniqueSorted(
-      commits.flatMap((commit) => commit.projectionCardIds),
+    projectionPageIds: uniqueSorted(
+      commits.flatMap((commit) => commit.projectionPageIds),
     ),
   };
 };
@@ -3678,10 +3658,10 @@ export const applyDatabaseMutation = (
       return rejected;
     }
     inject("after_authority");
-    refreshCardProjections(
+    refreshPageProjections(
       database,
       request.projectId,
-      commit.projectionCardIds,
+      commit.projectionPageIds,
       now,
     );
     inject("after_projections");
@@ -3722,208 +3702,3 @@ export const applyDatabaseMutation = (
   inject("after_commit");
   return result;
 };
-
-export const readDatabaseKernelDescriptor = (
-  database: Database.Database,
-  projectId: string,
-  databaseBlockId: string,
-): GeneralDatabaseDescriptor | null =>
-  readGeneralDatabaseDescriptor(projectId, databaseBlockId, database);
-
-export const readDatabaseKernelCardSummary = (
-  database: Database.Database,
-  projectId: string,
-  cardBlockId: string,
-) => readCardContentSummary(projectId, cardBlockId, database);
-
-export interface DatabaseReadSnapshotOptions {
-  /** Diagnostic seam for proving cross-connection snapshot isolation. */
-  readonly afterCursorRead?: () => void;
-}
-
-const readDatabaseSnapshot = <T>(
-  database: Database.Database,
-  projectId: string,
-  read: () => T | null,
-  options: DatabaseReadSnapshotOptions = {},
-): DatabaseReadCommandResult<T> => {
-  try {
-    return database.transaction((): DatabaseReadCommandResult<T> => {
-      const storeEpoch = readStoreEpoch(database);
-      if (!storeEpoch) {
-        return {
-          ok: false,
-          error: {
-            code: "store_not_initialized",
-            message: "The Block store has no active epoch",
-            retryable: false,
-          },
-        };
-      }
-      const project = database
-        .prepare("SELECT 1 AS present FROM projects WHERE id = ?")
-        .get(projectId);
-      if (!project) {
-        return {
-          ok: false,
-          error: {
-            code: "project_not_found",
-            message: `Project does not exist: ${projectId}`,
-            retryable: false,
-          },
-        };
-      }
-      const change = database
-        .prepare(
-          "SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log WHERE project_id = ?",
-        )
-        .get(projectId) as { readonly seq: number };
-      options.afterCursorRead?.();
-      const snapshot: DatabaseReadSnapshot<T> = {
-        version: DATABASE_QUERY_CONTRACT_VERSION,
-        projectId,
-        storeEpoch,
-        changeLogSeq: change.seq,
-        value: read(),
-      };
-      return { ok: true, value: snapshot };
-    })();
-  } catch (error) {
-    if (error instanceof GeneralDatabaseQueryError) {
-      return {
-        ok: false,
-        error: {
-          code: "database_state_corrupt",
-          message: error.message,
-          retryable: false,
-        },
-      };
-    }
-    throw error;
-  }
-};
-
-export const readDatabaseDescriptorSnapshot = (
-  database: Database.Database,
-  projectId: string,
-  databaseBlockId: string,
-): DatabaseReadCommandResult<GeneralDatabaseDescriptor> =>
-  readDatabaseSnapshot(database, projectId, () =>
-    readGeneralDatabaseDescriptor(projectId, databaseBlockId, database),
-  );
-
-export const readPrimaryDatabaseDescriptorSnapshot = (
-  database: Database.Database,
-  projectId: string,
-): DatabaseReadCommandResult<GeneralDatabaseDescriptor> =>
-  readDatabaseSnapshot(database, projectId, () =>
-    readPrimaryGeneralDatabaseDescriptor(projectId, database),
-  );
-
-export const readDatabaseCatalogSnapshot = (
-  database: Database.Database,
-  projectId: string,
-  options: DatabaseReadSnapshotOptions = {},
-): DatabaseCatalogSnapshotCommandResult =>
-  readDatabaseSnapshot(
-    database,
-    projectId,
-    () => readGeneralDatabaseCatalog(projectId, database),
-    options,
-  );
-
-export const readDatabaseManagementSnapshot = (
-  database: Database.Database,
-  projectId: string,
-  options: DatabaseReadSnapshotOptions = {},
-): DatabaseManagementSnapshotCommandResult =>
-  readDatabaseSnapshot(
-    database,
-    projectId,
-    () => readGeneralDatabaseManagement(projectId, database),
-    options,
-  );
-
-export const readPrimaryDatabaseViewSnapshot = (
-  database: Database.Database,
-  projectId: string,
-): PrimaryDatabaseViewSnapshotCommandResult => {
-  const captured = readDatabaseSnapshot(database, projectId, () => {
-    const descriptor = readPrimaryGeneralDatabaseDescriptor(projectId, database);
-    const primaryView = descriptor?.views.find(
-      (view) => view.lifecycle === "active" && view.isPrimary && view.kind === "kanban",
-    );
-    return {
-      descriptor,
-      query: primaryView
-        ? queryGeneralDatabaseView(projectId, primaryView.id, database)
-        : null,
-    };
-  });
-  if (!captured.ok) return captured;
-
-  const { version, storeEpoch, changeLogSeq } = captured.value;
-  const value = captured.value.value;
-  const wrap = <T>(snapshotValue: T | null): DatabaseReadSnapshot<T> => ({
-    version,
-    projectId,
-    storeEpoch,
-    changeLogSeq,
-    value: snapshotValue,
-  });
-  return {
-    ok: true,
-    value: {
-      descriptor: wrap(value?.descriptor ?? null),
-      query: wrap(value?.query ?? null),
-    },
-  };
-};
-
-export const readDatabaseViewSnapshot = (
-  database: Database.Database,
-  projectId: string,
-  viewId: string,
-  options: DatabaseReadSnapshotOptions = {},
-): DatabaseViewSnapshotCommandResult => {
-  const captured = readDatabaseSnapshot(database, projectId, () => {
-    const query = queryGeneralDatabaseView(projectId, viewId, database);
-    return {
-      descriptor: query
-        ? readGeneralDatabaseDescriptor(
-            projectId,
-            query.database.blockId,
-            database,
-          )
-        : null,
-      query,
-    };
-  }, options);
-  if (!captured.ok) return captured;
-
-  const { version, storeEpoch, changeLogSeq } = captured.value;
-  const value = captured.value.value;
-  const wrap = <T>(snapshotValue: T | null): DatabaseReadSnapshot<T> => ({
-    version,
-    projectId,
-    storeEpoch,
-    changeLogSeq,
-    value: snapshotValue,
-  });
-  return {
-    ok: true,
-    value: {
-      descriptor: wrap(value?.descriptor ?? null),
-      query: wrap(value?.query ?? null),
-    },
-  };
-};
-
-export const queryDatabaseViewSnapshot = (
-  database: Database.Database,
-  projectId: string,
-  viewId: string,
-): DatabaseReadCommandResult<GeneralDatabaseViewQuery> =>
-  readDatabaseSnapshot(database, projectId, () =>
-    queryGeneralDatabaseView(projectId, viewId, database),
-  );

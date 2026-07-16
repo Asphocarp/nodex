@@ -40,7 +40,7 @@ import type {
   CodexApprovalResponse,
   CodexBackgroundSubagentThreadsHydrateInput,
   CodexBackgroundTerminalRow,
-  CardRunInTarget,
+  PageRunInTarget,
   CodexCanonicalOptionPickerResponse,
   CodexCanonicalSetupContextPickerResponse,
   CodexCanonicalSetupCodexStepResponse,
@@ -521,7 +521,7 @@ type UserInputRequestListener = (payload: {
 interface CodexThreadStartProgressState {
   projectId: string | null;
   sessionId: string | null;
-  runInTarget: CardRunInTarget;
+  runInTarget: PageRunInTarget;
   threadId?: string | null;
   phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
   message: string;
@@ -9364,11 +9364,11 @@ function isNodexAgentAuthorizationRequest(
       || request.tool === "edit_document"
       || request.tool === "transfer_blocks"
       || request.tool === "edit_database"
-      || request.tool === "create_cards"
-      || request.tool === "update_card"
-      || request.tool === "advanced_update_card"
-      || request.tool === "move_cards"
-      || request.tool === "duplicate_card"
+      || request.tool === "create_pages"
+      || request.tool === "update_page"
+      || request.tool === "advanced_update_page"
+      || request.tool === "move_pages"
+      || request.tool === "duplicate_page"
     )
     && (request.effect === "write" || request.effect === "destructive")
     && typeof request.createdAt === "number"

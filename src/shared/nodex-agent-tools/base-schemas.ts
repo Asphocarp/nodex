@@ -3,7 +3,7 @@ import {
   MAX_PORTABLE_RICH_TEXT_SEGMENTS,
   type PortableRichText,
 } from "../block-documents/portable-rich-text";
-import { MAX_CARD_TITLE_LENGTH } from "../card-limits";
+import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
 import {
   NFM_DATE_MENTION_DATE_FORMATS,
   NFM_DATE_MENTION_TIME_FORMATS,
@@ -21,6 +21,8 @@ const boundedIdentity = (description: string) =>
 
 export const ProjectIdSchema = boundedIdentity("Stable Nodex Project identity")
   .brand<"ProjectId">();
+export const LibraryIdSchema = boundedIdentity("Stable Nodex Library identity");
+export const DataSourceIdSchema = boundedIdentity("Stable Nodex Data Source identity");
 export const BlockIdSchema = boundedIdentity("Stable Nodex Block identity")
   .brand<"BlockId">();
 export const DocumentIdSchema = boundedIdentity("Stable Nodex Document identity")
@@ -81,7 +83,7 @@ export const PortableRichTextSchema = z.array(PortableRichTextItemSchema)
 export const TextInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("plain"),
-    text: z.string().max(MAX_CARD_TITLE_LENGTH),
+    text: z.string().max(MAX_PAGE_TITLE_LENGTH),
   }),
   z.strictObject({
     kind: z.literal("rich"),
@@ -189,6 +191,8 @@ export function createToolSuccessSchema<TData extends z.ZodType>(data: TData) {
 }
 
 export type ProjectId = z.infer<typeof ProjectIdSchema>;
+export type LibraryId = z.infer<typeof LibraryIdSchema>;
+export type DataSourceId = z.infer<typeof DataSourceIdSchema>;
 export type BlockId = z.infer<typeof BlockIdSchema>;
 export type DocumentId = z.infer<typeof DocumentIdSchema>;
 export type ViewId = z.infer<typeof ViewIdSchema>;

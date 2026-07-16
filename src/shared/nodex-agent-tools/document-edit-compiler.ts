@@ -1,14 +1,14 @@
 import type {
   BlockTreeNode,
   BlockTreeValue,
-  CardDocumentMaterialization,
+  PageDocumentMaterialization,
 } from "../block-documents/block-document-codec";
-import { createDetachedCardDocumentFromBlockTree } from "../block-documents/block-document-codec";
+import { createDetachedPageDocumentFromBlockTree } from "../block-documents/block-document-codec";
 import {
   prepareDocumentOperationUpdate,
 } from "../block-documents/document-operation-engine";
 import type { DocumentBlockOperation } from "../block-documents/document-operations";
-import { replaceCardDocumentBodyFromNfm } from "../block-documents/legacy-nfm-shadow-translator";
+import { replacePageDocumentBodyFromNfm } from "../block-documents/legacy-nfm-shadow-translator";
 import { nfmToBlockNoteWithIds } from "../block-documents/nfm-blocknote-adapter";
 import {
   plainTextToPortableRichText,
@@ -64,7 +64,7 @@ export type CompiledAgentDocumentEditMutation =
 export interface CompiledAgentDocumentEdit {
   readonly mutation: CompiledAgentDocumentEditMutation;
   readonly effects: AgentDocumentEditEffects;
-  readonly materialization: CardDocumentMaterialization;
+  readonly materialization: PageDocumentMaterialization;
   readonly destructive: boolean;
 }
 
@@ -151,10 +151,10 @@ function parseNfmFragment(
     const blocks = nfmToBlockNoteWithIds(parseNfm(content), allocateBlockId)
       .map(toBlockTreeNode);
     assertBoundedBlockCount(blocks);
-    if (flattenCoordinates(blocks).some(({ block }) => block.type === "card")) {
+    if (flattenCoordinates(blocks).some(({ block }) => block.type === "page")) {
       throw new AgentDocumentEditCompilerError(
         "invalid_nfm",
-        "NFM insertion cannot create or move an owning Card; use create or transfer_blocks",
+        "NFM insertion cannot create or move an owning Page; use create_pages, move_pages, or duplicate_page",
       );
     }
     return blocks;
@@ -334,8 +334,8 @@ export function applyExactNfmPatches(
 }
 
 function deriveEffects(
-  current: CardDocumentMaterialization,
-  target: CardDocumentMaterialization,
+  current: PageDocumentMaterialization,
+  target: PageDocumentMaterialization,
   localBlockIds: ReadonlyMap<string, string>,
 ): AgentDocumentEditEffects {
   const currentCoordinates = flattenCoordinates(current.blockTree);
@@ -369,7 +369,7 @@ function deriveEffects(
     movedBlockIds,
     deletedBlockIds,
     deletedOwnerBlockIds: deletedBlockIds.filter((blockId) =>
-      currentById.get(blockId)?.block.type === "card"
+      currentById.get(blockId)?.block.type === "page"
     ),
     titleChanged:
       portableRichTextSemanticSource(current.richTitle)
@@ -378,9 +378,9 @@ function deriveEffects(
 }
 
 function withRichTitle(
-  materialization: CardDocumentMaterialization,
+  materialization: PageDocumentMaterialization,
   richTitle: PortableRichText | undefined,
-): CardDocumentMaterialization {
+): PageDocumentMaterialization {
   if (!richTitle) return materialization;
   return {
     ...materialization,
@@ -390,19 +390,19 @@ function withRichTitle(
 }
 
 function compileReplacement(
-  current: CardDocumentMaterialization,
+  current: PageDocumentMaterialization,
   documentId: string,
   nfm: string,
   richTitle: PortableRichText | undefined,
   allocateBlockId: () => string,
-): { readonly materialization: CardDocumentMaterialization; readonly mutation: CompiledAgentDocumentEditMutation } {
-  const detached = createDetachedCardDocumentFromBlockTree({
+): { readonly materialization: PageDocumentMaterialization; readonly mutation: CompiledAgentDocumentEditMutation } {
+  const detached = createDetachedPageDocumentFromBlockTree({
     documentId,
     richTitle: current.richTitle,
     blockTree: current.blockTree,
   });
   try {
-    const replacement = replaceCardDocumentBodyFromNfm({
+    const replacement = replacePageDocumentBodyFromNfm({
       document: detached.document,
       nfm,
       allocateBlockId,
@@ -430,14 +430,14 @@ function compileReplacement(
 
 export function compileAgentDocumentEdit(input: {
   readonly documentId: string;
-  readonly current: CardDocumentMaterialization;
+  readonly current: PageDocumentMaterialization;
   readonly edit: EditDocumentInput;
   readonly allocateBlockId: () => string;
 }): CompiledAgentDocumentEdit {
   const richTitle = toRichTitle(input.edit.title?.value);
   const localBlockIds = new Map<string, string>();
   let mutation: CompiledAgentDocumentEditMutation;
-  let materialization: CardDocumentMaterialization;
+  let materialization: PageDocumentMaterialization;
 
   if (input.edit.body?.kind === "nfm.replace" || input.edit.body?.kind === "nfm.patch") {
     const nfm = input.edit.body.kind === "nfm.replace"
@@ -471,7 +471,7 @@ export function compileAgentDocumentEdit(input: {
       );
     }
     const operations = [...titleOperations, ...bodyOperations];
-    const detached = createDetachedCardDocumentFromBlockTree({
+    const detached = createDetachedPageDocumentFromBlockTree({
       documentId: input.documentId,
       richTitle: input.current.richTitle,
       blockTree: input.current.blockTree,
@@ -496,7 +496,7 @@ export function compileAgentDocumentEdit(input: {
   ) {
     throw new AgentDocumentEditCompilerError(
       "protected_owner_deletion",
-      `Document edit would delete owning Card Block(s): ${effects.deletedOwnerBlockIds.join(", ")}`,
+      `Document edit would delete owning Page Block(s): ${effects.deletedOwnerBlockIds.join(", ")}`,
     );
   }
   return {

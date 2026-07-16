@@ -1,53 +1,53 @@
 import { describe, expect, test } from "vitest";
-import { MAX_CARD_STAGE_ANCESTOR_DEPTH } from "../card-stage-ancestors";
+import { MAX_PAGE_STAGE_ANCESTOR_DEPTH } from "../page-stage-ancestors";
 import { parseProjectSessionTabConfig } from "./project-sessions";
 
-describe("project session card stage config", () => {
-  test("persists only stable Card identities in a bounded ancestor trail", () => {
+describe("project session Page Stage config", () => {
+  test("persists only stable Page identities in a bounded ancestor trail", () => {
     const ancestors = [
-      { cardId: "root" },
-      { cardId: "child" },
+      { pageId: "root" },
+      { pageId: "child" },
     ];
 
-    expect(parseProjectSessionTabConfig("card_stage", {
+    expect(parseProjectSessionTabConfig("page_stage", {
       projectId: "alpha",
-      cardId: "nested",
+      pageId: "nested",
       titleSnapshot: "Nested",
       ancestors,
     })).toEqual({
       projectId: "alpha",
-      cardId: "nested",
+      pageId: "nested",
       titleSnapshot: "Nested",
       ancestors,
     });
   });
 
   test("discards legacy ancestor title and Project snapshots", () => {
-    expect(parseProjectSessionTabConfig("card_stage", {
+    expect(parseProjectSessionTabConfig("page_stage", {
       projectId: "alpha",
-      cardId: "nested",
+      pageId: "nested",
       ancestors: [{
         projectId: "stale-project",
-        cardId: "root",
+        pageId: "root",
         titleSnapshot: "Stale title",
       }],
     })).toEqual({
       projectId: "alpha",
-      cardId: "nested",
-      ancestors: [{ cardId: "root" }],
+      pageId: "nested",
+      ancestors: [{ pageId: "root" }],
     });
   });
 
   test("rejects ancestor trails beyond the navigation depth limit", () => {
     const ancestors = Array.from({
-      length: MAX_CARD_STAGE_ANCESTOR_DEPTH + 1,
+      length: MAX_PAGE_STAGE_ANCESTOR_DEPTH + 1,
     }, (_, index) => ({
-      cardId: `card-${index}`,
+      pageId: `page-${index}`,
     }));
 
-    expect(() => parseProjectSessionTabConfig("card_stage", {
+    expect(() => parseProjectSessionTabConfig("page_stage", {
       projectId: "alpha",
-      cardId: "nested",
+      pageId: "nested",
       ancestors,
     })).toThrow();
   });

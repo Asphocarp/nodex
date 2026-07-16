@@ -1,9 +1,10 @@
-import type { CalendarOccurrence } from "../../shared/types";
-import { listCalendarOccurrences } from "./card-occurrences";
+import type { PageOccurrence } from "../../shared/types";
+import { listPageOccurrences } from "./page-occurrences";
 import { getDb } from "./database";
 import { listProjects } from "./projects";
 import { getLogger } from "../logging/logger";
-import { readDueReminderSnoozes } from "./scheduled-card-store";
+import { readDueReminderSnoozes } from "./scheduled-page-store";
+import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
 
 const DEFAULT_INTERVAL_MS = 30_000;
 const CATCH_UP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -11,7 +12,7 @@ const logger = getLogger({ subsystem: "reminders" });
 
 export interface ReminderNotificationPayload {
   projectId: string;
-  cardId: string;
+  pageId: string;
   occurrenceStart: string;
   title: string;
   body: string;
@@ -20,7 +21,9 @@ export interface ReminderNotificationPayload {
 
 interface PendingReminder {
   projectId: string;
-  cardId: string;
+  /** Stable Page projection scope used only by the legacy receipt table. */
+  receiptProjectId: string;
+  pageId: string;
   occurrenceStart: Date;
   reminderOffsetMinutes: number;
   dueAt: Date;
@@ -33,26 +36,26 @@ export interface ReminderSchedulerOptions {
 }
 
 function reminderReceiptExists(
-  projectId: string,
-  cardId: string,
+  receiptProjectId: string,
+  pageId: string,
   occurrenceStart: Date,
   reminderOffsetMinutes: number,
 ): boolean {
   const existing = getDb().prepare(`
     SELECT id FROM reminder_receipts
-    WHERE project_id = ? AND card_id = ? AND occurrence_start = ? AND reminder_offset_minutes = ?
-  `).get(projectId, cardId, occurrenceStart.toISOString(), reminderOffsetMinutes);
+    WHERE project_id = ? AND page_id = ? AND occurrence_start = ? AND reminder_offset_minutes = ?
+  `).get(receiptProjectId, pageId, occurrenceStart.toISOString(), reminderOffsetMinutes);
   return Boolean(existing);
 }
 
 function markReminderDelivered(pending: PendingReminder): void {
   getDb().prepare(`
     INSERT OR IGNORE INTO reminder_receipts (
-      project_id, card_id, occurrence_start, reminder_offset_minutes, delivered_at
+      project_id, page_id, occurrence_start, reminder_offset_minutes, delivered_at
     ) VALUES (?, ?, ?, ?, ?)
   `).run(
-    pending.projectId,
-    pending.cardId,
+    pending.receiptProjectId,
+    pending.pageId,
     pending.occurrenceStart.toISOString(),
     pending.reminderOffsetMinutes,
     new Date().toISOString(),
@@ -82,10 +85,11 @@ function formatReminderBody(occurrenceStart: Date, offsetMinutes: number): strin
 
 function collectPendingForOccurrences(
   projectId: string,
-  occurrences: CalendarOccurrence[],
+  occurrences: PageOccurrence[],
   now: Date,
 ): PendingReminder[] {
   const grouped = new Map<string, PendingReminder>();
+  const database = getDb();
 
   for (const occurrence of occurrences) {
     const reminders = occurrence.reminders ?? [];
@@ -93,14 +97,21 @@ function collectPendingForOccurrences(
       const dueAt = new Date(occurrence.occurrenceStart.getTime() - reminder.offsetMinutes * 60_000);
       if (dueAt.getTime() > now.getTime()) continue;
       if (dueAt.getTime() < now.getTime() - CATCH_UP_WINDOW_MS) continue;
-      if (reminderReceiptExists(projectId, occurrence.cardId, occurrence.occurrenceStart, reminder.offsetMinutes)) {
+      const owner = database.prepare(`
+        SELECT project_id AS receiptProjectId FROM blocks WHERE id = ?
+      `).get(occurrence.pageId) as
+        | { readonly receiptProjectId: string }
+        | undefined;
+      if (!owner) continue;
+      if (reminderReceiptExists(owner.receiptProjectId, occurrence.pageId, occurrence.occurrenceStart, reminder.offsetMinutes)) {
         continue;
       }
 
-      const key = `${projectId}:${occurrence.cardId}:${occurrence.occurrenceStart.toISOString()}`;
+      const key = `${occurrence.pageId}:${occurrence.occurrenceStart.toISOString()}`;
       const candidate: PendingReminder = {
         projectId,
-        cardId: occurrence.cardId,
+        receiptProjectId: owner.receiptProjectId,
+        pageId: occurrence.pageId,
         occurrenceStart: occurrence.occurrenceStart,
         reminderOffsetMinutes: reminder.offsetMinutes,
         dueAt,
@@ -118,16 +129,28 @@ function collectPendingForOccurrences(
 
 async function collectPendingReminders(now: Date): Promise<PendingReminder[]> {
   const projects = listProjects();
-  const reminders: PendingReminder[] = [];
+  const reminders = new Map<string, PendingReminder>();
 
   for (const project of projects) {
+    if (project.lifecycle !== "active") continue;
     const windowStart = new Date(now.getTime() - CATCH_UP_WINDOW_MS);
     const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    const occurrences = await listCalendarOccurrences(project.id, windowStart, windowEnd);
-    reminders.push(...collectPendingForOccurrences(project.id, occurrences, now));
+    const occurrences = await listPageOccurrences(project.id, windowStart, windowEnd);
+    for (const reminder of collectPendingForOccurrences(project.id, occurrences, now)) {
+      const key = `${reminder.pageId}:${reminder.occurrenceStart.toISOString()}:${reminder.reminderOffsetMinutes}`;
+      const existing = reminders.get(key);
+      if (!existing || (
+        reminder.projectId === reminder.receiptProjectId &&
+        existing.projectId !== existing.receiptProjectId
+      )) {
+        reminders.set(key, reminder);
+      }
+    }
   }
 
-  return reminders.sort((left, right) => left.dueAt.getTime() - right.dueAt.getTime());
+  return [...reminders.values()].sort(
+    (left, right) => left.dueAt.getTime() - right.dueAt.getTime(),
+  );
 }
 
 async function processDueSnoozes(now: Date, onReminder: (payload: ReminderNotificationPayload) => void): Promise<void> {
@@ -136,10 +159,10 @@ async function processDueSnoozes(now: Date, onReminder: (payload: ReminderNotifi
 
   for (const row of rows) {
     const occurrenceStart = new Date(row.occurrenceStart);
-    if (!reminderReceiptExists(row.projectId, row.cardId, occurrenceStart, -1)) {
+    if (!reminderReceiptExists(row.receiptProjectId, row.pageId, occurrenceStart, -1)) {
       onReminder({
         projectId: row.projectId,
-        cardId: row.cardId,
+        pageId: row.pageId,
         occurrenceStart: row.occurrenceStart,
         title: row.title,
         body: "Snoozed reminder",
@@ -147,9 +170,9 @@ async function processDueSnoozes(now: Date, onReminder: (payload: ReminderNotifi
       });
       getDb().prepare(`
         INSERT OR IGNORE INTO reminder_receipts (
-          project_id, card_id, occurrence_start, reminder_offset_minutes, delivered_at
+          project_id, page_id, occurrence_start, reminder_offset_minutes, delivered_at
         ) VALUES (?, ?, ?, ?, ?)
-      `).run(row.projectId, row.cardId, row.occurrenceStart, -1, new Date().toISOString());
+      `).run(row.receiptProjectId, row.pageId, row.occurrenceStart, -1, new Date().toISOString());
     }
     database.prepare("UPDATE reminder_snoozes SET consumed_at = ? WHERE id = ?")
       .run(now.toISOString(), row.id);
@@ -168,7 +191,7 @@ export async function runReminderTick(onReminder: (payload: ReminderNotification
   for (const reminder of pending) {
     onReminder({
       projectId: reminder.projectId,
-      cardId: reminder.cardId,
+      pageId: reminder.pageId,
       occurrenceStart: reminder.occurrenceStart.toISOString(),
       title: reminder.title,
       body: formatReminderBody(reminder.occurrenceStart, reminder.reminderOffsetMinutes),
@@ -182,24 +205,36 @@ export async function runReminderTick(onReminder: (payload: ReminderNotification
 
 export async function snoozeReminder(
   projectId: string,
-  cardId: string,
+  pageId: string,
   occurrenceStart: string,
   snoozeMinutes: number,
 ): Promise<void> {
+  const database = getDb();
+  const authorization = authorizeProjectResourceInDatabase(database, {
+    projectId,
+    resource: { kind: "page", pageId },
+    action: "read",
+  });
+  if (!authorization.allowed || authorization.projectLifecycle !== "active") {
+    const reason = authorization.allowed
+      ? "project_read_only"
+      : authorization.reason;
+    throw new Error(`Reminder snooze denied: ${reason}`);
+  }
   logger.info("Snoozing reminder", {
     projectId,
-    cardId,
+    pageId,
     occurrenceStart,
     snoozeMinutes,
   });
   const dueAt = new Date(Date.now() + Math.max(1, snoozeMinutes) * 60_000).toISOString();
-  getDb().prepare(`
+  database.prepare(`
     INSERT INTO reminder_snoozes (
-      project_id, card_id, occurrence_start, due_at, created_at, consumed_at
+      project_id, page_id, occurrence_start, due_at, created_at, consumed_at
     ) VALUES (?, ?, ?, ?, ?, NULL)
   `).run(
     projectId,
-    cardId,
+    pageId,
     occurrenceStart,
     dueAt,
     new Date().toISOString(),

@@ -5,13 +5,18 @@ import * as path from "path";
 import { getDatabasePath } from "./config";
 import { migrateLegacyDatabaseFileName } from "./database-file-migration";
 import type { DatabaseMigrationProgress } from "../../shared/app-startup";
-import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
+import { WORKFLOW_STATUS_COLUMNS } from "../../shared/workflow-status";
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import { deriveBlockDocumentRecordsFromNfm } from "../../shared/block-documents/derived-records";
 import {
-  parseGeneralDatabaseViewConfig,
+  parseDatabaseViewConfig,
   type DatabaseViewFilterNode,
 } from "../../shared/database-kernel";
+import {
+  INITIAL_DATA_SOURCE_SUFFIX,
+  initialDataSourceId,
+  type LocalProfileLibrary,
+} from "../../shared/library";
 import { makeDefaultBrowserSidebarTabId } from "../../shared/browser-sidebar";
 import {
   insertInitialDatabaseViewSession,
@@ -23,14 +28,15 @@ import {
   type CanvasSceneCutoverOptions,
   type CanvasSceneCutoverResult,
 } from "./canvas-scene-cutover";
-import { finalizeCardReferenceIdentityStorage } from "./card-reference-hint-finalization";
-import { finalizeCardNfmIdentityProjection } from "./card-nfm-projection-finalization";
+import { finalizePageReferenceIdentityStorage } from "./page-reference-hint-finalization";
+import { finalizePageNfmIdentityProjection } from "./page-nfm-projection-finalization";
 import { finalizeRetiredCardAgentProperties } from "./retired-card-agent-properties-finalization";
+import { migrateCanvasPageReferenceHashes } from "./canvas-page-reference-hash-migration";
 
-export const COLUMNS = CARD_STATUS_COLUMNS;
+export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 67;
+export const CURRENT_SCHEMA_VERSION = 78;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -52,19 +58,29 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
   { fromVersion: 64, toVersion: 65, migrate: migrateSchema64To65 },
   { fromVersion: 65, toVersion: 66, migrate: migrateSchema65To66 },
   { fromVersion: 66, toVersion: 67, migrate: migrateSchema66To67 },
+  { fromVersion: 67, toVersion: 68, migrate: migrateSchema67To68 },
+  { fromVersion: 68, toVersion: 69, migrate: migrateSchema68To69 },
+  { fromVersion: 69, toVersion: 70, migrate: migrateSchema69To70 },
+  { fromVersion: 70, toVersion: 71, migrate: migrateSchema70To71 },
+  { fromVersion: 71, toVersion: 72, migrate: migrateSchema71To72 },
+  { fromVersion: 72, toVersion: 73, migrate: migrateSchema72To73 },
+  { fromVersion: 73, toVersion: 74, migrate: migrateSchema73To74 },
+  { fromVersion: 74, toVersion: 75, migrate: migrateSchema74To75 },
+  { fromVersion: 75, toVersion: 76, migrate: migrateSchema75To76 },
+  { fromVersion: 76, toVersion: 77, migrate: migrateSchema76To77 },
+  { fromVersion: 77, toVersion: 78, migrate: migrateSchema77To78 },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
-  "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
+  "'db_view', 'page_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
 
 const RESETTABLE_TABLES = [
   "retired_block_identities",
-  "card_project_transfer_write_fences",
   "block_search_units_fts",
   "block_search_units",
   "block_asset_refs",
-  "card_read_model",
+  "page_read_model",
   "document_revision_sessions",
   "document_versions",
   "block_mutations",
@@ -76,14 +92,25 @@ const RESETTABLE_TABLES = [
   "foreign_reference_migrations",
   "legacy_card_shadow_jobs",
   "legacy_card_shadow_heads",
+  "project_resource_grants",
+  "database_module_receipts",
+  "project_database_bindings",
+  "database_view_page_positions",
   "database_view_positions",
   "database_views",
+  "data_source_property_values",
+  "data_source_page_memberships",
+  "library_block_placements",
+  "pages",
+  "data_source_properties",
+  "data_sources",
   "database_property_values",
   "database_memberships",
   "database_properties",
+  "database_containers",
   "database_capabilities",
-  "scheduled_card_index",
-  "canvas_card_references",
+  "scheduled_page_index",
+  "canvas_page_references",
   "canvas_scene_file_refs",
   "canvas_scene_mutation_receipts",
   "canvas_scene_files",
@@ -134,12 +161,14 @@ const RESETTABLE_TABLES = [
   "project_order",
   "project_sources",
   "projects",
+  "libraries",
+  "profiles",
   // Kept here so a versionless local file can still be reset safely.
   "recurrence_occurrence_log",
 ];
 
 const PRIMARY_DATABASE_SCHEMA_KEY = "nodex.database";
-const CARD_DOCUMENT_SCHEMA_KEY = "nodex.card";
+const PAGE_DOCUMENT_SCHEMA_KEY = "nodex.page";
 const FRACTIONAL_DATABASE_RANK_MAX = (1n << 128n) - 1n;
 
 function databaseFractionalRankForOrdinal(
@@ -168,7 +197,7 @@ const PRIMARY_DATABASE_PROPERTY_DEFINITIONS: readonly PrimaryDatabasePropertyDef
       key: "status",
       name: "Status",
       valueType: "select",
-      config: { options: CARD_STATUS_COLUMNS },
+      config: { options: WORKFLOW_STATUS_COLUMNS },
       rankKey: databaseFractionalRankForOrdinal(0, 8),
     },
     {
@@ -381,11 +410,11 @@ function makeLegacyCardMetadataProjectionSql(
   `;
 }
 
-function primaryDatabaseBlockId(projectId: string): string {
+export function primaryDatabaseBlockId(projectId: string): string {
   return `database:${projectId}:primary`;
 }
 
-function cardDocumentId(cardId: string): string {
+function pageDocumentId(cardId: string): string {
   return `document:${cardId}`;
 }
 
@@ -506,14 +535,14 @@ function createForeignReferenceMigrationSchema(db: Database.Database): void {
         FROM blocks host
         WHERE host.id = NEW.host_block_id
           AND host.project_id = NEW.project_id
-          AND host.type = 'card'
+          AND host.type = 'page'
       ) OR (
         NEW.recovered_card_id IS NOT NULL
         AND NOT EXISTS (
           SELECT 1
           FROM blocks recovered
           WHERE recovered.id = NEW.recovered_card_id
-            AND recovered.type = 'card'
+            AND recovered.type = 'page'
         )
       )
       BEGIN
@@ -536,14 +565,14 @@ function createForeignReferenceMigrationSchema(db: Database.Database): void {
         FROM blocks host
         WHERE host.id = NEW.host_block_id
           AND host.project_id = NEW.project_id
-          AND host.type = 'card'
+          AND host.type = 'page'
       ) OR (
         NEW.recovered_card_id IS NOT NULL
         AND NOT EXISTS (
           SELECT 1
           FROM blocks recovered
           WHERE recovered.id = NEW.recovered_card_id
-            AND recovered.type = 'card'
+            AND recovered.type = 'page'
         )
       )
       BEGIN
@@ -1060,42 +1089,6 @@ function createAtomicBlockRelocationSchema(db: Database.Database): void {
   `);
 }
 
-function createCardProjectTransferFenceSchema(
-  db: Database.Database,
-): void {
-  db.exec(`
-    -- Compatibility Card rows are projections, but a few remaining readers
-    -- still expect their Project coordinate to follow the canonical Block.
-    -- Only the typed transfer kernel may open this short-lived write fence;
-    -- both the fence and the compatibility update live in its one transaction.
-    CREATE TABLE IF NOT EXISTS card_project_transfer_write_fences (
-      operation_id TEXT NOT NULL,
-      card_id TEXT NOT NULL UNIQUE REFERENCES cards(id) ON DELETE CASCADE,
-      source_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
-      target_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY (operation_id, card_id),
-      CHECK (length(operation_id) BETWEEN 1 AND 512),
-      CHECK (source_project_id <> target_project_id),
-      CHECK (length(created_at) > 0)
-    ) WITHOUT ROWID;
-
-    CREATE TRIGGER IF NOT EXISTS cards_project_transfer_requires_write_fence
-      BEFORE UPDATE OF project_id ON cards
-      WHEN NEW.project_id <> OLD.project_id
-        AND NOT EXISTS (
-          SELECT 1
-          FROM card_project_transfer_write_fences fence
-          WHERE fence.card_id = OLD.id
-            AND fence.source_project_id = OLD.project_id
-            AND fence.target_project_id = NEW.project_id
-        )
-      BEGIN
-        SELECT RAISE(ABORT, 'Card Project coordinate requires a typed transfer');
-      END;
-  `);
-}
-
 function createBlockFoundationSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS block_store_metadata (
@@ -1490,7 +1483,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
           SELECT 1 FROM blocks card
           WHERE card.id = NEW.card_block_id
             AND card.project_id = NEW.project_id
-            AND card.type = 'card'
+            AND card.type = 'page'
         )
       BEGIN
         SELECT RAISE(ABORT, 'active database membership requires a card block');
@@ -1503,7 +1496,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
           SELECT 1 FROM blocks card
           WHERE card.id = NEW.card_block_id
             AND card.project_id = NEW.project_id
-            AND card.type = 'card'
+            AND card.type = 'page'
         )
       BEGIN
         SELECT RAISE(ABORT, 'active database membership requires a card block');
@@ -1584,7 +1577,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
           WHERE capability.block_id = OLD.id
         )
       ) OR (
-        NEW.type <> 'card'
+        NEW.type <> 'page'
         AND EXISTS (
           SELECT 1 FROM database_memberships membership
           WHERE membership.card_block_id = OLD.id
@@ -1687,7 +1680,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
         FROM blocks block
         WHERE block.id = NEW.id
           AND NOT (
-            block.type = 'card'
+            block.type = 'page'
             AND block.lifecycle = 'deleted'
             AND block.project_id = NEW.project_id
           )
@@ -1705,7 +1698,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
         ) VALUES (
           NEW.id,
           NEW.project_id,
-          'card',
+          'page',
           CASE WHEN NEW.archived = 1 THEN 'archived' ELSE 'active' END,
           'space',
           NULL,
@@ -1715,7 +1708,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
           NEW.created
         )
         ON CONFLICT(id) DO UPDATE SET
-          type = 'card',
+          type = 'page',
           lifecycle = excluded.lifecycle,
           location_kind = 'space',
           containing_document_id = NULL,
@@ -1747,7 +1740,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
           NEW.project_id,
           1,
           0,
-          '${CARD_DOCUMENT_SCHEMA_KEY}',
+          '${PAGE_DOCUMENT_SCHEMA_KEY}',
           1,
           X'',
           '',
@@ -1812,7 +1805,7 @@ function createBlockFoundationSchema(db: Database.Database): void {
         SET lifecycle = CASE WHEN NEW.archived = 1 THEN 'archived' ELSE 'active' END,
             metadata_revision = MAX(metadata_revision, MAX(1, NEW.revision)),
             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        WHERE id = NEW.id AND type = 'card';
+        WHERE id = NEW.id AND type = 'page';
 
         UPDATE top_level_block_placements
         SET rank_key = '100000000000:' || NEW.status || ':' ||
@@ -2559,7 +2552,7 @@ function createCardReadModelValidationTriggers(db: Database.Database): void {
           ON materialization.document_id = document.id
         WHERE card.id = NEW.card_block_id
           AND card.project_id = NEW.project_id
-          AND card.type = 'card'
+          AND card.type = 'page'
           AND card.lifecycle = NEW.lifecycle
           AND card.location_kind = NEW.location_kind
           AND card.containing_document_id IS NEW.containing_document_id
@@ -2616,7 +2609,7 @@ function createCardReadModelValidationTriggers(db: Database.Database): void {
           ON materialization.document_id = document.id
         WHERE card.id = NEW.card_block_id
           AND card.project_id = NEW.project_id
-          AND card.type = 'card'
+          AND card.type = 'page'
           AND card.lifecycle = NEW.lifecycle
           AND card.location_kind = NEW.location_kind
           AND card.containing_document_id IS NEW.containing_document_id
@@ -3073,7 +3066,7 @@ function createCardBehaviorRecordIndexesAndTriggers(
           FROM blocks block
           WHERE block.id = NEW.${definition.blockIdColumn}
             AND block.project_id = NEW.project_id
-            AND block.type = 'card'
+            AND block.type = 'page'
         )
         BEGIN
           SELECT RAISE(ABORT, '${definition.label} owner must be a Card Block in the same Project');
@@ -3087,7 +3080,7 @@ function createCardBehaviorRecordIndexesAndTriggers(
           FROM blocks block
           WHERE block.id = NEW.${definition.blockIdColumn}
             AND block.project_id = NEW.project_id
-            AND block.type = 'card'
+            AND block.type = 'page'
         )
         BEGIN
           SELECT RAISE(ABORT, '${definition.label} owner must be a Card Block in the same Project');
@@ -3098,7 +3091,7 @@ function createCardBehaviorRecordIndexesAndTriggers(
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS card_behavior_records_guard_block_retype
       BEFORE UPDATE OF type ON blocks
-      WHEN NEW.type <> 'card'
+      WHEN NEW.type <> 'page'
         AND (
           EXISTS (
             SELECT 1 FROM recurrence_exceptions behavior
@@ -3154,7 +3147,7 @@ function assertCardBehaviorRecordOwners(
         LEFT JOIN blocks block
           ON block.id = behavior.card_id
          AND block.project_id = behavior.project_id
-        WHERE block.id IS NULL OR block.type <> 'card'
+        WHERE block.id IS NULL OR block.type <> 'page'
         LIMIT 1
       `,
       )
@@ -3174,7 +3167,7 @@ function assertCardBehaviorRecordOwners(
       LEFT JOIN blocks block
         ON block.id = schedule.card_block_id
        AND block.project_id = schedule.project_id
-      WHERE block.id IS NULL OR block.type <> 'card'
+      WHERE block.id IS NULL OR block.type <> 'page'
       LIMIT 1
     `,
     )
@@ -4237,7 +4230,7 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
       location_revision, metadata_revision, created_at, updated_at
-    ) VALUES (?, ?, 'card', ?, 'space', NULL, 1, ?, ?, ?)
+    ) VALUES (?, ?, 'page', ?, 'space', NULL, 1, ?, ?, ?)
     ON CONFLICT(id) DO NOTHING
   `);
   const insertPlacement = db.prepare(`
@@ -4272,7 +4265,7 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
   `);
 
   for (const card of cards) {
-    const documentId = cardDocumentId(card.id);
+    const documentId = pageDocumentId(card.id);
     const databaseBlockId = primaryDatabaseBlockId(card.project_id);
     const viewId = seededPrimaryDatabaseViewId(card.project_id);
     const lifecycle = card.archived === 1 ? "archived" : "active";
@@ -4296,7 +4289,7 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
     insertDocument.run(
       documentId,
       card.project_id,
-      CARD_DOCUMENT_SCHEMA_KEY,
+      PAGE_DOCUMENT_SCHEMA_KEY,
       Math.max(1, card.revision),
       card.created,
       card.created,
@@ -4328,7 +4321,7 @@ function seedLegacyCardBlockFoundation(db: Database.Database): void {
     LEFT JOIN blocks block
       ON block.id = card.id
       AND block.project_id = card.project_id
-      AND block.type = 'card'
+      AND block.type = 'page'
     LEFT JOIN block_documents ownership ON ownership.block_id = card.id
     LEFT JOIN documents document
       ON document.id = ownership.document_id
@@ -4462,7 +4455,7 @@ function seedLegacyCardShadowOutbox(db: Database.Database): void {
   }
 }
 
-function seedCardDocumentImportQueue(db: Database.Database): void {
+function seedPageDocumentImportQueue(db: Database.Database): void {
   const migrate = db.transaction(() => {
     createLegacyCardShadowOutboxSchema(db);
     seedLegacyCardShadowOutbox(db);
@@ -4854,7 +4847,7 @@ function backfillExistingDocumentMaterializations(db: Database.Database): void {
       ON ownership.document_id = materialization.document_id
     INNER JOIN blocks owner
       ON owner.id = ownership.block_id
-      AND owner.type = 'card'
+      AND owner.type = 'page'
     LEFT JOIN cards card ON card.id = ownership.block_id
     ORDER BY materialization.document_id
   `,
@@ -5628,7 +5621,7 @@ function assertImportedDatabaseIntegrity(db: Database.Database): void {
         `Primary Database View ${view.id} does not use its seeded stable identity`,
       );
     }
-    const config = parseGeneralDatabaseViewConfig(rawConfig);
+    const config = parseDatabaseViewConfig(rawConfig);
     const propertyIds = new Set([
       ...importedViewFilterPropertyIds(config.filter),
       ...config.sort.flatMap((sort) =>
@@ -5885,7 +5878,6 @@ function rebuildTransferScopeForStableIdentity(db: Database.Database): void {
         DROP TRIGGER IF EXISTS cards_block_foundation_after_cross_project_update;
       `);
       rebuildImportedProjectTransferScopeTables(db);
-      createCardProjectTransferFenceSchema(db);
       assertImportedProjectTransferScope(db);
     });
     migrate.immediate();
@@ -6010,7 +6002,7 @@ function createExclusiveCardParentTriggers(db: Database.Database): void {
           SELECT 1 FROM blocks card
           WHERE card.id = NEW.card_block_id
             AND card.project_id = NEW.project_id
-            AND card.type = 'card'
+            AND card.type = 'page'
             AND card.location_kind = 'database'
             AND card.containing_database_id = NEW.database_block_id
         )
@@ -6026,7 +6018,7 @@ function createExclusiveCardParentTriggers(db: Database.Database): void {
           SELECT 1 FROM blocks card
           WHERE card.id = NEW.card_block_id
             AND card.project_id = NEW.project_id
-            AND card.type = 'card'
+            AND card.type = 'page'
             AND card.location_kind = 'database'
             AND card.containing_database_id = NEW.database_block_id
         )
@@ -6044,7 +6036,7 @@ function createExclusiveCardParentTriggers(db: Database.Database): void {
         WHERE membership.card_block_id = OLD.id
           AND membership.removed_at IS NULL
           AND (
-            NEW.type <> 'card'
+            NEW.type <> 'page'
             OR NEW.project_id <> membership.project_id
             OR NEW.location_kind <> 'database'
             OR NEW.containing_database_id IS NOT membership.database_block_id
@@ -6105,7 +6097,7 @@ function assertExclusiveCardParentParity(db: Database.Database): void {
         AND (
           card.id IS NULL
           OR card.project_id <> membership.project_id
-          OR card.type <> 'card'
+          OR card.type <> 'page'
           OR card.location_kind <> 'database'
           OR card.containing_database_id IS NOT membership.database_block_id
         )
@@ -6124,7 +6116,7 @@ function assertExclusiveCardParentParity(db: Database.Database): void {
       `
       SELECT card.id
       FROM blocks card
-      WHERE card.type = 'card'
+      WHERE card.type = 'page'
         AND card.lifecycle <> 'deleted'
         AND card.location_kind = 'database'
         AND NOT EXISTS (
@@ -6381,14 +6373,14 @@ function upgradeImportedCardRichTitles(db: Database.Database): void {
       UPDATE documents
       SET schema_version = 2,
           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-      WHERE schema_key = 'nodex.card'
+      WHERE schema_key = 'nodex.page'
         AND schema_version = 1
         AND EXISTS (
           SELECT 1
           FROM block_documents ownership
           JOIN blocks owner ON owner.id = ownership.block_id
           WHERE ownership.document_id = documents.id
-            AND owner.type = 'card'
+            AND owner.type = 'page'
         );
 
       UPDATE document_materializations
@@ -6396,7 +6388,7 @@ function upgradeImportedCardRichTitles(db: Database.Database): void {
       WHERE document_id IN (
         SELECT document.id
         FROM documents document
-        WHERE document.schema_key = 'nodex.card'
+        WHERE document.schema_key = 'nodex.page'
           AND document.schema_version = 2
       );
 
@@ -6409,9 +6401,9 @@ function upgradeImportedCardRichTitles(db: Database.Database): void {
           JOIN block_documents ownership
             ON ownership.document_id = document.id
           JOIN blocks owner ON owner.id = ownership.block_id
-          WHERE document.schema_key = 'nodex.card'
+          WHERE document.schema_key = 'nodex.page'
             AND document.schema_version = 2
-            AND owner.type = 'card'
+            AND owner.type = 'page'
         );
     `);
   });
@@ -6433,7 +6425,7 @@ export function prepareShippedSchemaImport(
   assertShippedImportSource(db);
   addLegacyHistoryGroupIndex(db);
   createCardBlockImportFoundation(db);
-  seedCardDocumentImportQueue(db);
+  seedPageDocumentImportQueue(db);
   backfillDocumentUpdateReceipts(db);
   materializeLegacyCardMetadata(db);
   createForeignReferenceImportLedger(db);
@@ -6472,6 +6464,48 @@ interface Schema58ProjectSessionTabRow {
   readonly created_at: string;
   readonly updated_at: string;
 }
+
+const migratePageStageTabIdentity = (
+  kind: string,
+  configJson: string,
+): { readonly kind: string; readonly configJson: string } => {
+  if (kind !== "card_stage" && kind !== "page_stage") {
+    return { kind, configJson };
+  }
+
+  const parsed = JSON.parse(configJson) as unknown;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new TypeError("Page Stage tab config must be an object");
+  }
+
+  const config = { ...parsed } as Record<string, unknown>;
+  if (!("pageId" in config) && typeof config.cardId === "string") {
+    config.pageId = config.cardId;
+  }
+  delete config.cardId;
+
+  if (Array.isArray(config.ancestors)) {
+    config.ancestors = config.ancestors.map((ancestor) => {
+      if (
+        typeof ancestor !== "object"
+        || ancestor === null
+        || Array.isArray(ancestor)
+      ) return ancestor;
+
+      const migrated = { ...ancestor } as Record<string, unknown>;
+      if (!("pageId" in migrated) && typeof migrated.cardId === "string") {
+        migrated.pageId = migrated.cardId;
+      }
+      delete migrated.cardId;
+      return migrated;
+    });
+  }
+
+  return {
+    kind: "page_stage",
+    configJson: JSON.stringify(config),
+  };
+};
 
 const rebuildProjectSessionTabsForSchema59 = (
   db: Database.Database,
@@ -6526,6 +6560,7 @@ const rebuildProjectSessionTabsForSchema59 = (
   `);
 
   for (const row of rows) {
+    const migrated = migratePageStageTabIdentity(row.kind, row.config_json);
     let browserTabId: string | null = null;
     if (row.kind === "browser") {
       const usedIds = browserIdsBySession.get(row.session_id) ?? new Set<string>();
@@ -6547,9 +6582,9 @@ const rebuildProjectSessionTabsForSchema59 = (
       row.project_id,
       browserTabId,
       row.panel_id,
-      row.kind,
+      migrated.kind,
       row.title,
-      row.config_json,
+      migrated.configJson,
       row.state_key,
       row.state_json,
       row.order,
@@ -6639,7 +6674,7 @@ export function migrateSchema59To60(db: Database.Database): void {
     );
   }
 
-  finalizeCardReferenceIdentityStorage(db);
+  finalizePageReferenceIdentityStorage(db);
   const publish = db.transaction(() => {
     const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
     if (foreignKeyViolations.length > 0) {
@@ -6660,7 +6695,7 @@ export function migrateSchema60To61(db: Database.Database): void {
     );
   }
 
-  finalizeCardNfmIdentityProjection(db);
+  finalizePageNfmIdentityProjection(db);
   const publish = db.transaction(() => {
     const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
     if (foreignKeyViolations.length > 0) {
@@ -7011,6 +7046,1826 @@ export function migrateSchema66To67(db: Database.Database): void {
   migrate.immediate();
 }
 
+const readLocalProfileLibrary = (
+  db: Database.Database,
+): LocalProfileLibrary | null => {
+  const rows = db.prepare(`
+    SELECT profile.id AS profileId, library.id AS libraryId
+    FROM profiles profile
+    INNER JOIN libraries library ON library.profile_id = profile.id
+    ORDER BY profile.created_at ASC, profile.id ASC
+  `).all() as LocalProfileLibrary[];
+  if (rows.length > 1) {
+    throw new Error("A local store may contain only one Profile Library");
+  }
+  return rows[0] ?? null;
+};
+
+export function ensureLocalProfileLibrary(
+  db: Database.Database,
+  now = new Date().toISOString(),
+): LocalProfileLibrary {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profiles (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (length(trim(id)) BETWEEN 1 AND 512)
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS libraries (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL UNIQUE
+        REFERENCES profiles(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (length(trim(id)) BETWEEN 1 AND 512)
+    ) WITHOUT ROWID;
+  `);
+
+  const existing = readLocalProfileLibrary(db);
+  if (existing) return existing;
+
+  const profileId = randomUUID();
+  const libraryId = randomUUID();
+  db.prepare(`
+    INSERT INTO profiles (id, created_at, updated_at) VALUES (?, ?, ?)
+  `).run(profileId, now, now);
+  db.prepare(`
+    INSERT INTO libraries (id, profile_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+  `).run(libraryId, profileId, now, now);
+  return { profileId, libraryId };
+}
+
+function createLibraryDatabaseFoundationSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS database_containers (
+      block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      name TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      default_view_id TEXT,
+      access_revision INTEGER NOT NULL DEFAULT 1 CHECK (access_revision >= 1),
+      metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK (metadata_revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+      CHECK (length(trim(name)) BETWEEN 1 AND 256)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_database_containers_library_lifecycle
+      ON database_containers(library_id, lifecycle, block_id);
+
+    CREATE TABLE IF NOT EXISTS data_sources (
+      id TEXT PRIMARY KEY,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      home_database_block_id TEXT NOT NULL
+        REFERENCES database_containers(block_id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      schema_key TEXT NOT NULL,
+      schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1),
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      rank_key TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, home_database_block_id),
+      CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+      CHECK (length(trim(name)) BETWEEN 1 AND 256)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_data_sources_home_order
+      ON data_sources(home_database_block_id, lifecycle, rank_key, id);
+
+    CREATE TABLE IF NOT EXISTS data_source_properties (
+      id TEXT PRIMARY KEY,
+      data_source_id TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      value_type TEXT NOT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      rank_key TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      schema_revision INTEGER NOT NULL DEFAULT 1 CHECK (schema_revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (id, data_source_id),
+      CHECK (length(key) BETWEEN 1 AND 128),
+      CHECK (length(name) BETWEEN 1 AND 256),
+      CHECK (value_type IN (
+        'text', 'number', 'checkbox', 'select', 'multi_select',
+        'date', 'datetime', 'person'
+      )),
+      CHECK (lifecycle IN ('active', 'deleted')),
+      CHECK (json_valid(config_json) AND json_type(config_json) = 'object')
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_data_source_properties_active_key
+      ON data_source_properties(data_source_id, key)
+      WHERE lifecycle = 'active';
+    CREATE INDEX IF NOT EXISTS idx_data_source_properties_order
+      ON data_source_properties(data_source_id, lifecycle, rank_key, id);
+
+    CREATE TABLE IF NOT EXISTS data_source_page_memberships (
+      id TEXT PRIMARY KEY,
+      data_source_id TEXT NOT NULL REFERENCES data_sources(id) ON DELETE CASCADE,
+      page_block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      created_at TEXT NOT NULL,
+      removed_at TEXT,
+      UNIQUE (id, data_source_id)
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_data_source_memberships_active_page
+      ON data_source_page_memberships(page_block_id)
+      WHERE removed_at IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_data_source_memberships_history
+      ON data_source_page_memberships(data_source_id, page_block_id);
+    CREATE INDEX IF NOT EXISTS idx_data_source_memberships_source_active
+      ON data_source_page_memberships(data_source_id, removed_at, page_block_id);
+
+    CREATE TABLE IF NOT EXISTS data_source_property_values (
+      membership_id TEXT NOT NULL,
+      property_id TEXT NOT NULL,
+      data_source_id TEXT NOT NULL,
+      value_type TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (membership_id, property_id),
+      FOREIGN KEY (membership_id, data_source_id)
+        REFERENCES data_source_page_memberships(id, data_source_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      FOREIGN KEY (property_id, data_source_id)
+        REFERENCES data_source_properties(id, data_source_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+      CHECK (value_type IN (
+        'text', 'number', 'checkbox', 'select', 'multi_select',
+        'date', 'datetime', 'person'
+      )),
+      CHECK (json_valid(value_json))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_data_source_property_values_property
+      ON data_source_property_values(property_id, membership_id);
+
+    CREATE TABLE IF NOT EXISTS database_view_page_positions (
+      view_id TEXT NOT NULL,
+      page_block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+      group_key TEXT,
+      rank_key TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (view_id, page_block_id),
+      FOREIGN KEY (view_id) REFERENCES database_views(id) ON DELETE CASCADE
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_database_view_page_positions_order
+      ON database_view_page_positions(
+        view_id, group_key, rank_key, page_block_id
+      );
+
+    CREATE TABLE IF NOT EXISTS project_database_bindings (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      database_block_id TEXT NOT NULL
+        REFERENCES database_containers(block_id) ON DELETE RESTRICT,
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (lifecycle IN ('active', 'inactive', 'archived'))
+    ) WITHOUT ROWID;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_project_database_bindings_active
+      ON project_database_bindings(database_block_id)
+      WHERE lifecycle = 'active';
+
+    CREATE TABLE IF NOT EXISTS project_resource_grants (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      root_kind TEXT NOT NULL,
+      root_id TEXT NOT NULL,
+      access TEXT NOT NULL,
+      recursive INTEGER NOT NULL DEFAULT 1 CHECK (recursive = 1),
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      lifecycle TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (project_id, root_kind, root_id),
+      CHECK (root_kind IN ('page', 'database')),
+      CHECK (access IN ('read', 'read_write')),
+      CHECK (lifecycle IN ('active', 'revoked'))
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_project_resource_grants_active
+      ON project_resource_grants(project_id, lifecycle, root_kind, root_id);
+  `);
+}
+
+function installLibraryDatabaseProjectionTriggers(db: Database.Database): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS database_capabilities_project_library_after_insert;
+    CREATE TRIGGER database_capabilities_project_library_after_insert
+      AFTER INSERT ON database_capabilities
+      BEGIN
+        INSERT INTO database_containers (
+          block_id, library_id, name, lifecycle, default_view_id,
+          access_revision, metadata_revision, created_at, updated_at
+        )
+        SELECT
+          NEW.block_id, project.library_id, NEW.name, 'active', NULL,
+          1, NEW.schema_revision, NEW.created_at, NEW.updated_at
+        FROM projects project
+        WHERE project.id = NEW.project_id
+        ON CONFLICT(block_id) DO UPDATE SET
+          library_id = excluded.library_id,
+          name = excluded.name,
+          metadata_revision = excluded.metadata_revision,
+          updated_at = excluded.updated_at;
+
+        INSERT INTO data_sources (
+          id, library_id, home_database_block_id, name, schema_key,
+          schema_revision, lifecycle, rank_key, created_at, updated_at
+        )
+        SELECT
+          NEW.block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+          project.library_id,
+          NEW.block_id,
+          NEW.name,
+          NEW.schema_key,
+          NEW.schema_revision,
+          'active',
+          '80000000000000000000000000000000',
+          NEW.created_at,
+          NEW.updated_at
+        FROM projects project
+        WHERE project.id = NEW.project_id
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          schema_key = excluded.schema_key,
+          schema_revision = excluded.schema_revision,
+          updated_at = excluded.updated_at;
+
+        INSERT INTO project_database_bindings (
+          project_id, library_id, database_block_id, lifecycle, revision,
+          created_at, updated_at
+        )
+        SELECT
+          project.id, project.library_id, NEW.block_id, project.lifecycle,
+          project.binding_revision, project.created, project.updated
+        FROM projects project
+        WHERE project.id = NEW.project_id
+          AND project.database_block_id = NEW.block_id
+        ON CONFLICT(project_id) DO UPDATE SET
+          library_id = excluded.library_id,
+          database_block_id = excluded.database_block_id,
+          lifecycle = excluded.lifecycle,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_capabilities_project_library_after_update;
+    CREATE TRIGGER database_capabilities_project_library_after_update
+      AFTER UPDATE OF name, schema_key, schema_revision, updated_at
+      ON database_capabilities
+      BEGIN
+        UPDATE database_containers
+        SET name = NEW.name,
+            metadata_revision = NEW.schema_revision,
+            updated_at = NEW.updated_at
+        WHERE block_id = NEW.block_id;
+        UPDATE data_sources
+        SET name = NEW.name,
+            schema_key = NEW.schema_key,
+            schema_revision = NEW.schema_revision,
+            updated_at = NEW.updated_at
+        WHERE id = NEW.block_id || '${INITIAL_DATA_SOURCE_SUFFIX}';
+      END;
+
+    DROP TRIGGER IF EXISTS database_properties_data_source_after_insert;
+    CREATE TRIGGER database_properties_data_source_after_insert
+      AFTER INSERT ON database_properties
+      BEGIN
+        INSERT INTO data_source_properties (
+          id, data_source_id, key, name, value_type, config_json, rank_key,
+          lifecycle, schema_revision, created_at, updated_at
+        ) VALUES (
+          NEW.id, NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+          NEW.key, NEW.name, NEW.value_type, NEW.config_json, NEW.rank_key,
+          NEW.lifecycle, NEW.schema_revision, NEW.created_at, NEW.updated_at
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          key = excluded.key,
+          name = excluded.name,
+          value_type = excluded.value_type,
+          config_json = excluded.config_json,
+          rank_key = excluded.rank_key,
+          lifecycle = excluded.lifecycle,
+          schema_revision = excluded.schema_revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_properties_data_source_after_update;
+    CREATE TRIGGER database_properties_data_source_after_update
+      AFTER UPDATE ON database_properties
+      BEGIN
+        INSERT INTO data_source_properties (
+          id, data_source_id, key, name, value_type, config_json, rank_key,
+          lifecycle, schema_revision, created_at, updated_at
+        ) VALUES (
+          NEW.id, NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+          NEW.key, NEW.name, NEW.value_type, NEW.config_json, NEW.rank_key,
+          NEW.lifecycle, NEW.schema_revision, NEW.created_at, NEW.updated_at
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          data_source_id = excluded.data_source_id,
+          key = excluded.key,
+          name = excluded.name,
+          value_type = excluded.value_type,
+          config_json = excluded.config_json,
+          rank_key = excluded.rank_key,
+          lifecycle = excluded.lifecycle,
+          schema_revision = excluded.schema_revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_memberships_data_source_after_insert;
+    CREATE TRIGGER database_memberships_data_source_after_insert
+      AFTER INSERT ON database_memberships
+      BEGIN
+        INSERT INTO data_source_page_memberships (
+          id, data_source_id, page_block_id, revision, created_at, removed_at
+        ) VALUES (
+          NEW.id, NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+          NEW.card_block_id, NEW.revision, NEW.created_at, NEW.removed_at
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          data_source_id = excluded.data_source_id,
+          page_block_id = excluded.page_block_id,
+          revision = excluded.revision,
+          removed_at = excluded.removed_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_memberships_data_source_after_update;
+    CREATE TRIGGER database_memberships_data_source_after_update
+      AFTER UPDATE ON database_memberships
+      BEGIN
+        INSERT INTO data_source_page_memberships (
+          id, data_source_id, page_block_id, revision, created_at, removed_at
+        ) VALUES (
+          NEW.id, NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+          NEW.card_block_id, NEW.revision, NEW.created_at, NEW.removed_at
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          data_source_id = excluded.data_source_id,
+          page_block_id = excluded.page_block_id,
+          revision = excluded.revision,
+          removed_at = excluded.removed_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_property_values_data_source_after_insert;
+    CREATE TRIGGER database_property_values_data_source_after_insert
+      AFTER INSERT ON database_property_values
+      BEGIN
+        INSERT INTO data_source_property_values (
+          membership_id, property_id, data_source_id, value_type, value_json,
+          revision, updated_at
+        ) VALUES (
+          NEW.membership_id, NEW.property_id,
+          NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+          NEW.value_type, NEW.value_json, NEW.revision, NEW.updated_at
+        )
+        ON CONFLICT(membership_id, property_id) DO UPDATE SET
+          data_source_id = excluded.data_source_id,
+          value_type = excluded.value_type,
+          value_json = excluded.value_json,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_property_values_data_source_after_update;
+    CREATE TRIGGER database_property_values_data_source_after_update
+      AFTER UPDATE ON database_property_values
+      BEGIN
+        INSERT INTO data_source_property_values (
+          membership_id, property_id, data_source_id, value_type, value_json,
+          revision, updated_at
+        ) VALUES (
+          NEW.membership_id, NEW.property_id,
+          NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+          NEW.value_type, NEW.value_json, NEW.revision, NEW.updated_at
+        )
+        ON CONFLICT(membership_id, property_id) DO UPDATE SET
+          data_source_id = excluded.data_source_id,
+          value_type = excluded.value_type,
+          value_json = excluded.value_json,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_views_data_source_after_insert;
+    CREATE TRIGGER database_views_data_source_after_insert
+      AFTER INSERT ON database_views
+      BEGIN
+        UPDATE database_views
+        SET data_source_id = NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}'
+        WHERE id = NEW.id AND data_source_id IS NULL;
+        UPDATE database_containers
+        SET default_view_id = CASE
+              WHEN NEW.is_primary = 1 AND NEW.lifecycle = 'active'
+              THEN NEW.id ELSE default_view_id END,
+            updated_at = NEW.updated_at
+        WHERE block_id = NEW.database_block_id;
+      END;
+
+    DROP TRIGGER IF EXISTS database_views_data_source_after_update;
+    CREATE TRIGGER database_views_data_source_after_update
+      AFTER UPDATE OF database_block_id, data_source_id, is_primary, lifecycle,
+        updated_at ON database_views
+      BEGIN
+        UPDATE database_views
+        SET data_source_id = NEW.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}'
+        WHERE id = NEW.id AND data_source_id IS NULL;
+        UPDATE database_containers
+        SET default_view_id = CASE
+              WHEN NEW.is_primary = 1 AND NEW.lifecycle = 'active'
+              THEN NEW.id
+              WHEN default_view_id = OLD.id
+                AND (NEW.is_primary = 0 OR NEW.lifecycle <> 'active')
+              THEN NULL
+              ELSE default_view_id END,
+            updated_at = NEW.updated_at
+        WHERE block_id = NEW.database_block_id;
+      END;
+
+    DROP TRIGGER IF EXISTS database_view_positions_page_after_insert;
+    CREATE TRIGGER database_view_positions_page_after_insert
+      AFTER INSERT ON database_view_positions
+      BEGIN
+        INSERT INTO database_view_page_positions (
+          view_id, page_block_id, group_key, rank_key, revision,
+          created_at, updated_at
+        ) VALUES (
+          NEW.view_id, NEW.block_id, NEW.group_key, NEW.rank_key, NEW.revision,
+          NEW.created_at, NEW.updated_at
+        )
+        ON CONFLICT(view_id, page_block_id) DO UPDATE SET
+          group_key = excluded.group_key,
+          rank_key = excluded.rank_key,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_view_positions_page_after_update;
+    CREATE TRIGGER database_view_positions_page_after_update
+      AFTER UPDATE ON database_view_positions
+      BEGIN
+        INSERT INTO database_view_page_positions (
+          view_id, page_block_id, group_key, rank_key, revision,
+          created_at, updated_at
+        ) VALUES (
+          NEW.view_id, NEW.block_id, NEW.group_key, NEW.rank_key, NEW.revision,
+          NEW.created_at, NEW.updated_at
+        )
+        ON CONFLICT(view_id, page_block_id) DO UPDATE SET
+          group_key = excluded.group_key,
+          rank_key = excluded.rank_key,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS database_view_positions_page_after_delete;
+    CREATE TRIGGER database_view_positions_page_after_delete
+      AFTER DELETE ON database_view_positions
+      BEGIN
+        DELETE FROM database_view_page_positions
+        WHERE view_id = OLD.view_id AND page_block_id = OLD.block_id;
+      END;
+
+    DROP TRIGGER IF EXISTS projects_binding_after_update;
+    CREATE TRIGGER projects_binding_after_update
+      AFTER UPDATE OF library_id, database_block_id, lifecycle,
+        binding_revision, updated ON projects
+      WHEN NEW.database_block_id IS NOT NULL AND NEW.library_id IS NOT NULL
+      BEGIN
+        INSERT INTO project_database_bindings (
+          project_id, library_id, database_block_id, lifecycle, revision,
+          created_at, updated_at
+        ) VALUES (
+          NEW.id, NEW.library_id, NEW.database_block_id, NEW.lifecycle,
+          NEW.binding_revision, NEW.created, NEW.updated
+        )
+        ON CONFLICT(project_id) DO UPDATE SET
+          library_id = excluded.library_id,
+          database_block_id = excluded.database_block_id,
+          lifecycle = excluded.lifecycle,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at;
+      END;
+  `);
+}
+
+export function migrateSchema67To68(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 67) {
+    throw new Error(
+      `Schema v67 to v68 migration requires v67, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    const now = new Date().toISOString();
+    const { libraryId } = ensureLocalProfileLibrary(db, now);
+
+    if (!tableHasColumn(db, "projects", "library_id")) {
+      db.exec("ALTER TABLE projects ADD COLUMN library_id TEXT");
+    }
+    if (!tableHasColumn(db, "projects", "database_block_id")) {
+      db.exec("ALTER TABLE projects ADD COLUMN database_block_id TEXT");
+    }
+    if (!tableHasColumn(db, "projects", "lifecycle")) {
+      db.exec(
+        "ALTER TABLE projects ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active'",
+      );
+    }
+    if (!tableHasColumn(db, "projects", "binding_revision")) {
+      db.exec(
+        "ALTER TABLE projects ADD COLUMN binding_revision INTEGER NOT NULL DEFAULT 1",
+      );
+    }
+    if (!tableHasColumn(db, "database_views", "data_source_id")) {
+      db.exec("ALTER TABLE database_views ADD COLUMN data_source_id TEXT");
+    }
+
+    db.prepare(`
+      UPDATE projects
+      SET library_id = ?,
+          database_block_id = (
+            SELECT capability.block_id
+            FROM database_capabilities capability
+            WHERE capability.project_id = projects.id
+              AND capability.is_primary = 1
+          ),
+          lifecycle = 'active',
+          binding_revision = 1
+    `).run(libraryId);
+
+    const unboundProject = db.prepare(`
+      SELECT id FROM projects
+      WHERE library_id IS NULL OR database_block_id IS NULL
+      LIMIT 1
+    `).get() as { readonly id: string } | undefined;
+    if (unboundProject) {
+      throw new Error(
+        `Schema v68 cannot bind Project ${unboundProject.id} to a primary Database`,
+      );
+    }
+
+    createLibraryDatabaseFoundationSchema(db);
+
+    db.prepare(`
+      INSERT INTO database_containers (
+        block_id, library_id, name, lifecycle, default_view_id,
+        access_revision, metadata_revision, created_at, updated_at
+      )
+      SELECT
+        capability.block_id,
+        project.library_id,
+        capability.name,
+        block.lifecycle,
+        (
+          SELECT view.id FROM database_views view
+          WHERE view.database_block_id = capability.block_id
+            AND view.is_primary = 1
+            AND view.lifecycle = 'active'
+          LIMIT 1
+        ),
+        1,
+        capability.schema_revision,
+        capability.created_at,
+        capability.updated_at
+      FROM database_capabilities capability
+      INNER JOIN projects project ON project.id = capability.project_id
+      INNER JOIN blocks block ON block.id = capability.block_id
+      ON CONFLICT(block_id) DO UPDATE SET
+        library_id = excluded.library_id,
+        name = excluded.name,
+        lifecycle = excluded.lifecycle,
+        default_view_id = excluded.default_view_id,
+        metadata_revision = excluded.metadata_revision,
+        updated_at = excluded.updated_at
+    `).run();
+
+    const capabilities = db.prepare(`
+      SELECT
+        capability.block_id AS databaseId,
+        project.library_id AS libraryId,
+        capability.name AS name,
+        capability.schema_key AS schemaKey,
+        capability.schema_revision AS schemaRevision,
+        capability.created_at AS createdAt,
+        capability.updated_at AS updatedAt
+      FROM database_capabilities capability
+      INNER JOIN projects project ON project.id = capability.project_id
+      ORDER BY capability.block_id ASC
+    `).all() as Array<{
+      readonly databaseId: string;
+      readonly libraryId: string;
+      readonly name: string;
+      readonly schemaKey: string;
+      readonly schemaRevision: number;
+      readonly createdAt: string;
+      readonly updatedAt: string;
+    }>;
+    const insertDataSource = db.prepare(`
+      INSERT INTO data_sources (
+        id, library_id, home_database_block_id, name, schema_key,
+        schema_revision, lifecycle, rank_key, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        library_id = excluded.library_id,
+        home_database_block_id = excluded.home_database_block_id,
+        name = excluded.name,
+        schema_key = excluded.schema_key,
+        schema_revision = excluded.schema_revision,
+        lifecycle = excluded.lifecycle,
+        rank_key = excluded.rank_key,
+        updated_at = excluded.updated_at
+    `);
+    for (const capability of capabilities) {
+      insertDataSource.run(
+        initialDataSourceId(capability.databaseId),
+        capability.libraryId,
+        capability.databaseId,
+        capability.name,
+        capability.schemaKey,
+        capability.schemaRevision,
+        "80000000000000000000000000000000",
+        capability.createdAt,
+        capability.updatedAt,
+      );
+    }
+
+    db.exec(`
+      INSERT OR REPLACE INTO data_source_properties (
+        id, data_source_id, key, name, value_type, config_json, rank_key,
+        lifecycle, schema_revision, created_at, updated_at
+      )
+      SELECT
+        property.id,
+        property.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+        property.key,
+        property.name,
+        property.value_type,
+        property.config_json,
+        property.rank_key,
+        property.lifecycle,
+        property.schema_revision,
+        property.created_at,
+        property.updated_at
+      FROM database_properties property;
+
+      INSERT OR REPLACE INTO data_source_page_memberships (
+        id, data_source_id, page_block_id, revision, created_at, removed_at
+      )
+      SELECT
+        membership.id,
+        membership.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+        membership.card_block_id,
+        membership.revision,
+        membership.created_at,
+        membership.removed_at
+      FROM database_memberships membership;
+
+      INSERT OR REPLACE INTO data_source_property_values (
+        membership_id, property_id, data_source_id, value_type, value_json,
+        revision, updated_at
+      )
+      SELECT
+        value.membership_id,
+        value.property_id,
+        value.database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}',
+        value.value_type,
+        value.value_json,
+        value.revision,
+        value.updated_at
+      FROM database_property_values value;
+
+      UPDATE database_views
+      SET data_source_id = database_block_id || '${INITIAL_DATA_SOURCE_SUFFIX}'
+      WHERE data_source_id IS NULL;
+
+      INSERT OR REPLACE INTO database_view_page_positions (
+        view_id, page_block_id, group_key, rank_key, revision,
+        created_at, updated_at
+      )
+      SELECT
+        view_id, block_id, group_key, rank_key, revision, created_at, updated_at
+      FROM database_view_positions;
+
+      INSERT OR REPLACE INTO project_database_bindings (
+        project_id, library_id, database_block_id, lifecycle, revision,
+        created_at, updated_at
+      )
+      SELECT
+        id, library_id, database_block_id, lifecycle, binding_revision,
+        created, updated
+      FROM projects;
+    `);
+
+    installLibraryDatabaseProjectionTriggers(db);
+
+    const invalidView = db.prepare(`
+      SELECT view.id
+      FROM database_views view
+      LEFT JOIN data_sources source ON source.id = view.data_source_id
+      WHERE source.id IS NULL
+        OR source.home_database_block_id <> view.database_block_id
+      LIMIT 1
+    `).get() as { readonly id: string } | undefined;
+    if (invalidView) {
+      throw new Error(
+        `Schema v68 View ${invalidView.id} does not target its Database's initial Data Source`,
+      );
+    }
+
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v68 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 68);
+  });
+  migrate.immediate();
+}
+
+function createLibraryPageFoundationSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pages (
+      block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      document_id TEXT NOT NULL UNIQUE REFERENCES documents(id) ON DELETE RESTRICT,
+      parent_kind TEXT NOT NULL,
+      parent_id TEXT NOT NULL,
+      lifecycle TEXT NOT NULL,
+      parent_revision INTEGER NOT NULL DEFAULT 1 CHECK (parent_revision >= 1),
+      metadata_revision INTEGER NOT NULL DEFAULT 1 CHECK (metadata_revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (parent_kind IN ('library', 'page', 'data_source')),
+      CHECK (lifecycle IN ('active', 'archived', 'deleted')),
+      CHECK (length(trim(parent_id)) BETWEEN 1 AND 512)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_pages_library_parent
+      ON pages(library_id, parent_kind, parent_id, lifecycle, block_id);
+    CREATE INDEX IF NOT EXISTS idx_pages_document
+      ON pages(document_id, block_id);
+
+    CREATE TABLE IF NOT EXISTS library_block_placements (
+      block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      rank_key TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE (block_id, library_id)
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_library_block_placements_order
+      ON library_block_placements(library_id, rank_key, block_id);
+  `);
+}
+
+function installLibraryPageIntegrityTriggers(db: Database.Database): void {
+  db.exec(`
+    DROP TRIGGER IF EXISTS pages_validate_parent_insert;
+    CREATE TRIGGER pages_validate_parent_insert
+      BEFORE INSERT ON pages
+      WHEN NOT (
+        (NEW.parent_kind = 'library' AND EXISTS (
+          SELECT 1 FROM libraries library
+          WHERE library.id = NEW.parent_id AND library.id = NEW.library_id
+        ))
+        OR (NEW.parent_kind = 'page' AND NEW.parent_id <> NEW.block_id AND EXISTS (
+          SELECT 1 FROM pages parent
+          WHERE parent.block_id = NEW.parent_id
+            AND parent.library_id = NEW.library_id
+            AND parent.lifecycle <> 'deleted'
+        ))
+        OR (NEW.parent_kind = 'data_source' AND EXISTS (
+          SELECT 1 FROM data_sources source
+          WHERE source.id = NEW.parent_id
+            AND source.library_id = NEW.library_id
+            AND source.lifecycle <> 'deleted'
+        ))
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Page parent must be an owned Library, Page, or Data Source');
+      END;
+
+    DROP TRIGGER IF EXISTS pages_validate_parent_update;
+    CREATE TRIGGER pages_validate_parent_update
+      BEFORE UPDATE OF library_id, parent_kind, parent_id ON pages
+      WHEN NOT (
+        (NEW.parent_kind = 'library' AND EXISTS (
+          SELECT 1 FROM libraries library
+          WHERE library.id = NEW.parent_id AND library.id = NEW.library_id
+        ))
+        OR (NEW.parent_kind = 'page' AND NEW.parent_id <> NEW.block_id AND EXISTS (
+          SELECT 1 FROM pages parent
+          WHERE parent.block_id = NEW.parent_id
+            AND parent.library_id = NEW.library_id
+            AND parent.lifecycle <> 'deleted'
+        ))
+        OR (NEW.parent_kind = 'data_source' AND EXISTS (
+          SELECT 1 FROM data_sources source
+          WHERE source.id = NEW.parent_id
+            AND source.library_id = NEW.library_id
+            AND source.lifecycle <> 'deleted'
+        ))
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Page parent must be an owned Library, Page, or Data Source');
+      END;
+
+    DROP TRIGGER IF EXISTS pages_validate_document_insert;
+    CREATE TRIGGER pages_validate_document_insert
+      BEFORE INSERT ON pages
+      WHEN NOT EXISTS (
+        SELECT 1 FROM block_documents ownership
+        WHERE ownership.block_id = NEW.block_id
+          AND ownership.document_id = NEW.document_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Page must own its declared Document');
+      END;
+
+    DROP TRIGGER IF EXISTS pages_validate_document_update;
+    CREATE TRIGGER pages_validate_document_update
+      BEFORE UPDATE OF block_id, document_id ON pages
+      WHEN NOT EXISTS (
+        SELECT 1 FROM block_documents ownership
+        WHERE ownership.block_id = NEW.block_id
+          AND ownership.document_id = NEW.document_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Page must own its declared Document');
+      END;
+  `);
+}
+
+function pageParentProjectionSql(blockAlias: string): Readonly<{
+  kind: string;
+  id: string;
+}> {
+  return {
+    kind: `CASE ${blockAlias}.location_kind
+      WHEN 'space' THEN 'library'
+      WHEN 'document' THEN 'page'
+      WHEN 'database' THEN 'data_source'
+    END`,
+    id: `CASE ${blockAlias}.location_kind
+      WHEN 'space' THEN project.library_id
+      WHEN 'document' THEN (
+        SELECT parent_ownership.block_id
+        FROM block_documents parent_ownership
+        WHERE parent_ownership.document_id = ${blockAlias}.containing_document_id
+      )
+      WHEN 'database' THEN COALESCE(
+        (
+          SELECT source.id
+          FROM pages current_page
+          INNER JOIN data_sources source
+            ON current_page.parent_kind = 'data_source'
+            AND source.id = current_page.parent_id
+          WHERE current_page.block_id = ${blockAlias}.id
+            AND source.home_database_block_id = ${blockAlias}.containing_database_id
+        ),
+        ${blockAlias}.containing_database_id || '${INITIAL_DATA_SOURCE_SUFFIX}'
+      )
+    END`,
+  };
+}
+
+function installLibraryPageProjectionTriggers(db: Database.Database): void {
+  const parent = pageParentProjectionSql("block");
+  const updatedParent = pageParentProjectionSql("NEW");
+  db.exec(`
+    DROP TRIGGER IF EXISTS block_documents_page_projection_after_insert;
+    CREATE TRIGGER block_documents_page_projection_after_insert
+      AFTER INSERT ON block_documents
+      WHEN (SELECT type FROM blocks WHERE id = NEW.block_id) = 'page'
+      BEGIN
+        INSERT INTO pages (
+          block_id, library_id, document_id, parent_kind, parent_id,
+          lifecycle, parent_revision, metadata_revision, created_at, updated_at
+        )
+        SELECT
+          block.id, project.library_id, NEW.document_id,
+          ${parent.kind}, ${parent.id}, block.lifecycle,
+          block.location_revision, block.metadata_revision,
+          block.created_at, block.updated_at
+        FROM blocks block
+        INNER JOIN projects project ON project.id = block.project_id
+        WHERE block.id = NEW.block_id
+          AND ${parent.kind} IS NOT NULL
+          AND ${parent.id} IS NOT NULL
+        ON CONFLICT(block_id) DO UPDATE SET
+          library_id = excluded.library_id,
+          document_id = excluded.document_id,
+          parent_kind = excluded.parent_kind,
+          parent_id = excluded.parent_id,
+          lifecycle = excluded.lifecycle,
+          parent_revision = excluded.parent_revision,
+          metadata_revision = excluded.metadata_revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS blocks_page_projection_after_update;
+    CREATE TRIGGER blocks_page_projection_after_update
+      AFTER UPDATE OF project_id, type, lifecycle, location_kind,
+        containing_document_id, containing_database_id, location_revision,
+        metadata_revision, updated_at ON blocks
+      WHEN NEW.type = 'page'
+      BEGIN
+        INSERT INTO pages (
+          block_id, library_id, document_id, parent_kind, parent_id,
+          lifecycle, parent_revision, metadata_revision, created_at, updated_at
+        )
+        SELECT
+          NEW.id, project.library_id, ownership.document_id,
+          ${updatedParent.kind}, ${updatedParent.id}, NEW.lifecycle,
+          NEW.location_revision, NEW.metadata_revision,
+          NEW.created_at, NEW.updated_at
+        FROM projects project
+        INNER JOIN block_documents ownership ON ownership.block_id = NEW.id
+        WHERE project.id = NEW.project_id
+          AND ${updatedParent.kind} IS NOT NULL
+          AND ${updatedParent.id} IS NOT NULL
+        ON CONFLICT(block_id) DO UPDATE SET
+          library_id = excluded.library_id,
+          document_id = excluded.document_id,
+          parent_kind = excluded.parent_kind,
+          parent_id = excluded.parent_id,
+          lifecycle = excluded.lifecycle,
+          parent_revision = excluded.parent_revision,
+          metadata_revision = excluded.metadata_revision,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS top_level_placements_library_after_insert;
+    CREATE TRIGGER top_level_placements_library_after_insert
+      AFTER INSERT ON top_level_block_placements
+      BEGIN
+        INSERT INTO library_block_placements (
+          block_id, library_id, rank_key, revision, created_at, updated_at
+        )
+        SELECT NEW.block_id, project.library_id, NEW.rank_key, 1,
+          NEW.created_at, NEW.updated_at
+        FROM projects project WHERE project.id = NEW.project_id
+        ON CONFLICT(block_id) DO UPDATE SET
+          library_id = excluded.library_id,
+          rank_key = excluded.rank_key,
+          revision = library_block_placements.revision + 1,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS top_level_placements_library_after_update;
+    CREATE TRIGGER top_level_placements_library_after_update
+      AFTER UPDATE ON top_level_block_placements
+      BEGIN
+        INSERT INTO library_block_placements (
+          block_id, library_id, rank_key, revision, created_at, updated_at
+        )
+        SELECT NEW.block_id, project.library_id, NEW.rank_key, 1,
+          NEW.created_at, NEW.updated_at
+        FROM projects project WHERE project.id = NEW.project_id
+        ON CONFLICT(block_id) DO UPDATE SET
+          library_id = excluded.library_id,
+          rank_key = excluded.rank_key,
+          revision = library_block_placements.revision + 1,
+          updated_at = excluded.updated_at;
+      END;
+
+    DROP TRIGGER IF EXISTS top_level_placements_library_after_delete;
+    CREATE TRIGGER top_level_placements_library_after_delete
+      AFTER DELETE ON top_level_block_placements
+      BEGIN
+        DELETE FROM library_block_placements WHERE block_id = OLD.block_id;
+      END;
+  `);
+}
+
+function assertDocumentBearingPageProjectionComplete(
+  db: Database.Database,
+  schemaVersion: number,
+): void {
+  const missingPage = db.prepare(`
+    SELECT block.id
+    FROM blocks block
+    INNER JOIN block_documents ownership ON ownership.block_id = block.id
+    LEFT JOIN pages page ON page.block_id = block.id
+    WHERE block.type IN ('card', 'page')
+      AND page.block_id IS NULL
+    LIMIT 1
+  `).get() as { readonly id: string } | undefined;
+  if (!missingPage) return;
+  throw new Error(
+    `Schema v${schemaVersion} did not project document-bearing Page Block ${missingPage.id}`,
+  );
+}
+
+export function migrateSchema68To69(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 68) {
+    throw new Error(
+      `Schema v68 to v69 migration requires v68, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    createLibraryPageFoundationSchema(db);
+    const parent = pageParentProjectionSql("block");
+    db.exec(`
+      INSERT OR REPLACE INTO pages (
+        block_id, library_id, document_id, parent_kind, parent_id,
+        lifecycle, parent_revision, metadata_revision, created_at, updated_at
+      )
+      SELECT
+        block.id, project.library_id, ownership.document_id,
+        ${parent.kind}, ${parent.id}, block.lifecycle,
+        block.location_revision, block.metadata_revision,
+        block.created_at, block.updated_at
+      FROM blocks block
+      INNER JOIN projects project ON project.id = block.project_id
+      INNER JOIN block_documents ownership ON ownership.block_id = block.id
+      WHERE block.type IN ('card', 'page');
+
+      INSERT OR REPLACE INTO library_block_placements (
+        block_id, library_id, rank_key, revision, created_at, updated_at
+      )
+      SELECT placement.block_id, project.library_id, placement.rank_key, 1,
+        placement.created_at, placement.updated_at
+      FROM top_level_block_placements placement
+      INNER JOIN projects project ON project.id = placement.project_id;
+    `);
+
+    assertDocumentBearingPageProjectionComplete(db, 69);
+
+    const invalidPage = db.prepare(`
+      SELECT page.block_id
+      FROM pages page
+      LEFT JOIN libraries library
+        ON page.parent_kind = 'library'
+        AND library.id = page.parent_id
+        AND library.id = page.library_id
+      LEFT JOIN pages parent_page
+        ON page.parent_kind = 'page'
+        AND parent_page.block_id = page.parent_id
+        AND parent_page.library_id = page.library_id
+      LEFT JOIN data_sources source
+        ON page.parent_kind = 'data_source'
+        AND source.id = page.parent_id
+        AND source.library_id = page.library_id
+      LEFT JOIN block_documents ownership
+        ON ownership.block_id = page.block_id
+        AND ownership.document_id = page.document_id
+      WHERE ownership.block_id IS NULL
+        OR (page.parent_kind = 'library' AND library.id IS NULL)
+        OR (page.parent_kind = 'page' AND parent_page.block_id IS NULL)
+        OR (page.parent_kind = 'data_source' AND source.id IS NULL)
+      LIMIT 1
+    `).get() as { readonly block_id: string } | undefined;
+    if (invalidPage) {
+      throw new Error(
+        `Schema v69 Page ${invalidPage.block_id} has invalid ownership coordinates`,
+      );
+    }
+
+    const mismatchedMembership = db.prepare(`
+      SELECT page.block_id
+      FROM pages page
+      LEFT JOIN data_source_page_memberships membership
+        ON membership.page_block_id = page.block_id
+        AND membership.removed_at IS NULL
+      WHERE page.parent_kind = 'data_source'
+        AND (membership.id IS NULL OR membership.data_source_id <> page.parent_id)
+      LIMIT 1
+    `).get() as { readonly block_id: string } | undefined;
+    if (mismatchedMembership) {
+      throw new Error(
+        `Schema v69 Page ${mismatchedMembership.block_id} does not match its active Data Source membership`,
+      );
+    }
+
+    installLibraryPageIntegrityTriggers(db);
+    installLibraryPageProjectionTriggers(db);
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v69 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 69);
+  });
+  migrate.immediate();
+}
+
+function createDatabaseModuleReceiptSchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS database_module_receipts (
+      operation_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      store_epoch TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      change_log_seq INTEGER,
+      created_at TEXT NOT NULL,
+      CHECK (length(trim(operation_id)) BETWEEN 1 AND 512),
+      CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
+      CHECK (json_valid(request_json) AND json_type(request_json) = 'object'),
+      CHECK (outcome IN ('committed', 'rejected')),
+      CHECK (json_valid(result_json) AND json_type(result_json) = 'object')
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_database_module_receipts_project_created
+      ON database_module_receipts(project_id, created_at, operation_id);
+
+    CREATE TRIGGER IF NOT EXISTS database_module_receipts_immutable_update
+      BEFORE UPDATE ON database_module_receipts
+      BEGIN
+        SELECT RAISE(ABORT, 'Database Module receipts are immutable');
+      END;
+  `);
+}
+
+export function migrateSchema69To70(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 69) {
+    throw new Error(
+      `Schema v69 to v70 migration requires v69, received v${sourceVersion}`,
+    );
+  }
+  const migrate = db.transaction(() => {
+    createDatabaseModuleReceiptSchema(db);
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v70 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 70);
+  });
+  migrate.immediate();
+}
+
+interface NamedSqliteObject {
+  readonly name: string;
+  readonly sql: string;
+}
+
+const pageDomainTriggerSql = (sql: string): string =>
+  sql
+    .replaceAll("'card'", "'page'")
+    .replaceAll('"card"', '"page"')
+    .replaceAll("nodex.card", "nodex.page");
+
+const installDocumentVersionImmutabilityGuard = (
+  db: Database.Database,
+): void => {
+  db.exec(`
+    CREATE TRIGGER document_versions_are_immutable
+      BEFORE UPDATE ON document_versions
+      BEGIN
+        SELECT RAISE(ABORT, 'document versions are immutable');
+      END;
+  `);
+};
+
+/**
+ * v71 is the persisted noun cutover. Existing v70 stores may contain triggers
+ * whose SQL embeds the old Block and Document literals, so those definitions
+ * must change before rows are retyped. Trigger names and legacy evidence table
+ * names remain stable here; later migrations remove the temporary projection
+ * structures entirely.
+ */
+export function migrateSchema70To71(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 70) {
+    throw new Error(
+      `Schema v70 to v71 migration requires v70, received v${sourceVersion}`,
+    );
+  }
+  const migrate = db.transaction(() => {
+    // Retained checkpoints are immutable to runtime callers. This one typed
+    // schema migration must rename their schema coordinate in the same atomic
+    // transaction as the owning Document, then restore the guard before commit.
+    db.exec(`
+      DROP TRIGGER IF EXISTS blocks_type_updates_preserve_document_ownership;
+      DROP TRIGGER IF EXISTS document_versions_are_immutable;
+    `);
+    const triggers = db.prepare(`
+      SELECT name, sql
+      FROM sqlite_schema
+      WHERE type = 'trigger'
+        AND sql IS NOT NULL
+        AND (
+          instr(sql, '''card''') > 0
+          OR instr(sql, '"card"') > 0
+          OR instr(sql, 'nodex.card') > 0
+        )
+      ORDER BY name
+    `).all() as readonly NamedSqliteObject[];
+    for (const trigger of triggers) {
+      db.exec(`DROP TRIGGER ${quoteSqlIdentifier(trigger.name)}`);
+      db.exec(pageDomainTriggerSql(trigger.sql));
+    }
+
+    db.exec(`
+      UPDATE blocks SET type = 'page' WHERE type = 'card';
+      UPDATE documents
+      SET schema_key = 'nodex.page'
+      WHERE schema_key = 'nodex.card';
+      UPDATE document_versions
+      SET schema_key = 'nodex.page'
+      WHERE schema_key = 'nodex.card';
+      UPDATE document_block_index
+      SET block_type = 'page'
+      WHERE block_type = 'card';
+      CREATE TRIGGER blocks_type_updates_preserve_document_ownership
+        BEFORE UPDATE OF type ON blocks
+        WHEN NEW.type <> OLD.type
+          AND EXISTS (
+            SELECT 1 FROM block_documents ownership
+            WHERE ownership.block_id = OLD.id
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'document owner type changes require a typed ownership operation');
+        END;
+    `);
+    installDocumentVersionImmutabilityGuard(db);
+    if (readTableColumnNames(db, "retired_block_identities").length > 0) {
+      db.exec(`
+        UPDATE retired_block_identities
+        SET block_type = 'page'
+        WHERE block_type = 'card'
+      `);
+    }
+
+    installLibraryPageIntegrityTriggers(db);
+    installLibraryPageProjectionTriggers(db);
+    assertDocumentBearingPageProjectionComplete(db, 71);
+    const remainingOldBlock = db.prepare(`
+      SELECT id FROM blocks WHERE type = 'card' LIMIT 1
+    `).get() as { readonly id: string } | undefined;
+    if (remainingOldBlock) {
+      throw new Error(
+        `Schema v71 retained old Card Block ${remainingOldBlock.id}`,
+      );
+    }
+    const remainingOldDocument = db.prepare(`
+      SELECT id FROM documents WHERE schema_key = 'nodex.card' LIMIT 1
+    `).get() as { readonly id: string } | undefined;
+    if (remainingOldDocument) {
+      throw new Error(
+        `Schema v71 retained old Page Document ${remainingOldDocument.id}`,
+      );
+    }
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v71 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 71);
+  });
+  migrate.immediate();
+}
+
+/**
+ * Block mutation receipts are execution audit owned by a Project, while their
+ * targets are Library-owned resources. The receipt guard therefore verifies a
+ * shared Library instead of requiring every target Block to retain the actor
+ * Project's legacy projection id.
+ */
+export function migrateSchema71To72(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 71) {
+    throw new Error(
+      `Schema v71 to v72 migration requires v71, received v${sourceVersion}`,
+    );
+  }
+  const migrate = db.transaction(() => {
+    const trigger = db.prepare(`
+      SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'block_mutations_validate_insert'
+    `).get() as { readonly sql: string } | undefined;
+    if (!trigger) {
+      throw new Error("Schema v72 requires the Block mutation validation guard");
+    }
+    const projectScope = "AND block.project_id = NEW.project_id";
+    const libraryScope = `AND EXISTS (
+                    SELECT 1
+                    FROM projects actor_project
+                    INNER JOIN projects owner_project
+                      ON owner_project.id = block.project_id
+                     AND owner_project.library_id = actor_project.library_id
+                    WHERE actor_project.id = NEW.project_id
+                  )`;
+    if (trigger.sql.includes(projectScope)) {
+      db.exec("DROP TRIGGER block_mutations_validate_insert");
+      db.exec(trigger.sql.replace(projectScope, libraryScope));
+    } else if (!trigger.sql.includes("owner_project.library_id = actor_project.library_id")) {
+      throw new Error("Schema v72 could not locate the receipt scope guard");
+    }
+    setUserVersion(db, 72);
+  });
+  migrate.immediate();
+}
+
+/**
+ * Reminder snoozes belong to the Project that requested the reminder, while
+ * their target Page belongs to the Profile Library. Remove the old composite
+ * ownership foreign key so a granted Project can snooze a Page owned by a
+ * different Project projection in the same Library.
+ */
+export function migrateSchema72To73(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 72) {
+    throw new Error(
+      `Schema v72 to v73 migration requires v72, received v${sourceVersion}`,
+    );
+  }
+  const migrate = db.transaction(() => {
+    db.exec(`
+      DROP TRIGGER IF EXISTS reminder_snoozes_require_card_block_insert;
+      DROP TRIGGER IF EXISTS reminder_snoozes_require_card_block_update;
+      DROP TRIGGER IF EXISTS card_behavior_records_guard_block_retype;
+
+      ALTER TABLE reminder_snoozes RENAME TO reminder_snoozes_v72;
+      CREATE TABLE reminder_snoozes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        card_id TEXT NOT NULL REFERENCES blocks(id) ON UPDATE CASCADE ON DELETE CASCADE,
+        occurrence_start TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        consumed_at TEXT
+      );
+      INSERT INTO reminder_snoozes (
+        id, project_id, card_id, occurrence_start,
+        due_at, created_at, consumed_at
+      )
+      SELECT
+        id, project_id, card_id, occurrence_start,
+        due_at, created_at, consumed_at
+      FROM reminder_snoozes_v72;
+      DROP TABLE reminder_snoozes_v72;
+
+      CREATE INDEX idx_reminder_snoozes_lookup
+        ON reminder_snoozes(project_id, due_at, consumed_at);
+
+      CREATE TRIGGER reminder_snoozes_require_page_insert
+        BEFORE INSERT ON reminder_snoozes
+        WHEN NOT EXISTS (
+          SELECT 1
+          FROM blocks page
+          INNER JOIN projects actor_project
+            ON actor_project.id = NEW.project_id
+          INNER JOIN projects owner_project
+            ON owner_project.id = page.project_id
+           AND owner_project.library_id = actor_project.library_id
+          WHERE page.id = NEW.card_id AND page.type = 'page'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'reminder snooze target must be a Page in the Project Library');
+        END;
+
+      CREATE TRIGGER reminder_snoozes_require_page_update
+        BEFORE UPDATE OF card_id, project_id ON reminder_snoozes
+        WHEN NOT EXISTS (
+          SELECT 1
+          FROM blocks page
+          INNER JOIN projects actor_project
+            ON actor_project.id = NEW.project_id
+          INNER JOIN projects owner_project
+            ON owner_project.id = page.project_id
+           AND owner_project.library_id = actor_project.library_id
+          WHERE page.id = NEW.card_id AND page.type = 'page'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'reminder snooze target must be a Page in the Project Library');
+        END;
+
+      CREATE TRIGGER card_behavior_records_guard_block_retype
+        BEFORE UPDATE OF type ON blocks
+        WHEN NEW.type <> 'page'
+          AND (
+            EXISTS (
+              SELECT 1 FROM recurrence_exceptions behavior
+              WHERE behavior.card_id = OLD.id
+                AND behavior.project_id = OLD.project_id
+            )
+            OR EXISTS (
+              SELECT 1 FROM reminder_receipts behavior
+              WHERE behavior.card_id = OLD.id
+                AND behavior.project_id = OLD.project_id
+            )
+            OR EXISTS (
+              SELECT 1 FROM reminder_snoozes behavior
+              WHERE behavior.card_id = OLD.id
+            )
+            OR EXISTS (
+              SELECT 1 FROM scheduled_card_index behavior
+              WHERE behavior.card_block_id = OLD.id
+                AND behavior.project_id = OLD.project_id
+            )
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'a Block with Page behavior dependencies must remain type page');
+        END;
+    `);
+    const foreignKeyViolations = db.pragma(
+      "foreign_key_check(reminder_snoozes)",
+    ) as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v73 migration produced ${foreignKeyViolations.length} reminder snooze foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 73);
+  });
+  migrate.immediate();
+}
+
+export function migrateSchema73To74(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 73) {
+    throw new Error(
+      `Schema v73 to v74 migration requires v73, received v${sourceVersion}`,
+    );
+  }
+  const migrate = db.transaction(() => {
+    installLibraryPageProjectionTriggers(db);
+    setUserVersion(db, 74);
+  });
+  migrate.immediate();
+}
+
+const migrateDatabaseViewHostOptionToPage = (
+  db: Database.Database,
+): void => {
+  const rows = db.prepare(`
+    SELECT id, config_json
+    FROM database_views
+    ORDER BY id
+  `).all() as readonly {
+    readonly id: string;
+    readonly config_json: string;
+  }[];
+  const update = db.prepare(`
+    UPDATE database_views
+    SET config_json = ?
+    WHERE id = ?
+  `);
+  for (const row of rows) {
+    const config = JSON.parse(row.config_json) as unknown;
+    if (
+      typeof config !== "object"
+      || config === null
+      || Array.isArray(config)
+    ) continue;
+    const record = config as Record<string, unknown>;
+    if (record.schemaKey !== "nodex.database-view") continue;
+    const options = record.options;
+    if (
+      typeof options !== "object"
+      || options === null
+      || Array.isArray(options)
+    ) continue;
+    const optionRecord = options as Record<string, unknown>;
+    if (!("includeHostCard" in optionRecord)) continue;
+    optionRecord.includeHostPage = optionRecord.includeHostCard;
+    delete optionRecord.includeHostCard;
+    update.run(JSON.stringify(record), row.id);
+  }
+};
+
+export function migrateSchema74To75(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 74) {
+    throw new Error(
+      `Schema v74 to v75 migration requires v74, received v${sourceVersion}`,
+    );
+  }
+
+  finalizePageReferenceIdentityStorage(db);
+  const publish = db.transaction(() => {
+    migrateDatabaseViewHostOptionToPage(db);
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v75 migration found ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 75);
+  });
+  publish.immediate();
+}
+
+interface Schema75ProjectSessionTabRow extends Schema58ProjectSessionTabRow {
+  readonly browser_tab_id: string | null;
+}
+
+const rebuildProjectSessionTabsForSchema76 = (
+  db: Database.Database,
+): void => {
+  db.exec(`
+    DROP TABLE IF EXISTS project_session_tabs_next;
+
+    CREATE TABLE project_session_tabs_next (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      browser_tab_id TEXT,
+      panel_id TEXT NOT NULL DEFAULT 'right',
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      state_key INTEGER NOT NULL DEFAULT 0,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      "order" INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+      CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES})),
+      CHECK (project_id IS NOT NULL OR kind = 'browser'),
+      CHECK (
+        (kind = 'browser' AND browser_tab_id IS NOT NULL AND length(trim(browser_tab_id)) > 0)
+        OR (kind <> 'browser' AND browser_tab_id IS NULL)
+      )
+    );
+  `);
+
+  const rows = db.prepare(`
+    SELECT
+      id, session_id, project_id, browser_tab_id, panel_id, kind, title,
+      config_json, state_key, state_json, "order", created_at, updated_at
+    FROM project_session_tabs
+    ORDER BY
+      session_id ASC,
+      CASE panel_id WHEN 'right' THEN 0 ELSE 1 END ASC,
+      "order" ASC,
+      created_at ASC,
+      id ASC
+  `).all() as Schema75ProjectSessionTabRow[];
+  const insert = db.prepare(`
+    INSERT INTO project_session_tabs_next (
+      id, session_id, project_id, browser_tab_id, panel_id, kind, title,
+      config_json, state_key, state_json, "order", created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const row of rows) {
+    const migrated = migratePageStageTabIdentity(row.kind, row.config_json);
+    insert.run(
+      row.id,
+      row.session_id,
+      row.project_id,
+      row.browser_tab_id,
+      row.panel_id,
+      migrated.kind,
+      row.title,
+      migrated.configJson,
+      row.state_key,
+      row.state_json,
+      row.order,
+      row.created_at,
+      row.updated_at,
+    );
+  }
+
+  db.exec(`
+    DROP TABLE project_session_tabs;
+    ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
+
+    CREATE INDEX idx_project_session_tabs_session_order
+      ON project_session_tabs(session_id, panel_id, "order", created_at);
+    CREATE INDEX idx_project_session_tabs_project
+      ON project_session_tabs(project_id);
+    CREATE INDEX idx_project_session_tabs_browser_identity
+      ON project_session_tabs(session_id, browser_tab_id);
+  `);
+};
+
+export function migrateSchema75To76(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 75) {
+    throw new Error(
+      `Schema v75 to v76 migration requires v75, received v${sourceVersion}`,
+    );
+  }
+
+  const foreignKeysWereEnabled = Boolean(
+    db.pragma("foreign_keys", { simple: true }),
+  );
+  if (foreignKeysWereEnabled) {
+    db.pragma("foreign_keys = OFF");
+  }
+
+  try {
+    const migrate = db.transaction(() => {
+      rebuildProjectSessionTabsForSchema76(db);
+      const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+      if (foreignKeyViolations.length > 0) {
+        throw new Error(
+          `Schema v76 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+        );
+      }
+      setUserVersion(db, 76);
+    });
+    migrate.immediate();
+  } finally {
+    if (foreignKeysWereEnabled) {
+      db.pragma("foreign_keys = ON");
+    }
+  }
+}
+
+const sqliteSchemaObjectExists = (
+  db: Database.Database,
+  type: "table" | "index" | "trigger",
+  name: string,
+): boolean => db.prepare(`
+  SELECT 1 FROM sqlite_schema WHERE type = ? AND name = ?
+`).get(type, name) !== undefined;
+
+const renameTableIfPresent = (
+  db: Database.Database,
+  oldName: string,
+  newName: string,
+): void => {
+  if (!sqliteSchemaObjectExists(db, "table", oldName)) return;
+  if (sqliteSchemaObjectExists(db, "table", newName)) {
+    throw new Error(`Cannot rename ${oldName}: ${newName} already exists`);
+  }
+  db.exec(`ALTER TABLE "${oldName}" RENAME TO "${newName}"`);
+};
+
+const renameColumnIfPresent = (
+  db: Database.Database,
+  tableName: string,
+  oldName: string,
+  newName: string,
+): void => {
+  if (!tableHasColumn(db, tableName, oldName)) return;
+  if (tableHasColumn(db, tableName, newName)) {
+    throw new Error(
+      `Cannot rename ${tableName}.${oldName}: ${newName} already exists`,
+    );
+  }
+  db.exec(
+    `ALTER TABLE "${tableName}" RENAME COLUMN "${oldName}" TO "${newName}"`,
+  );
+};
+
+const renameSchemaObjectIfPresent = (
+  db: Database.Database,
+  type: "index" | "trigger",
+  oldName: string,
+  newName: string,
+): void => {
+  const row = db.prepare(`
+    SELECT sql FROM sqlite_schema WHERE type = ? AND name = ?
+  `).get(type, oldName) as { readonly sql: string | null } | undefined;
+  if (!row) return;
+  if (!row.sql) throw new Error(`Cannot rename implicit ${type} ${oldName}`);
+  if (sqliteSchemaObjectExists(db, type, newName)) {
+    throw new Error(`Cannot rename ${oldName}: ${newName} already exists`);
+  }
+
+  const renamedSql = row.sql
+    .replace(oldName, newName)
+    .replaceAll("card block", "Page Block")
+    .replaceAll("Card read model", "Page read model")
+    .replaceAll("scheduled Card index", "scheduled Page index");
+  if (renamedSql === row.sql) {
+    throw new Error(`Could not rewrite ${type} ${oldName}`);
+  }
+  db.exec(`DROP ${type.toUpperCase()} "${oldName}"`);
+  db.exec(renamedSql);
+};
+
+/**
+ * v77 removes Card terminology from active relational coordinates. Historical
+ * shipped/import tables remain unchanged because they are consumed and dropped
+ * before this boundary.
+ */
+export function migrateSchema76To77(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 76) {
+    throw new Error(
+      `Schema v76 to v77 migration requires v76, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    renameColumnIfPresent(
+      db,
+      "database_memberships",
+      "card_block_id",
+      "page_block_id",
+    );
+
+    renameTableIfPresent(db, "card_read_model", "page_read_model");
+    renameColumnIfPresent(
+      db,
+      "page_read_model",
+      "card_block_id",
+      "page_block_id",
+    );
+
+    renameTableIfPresent(db, "scheduled_card_index", "scheduled_page_index");
+    renameColumnIfPresent(
+      db,
+      "scheduled_page_index",
+      "card_block_id",
+      "page_block_id",
+    );
+
+    renameTableIfPresent(
+      db,
+      "canvas_card_references",
+      "canvas_page_references",
+    );
+    renameColumnIfPresent(db, "recurrence_exceptions", "card_id", "page_id");
+    renameColumnIfPresent(db, "reminder_receipts", "card_id", "page_id");
+    renameColumnIfPresent(db, "reminder_snoozes", "card_id", "page_id");
+
+    for (const [type, oldName, newName] of [
+      ["trigger", "card_read_model_validate_insert", "page_read_model_validate_insert"],
+      ["trigger", "card_read_model_validate_update", "page_read_model_validate_update"],
+      ["trigger", "database_memberships_require_card_block", "database_memberships_require_page_block"],
+      ["trigger", "database_memberships_updates_require_card_block", "database_memberships_updates_require_page_block"],
+      ["trigger", "card_behavior_records_guard_block_retype", "page_behavior_records_guard_block_retype"],
+      ["index", "idx_card_read_model_project_lifecycle", "idx_page_read_model_project_lifecycle"],
+      ["index", "idx_card_read_model_view_order", "idx_page_read_model_view_order"],
+      ["index", "idx_card_read_model_document_freshness", "idx_page_read_model_document_freshness"],
+      ["index", "idx_scheduled_card_index_due", "idx_scheduled_page_index_due"],
+      ["index", "idx_canvas_card_references_target", "idx_canvas_page_references_target"],
+      ["index", "idx_database_memberships_active_card", "idx_database_memberships_active_page"],
+    ] as const) {
+      renameSchemaObjectIfPresent(db, type, oldName, newName);
+    }
+
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v77 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 77);
+  });
+  migrate.immediate();
+}
+
+/**
+ * v78 republishes the Canvas aggregate hash and retained checkpoint JSON after
+ * the Page-reference projection key changed. Element/file evidence remains
+ * untouched, and the migration rejects hashes that match neither the old nor
+ * the current canonical fingerprint.
+ */
+export function migrateSchema77To78(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 77) {
+    throw new Error(
+      `Schema v77 to v78 migration requires v77, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    db.exec("DROP TRIGGER IF EXISTS document_versions_are_immutable");
+    migrateCanvasPageReferenceHashes(db);
+    installDocumentVersionImmutabilityGuard(db);
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v78 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 78);
+  });
+  migrate.immediate();
+}
+
 function migrateReleaseSchemaToCurrent(
   db: Database.Database,
   sourceVersion: number,
@@ -7098,9 +8953,23 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
 
   const now = new Date().toISOString();
   const projectId = randomUUID();
-  db.prepare(
-    "INSERT INTO projects (id, name, description, icon, created, updated) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(projectId, "Default", "", "", now, now);
+  const { libraryId } = ensureLocalProfileLibrary(db, now);
+  const databaseBlockId = primaryDatabaseBlockId(projectId);
+  db.prepare(`
+    INSERT INTO projects (
+      id, library_id, database_block_id, lifecycle, binding_revision,
+      name, description, icon, created, updated
+    ) VALUES (?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)
+  `).run(
+    projectId,
+    libraryId,
+    databaseBlockId,
+    "Default",
+    "",
+    "",
+    now,
+    now,
+  );
   db.prepare(
     'INSERT INTO project_order (project_id, "order", updated) VALUES (?, ?, ?)',
   ).run(projectId, 0, now);

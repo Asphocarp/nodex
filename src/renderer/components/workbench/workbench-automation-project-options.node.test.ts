@@ -16,6 +16,10 @@ function makeProject(input: {
   const roots = input.roots ?? [];
   return {
     id: input.id,
+    libraryId: "library:test",
+    databaseId: "database:test:primary",
+    lifecycle: "active",
+    bindingRevision: 1,
     name: input.name ?? input.id,
     description: "",
     icon: "",

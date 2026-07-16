@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
-  CARD_DOCUMENT_SCHEMA_KEY,
-  CARD_DOCUMENT_SCHEMA_VERSION,
+  PAGE_DOCUMENT_SCHEMA_KEY,
+  PAGE_DOCUMENT_SCHEMA_VERSION,
   type OwnedDocumentDescriptor,
 } from "../../shared/block-documents";
 import {
@@ -12,14 +12,14 @@ import {
 const descriptor = (): OwnedDocumentDescriptor => ({
   projectId: "project-1",
   ownerBlockId: "card-1",
-  ownerType: "card",
+  ownerType: "page",
   ownerLifecycle: "active",
   documentId: "document:card-1",
   storeEpoch: "store-7",
   generation: 3,
   headSeq: 12,
-  schemaKey: CARD_DOCUMENT_SCHEMA_KEY,
-  schemaVersion: CARD_DOCUMENT_SCHEMA_VERSION,
+  schemaKey: PAGE_DOCUMENT_SCHEMA_KEY,
+  schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
   readiness: "ready",
   sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
 });

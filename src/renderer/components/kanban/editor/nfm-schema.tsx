@@ -10,9 +10,9 @@ import { createAgentConfigInlineContentSpec } from "./agent-config-chip";
 import { createAttachmentInlineContentSpec } from "./attachment-chip";
 import { createCalloutBlock } from "./callout-block";
 import {
-  createCardBlockSpec,
-  createCardRefBlockSpec,
-} from "./card-outliner-block";
+  createPageBlockSpec,
+  createPageRefBlockSpec,
+} from "./page-outliner-block";
 import { createDateMentionInlineContentSpec } from "./date-mention-chip";
 import { createDatabaseViewRefBlockSpec } from "./database-view-ref-block";
 import { imageBlockSpec } from "./image-block";
@@ -36,9 +36,9 @@ export const nfmSchema = BlockNoteSchema.create({
     image: imageBlockSpec,
     callout: createCalloutBlock(),
     threadSection: createThreadSectionBlockSpec(),
-    card: createCardBlockSpec(),
+    page: createPageBlockSpec(),
     databaseViewRef: createDatabaseViewRefBlockSpec(),
-    cardRef: createCardRefBlockSpec(),
+    pageRef: createPageRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),
     templateRef: createReusableTemplateRefBlockSpec(),
   },

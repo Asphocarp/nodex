@@ -20,10 +20,10 @@ import { NodexTooltip } from "@/components/ui/tooltip";
 import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
 import { ToolbarDropdownMenu } from "@/features/local-conversation/view/shared/toolbar-dropdown-menu";
 import {
-  cardStagePropertyEmptyValueInteractive,
-  cardStagePropertyTextSize,
-  cardStagePropertyValueHoverSurface,
-} from "@/components/kanban/card-stage/property-value-styles";
+  pageStagePropertyEmptyValueInteractive,
+  pageStagePropertyTextSize,
+  pageStagePropertyValueHoverSurface,
+} from "@/components/kanban/page-stage/property-value-styles";
 import { cn } from "@/lib/utils";
 import type { CodexPermissionMode } from "@/lib/types";
 import {
@@ -78,7 +78,7 @@ const SELECT_DENSITY_OPTIONS: Array<{ value: GeneralDevStoryDensity; label: stri
 
 const SCROLL_ITEMS = [
   "Review branch selector spacing against toolbar chips.",
-  "Confirm tooltip density in the card stage toolbar.",
+  "Confirm tooltip density in the page stage toolbar.",
   "Audit hover opacity for sidebar and stage tabs.",
   "Validate dropdown blur/ring treatment on light and dark themes.",
   "Compare input heights across settings and composer surfaces.",
@@ -351,7 +351,7 @@ export function GeneralDevStoryPage({
               source="src/renderer/components/ui/input.tsx + textarea.tsx"
             >
               <PreviewSurface className="flex flex-col gap-3">
-                <Input placeholder="Search cards, files, or commands" defaultValue="stage-threads" />
+                <Input placeholder="Search Pages, files, or commands" defaultValue="stage-threads" />
                 <Input disabled value="Disabled field state" readOnly />
               </PreviewSurface>
             </ShowcaseCard>
@@ -516,25 +516,25 @@ export function GeneralDevStoryPage({
 
             <ShowcaseCard
               title="Property chips"
-              description="Card-stage metadata style for filled values and empty interactive placeholders."
-              source="src/renderer/components/kanban/card-stage/property-value-styles.ts"
+              description="Page Stage metadata style for filled values and empty interactive placeholders."
+              source="src/renderer/components/kanban/page-stage/property-value-styles.ts"
             >
               <PreviewSurface className="flex flex-col justify-between gap-4">
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", cardStagePropertyValueHoverSurface)}>
-                    <span className={cardStagePropertyTextSize}>In progress</span>
+                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", pageStagePropertyValueHoverSurface)}>
+                    <span className={pageStagePropertyTextSize}>In progress</span>
                     <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">P1</Badge>
                   </button>
-                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", cardStagePropertyValueHoverSurface)}>
-                    <span className={cardStagePropertyTextSize}>ui</span>
-                    <span className={cardStagePropertyTextSize}>threads</span>
+                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", pageStagePropertyValueHoverSurface)}>
+                    <span className={pageStagePropertyTextSize}>ui</span>
+                    <span className={pageStagePropertyTextSize}>threads</span>
                   </button>
-                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", cardStagePropertyEmptyValueInteractive)}>
+                  <button type="button" className={cn("inline-flex items-center gap-2 px-2 py-1", pageStagePropertyEmptyValueInteractive)}>
                     <span>Add estimate</span>
                   </button>
                 </div>
                 <div className="text-sm/relaxed text-(--foreground-secondary)">
-                  The shared card-stage value styles keep metadata readable without turning every property into a boxed input.
+                  The shared page-stage value styles keep metadata readable without turning every property into a boxed input.
                 </div>
               </PreviewSurface>
             </ShowcaseCard>

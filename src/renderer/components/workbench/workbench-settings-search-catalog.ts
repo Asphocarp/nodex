@@ -1,8 +1,8 @@
 import type { SettingsSearchContext } from "@/lib/settings-search";
 import {
-  CARD_STAGE_COLLAPSIBLE_PROPERTIES,
-  CARD_STAGE_COLLAPSIBLE_PROPERTY_LABELS,
-} from "../../lib/card-stage-collapsed-properties";
+  PAGE_STAGE_COLLAPSIBLE_PROPERTIES,
+  PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS,
+} from "../../lib/page-stage-collapsed-properties";
 import { SIDEBAR_TOP_LEVEL_SECTION_LABELS } from "../../lib/sidebar-section-prefs";
 import { DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX } from "../../lib/worktree-branch-prefix";
 import { FILE_LINK_OPENER_OPTIONS } from "../../../shared/file-link-openers";
@@ -322,7 +322,7 @@ const SETTINGS_SEARCH_PANELS = {
           ),
           entry(
             "Strip parsed prefix from title",
-            "Remove matched shorthand from imported card titles after parsing.",
+            "Remove matched shorthand from imported Page titles after parsing.",
           ),
           entry(
             "Cmd+Enter to send long prompts",
@@ -337,12 +337,12 @@ const SETTINGS_SEARCH_PANELS = {
       },
     ],
   },
-  card: {
-    title: "Card",
-    subtitle: "Kanban card and card-stage presentation.",
+  page: {
+    title: "Page",
+    subtitle: "Kanban card and page-stage presentation.",
     groups: [
       {
-        title: "Cards",
+        title: "Pages",
         entries: [
           entry(
             "Kanban card properties",
@@ -350,10 +350,10 @@ const SETTINGS_SEARCH_PANELS = {
             ["Top", "Inline", "Bottom"],
           ),
           entry(
-            "Card stage collapsed properties",
-            "Choose which card-stage property rows start behind the more-properties toggle.",
-            CARD_STAGE_COLLAPSIBLE_PROPERTIES.map(
-              (property) => CARD_STAGE_COLLAPSIBLE_PROPERTY_LABELS[property],
+            "Page Stage collapsed properties",
+            "Choose which page-stage property rows start behind the more-properties toggle.",
+            PAGE_STAGE_COLLAPSIBLE_PROPERTIES.map(
+              (property) => PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS[property],
             ),
           ),
         ],
@@ -598,8 +598,8 @@ export const SETTINGS_SEARCH_CATALOG = {
   editor: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.editor),
   },
-  card: {
-    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.card),
+  page: {
+    messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.page),
   },
   git: {
     messages: materializePanelSearchMessages(SETTINGS_SEARCH_PANELS.git),

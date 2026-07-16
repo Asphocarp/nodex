@@ -1,4 +1,4 @@
-export interface CanvasCardReferenceProjection {
+export interface CanvasPageReferenceProjection {
   readonly source_element_id: string;
   readonly target_block_id: string;
 }
@@ -10,12 +10,12 @@ export interface CanvasFileProjection {
 }
 
 /** Compare reference identity as a keyed relation, independent of SQL/JS collation. */
-export const isCanvasCardReferenceProjectionCurrent = (
+export const isCanvasPageReferenceProjectionCurrent = (
   authorityReferences: readonly {
     readonly sourceElementId: string;
     readonly targetBlockId: string;
   }[],
-  projectedReferences: readonly CanvasCardReferenceProjection[],
+  projectedReferences: readonly CanvasPageReferenceProjection[],
 ): boolean => {
   const expectedBySourceElement = new Map<string, string>();
   for (const reference of authorityReferences) {

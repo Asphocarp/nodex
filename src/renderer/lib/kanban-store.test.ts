@@ -2,9 +2,9 @@ import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import {
   buildCreateCardTransform,
-  buildDeleteCardTransform,
-  buildMoveCardTransform,
-  buildPatchCardTransform,
+  buildDeletePageTransform,
+  buildMovePageTransform,
+  buildPatchPageTransform,
   conflictKeysForCreate,
   conflictKeysForDelete,
   conflictKeysForMove,
@@ -13,32 +13,35 @@ import {
 } from "./kanban-optimistic-ops";
 import type {
   BoardSummary,
-  CardCreateInput,
-  CardSummary,
+  PageCreateInput,
+  DatabasePageSummary,
 } from "./types";
 import { createKanbanStoreRegistry } from "./kanban-store";
-import { toCardSummary } from "../../shared/card-summary";
+import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type {
-  DatabaseViewSnapshotCommandResult,
-  GeneralDatabaseViewDefinition,
-} from "../../shared/database-query";
+  DatabaseModuleReadResult,
+  DatabaseViewRecord,
+  DatabaseViewQueryResult,
+} from "../../shared/database-module";
 
 function createDatabaseViewSnapshot(
   viewId: string,
   title: string,
   isPrimary: boolean,
-): DatabaseViewSnapshotCommandResult {
+): DatabaseModuleReadResult {
   const projectId = "project-1";
-  const databaseBlockId = "database-1";
+  const libraryId = "library-1";
+  const databaseId = "database-1";
+  const dataSourceId = "source-1";
   const statusPropertyId = "property-status";
-  const view: GeneralDatabaseViewDefinition = {
-    id: viewId,
-    databaseBlockId,
-    projectId,
+  const view: DatabaseViewRecord = {
+    viewId,
+    databaseId,
+    dataSourceId,
     name: isPrimary ? "Primary" : "Focused",
-    kind: "kanban",
+    kind: "kanban" as const,
     config: {
       schemaKey: "nodex.database-view",
       schemaVersion: 1,
@@ -51,7 +54,7 @@ function createDatabaseViewSnapshot(
       group: { propertyId: statusPropertyId },
       display: { propertyIds: [statusPropertyId], showTitle: true },
     },
-    isPrimary,
+    isDefault: isPrimary,
     revision: 1,
     rankKey: "a",
     lifecycle: "active",
@@ -59,19 +62,31 @@ function createDatabaseViewSnapshot(
     updatedAt: "2026-07-12T00:00:00.000Z",
   };
   const database = {
-    blockId: databaseBlockId,
-    projectId,
+    databaseId,
+    libraryId,
     name: "Tasks",
-    isPrimary: true,
-    schemaKey: "nodex.database",
-    schemaRevision: 1,
+    lifecycle: "active" as const,
+    defaultViewId: "view-primary",
+    accessRevision: 1,
     metadataRevision: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
     updatedAt: "2026-07-12T00:00:00.000Z",
   };
+  const dataSource = {
+    dataSourceId,
+    libraryId,
+    homeDatabaseId: databaseId,
+    name: "Pages",
+    schemaKey: "nodex.pages",
+    schemaRevision: 1,
+    lifecycle: "active" as const,
+    rankKey: "a",
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+  };
   const statusProperty = {
-    id: statusPropertyId,
-    databaseBlockId,
+    propertyId: statusPropertyId,
+    dataSourceId,
     key: "status",
     name: "Status",
     valueType: "select" as const,
@@ -82,41 +97,32 @@ function createDatabaseViewSnapshot(
     createdAt: "2026-07-12T00:00:00.000Z",
     updatedAt: "2026-07-12T00:00:00.000Z",
   };
-  const descriptor = {
+  const query: DatabaseViewQueryResult = {
     database,
-    properties: [statusProperty],
-    views: [view],
-  };
-  const query = {
-    database,
+    dataSource,
     properties: [statusProperty],
     view,
     rows: [{
       membership: {
-        id: "membership-1",
-        databaseBlockId,
-        cardBlockId: "card-1",
+        membershipId: "membership-1",
+        dataSourceId,
         revision: 1,
         createdAt: "2026-07-12T00:00:00.000Z",
       },
-      card: {
-        blockId: "card-1",
-        projectId,
+      page: {
+        pageId: "card-1",
+        libraryId,
+        parent: { kind: "data_source" as const, dataSourceId },
         lifecycle: "active" as const,
-        location: { kind: "space" as const, rankKey: "a" },
-        locationRevision: 1,
+        parentRevision: 1,
         metadataRevision: 1,
         documentId: "document-1",
         documentGeneration: 1,
         documentHeadSeq: 1,
-        documentAuthority: "ydoc_primary" as const,
-        content: {
-          projectedSeq: 1,
-          title,
-          richTitle: plainTextToPortableRichText(title),
-          preview: "",
-          plainText: "",
-        },
+        title,
+        richTitle: plainTextToPortableRichText(title),
+        preview: "",
+        plainText: "",
         createdAt: "2026-07-12T00:00:00.000Z",
         updatedAt: "2026-07-12T00:00:00.000Z",
       },
@@ -132,17 +138,20 @@ function createDatabaseViewSnapshot(
       effectiveGroupKey: "draft",
     }],
   };
-  const wrap = <T>(value: T) => ({
-    version: 1 as const,
-    projectId,
-    storeEpoch: "epoch-1",
-    changeLogSeq: 1,
-    value,
-  });
-  return { ok: true, value: { descriptor: wrap(descriptor), query: wrap(query) } };
+  return {
+    ok: true,
+    value: {
+      version: 1,
+      projectId,
+      libraryId,
+      storeEpoch: "epoch-1",
+      changeLogSeq: 1,
+      value: { kind: "query", value: query },
+    },
+  };
 }
 
-function createCardSummary(title = "Initial title"): CardSummary {
+function createPageSummary(title = "Initial title"): DatabasePageSummary {
   return {
     id: "card-1",
     status: "draft",
@@ -167,7 +176,7 @@ function createBoard(title = "Initial title"): BoardSummary {
       {
         id: "draft",
         name: "Ideas",
-        cards: [createCardSummary(title)],
+        cards: [createPageSummary(title)],
       },
       {
         id: "done",
@@ -212,15 +221,18 @@ describe("kanban store", () => {
   test("isolates durable View stores and never reads primary Board data for a secondary View", async () => {
     const calls: string[] = [];
     const registry = createKanbanStoreRegistry({
-      invoke: async (channel, projectId, viewId) => {
-        calls.push(`${channel}:${String(projectId)}:${String(viewId ?? "")}`);
-        if (channel === "database-views:snapshot") {
-          return createDatabaseViewSnapshot(
-            String(viewId),
-            viewId === "view-focused" ? "Focused query row" : "Primary query row",
-            viewId === "view-primary",
-          );
-        }
+      readDatabaseModule: async (projectId, request) => {
+        const target = request.read.target;
+        const readViewId = target.kind === "view" ? target.viewId : "";
+        calls.push(`database-module:read:${projectId}:${readViewId}`);
+        return createDatabaseViewSnapshot(
+          readViewId,
+          readViewId === "view-focused" ? "Focused query row" : "Primary query row",
+          readViewId === "view-primary",
+        );
+      },
+      invoke: async (channel, projectId) => {
+        calls.push(`${channel}:${String(projectId)}:`);
         if (channel === "board:summary:get") {
           return createBoard("Full primary Card summary");
         }
@@ -238,7 +250,7 @@ describe("kanban store", () => {
     expect(primary.getSnapshot().databaseView?.databaseViewId).toBe(
       "view-primary",
     );
-    expect(primary.getSnapshot().cardIndex.get("card-1")?.title).toBe(
+    expect(primary.getSnapshot().pageIndex.get("card-1")?.title).toBe(
       "Full primary Card summary",
     );
     expect(focused.getSnapshot().databaseView?.databaseViewId).toBe(
@@ -278,12 +290,12 @@ describe("kanban store", () => {
     expect(fetchCount).toBe(2);
 
     const event: DatabaseChangeEvent = {
-      version: 1,
+      version: 2,
       projectId: "project-1",
       storeEpoch: "epoch-1",
       operationId: "database-operation-1",
       sourceKind: "database_mutation",
-      affectedDatabaseBlockIds: ["database-1"],
+      affectedDatabaseIds: ["database-1"],
       changeLogSeq: 8,
     };
     for (const callback of callbacks) callback(event);
@@ -390,7 +402,7 @@ describe("kanban store", () => {
     await Promise.all([firstFetch, refreshPromise]);
 
     expect(invokeCalls).toBe(2);
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Refreshed");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Refreshed");
   });
 
   test("fetchBoard uses the summary channel and keeps full descriptions out of snapshots", async () => {
@@ -408,10 +420,10 @@ describe("kanban store", () => {
     const store = registry.getStore("default");
     await store.fetchBoard();
 
-    const indexedCard = store.getSnapshot().cardIndex.get("card-1");
+    const indexedPage = store.getSnapshot().pageIndex.get("card-1");
     expect(channelName).toBe("board:summary:get");
-    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBe(false);
-    expect(indexedCard?.descriptionPreview).toBe("Initial description");
+    expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
+    expect(indexedPage?.descriptionPreview).toBe("Initial description");
   });
 
   test("first subscribe with a fresh base board does not refetch", async () => {
@@ -457,15 +469,15 @@ describe("kanban store", () => {
 
     const store = registry.getStore("default");
     await store.fetchBoard();
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Initial");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Initial");
 
     currentTime = 32_000;
     const unsubscribe = store.subscribe(() => {});
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Initial");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Initial");
 
     await waitForMicrotasks();
     expect(invokeCalls).toBe(2);
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Refreshed");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Refreshed");
     unsubscribe();
   });
 
@@ -488,7 +500,7 @@ describe("kanban store", () => {
     await store.ensureFreshBoard({ force: true });
 
     expect(invokeCalls).toBe(2);
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Forced");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Forced");
   });
 
   test("summary patch events update the board without a broad refetch", async () => {
@@ -515,13 +527,13 @@ describe("kanban store", () => {
       changeType: "update",
       columnId: "draft",
       status: "draft",
-      cardId: "card-1",
-      summary: createCardSummary("Patched from event"),
+      pageId: "card-1",
+      summary: createPageSummary("Patched from event"),
     });
     await waitForMicrotasks();
 
     expect(boardFetchCount).toBe(1);
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Patched from event");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Patched from event");
     unsubscribe();
   });
 
@@ -548,7 +560,7 @@ describe("kanban store", () => {
 
     const snapshot = store.getSnapshot();
     expect(snapshot.board?.columns[0]?.cards[0]?.title).toBe("Updated title");
-    expect(snapshot.cardIndex.get("card-1")?.title).toBe("Updated title");
+    expect(snapshot.pageIndex.get("card-1")?.title).toBe("Updated title");
     expect(notifications).toBe(1);
 
     unsubscribe();
@@ -576,8 +588,8 @@ describe("kanban store", () => {
       order: 0,
     });
 
-    const indexedCard = store.getSnapshot().cardIndex.get("card-1");
-    const summary = toCardSummary({
+    const indexedPage = store.getSnapshot().pageIndex.get("card-1");
+    const summary = toDatabasePageSummary({
       id: "card-1",
       status: "draft",
       archived: false,
@@ -590,10 +602,10 @@ describe("kanban store", () => {
       order: 0,
     });
 
-    expect(indexedCard?.title).toBe("Remote title");
-    expect(indexedCard?.descriptionPreview).toBe(summary.descriptionPreview);
-    expect(indexedCard?.descriptionLength).toBe(summary.descriptionLength);
-    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBe(false);
+    expect(indexedPage?.title).toBe("Remote title");
+    expect(indexedPage?.descriptionPreview).toBe(summary.descriptionPreview);
+    expect(indexedPage?.descriptionLength).toBe(summary.descriptionLength);
+    expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
   });
 
   test("merges remote card summary acknowledgements without a full body", async () => {
@@ -620,11 +632,11 @@ describe("kanban store", () => {
       hasDescription: true,
     });
 
-    const indexedCard = store.getSnapshot().cardIndex.get("card-1");
-    expect(indexedCard?.title).toBe("Ack title");
-    expect(indexedCard?.descriptionPreview).toBe("Ack preview");
-    expect(indexedCard?.descriptionLength).toBe(128);
-    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBe(false);
+    const indexedPage = store.getSnapshot().pageIndex.get("card-1");
+    expect(indexedPage?.title).toBe("Ack title");
+    expect(indexedPage?.descriptionPreview).toBe("Ack preview");
+    expect(indexedPage?.descriptionLength).toBe(128);
+    expect(Object.hasOwn(indexedPage ?? {}, "description")).toBe(false);
   });
 
   test("local draft overlays do not bump card revision", async () => {
@@ -641,7 +653,7 @@ describe("kanban store", () => {
       title: "Updated title",
     });
 
-    expect(store.getSnapshot().cardIndex.get("card-1")?.revision).toBe(1);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.revision).toBe(1);
   });
 
   test("remote optimistic updates bump card revision", async () => {
@@ -656,13 +668,13 @@ describe("kanban store", () => {
     await store.fetchBoard();
 
     const pendingMutation = store.runOptimisticMutation({
-      kind: "card:update",
+      kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "Updated title" }),
-      apply: buildPatchCardTransform("draft", "card-1", { title: "Updated title" }, { bumpRevision: true }),
+      apply: buildPatchPageTransform("draft", "card-1", { title: "Updated title" }, { bumpRevision: true }),
       runRemote: async () => deferred.promise,
     });
 
-    expect(store.getSnapshot().cardIndex.get("card-1")?.revision).toBe(2);
+    expect(store.getSnapshot().pageIndex.get("card-1")?.revision).toBe(2);
 
     deferred.resolve({ ok: true });
     await pendingMutation;
@@ -686,7 +698,7 @@ describe("kanban store", () => {
 
     expect(changed).toBe(false);
     expect(after.board).toBe(before.board);
-    expect(after.cardIndex).toBe(before.cardIndex);
+    expect(after.pageIndex).toBe(before.pageIndex);
   });
 
   test("LWW: out-of-order update acknowledgements keep latest local value", async () => {
@@ -703,53 +715,53 @@ describe("kanban store", () => {
     await store.fetchBoard();
 
     const mutationA = store.runOptimisticMutation({
-      kind: "card:update",
+      kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "A" }),
-      apply: buildPatchCardTransform("draft", "card-1", { title: "A" }),
+      apply: buildPatchPageTransform("draft", "card-1", { title: "A" }),
       runRemote: async () => {
         const result = await deferredA.promise;
-        serverBoard = buildPatchCardTransform("draft", "card-1", { title: "A" })(serverBoard);
+        serverBoard = buildPatchPageTransform("draft", "card-1", { title: "A" })(serverBoard);
         return result;
       },
     });
     const mutationB = store.runOptimisticMutation({
-      kind: "card:update",
+      kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "B" }),
-      apply: buildPatchCardTransform("draft", "card-1", { title: "B" }),
+      apply: buildPatchPageTransform("draft", "card-1", { title: "B" }),
       runRemote: async () => {
         const result = await deferredB.promise;
-        serverBoard = buildPatchCardTransform("draft", "card-1", { title: "B" })(serverBoard);
+        serverBoard = buildPatchPageTransform("draft", "card-1", { title: "B" })(serverBoard);
         return result;
       },
     });
     const mutationC = store.runOptimisticMutation({
-      kind: "card:update",
+      kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "C" }),
-      apply: buildPatchCardTransform("draft", "card-1", { title: "C" }),
+      apply: buildPatchPageTransform("draft", "card-1", { title: "C" }),
       runRemote: async () => {
         const result = await deferredC.promise;
-        serverBoard = buildPatchCardTransform("draft", "card-1", { title: "C" })(serverBoard);
+        serverBoard = buildPatchPageTransform("draft", "card-1", { title: "C" })(serverBoard);
         return result;
       },
     });
 
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("C");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("C");
 
     deferredA.resolve({ ok: true });
     await mutationA;
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("C");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("C");
 
     deferredB.resolve({ ok: true });
     await mutationB;
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("C");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("C");
 
     deferredC.resolve({ ok: true });
     await mutationC;
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("C");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("C");
   });
 
   test("create -> edit -> move remains stable across acknowledgements", async () => {
-    const createInput: CardCreateInput = {
+    const createInput: PageCreateInput = {
       title: "Created",
       id: "018f0f85-6d56-7625-bdea-000000000000",
     };
@@ -769,7 +781,7 @@ describe("kanban store", () => {
     const optimisticCard = createOptimisticCard(createInput);
 
     const createMutation = store.runOptimisticMutation({
-      kind: "card:create",
+      kind: "page:create",
       conflictKeys: conflictKeysForCreate("draft", optimisticCard.id),
       apply: buildCreateCardTransform("draft", optimisticCard, "bottom"),
       runRemote: async () => {
@@ -778,36 +790,36 @@ describe("kanban store", () => {
         return result;
       },
     });
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created");
 
     const updateMutation = store.runOptimisticMutation({
-      kind: "card:update",
+      kind: "page:update",
       conflictKeys: conflictKeysForPatch("018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
-      apply: buildPatchCardTransform("draft", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
+      apply: buildPatchPageTransform("draft", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
       runRemote: async () => {
         const result = await updateRemoteDeferred.promise;
-        serverBoard = buildPatchCardTransform("draft", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" })(serverBoard);
+        serverBoard = buildPatchPageTransform("draft", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" })(serverBoard);
         return result;
       },
     });
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
 
     const moveMutation = store.runOptimisticMutation({
-      kind: "card:move",
+      kind: "page:move",
       conflictKeys: conflictKeysForMove({
-        cardId: "018f0f85-6d56-7625-bdea-000000000000",
+        pageId: "018f0f85-6d56-7625-bdea-000000000000",
         fromStatus: "draft",
         toStatus: "done",
       }),
-      apply: buildMoveCardTransform({
-        cardId: "018f0f85-6d56-7625-bdea-000000000000",
+      apply: buildMovePageTransform({
+        pageId: "018f0f85-6d56-7625-bdea-000000000000",
         fromStatus: "draft",
         toStatus: "done",
       }),
       runRemote: async () => {
         const result = await moveRemoteDeferred.promise;
-        serverBoard = buildMoveCardTransform({
-          cardId: "018f0f85-6d56-7625-bdea-000000000000",
+        serverBoard = buildMovePageTransform({
+          pageId: "018f0f85-6d56-7625-bdea-000000000000",
           fromStatus: "draft",
           toStatus: "done",
         })(serverBoard);
@@ -815,22 +827,22 @@ describe("kanban store", () => {
       },
     });
 
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
 
     createRemoteDeferred.resolve({ id: "018f0f85-6d56-7625-bdea-000000000000" });
     await createMutation;
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
 
     updateRemoteDeferred.resolve({ ok: true });
     await updateMutation;
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
 
     moveRemoteDeferred.resolve({ ok: true });
     await moveMutation;
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
   });
 
   test("failed delete rolls back automatically", async () => {
@@ -843,18 +855,18 @@ describe("kanban store", () => {
     await store.fetchBoard();
 
     const mutation = store.runOptimisticMutation({
-      kind: "card:delete",
+      kind: "page:delete",
       conflictKeys: conflictKeysForDelete("card-1"),
-      apply: buildDeleteCardTransform("draft", "card-1"),
+      apply: buildDeletePageTransform("draft", "card-1"),
       runRemote: async () => {
         throw new Error("delete failed");
       },
     });
 
-    expect(store.getSnapshot().cardIndex.has("card-1")).toBe(false);
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
     const result = await mutation;
     expect(result.ok).toBe(false);
-    expect(store.getSnapshot().cardIndex.has("card-1")).toBe(true);
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(true);
   });
 
   test("patches local board events and cooldowns ambiguous refreshes", async () => {
@@ -886,13 +898,13 @@ describe("kanban store", () => {
       changeType: "delete",
       columnId: "draft",
       status: "draft",
-      cardId: "card-1",
+      pageId: "card-1",
     };
 
     callbacks.onBoardChange?.(deleteEvent);
     await waitForMicrotasks();
     expect(boardFetchCount).toBe(1);
-    expect(store.getSnapshot().cardIndex.has("card-1")).toBe(false);
+    expect(store.getSnapshot().pageIndex.has("card-1")).toBe(false);
 
     const ambiguousEvent: BoardChangeEvent = {
       projectId: "default",
@@ -948,7 +960,7 @@ describe("kanban store", () => {
     await waitForMicrotasks();
     await waitForMicrotasks();
 
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Queued title");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Queued title");
     unsubscribe();
   });
 
@@ -962,22 +974,22 @@ describe("kanban store", () => {
     await store.fetchBoard();
 
     store.applyLocalPatch("draft", "card-1", { title: "Local title" });
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Local title");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Local title");
 
-    serverBoard = buildPatchCardTransform("draft", "card-1", { title: "Local title" })(serverBoard);
+    serverBoard = buildPatchPageTransform("draft", "card-1", { title: "Local title" })(serverBoard);
     await store.refreshBoard();
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Local title");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Local title");
 
     // If local overlay was not collected, this server update would be masked.
-    serverBoard = buildPatchCardTransform("draft", "card-1", { title: "Server next" })(serverBoard);
+    serverBoard = buildPatchPageTransform("draft", "card-1", { title: "Server next" })(serverBoard);
     await store.refreshBoard();
-    expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Server next");
+    expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Server next");
   });
 
   test("does not auto-collect local overlay that depends on pending create", async () => {
     let serverBoard = createBoard();
     const createRemoteDeferred = createDeferred<{ id: string }>();
-    const createInput: CardCreateInput = {
+    const createInput: PageCreateInput = {
       title: "Created",
       id: "018f0f85-6d56-7625-bdea-000000000001",
     };
@@ -991,7 +1003,7 @@ describe("kanban store", () => {
     await store.fetchBoard();
 
     const createMutation = store.runOptimisticMutation({
-      kind: "card:create",
+      kind: "page:create",
       conflictKeys: conflictKeysForCreate("draft", optimisticCard.id),
       apply: buildCreateCardTransform("draft", optimisticCard, "bottom"),
       runRemote: async () => {
@@ -1002,14 +1014,14 @@ describe("kanban store", () => {
     });
 
     store.applyLocalPatch("draft", "018f0f85-6d56-7625-bdea-000000000001", { title: "Edited while pending" });
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
 
     // Re-fetch while create is still pending: patch must not be dropped.
     await store.refreshBoard();
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
 
     createRemoteDeferred.resolve({ id: "018f0f85-6d56-7625-bdea-000000000001" });
     await createMutation;
-    expect(store.getSnapshot().cardIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
   });
 });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createUuidV7 } from "./card-id";
+import { createUuidV7 } from "./uuid-v7";
 
 export interface OwnershipClosureBlock {
   readonly blockId: string;

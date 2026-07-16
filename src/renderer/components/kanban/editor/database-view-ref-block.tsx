@@ -5,9 +5,9 @@ import { DatabaseViewReferenceSurface } from "@/components/block-documents/refer
 import { useDatabaseViewReadModel } from "@/lib/block-reference-queries";
 import { databaseViewRefBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
 
-const EmbeddedReferencedCardDocument = lazy(() =>
-  import("./embedded-referenced-card-document").then((module) => ({
-    default: module.EmbeddedReferencedCardDocument,
+const EmbeddedReferencedPageDocument = lazy(() =>
+  import("./embedded-referenced-page-document").then((module) => ({
+    default: module.EmbeddedReferencedPageDocument,
   })),
 );
 
@@ -24,7 +24,7 @@ function DatabaseViewRefBlock({
   const view = useDatabaseViewReadModel(
     host?.projectId ?? "",
     databaseViewId.trim(),
-    host?.hostCardId ?? undefined,
+    host?.hostPageId ?? undefined,
   );
   return (
     <DatabaseViewReferenceSurface
@@ -33,18 +33,18 @@ function DatabaseViewRefBlock({
       model={view.data}
       loading={view.loading}
       error={view.error}
-      hostCardId={host?.hostCardId}
-      ancestorCardIds={host?.ancestorCardIds}
-      onOpenCard={host?.openCard}
+      hostPageId={host?.hostPageId}
+      ancestorPageIds={host?.ancestorPageIds}
+      onOpenPage={host?.openPage}
       renderDocument={({ projectId, card, isActive }) => (
         <Suspense
           fallback={
             <div className="py-2 text-sm text-token-description-foreground">
-              Opening Card…
+              Opening Page…
             </div>
           }
         >
-          <EmbeddedReferencedCardDocument
+          <EmbeddedReferencedPageDocument
             projectId={projectId}
             card={card}
             isActive={isActive && (host?.isActiveSurface ?? true)}

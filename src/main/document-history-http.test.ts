@@ -16,7 +16,7 @@ const summary: DocumentVersionSummary = {
   projectId: "project-1",
   generation: 1,
   baseHeadSeq: 4,
-  schemaKey: "nodex.card",
+  schemaKey: "nodex.page",
   schemaVersion: 1,
   cause: "manual",
   label: null,
@@ -32,7 +32,7 @@ const summary: DocumentVersionSummary = {
   },
   materializationHash: "d".repeat(64),
   byteLength: 42,
-  materializationKind: "card",
+  materializationKind: "page",
   title: "Checkpoint",
   preview: "Body",
   blockCount: 1,
@@ -52,7 +52,7 @@ const makeDependencies = (
     value: {
       summary,
       materialization: {
-        kind: "card",
+        kind: "page",
         schemaVersion: 1,
         title: "Checkpoint",
         richTitle: [{ type: "text", text: "Checkpoint", styles: {} }],

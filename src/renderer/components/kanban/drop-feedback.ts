@@ -1,19 +1,19 @@
-import type { BoardSummary, CardStatus } from "@/lib/types";
+import type { BoardSummary, WorkflowStatus } from "@/lib/types";
 
 export interface KanbanDropIndicatorState {
-  columnId: CardStatus;
+  columnId: WorkflowStatus;
   index: number;
   label?: string;
 }
 
 export interface ResolvedKanbanDropFeedback {
   dropIndicator: KanbanDropIndicatorState | null;
-  activeDropColumnId: CardStatus | null;
+  activeDropColumnId: WorkflowStatus | null;
 }
 
 interface ResolveKanbanDropFeedbackInput {
   visibleBoard: BoardSummary | null;
-  columnId: CardStatus;
+  columnId: WorkflowStatus;
   visibleIndex: number;
   showSlotIndicator: boolean;
   label?: string;
@@ -21,7 +21,7 @@ interface ResolveKanbanDropFeedbackInput {
 
 function isEmptyVisibleColumn(
   visibleBoard: BoardSummary | null,
-  columnId: CardStatus,
+  columnId: WorkflowStatus,
 ): boolean {
   const targetColumn = visibleBoard?.columns.find((column) => column.id === columnId);
   return (targetColumn?.cards.length ?? 0) === 0;

@@ -31,8 +31,8 @@ export const cardToggleBlockConfig = {
   content: "inline",
 } as const satisfies CustomBlockConfig;
 
-export const cardRefBlockConfig = {
-  type: "cardRef",
+export const pageRefBlockConfig = {
+  type: "pageRef",
   propSchema: {
     targetBlockId: { default: "" },
     sourceProjectId: { default: "" },
@@ -41,8 +41,8 @@ export const cardRefBlockConfig = {
   content: "none",
 } as const satisfies CustomBlockConfig;
 
-export const cardBlockConfig = {
-  type: "card",
+export const pageBlockConfig = {
+  type: "page",
   propSchema: {},
   content: "none",
 } as const satisfies CustomBlockConfig;
@@ -147,8 +147,8 @@ export const threadMentionInlineContentConfig = {
 export const blockDocumentCustomBlockConfigs = {
   callout: calloutBlockConfig,
   threadSection: threadSectionBlockConfig,
-  card: cardBlockConfig,
-  cardRef: cardRefBlockConfig,
+  page: pageBlockConfig,
+  pageRef: pageRefBlockConfig,
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,
   templateRef: reusableTemplateRefBlockConfig,
@@ -157,7 +157,7 @@ export const blockDocumentCustomBlockConfigs = {
 /**
  * Decode-only Block configs used by the shipped-store import and historical NFM
  * readers. Writable Block Document surfaces intentionally do not register
- * them, so foreign Card bodies cannot re-enter a host Y.Doc.
+ * them, so foreign Page bodies cannot re-enter a host Y.Doc.
  */
 export const legacyBlockDocumentCustomBlockConfigs = {
   cardToggle: cardToggleBlockConfig,

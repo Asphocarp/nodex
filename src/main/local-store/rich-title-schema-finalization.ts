@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
-import { materializeCardDocument } from "../../shared/block-documents/block-document-codec";
+import { materializePageDocument } from "../../shared/block-documents/block-document-codec";
 import { loadPrimaryBlockDocument } from "./block-document-store";
-import { persistCardDocumentMaterialization } from "./document-materializations";
+import { persistPageDocumentMaterialization } from "./document-materializations";
 
 interface PendingRichTitleDocument {
   readonly document_id: string;
@@ -28,9 +28,9 @@ export const repairRichCardSnapshotSchemaCoordinates = (
            JOIN block_documents ownership
              ON ownership.document_id = document.id
            JOIN blocks owner ON owner.id = ownership.block_id
-           WHERE document.schema_key = 'nodex.card'
+           WHERE document.schema_key = 'nodex.page'
              AND document.schema_version = 2
-             AND owner.type = 'card'
+             AND owner.type = 'page'
          )`,
     )
     .run();
@@ -57,8 +57,8 @@ export const finalizeRichCardTitleSchema = (
       JOIN blocks owner ON owner.id = ownership.block_id
       LEFT JOIN document_materializations materialization
         ON materialization.document_id = document.id
-      WHERE owner.type = 'card'
-        AND document.schema_key = 'nodex.card'
+      WHERE owner.type = 'page'
+        AND document.schema_key = 'nodex.page'
         AND document.schema_version = 2
         AND document.readiness = 'ready'
         AND document.authority = 'ydoc_primary'
@@ -87,14 +87,14 @@ export const finalizeRichCardTitleSchema = (
           loaded.head.schemaVersion !== 2
         ) {
           throw new Error(
-            `Card Document ${row.document_id} changed during rich-title finalization`,
+            `Page Document ${row.document_id} changed during rich-title finalization`,
           );
         }
-        persistCardDocumentMaterialization(database, {
+        persistPageDocumentMaterialization(database, {
           documentId: row.document_id,
           generation: row.generation,
           projectedSeq: row.head_seq,
-          materialization: materializeCardDocument(loaded.document),
+          materialization: materializePageDocument(loaded.document),
         });
       } finally {
         loaded.document.destroy();
