@@ -13331,7 +13331,7 @@ describe("local-conversation-store", () => {
       readConversation: (threadId: string) => CodexConversationSnapshot | null;
       respondNodexAgentAuthorization: (
         requestId: string,
-        response: { decision: "allow_once" },
+        response: { decision: "allow_project" },
         conversationId: string,
       ) => Promise<boolean>;
     } | null = null;
@@ -13347,7 +13347,7 @@ describe("local-conversation-store", () => {
       readConversation: (threadId: string) => CodexConversationSnapshot | null;
       respondNodexAgentAuthorization: (
         requestId: string,
-        response: { decision: "allow_once" },
+        response: { decision: "allow_project" },
         conversationId: string,
       ) => Promise<boolean>;
     };
@@ -13421,7 +13421,7 @@ describe("local-conversation-store", () => {
     await act(async () => {
       await activeManager.respondNodexAgentAuthorization(
         "nodex-auth-1",
-        { decision: "allow_once" },
+        { decision: "allow_project" },
         "thread-1",
       );
       await flushAsyncWork();
@@ -13433,7 +13433,7 @@ describe("local-conversation-store", () => {
     expect(responseRecord?.args[0]).toEqual({
       type: "success",
       requestId: "renderer-auth-1",
-      result: { decision: "allow_once" },
+      result: { decision: "allow_project" },
     });
     expect(activeManager.readConversation("thread-1")?.requests.some(
       (request) => request.requestId === "nodex-auth-1",

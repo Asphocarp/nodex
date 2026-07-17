@@ -26333,6 +26333,10 @@ describe("codex-service streaming notification parity", () => {
   });
 
   test("handles serverRequest/resolved by clearing pending approvals and user inputs", async () => {
+    defaultProjectId = createProject({
+      name: "Resolved request authority",
+      sources: ["/tmp/codex-resolved-requests"],
+    }).id;
     const service = createService();
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;

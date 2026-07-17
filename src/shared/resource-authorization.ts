@@ -19,6 +19,7 @@ export type ProjectResourceAuthorizationSource =
   | "implicit_database_binding"
   | "explicit_page_grant"
   | "explicit_database_grant"
+  | "thread_resource_consent"
   | "thread_full_access";
 
 export type ProjectResourceAuthorizationReason =

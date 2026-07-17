@@ -29,34 +29,18 @@ afterEach(() => {
 });
 
 describe("CodexNodexAgentAuthorityRegistry", () => {
-  test("projects write access from frozen scope, task grants, and presentation availability", () => {
+  test("reports direct write capability for every Project-bound authority scope", () => {
     expect(resolveNodexAgentWriteAccess({
       authorityScope: "project",
       hasActorProject: true,
-      hasBroker: true,
-      hasTaskGrant: false,
-      hasPresentationTarget: true,
-    })).toBe("consent_required");
-    expect(resolveNodexAgentWriteAccess({
-      authorityScope: "project",
-      hasActorProject: true,
-      hasBroker: true,
-      hasTaskGrant: true,
-      hasPresentationTarget: false,
     })).toBe("granted");
     expect(resolveNodexAgentWriteAccess({
       authorityScope: "project",
-      hasActorProject: true,
-      hasBroker: true,
-      hasTaskGrant: false,
-      hasPresentationTarget: false,
+      hasActorProject: false,
     })).toBe("unavailable");
     expect(resolveNodexAgentWriteAccess({
       authorityScope: "library",
       hasActorProject: true,
-      hasBroker: false,
-      hasTaskGrant: false,
-      hasPresentationTarget: false,
     })).toBe("granted");
   });
 

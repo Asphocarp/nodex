@@ -5,6 +5,8 @@ import { getLocalStoreDir } from "./local-store/config";
 import { dbNotifier, type ChangeType } from "./local-store/notifier";
 import { getLogger } from "./logging/logger";
 import type { BoardChangeEvent } from "../shared/ipc-api";
+import type { ProjectResourceGrant } from "../shared/library";
+import type { PersistNodexAgentProjectResourceGrantsInput } from "../shared/nodex-agent-resource-access";
 import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type {
   DocumentAccessAck,
@@ -204,6 +206,17 @@ export class BlockMutationWriter {
       type: "readNodexAgentV3Tool",
       payload: request,
     });
+  }
+
+  async persistNodexAgentProjectResourceGrants(
+    input: PersistNodexAgentProjectResourceGrantsInput,
+  ): Promise<BlockMutationEnvelope<readonly ProjectResourceGrant[]>> {
+    const envelope = await this.executeTyped<readonly ProjectResourceGrant[]>({
+      type: "persistNodexAgentProjectResourceGrants",
+      payload: input,
+    });
+    dbNotifier.notifyProjectsChanged("update", input.authority.actorProjectId);
+    return envelope;
   }
 
   async prepareNodexAgentPageUpdate(

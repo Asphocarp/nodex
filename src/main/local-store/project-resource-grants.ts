@@ -4,6 +4,16 @@ import type Database from "better-sqlite3";
 import type { ProjectResourceGrant } from "../../shared/library";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type {
+  NodexAgentAuthorizationTarget,
+  NodexAgentResourceAccessOverlay,
+  NodexAgentResourceAccessPlan,
+  NodexAgentResourceConsentRequirement,
+  NodexAgentResourceGrantRoot,
+  NodexAgentResourceGrantSpec,
+  NodexAgentResourceIntent,
+  PersistNodexAgentProjectResourceGrantsInput,
+} from "../../shared/nodex-agent-resource-access";
+import type {
   LibraryResource,
   ProjectResourceAction,
   ProjectResourceAuthorization,
@@ -29,6 +39,10 @@ interface ResourceCoordinates {
   readonly libraryId: string;
   readonly owningDatabaseIds: readonly string[];
   readonly pageAncestorIds: readonly string[];
+  readonly preferredGrantRoot: Exclude<
+    NodexAgentResourceGrantRoot,
+    { readonly kind: "library" }
+  >;
 }
 
 interface GrantMatch {
@@ -122,6 +136,7 @@ const readResourceCoordinates = (
           ? [hierarchy.terminal.databaseId]
           : [],
       pageAncestorIds: hierarchy.pageIds,
+      preferredGrantRoot: { kind: "page", pageId: resource.pageId },
     };
   }
 
@@ -135,6 +150,10 @@ const readResourceCoordinates = (
       libraryId: container.libraryId,
       owningDatabaseIds: [resource.databaseId],
       pageAncestorIds: readDatabasePageAncestors(database, resource.databaseId),
+      preferredGrantRoot: {
+        kind: "database",
+        databaseId: resource.databaseId,
+      },
     };
   }
 
@@ -151,6 +170,10 @@ const readResourceCoordinates = (
       libraryId: source.libraryId,
       owningDatabaseIds: [source.databaseId],
       pageAncestorIds: readDatabasePageAncestors(database, source.databaseId),
+      preferredGrantRoot: {
+        kind: "database",
+        databaseId: source.databaseId,
+      },
     };
   }
 
@@ -182,6 +205,10 @@ const readResourceCoordinates = (
       database,
       view.hostDatabaseId,
     ),
+    preferredGrantRoot: {
+      kind: "database",
+      databaseId: view.hostDatabaseId,
+    },
   };
 };
 
@@ -341,12 +368,169 @@ export const authorizeProjectResource = (input: Readonly<{
 }>): ProjectResourceAuthorization =>
   authorizeProjectResourceInDatabase(getDb(), input);
 
+const grantRootKey = (root: NodexAgentResourceGrantRoot): string => {
+  if (root.kind === "page") return `page:${root.pageId}`;
+  if (root.kind === "database") return `database:${root.databaseId}`;
+  return `library:${root.libraryId}`;
+};
+
+export const canonicalizeNodexAgentResourceGrantSpecs = (
+  grants: readonly NodexAgentResourceGrantSpec[],
+): readonly NodexAgentResourceGrantSpec[] => {
+  const byRoot = new Map<string, NodexAgentResourceGrantSpec>();
+  for (const grant of grants) {
+    const key = grantRootKey(grant.root);
+    const current = byRoot.get(key);
+    const access = current?.access === "read_write" || grant.access === "read_write"
+      ? "read_write" as const
+      : "read" as const;
+    const libraryActions = grant.root.kind === "library"
+      ? [...new Set([
+          ...(current?.libraryActions ?? []),
+          ...(grant.libraryActions ?? []),
+        ])].sort()
+      : undefined;
+    byRoot.set(key, {
+      root: grant.root,
+      access,
+      ...(libraryActions && libraryActions.length > 0 ? { libraryActions } : {}),
+    });
+  }
+  return [...byRoot.entries()]
+    .sort(([left], [right]) => compareStrings(left, right))
+    .map(([, grant]) => grant);
+};
+
+const overlayIdentityMatches = (
+  authority: FrozenNodexAgentTurnAuthority,
+  overlay: NodexAgentResourceAccessOverlay,
+  callId: string | undefined,
+  phase: "prepare" | "execute",
+): boolean => {
+  if (
+    overlay.actorProjectId !== authority.actorProjectId
+    || overlay.libraryId !== authority.libraryId
+    || overlay.storeEpoch !== authority.storeEpoch
+    || overlay.rootThreadId !== authority.rootThreadId
+  ) return false;
+  if (overlay.kind === "inspection" && phase !== "prepare") return false;
+  if (overlay.scope === "task") return overlay.kind === "consent";
+  return overlay.threadId === authority.threadId
+    && overlay.turnId === authority.turnId
+    && overlay.callId === callId;
+};
+
+const grantAccessCoversAction = (
+  access: NodexAgentResourceGrantSpec["access"],
+  action: ProjectResourceAction,
+): boolean => action === "read" || access === "read_write";
+
+const grantCoversCoordinates = (
+  grant: NodexAgentResourceGrantSpec,
+  coordinates: ResourceCoordinates,
+  action: ProjectResourceAction,
+): boolean => {
+  if (!grantAccessCoversAction(grant.access, action)) return false;
+  if (grant.root.kind === "page") {
+    return coordinates.pageAncestorIds.includes(grant.root.pageId);
+  }
+  if (grant.root.kind === "database") {
+    return coordinates.owningDatabaseIds.includes(grant.root.databaseId);
+  }
+  return false;
+};
+
+const overlayCoversResource = (
+  authority: FrozenNodexAgentTurnAuthority,
+  overlay: NodexAgentResourceAccessOverlay | undefined,
+  coordinates: ResourceCoordinates,
+  action: ProjectResourceAction,
+  callId: string | undefined,
+  phase: "prepare" | "execute",
+): NodexAgentResourceGrantSpec | null => {
+  if (!overlay || !overlayIdentityMatches(authority, overlay, callId, phase)) {
+    return null;
+  }
+  return overlay.grants.find((grant) =>
+    grantCoversCoordinates(grant, coordinates, action)
+  ) ?? null;
+};
+
+const overlayCoversLibraryTarget = (
+  authority: FrozenNodexAgentTurnAuthority,
+  overlay: NodexAgentResourceAccessOverlay | undefined,
+  target: Extract<NodexAgentAuthorizationTarget, { readonly kind: "library" }>,
+  action: ProjectResourceAction,
+  callId: string,
+): boolean => {
+  if (!overlay || !overlayIdentityMatches(authority, overlay, callId, "execute")) {
+    return false;
+  }
+  return overlay.grants.some((grant) =>
+    grant.root.kind === "library"
+    && grant.root.libraryId === target.libraryId
+    && grantAccessCoversAction(grant.access, action)
+    && grant.libraryActions?.includes("create_child") === true
+    && action === "create_child"
+  );
+};
+
+const CONSENT_ELIGIBLE_REASONS = new Set<
+  ProjectResourceAuthorization["reason"]
+>(["grant_missing", "grant_read_only"]);
+
+const isNodexAgentResourceActive = (
+  database: Database.Database,
+  resource: LibraryResource,
+): boolean => {
+  if (resource.kind === "page") {
+    return Boolean(database.prepare(`
+      SELECT 1
+      FROM pages page
+      INNER JOIN blocks block ON block.id = page.block_id
+      WHERE page.block_id = ?
+        AND page.lifecycle <> 'deleted'
+        AND block.lifecycle <> 'deleted'
+    `).get(resource.pageId));
+  }
+  if (resource.kind === "database") {
+    return Boolean(database.prepare(`
+      SELECT 1
+      FROM database_containers container
+      INNER JOIN blocks block ON block.id = container.block_id
+      WHERE container.block_id = ?
+        AND container.lifecycle <> 'deleted'
+        AND block.lifecycle <> 'deleted'
+    `).get(resource.databaseId));
+  }
+  if (resource.kind === "data_source") {
+    return Boolean(database.prepare(`
+      SELECT 1 FROM data_sources
+      WHERE id = ? AND lifecycle = 'active'
+    `).get(resource.dataSourceId));
+  }
+  return Boolean(database.prepare(`
+    SELECT 1
+    FROM database_views view
+    INNER JOIN database_containers container
+      ON container.block_id = view.database_block_id
+    INNER JOIN data_sources source ON source.id = view.data_source_id
+    WHERE view.id = ?
+      AND view.lifecycle = 'active'
+      AND container.lifecycle <> 'deleted'
+      AND source.lifecycle = 'active'
+  `).get(resource.viewId));
+};
+
 export const authorizeNodexAgentResourceInDatabase = (
   database: Database.Database,
   input: Readonly<{
     authority: FrozenNodexAgentTurnAuthority;
     resource: LibraryResource;
     action: ProjectResourceAction;
+    resourceAccess?: NodexAgentResourceAccessOverlay;
+    callId?: string;
+    phase?: "prepare" | "execute";
   }>,
 ): ProjectResourceAuthorization => {
   const { authority } = input;
@@ -372,12 +556,49 @@ export const authorizeNodexAgentResourceInDatabase = (
       authority.libraryId,
     );
   }
+  if (!isNodexAgentResourceActive(database, input.resource)) {
+    return deny(
+      authority.actorProjectId,
+      input.resource,
+      input.action,
+      "resource_not_found",
+      project,
+    );
+  }
   if (authority.scope === "project") {
-    return authorizeProjectResourceInDatabase(database, {
+    const authorization = authorizeProjectResourceInDatabase(database, {
       projectId: authority.actorProjectId,
       resource: input.resource,
       action: input.action,
     });
+    if (authorization.allowed || !CONSENT_ELIGIBLE_REASONS.has(
+      authorization.reason,
+    )) return authorization;
+    let coordinates: ResourceCoordinates | null;
+    try {
+      coordinates = readResourceCoordinates(database, input.resource);
+    } catch (error) {
+      if (!(error instanceof PageHierarchyError)) throw error;
+      return authorization;
+    }
+    if (!coordinates) return authorization;
+    const grant = overlayCoversResource(
+      authority,
+      input.resourceAccess,
+      coordinates,
+      input.action,
+      input.callId,
+      input.phase ?? "execute",
+    );
+    if (!grant) return authorization;
+    return {
+      ...authorization,
+      allowed: true,
+      effectiveAccess: grant.access,
+      source: "thread_resource_consent",
+      grantId: null,
+      reason: "allowed",
+    };
   }
   if (project.lifecycle !== "active") {
     return deny(
@@ -435,6 +656,220 @@ export const authorizeNodexAgentResourceInDatabase = (
   return { ...base, allowed: true, reason: "allowed" };
 };
 
+const resolvePageOrBlockTarget = (
+  database: Database.Database,
+  target: Extract<
+    NodexAgentAuthorizationTarget,
+    { readonly kind: "page_or_block" }
+  >,
+): LibraryResource | null => {
+  const row = database.prepare(`
+    SELECT page.block_id AS pageId
+    FROM pages page
+    INNER JOIN blocks page_block ON page_block.id = page.block_id
+    WHERE page.block_id = ?
+      AND page.lifecycle <> 'deleted'
+      AND page_block.lifecycle <> 'deleted'
+    UNION ALL
+    SELECT ownership.block_id AS pageId
+    FROM blocks block
+    INNER JOIN block_documents ownership
+      ON ownership.document_id = block.containing_document_id
+    INNER JOIN pages page ON page.block_id = ownership.block_id
+    INNER JOIN blocks page_block ON page_block.id = page.block_id
+    WHERE block.id = ?
+      AND block.location_kind = 'document'
+      AND block.lifecycle <> 'deleted'
+      AND page.lifecycle <> 'deleted'
+      AND page_block.lifecycle <> 'deleted'
+    LIMIT 1
+  `).get(target.id, target.id) as { readonly pageId: string } | undefined;
+  return row ? { kind: "page", pageId: row.pageId } : null;
+};
+
+const requirementAccess = (
+  action: ProjectResourceAction,
+): NodexAgentResourceGrantSpec["access"] =>
+  action === "read" ? "read" : "read_write";
+
+const canonicalizeConsentRequirements = (
+  requirements: readonly NodexAgentResourceConsentRequirement[],
+): readonly NodexAgentResourceConsentRequirement[] => {
+  const byRoot = new Map<string, NodexAgentResourceConsentRequirement>();
+  for (const requirement of requirements) {
+    const key = grantRootKey(requirement.grant.root);
+    const current = byRoot.get(key);
+    if (!current || (
+      current.grant.access === "read"
+      && requirement.grant.access === "read_write"
+    )) {
+      byRoot.set(key, requirement);
+    }
+  }
+  return [...byRoot.entries()]
+    .sort(([left], [right]) => compareStrings(left, right))
+    .map(([, requirement]) => requirement);
+};
+
+const inspectionOverlay = (
+  authority: FrozenNodexAgentTurnAuthority,
+  callId: string,
+  grants: readonly NodexAgentResourceGrantSpec[],
+): NodexAgentResourceAccessOverlay => ({
+  kind: "inspection",
+  scope: "call",
+  threadId: authority.threadId,
+  turnId: authority.turnId,
+  callId,
+  rootThreadId: authority.rootThreadId,
+  actorProjectId: authority.actorProjectId,
+  libraryId: authority.libraryId,
+  storeEpoch: authority.storeEpoch,
+  grants: canonicalizeNodexAgentResourceGrantSpecs(grants),
+});
+
+export const planNodexAgentResourceAccessInDatabase = (
+  database: Database.Database,
+  input: Readonly<{
+    authority: FrozenNodexAgentTurnAuthority;
+    callId: string;
+    intents: readonly NodexAgentResourceIntent[];
+    taskAccess?: NodexAgentResourceAccessOverlay;
+  }>,
+): NodexAgentResourceAccessPlan => {
+  const requirements: NodexAgentResourceConsentRequirement[] = [];
+  let usesTaskAccess = false;
+  for (const intent of input.intents) {
+    if (intent.target.kind === "library") {
+      const project = readProjectAuthority(database, input.authority.actorProjectId);
+      const reason = !project
+        ? "project_not_found" as const
+        : project.library_id !== input.authority.libraryId
+          || readBlockStoreEpoch(database) !== input.authority.storeEpoch
+          ? "authority_stale" as const
+          : intent.target.libraryId !== input.authority.libraryId
+            ? "library_mismatch" as const
+            : project.lifecycle !== "active"
+              ? "project_read_only" as const
+              : null;
+      if (reason) return { kind: "denied", intent, reason };
+      if (input.authority.scope === "library") continue;
+      if (intent.action !== "create_child") {
+        return {
+          kind: "denied",
+          intent,
+          reason: "structural_capability_required",
+        };
+      }
+      if (overlayCoversLibraryTarget(
+        input.authority,
+        input.taskAccess,
+        intent.target,
+        intent.action,
+        input.callId,
+      )) {
+        usesTaskAccess = true;
+        continue;
+      }
+      requirements.push({
+        intent,
+        grant: {
+          root: intent.target,
+          access: "read_write",
+          libraryActions: ["create_child"],
+        },
+        reason: "library_consent_required",
+        persistable: false,
+      });
+      continue;
+    }
+
+    const resource = intent.target.kind === "page_or_block"
+      ? resolvePageOrBlockTarget(database, intent.target)
+      : intent.target;
+    if (!resource) {
+      return { kind: "denied", intent, reason: "resource_not_found" };
+    }
+    const direct = authorizeNodexAgentResourceInDatabase(database, {
+      authority: input.authority,
+      resource,
+      action: intent.action,
+    });
+    if (direct.allowed) continue;
+    if (input.taskAccess) {
+      const covered = authorizeNodexAgentResourceInDatabase(database, {
+        authority: input.authority,
+        resource,
+        action: intent.action,
+        resourceAccess: input.taskAccess,
+        callId: input.callId,
+        phase: "execute",
+      });
+      if (covered.allowed) {
+        usesTaskAccess = true;
+        continue;
+      }
+    }
+    if (!CONSENT_ELIGIBLE_REASONS.has(direct.reason)) {
+      return { kind: "denied", intent, reason: direct.reason };
+    }
+    const coordinates = readResourceCoordinates(database, resource);
+    if (!coordinates) {
+      return { kind: "denied", intent, reason: "resource_not_found" };
+    }
+    requirements.push({
+      intent: { ...intent, target: resource },
+      grant: {
+        root: coordinates.preferredGrantRoot,
+        access: requirementAccess(intent.action),
+      },
+      reason: direct.reason as "grant_missing" | "grant_read_only",
+      persistable: true,
+    });
+  }
+
+  const canonicalRequirements = canonicalizeConsentRequirements(requirements);
+  if (canonicalRequirements.length === 0) {
+    return {
+      kind: "authorized",
+      ...(usesTaskAccess && input.taskAccess
+        ? { resourceAccess: input.taskAccess }
+        : {}),
+    };
+  }
+  const grants = [
+    ...(input.taskAccess?.grants ?? []),
+    ...canonicalRequirements.map((requirement) => requirement.grant),
+  ];
+  return {
+    kind: "consent_required",
+    requirements: canonicalRequirements,
+    inspectionAccess: inspectionOverlay(input.authority, input.callId, grants),
+  };
+};
+
+export const assertNodexAgentResourceIntentsAuthorizedInDatabase = (
+  database: Database.Database,
+  input: Readonly<{
+    authority: FrozenNodexAgentTurnAuthority;
+    callId: string;
+    intents: readonly NodexAgentResourceIntent[];
+    resourceAccess?: NodexAgentResourceAccessOverlay;
+  }>,
+): void => {
+  const plan = planNodexAgentResourceAccessInDatabase(database, {
+    authority: input.authority,
+    callId: input.callId,
+    intents: input.intents,
+    ...(input.resourceAccess ? { taskAccess: input.resourceAccess } : {}),
+  });
+  if (plan.kind === "authorized") return;
+  const reason = plan.kind === "denied"
+    ? plan.reason
+    : plan.requirements[0]?.reason ?? "grant_missing";
+  throw new Error(`Nodex Agent authority denied: ${reason}`);
+};
+
 export const assertCurrentNodexAgentTurnAuthorityInDatabase = (
   database: Database.Database,
   authority: FrozenNodexAgentTurnAuthority | undefined,
@@ -459,6 +894,8 @@ export const assertNodexAgentResourceAuthorizationInDatabase = (
     authority: FrozenNodexAgentTurnAuthority | undefined;
     resource: LibraryResource;
     action: ProjectResourceAction;
+    resourceAccess?: NodexAgentResourceAccessOverlay;
+    callId?: string;
   }>,
 ): void => {
   if (!input.authority) return;
@@ -466,6 +903,9 @@ export const assertNodexAgentResourceAuthorizationInDatabase = (
     authority: input.authority,
     resource: input.resource,
     action: input.action,
+    ...(input.resourceAccess ? { resourceAccess: input.resourceAccess } : {}),
+    ...(input.callId ? { callId: input.callId } : {}),
+    phase: "execute",
   });
   if (authorization.allowed) return;
   throw new Error(`Nodex Agent authority denied: ${authorization.reason}`);
@@ -494,9 +934,9 @@ const requireGrantRoot = (
     `${input.kind}Id`,
   );
   const table = rootKind === "page" ? "pages" : "database_containers";
-  const idColumn = rootKind === "page" ? "block_id" : "block_id";
   const row = database.prepare(`
-    SELECT library_id FROM ${table} WHERE ${idColumn} = ?
+    SELECT library_id FROM ${table}
+    WHERE block_id = ? AND lifecycle <> 'deleted'
   `).get(rootId) as { readonly library_id: string } | undefined;
   if (!row) throw new Error(`${rootKind} not found: ${rootId}`);
   if (row.library_id !== libraryId) {
@@ -549,6 +989,31 @@ export const putProjectResourceGrantInDatabase = (
 export const putProjectResourceGrant = (
   input: PutProjectResourceGrantInput,
 ): ProjectResourceGrant => putProjectResourceGrantInDatabase(getDb(), input);
+
+export const persistNodexAgentProjectResourceGrantsInDatabase = (
+  database: Database.Database,
+  input: PersistNodexAgentProjectResourceGrantsInput,
+  now = new Date().toISOString(),
+): readonly ProjectResourceGrant[] => database.transaction(() => {
+  assertCurrentNodexAgentTurnAuthorityInDatabase(database, input.authority);
+  if (input.authority.scope !== "project") {
+    throw new Error("Full-access authority cannot persist Project resource grants");
+  }
+  const grants = canonicalizeNodexAgentResourceGrantSpecs(input.grants);
+  if (grants.some((grant) => grant.root.kind === "library")) {
+    throw new Error("Library consent cannot be persisted as a Project resource grant");
+  }
+  return grants.map((grant) => {
+    if (grant.root.kind === "library") {
+      throw new Error("Library consent cannot be persisted as a Project resource grant");
+    }
+    return putProjectResourceGrantInDatabase(database, {
+      projectId: input.authority.actorProjectId,
+      root: grant.root,
+      access: grant.access,
+    }, now);
+  });
+}).immediate();
 
 export const revokeProjectResourceGrantInDatabase = (
   database: Database.Database,

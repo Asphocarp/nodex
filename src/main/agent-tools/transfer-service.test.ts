@@ -10,6 +10,10 @@ import {
   type BlockId,
 } from "../../shared/nodex-agent-tools";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import type {
+  NodexAgentResourceAccessOverlay,
+  NodexAgentResourceGrantSpec,
+} from "../../shared/nodex-agent-resource-access";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
 import { createProject } from "../local-store/projects";
@@ -155,7 +159,215 @@ function fullAccessAuthority(
   };
 }
 
+function projectAuthority(fixture: Fixture): FrozenNodexAgentTurnAuthority {
+  return {
+    ...fullAccessAuthority(fixture, "turn-project-access"),
+    scope: "project",
+    source: "project_turn",
+  };
+}
+
+function callAccess(
+  authority: FrozenNodexAgentTurnAuthority,
+  callId: string,
+  grants: readonly NodexAgentResourceGrantSpec[],
+): NodexAgentResourceAccessOverlay {
+  return {
+    kind: "consent",
+    scope: "call",
+    threadId: authority.threadId,
+    turnId: authority.turnId,
+    callId,
+    rootThreadId: authority.rootThreadId,
+    actorProjectId: authority.actorProjectId,
+    libraryId: authority.libraryId,
+    storeEpoch: authority.storeEpoch,
+    grants,
+  };
+}
+
 describe("Nodex Agent transfer service", () => {
+  sqliteTest("keeps call-scoped top-level create and duplicate non-persistent", async () => {
+    await withFixture((fixture) => {
+      const source = createPage(fixture, "top-level-source", "Top-level Source");
+      const authority = projectAuthority(fixture);
+      const libraryGrant = [{
+        root: { kind: "library" as const, libraryId: authority.libraryId },
+        access: "read_write" as const,
+        libraryActions: ["create_child" as const],
+      }];
+      const grantCountBefore = fixture.database.prepare(`
+        SELECT COUNT(*) AS count FROM project_resource_grants
+        WHERE project_id = ?
+      `).get(fixture.projectId) as { readonly count: number };
+
+      const createCallId = "top-level-consent-create";
+      const preparedCreate = prepareNodexAgentCreatePages(fixture.database, {
+        threadId: authority.threadId,
+        callId: createCallId,
+        projectId: fixture.projectId,
+        authority,
+        resourceAccess: callAccess(authority, createCallId, libraryGrant),
+        input: CreatePagesV3InputSchema.parse({
+          destination: { kind: "library" },
+          pages: [{ title: "Temporary top-level Page", markdown: "Body" }],
+        }),
+      });
+      if (!preparedCreate.ok || preparedCreate.value.kind !== "prepared") {
+        throw new Error(`Create was not prepared: ${JSON.stringify(preparedCreate)}`);
+      }
+      const created = executeNodexAgentCreatePages(
+        fixture.database,
+        preparedCreate.value.command,
+      );
+      if (!created.ok) throw new Error(created.error.message);
+
+      const duplicateCallId = "top-level-consent-duplicate";
+      const preparedDuplicate = prepareNodexAgentDuplicatePage(fixture.database, {
+        threadId: authority.threadId,
+        callId: duplicateCallId,
+        projectId: fixture.projectId,
+        authority,
+        resourceAccess: callAccess(authority, duplicateCallId, libraryGrant),
+        input: DuplicatePageV3InputSchema.parse({
+          pageId: source,
+          destination: { kind: "library" },
+        }),
+      });
+      if (!preparedDuplicate.ok || preparedDuplicate.value.kind !== "prepared") {
+        throw new Error(`Duplicate was not prepared: ${JSON.stringify(preparedDuplicate)}`);
+      }
+      const duplicated = executeNodexAgentDuplicatePage(
+        fixture.database,
+        preparedDuplicate.value.command,
+      );
+      if (!duplicated.ok) throw new Error(duplicated.error.message);
+      expect(duplicated.value.output.data.location).toEqual({
+        kind: "library",
+        libraryId: authority.libraryId,
+      });
+
+      const grantCountAfter = fixture.database.prepare(`
+        SELECT COUNT(*) AS count FROM project_resource_grants
+        WHERE project_id = ?
+      `).get(fixture.projectId) as { readonly count: number };
+      expect(grantCountAfter).toEqual(grantCountBefore);
+    });
+  });
+
+  sqliteTest("uses call-scoped consent for cross-owner create, move, and duplicate without persisting grants", async () => {
+    await withFixture((fixture) => {
+      const target = createProject({ name: "Consent target owner" });
+      const targetParent = createPage(
+        { ...fixture, projectId: target.id },
+        "consent-target-parent",
+        "Consent Parent",
+      );
+      const moveSource = createPage(fixture, "consent-move-source", "Move Source");
+      const duplicateSource = createPage(
+        fixture,
+        "consent-duplicate-source",
+        "Duplicate Source",
+      );
+      const authority = projectAuthority(fixture);
+      const destinationGrant = [{
+        root: { kind: "page" as const, pageId: targetParent },
+        access: "read_write" as const,
+      }];
+      const grantCountBefore = fixture.database.prepare(`
+        SELECT COUNT(*) AS count FROM project_resource_grants
+        WHERE project_id = ?
+      `).get(fixture.projectId) as { readonly count: number };
+
+      const createCallId = "project-consent-create";
+      const preparedCreate = prepareNodexAgentCreatePages(fixture.database, {
+        threadId: authority.threadId,
+        callId: createCallId,
+        projectId: fixture.projectId,
+        authority,
+        resourceAccess: callAccess(authority, createCallId, destinationGrant),
+        input: CreatePagesV3InputSchema.parse({
+          destination: { kind: "page", pageId: targetParent },
+          pages: [{ title: "Created with consent", markdown: "Body" }],
+        }),
+      });
+      if (!preparedCreate.ok || preparedCreate.value.kind !== "prepared") {
+        throw new Error(`Create was not prepared: ${JSON.stringify(preparedCreate)}`);
+      }
+      const created = executeNodexAgentCreatePages(
+        fixture.database,
+        preparedCreate.value.command,
+      );
+      if (!created.ok) throw new Error(created.error.message);
+      const createdPageId = created.value.output.data.pages[0]?.pageId;
+      if (!createdPageId) throw new Error("Create returned no Page");
+
+      const moveCallId = "project-consent-move";
+      const preparedMove = prepareNodexAgentMovePages(fixture.database, {
+        threadId: authority.threadId,
+        callId: moveCallId,
+        projectId: fixture.projectId,
+        authority,
+        resourceAccess: callAccess(authority, moveCallId, destinationGrant),
+        input: MovePagesV3InputSchema.parse({
+          pageIds: [moveSource],
+          destination: { kind: "page", pageId: targetParent },
+        }),
+      });
+      if (!preparedMove.ok || preparedMove.value.kind !== "prepared") {
+        throw new Error(`Move was not prepared: ${JSON.stringify(preparedMove)}`);
+      }
+      const moved = executeNodexAgentMovePages(
+        fixture.database,
+        preparedMove.value.command,
+      );
+      if (!moved.ok) throw new Error(moved.error.message);
+
+      const duplicateCallId = "project-consent-duplicate";
+      const preparedDuplicate = prepareNodexAgentDuplicatePage(fixture.database, {
+        threadId: authority.threadId,
+        callId: duplicateCallId,
+        projectId: fixture.projectId,
+        authority,
+        resourceAccess: callAccess(authority, duplicateCallId, destinationGrant),
+        input: DuplicatePageV3InputSchema.parse({
+          pageId: duplicateSource,
+          destination: { kind: "page", pageId: targetParent },
+        }),
+      });
+      if (!preparedDuplicate.ok || preparedDuplicate.value.kind !== "prepared") {
+        throw new Error(`Duplicate was not prepared: ${JSON.stringify(preparedDuplicate)}`);
+      }
+      const duplicated = executeNodexAgentDuplicatePage(
+        fixture.database,
+        preparedDuplicate.value.command,
+      );
+      if (!duplicated.ok) throw new Error(duplicated.error.message);
+
+      const resultIds = [
+        createdPageId,
+        moveSource,
+        duplicated.value.output.data.pageId,
+      ];
+      const owners = fixture.database.prepare(`
+        SELECT id, project_id AS projectId FROM blocks
+        WHERE id IN (?, ?, ?)
+      `).all(...resultIds) as readonly {
+        readonly id: string;
+        readonly projectId: string;
+      }[];
+      expect(new Set(owners.map((owner) => owner.projectId))).toEqual(
+        new Set([target.id]),
+      );
+      const grantCountAfter = fixture.database.prepare(`
+        SELECT COUNT(*) AS count FROM project_resource_grants
+        WHERE project_id = ?
+      `).get(fixture.projectId) as { readonly count: number };
+      expect(grantCountAfter).toEqual(grantCountBefore);
+      expect(fixture.database.pragma("foreign_key_check")).toEqual([]);
+    });
+  });
+
   sqliteTest("moves and duplicates Pages across compatibility owners without persisting grants", async () => {
     await withFixture((fixture) => {
       const target = createProject({ name: "Foreign target owner" });

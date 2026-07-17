@@ -20,11 +20,13 @@ import type {
   TransferBlocksOutput,
 } from "./write-schemas";
 import type { FrozenNodexAgentTurnAuthority } from "../nodex-agent-authority";
+import type { NodexAgentResourceAccessOverlay } from "../nodex-agent-resource-access";
 
 export interface NodexAgentCallIdentity {
   readonly threadId: string;
   readonly callId: string;
   readonly authority?: FrozenNodexAgentTurnAuthority;
+  readonly resourceAccess?: NodexAgentResourceAccessOverlay;
 }
 
 export type NodexAgentDocumentEditTool =

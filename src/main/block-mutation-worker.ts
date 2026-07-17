@@ -45,7 +45,10 @@ import {
 import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
 import { maintainStoreBlockRetention } from "./local-store/block-retention-maintenance-store";
 import { deleteProjectBlockFirst } from "./local-store/project-deletion";
-import { assertNodexAgentResourceAuthorizationInDatabase } from "./local-store/project-resource-grants";
+import {
+  assertNodexAgentResourceAuthorizationInDatabase,
+  persistNodexAgentProjectResourceGrantsInDatabase,
+} from "./local-store/project-resource-grants";
 import { applyAdditionalDocumentCommand } from "./local-store/additional-document-command-kernel";
 import {
   applyDocumentOperationBatch,
@@ -452,6 +455,11 @@ async function runRequest(
   switch (request.type) {
     case "readNodexAgentV3Tool":
       return readNodexAgentV3Tool(getDb(), request.payload);
+    case "persistNodexAgentProjectResourceGrants":
+      return persistNodexAgentProjectResourceGrantsInDatabase(
+        getDb(),
+        request.payload,
+      );
     case "prepareNodexAgentPageUpdate":
       return prepareNodexAgentPageUpdate(getDb(), request.payload);
     case "completeNodexAgentPageUpdate":
@@ -839,6 +847,10 @@ async function runRequest(
                   authority: executionAuthority.authority,
                   resource: executionAuthority.resource,
                   action: "write",
+                  ...(executionAuthority.resourceAccess
+                    ? { resourceAccess: executionAuthority.resourceAccess }
+                    : {}),
+                  callId: executionAuthority.callId,
                 });
               },
             }

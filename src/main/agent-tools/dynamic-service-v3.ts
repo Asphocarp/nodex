@@ -8,6 +8,11 @@ import type {
   NodexAgentTransferAuthorizationEvidence,
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
+import type {
+  NodexAgentResourceAccessOverlay,
+  NodexAgentResourceGrantSpec,
+  NodexAgentResourceIntent,
+} from "../../shared/nodex-agent-resource-access";
 import { blockMutationWriter } from "../block-mutation-writer";
 import {
   createNodexV3DynamicToolRegistry,
@@ -20,6 +25,7 @@ import {
   type NodexAgentAuthorizationFootprint,
 } from "./authorization-footprint";
 import {
+  authorizeNodexAgentResourceIntents,
   fail,
   prepareAuthorizedWrite,
   projectRequired,
@@ -76,11 +82,87 @@ function destinationResource(destination: PageDestination): string {
   return `data_source:${destination.dataSourceId}`;
 }
 
+function destinationIntent(
+  destination: PageDestination,
+  libraryId: string,
+): NodexAgentResourceIntent {
+  if (destination.kind === "library") {
+    return {
+      target: { kind: "library", libraryId },
+      action: "create_child",
+    };
+  }
+  if (destination.kind === "page") {
+    return {
+      target: { kind: "page", pageId: destination.pageId },
+      action: "create_child",
+    };
+  }
+  return {
+    target: { kind: "data_source", dataSourceId: destination.dataSourceId },
+    action: "create_child",
+  };
+}
+
+function readPreview(
+  title: string,
+  summary: string,
+  label: string,
+  value: string,
+): NodexAgentAuthorizationPreview {
+  return {
+    title,
+    summary,
+    details: [{ label, value }],
+  };
+}
+
+function searchIntents(
+  input: NodexAgentV3ToolInput<"search">,
+): readonly NodexAgentResourceIntent[] {
+  const scope = input.scope;
+  if (!scope || scope.kind === "library") return [];
+  if (scope.kind === "page") {
+    return [{
+      target: { kind: "page", pageId: scope.pageId },
+      action: "read",
+    }];
+  }
+  if (scope.kind === "database") {
+    return [{
+      target: { kind: "database", databaseId: scope.databaseId },
+      action: "read",
+    }];
+  }
+  return [{
+    target: { kind: "data_source", dataSourceId: scope.dataSourceId },
+    action: "read",
+  }];
+}
+
 function boundedMarkdownPreview(markdown: string): string | undefined {
   const normalized = markdown.trim();
   if (!normalized) return undefined;
   if (normalized.length <= MAX_AUTHORIZATION_MARKDOWN_PREVIEW_CHARS) return normalized;
   return `${normalized.slice(0, MAX_AUTHORIZATION_MARKDOWN_PREVIEW_CHARS)}\n…`;
+}
+
+function recordTopLevelTaskPages(
+  context: NodexAgentDynamicExecutionContext,
+  destination: PageDestination,
+  resourceAccess: NodexAgentResourceAccessOverlay | undefined,
+  pageIds: readonly string[],
+): void {
+  if (
+    destination.kind !== "library"
+    || resourceAccess?.scope !== "task"
+    || !context.recordTaskResourceAccess
+  ) return;
+  const grants: NodexAgentResourceGrantSpec[] = pageIds.map((pageId) => ({
+    root: { kind: "page", pageId },
+    access: "read_write",
+  }));
+  context.recordTaskResourceAccess(grants);
 }
 
 function createPagesPreview(
@@ -304,8 +386,10 @@ export class NodexAgentV3DynamicService {
         const projectId = context.authority?.actorProjectId ?? null;
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "get_context",
+          callId: context.callId,
           projectId,
           authority: context.authority,
+          resourceAccess: context.resourceAccess,
           access: context.access,
           input,
         })).result;
@@ -314,10 +398,26 @@ export class NodexAgentV3DynamicService {
         return result.output;
       },
       search: async ({ input, context }) => {
+        const intents = searchIntents(input);
+        const resourceAccess = intents.length > 0
+          ? await authorizeNodexAgentResourceIntents(context, {
+              intents,
+              tool: "search",
+              effect: "read",
+              preview: readPreview(
+                "Search this Nodex resource",
+                "Search Pages and Blocks inside the requested resource.",
+                "Scope",
+                input.scope?.kind ?? "authorized Library resources",
+              ),
+            })
+          : context.resourceAccess;
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "search",
+          callId: context.callId,
           projectId: projectRequired(context),
           authority: context.authority ?? undefined,
+          ...(resourceAccess ? { resourceAccess } : {}),
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -325,10 +425,26 @@ export class NodexAgentV3DynamicService {
         return result.output;
       },
       fetch: async ({ input, context }) => {
+        const resourceAccess = await authorizeNodexAgentResourceIntents(context, {
+          intents: [{
+            target: { kind: "page_or_block", id: input.id },
+            action: "read",
+          }],
+          tool: "fetch",
+          effect: "read",
+          preview: readPreview(
+            "Read this Nodex Page or Block",
+            "Read the requested content and its current metadata.",
+            "Resource",
+            input.id,
+          ),
+        });
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "fetch",
+          callId: context.callId,
           projectId: projectRequired(context),
           authority: context.authority ?? undefined,
+          ...(resourceAccess ? { resourceAccess } : {}),
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -336,10 +452,26 @@ export class NodexAgentV3DynamicService {
         return result.output;
       },
       query_database_view: async ({ input, context }) => {
+        const resourceAccess = await authorizeNodexAgentResourceIntents(context, {
+          intents: [{
+            target: { kind: "view", viewId: input.viewId },
+            action: "read",
+          }],
+          tool: "query_database_view",
+          effect: "read",
+          preview: readPreview(
+            "Query this Nodex View",
+            "Read rows and properties from the requested Database View.",
+            "View",
+            input.viewId,
+          ),
+        });
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "query_database_view",
+          callId: context.callId,
           projectId: projectRequired(context),
           authority: context.authority ?? undefined,
+          ...(resourceAccess ? { resourceAccess } : {}),
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -349,10 +481,26 @@ export class NodexAgentV3DynamicService {
         return result.output;
       },
       query_data_source: async ({ input, context }) => {
+        const resourceAccess = await authorizeNodexAgentResourceIntents(context, {
+          intents: [{
+            target: { kind: "data_source", dataSourceId: input.dataSourceId },
+            action: "read",
+          }],
+          tool: "query_data_source",
+          effect: "read",
+          preview: readPreview(
+            "Query this Nodex Data Source",
+            "Read rows and properties from the requested Data Source.",
+            "Data Source",
+            input.dataSourceId,
+          ),
+        });
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "query_data_source",
+          callId: context.callId,
           projectId: projectRequired(context),
           authority: context.authority ?? undefined,
+          ...(resourceAccess ? { resourceAccess } : {}),
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -363,15 +511,20 @@ export class NodexAgentV3DynamicService {
       },
       create_pages: async ({ input, context }) => {
         const projectId = projectRequired(context);
-        const request = {
-          threadId: context.threadId,
-          callId: context.callId,
-          projectId,
-          authority: context.authority ?? undefined,
-          input,
-        };
         const prepared = await prepareAuthorizedWrite(context, {
-          prepare: async () => {
+          intents: [destinationIntent(
+            input.destination,
+            context.authority?.libraryId ?? "",
+          )],
+          prepare: async (resourceAccess) => {
+            const request = {
+              threadId: context.threadId,
+              callId: context.callId,
+              projectId,
+              authority: context.authority ?? undefined,
+              ...(resourceAccess ? { resourceAccess } : {}),
+              input,
+            };
             const result = (await this.writer.prepareNodexAgentCreatePages(request)).result;
             if (!result.ok) return fail({ error: result.error });
             return result.value;
@@ -391,6 +544,12 @@ export class NodexAgentV3DynamicService {
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
+        recordTopLevelTaskPages(
+          context,
+          input.destination,
+          prepared.command.resourceAccess,
+          result.value.output.data.pages.map((page) => page.pageId),
+        );
         return result.value.output;
       },
       update_page: async ({ input, context }) =>
@@ -399,15 +558,26 @@ export class NodexAgentV3DynamicService {
         await this.executePageUpdate("advanced_update_page", input, context),
       move_pages: async ({ input, context }) => {
         const projectId = projectRequired(context);
-        const request = {
-          threadId: context.threadId,
-          callId: context.callId,
-          projectId,
-          authority: context.authority ?? undefined,
-          input,
-        };
         const prepared = await prepareAuthorizedWrite(context, {
-          prepare: async () => {
+          intents: [
+            ...input.pageIds.map((pageId) => ({
+              target: { kind: "page" as const, pageId },
+              action: "move" as const,
+            })),
+            destinationIntent(
+              input.destination,
+              context.authority?.libraryId ?? "",
+            ),
+          ],
+          prepare: async (resourceAccess) => {
+            const request = {
+              threadId: context.threadId,
+              callId: context.callId,
+              projectId,
+              authority: context.authority ?? undefined,
+              ...(resourceAccess ? { resourceAccess } : {}),
+              input,
+            };
             const result = (await this.writer.prepareNodexAgentMovePages(request)).result;
             if (!result.ok) return fail({ error: result.error });
             return result.value;
@@ -424,19 +594,36 @@ export class NodexAgentV3DynamicService {
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
+        recordTopLevelTaskPages(
+          context,
+          input.destination,
+          prepared.command.resourceAccess,
+          result.value.output.data.pages.map((page) => page.pageId),
+        );
         return result.value.output;
       },
       duplicate_page: async ({ input, context }) => {
         const projectId = projectRequired(context);
-        const request = {
-          threadId: context.threadId,
-          callId: context.callId,
-          projectId,
-          authority: context.authority ?? undefined,
-          input,
-        };
         const prepared = await prepareAuthorizedWrite(context, {
-          prepare: async () => {
+          intents: [
+            {
+              target: { kind: "page", pageId: input.pageId },
+              action: "read",
+            },
+            destinationIntent(
+              input.destination,
+              context.authority?.libraryId ?? "",
+            ),
+          ],
+          prepare: async (resourceAccess) => {
+            const request = {
+              threadId: context.threadId,
+              callId: context.callId,
+              projectId,
+              authority: context.authority ?? undefined,
+              ...(resourceAccess ? { resourceAccess } : {}),
+              input,
+            };
             const result = (await this.writer.prepareNodexAgentDuplicatePage(request)).result;
             if (!result.ok) return fail({ error: result.error });
             return result.value;
@@ -453,6 +640,12 @@ export class NodexAgentV3DynamicService {
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
+        recordTopLevelTaskPages(
+          context,
+          input.destination,
+          prepared.command.resourceAccess,
+          [result.value.output.data.pageId],
+        );
         return result.value.output;
       },
     };
@@ -465,25 +658,30 @@ export class NodexAgentV3DynamicService {
     context: NodexAgentDynamicExecutionContext,
   ): Promise<NodexAgentPageUpdateOutput> {
     const projectId = projectRequired(context);
-    const request = tool === "update_page"
-      ? {
-          tool,
-          threadId: context.threadId,
-          callId: context.callId,
-          projectId,
-          authority: context.authority ?? undefined,
-          input: input as NodexAgentV3ToolInput<"update_page">,
-        }
-      : {
-          tool,
-          threadId: context.threadId,
-          callId: context.callId,
-          projectId,
-          authority: context.authority ?? undefined,
-          input: input as NodexAgentV3ToolInput<"advanced_update_page">,
-        };
     const prepared = await prepareAuthorizedWrite(context, {
-      prepare: async () => {
+      intents: [{
+        target: { kind: "page", pageId: input.pageId },
+        action: "write",
+      }],
+      prepare: async (resourceAccess) => {
+        const identity = {
+          threadId: context.threadId,
+          callId: context.callId,
+          projectId,
+          authority: context.authority ?? undefined,
+          ...(resourceAccess ? { resourceAccess } : {}),
+        };
+        const request = tool === "update_page"
+          ? {
+              ...identity,
+              tool,
+              input: input as NodexAgentV3ToolInput<"update_page">,
+            }
+          : {
+              ...identity,
+              tool,
+              input: input as NodexAgentV3ToolInput<"advanced_update_page">,
+            };
         const result = (await this.writer.prepareNodexAgentPageUpdate(request)).result;
         if (!result.ok) return fail({ error: result.error });
         return result.value;
@@ -502,6 +700,10 @@ export class NodexAgentV3DynamicService {
           ? {
               authority: context.authority,
               resource: { kind: "page", pageId: input.pageId },
+              ...(prepared.resourceAccess
+                ? { resourceAccess: prepared.resourceAccess }
+                : {}),
+              callId: context.callId,
             }
           : undefined,
       ),
@@ -514,6 +716,9 @@ export class NodexAgentV3DynamicService {
       callId: context.callId,
       projectId,
       authority: context.authority ?? undefined,
+      ...(prepared.resourceAccess
+        ? { resourceAccess: prepared.resourceAccess }
+        : {}),
       pageId: input.pageId,
       result: mutationResult.value,
     })).result;

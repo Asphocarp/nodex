@@ -62,14 +62,16 @@ Library-scope writes auto-approve both write and destructive effects without a
 renderer authorization card. They still perform mutation-free prepare,
 revalidate the exact Turn authority, prepare again, compare canonical effects,
 resources, deletions, and ownership transformations, and commit through the
-existing atomic kernels. Project-scope writes retain the authorization broker,
-task grants, and destructive downgrade. Main routes a consent occurrence to the
+existing atomic kernels. Project-scope operations first resolve direct
+binding/grant authority, then use the authorization broker only for
+consent-eligible resource gaps. Main routes a consent occurrence to the
 most recently activated renderer presenting the direct task, or its root task
 for a background child. That presentation route is independent of canonical
 conversation-state ownership: the renderer overlays the card locally without
 publishing it into owner/follower state. Existing task grants remain bound to
-the root task, Project, app session, store epoch, and presentation-client
-lifecycle; changing or releasing a state owner does not revoke them.
+the root task, Project, Library, app session, store epoch, and canonical
+resource roots; changing or releasing a renderer or state owner does not revoke
+them.
 
 Agent call receipts bind exact Turn ID, authority fingerprint, and provenance
 version. Historical committed receipts may replay their existing result;
@@ -93,8 +95,9 @@ transition boundary roll back content, projections, ledger, and Agent receipt.
 
 ## Consequences
 
-- Ordinary Project tasks continue to see their primary Database plus explicit
-  grants, with no behavior change.
+- Ordinary Project tasks use their primary Database and `read_write` grants
+  directly; read-only or missing same-Library authority enters the separate
+  resource-consent policy recorded by ADR 0019.
 - A built-in Full-access Turn can use every capability already exposed by
   `nodex_app@4` across its current Library, without adding tools or changing
   public schemas.

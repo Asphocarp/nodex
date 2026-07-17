@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { DocumentId } from "../../shared/nodex-agent-tools";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import type { NodexAgentResourceAccessOverlay } from "../../shared/nodex-agent-resource-access";
 import type { ProjectResourceAction } from "../../shared/resource-authorization";
 import {
   authorizeNodexAgentResourceInDatabase,
@@ -23,12 +24,18 @@ export function requirePageStorageContext(
   pageId: string,
   action: ProjectResourceAction = "read",
   authority?: FrozenNodexAgentTurnAuthority,
+  resourceAccess?: NodexAgentResourceAccessOverlay,
+  callId?: string,
+  phase: "prepare" | "execute" = "execute",
 ): PageStorageContext {
   const authorization = authority
     ? authorizeNodexAgentResourceInDatabase(database, {
         authority,
         resource: { kind: "page", pageId },
         action,
+        ...(resourceAccess ? { resourceAccess } : {}),
+        ...(callId ? { callId } : {}),
+        phase,
       })
     : authorizeProjectResourceInDatabase(database, {
         projectId,
@@ -75,6 +82,9 @@ export function requirePageDocumentId(
   pageId: string,
   action: ProjectResourceAction = "read",
   authority?: FrozenNodexAgentTurnAuthority,
+  resourceAccess?: NodexAgentResourceAccessOverlay,
+  callId?: string,
+  phase: "prepare" | "execute" = "execute",
 ): DocumentId {
   return requirePageStorageContext(
     database,
@@ -82,6 +92,9 @@ export function requirePageDocumentId(
     pageId,
     action,
     authority,
+    resourceAccess,
+    callId,
+    phase,
   ).documentId;
 }
 
@@ -120,6 +133,8 @@ export function readPageLocation(
   projectId: string,
   pageId: string,
   authority?: FrozenNodexAgentTurnAuthority,
+  resourceAccess?: NodexAgentResourceAccessOverlay,
+  callId?: string,
 ) {
   const page = requirePageStorageContext(
     database,
@@ -127,7 +142,15 @@ export function readPageLocation(
     pageId,
     "read",
     authority,
+    resourceAccess,
+    callId,
   );
+  return pageStorageLocation(page);
+}
+
+const pageStorageLocation = (
+  page: Pick<PageStorageContext, "parentKind" | "parentId" | "libraryId">,
+) => {
   if (page.parentKind === "library") {
     return { kind: "library" as const, libraryId: page.libraryId };
   }
@@ -135,4 +158,37 @@ export function readPageLocation(
     return { kind: "page" as const, pageId: page.parentId };
   }
   return { kind: "data_source" as const, dataSourceId: page.parentId };
+};
+
+/** The caller must already hold mutation authority in the active transaction. */
+export function readMutatedPageLocation(
+  database: Database.Database,
+  pageId: string,
+) {
+  const page = database.prepare(`
+    SELECT library_id AS libraryId, parent_kind AS parentKind,
+      parent_id AS parentId
+    FROM pages
+    WHERE block_id = ? AND lifecycle <> 'deleted'
+  `).get(pageId) as Pick<
+    PageStorageContext,
+    "libraryId" | "parentKind" | "parentId"
+  > | undefined;
+  if (!page) throw new Error(`Mutated Page ${pageId} has no current location`);
+  return pageStorageLocation(page);
+}
+
+/** The caller must already hold mutation authority in the active transaction. */
+export function readMutatedPageDocumentId(
+  database: Database.Database,
+  pageId: string,
+): DocumentId {
+  const row = database.prepare(`
+    SELECT ownership.document_id AS documentId
+    FROM pages page
+    INNER JOIN block_documents ownership ON ownership.block_id = page.block_id
+    WHERE page.block_id = ? AND page.lifecycle <> 'deleted'
+  `).get(pageId) as { readonly documentId: string } | undefined;
+  if (!row) throw new Error(`Mutated Page ${pageId} has no owned Document`);
+  return row.documentId as DocumentId;
 }

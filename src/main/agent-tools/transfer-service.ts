@@ -15,6 +15,7 @@ import { applyDatabaseMutation } from "../local-store/database-kernel";
 import {
   assertCurrentNodexAgentTurnAuthorityInDatabase,
   assertNodexAgentResourceAuthorizationInDatabase,
+  assertNodexAgentResourceIntentsAuthorizedInDatabase,
   authorizeNodexAgentResourceInDatabase,
   authorizeProjectResourceInDatabase,
 } from "../local-store/project-resource-grants";
@@ -81,7 +82,8 @@ import {
 } from "./read-support";
 
 import {
-  readPageLocation,
+  readMutatedPageDocumentId,
+  readMutatedPageLocation,
   requirePageDocumentId,
   requirePageStorageContext,
 } from "./page-adapter";
@@ -90,14 +92,36 @@ import { publicV3Failure } from "./v3-errors";
 
 const assertTransferDestinationAuthority = (
   database: Database.Database,
-  command: Pick<NodexAgentDuplicatePageCommand, "authority" | "destination">,
+  command: Pick<
+    NodexAgentDuplicatePageCommand,
+    "authority" | "resourceAccess" | "callId" | "destination"
+  >,
 ): void => {
   assertCurrentNodexAgentTurnAuthorityInDatabase(database, command.authority);
+  if (!command.authority) return;
+  if (command.destination.kind === "space") {
+    assertNodexAgentResourceIntentsAuthorizedInDatabase(database, {
+      authority: command.authority,
+      callId: command.callId,
+      intents: [{
+        target: { kind: "library", libraryId: command.authority.libraryId },
+        action: "create_child",
+      }],
+      ...(command.resourceAccess
+        ? { resourceAccess: command.resourceAccess }
+        : {}),
+    });
+    return;
+  }
   if (command.destination.kind === "database") {
     assertNodexAgentResourceAuthorizationInDatabase(database, {
       authority: command.authority,
       resource: { kind: "database", databaseId: command.destination.databaseBlockId },
-      action: "write",
+      action: "create_child",
+      ...(command.resourceAccess
+        ? { resourceAccess: command.resourceAccess }
+        : {}),
+      callId: command.callId,
     });
     return;
   }
@@ -112,7 +136,11 @@ const assertTransferDestinationAuthority = (
   assertNodexAgentResourceAuthorizationInDatabase(database, {
     authority: command.authority,
     resource: { kind: "page", pageId: owner.pageId },
-    action: "write",
+    action: "create_child",
+    ...(command.resourceAccess
+      ? { resourceAccess: command.resourceAccess }
+      : {}),
+    callId: command.callId,
   });
 };
 
@@ -884,6 +912,10 @@ function legacyTransferDestination(
   authority:
     | PrepareNodexAgentDuplicatePageRequest["authority"]
     | PrepareNodexAgentMovePagesRequest["authority"],
+  resourceAccess:
+    | PrepareNodexAgentDuplicatePageRequest["resourceAccess"]
+    | PrepareNodexAgentMovePagesRequest["resourceAccess"],
+  callId: string,
   destination: CanonicalTransferDestination,
 ): TransferBlocksInput["destination"] {
   if (destination.kind === "library") {
@@ -898,6 +930,9 @@ function legacyTransferDestination(
         destination.pageId,
         "create_child",
         authority,
+        resourceAccess,
+        callId,
+        "prepare",
       ),
       at: destination.at ?? { kind: "end" },
     };
@@ -907,6 +942,9 @@ function legacyTransferDestination(
         authority,
         resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
         action: "create_child",
+        ...(resourceAccess ? { resourceAccess } : {}),
+        callId,
+        phase: "prepare",
       })
     : authorizeProjectResourceInDatabase(database, {
         projectId,
@@ -950,6 +988,8 @@ function normalizedDuplicateInput(
     database,
     request.projectId,
     request.authority,
+    request.resourceAccess,
+    request.callId,
     request.input.destination,
   );
   return TransferBlocksInputSchema.parse({
@@ -991,6 +1031,9 @@ function prepareDuplicatePage(
     request.input.pageId,
     "read",
     request.authority,
+    request.resourceAccess,
+    request.callId,
+    "prepare",
   );
   const sourceProjectId = sourcePage.contentProjectId;
   const sourceBlock = readBlock(database, sourceProjectId, request.input.pageId);
@@ -1009,26 +1052,18 @@ function prepareDuplicatePage(
     request.input.pageId,
     "read",
     request.authority,
+    request.resourceAccess,
+    request.callId,
+    "prepare",
   );
   const normalizedInput = normalizedDuplicateInput(database, request);
   const destination = prepareNodexAgentDestination(
     database,
     request.projectId,
     normalizedInput.destination as CreateInput["destination"],
-    request.authority?.scope === "library",
+    request.authority !== undefined,
   );
   const targetProjectId = destination.contentProjectId ?? request.projectId;
-  if (
-    sourceProjectId !== targetProjectId
-    && request.authority?.scope !== "library"
-  ) {
-    throw new NodexAgentReadError(
-      "authorization_denied",
-      "Cross-owner Page duplication requires Full access",
-      false,
-      "none",
-    );
-  }
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Nodex store has no epoch");
   const mutationId = existing?.mutation_id ?? `nodex-duplicate-page:${identity}`;
@@ -1104,6 +1139,7 @@ function prepareDuplicatePage(
         threadId: request.threadId,
         callId: request.callId,
         ...(request.authority ? { authority: request.authority } : {}),
+        ...(request.resourceAccess ? { resourceAccess: request.resourceAccess } : {}),
         projectId: request.projectId,
         requestHash,
         mutationId,
@@ -1136,13 +1172,7 @@ function duplicatePageOutput(
       "none",
     );
   }
-  const documentId = requirePageDocumentId(
-    database,
-    command.projectId,
-    pageId,
-    "read",
-    command.authority,
-  );
+  const documentId = readMutatedPageDocumentId(database, pageId);
   const materialization = database.prepare(
     `
     SELECT title_rich_json, nfm, block_tree_json
@@ -1174,12 +1204,7 @@ function duplicatePageOutput(
     data: {
       sourcePageId: command.input.pageId,
       pageId,
-      location: readPageLocation(
-        database,
-        command.projectId,
-        pageId,
-        command.authority,
-      ),
+      location: readMutatedPageLocation(database, pageId),
       bodyBlocksCreated: flattenBlocks(blocks as unknown as readonly BlockTreeNode[]).length,
       ...(command.input.return?.includes("block_map")
         ? { blockMap: receipt.copiedBlockIds }
@@ -1236,7 +1261,11 @@ function executeDuplicatePage(
   assertNodexAgentResourceAuthorizationInDatabase(database, {
     authority: command.authority,
     resource: { kind: "page", pageId: command.input.pageId },
-    action: "write",
+    action: "read",
+    ...(command.resourceAccess
+      ? { resourceAccess: command.resourceAccess }
+      : {}),
+    callId: command.callId,
   });
   if (readBlockStoreEpoch(database) !== command.storeEpoch) {
     throw new NodexAgentReadError(
@@ -1250,18 +1279,14 @@ function executeDuplicatePage(
   const targetProjectId = command.destination.contentProjectId
     ?? command.projectId;
   const staged = applyBlockTransfer(database, command.transfer, {
-    persistTopLevelGrant: command.authority?.scope !== "library",
+    persistTopLevelGrant: sourceProjectId === targetProjectId
+      && (
+        !command.authority
+        || command.resourceAccess?.persistResultingPageGrants === true
+      ),
   });
   const transferred = (() => {
     if (!staged.ok || sourceProjectId === targetProjectId) return staged;
-    if (command.authority?.scope !== "library") {
-      throw new NodexAgentReadError(
-        "authorization_denied",
-        "Cross-owner Page duplication requires Full access",
-        false,
-        "none",
-      );
-    }
     const copiedPageId = staged.value.copiedBlockIds[command.input.pageId]
       ?? staged.value.resultRootBlockIds[0];
     if (!copiedPageId) {
@@ -1303,7 +1328,9 @@ function executeDuplicatePage(
       );
     }
     const placed = applyBlockTransfer(database, targetPreparation.value.request, {
-      persistTopLevelGrant: false,
+      persistTopLevelGrant:
+        !command.authority
+        || command.resourceAccess?.persistResultingPageGrants === true,
     });
     if (!placed.ok) return placed;
     return {
@@ -1422,6 +1449,8 @@ function normalizedMoveInput(
     database,
     request.projectId,
     request.authority,
+    request.resourceAccess,
+    request.callId,
     request.input.destination,
   );
   return TransferBlocksInputSchema.parse({
@@ -1512,6 +1541,9 @@ function prepareMovePages(
       pageId,
       "move",
       request.authority,
+      request.resourceAccess,
+      request.callId,
+      "prepare",
     );
     const block = readBlock(database, page.contentProjectId, pageId);
     if (block.type === "page") return block;
@@ -1529,6 +1561,9 @@ function prepareMovePages(
     block.id,
     "read",
     request.authority,
+    request.resourceAccess,
+    request.callId,
+    "prepare",
   ));
   const normalizedInputs = blocks.map((block) =>
     normalizedMoveInput(database, request, block.id, block)
@@ -1537,7 +1572,7 @@ function prepareMovePages(
     database,
     request.projectId,
     normalizedInputs[0]?.destination as CreateInput["destination"],
-    request.authority?.scope === "library",
+    request.authority !== undefined,
   );
   const targetProjectId = destination.contentProjectId ?? request.projectId;
   const hasSameDatabasePage = destination.kind === "database"
@@ -1578,17 +1613,6 @@ function prepareMovePages(
       && destination.kind === "database"
       && block.containing_database_id === destination.databaseBlockId;
     if (sameDatabase) continue;
-    if (
-      sourceProjectId !== targetProjectId
-      && request.authority?.scope !== "library"
-    ) {
-      throw new NodexAgentReadError(
-        "authorization_denied",
-        "Cross-owner Page movement requires Full access",
-        false,
-        "none",
-      );
-    }
     const rehome = sourceProjectId === targetProjectId
       ? undefined
       : prepareLibraryContentRehome(database, {
@@ -1721,6 +1745,7 @@ function prepareMovePages(
         threadId: request.threadId,
         callId: request.callId,
         ...(request.authority ? { authority: request.authority } : {}),
+        ...(request.resourceAccess ? { resourceAccess: request.resourceAccess } : {}),
         projectId: request.projectId,
         requestHash,
         mutationId,
@@ -1928,7 +1953,11 @@ function executeMovePages(
     assertNodexAgentResourceAuthorizationInDatabase(database, {
       authority: command.authority,
       resource: { kind: "page", pageId },
-      action: "write",
+      action: "move",
+      ...(command.resourceAccess
+        ? { resourceAccess: command.resourceAccess }
+        : {}),
+      callId: command.callId,
     });
   }
   if (readBlockStoreEpoch(database) !== command.storeEpoch) {
@@ -1950,7 +1979,11 @@ function executeMovePages(
     let completedRequest = stagingRequest;
     const staged = stagingRequest
       ? applyBlockTransfer(database, stagingRequest, {
-          persistTopLevelGrant: command.authority?.scope !== "library",
+          persistTopLevelGrant: !step.rehome
+            && (
+              !command.authority
+              || command.resourceAccess?.persistResultingPageGrants === true
+            ),
         })
       : null;
     if (staged && !staged.ok) {
@@ -2010,7 +2043,9 @@ function executeMovePages(
       }
       completedRequest = finalPreparation.value.request;
       const placed = applyBlockTransfer(database, finalPreparation.value.request, {
-        persistTopLevelGrant: false,
+        persistTopLevelGrant:
+          !command.authority
+          || command.resourceAccess?.persistResultingPageGrants === true,
       });
       if (!placed.ok) return placed;
       transferReceipts.push(placed.value);
@@ -2073,12 +2108,7 @@ function executeMovePages(
     data: {
       pages: command.input.pageIds.map((pageId) => ({
         pageId,
-        location: readPageLocation(
-          database,
-          command.projectId,
-          pageId,
-          command.authority,
-        ),
+        location: readMutatedPageLocation(database, pageId),
       })),
       moved: command.input.pageIds.length,
     },

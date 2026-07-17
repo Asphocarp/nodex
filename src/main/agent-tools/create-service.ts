@@ -48,6 +48,7 @@ import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import {
   assertCurrentNodexAgentTurnAuthorityInDatabase,
   assertNodexAgentResourceAuthorizationInDatabase,
+  assertNodexAgentResourceIntentsAuthorizedInDatabase,
   authorizeNodexAgentResourceInDatabase,
   authorizeProjectResourceInDatabase,
 } from "../local-store/project-resource-grants";
@@ -70,7 +71,7 @@ import {
   documentBodyEtagState,
   titleEtagState,
 } from "./semantic-guards";
-import { readPageLocation, requirePageDocumentId } from "./page-adapter";
+import { readMutatedPageLocation, requirePageDocumentId } from "./page-adapter";
 import { publicV3Failure } from "./v3-errors";
 
 interface DocumentDestinationRow {
@@ -940,11 +941,30 @@ function assertExecutionAuthority(
   command: NodexAgentCreatePageCommand,
 ): void {
   assertCurrentNodexAgentTurnAuthorityInDatabase(database, command.authority);
+  if (!command.authority) return;
+  if (command.destination.kind === "space") {
+    assertNodexAgentResourceIntentsAuthorizedInDatabase(database, {
+      authority: command.authority,
+      callId: command.callId,
+      intents: [{
+        target: { kind: "library", libraryId: command.authority.libraryId },
+        action: "create_child",
+      }],
+      ...(command.resourceAccess
+        ? { resourceAccess: command.resourceAccess }
+        : {}),
+    });
+    return;
+  }
   if (command.destination.kind === "database") {
     assertNodexAgentResourceAuthorizationInDatabase(database, {
       authority: command.authority,
       resource: { kind: "database", databaseId: command.destination.databaseBlockId },
-      action: "write",
+      action: "create_child",
+      ...(command.resourceAccess
+        ? { resourceAccess: command.resourceAccess }
+        : {}),
+      callId: command.callId,
     });
     return;
   }
@@ -959,7 +979,11 @@ function assertExecutionAuthority(
   assertNodexAgentResourceAuthorizationInDatabase(database, {
     authority: command.authority,
     resource: { kind: "page", pageId: owner.pageId },
-    action: "write",
+    action: "create_child",
+    ...(command.resourceAccess
+      ? { resourceAccess: command.resourceAccess }
+      : {}),
+    callId: command.callId,
   });
 }
 
@@ -1154,6 +1178,8 @@ function legacyCreatePagesDestination(
   database: Database.Database,
   projectId: string,
   authority: PrepareNodexAgentCreatePagesRequest["authority"],
+  resourceAccess: PrepareNodexAgentCreatePagesRequest["resourceAccess"],
+  callId: string,
   destination: PrepareNodexAgentCreatePagesRequest["input"]["destination"],
   values: PrepareNodexAgentCreatePagesRequest["input"]["pages"][number]["values"],
 ): CreateInput["destination"] {
@@ -1181,6 +1207,9 @@ function legacyCreatePagesDestination(
         destination.pageId,
         "create_child",
         authority,
+        resourceAccess,
+        callId,
+        "prepare",
       ),
       at: destination.at ?? { kind: "end" },
     };
@@ -1190,6 +1219,9 @@ function legacyCreatePagesDestination(
         authority,
         resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
         action: "create_child",
+        ...(resourceAccess ? { resourceAccess } : {}),
+        callId,
+        phase: "prepare",
       })
     : authorizeProjectResourceInDatabase(database, {
         projectId,
@@ -1229,6 +1261,8 @@ function normalizedCreateInput(
   database: Database.Database,
   projectId: string,
   authority: PrepareNodexAgentCreatePagesRequest["authority"],
+  resourceAccess: PrepareNodexAgentCreatePagesRequest["resourceAccess"],
+  callId: string,
   batch: PrepareNodexAgentCreatePagesRequest["input"],
   index: number,
 ): CreateInput {
@@ -1238,6 +1272,8 @@ function normalizedCreateInput(
     database,
     projectId,
     authority,
+    resourceAccess,
+    callId,
     batch.destination,
     draft.values,
   );
@@ -1341,6 +1377,8 @@ function prepareCreatePages(
       database,
       request.projectId,
       request.authority,
+      request.resourceAccess,
+      request.callId,
       request.input,
       index,
     )
@@ -1361,7 +1399,7 @@ function prepareCreatePages(
       database,
       request.projectId,
       input.destination,
-      request.authority?.scope === "library",
+      request.authority !== undefined,
     )
   );
   const destination = destinations[0];
@@ -1421,6 +1459,7 @@ function prepareCreatePages(
     threadId: request.threadId,
     callId: request.callId,
     ...(request.authority ? { authority: request.authority } : {}),
+    ...(request.resourceAccess ? { resourceAccess: request.resourceAccess } : {}),
     projectId: request.projectId,
     requestHash,
     mutationId,
@@ -1461,6 +1500,7 @@ function batchPageCommand(
     threadId: command.threadId,
     callId: command.callId,
     ...(command.authority ? { authority: command.authority } : {}),
+    ...(command.resourceAccess ? { resourceAccess: command.resourceAccess } : {}),
     projectId: command.destination.contentProjectId ?? command.projectId,
     requestHash: command.requestHash,
     mutationId: `${command.mutationId}:page:${index}`,
@@ -1531,7 +1571,9 @@ function applyBatchSpaceOrDocumentPlacement(
     },
     target,
   }, {
-    persistTopLevelGrant: command.authority?.scope !== "library",
+    persistTopLevelGrant:
+      !command.authority
+      || command.resourceAccess?.persistResultingPageGrants === true,
   });
   if (result.ok) return result.value;
   throwDomainFailure({
@@ -1551,12 +1593,7 @@ function createdPageV3Output(
   const legacy = buildCreateOutput(database, batchPageCommand(command, index));
   return {
     pageId: page.pageId,
-    location: readPageLocation(
-      database,
-      command.projectId,
-      page.pageId,
-      command.authority,
-    ),
+    location: readMutatedPageLocation(database, page.pageId),
     bodyBlocksCreated: page.bodyBlockIds.length,
     ...(command.input.return?.includes("block_ids")
       ? { blockIds: page.bodyBlockIds }

@@ -105,14 +105,9 @@ export const canAutoApproveNodexAgentWrite = (
 export const resolveNodexAgentWriteAccess = (input: {
   readonly authorityScope: FrozenNodexAgentTurnAuthority["scope"] | null;
   readonly hasActorProject: boolean;
-  readonly hasBroker: boolean;
-  readonly hasTaskGrant: boolean;
-  readonly hasPresentationTarget: boolean;
 }): NodexAgentAccess["write"] => {
-  if (input.authorityScope === "library") return "granted";
-  if (!input.hasActorProject || !input.hasBroker) return "unavailable";
-  if (input.hasTaskGrant) return "granted";
-  return input.hasPresentationTarget ? "consent_required" : "unavailable";
+  if (!input.hasActorProject || input.authorityScope === null) return "unavailable";
+  return "granted";
 };
 
 const authorityFromRow = (row: AuthorityRow): FrozenNodexAgentTurnAuthority => ({

@@ -1,17 +1,41 @@
 import { describe, expect, test, vi } from "vitest";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type { RendererClientRouter } from "../codex/renderer-client-router";
 import {
   NodexAgentAuthorizationBroker,
-  type AuthorizeNodexAgentWriteInput,
+  type AuthorizeNodexAgentAccessInput,
 } from "./authorization-broker";
 
+const authority: FrozenNodexAgentTurnAuthority = {
+  threadId: "thread-child",
+  turnId: "turn-child",
+  rootThreadId: "thread-root",
+  actorProjectId: "project-1",
+  libraryId: "library-1",
+  storeEpoch: "store-1",
+  scope: "project",
+  source: "project_turn",
+};
+
 function authorizationInput(
-  overrides: Partial<AuthorizeNodexAgentWriteInput> = {},
-): AuthorizeNodexAgentWriteInput {
+  overrides: Partial<AuthorizeNodexAgentAccessInput> = {},
+): AuthorizeNodexAgentAccessInput {
+  const requirement = {
+    intent: {
+      target: { kind: "page" as const, pageId: "page-1" },
+      action: "write" as const,
+    },
+    grant: {
+      root: { kind: "page" as const, pageId: "page-1" },
+      access: "read_write" as const,
+    },
+    reason: "grant_missing" as const,
+    persistable: true,
+  };
   return {
-    threadId: "thread-child",
+    threadId: authority.threadId,
     callId: "call-1",
-    projectId: "project-1",
+    projectId: authority.actorProjectId,
     tool: "update_page",
     effect: "write",
     preview: {
@@ -19,7 +43,21 @@ function authorizationInput(
       summary: "Append two Blocks.",
       details: [{ label: "Page", value: "page-1" }],
     },
-    rootThreadId: "thread-root",
+    requirements: [requirement],
+    inspectionAccess: {
+      kind: "inspection",
+      scope: "call",
+      threadId: authority.threadId,
+      turnId: authority.turnId,
+      callId: "call-1",
+      rootThreadId: authority.rootThreadId,
+      actorProjectId: authority.actorProjectId,
+      libraryId: authority.libraryId,
+      storeEpoch: authority.storeEpoch,
+      grants: [requirement.grant],
+    },
+    rootThreadId: authority.rootThreadId,
+    authority,
     presentation: {
       clientId: "renderer-1",
       threadId: "thread-root",
@@ -29,7 +67,9 @@ function authorizationInput(
   };
 }
 
-function createRouter(decisions: Array<"allow_once" | "allow_task" | "deny">) {
+function createRouter(
+  decisions: Array<"allow_once" | "allow_task" | "allow_project" | "deny">,
+) {
   const sendRequest = vi.fn(async () => ({
     decision: decisions.shift() ?? "deny",
   }));
@@ -40,7 +80,7 @@ function createRouter(decisions: Array<"allow_once" | "allow_task" | "deny">) {
 }
 
 describe("NodexAgentAuthorizationBroker", () => {
-  test("grants ordinary writes to the root task and reuses the grant for descendants", async () => {
+  test("stores task-scoped grants for only the approved resource roots", async () => {
     const { router, sendRequest } = createRouter(["allow_task"]);
     const broker = new NodexAgentAuthorizationBroker({
       rendererClientRouter: router,
@@ -49,13 +89,29 @@ describe("NodexAgentAuthorizationBroker", () => {
       now: () => 42,
     });
 
-    await expect(broker.authorize(authorizationInput())).resolves.toBe("allow_task");
-    await expect(broker.authorize(authorizationInput({
-      threadId: "thread-grandchild",
-      callId: "call-2",
-    }))).resolves.toBe("allow_task");
-
-    expect(sendRequest).toHaveBeenCalledTimes(1);
+    await expect(broker.authorize(authorizationInput())).resolves.toMatchObject({
+      decision: "allow_task",
+      resourceAccess: {
+        kind: "consent",
+        scope: "task",
+        grants: [{
+          root: { kind: "page", pageId: "page-1" },
+          access: "read_write",
+        }],
+      },
+    });
+    expect(broker.getTaskAccess(authority)).toMatchObject({
+      scope: "task",
+      grants: [{ root: { kind: "page", pageId: "page-1" } }],
+    });
+    broker.extendTaskAccess(authority, [{
+      root: { kind: "page", pageId: "page-created" },
+      access: "read_write",
+    }]);
+    expect(broker.getTaskAccess(authority)?.grants).toEqual([
+      { root: { kind: "page", pageId: "page-1" }, access: "read_write" },
+      { root: { kind: "page", pageId: "page-created" }, access: "read_write" },
+    ]);
     expect(sendRequest).toHaveBeenCalledWith(
       "renderer-1",
       "nodex-agent-authorization",
@@ -67,45 +123,102 @@ describe("NodexAgentAuthorizationBroker", () => {
       }),
       { timeoutMs: 300_000 },
     );
-    expect(broker.hasGrant({
-      rootThreadId: "thread-root",
-      projectId: "project-1",
-    })).toBe(true);
   });
 
-  test("always re-prompts destructive edits and never broadens them into task grants", async () => {
-    const { router, sendRequest } = createRouter(["allow_task", "allow_task"]);
+  test("keeps destructive resource grants task-scoped when the user chooses that scope", async () => {
+    const { router } = createRouter(["allow_task"]);
     const broker = new NodexAgentAuthorizationBroker({
       rendererClientRouter: router,
       readStoreEpoch: () => "store-1",
     });
 
-    await broker.authorize(authorizationInput());
     await expect(broker.authorize(authorizationInput({
-      callId: "call-destructive",
       effect: "destructive",
-    }))).resolves.toBe("allow_once");
-
-    expect(sendRequest).toHaveBeenCalledTimes(2);
+    }))).resolves.toMatchObject({
+      decision: "allow_task",
+      resourceAccess: { scope: "task" },
+    });
   });
 
-  test("fails closed without a presentation target or stable store identity", async () => {
-    const { router, sendRequest } = createRouter(["allow_once"]);
+  test("persists Project grants only for persistable roots", async () => {
+    const persistProjectGrants = vi.fn(async () => undefined);
+    const { router } = createRouter(["allow_project"]);
     const broker = new NodexAgentAuthorizationBroker({
       rendererClientRouter: router,
-      readStoreEpoch: () => null,
+      readStoreEpoch: () => "store-1",
+      persistProjectGrants,
     });
 
-    await expect(broker.authorize(authorizationInput())).resolves.toBe("unavailable");
-    await expect(broker.authorize(authorizationInput({
-      presentation: null,
-    }))).resolves.toBe("unavailable");
-    expect(sendRequest).not.toHaveBeenCalled();
+    await expect(broker.authorize(authorizationInput())).resolves.toEqual({
+      decision: "allow_project",
+    });
+    expect(persistProjectGrants).toHaveBeenCalledWith({
+      authority,
+      grants: [{
+        root: { kind: "page", pageId: "page-1" },
+        access: "read_write",
+      }],
+    });
   });
 
-  test("revokes grants by presentation client, root task, and store epoch", async () => {
+  test("keeps a Project-approved Library destination call-local until resulting Pages exist", async () => {
+    const persistProjectGrants = vi.fn(async () => undefined);
+    const { router } = createRouter(["allow_project"]);
+    const broker = new NodexAgentAuthorizationBroker({
+      rendererClientRouter: router,
+      readStoreEpoch: () => "store-1",
+      persistProjectGrants,
+    });
+    const libraryGrant = {
+      root: { kind: "library" as const, libraryId: "library-1" },
+      access: "read_write" as const,
+      libraryActions: ["create_child" as const],
+    };
+
+    await expect(broker.authorize(authorizationInput({
+      tool: "create_pages",
+      requirements: [{
+        intent: {
+          target: { kind: "library", libraryId: "library-1" },
+          action: "create_child",
+        },
+        grant: libraryGrant,
+        reason: "library_consent_required",
+        persistable: false,
+      }],
+      inspectionAccess: {
+        ...authorizationInput().inspectionAccess,
+        grants: [libraryGrant],
+      },
+    }))).resolves.toMatchObject({
+      decision: "allow_project",
+      resourceAccess: {
+        scope: "call",
+        persistResultingPageGrants: true,
+        grants: [libraryGrant],
+      },
+    });
+    expect(persistProjectGrants).not.toHaveBeenCalled();
+  });
+
+  test("does not persist a Project grant after exact-Turn authority changes", async () => {
+    const persistProjectGrants = vi.fn(async () => undefined);
+    const { router } = createRouter(["allow_project"]);
+    const broker = new NodexAgentAuthorizationBroker({
+      rendererClientRouter: router,
+      readStoreEpoch: () => "store-1",
+      persistProjectGrants,
+    });
+
+    await expect(broker.authorize(authorizationInput({
+      isAuthorityCurrent: () => false,
+    }))).resolves.toBe("unavailable");
+    expect(persistProjectGrants).not.toHaveBeenCalled();
+  });
+
+  test("does not bind task grants to the renderer that presented the card", async () => {
     let storeEpoch = "store-1";
-    const { router } = createRouter(["allow_task", "allow_task", "allow_task"]);
+    const { router } = createRouter(["allow_task", "allow_task"]);
     const broker = new NodexAgentAuthorizationBroker({
       rendererClientRouter: router,
       readStoreEpoch: () => storeEpoch,
@@ -113,52 +226,41 @@ describe("NodexAgentAuthorizationBroker", () => {
 
     await broker.authorize(authorizationInput());
     broker.revokePresentationClient("renderer-1");
-    expect(broker.hasGrant({ rootThreadId: "thread-root", projectId: "project-1" })).toBe(false);
+    expect(broker.getTaskAccess(authority)).toBeDefined();
 
-    await broker.authorize(authorizationInput());
     broker.revokeRoot("thread-root");
-    expect(broker.hasGrant({ rootThreadId: "thread-root", projectId: "project-1" })).toBe(false);
+    expect(broker.getTaskAccess(authority)).toBeUndefined();
 
     await broker.authorize(authorizationInput());
     storeEpoch = "store-2";
-    expect(broker.hasGrant({ rootThreadId: "thread-root", projectId: "project-1" })).toBe(false);
+    expect(broker.getTaskAccess(authority)).toBeUndefined();
   });
 
-  test("keeps an existing task grant usable while no renderer is visible", async () => {
-    const { router, sendRequest } = createRouter(["allow_task"]);
-    const broker = new NodexAgentAuthorizationBroker({
+  test("fails closed without presentation, stable store identity, or Project persistence", async () => {
+    const { router, sendRequest } = createRouter(["allow_project"]);
+    const missingStore = new NodexAgentAuthorizationBroker({
+      rendererClientRouter: router,
+      readStoreEpoch: () => null,
+    });
+    await expect(missingStore.authorize(authorizationInput())).resolves.toBe(
+      "unavailable",
+    );
+    expect(sendRequest).not.toHaveBeenCalled();
+
+    const noPresentation = new NodexAgentAuthorizationBroker({
       rendererClientRouter: router,
       readStoreEpoch: () => "store-1",
     });
-
-    await expect(broker.authorize(authorizationInput())).resolves.toBe("allow_task");
-    await expect(broker.authorize(authorizationInput({
-      callId: "call-2",
+    await expect(noPresentation.authorize(authorizationInput({
       presentation: null,
-    }))).resolves.toBe("allow_task");
+    }))).resolves.toBe("unavailable");
 
-    expect(sendRequest).toHaveBeenCalledTimes(1);
+    await expect(noPresentation.authorize(authorizationInput())).resolves.toBe(
+      "unavailable",
+    );
   });
 
-  test("revokes the former Project grant when a root task is rebound", async () => {
-    const { router } = createRouter(["allow_task"]);
-    const broker = new NodexAgentAuthorizationBroker({
-      rendererClientRouter: router,
-      readStoreEpoch: () => "store-1",
-    });
-
-    await broker.authorize(authorizationInput());
-    expect(broker.hasGrant({
-      rootThreadId: "thread-root",
-      projectId: "project-2",
-    })).toBe(false);
-    expect(broker.hasGrant({
-      rootThreadId: "thread-root",
-      projectId: "project-1",
-    })).toBe(false);
-  });
-
-  test("uses independent opaque occurrences for concurrent prompts and fails closed on routing errors", async () => {
+  test("uses independent opaque occurrences for concurrent prompts", async () => {
     const pending: Array<(value: unknown) => void> = [];
     const sentRequests: unknown[] = [];
     const sendRequest = vi.fn(async (
@@ -182,17 +284,7 @@ describe("NodexAgentAuthorizationBroker", () => {
     expect(firstRequest.requestId).not.toBe(secondRequest.requestId);
     pending[0]?.({ decision: "allow_once" });
     pending[1]?.({ decision: "deny" });
-    await expect(first).resolves.toBe("allow_once");
+    await expect(first).resolves.toMatchObject({ decision: "allow_once" });
     await expect(second).resolves.toBe("deny");
-
-    const unavailable = new NodexAgentAuthorizationBroker({
-      rendererClientRouter: {
-        sendRequest: async () => {
-          throw new Error("renderer request timed out");
-        },
-      },
-      readStoreEpoch: () => "store-1",
-    });
-    await expect(unavailable.authorize(authorizationInput())).resolves.toBe("unavailable");
   });
 });

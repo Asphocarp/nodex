@@ -6,6 +6,7 @@ import {
   type ToolFailure,
 } from "../../shared/nodex-agent-tools";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import type { NodexAgentResourceAccessOverlay } from "../../shared/nodex-agent-resource-access";
 import {
   NodexAgentDynamicToolFailure,
   type NodexAgentDynamicExecutionContext,
@@ -75,6 +76,13 @@ export async function executeNodexAgentDynamicToolCall(
     readonly toolsetRevision: number | null;
     readonly authority: FrozenNodexAgentTurnAuthority | null;
     readonly access: NodexAgentAccess;
+    readonly resourceAccess?: NodexAgentResourceAccessOverlay;
+    readonly resolveResourceAccess: NodexAgentDynamicExecutionContext[
+      "resolveResourceAccess"
+    ];
+    readonly recordTaskResourceAccess?: NodexAgentDynamicExecutionContext[
+      "recordTaskResourceAccess"
+    ];
     readonly authorize: NodexAgentDynamicExecutionContext["authorize"];
   },
 ): Promise<DynamicToolCallResponse> {
@@ -106,6 +114,11 @@ export async function executeNodexAgentDynamicToolCall(
         callId: params.callId,
         authority: input.authority,
         access: input.access,
+        ...(input.resourceAccess ? { resourceAccess: input.resourceAccess } : {}),
+        ...(input.recordTaskResourceAccess
+          ? { recordTaskResourceAccess: input.recordTaskResourceAccess }
+          : {}),
+        resolveResourceAccess: input.resolveResourceAccess,
         authorize: input.authorize,
       },
     );

@@ -6,14 +6,25 @@ import type {
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import type {
+  NodexAgentResourceAccessOverlay,
+  NodexAgentResourceAccessPlan,
+  NodexAgentResourceConsentRequirement,
+  NodexAgentResourceGrantSpec,
+  NodexAgentResourceIntent,
+} from "../../shared/nodex-agent-resource-access";
 import type { DynamicToolEffect } from "../codex/dynamic-tool-registry";
 import {
   sameAuthorizationFootprint,
   type NodexAgentAuthorizationFootprint,
 } from "./authorization-footprint";
 
-export type NodexAgentWriteTool = Extract<
+export type NodexAgentAuthorizationTool = Extract<
   NodexAgentV3ToolName,
+  | "fetch"
+  | "search"
+  | "query_database_view"
+  | "query_data_source"
   | "create_pages"
   | "update_page"
   | "advanced_update_page"
@@ -25,19 +36,36 @@ export interface NodexAgentDynamicAuthorizationInput {
   readonly threadId: string;
   readonly callId: string;
   readonly projectId: string;
-  readonly tool: NodexAgentWriteTool;
-  readonly effect: Extract<DynamicToolEffect, "write" | "destructive">;
+  readonly tool: NodexAgentAuthorizationTool;
+  readonly effect: "read" | Extract<DynamicToolEffect, "write" | "destructive">;
   readonly preview: NodexAgentAuthorizationPreview;
+  readonly requirements: readonly NodexAgentResourceConsentRequirement[];
+  readonly inspectionAccess: NodexAgentResourceAccessOverlay;
 }
+
+export type NodexAgentDynamicAuthorizationResolution =
+  | {
+      readonly decision: Exclude<NodexAgentAuthorizationDecision, "deny">;
+      readonly resourceAccess?: NodexAgentResourceAccessOverlay;
+    }
+  | "deny"
+  | "unavailable";
 
 export interface NodexAgentDynamicExecutionContext {
   readonly threadId: string;
   readonly callId: string;
   readonly authority: FrozenNodexAgentTurnAuthority | null;
   readonly access: NodexAgentAccess;
+  readonly resourceAccess?: NodexAgentResourceAccessOverlay;
+  readonly resolveResourceAccess: (
+    intents: readonly NodexAgentResourceIntent[],
+  ) => Promise<NodexAgentResourceAccessPlan>;
+  readonly recordTaskResourceAccess?: (
+    grants: readonly NodexAgentResourceGrantSpec[],
+  ) => void;
   readonly authorize: (
     input: NodexAgentDynamicAuthorizationInput,
-  ) => Promise<NodexAgentAuthorizationDecision | "unavailable">;
+  ) => Promise<NodexAgentDynamicAuthorizationResolution>;
 }
 
 export function toolFailure(
@@ -86,13 +114,30 @@ function requireStableAuthorizationFootprint(
   ));
 }
 
+function failResourceAccessPlan(
+  plan: Extract<NodexAgentResourceAccessPlan, { readonly kind: "denied" }>,
+): never {
+  const code = plan.reason === "resource_not_found"
+    ? "not_found" as const
+    : plan.reason === "project_not_found" || plan.reason === "authority_stale"
+      ? "authorization_denied" as const
+      : "authorization_denied" as const;
+  fail(toolFailure(
+    code,
+    `Nodex resource access was denied: ${plan.reason}`,
+    plan.reason === "authority_stale" || plan.reason === "project_not_found"
+      ? "start_new_task"
+      : "none",
+  ));
+}
+
 async function requireAuthorization(
   context: NodexAgentDynamicExecutionContext,
   input: Omit<
     NodexAgentDynamicAuthorizationInput,
     "threadId" | "callId" | "projectId"
   >,
-): Promise<void> {
+): Promise<NodexAgentResourceAccessOverlay | undefined> {
   const projectId = projectRequired(context);
   const decision = await context.authorize({
     threadId: context.threadId,
@@ -100,19 +145,40 @@ async function requireAuthorization(
     projectId,
     ...input,
   });
-  if (decision === "allow_once" || decision === "allow_task") return;
+  if (typeof decision === "object") return decision.resourceAccess;
   if (decision === "unavailable") {
     fail(toolFailure(
       "authorization_required",
-      "A visible task owner is required to authorize this Nodex write",
+      "A visible task is required to authorize this Nodex resource access",
       "request_authorization",
     ));
   }
   fail(toolFailure(
     "authorization_denied",
-    "The Nodex write was denied",
+    "The Nodex resource access was denied",
     "none",
   ));
+}
+
+export async function authorizeNodexAgentResourceIntents(
+  context: NodexAgentDynamicExecutionContext,
+  input: Readonly<{
+    intents: readonly NodexAgentResourceIntent[];
+    tool: NodexAgentAuthorizationTool;
+    effect: NodexAgentDynamicAuthorizationInput["effect"];
+    preview: NodexAgentAuthorizationPreview;
+  }>,
+): Promise<NodexAgentResourceAccessOverlay | undefined> {
+  const plan = await context.resolveResourceAccess(input.intents);
+  if (plan.kind === "denied") return failResourceAccessPlan(plan);
+  if (plan.kind === "authorized") return plan.resourceAccess;
+  return await requireAuthorization(context, {
+    tool: input.tool,
+    effect: input.effect,
+    preview: input.preview,
+    requirements: plan.requirements,
+    inspectionAccess: plan.inspectionAccess,
+  });
 }
 
 type CompletedWritePreflight<TOutput> = {
@@ -126,26 +192,43 @@ export async function prepareAuthorizedWrite<
 >(
   context: NodexAgentDynamicExecutionContext,
   input: {
-    readonly prepare: () => Promise<CompletedWritePreflight<TOutput> | TPrepared>;
+    readonly intents: readonly NodexAgentResourceIntent[];
+    readonly prepare: (
+      resourceAccess?: NodexAgentResourceAccessOverlay,
+    ) => Promise<CompletedWritePreflight<TOutput> | TPrepared>;
     readonly footprint: (prepared: TPrepared) => NodexAgentAuthorizationFootprint;
     readonly authorization: (
       prepared: TPrepared,
     ) => Omit<
       NodexAgentDynamicAuthorizationInput,
-      "threadId" | "callId" | "projectId" | "effect"
+      | "threadId"
+      | "callId"
+      | "projectId"
+      | "effect"
+      | "requirements"
+      | "inspectionAccess"
     >;
   },
 ): Promise<CompletedWritePreflight<TOutput> | TPrepared> {
-  const prepared = await input.prepare();
+  const accessPlan = await context.resolveResourceAccess(input.intents);
+  if (accessPlan.kind === "denied") return failResourceAccessPlan(accessPlan);
+  const initialAccess = accessPlan.kind === "authorized"
+    ? accessPlan.resourceAccess
+    : accessPlan.inspectionAccess;
+  const prepared = await input.prepare(initialAccess);
   if (prepared.kind === "completed") return prepared;
 
   const approvedFootprint = input.footprint(prepared);
-  await requireAuthorization(context, {
-    ...input.authorization(prepared),
-    effect: approvedFootprint.effect,
-  });
+  const executionAccess = accessPlan.kind === "authorized"
+    ? accessPlan.resourceAccess
+    : await requireAuthorization(context, {
+        ...input.authorization(prepared),
+        effect: approvedFootprint.effect,
+        requirements: accessPlan.requirements,
+        inspectionAccess: accessPlan.inspectionAccess,
+      });
 
-  const refreshed = await input.prepare();
+  const refreshed = await input.prepare(executionAccess);
   if (refreshed.kind === "completed") return refreshed;
   requireStableAuthorizationFootprint(
     approvedFootprint,

@@ -63,9 +63,9 @@ describe("NodexAgentAuthorizationRequestCard", () => {
     expect(responses).toEqual([{ decision: "allow_task" }]);
   });
 
-  test("does not offer a persistent grant for destructive edits", async () => {
+  test("offers persistent resource grants for destructive edits", async () => {
     const responses: NodexAgentAuthorizationResponse[] = [];
-    const { container, queryByLabelText } = render(
+    const { container, getByLabelText } = render(
       <TooltipProvider>
         <NodexAgentAuthorizationRequestCard
           request={request("destructive")}
@@ -77,14 +77,39 @@ describe("NodexAgentAuthorizationRequestCard", () => {
     );
     await settleAsyncRender();
 
-    expect(queryByLabelText("Allow for this task")).toBeNull();
+    expect(getByLabelText("Allow for this task")).toBeTruthy();
+    expect(getByLabelText("Allow for this project")).toBeTruthy();
     const form = container.querySelector("form");
     if (!form) throw new Error("expected Nodex authorization form");
     await act(async () => {
+      fireEvent.click(getByLabelText("Allow for this project"));
       fireEvent.submit(form);
       await settleAsyncRender();
     });
-    expect(responses).toEqual([{ decision: "allow_once" }]);
+    expect(responses).toEqual([{ decision: "allow_project" }]);
+  });
+
+  test("offers task-scoped access for reads", async () => {
+    const responses: NodexAgentAuthorizationResponse[] = [];
+    const { container, getByLabelText } = render(
+      <TooltipProvider>
+        <NodexAgentAuthorizationRequestCard
+          request={request("read")}
+          onRespond={async (_requestId, response) => {
+            responses.push(response);
+          }}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+    const form = container.querySelector("form");
+    if (!form) throw new Error("expected Nodex authorization form");
+    await act(async () => {
+      fireEvent.click(getByLabelText("Allow for this task"));
+      fireEvent.submit(form);
+      await settleAsyncRender();
+    });
+    expect(responses).toEqual([{ decision: "allow_task" }]);
   });
 
   test("renders the v3 Nested Markdown preview without changing the compact surface", async () => {

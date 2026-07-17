@@ -26,6 +26,7 @@ import type {
   UpdatePageV3OutputSchema,
 } from "./v3-write-schemas";
 import type { z } from "zod";
+import type { NodexAgentResourceAccessOverlay } from "../nodex-agent-resource-access";
 
 export type NodexAgentPageUpdateTool = "update_page" | "advanced_update_page";
 
@@ -56,6 +57,7 @@ export type PrepareNodexAgentPageUpdateResult =
             readonly mutation: DocumentMutationRequest;
             readonly effects: AgentDocumentEditEffects;
             readonly targetMarkdown: string;
+            readonly resourceAccess?: NodexAgentResourceAccessOverlay;
           };
     }
   | { readonly ok: false; readonly error: ToolFailure["error"] };

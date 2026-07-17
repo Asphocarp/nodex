@@ -131,6 +131,9 @@ export function prepareNodexAgentPageUpdate(
         request.input.pageId,
         "write",
         request.authority,
+        request.resourceAccess,
+        request.callId,
+        "prepare",
       );
       const result = prepareNodexAgentDocumentEditWithResolver(
         database,
@@ -155,6 +158,9 @@ export function prepareNodexAgentPageUpdate(
           mutation: result.value.mutation,
           effects: result.value.effects,
           targetMarkdown: result.value.targetNfm,
+          ...(request.resourceAccess
+            ? { resourceAccess: request.resourceAccess }
+            : {}),
         },
       };
     }).immediate();
@@ -176,6 +182,9 @@ export function completeNodexAgentPageUpdate(
       request.pageId,
       "write",
       request.authority,
+      request.resourceAccess,
+      request.callId,
+      "execute",
     );
   } catch (error) {
     const failure = readFailure(error);

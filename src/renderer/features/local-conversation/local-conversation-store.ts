@@ -5940,6 +5940,7 @@ export class CodexAppServerManager {
     if (
       response.decision !== "allow_once"
       && response.decision !== "allow_task"
+      && response.decision !== "allow_project"
       && response.decision !== "deny"
     ) {
       return false;

@@ -1,6 +1,7 @@
 import type { ToolFailure } from "./base-schemas";
 import type { NodexAgentAccess } from "./read-runtime";
 import type { FrozenNodexAgentTurnAuthority } from "../nodex-agent-authority";
+import type { NodexAgentResourceAccessOverlay } from "../nodex-agent-resource-access";
 import type {
   FetchV3InputSchema,
   FetchV3OutputSchema,
@@ -17,33 +18,43 @@ import type { z } from "zod";
 export type NodexAgentV3ReadRequest =
   | {
       readonly tool: "get_context";
+      readonly callId?: string;
       readonly projectId: string | null;
       readonly authority?: FrozenNodexAgentTurnAuthority | null;
+      readonly resourceAccess?: NodexAgentResourceAccessOverlay;
       readonly access: NodexAgentAccess;
       readonly input: z.infer<typeof GetContextV3InputSchema>;
     }
   | {
       readonly tool: "fetch";
+      readonly callId?: string;
       readonly projectId: string;
       readonly authority?: FrozenNodexAgentTurnAuthority;
+      readonly resourceAccess?: NodexAgentResourceAccessOverlay;
       readonly input: z.infer<typeof FetchV3InputSchema>;
     }
   | {
       readonly tool: "search";
+      readonly callId?: string;
       readonly projectId: string;
       readonly authority?: FrozenNodexAgentTurnAuthority;
+      readonly resourceAccess?: NodexAgentResourceAccessOverlay;
       readonly input: z.infer<typeof SearchV3InputSchema>;
     }
   | {
       readonly tool: "query_database_view";
+      readonly callId?: string;
       readonly projectId: string;
       readonly authority?: FrozenNodexAgentTurnAuthority;
+      readonly resourceAccess?: NodexAgentResourceAccessOverlay;
       readonly input: z.infer<typeof QueryDatabaseViewV3InputSchema>;
     }
   | {
       readonly tool: "query_data_source";
+      readonly callId?: string;
       readonly projectId: string;
       readonly authority?: FrozenNodexAgentTurnAuthority;
+      readonly resourceAccess?: NodexAgentResourceAccessOverlay;
       readonly input: z.infer<typeof QueryDataSourceV3InputSchema>;
     };
 

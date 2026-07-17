@@ -48,6 +48,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
       toolsetRevision: null,
       authority: null,
       access,
+      resolveResourceAccess: async () => ({ kind: "authorized" }),
       authorize: async () => "deny",
     });
     const staleFailure = JSON.parse(stale.contentItems[0]?.type === "inputText"
@@ -72,6 +73,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
       toolsetRevision: NODEX_APP_V2_TOOLSET_REVISION,
       authority: null,
       access,
+      resolveResourceAccess: async () => ({ kind: "authorized" }),
       authorize: async () => "deny",
     });
     const retiredFailure = JSON.parse(retired.contentItems[0]?.type === "inputText"
@@ -94,6 +96,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
       toolsetRevision: NODEX_APP_TOOLSET_REVISION,
       authority: null,
       access,
+      resolveResourceAccess: async () => ({ kind: "authorized" }),
       authorize: async () => "deny",
     });
     const invalidFailure = JSON.parse(invalid.contentItems[0]?.type === "inputText"

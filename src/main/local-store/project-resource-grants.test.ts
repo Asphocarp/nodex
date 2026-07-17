@@ -10,6 +10,8 @@ import {
   authorizeNodexAgentResourceInDatabase,
   authorizeProjectResource,
   listProjectResourceGrants,
+  persistNodexAgentProjectResourceGrantsInDatabase,
+  planNodexAgentResourceAccessInDatabase,
   putProjectResourceGrant,
   revokeProjectResourceGrant,
 } from "./project-resource-grants";
@@ -37,6 +39,184 @@ afterEach(() => {
 });
 
 describe("Project resource grants", () => {
+  test("plans direct, temporary, and persistent resource authority at the resource boundary", async () => {
+    const actor = createProject({ name: "Resource actor" });
+    const foreign = createProject({ name: "Resource target" });
+    const ownPage = await createPage(actor.id, "draft", { title: "Own" });
+    const foreignPage = await createPage(foreign.id, "draft", { title: "Foreign" });
+    const database = getDb();
+    const library = database.prepare(
+      "SELECT library_id AS libraryId FROM projects WHERE id = ?",
+    ).get(actor.id) as { readonly libraryId: string };
+    const authority = {
+      threadId: "thread-project",
+      turnId: "turn-project",
+      rootThreadId: "thread-project",
+      actorProjectId: actor.id,
+      libraryId: library.libraryId,
+      storeEpoch: requireBlockStoreEpoch(database),
+      scope: "project" as const,
+      source: "project_turn" as const,
+    };
+
+    expect(planNodexAgentResourceAccessInDatabase(database, {
+      authority,
+      callId: "call-own",
+      intents: [{
+        target: { kind: "page", pageId: ownPage.id },
+        action: "write",
+      }],
+    })).toEqual({ kind: "authorized" });
+
+    const missing = planNodexAgentResourceAccessInDatabase(database, {
+      authority,
+      callId: "call-foreign",
+      intents: [{
+        target: { kind: "page", pageId: foreignPage.id },
+        action: "write",
+      }],
+    });
+    expect(missing).toMatchObject({
+      kind: "consent_required",
+      requirements: [{
+        grant: {
+          root: { kind: "page", pageId: foreignPage.id },
+          access: "read_write",
+        },
+        reason: "grant_missing",
+        persistable: true,
+      }],
+      inspectionAccess: { kind: "inspection", scope: "call" },
+    });
+    if (missing.kind !== "consent_required") {
+      throw new Error("expected foreign Page consent");
+    }
+    expect(authorizeNodexAgentResourceInDatabase(database, {
+      authority,
+      resource: { kind: "page", pageId: foreignPage.id },
+      action: "write",
+      resourceAccess: missing.inspectionAccess,
+      callId: "call-foreign",
+      phase: "prepare",
+    })).toMatchObject({
+      allowed: true,
+      source: "thread_resource_consent",
+    });
+    expect(authorizeNodexAgentResourceInDatabase(database, {
+      authority,
+      resource: { kind: "page", pageId: foreignPage.id },
+      action: "write",
+      resourceAccess: missing.inspectionAccess,
+      callId: "call-foreign",
+      phase: "execute",
+    }).allowed).toBe(false);
+
+    const taskAccess = {
+      ...missing.inspectionAccess,
+      kind: "consent" as const,
+      scope: "task" as const,
+    };
+    expect(planNodexAgentResourceAccessInDatabase(database, {
+      authority,
+      callId: "call-later",
+      intents: [{
+        target: { kind: "page", pageId: foreignPage.id },
+        action: "write",
+      }],
+      taskAccess,
+    })).toMatchObject({ kind: "authorized", resourceAccess: taskAccess });
+
+    persistNodexAgentProjectResourceGrantsInDatabase(database, {
+      authority,
+      grants: missing.requirements.map((requirement) => requirement.grant),
+    });
+    expect(planNodexAgentResourceAccessInDatabase(database, {
+      authority,
+      callId: "call-persisted",
+      intents: [{
+        target: { kind: "page", pageId: foreignPage.id },
+        action: "write",
+      }],
+    })).toEqual({ kind: "authorized" });
+  });
+
+  test("keeps read grants direct while requiring consent to upgrade their writes", async () => {
+    const actor = createProject({ name: "Read actor" });
+    const foreign = createProject({ name: "Read target" });
+    const page = await createPage(foreign.id, "draft", { title: "Read target" });
+    putProjectResourceGrant({
+      projectId: actor.id,
+      root: { kind: "page", pageId: page.id },
+      access: "read",
+    });
+    const database = getDb();
+    const library = database.prepare(
+      "SELECT library_id AS libraryId FROM projects WHERE id = ?",
+    ).get(actor.id) as { readonly libraryId: string };
+    const authority = {
+      threadId: "thread-read",
+      turnId: "turn-read",
+      rootThreadId: "thread-read",
+      actorProjectId: actor.id,
+      libraryId: library.libraryId,
+      storeEpoch: requireBlockStoreEpoch(database),
+      scope: "project" as const,
+      source: "project_turn" as const,
+    };
+
+    expect(planNodexAgentResourceAccessInDatabase(database, {
+      authority,
+      callId: "call-read",
+      intents: [{ target: { kind: "page", pageId: page.id }, action: "read" }],
+    })).toEqual({ kind: "authorized" });
+    expect(planNodexAgentResourceAccessInDatabase(database, {
+      authority,
+      callId: "call-write",
+      intents: [{ target: { kind: "page", pageId: page.id }, action: "write" }],
+    })).toMatchObject({
+      kind: "consent_required",
+      requirements: [{ reason: "grant_read_only", grant: { access: "read_write" } }],
+    });
+  });
+
+  test("denies deleted Agent targets without breaking lifecycle restoration authority", async () => {
+    const actor = createProject({ name: "Deleted target actor" });
+    const page = await createPage(actor.id, "draft", { title: "Deleted target" });
+    const database = getDb();
+    const library = database.prepare(
+      "SELECT library_id AS libraryId FROM projects WHERE id = ?",
+    ).get(actor.id) as { readonly libraryId: string };
+    const authority = {
+      threadId: "thread-deleted",
+      turnId: "turn-deleted",
+      rootThreadId: "thread-deleted",
+      actorProjectId: actor.id,
+      libraryId: library.libraryId,
+      storeEpoch: requireBlockStoreEpoch(database),
+      scope: "project" as const,
+      source: "project_turn" as const,
+    };
+    database.transaction(() => {
+      database.prepare("UPDATE pages SET lifecycle = 'deleted' WHERE block_id = ?")
+        .run(page.id);
+      database.prepare("UPDATE blocks SET lifecycle = 'deleted' WHERE id = ?")
+        .run(page.id);
+    }).immediate();
+
+    expect(planNodexAgentResourceAccessInDatabase(database, {
+      authority,
+      callId: "call-deleted",
+      intents: [{ target: { kind: "page", pageId: page.id }, action: "read" }],
+    })).toMatchObject({ kind: "denied", reason: "resource_not_found" });
+    expect(() => persistNodexAgentProjectResourceGrantsInDatabase(database, {
+      authority,
+      grants: [{
+        root: { kind: "page", pageId: page.id },
+        access: "read_write",
+      }],
+    })).toThrow(/page not found/u);
+  });
+
   test("overlays temporary same-Library access without persisting grants", async () => {
     const actor = createProject({ name: "Full access actor" });
     const foreign = createProject({ name: "Foreign content owner" });

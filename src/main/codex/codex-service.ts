@@ -277,7 +277,13 @@ import {
   buildTurnPermissionOverrides,
   resolveCodexPermissionState,
 } from "./codex-permission-resolver";
-import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import {
+  nodexAgentAuthorityFingerprint,
+  type FrozenNodexAgentTurnAuthority,
+} from "../../shared/nodex-agent-authority";
+import type { NodexAgentResourceIntent } from "../../shared/nodex-agent-resource-access";
+import { getDb } from "../local-store/database";
+import { planNodexAgentResourceAccessInDatabase } from "../local-store/project-resource-grants";
 import {
   canAutoApproveNodexAgentWrite,
   CodexNodexAgentAuthorityRegistry,
@@ -6143,13 +6149,14 @@ export class CodexService extends EventEmitter {
   private resolvePermissionStateForRequest(
     permissionState: CodexPermissionState,
     mode: CodexPermissionMode | undefined,
+    workspaceRoots: readonly string[],
   ): CodexPermissionState {
     if (!mode || mode === permissionState.mode) {
       return permissionState;
     }
-    // Renderer input may choose among modes for UI, but only the main-owned
-    // persisted selection may establish built-in preset provenance.
-    return permissionState;
+    // Per-request selection controls Codex execution. Nodex Library authority
+    // still requires the independently persisted and verified built-in preset.
+    return this.buildFallbackPermissionState(mode, workspaceRoots, permissionState);
   }
 
   private async readAutomationPermissionContext(): Promise<CodexAutomationPermissionContext | null> {
@@ -13106,6 +13113,7 @@ export class CodexService extends EventEmitter {
     const effectivePermissionState = this.resolvePermissionStateForRequest(
       permissionState,
       input.request.permissionMode,
+      [sourceWorkspaceRoot],
     );
     const collaborationMode = this.buildCollaborationModePayload({
       ...(input.effectiveCollaborationMode
@@ -13448,6 +13456,7 @@ export class CodexService extends EventEmitter {
       const effectivePermissionState = this.resolvePermissionStateForRequest(
         resolvedPermissionState,
         input.permissionMode,
+        runLocation.workspaceRoots,
       );
       const permissionMode = effectivePermissionState.mode;
       const turnPermissionOverrides = buildTurnPermissionOverrides({
@@ -16058,6 +16067,7 @@ export class CodexService extends EventEmitter {
     const permissionState = this.resolvePermissionStateForRequest(
       await this.readPermissionState(projectId),
       undefined,
+      detail?.cwd ? [detail.cwd] : [],
     );
     const authorityLaunch = this.beginNodexAgentTurnAuthority(
       threadId,
@@ -16212,6 +16222,7 @@ export class CodexService extends EventEmitter {
     const permissionState = this.resolvePermissionStateForRequest(
       resolvedPermissionState,
       overrides?.permissionMode,
+      workspaceRoots,
     );
     const permissionMode = permissionState.mode;
     let turnPermissionOverrides = buildTurnPermissionOverrides({
@@ -19707,19 +19718,9 @@ export class CodexService extends EventEmitter {
       : frozenAuthority;
     const projectId = authority?.actorProjectId ?? null;
     const broker = this.nodexAgentAuthorizationBroker;
-    const presentation = this.resolveNodexAgentAuthorizationPresentation(
-      params.threadId,
-      params.turnId,
-      rootThreadId,
-    );
     const writeAccess: NodexAgentAccess["write"] = resolveNodexAgentWriteAccess({
       authorityScope: authority?.scope ?? null,
       hasActorProject: projectId !== null,
-      hasBroker: broker !== null,
-      hasTaskGrant: projectId !== null && broker !== null
-        ? broker.hasGrant({ rootThreadId, projectId })
-        : false,
-      hasPresentationTarget: presentation !== null,
     });
     const access: NodexAgentAccess = {
       read: "allowed",
@@ -19730,38 +19731,77 @@ export class CodexService extends EventEmitter {
       params.threadId,
       NODEX_APP_TOOL_NAMESPACE,
     );
+    const taskResourceAccess = authority && broker
+      ? broker.getTaskAccess(authority)
+      : undefined;
 
     return await executeNodexAgentDynamicToolCall(params, {
       toolsetRevision,
       authority,
       access,
+      ...(taskResourceAccess ? { resourceAccess: taskResourceAccess } : {}),
+      ...(authority && broker ? {
+        recordTaskResourceAccess: (grants) => {
+          broker.extendTaskAccess(authority, grants);
+        },
+      } : {}),
+      resolveResourceAccess: async (
+        intents: readonly NodexAgentResourceIntent[],
+      ) => {
+        if (!authority) {
+          return {
+            kind: "denied" as const,
+            intent: intents[0] ?? {
+              target: { kind: "library", libraryId: "unavailable" },
+              action: "read",
+            },
+            reason: "project_not_found" as const,
+          };
+        }
+        const currentTaskAccess = broker?.getTaskAccess(authority);
+        return planNodexAgentResourceAccessInDatabase(getDb(), {
+          authority,
+          callId: params.callId,
+          intents,
+          ...(currentTaskAccess ? { taskAccess: currentTaskAccess } : {}),
+        });
+      },
       authorize: async (authorization) => {
         if (authority?.scope === "library") {
           const current = this.captureNodexAgentTurnAuthority(params);
           if (canAutoApproveNodexAgentWrite(authority, current)) {
-            return "allow_once";
+            return { decision: "allow_once" };
           }
           return "unavailable";
         }
-        if (!broker) return "unavailable";
+        if (!authority || !broker) return "unavailable";
         const currentPresentation = this.resolveNodexAgentAuthorizationPresentation(
           params.threadId,
           params.turnId,
           rootThreadId,
         );
+        const isAuthorityCurrent = (): boolean => {
+          const currentRootThreadId = this.resolveNodexAgentRootThreadId(
+            params.threadId,
+          );
+          const currentProjectId = this.parseThreadRef(params.threadId)?.projectId
+            ?? this.parseThreadRef(currentRootThreadId)?.projectId
+            ?? null;
+          const currentAuthority = this.captureNodexAgentTurnAuthority(params);
+          return currentRootThreadId === rootThreadId
+            && currentProjectId === projectId
+            && currentAuthority !== null
+            && nodexAgentAuthorityFingerprint(currentAuthority)
+              === nodexAgentAuthorityFingerprint(authority);
+        };
         const decision = await broker.authorize({
           ...authorization,
           rootThreadId,
+          authority,
           presentation: currentPresentation,
+          isAuthorityCurrent,
         });
-        const currentRootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
-        const currentProjectId = this.parseThreadRef(params.threadId)?.projectId
-          ?? this.parseThreadRef(currentRootThreadId)?.projectId
-          ?? null;
-        if (currentRootThreadId !== rootThreadId || currentProjectId !== projectId) {
-          return "unavailable";
-        }
-        return decision;
+        return isAuthorityCurrent() ? decision : "unavailable";
       },
     });
   }

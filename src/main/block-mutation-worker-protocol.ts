@@ -1,4 +1,6 @@
 import type { BoardChangeEvent } from "../shared/ipc-api";
+import type { ProjectResourceGrant } from "../shared/library";
+import type { PersistNodexAgentProjectResourceGrantsInput } from "../shared/nodex-agent-resource-access";
 import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type {
   DocumentAccessAck,
@@ -122,6 +124,10 @@ export type BlockMutationWorkerRequest =
   | (BlockMutationWorkerRequestBase & {
       type: "readNodexAgentV3Tool";
       payload: NodexAgentV3ReadRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "persistNodexAgentProjectResourceGrants";
+      payload: PersistNodexAgentProjectResourceGrantsInput;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "prepareNodexAgentPageUpdate";
@@ -340,6 +346,7 @@ export type BlockDocumentWorkerResult =
 
 export type BlockMutationWorkerResult =
   | PageOccurrenceMutationResult
+  | readonly ProjectResourceGrant[]
   | NodexAgentV3ReadCommandResult
   | PrepareNodexAgentPageUpdateResult
   | CompleteNodexAgentPageUpdateResult

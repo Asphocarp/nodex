@@ -40,25 +40,60 @@ function unavailable() {
 
 function context(
   authorize: NodexAgentDynamicExecutionContext["authorize"],
+  resolveResourceAccess: NodexAgentDynamicExecutionContext["resolveResourceAccess"] =
+    async (intents) => ({
+      kind: "consent_required",
+      requirements: [{
+        intent: intents[0] ?? {
+          target: { kind: "library", libraryId: "library-v3" },
+          action: "create_child",
+        },
+        grant: {
+          root: { kind: "library", libraryId: "library-v3" },
+          access: "read_write",
+          libraryActions: ["create_child"],
+        },
+        reason: "library_consent_required",
+        persistable: false,
+      }],
+      inspectionAccess: {
+        kind: "inspection",
+        scope: "call",
+        threadId: "thread-v3",
+        turnId: "turn-v3",
+        callId: "call-v3",
+        rootThreadId: "thread-v3",
+        actorProjectId: "project-v3",
+        libraryId: "library-v3",
+        storeEpoch: "store-v3",
+        grants: [{
+          root: { kind: "library", libraryId: "library-v3" },
+          access: "read_write",
+          libraryActions: ["create_child"],
+        }],
+      },
+    }),
 ): NodexAgentDynamicExecutionContext {
+  const authority = {
+    threadId: "thread-v3",
+    turnId: "turn-v3",
+    rootThreadId: "thread-v3",
+    actorProjectId: "project-v3",
+    libraryId: "library-v3",
+    storeEpoch: "store-v3",
+    scope: "project" as const,
+    source: "project_turn" as const,
+  };
   return {
     threadId: "thread-v3",
     callId: "call-v3",
-    authority: {
-      threadId: "thread-v3",
-      turnId: "turn-v3",
-      rootThreadId: "thread-v3",
-      actorProjectId: "project-v3",
-      libraryId: "library-v3",
-      storeEpoch: "store-v3",
-      scope: "project",
-      source: "project_turn",
-    },
+    authority,
     access: {
       read: "allowed",
       write: "consent_required",
       domains: ["document", "placement", "database"],
     },
+    resolveResourceAccess,
     authorize,
   };
 }
@@ -107,13 +142,18 @@ describe("NodexAgentV3DynamicService", () => {
       }],
     };
     const trace: string[] = [];
-    const prepareNodexAgentCreatePages = vi.fn(async () => {
+    const prepareNodexAgentCreatePages = vi.fn(async (request) => {
       trace.push("prepare");
       return envelope({
         ok: true as const,
         value: {
           kind: "prepared" as const,
-          command,
+          command: {
+            ...command,
+            ...(request.resourceAccess
+              ? { resourceAccess: request.resourceAccess }
+              : {}),
+          },
           leaseDocuments: [],
           previews: [{
             pageId: "page-created",
@@ -157,16 +197,42 @@ describe("NodexAgentV3DynamicService", () => {
       expect(request.tool).toBe("create_pages");
       expect(request.preview.markdownPreview).toContain("Milestones");
       expect(request.preview.nfmPreview).toBeUndefined();
-      return "allow_once" as const;
+      return {
+        decision: "allow_task" as const,
+        resourceAccess: {
+          kind: "consent" as const,
+          scope: "task" as const,
+          rootThreadId: request.inspectionAccess.rootThreadId,
+          actorProjectId: request.inspectionAccess.actorProjectId,
+          libraryId: request.inspectionAccess.libraryId,
+          storeEpoch: request.inspectionAccess.storeEpoch,
+          grants: request.inspectionAccess.grants,
+        },
+      };
     });
+    const recordTaskResourceAccess = vi.fn();
+    const executionContext = {
+      ...context(authorize),
+      recordTaskResourceAccess,
+    };
 
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
       toolsetRevision: NODEX_APP_V3_TOOLSET_REVISION,
       tool: "create_pages",
-    }, input, context(authorize))).resolves.toEqual({ effect: "write", output });
+    }, input, executionContext)).resolves.toEqual({ effect: "write", output });
     expect(trace).toEqual(["prepare", "authorize", "prepare", "execute"]);
-    expect(executeNodexAgentCreatePages).toHaveBeenCalledWith(command, []);
+    expect(executeNodexAgentCreatePages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...command,
+        resourceAccess: expect.objectContaining({ scope: "task" }),
+      }),
+      [],
+    );
+    expect(recordTaskResourceAccess).toHaveBeenCalledWith([{
+      root: { kind: "page", pageId: "page-created" },
+      access: "read_write",
+    }]);
   });
 
   test("classifies whole-Page replacement as destructive and completes it through the Document kernel", async () => {
@@ -225,7 +291,7 @@ describe("NodexAgentV3DynamicService", () => {
     const authorize = vi.fn(async (request) => {
       expect(request.effect).toBe("destructive");
       expect(request.preview.markdownPreview).toBe("# New body");
-      return "allow_once" as const;
+      return { decision: "allow_once" as const };
     });
     const executionContext = context(authorize);
 
@@ -241,10 +307,27 @@ describe("NodexAgentV3DynamicService", () => {
     expect(applyDocumentMutation).toHaveBeenCalledWith(mutation, {
       authority: executionContext.authority,
       resource: { kind: "page", pageId: "page-update" },
+      callId: "call-v3",
     });
     expect(completeNodexAgentPageUpdate).toHaveBeenCalledWith(expect.objectContaining({
       tool: "update_page",
       pageId: "page-update",
     }));
+
+    const directAuthorize = vi.fn(async () => "deny" as const);
+    const directContext = context(
+      directAuthorize,
+      async () => ({ kind: "authorized" as const }),
+    );
+    await expect(service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V3_TOOLSET_REVISION,
+      tool: "update_page",
+    }, input, directContext)).resolves.toEqual({
+      effect: "destructive",
+      output,
+    });
+    expect(directAuthorize).not.toHaveBeenCalled();
+    expect(prepareNodexAgentPageUpdate).toHaveBeenCalledTimes(4);
   });
 });

@@ -345,7 +345,7 @@ export const NodexAgentAuthorization: Story = {
   render: () => (
     <RequestSurface
       title="Nodex Agent Authorization"
-      description="Semantic preview for one prepared Nodex document mutation, with one-shot and task-scoped choices for ordinary writes."
+      description="Resource-scoped Nodex consent with one-shot, task, and persistent Project choices."
     >
       <NodexAgentAuthorizationRequestCard
         request={{
@@ -378,7 +378,7 @@ export const NodexAgentDestructiveAuthorization: Story = {
   render: () => (
     <RequestSurface
       title="Destructive Nodex Authorization"
-      description="Destructive document replacement is always one-shot; the persistent task grant is intentionally absent."
+      description="Destructive consent keeps the same resource-scoped one-shot, task, and Project choices."
     >
       <NodexAgentAuthorizationRequestCard
         request={{

@@ -230,7 +230,7 @@ or deletion never deletes Library resources.
 A Project resource grant authorizes `read` or `read_write` access to one Page or
 Database root and its ownership closure. Active Project binding supplies an
 implicit recursive read-write grant to the primary Database. All foreign
-resources require explicit grants.
+resources require either an explicit grant or a bounded Agent consent overlay.
 
 Database closure includes owned Data Sources, hosted Views, Source-parented
 Pages, nested Pages, owned Documents, and assets. Page closure includes nested
@@ -243,9 +243,14 @@ or schema management. `read_write` permits Page content/current-value edits but
 not structural schema, grant, Data Source move, archive, or permanent-delete
 operations.
 
-Authorization and approval are independent. Authorization decides whether the
-Project may act on the resource; approval decides whether an authorized action
-may proceed automatically, once, for the task, or not at all.
+Persistent authorization and transient Agent consent are independent. The
+primary Database and `read_write` grants execute directly, including destructive
+writes. A `read` grant executes reads directly but requires consent for writes;
+an ungranted known target in the same Library also requires consent. Consent may
+cover one exact prepared footprint, the corresponding resource for the root
+task, or a durable Project grant. Only the durable choice writes
+`project_resource_grants`; cross-Library, deleted, stale, and unsupported
+structural targets remain ineligible for consent.
 
 ### Reference Block
 
@@ -294,7 +299,8 @@ lifecycle, binding/grant/access revisions, and independent approval policy.
 
 For `nodex_app`, the host also binds one immutable authority snapshot to the
 exact Codex Turn. Ordinary snapshots have Project scope and continue to resolve
-the current primary Database plus recursive Page/Database grants. A Turn
+the current primary Database, recursive Page/Database grants, and root-task
+resource consent overlays. A Turn
 started with Nodex's built-in Full access preset has temporary Library scope:
 it may use the existing tool catalog across the actor Project's Library and its
 writes do not require a Nodex approval card. This overlay is never persisted as
@@ -356,6 +362,7 @@ state is rejected rather than replayed.
 | View query/configuration/manual Page position | Database View records |
 | Project binding/lifecycle | Project execution records |
 | Foreign Page/Database capability | Project resource grants |
+| One-call/root-task Agent resource capability | main-owned consent overlays |
 | Page-intrinsic schedule/run behavior | generic Block properties and typed read models |
 | NFM, preview, search, schedule, asset, and Page summary | rebuildable projections |
 | Restorable Document states | immutable semantic Document revisions |

@@ -91,7 +91,13 @@ function readContextV3(
         version: DATABASE_MODULE_CONTRACT_VERSION,
         projectId: request.projectId,
       read: { target: { kind: "project_default" }, mode: "catalog" },
-      }, request.authority ? { authority: request.authority } : undefined)
+      }, request.authority ? {
+        authority: request.authority,
+        ...(request.resourceAccess
+          ? { resourceAccess: request.resourceAccess }
+          : {}),
+        callId: request.callId,
+      } : undefined)
     : null;
   if (catalog && !catalog.ok) {
     throw new NodexAgentReadError(
@@ -129,7 +135,9 @@ function readContextV3(
       project,
       access: {
         read: request.access.read,
-        write: request.access.write,
+        write: project.lifecycle === "active"
+          ? request.access.write
+          : "unavailable",
         domains: request.access.read === "allowed" ? ["page", "database"] : [],
       },
       ...(databases ? { databases } : {}),
@@ -190,6 +198,8 @@ function readFetchV3(
     owner.pageId,
     "read",
     request.authority,
+    request.resourceAccess,
+    request.callId,
   );
   const legacy = readNodexAgentBlock(database, page.contentProjectId, {
     blockId: request.input.id,
@@ -250,6 +260,8 @@ function readFetchV3(
               request.projectId,
               owner.pageId,
               request.authority,
+              request.resourceAccess,
+              request.callId,
             )
           : { kind: "page", pageId: owner.pageId },
         ...(legacy.data.block.properties ? {
@@ -372,6 +384,11 @@ function readSearchV3(
           authority: request.authority,
           resource: { kind: "page", pageId },
           action: "read",
+          ...(request.resourceAccess
+            ? { resourceAccess: request.resourceAccess }
+            : {}),
+          callId: request.callId,
+          phase: "execute",
         })
       : authorizeProjectResourceInDatabase(database, {
           projectId: request.projectId,
@@ -396,6 +413,8 @@ function readSearchV3(
               request.projectId,
               result.blockId,
               request.authority,
+              request.resourceAccess,
+              request.callId,
             ),
             matches: result.matches,
           }
@@ -437,7 +456,11 @@ function readQueryV3(
     version: DATABASE_MODULE_CONTRACT_VERSION,
     projectId: request.projectId,
     read,
-  }, request.authority ? { authority: request.authority } : undefined);
+  }, request.authority ? {
+    authority: request.authority,
+    ...(request.resourceAccess ? { resourceAccess: request.resourceAccess } : {}),
+    callId: request.callId,
+  } : undefined);
   if (!result.ok) {
     throw new NodexAgentReadError(
       result.error.code === "authorization_denied"

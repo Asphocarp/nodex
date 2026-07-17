@@ -40,6 +40,7 @@ import {
 } from "../../shared/database-kernel";
 import type { Page } from "../../shared/page";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import type { NodexAgentResourceAccessOverlay } from "../../shared/nodex-agent-resource-access";
 import type {
   LibraryResource,
   ProjectResourceAction,
@@ -627,6 +628,8 @@ const readValue = (
   project: ProjectRow,
   request: DatabaseModuleReadRequest,
   authority?: FrozenNodexAgentTurnAuthority,
+  resourceAccess?: NodexAgentResourceAccessOverlay,
+  callId?: string,
 ): DatabaseReadValue | null => {
   const target = request.read.target;
   if (target.kind === "project_default") {
@@ -653,9 +656,30 @@ const readValue = (
                 AND lifecycle = 'active'
               ORDER BY created_at, id
             `).all(project.id) as readonly { readonly databaseId: string }[];
+            const temporaryDatabaseIds = authority && resourceAccess
+              ? resourceAccess.grants.flatMap((grant) => {
+                  if (grant.root.kind !== "database") return [];
+                  const authorization = authorizeNodexAgentResourceInDatabase(
+                    database,
+                    {
+                      authority,
+                      resource: {
+                        kind: "database",
+                        databaseId: grant.root.databaseId,
+                      },
+                      action: "read",
+                      resourceAccess,
+                      ...(callId ? { callId } : {}),
+                      phase: "execute",
+                    },
+                  );
+                  return authorization.allowed ? [grant.root.databaseId] : [];
+                })
+              : [];
             return uniqueSorted([
               project.database_block_id,
               ...grantedDatabaseIds.map((row) => row.databaseId),
+              ...temporaryDatabaseIds,
             ]);
           })();
       return {
@@ -727,6 +751,8 @@ export const readDatabaseModule = (
   options: {
     readonly afterCursorRead?: () => void;
     readonly authority?: FrozenNodexAgentTurnAuthority;
+    readonly resourceAccess?: NodexAgentResourceAccessOverlay;
+    readonly callId?: string;
   } = {},
 ): DatabaseModuleReadResult => {
   try {
@@ -780,6 +806,11 @@ export const readDatabaseModule = (
             authority: options.authority,
             resource,
             action: "read",
+            ...(options.resourceAccess
+              ? { resourceAccess: options.resourceAccess }
+              : {}),
+            ...(options.callId ? { callId: options.callId } : {}),
+            phase: "execute",
           })
         : authorizeProjectResourceInDatabase(database, {
             projectId,
@@ -800,7 +831,14 @@ export const readDatabaseModule = (
         SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log
       `).get() as { readonly seq: number };
       options.afterCursorRead?.();
-      const value = readValue(database, project, request, options.authority);
+      const value = readValue(
+        database,
+        project,
+        request,
+        options.authority,
+        options.resourceAccess,
+        options.callId,
+      );
       if (!value) {
         return {
           ok: false,

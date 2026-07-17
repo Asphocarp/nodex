@@ -1344,6 +1344,8 @@ export async function runMainAppStartup(
   rendererClientRouter = new RendererClientRouter();
   codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
     rendererClientRouter,
+    persistProjectGrants: async (input) =>
+      await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
   }));
   registerIpcHandlers({
     rendererClientRouter,
