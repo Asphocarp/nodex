@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { buildComposerShellModel } from "../projection/build-composer-shell-model";
 import { buildBackgroundSubagentRows } from "../projection/background-subagent-row-model";
+import { copyConversationMarkdown } from "../copy-conversation-markdown";
 import {
   buildThreadBodyModel,
   resolveThreadStartProgressPresentation,
@@ -191,23 +192,45 @@ function ConnectedThreadStageHeader({
   onErrorMessage: (message: string | null) => void;
 }) {
   const summaryFields = useConversationSummaryFields(activeThreadId);
+  const cwd = useConversationCwd(activeThreadId);
+  const parentConversationId = useConversationParentThreadId(activeThreadId);
+  const title = resolveThreadTitle(input, summaryFields);
+  const handleCopyConversationMarkdown = useCallback(async () => {
+    if (!activeThreadId) return;
+    await copyConversationMarkdown({
+      conversationId: activeThreadId,
+      parentConversationId,
+      title,
+    });
+  }, [activeThreadId, parentConversationId, title]);
+
+  const headerActions = useMemo<ThreadStageActions>(() => ({
+    ...actions,
+    ...(activeThreadId ? { onCopyConversationMarkdown: handleCopyConversationMarkdown } : {}),
+  }), [actions, activeThreadId, handleCopyConversationMarkdown]);
 
   const model = useMemo<ThreadStageHeaderModel>(
     () => ({
       projectId: summaryFields.projectId ?? input.projectId,
+      sessionId: input.sessionId ?? null,
       threadId: summaryFields.threadId ?? input.activeThreadSummary?.threadId ?? activeThreadId,
-      title: resolveThreadTitle(input, summaryFields),
+      title,
+      cwd,
+      pinned: input.threadPinned,
+      shortcuts: input.threadActionShortcuts,
       showSideChatAction: Boolean(activeThreadId && !input.sideChatContext && actions.onOpenSideChat),
     }),
     [
       activeThreadId,
       actions.onOpenSideChat,
+      cwd,
       input,
       summaryFields,
+      title,
     ],
   );
 
-  return <ThreadStageHeader model={model} actions={actions} onErrorMessage={onErrorMessage} />;
+  return <ThreadStageHeader model={model} actions={headerActions} onErrorMessage={onErrorMessage} />;
 }
 
 function ConnectedThreadStageBody({

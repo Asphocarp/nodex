@@ -13571,6 +13571,47 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("complete-history requests reread the owner snapshot after publication", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const partial = buildConversation("thread-copy", "project-1");
+      const olderTurn = {
+        threadId: "thread-copy",
+        turnId: "turn-older",
+        status: "completed" as const,
+        itemIds: [],
+        items: [],
+      };
+      resumeThreadResult = partial;
+      completeThreadTurnsResult = {
+        ...partial,
+        turns: [olderTurn, ...partial.turns],
+      };
+      await manager.requestThreadStreamResume("thread-copy");
+
+      const result = await manager.requestThreadCompleteHistory("thread-copy");
+
+      expect(result?.turns[0]?.turnId).toBe("turn-older");
+      expect(manager.readConversation("thread-copy")?.turns[0]?.turnId).toBe("turn-older");
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:turns:load-complete")).toBe(true);
+    } finally {
+      resumeThreadResult = null;
+      completeThreadTurnsResult = null;
+      manager.destroy();
+    }
+  });
+
   test("follower older-turn loads wait for owner complete-history revision", async () => {
     invokeCalls = [];
     invokeRecords = [];

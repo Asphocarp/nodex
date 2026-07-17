@@ -6,8 +6,10 @@ import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage
 function buildModel(overrides?: Partial<ThreadStageHeaderModel>): ThreadStageHeaderModel {
   return {
     projectId: "project_1",
+    sessionId: "session_1",
     threadId: "thread_1",
     title: "Thread title",
+    cwd: "/Users/test/project",
     ...overrides,
   };
 }
@@ -73,14 +75,14 @@ describe("ThreadStageHeader", () => {
     );
 
     const title = container.querySelector('[data-testid="thread-stage-title"]');
-    const threadActions = container.querySelector('button[aria-label="Thread actions"]');
-    const actionGroup = threadActions?.closest(".no-drag");
+    const threadActions = container.querySelector('button[aria-label="Task actions"]');
+    const actionGroup = threadActions?.parentElement;
     expect(Boolean(title)).toBe(true);
     expect(Boolean(actionGroup)).toBe(true);
     expect(actionGroup?.previousElementSibling === title).toBe(true);
   });
 
-  test("renders Rename chat before Open side chat in thread actions", async () => {
+  test("renders the Codex task action ordering before the Copy flyout", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     let renameCalls = 0;
     const actions = {
@@ -98,17 +100,51 @@ describe("ThreadStageHeader", () => {
       />,
     );
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Thread actions" }), {
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Task actions" }), {
       button: 0,
       ctrlKey: false,
     });
     await settleAsyncRender();
 
     const bodyText = textContent(document.body);
-    expect(bodyText.indexOf("Rename chat") >= 0).toBe(true);
-    expect(bodyText.indexOf("Rename chat") < bodyText.indexOf("Open side chat")).toBe(true);
+    expect(bodyText.indexOf("Rename") >= 0).toBe(true);
+    expect(bodyText.indexOf("Rename") < bodyText.indexOf("Open side task")).toBe(true);
+    expect(bodyText.indexOf("Open side task") < bodyText.indexOf("Copy")).toBe(true);
 
-    fireEvent.click(screen.getByText("Rename chat"));
+    fireEvent.click(screen.getByText("Rename"));
     expect(renameCalls).toBe(1);
+  });
+
+  test("opens Copy as a separate submenu with Codex item ordering", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const screen = render(
+      <ThreadStageHeader
+        model={buildModel()}
+        actions={{
+          ...buildActions(),
+          onRequestRenameThread: () => {},
+          onCopyConversationMarkdown: async () => {},
+        }}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Task actions" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await settleAsyncRender();
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Copy" }), { key: "ArrowRight" });
+    await settleAsyncRender();
+
+    const bodyText = textContent(document.body);
+    const cwdIndex = bodyText.indexOf("Copy working directory");
+    const sessionIndex = bodyText.indexOf("Copy session ID");
+    const deeplinkIndex = bodyText.indexOf("Copy deeplink");
+    const markdownIndex = bodyText.indexOf("Copy as Markdown");
+    expect(cwdIndex >= 0).toBe(true);
+    expect(cwdIndex < sessionIndex).toBe(true);
+    expect(sessionIndex < deeplinkIndex).toBe(true);
+    expect(deeplinkIndex < markdownIndex).toBe(true);
   });
 });

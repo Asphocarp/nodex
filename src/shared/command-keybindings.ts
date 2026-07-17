@@ -124,6 +124,7 @@ const KEY_ALIASES = new Map<string, string>([
 
 export const CODEX_COMMAND_REGISTRY = [
   command("archiveThread", "Archive chat", "Archive the current chat", 10, "app", ["CmdOrCtrl+Shift+A"]),
+  command("copyConversationMarkdown", "Copy as Markdown", "Copy the complete current chat as Markdown", 15, "app", []),
   command("newThread", "New chat", "Start a new chat", 20, "app", ["CmdOrCtrl+N", "CmdOrCtrl+Shift+O"], {
     allowsMultiple: true,
   }),

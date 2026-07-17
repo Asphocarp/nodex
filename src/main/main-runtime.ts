@@ -123,6 +123,7 @@ import {
   shouldUseOpaqueElectronWindowSurface,
 } from "./electron-window-backdrop";
 import { buildWorkbenchViewMenu } from "./application-menu";
+import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -152,7 +153,7 @@ let appUpdateService: AppUpdateService | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let blockRetentionMaintenanceScheduler: BlockRetentionMaintenanceScheduler | null = null;
 let documentRevisionMaintenanceScheduler: DocumentRevisionMaintenanceScheduler | null = null;
-let mediaPermissionHandlersRegistered = false;
+let appPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
@@ -777,16 +778,23 @@ function createWindow(
     },
   });
 
-  if (!mediaPermissionHandlersRegistered) {
+  if (!appPermissionHandlersRegistered) {
     const electronSession = window.webContents.session;
-    electronSession.setPermissionCheckHandler((_webContents, permission) => {
-      if (permission === "media") return true;
-      return false;
+    electronSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
+      return shouldGrantAppRendererPermission({
+        permission,
+        webContentsType: webContents?.getType() ?? null,
+        isMainFrame: details.isMainFrame,
+      });
     });
-    electronSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-      callback(permission === "media");
+    electronSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      callback(shouldGrantAppRendererPermission({
+        permission,
+        webContentsType: webContents.getType(),
+        isMainFrame: details.isMainFrame,
+      }));
     });
-    mediaPermissionHandlersRegistered = true;
+    appPermissionHandlersRegistered = true;
   }
 
   // Open external links in the system browser

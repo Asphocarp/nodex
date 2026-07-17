@@ -88,6 +88,7 @@ const NodexDropdownSubmenuContent = forwardRef<
   HTMLDivElement,
   ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent> & {
     surface?: NodexDropdownSurface | "bare";
+    motion?: "default" | "none";
   }
 >(function NodexDropdownSubmenuContent(
   {
@@ -97,6 +98,7 @@ const NodexDropdownSubmenuContent = forwardRef<
     sideOffset = 4,
     alignOffset = -4,
     surface = "menu",
+    motion = "none",
     ...props
   },
   ref,
@@ -115,6 +117,9 @@ const NodexDropdownSubmenuContent = forwardRef<
               APP_SHELL_FLOATING_UI_LAYER_CLASS,
             )
           : dropdownContentSurfaceClassName,
+        motion === "default"
+          ? dropdownContentMotionClassName
+          : "data-[state=closed]:invisible data-[state=closed]:pointer-events-none",
         className,
       )}
       {...props}
@@ -192,6 +197,7 @@ export interface NodexDropdownMenuProps {
   contentWidth?: NodexDropdownContentWidth;
   contentMaxHeight?: NodexDropdownContentMaxHeight;
   portalContainer?: HTMLElement | null;
+  motion?: "default" | "none";
 }
 
 export function NodexDropdownMenu({
@@ -213,6 +219,7 @@ export function NodexDropdownMenu({
   contentWidth,
   contentMaxHeight,
   portalContainer,
+  motion = "default",
 }: NodexDropdownMenuProps) {
   return (
     <NodexDropdownRoot
@@ -239,6 +246,7 @@ export function NodexDropdownMenu({
               contentClassName,
             )}
             surface={surface}
+            motion={motion}
           >
             {children}
           </NodexDropdownContent>
@@ -251,6 +259,7 @@ export function NodexDropdownMenu({
 export interface NodexDropdownContentProps
   extends ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> {
   surface?: NodexDropdownSurface;
+  motion?: "default" | "none";
 }
 
 export const NodexDropdownContent = forwardRef<
@@ -262,6 +271,7 @@ export const NodexDropdownContent = forwardRef<
     className,
     align = "start",
     surface = "menu",
+    motion = "default",
     style,
     collisionPadding = 6,
     ...props
@@ -276,7 +286,9 @@ export const NodexDropdownContent = forwardRef<
       style={{ ...CONTENT_BOUNDARY_STYLE, ...style }}
       className={cn(
         dropdownContentSurfaceClassName,
-        dropdownContentMotionClassName,
+        motion === "default"
+          ? dropdownContentMotionClassName
+          : "data-[state=closed]:invisible data-[state=closed]:pointer-events-none",
         "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)]",
         resolveDropdownSurfaceClass(surface),
         className,
@@ -749,6 +761,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   disabled = false,
   contentClassName,
   contentSurface = "menu",
+  contentMotion = "default",
   onSelect,
   triggerContent,
   tooltipText,
@@ -764,6 +777,7 @@ export function NodexDropdownFlyoutSubmenuItem({
   disabled?: boolean;
   contentClassName?: string;
   contentSurface?: NodexDropdownSurface | "bare";
+  contentMotion?: "default" | "none";
   onSelect?: () => void;
   triggerContent?: ReactNode;
   tooltipText?: ReactNode;
@@ -816,6 +830,7 @@ export function NodexDropdownFlyoutSubmenuItem({
       <NodexDropdownPortal>
         <NodexDropdownSubmenuContent
           surface={contentSurface}
+          motion={contentMotion}
           className={contentClassName}
         >
           <div dir="ltr">{children}</div>

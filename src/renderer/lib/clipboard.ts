@@ -34,3 +34,9 @@ export async function writeTextToClipboard(text: string): Promise<boolean> {
     activeElement?.focus();
   }
 }
+
+export async function writeTextToClipboardStrict(text: string): Promise<void> {
+  const copied = await writeTextToClipboard(text);
+  if (copied) return;
+  throw new Error("Failed to copy to clipboard");
+}

@@ -174,6 +174,9 @@ export interface ThreadOpenThreadContext {
 
 export interface ThreadStageRouteInput {
   projectId: string;
+  sessionId?: string | null;
+  threadPinned?: boolean;
+  threadActionShortcuts?: ThreadStageHeaderModel["shortcuts"];
   projectWorkspacePath?: string | null;
   isNewThreadTab: boolean;
   newThreadTarget: {
@@ -270,6 +273,9 @@ export interface ThreadStageActions {
   onOpenBackgroundTerminalOutput?: (row: CodexBackgroundTerminalRow) => void | Promise<void>;
   onToggleSummaryComputerUsePip?: (nextVisible: boolean) => void | Promise<void>;
   onRequestRenameThread?: () => void;
+  onArchiveThread?: () => void | Promise<void>;
+  onToggleThreadPin?: () => void | Promise<void>;
+  onCopyConversationMarkdown?: () => Promise<void>;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
   onRespondApproval: (
@@ -867,8 +873,18 @@ export interface ThreadComposerShellModel {
 
 export interface ThreadStageHeaderModel {
   projectId: string;
+  sessionId: string | null;
   threadId: string | null;
   title: string;
+  cwd: string | null;
+  pinned?: boolean;
+  shortcuts?: {
+    togglePin?: string;
+    rename?: string;
+    archive?: string;
+    openSideTask?: string;
+    copyConversationMarkdown?: string;
+  };
   showSideChatAction?: boolean;
 }
 

@@ -3965,6 +3965,16 @@ export class CodexAppServerManager {
     return loadPromise;
   }
 
+  async requestThreadCompleteHistory(threadId: string): Promise<CodexConversationSnapshot | null> {
+    if (this.isFollowerForConversation(threadId)) {
+      await this.waitForCompleteHistoryFromOwner(threadId);
+      return this.conversationsById.get(threadId) ?? null;
+    }
+
+    await this.loadCompleteHistoryAsOwner(threadId);
+    return this.conversationsById.get(threadId) ?? null;
+  }
+
   private async loadCompleteHistoryAsOwner(threadId: string): Promise<CodexThreadOwnerLoadCompleteHistoryResult> {
     const conversation = (await invoke(
       "codex:thread:turns:load-complete",
@@ -9722,6 +9732,12 @@ export function setLocalConversationThreadViewActive(threadId: string, active: b
 
 export function requestLocalConversationOlderTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
   return getDefaultLocalConversationManager().requestThreadOlderTurns(threadId);
+}
+
+export function requestLocalConversationCompleteHistory(
+  threadId: string,
+): Promise<CodexConversationSnapshot | null> {
+  return getDefaultLocalConversationManager().requestThreadCompleteHistory(threadId);
 }
 
 export function setLocalConversationComposerIntent(threadId: string, composerIntent: CodexComposerIntent): void {

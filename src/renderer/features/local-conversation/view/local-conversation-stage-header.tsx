@@ -1,7 +1,23 @@
-import { memo, useCallback } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { memo, useCallback, useState } from "react";
+import {
+  CodexArchiveIcon,
+  CodexGoalEditIcon,
+  CodexProjectActionsIcon,
+  CodexSessionPinFilledIcon,
+  CodexSessionPinIcon,
+  CodexSidePanelSideChatIcon,
+  LinkToolbarCopyIcon,
+} from "@/components/shared/icons";
+import {
+  NodexDropdownFlyoutSubmenuItem,
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
+import { toast } from "@/components/ui/toast";
+import { writeTextToClipboardStrict } from "@/lib/clipboard";
+import { buildSessionDeepLink } from "../../../../shared/page-deeplink";
 import { cn } from "../../../lib/utils";
-import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
 
 interface ThreadStageHeaderProps {
@@ -10,18 +26,43 @@ interface ThreadStageHeaderProps {
   onErrorMessage: (message: string | null) => void;
 }
 
+const menuIconClassName = "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
+
 function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadStageHeaderProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const canRenameThread = Boolean(model.threadId && actions.onRequestRenameThread);
-  const showThreadActions = canRenameThread || model.showSideChatAction;
-  const handleOpenSideChat = useCallback(async () => {
-    if (!actions.onOpenSideChat) return;
+  const canArchiveThread = Boolean(model.threadId && actions.onArchiveThread);
+  const canTogglePin = Boolean(model.threadId && actions.onToggleThreadPin);
+  const hasTopActions = canTogglePin || canRenameThread || canArchiveThread;
+  const showThreadActions = Boolean(
+    model.threadId
+    || model.cwd
+    || model.showSideChatAction
+    || actions.onCopyConversationMarkdown,
+  );
+
+  const handleAction = useCallback(async (
+    action: (() => void | Promise<void>) | undefined,
+    fallbackError: string,
+  ) => {
+    if (!action) return;
     onErrorMessage(null);
     try {
-      await actions.onOpenSideChat();
+      await action();
     } catch (error) {
-      onErrorMessage(error instanceof Error ? error.message : "Failed to open side chat");
+      onErrorMessage(error instanceof Error ? error.message : fallbackError);
     }
-  }, [actions, onErrorMessage]);
+  }, [onErrorMessage]);
+
+  const handleCopyText = useCallback(async (value: string | null, successMessage: string) => {
+    if (!value) return;
+    try {
+      await writeTextToClipboardStrict(value);
+      toast.success(successMessage);
+    } catch {
+      toast.danger("Failed to copy to clipboard");
+    }
+  }, []);
 
   return (
     <div
@@ -29,9 +70,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
         "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
       )}
     >
-      <div
-        className="flex min-w-0 items-center gap-2 truncate text-base electron:font-medium"
-      >
+      <div className="flex min-w-0 items-center gap-2 truncate text-base electron:font-medium">
         <span
           data-testid="thread-stage-title"
           className="inline-flex max-w-[320px] min-w-[2ch] items-center overflow-hidden text-token-foreground"
@@ -41,38 +80,107 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
         <div className="no-drag flex items-center gap-2">
           {showThreadActions ? (
             <NodexDropdownMenu
-              align="end"
-              sideOffset={6}
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              align="start"
+              sideOffset={1}
               contentWidth="menu"
+              motion="none"
               triggerButton={(
                 <button
                   type="button"
-                  className="inline-flex size-7 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
-                  aria-label="Thread actions"
-                  title="Thread actions"
+                  className={cn(
+                    "no-drag inline-flex size-7 items-center justify-center rounded-lg border border-transparent p-1 text-token-text-tertiary outline-hidden",
+                    "hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-2",
+                    menuOpen && "bg-token-list-hover-background text-token-text-primary",
+                  )}
+                  aria-label="Task actions"
+                  title="Task actions"
                 >
-                  <MoreHorizontal className="icon-sm" />
+                  <CodexProjectActionsIcon className="icon-sm" />
                 </button>
               )}
             >
+              {canTogglePin ? (
+                <NodexDropdownItem
+                  leftSlot={model.pinned
+                    ? <CodexSessionPinFilledIcon className={menuIconClassName} />
+                    : <CodexSessionPinIcon className={menuIconClassName} />}
+                  keyboardShortcut={model.shortcuts?.togglePin}
+                  onSelect={() => void handleAction(actions.onToggleThreadPin, "Failed to update task pin")}
+                >
+                  {model.pinned ? "Unpin" : "Pin"}
+                </NodexDropdownItem>
+              ) : null}
               {canRenameThread ? (
                 <NodexDropdownItem
-                  onSelect={() => {
-                    actions.onRequestRenameThread?.();
-                  }}
+                  leftSlot={<CodexGoalEditIcon className={menuIconClassName} />}
+                  keyboardShortcut={model.shortcuts?.rename}
+                  onSelect={() => actions.onRequestRenameThread?.()}
                 >
-                  Rename chat
+                  Rename
                 </NodexDropdownItem>
               ) : null}
+              {canArchiveThread ? (
+                <NodexDropdownItem
+                  leftSlot={<CodexArchiveIcon className={menuIconClassName} />}
+                  keyboardShortcut={model.shortcuts?.archive}
+                  onSelect={() => void handleAction(actions.onArchiveThread, "Failed to archive task")}
+                >
+                  Archive
+                </NodexDropdownItem>
+              ) : null}
+              {hasTopActions ? <NodexDropdownSeparator /> : null}
               {model.showSideChatAction ? (
                 <NodexDropdownItem
-                  onSelect={() => {
-                    void handleOpenSideChat();
-                  }}
+                  leftSlot={<CodexSidePanelSideChatIcon className={menuIconClassName} />}
+                  keyboardShortcut={model.shortcuts?.openSideTask}
+                  onSelect={() => void handleAction(actions.onOpenSideChat, "Failed to open side task")}
                 >
-                  Open side chat
+                  Open side task
                 </NodexDropdownItem>
               ) : null}
+              <NodexDropdownFlyoutSubmenuItem
+                label="Copy"
+                leftSlot={<LinkToolbarCopyIcon className={menuIconClassName} />}
+                contentMotion="none"
+              >
+                <NodexDropdownItem
+                  disabled={!model.cwd}
+                  leftSlot={<LinkToolbarCopyIcon className={menuIconClassName} />}
+                  onSelect={() => void handleCopyText(model.cwd, "Working directory copied")}
+                >
+                  Copy working directory
+                </NodexDropdownItem>
+                {model.threadId ? (
+                  <NodexDropdownItem
+                    leftSlot={<LinkToolbarCopyIcon className={menuIconClassName} />}
+                    onSelect={() => void handleCopyText(model.threadId, "Session ID copied")}
+                  >
+                    Copy session ID
+                  </NodexDropdownItem>
+                ) : null}
+                {model.sessionId ? (
+                  <NodexDropdownItem
+                    leftSlot={<LinkToolbarCopyIcon className={menuIconClassName} />}
+                    onSelect={() => void handleCopyText(
+                      buildSessionDeepLink({ sessionId: model.sessionId as string }),
+                      "Deeplink copied",
+                    )}
+                  >
+                    Copy deeplink
+                  </NodexDropdownItem>
+                ) : null}
+                {model.threadId && actions.onCopyConversationMarkdown ? (
+                  <NodexDropdownItem
+                    leftSlot={<LinkToolbarCopyIcon className={menuIconClassName} />}
+                    keyboardShortcut={model.shortcuts?.copyConversationMarkdown}
+                    onSelect={() => void actions.onCopyConversationMarkdown?.()}
+                  >
+                    Copy as Markdown
+                  </NodexDropdownItem>
+                ) : null}
+              </NodexDropdownFlyoutSubmenuItem>
             </NodexDropdownMenu>
           ) : null}
         </div>
@@ -83,14 +191,16 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
 
 export const ThreadStageHeader = memo(
   ThreadStageHeaderComponent,
-  (left, right) => {
-    return (
-      left.actions === right.actions
-      && left.onErrorMessage === right.onErrorMessage
-      && left.model.title === right.model.title
-      && left.model.projectId === right.model.projectId
-      && left.model.threadId === right.model.threadId
-      && left.model.showSideChatAction === right.model.showSideChatAction
-    );
-  },
+  (left, right) => (
+    left.actions === right.actions
+    && left.onErrorMessage === right.onErrorMessage
+    && left.model.title === right.model.title
+    && left.model.projectId === right.model.projectId
+    && left.model.sessionId === right.model.sessionId
+    && left.model.threadId === right.model.threadId
+    && left.model.cwd === right.model.cwd
+    && left.model.pinned === right.model.pinned
+    && left.model.shortcuts === right.model.shortcuts
+    && left.model.showSideChatAction === right.model.showSideChatAction
+  ),
 );

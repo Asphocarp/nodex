@@ -21,6 +21,7 @@ export type CommandPaletteShellCommandId =
   | "newThreadInProject"
   | typeof RENAME_THREAD_COMMAND_ID
   | "archiveThread"
+  | "copyConversationMarkdown"
   | "toggleThreadPin"
   | "openThreadInNewWindow"
   | typeof TOGGLE_SIDEBAR_COMMAND_ID
@@ -64,6 +65,7 @@ export function isCommandPaletteShellCommandId(id: string): id is CommandPalette
     || id === "newThreadInProject"
     || id === RENAME_THREAD_COMMAND_ID
     || id === "archiveThread"
+    || id === "copyConversationMarkdown"
     || id === "toggleThreadPin"
     || id === "openThreadInNewWindow"
     || id === TOGGLE_SIDEBAR_COMMAND_ID
@@ -173,6 +175,10 @@ export function buildCommandPaletteCommands(
     command("archiveThread", "Chat", "Archive chat", "Archive the active chat", ["archive", "chat", "thread", "session"], 1080, {
       shortcut: shortcutLabel("archiveThread", "CmdOrCtrl+Shift+A"),
       disabled: sessionCommandDisabled,
+    }),
+    command("copyConversationMarkdown", "Chat", "Copy as Markdown", "Copy the complete active chat as Markdown", ["copy", "markdown", "chat", "thread", "transcript"], 1075, {
+      shortcut: shortcutLabel("copyConversationMarkdown"),
+      disabled: !context.hasAttachedThread,
     }),
     command("toggleThreadPin", "Chat", context.activeSessionPinned ? "Unpin chat" : "Pin chat", context.activeSessionPinned ? "Remove the active chat from pinned" : "Pin the active chat", ["pin", "unpin", "chat", "thread", "session"], 1070, {
       shortcut: shortcutLabel("toggleThreadPin", "CmdOrCtrl+Alt+P"),

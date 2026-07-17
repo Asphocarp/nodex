@@ -3163,8 +3163,10 @@ export function buildThreadStageStorySurfaceModels(
 
   const headerModel: ThreadStageHeaderModel = {
     projectId: conversation?.projectId ?? runtime.activeThreadSummary?.projectId ?? STORY_PROJECT_ID,
+    sessionId: runtime.newThreadTarget?.sessionId ?? null,
     threadId: conversation?.threadId ?? runtime.activeThreadSummary?.threadId ?? activeThreadId,
     title: resolveStoryThreadTitle(runtime),
+    cwd: conversation?.cwd ?? runtime.activeThreadSummary?.cwd ?? null,
   };
 
   const primaryRequest = selectPrimaryConversationRequest(conversation);

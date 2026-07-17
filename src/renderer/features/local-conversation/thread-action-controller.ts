@@ -57,6 +57,8 @@ export interface ThreadActionControllerInput {
   onOpenBackgroundTerminalOutput?: ThreadStageActions["onOpenBackgroundTerminalOutput"];
   onToggleSummaryComputerUsePip?: ThreadStageActions["onToggleSummaryComputerUsePip"];
   onRequestRenameThread?: ThreadStageActions["onRequestRenameThread"];
+  onArchiveThread?: ThreadStageActions["onArchiveThread"];
+  onToggleThreadPin?: ThreadStageActions["onToggleThreadPin"];
 }
 
 function requireActiveThreadId(activeThreadId: string | null, action: string): string {
@@ -191,6 +193,8 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     ...(input.onOpenBackgroundTerminalOutput ? { onOpenBackgroundTerminalOutput: input.onOpenBackgroundTerminalOutput } : {}),
     ...(input.onToggleSummaryComputerUsePip ? { onToggleSummaryComputerUsePip: input.onToggleSummaryComputerUsePip } : {}),
     ...(input.onRequestRenameThread ? { onRequestRenameThread: input.onRequestRenameThread } : {}),
+    ...(input.onArchiveThread ? { onArchiveThread: input.onArchiveThread } : {}),
+    ...(input.onToggleThreadPin ? { onToggleThreadPin: input.onToggleThreadPin } : {}),
     onSendPrompt: async (prompt, opts) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Sending a prompt");
       await input.codexControl.startTurn(threadId, prompt, {

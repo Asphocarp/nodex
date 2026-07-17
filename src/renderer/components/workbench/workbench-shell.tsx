@@ -112,6 +112,7 @@ import {
   useLocalConversationConnection,
 } from "@/features/local-conversation";
 import { createThreadStageActions } from "@/features/local-conversation/thread-action-controller";
+import { copyConversationMarkdown } from "@/features/local-conversation/copy-conversation-markdown";
 import {
   buildThreadSummaryPanelBrowserRow,
   isThreadSummaryBrowserRowAgentWorking,
@@ -9227,6 +9228,14 @@ export function WorkbenchShell({
       if (!activeSession) return;
       void archiveSession(activeSession);
     },
+    copyConversationMarkdown: () => {
+      if (!activeSession?.thread) return;
+      void copyConversationMarkdown({
+        conversationId: activeSession.thread.threadId,
+        parentConversationId: activeSession.thread.parentThreadId ?? null,
+        title: activeSession.displayTitle,
+      });
+    },
     toggleThreadPin: () => {
       if (!activeSession) return;
       void toggleSessionPin(activeSession);
@@ -9466,6 +9475,14 @@ export function WorkbenchShell({
                       onRequestRenameThread={() => {
                         openRenameSessionDialog(session);
                       }}
+                      onArchiveThread={async () => {
+                        await archiveSession(session);
+                      }}
+                      onToggleThreadPin={async () => {
+                        await toggleSessionPin(session);
+                      }}
+                      commandKeymapState={commandKeymapState}
+                      isMac={isMacPlatform}
                     />
                   </ThreadHeaderPortalProvider>
                 ) : null}
@@ -12114,6 +12131,10 @@ function SessionThreadPage({
   onClosePlanSidePanel,
   planSidePanelState,
   onRequestRenameThread,
+  onArchiveThread,
+  onToggleThreadPin,
+  commandKeymapState,
+  isMac,
 }: {
   session: ProjectSession;
   project: Project | null;
@@ -12168,6 +12189,10 @@ function SessionThreadPage({
   onClosePlanSidePanel: ThreadStageActions["onClosePlanSidePanel"];
   planSidePanelState: ThreadPlanSidePanelState | null;
   onRequestRenameThread: ThreadStageActions["onRequestRenameThread"];
+  onArchiveThread: NonNullable<ThreadStageActions["onArchiveThread"]>;
+  onToggleThreadPin: NonNullable<ThreadStageActions["onToggleThreadPin"]>;
+  commandKeymapState?: CommandKeymapState | null;
+  isMac: boolean;
 }) {
   const projectId = session.projectId ?? project?.id ?? projects[0]?.id ?? "default";
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
@@ -12188,6 +12213,16 @@ function SessionThreadPage({
   const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
   const projectSelectorOptions = useMemo(() => buildNewChatProjectSelectorOptions(projects), [projects]);
+  const threadActionShortcuts = useMemo(() => {
+    const state = commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+    return {
+      togglePin: formatCommandShortcutLabel(state, "toggleThreadPin", "CmdOrCtrl+Alt+P"),
+      rename: formatCommandShortcutLabel(state, "renameThread", "CmdOrCtrl+Alt+R"),
+      archive: formatCommandShortcutLabel(state, "archiveThread", "CmdOrCtrl+Shift+A"),
+      openSideTask: formatCommandShortcutLabel(state, "openSideChat", "CmdOrCtrl+Alt+S"),
+      copyConversationMarkdown: formatCommandShortcutLabel(state, "copyConversationMarkdown"),
+    };
+  }, [commandKeymapState, isMac]);
 
   useEffect(() => {
     if (summary) return;
@@ -12332,6 +12367,8 @@ function SessionThreadPage({
       onOpenBackgroundTerminalOutput,
       onToggleSummaryComputerUsePip,
       onRequestRenameThread,
+      onArchiveThread,
+      onToggleThreadPin,
       selectedCollaborationMode,
       setSelectedCollaborationMode,
     }),
@@ -12363,6 +12400,8 @@ function SessionThreadPage({
     onToggleSummaryComputerUsePip,
     onConsumeNewThreadComposerIntent,
     onRequestRenameThread,
+    onArchiveThread,
+    onToggleThreadPin,
     projectId,
     changeNewThreadEnvironment,
     refreshNewThreadEnvironments,
@@ -12375,6 +12414,9 @@ function SessionThreadPage({
     <div className="h-full min-h-0">
       <ConnectedThreadStage
         projectId={effectiveProjectId}
+        sessionId={session.id}
+        threadPinned={session.pinned ?? false}
+        threadActionShortcuts={threadActionShortcuts}
         projectWorkspacePath={summary ? projectWorkspaceRootOrNull(project) : projectWorkspaceRootOrNull(selectedNewThreadProject)}
         isNewThreadTab={!summary}
         newThreadTarget={summary ? null : {
