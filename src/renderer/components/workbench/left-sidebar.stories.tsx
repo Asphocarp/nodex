@@ -810,6 +810,7 @@ function makeSidebarThreadItem(input: {
   disabled?: boolean;
   cwd?: string | null;
   updatedAt?: number;
+  statusType?: CodexSidebarThreadItem["statusType"];
 }): CodexSidebarThreadItem {
   return {
     key: input.key,
@@ -827,7 +828,7 @@ function makeSidebarThreadItem(input: {
     pinnedOrder: input.pinnedOrder ?? null,
     unread: input.unread ?? false,
     archived: input.archived ?? false,
-    statusType: "notLoaded",
+    statusType: input.statusType ?? "notLoaded",
     statusActiveFlags: [],
     projectless: input.projectless ?? input.projectId == null,
     disabled: input.disabled ?? false,
@@ -1508,11 +1509,12 @@ function CodexSidebarThreadElapsedActionRailHarness() {
     makeSidebarThreadItem({
       key: "local:elapsed-long",
       threadId: "thread-elapsed-long",
-      title: "Long running CodexElectron sidebar parity investigation with enough text to test truncation",
+      title: "Running CodexElectron sidebar parity investigation with enough text to test truncation",
       projectId: null,
       projectless: true,
       cwd: "/Users/asc/repo/nodex",
       updatedAt: Date.now() - STORY_TWO_DAYS_MS - 60_000,
+      statusType: "active",
     }),
     makeSidebarThreadItem({
       key: "local:elapsed-pinned",

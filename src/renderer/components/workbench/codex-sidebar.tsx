@@ -20,6 +20,7 @@ import {
   CodexProjectActionsIcon,
   CodexSessionPinFilledIcon,
   CodexSessionPinIcon,
+  CodexSpinnerIcon,
   ChevronDownIcon,
   WorktreeStatusIcon,
 } from "@/components/shared/icons";
@@ -1039,6 +1040,7 @@ export function CodexSidebarThreadRow({
   const title = item.title;
   const archiveDisabled = item.disabled || archivePending;
   const hasElapsedMeta = Number.isFinite(item.updatedAt) && item.updatedAt > 0;
+  const running = item.statusType === "active";
   const showRestingPinnedButton = showPinSlot && item.pinned;
   const showRailPinSlot = showPinSlot && !showRestingPinnedButton;
   const showActionRail = showRailPinSlot || showArchiveAction;
@@ -1107,6 +1109,7 @@ export function CodexSidebarThreadRow({
         data-app-action-sidebar-thread-id={item.threadId}
         data-app-action-sidebar-thread-kind={item.kind}
         data-app-action-sidebar-thread-pinned={String(item.pinned)}
+        data-app-action-sidebar-thread-running={String(running)}
         data-app-action-sidebar-thread-unread={String(item.unread)}
         data-app-action-sidebar-thread-row=""
         data-app-action-sidebar-thread-title={title}
@@ -1168,15 +1171,16 @@ export function CodexSidebarThreadRow({
                   {title}
                 </span>
               </div>
-              {elapsedLabel || showRestingPinnedButton ? (
+              {running || elapsedLabel || showRestingPinnedButton ? (
                 <div
                   className={cn(
-                    "ml-[3px] flex min-w-[26px] items-center justify-end gap-1 group-focus-visible:min-w-12 group-focus-visible:justify-start group-has-[:focus-visible]:min-w-12 group-has-[:focus-visible]:justify-start group-hover:min-w-12 group-hover:justify-start",
+                    "ml-[3px] flex items-center justify-end gap-1 group-focus-visible:min-w-12 group-focus-visible:justify-start group-has-[:focus-visible]:min-w-12 group-has-[:focus-visible]:justify-start group-hover:min-w-12 group-hover:justify-start",
+                    running ? "min-w-4" : "min-w-[26px]",
                     contextMenuOpen && "min-w-12 justify-start",
                   )}
                   data-app-action-sidebar-thread-elapsed-slot=""
                 >
-                  {elapsedLabel ? (
+                  {elapsedLabel && !running ? (
                     <span
                       className={cn(
                         "truncate text-right text-sm leading-4 tabular-nums text-token-description-foreground group-has-[:focus-visible]:hidden group-hover:hidden empty:hidden",
@@ -1204,6 +1208,18 @@ export function CodexSidebarThreadRow({
                     >
                       <CodexSessionPinFilledIcon />
                     </button>
+                  ) : null}
+                  {running ? (
+                    <span
+                      className={cn(
+                        "relative -mr-1 flex size-5 shrink-0 items-center justify-center text-token-foreground/70",
+                        showActionRail && "group-has-[:focus-visible]:hidden group-hover:hidden",
+                        contextMenuOpen && "hidden",
+                      )}
+                      data-app-action-sidebar-thread-running-indicator=""
+                    >
+                      <CodexSpinnerIcon className="icon-xs shrink-0" animationDurationMs={2_000} />
+                    </span>
                   ) : null}
                 </div>
               ) : null}

@@ -92,6 +92,27 @@ describe("codex sidebar thread hover card", () => {
 });
 
 describe("codex sidebar thread row", () => {
+  test("replaces elapsed metadata with a running indicator for active threads", async () => {
+    let container!: HTMLElement;
+
+    await act(async () => {
+      ({ container } = render(
+        <NodexTooltipProvider>
+          <CodexSidebarThreadRow
+            item={makeThreadItem({ statusType: "active" })}
+            active={false}
+            onSelect={() => {}}
+          />
+        </NodexTooltipProvider>,
+      ));
+    });
+
+    const row = container.querySelector("[data-app-action-sidebar-thread-row]") as HTMLElement | null;
+    expect(row?.dataset.appActionSidebarThreadRunning).toBe("true");
+    expect(row?.querySelector("[data-app-action-sidebar-thread-running-indicator]")).not.toBeNull();
+    expect(row?.querySelector("[data-app-action-sidebar-thread-elapsed]")).toBeNull();
+  });
+
   test("renders the relative elapsed time in the row", async () => {
     let container!: HTMLElement;
 
