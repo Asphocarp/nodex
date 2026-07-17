@@ -3991,6 +3991,20 @@ export class CodexAppServerManager {
     options: { notifyMode?: ConversationNotifyMode } = {},
   ): Promise<number> {
     await this.waitForOwnerStreamPublishIdle(threadId);
+    return await this.publishOwnerSnapshotFromIdle(
+      threadId,
+      conversation,
+      label,
+      options,
+    );
+  }
+
+  private async publishOwnerSnapshotFromIdle(
+    threadId: string,
+    conversation: CodexConversationSnapshot,
+    label: string,
+    options: { notifyMode?: ConversationNotifyMode } = {},
+  ): Promise<number> {
     const role = this.streamState.getRole(threadId);
     const currentRevision = this.streamState.getRevision(threadId) ?? 0;
     const currentConversation = this.conversationsById.get(threadId) ?? conversation;
@@ -4043,17 +4057,26 @@ export class CodexAppServerManager {
     label: string,
     buildNextConversation: (conversation: CodexConversationSnapshot) => CodexConversationSnapshot | null,
   ): Promise<number> {
-    const currentConversation = this.conversationsById.get(threadId);
-    const currentRevision = this.streamState.getRevision(threadId) ?? 0;
-    if (!currentConversation) {
-      throw new Error(`Cannot publish ${label} because conversation ${threadId} is unavailable`);
-    }
+    while (true) {
+      await this.waitForOwnerStreamPublishIdle(threadId);
+      // Idle waiters wake together. Only the first continuation gets the cursor;
+      // the others must wait again before reading and transforming canonical state.
+      if (!this.isOwnerStreamPublishIdle(threadId)) continue;
 
-    const nextConversation = buildNextConversation(currentConversation);
-    if (!nextConversation || nextConversation === currentConversation) {
-      return currentRevision;
+      // Lifecycle publications can advance local state during the wait. Re-read
+      // here, then apply synchronously before the next suspension point.
+      const currentConversation = this.conversationsById.get(threadId);
+      const currentRevision = this.streamState.getRevision(threadId) ?? 0;
+      if (!currentConversation) {
+        throw new Error(`Cannot publish ${label} because conversation ${threadId} is unavailable`);
+      }
+
+      const nextConversation = buildNextConversation(currentConversation);
+      if (!nextConversation || nextConversation === currentConversation) {
+        return currentRevision;
+      }
+      return await this.publishOwnerSnapshotFromIdle(threadId, nextConversation, label);
     }
-    return await this.publishOwnerSnapshotTransaction(threadId, nextConversation, label);
   }
 
   async startThreadForSession(input: CodexThreadStartForSessionInput & {
@@ -4523,10 +4546,7 @@ export class CodexAppServerManager {
   }
 
   private async startTurnAsOwner(threadId: string, prompt: string, opts?: CodexTurnStartOptions): Promise<unknown> {
-    if (this.streamState.getRole(threadId)?.role !== "owner") {
-      return invoke("codex:turn:start", threadId, prompt, opts);
-    }
-
+    await this.ensureOwnerForConversationAction(threadId, "start turn");
     return await this.startTurnAsOwnerLocalTransaction(threadId, prompt, opts);
   }
 

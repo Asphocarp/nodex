@@ -144,15 +144,19 @@ The owner performs visible mutations locally and publishes the resulting stream 
 For active owned threads, the renderer owner creates the submitted-user bubble:
 
 1. Generate `clientUserMessageId`.
-2. Append a temporary in-progress turn with a completed optimistic user item.
-3. Publish the optimistic owner revision.
+2. Append a nullable in-progress turn whose params retain the submitted input and client id; its raw item list contains no synthetic user message.
+3. Publish the pending-turn owner revision. The visible user row is projected from turn params.
 4. Call app-server `turn/start` through the owner-scoped facade with the same client id.
 5. Rebind the temporary turn to the returned app-server turn id.
 6. Publish the rebind revision.
 
-Direct new-thread creation follows the same canonical transaction before the route adopts the actual app-server thread. The client-created thread id remains route identity only and never owns a turn. Once `thread/start` returns the actual thread, main temporarily owns its source-null canonical state: it generates the per-submit `clientUserMessageId`, appends the complete nullable params turn before dispatching `turn/start`, sends the same id and input, and binds that occurrence in place whether `turn/started` or the RPC response arrives first. It must not add a separate transcript-only optimistic row after the response.
+A visible local conversation with no stream role resumes and adopts renderer ownership before step 1. It never falls through to the main-owned `codex:turn:start` IPC. The owner-scoped main facade is transport-only for `turn/start`: it forwards the request and returns the raw `TurnStartResponse` without merging a turn, inserting a transcript row, or publishing a source-null stream update.
 
-Later app-server user-message echoes remain canonical raw turn items but never create a second initial-user bubble while the params-owned row is visible. An exact echo at the raw-item prefix is hidden through shared client identity or structural input equality. If actual turn work precedes a remaining server `userMessage`, normal local-thread projection treats that completion as a `steered` lifecycle marker; preserving a second server-owned user bubble is reserved for explicit server-message-preserving views. This order-sensitive policy applies to incremental `item/completed` projection as well as full turn hydration and optimistic rebind.
+Every owner action snapshot mutation waits for the per-conversation publish cursor to become idle and only then re-reads and transforms the latest local conversation. Concurrent waiters serialize by letting one continuation claim the idle cursor while the rest wait again. A mutation must never publish a snapshot computed before that wait, because lifecycle notifications can advance the canonical turn while an earlier revision is in flight.
+
+Direct new-thread creation follows the same canonical transaction before the route adopts the actual app-server thread. The client-created thread id remains route identity only and never owns a turn. Once `thread/start` returns the actual thread, main temporarily owns its source-null canonical state: it generates the per-submit `clientUserMessageId`, appends the complete nullable params turn before dispatching `turn/start`, sends the same id and input, and binds that occurrence in place whether `turn/started` or the RPC response arrives first. Main-only fallback start uses the same transaction and restores the same params-owned occurrence if thread-not-found recovery rehydrates the canonical document. It must not add a separate transcript-only user row after the response.
+
+Later app-server user-message echoes remain canonical raw turn items but never create a second initial-user bubble while the params-owned row is visible. The echo must match the submitted `clientUserMessageId` or structural input and must occur after only the reference-approved metadata prelude. If actual turn work precedes the server `userMessage`, normal local-thread projection treats the completion as a `steered` lifecycle marker even when the client id matches. Preserving a second server-owned user bubble is reserved for explicit server-message-preserving views. The same identity rule applies to incremental `item/completed` projection, full turn hydration, and pending-turn rebind.
 
 ### Edit Last User Turn
 

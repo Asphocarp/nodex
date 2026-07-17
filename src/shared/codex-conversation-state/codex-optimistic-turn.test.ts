@@ -198,6 +198,66 @@ describe("Codex optimistic turn parity", () => {
     expect(rebound.turns[0]?.sidecar.completedAtMs).toBe(132);
   });
 
+  test("merges a server turn that raced ahead of its optimistic occurrence", () => {
+    const optimistic = appendCodexCanonicalOptimisticTurn(buildState(), {
+      params: buildParams(),
+      startedAtMs: 42,
+    });
+    const placeholder = optimistic.turns[0];
+    if (!placeholder) throw new Error("Expected optimistic turn");
+    const assistant = {
+      type: "agentMessage" as const,
+      id: "assistant-streaming",
+      text: "partial",
+      phase: null,
+      memoryCitation: null,
+    };
+    const echo = {
+      type: "userMessage" as const,
+      id: "server-user-echo",
+      clientId: "client-message",
+      content: [{ type: "text" as const, text: "delegated", text_elements: [] }],
+    };
+    const split = {
+      ...optimistic,
+      turns: [
+        placeholder,
+        {
+          ...placeholder,
+          protocol: { ...placeholder.protocol, id: "turn-server" },
+          items: [assistant, echo],
+          sidecar: {
+            ...placeholder.sidecar,
+            params: { ...placeholder.sidecar.params, input: [] },
+            firstTurnWorkItemStartedAtMs: 50,
+          },
+        },
+      ],
+    };
+
+    const rebound = bindCodexCanonicalOptimisticTurn(
+      split,
+      "client-message",
+      {
+        id: "turn-server",
+        items: [],
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+      },
+    );
+
+    expect(rebound.turns).toHaveLength(1);
+    expect(rebound.turns[0]?.protocol.id).toBe("turn-server");
+    expect(rebound.turns[0]?.sidecar.params.input).toEqual(buildParams().input);
+    expect(rebound.turns[0]?.sidecar.turnStartedAtMs).toBe(42);
+    expect(rebound.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs).toBe(50);
+    expect(rebound.turns[0]?.items).toEqual([assistant, echo]);
+  });
+
   test("keeps the created thread and terminalizes a failed first request", () => {
     const optimistic = appendCodexCanonicalOptimisticTurn(buildState(), {
       params: buildParams(),

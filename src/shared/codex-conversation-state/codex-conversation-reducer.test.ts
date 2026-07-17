@@ -520,6 +520,48 @@ describe("canonical item lifecycle reducer", () => {
     expect(state.turns.length).toBe(1);
   });
 
+  test("started work rebinds a client-identified optimistic turn instead of splitting it", () => {
+    const initial = buildState();
+    const placeholder: CodexCanonicalTurnState = {
+      ...initial.turns[0]!,
+      protocol: {
+        ...initial.turns[0]!.protocol,
+        id: null,
+      },
+      sidecar: {
+        ...initial.turns[0]!.sidecar,
+        params: {
+          ...initial.turns[0]!.sidecar.params,
+          clientUserMessageId: "client-racing-turn",
+          input: [{ type: "text", text: "Keep one turn", text_elements: [] }],
+        },
+      },
+    };
+    const assistant = {
+      type: "agentMessage",
+      id: "assistant-before-turn-started",
+      text: "",
+      phase: null,
+      memoryCitation: null,
+    } satisfies ThreadItem;
+    const next = reduceLifecycle({ ...initial, turns: [placeholder] }, {
+      method: "item/started",
+      params: {
+        threadId: THREAD_ID,
+        turnId: "turn_racing",
+        item: assistant,
+        startedAtMs: 8_000,
+      },
+    }, buildClock(80_001, 80_002).context);
+
+    expect(next.turns).toHaveLength(1);
+    expect(next.turns[0]?.protocol.id).toBe("turn_racing");
+    expect(next.turns[0]?.sidecar.params.input).toEqual(
+      placeholder.sidecar.params.input,
+    );
+    expect(next.turns[0]?.items).toEqual([assistant]);
+  });
+
   test("context compaction rebinds the in-progress placeholder and keeps manual source", () => {
     const initial = buildState();
     const placeholder: CodexCanonicalTurnState = {

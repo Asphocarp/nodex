@@ -147,6 +147,8 @@ export interface CodexItemLifecycleTurnResolutionInput {
   readonly status: "completed" | "interrupted" | "failed" | "inProgress";
   readonly hasError: boolean;
   readonly itemCount: number;
+  /** Present only on a client-created placeholder awaiting its server turn id. */
+  readonly clientUserMessageId?: string | null;
 }
 
 export type CodexItemLifecycleTurnResolution =
@@ -216,9 +218,12 @@ export function resolveCodexItemLifecycleTurn(
 
   if (
     notification.method === "item/started"
-    && item.type === "contextCompaction"
     && latestTurn.turnId === null
     && latestTurn.status === "inProgress"
+    && (
+      item.type === "contextCompaction"
+      || latestTurn.clientUserMessageId != null
+    )
   ) {
     return {
       kind: "rebindInProgressPlaceholder",
@@ -565,6 +570,7 @@ function reduceItemStarted(
       status: turn.protocol.status,
       hasError: turn.protocol.error !== null,
       itemCount: turn.items.length,
+      clientUserMessageId: turn.sidecar.params.clientUserMessageId ?? null,
     })),
     notification,
   );
@@ -687,6 +693,7 @@ function reduceItemCompleted(
       status: turn.protocol.status,
       hasError: turn.protocol.error !== null,
       itemCount: turn.items.length,
+      clientUserMessageId: turn.sidecar.params.clientUserMessageId ?? null,
     })),
     notification,
     { turnId: turnId as string | null },

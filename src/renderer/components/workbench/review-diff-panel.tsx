@@ -206,6 +206,7 @@ type GitReviewLoadStatus =
 
 interface ReviewDiffPanelProps {
   conversation: CodexConversationSnapshot | null;
+  onStartThreadPrompt: (threadId: string, prompt: string) => Promise<unknown>;
   threadId?: string | null;
   projectWorkspacePath?: string | null;
   selectedTurnDiff?: CodexTurnDiffReviewTarget | null;
@@ -2806,6 +2807,7 @@ function ReviewDeferredRender({
 
 export function ReviewDiffPanel({
   conversation,
+  onStartThreadPrompt,
   threadId,
   projectWorkspacePath,
   selectedTurnDiff = null,
@@ -3775,7 +3777,7 @@ export function ReviewDiffPanel({
     if (!threadId) return;
 
     try {
-      await invoke("codex:turn:start", threadId, prompt);
+      await onStartThreadPrompt(threadId, prompt);
     } catch (error) {
       toast.danger(
         error instanceof Error ? error.message : "Could not start Codex turn.",

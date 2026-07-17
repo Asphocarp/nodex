@@ -272,6 +272,7 @@ const meta = {
   component: ReviewDiffPanel,
   args: {
     conversation: buildStoryConversation(),
+    onStartThreadPrompt: async () => undefined,
     projectWorkspacePath: "/Users/asc/repo/nodex",
   },
   render: (args) => <ReviewStorySurface {...args} />,

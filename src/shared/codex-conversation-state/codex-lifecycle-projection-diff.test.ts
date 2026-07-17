@@ -261,7 +261,7 @@ describe("scoped canonical lifecycle projection diff", () => {
     } satisfies CodexItemView;
     const optimisticTranscript = {
       ...transcript(optimisticView, 0),
-      source: "optimistic" as const,
+      source: "bootstrap" as const,
     };
 
     const result = applyCodexLifecycleProjectionDiff({
@@ -276,7 +276,7 @@ describe("scoped canonical lifecycle projection diff", () => {
     expect(result.views.map((view) => view.itemId)).toEqual([`${TURN_ID}:input`]);
     expect(result.views[0]?.turnId).toBe(TURN_ID);
     expect(result.views[0]?.createdAt).toBe(1_234);
-    expect(result.transcript[0]?.source).toBe("optimistic");
+    expect(result.transcript[0]?.source).toBe("bootstrap");
     expect(result.transcript[0]?.sequence).toBe(0);
   });
 

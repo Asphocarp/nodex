@@ -1,4 +1,7 @@
-import { useConversation } from "../local-conversation-store";
+import {
+  useCodexAppServerManagerForConversationId,
+  useConversation,
+} from "../local-conversation-store";
 import { ReviewDiffPanel } from "@/components/workbench/review-diff-panel";
 import type { CodexConversationSnapshot, GitReviewSource, CodexTurnDiffReviewTarget } from "@/lib/types";
 
@@ -64,6 +67,9 @@ export function ConnectedReviewDiffPanel({
   selectedTurnDiff = null,
 }: ConnectedReviewDiffPanelProps) {
   const conversation = useConversation(threadId);
+  const manager = useCodexAppServerManagerForConversationId(threadId);
+  const startThreadPrompt = (targetThreadId: string, prompt: string) =>
+    manager.startTurn(targetThreadId, prompt);
   const refreshedSelectedTurnDiff = refreshSelectedTurnDiffTarget(
     selectedTurnDiff,
     conversation,
@@ -73,6 +79,7 @@ export function ConnectedReviewDiffPanel({
   return (
     <ReviewDiffPanel
       conversation={conversation}
+      onStartThreadPrompt={startThreadPrompt}
       threadId={threadId}
       projectWorkspacePath={projectWorkspacePath ?? null}
       initialSource={initialGitSource ?? undefined}

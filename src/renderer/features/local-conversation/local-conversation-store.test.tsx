@@ -10981,7 +10981,153 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner start turn publishes optimistic user row snapshot from bundle 49055-49112", async () => {
+  test("owner action snapshots rebase after an in-flight lifecycle publish", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    ownerStreamPublishHandler = null;
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-1",
+        status: "inProgress",
+        itemIds: [],
+        items: [],
+      }],
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    let resolveFirstPublish: (accepted: boolean) => void = () => {
+      throw new Error("Expected an in-flight owner publish");
+    };
+    let publishCount = 0;
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      ownerStreamPublishHandler = () => {
+        publishCount += 1;
+        if (publishCount !== 1) return true;
+        return new Promise<boolean>((resolve) => {
+          resolveFirstPublish = resolve;
+        });
+      };
+
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        sequence: 1,
+        notification: {
+          method: "model/safetyBuffering/updated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            model: "gpt-test",
+            useCases: ["latency"],
+            reasons: ["warming"],
+            showBufferingUi: true,
+            fasterModel: null,
+          },
+        },
+      });
+      await waitForCondition(() => publishCount === 1, 160);
+
+      const enqueuePromises = [
+        manager.enqueueQueuedFollowUp("thread-1", "Next task"),
+        manager.enqueueQueuedFollowUp("thread-1", "Then verify"),
+      ];
+      await flushAsyncWork();
+      dispatchCodexAppServerMessage("thread-owner-notification", {
+        hostId: "default",
+        sequence: 2,
+        notification: {
+          method: "turn/diff/updated",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            diff: "late lifecycle diff",
+          },
+        },
+      });
+      expect(manager.readConversation("thread-1")?.turns[0]?.diff)
+        .toBe("late lifecycle diff");
+
+      resolveFirstPublish(true);
+      await Promise.all(enqueuePromises);
+      await flushAsyncWork(3);
+
+      const conversation = manager.readConversation("thread-1");
+      expect(conversation?.turns[0]?.diff).toBe("late lifecycle diff");
+      expect(conversation?.queuedFollowUps.map((entry) => entry.prompt))
+        .toEqual(["Next task", "Then verify"]);
+    } finally {
+      ownerStreamPublishHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("source-null start resumes into renderer ownership before publishing the pending turn", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    const sourceNullConversation = withCanonicalState({
+      ...buildConversation("thread-1", "project-1"),
+      turns: [],
+    });
+    resumeThreadResult = sourceNullConversation;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: sourceNullConversation,
+        },
+        sourceClientId: null,
+      });
+      invokeRecords = [];
+
+      await manager.startTurn("thread-1", "Continue", { permissionMode: "auto" });
+
+      const channels = invokeRecords.map((record) => record.channel);
+      const resumeIndex = channels.indexOf("codex:thread:resume:request");
+      const turnStartIndex = invokeRecords.findIndex((record) =>
+        record.channel === "codex:thread-owner:app-server-request"
+        && (record.args[0] as { request?: { method?: string } }).request?.method === "turn/start"
+      );
+      expect(resumeIndex).toBeGreaterThanOrEqual(0);
+      expect(turnStartIndex).toBeGreaterThan(resumeIndex);
+      expect(channels.includes("codex:turn:start")).toBe(false);
+      expect(manager.getThreadRoleForRendererClientRequest("thread-1")).toBe("owner");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items.filter(
+        (item) => item.semanticKind === "userMessage",
+      )).toHaveLength(1);
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner start turn publishes params-owned user row snapshot from bundle 49055-49112", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -11173,7 +11319,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner start merges lifecycle notifications that race the turn-start response", async () => {
+  test("owner start keeps one user row when item lifecycle races ahead of turn started", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -11206,23 +11352,9 @@ describe("local-conversation-store", () => {
           hostId: "default",
           sequence: 1,
           notification: {
-            method: "turn/started",
+            method: "item/completed",
             params: {
-              threadId: "thread-1",
-              turn: buildProtocolTurn({
-                id: "turn-owner-start",
-                status: "inProgress",
-              }),
-            },
-          },
-        });
-        dispatchCodexAppServerMessage("thread-owner-notification", {
-          hostId: "default",
-          sequence: 2,
-          notification: {
-            method: "item/started",
-            params: {
-              startedAtMs: 1,
+              completedAtMs: 1,
               threadId: "thread-1",
               turnId: "turn-owner-start",
               item: {
@@ -11238,7 +11370,7 @@ describe("local-conversation-store", () => {
         });
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          sequence: 3,
+          sequence: 2,
           notification: {
             method: "item/started",
             params: {
@@ -11257,21 +11389,15 @@ describe("local-conversation-store", () => {
         });
         dispatchCodexAppServerMessage("thread-owner-notification", {
           hostId: "default",
-          sequence: 4,
+          sequence: 3,
           notification: {
-            method: "item/completed",
+            method: "turn/started",
             params: {
-              completedAtMs: 1,
               threadId: "thread-1",
-              turnId: "turn-owner-start",
-              item: {
-                id: "server-user-echo",
-                type: "userMessage",
-                clientId,
-                content: [
-                  { type: "text", text: "Racing prompt", text_elements: [] },
-                ],
-              },
+              turn: buildProtocolTurn({
+                id: "turn-owner-start",
+                status: "inProgress",
+              }),
             },
           },
         });
@@ -11289,7 +11415,6 @@ describe("local-conversation-store", () => {
       expect(conversation?.turns[0]?.items.map((item) => item.semanticKind)).toEqual([
         "userMessage",
         "assistantMessage",
-        "steered",
       ]);
     } finally {
       ownerTurnStartHandler = null;

@@ -584,7 +584,7 @@ describe("projectCodexCanonicalTurnViews", () => {
     expect(views.at(-1)?.itemId).toBe("assistant");
   });
 
-  test("uses structural input equality and projects a late server message as steered after real activity", () => {
+  test("requires the duplicate prelude for client and structural user-message matches", () => {
     const structurallyEqual = materializeCodexCanonicalProtocolItem({
       type: "userMessage",
       id: "equal-user",
@@ -602,6 +602,12 @@ describe("projectCodexCanonicalTurnViews", () => {
       clientId: "client-prompt",
       content: [{ type: "text", text: "Prompt", text_elements: [] }],
     });
+    const laterStructuralMatch = materializeCodexCanonicalProtocolItem({
+      type: "userMessage",
+      id: "later-structural-user",
+      clientId: null,
+      content: [{ type: "text", text: "Prompt", text_elements: [] }],
+    });
 
     const equalViews = projectCodexCanonicalTurnViews({
       threadId: THREAD_ID,
@@ -616,6 +622,11 @@ describe("projectCodexCanonicalTurnViews", () => {
       turn: buildCanonicalTurn({ items: [hook, laterMatch] }),
       observedAtMs: 1_000,
     });
+    const structuralActivityViews = projectCodexCanonicalTurnViews({
+      threadId: THREAD_ID,
+      turn: buildCanonicalTurn({ items: [hook, laterStructuralMatch] }),
+      observedAtMs: 1_000,
+    });
 
     expect(equalViews.map((view) => view.itemId)).toEqual([`${TURN_ID}:input`]);
     expect(activityViews.map((view) => view.itemId)).toEqual([
@@ -628,5 +639,35 @@ describe("projectCodexCanonicalTurnViews", () => {
       "userMessage",
       "steered",
     ]);
+    expect(structuralActivityViews.map((view) => view.itemId)).toEqual([
+      `${TURN_ID}:input`,
+      "hook",
+      "later-structural-user",
+    ]);
+    expect(structuralActivityViews.map((view) => view.semanticKind)).toEqual([
+      "userMessage",
+      "userMessage",
+      "steered",
+    ]);
+  });
+
+  test("keeps the server user message when no params-owned user row is visible", () => {
+    const serverMessage = materializeCodexCanonicalProtocolItem({
+      type: "userMessage",
+      id: "server-only-user",
+      clientId: "client-prompt",
+      content: [{ type: "text", text: "Server-owned prompt", text_elements: [] }],
+    });
+    const views = projectCodexCanonicalTurnViews({
+      threadId: THREAD_ID,
+      turn: buildCanonicalTurn({
+        params: buildTurnParams({ input: [] }),
+        items: [serverMessage],
+      }),
+      observedAtMs: 1_000,
+    });
+
+    expect(views.map((view) => view.itemId)).toEqual(["server-only-user"]);
+    expect(views[0]?.semanticKind).toBe("userMessage");
   });
 });

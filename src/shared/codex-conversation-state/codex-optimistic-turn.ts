@@ -95,15 +95,56 @@ function findMatchingOptimisticTurnIndex(
   return -1;
 }
 
-function findOptimisticBindTurnIndex(
+function findBoundTurnIndex(
   turns: readonly CodexCanonicalTurnState[],
-  clientUserMessageId: string,
   turnId: string,
 ): number {
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     if (turns[index]?.protocol.id === turnId) return index;
   }
-  return findMatchingOptimisticTurnIndex(turns, clientUserMessageId);
+  return -1;
+}
+
+function mergeCanonicalTurnItems(
+  optimistic: CodexCanonicalTurnState,
+  bound: CodexCanonicalTurnState,
+): readonly CodexCanonicalTurnState["items"][number][] {
+  const items = [...optimistic.items];
+  const indexById = new Map(items.map((item, index) => [item.id, index] as const));
+  for (const item of bound.items) {
+    const existingIndex = indexById.get(item.id);
+    if (existingIndex === undefined) {
+      indexById.set(item.id, items.length);
+      items.push(item);
+      continue;
+    }
+    items[existingIndex] = item;
+  }
+  return items;
+}
+
+function mergeSplitOptimisticTurn(
+  optimistic: CodexCanonicalTurnState,
+  bound: CodexCanonicalTurnState,
+  responseTurn: Turn,
+): CodexCanonicalTurnState {
+  const status = bound.protocol.status === "inProgress"
+    ? responseTurn.status
+    : bound.protocol.status;
+  return {
+    protocol: {
+      ...bound.protocol,
+      status,
+    },
+    items: mergeCanonicalTurnItems(optimistic, bound),
+    sidecar: {
+      ...optimistic.sidecar,
+      ...bound.sidecar,
+      params: optimistic.sidecar.params,
+      turnStartedAtMs:
+        optimistic.sidecar.turnStartedAtMs ?? bound.sidecar.turnStartedAtMs,
+    },
+  };
 }
 
 /** Exact `X1`/`gQ`: publish a nullable in-progress turn before dispatch. */
@@ -150,17 +191,33 @@ export function appendCodexCanonicalOptimisticTurn(
   };
 }
 
-/** Exact `e8e`: bind the matching nullable turn to the app-server turn id. */
+/** Bind the matching nullable turn, coalescing any server occurrence that won the race. */
 export function bindCodexCanonicalOptimisticTurn(
   state: CodexCanonicalConversationState,
   clientUserMessageId: string,
   turn: Turn,
 ): CodexCanonicalConversationState {
-  const turnIndex = findOptimisticBindTurnIndex(
+  const boundTurnIndex = findBoundTurnIndex(state.turns, turn.id);
+  const optimisticTurnIndex = findMatchingOptimisticTurnIndex(
     state.turns,
     clientUserMessageId,
-    turn.id,
   );
+  if (boundTurnIndex >= 0 && optimisticTurnIndex >= 0) {
+    const bound = state.turns[boundTurnIndex];
+    const optimistic = state.turns[optimisticTurnIndex];
+    if (!bound || !optimistic) return state;
+
+    const merged = mergeSplitOptimisticTurn(optimistic, bound, turn);
+    const mergedIndex = Math.min(boundTurnIndex, optimisticTurnIndex);
+    const turns = state.turns.flatMap((candidate, index) => {
+      if (index === mergedIndex) return [merged];
+      if (index === boundTurnIndex || index === optimisticTurnIndex) return [];
+      return [candidate];
+    });
+    return { ...state, turns };
+  }
+
+  const turnIndex = boundTurnIndex >= 0 ? boundTurnIndex : optimisticTurnIndex;
   if (turnIndex < 0) return state;
 
   const current = state.turns[turnIndex];

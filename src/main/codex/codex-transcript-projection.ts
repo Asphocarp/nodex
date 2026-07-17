@@ -77,40 +77,6 @@ export function applyLiveTranscriptMutation(
   return upsertCodexTranscriptEntry(transcript, mutation.entry);
 }
 
-export function applyOptimisticUserPrompt(input: {
-  transcript: CodexTranscriptEntry[];
-  threadId: string;
-  turnId: string;
-  entryId: string;
-  promptText: string;
-  userAttachments?: CodexTranscriptEntry["userAttachments"];
-  rawItem?: unknown;
-  createdAt?: number;
-}): CodexTranscriptEntry[] {
-  const createdAt = input.createdAt ?? Date.now();
-  return dedupeCodexTranscriptEntries([
-    ...input.transcript,
-    {
-      threadId: input.threadId,
-      turnId: input.turnId,
-      entryId: input.entryId,
-      itemId: input.entryId,
-      type: "userMessage",
-      kind: "userMessage",
-      semanticKind: "userMessage",
-      status: "completed",
-      role: "user",
-      source: "optimistic",
-      sequence: input.transcript.length,
-      markdownText: input.promptText,
-      userAttachments: input.userAttachments,
-      rawItem: input.rawItem,
-      createdAt,
-      updatedAt: createdAt,
-    },
-  ]);
-}
-
 export function reconcileCommittedUserPrompt(
   transcript: CodexTranscriptEntry[],
   entry: CodexTranscriptEntry,

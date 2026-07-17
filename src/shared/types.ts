@@ -2159,7 +2159,7 @@ export type CodexItemStatus =
 export type CodexTranscriptEntryKind = CodexItemNormalizedKind;
 export type CodexTranscriptEntryStatus = CodexItemStatus;
 export type CodexTranscriptEntrySource =
-  "live" | "bootstrap" | "replay" | "optimistic";
+  "live" | "bootstrap" | "replay";
 export type CodexFileChangeKind = CodexAppServerPatchChangeKind["type"];
 export type ReviewSkipReason =
   "binary" | "tooLarge" | "invalidText" | "unsupported";

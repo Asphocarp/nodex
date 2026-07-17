@@ -119,6 +119,7 @@ All notable changes to this project will be documented in this file.
 - Removed snapshot-based Kanban/editor body drops and whole-Page conflict overwrite recovery; Block movement now requires the stable-ID Document mutation boundary.
 
 ### Fixed
+- Fixed submitted Thread prompts briefly appearing twice during streaming by keeping the pending user row and the app-server echo in one params-owned turn lifecycle.
 - Fixed edited long Pages alternating between successful and failed opens by suppressing already-durable Yjs delete-set checkpoint replays and accepting causally redundant updates as idempotent no-ops.
 - Fixed title-only Pages failing to open collaborative content by giving every active block editor an authority-owned empty paragraph and repairing older zero-block Documents before mount.
 - Fixed switching between Project sessions with open Page Stages so retained editors close and recreate their collaborative runtime safely instead of reopening against a destroyed Y.Doc or crashing the window.

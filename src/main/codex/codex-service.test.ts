@@ -59,6 +59,7 @@ import type {
   ThreadStartResponse,
   Turn,
   TurnStartParams,
+  TurnStartResponse,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServerNotification as CodexServerNotification } from "@nodex/codex-app-server-protocol";
 
@@ -13049,9 +13050,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
               },
             },
           },
-        ) as { turnId?: string; conversationState?: unknown };
+        ) as TurnStartResponse & { conversationState?: unknown };
         const detail = service.serializeThreadDetail("thr_owner_start");
-        const promptItem = detail?.transcript[0];
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("turn/start");
@@ -13059,13 +13059,10 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(requestParams?.threadId).toBe("thr_owner_start");
         expect(requestParams?.serviceTier).toBe("fast");
         expect(requestParams?.clientUserMessageId).toBe("client-owner-start");
-        expect(result.turnId).toBe("turn_prompt");
+        expect(result.turn.id).toBe("turn_prompt");
         expect(result.conversationState === undefined).toBe(true);
-        expect(promptItem?.kind).toBe("userMessage");
-        expect(promptItem?.role).toBe("user");
-        expect(promptItem?.markdownText).toBe("Ship the fix");
-        expect((promptItem?.rawItem as { clientUserMessageId?: unknown } | undefined)?.clientUserMessageId).toBe("client-owner-start");
-        expect(detail?.turns[0]?.turnId).toBe("turn_prompt");
+        expect(detail?.transcript.length ?? 0).toBe(0);
+        expect(detail?.turns.length ?? 0).toBe(0);
         expect(String(hostMessages.length)).toBe("0");
       } finally {
         await service.shutdown();
@@ -13895,7 +13892,11 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(sideRequests.map((request) => request.method).join(",")).toBe("thread/fork,thread/inject_items,turn/start");
         expect(canonicalAtInjection ?? null).toBe(null);
         expect(canonicalAtTurnStart?.protocol.id ?? null).toBe("thr_side_chat");
-        expect(canonicalAtTurnStart?.turns.length ?? -1).toBe(0);
+        expect(canonicalAtTurnStart?.turns).toHaveLength(1);
+        expect(canonicalAtTurnStart?.turns[0]?.protocol.id).toBeNull();
+        expect(canonicalAtTurnStart?.turns[0]?.items).toHaveLength(0);
+        expect(canonicalAtTurnStart?.turns[0]?.sidecar.params.input)
+          .toStrictEqual(turnParams?.input);
         expect(forkParams?.threadId).toBe("thr_parent");
         expect(forkParams?.path).toBe(null);
         expect(forkParams?.ephemeral).toBe(true);
@@ -14708,7 +14709,7 @@ describe("codex-service startTurn", () => {
     }
   });
 
-  test("retries turn/start once after resuming a cold persisted thread", async () => {
+  test("restores the params-owned turn when turn/start recovery rehydrates the thread", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
@@ -14721,6 +14722,9 @@ describe("codex-service startTurn", () => {
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
       resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -14739,6 +14743,14 @@ describe("codex-service startTurn", () => {
       cwd: "/workspace/project",
     });
     serviceInternals.persistThreadDetailSummary = () => {};
+    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+      threadId: "thr_start",
+      initialTurnsPage: {
+        data: [],
+        nextCursor: null,
+        backwardsCursor: null,
+      },
+    }));
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
     serviceInternals.handleNotification = async (notification, options) => {
       if (
@@ -14763,8 +14775,13 @@ describe("codex-service startTurn", () => {
         return {
           turn: {
             id: "turn_retry",
-            status: "in_progress",
-            transcript: [],
+            items: [],
+            itemsView: "full",
+            status: "inProgress",
+            error: null,
+            startedAt: 1,
+            completedAt: null,
+            durationMs: null,
           },
         };
       }
@@ -14808,27 +14825,58 @@ describe("codex-service startTurn", () => {
       expect(((requests[2]?.params as { threadId?: string }).threadId)).toBe("thr_start");
       const resumeConfig = (requests[2]?.params as { config?: Record<string, unknown> })?.config ?? {};
       expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
+      const snapshot = service.serializeConversationSnapshot("thr_start");
+      const userItems = snapshot?.turns.flatMap((turn) =>
+        turn.items.filter((item) => item.role === "user")
+      ) ?? [];
+      expect(userItems).toHaveLength(1);
+      expect(userItems[0]?.markdownText).toBe("Ship the fix");
+      expect(snapshot?.canonicalState?.turns).toHaveLength(1);
+      expect(snapshot?.canonicalState?.turns[0]?.sidecar.params.input[0]).toMatchObject({
+        type: "text",
+        text: "Ship the fix",
+      });
     } finally {
       await service.shutdown();
     }
   });
 
-  test("seeds an optimistic user message as soon as turn/start returns a turn", async () => {
+  test("keeps one params-owned user row when the authoritative echo arrives before turn completion", async () => {
     const ran = await withTempDatabase(async () => {
-
       const service = createService();
+      const serviceInternals = service as unknown as {
+        hydrateCanonicalConversationState: (
+          input: ThreadResumeResponse,
+        ) => CodexCanonicalConversationState;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
+      };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
+        threadId: "thr_start_prompt",
+        initialTurnsPage: {
+          data: [],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }));
       client.start = async () => undefined;
-      client.request = async (method: string) => {
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
         if (method === "turn/start") {
           return {
             turn: {
               id: "turn_prompt",
-              status: "in_progress",
-              transcript: [],
+              items: [],
+              itemsView: "full",
+              status: "inProgress",
+              error: null,
+              startedAt: 1,
+              completedAt: null,
+              durationMs: null,
             },
           };
         }
@@ -14837,16 +14885,81 @@ describe("codex-service startTurn", () => {
 
       try {
         const startedTurn = await service.startTurn("thr_start_prompt", "Ship the fix");
-        const detail = service.serializeThreadDetail("thr_start_prompt");
-        const promptItem = detail?.transcript[0];
+        const clientUserMessageId = (
+          requests[0]?.params as { clientUserMessageId?: string } | undefined
+        )?.clientUserMessageId;
+        const beforeEcho = service.serializeConversationSnapshot("thr_start_prompt");
+        const beforeEchoUserItems = beforeEcho?.turns.flatMap((turn) =>
+          turn.items.filter((item) => item.role === "user")
+        ) ?? [];
 
         expect(startedTurn?.turnId).toBe("turn_prompt");
-        expect(detail).not.toBeNull();
-        expect(detail?.turns[0]?.itemIds.length).toBe(1);
-        expect(promptItem?.kind).toBe("userMessage");
-        expect(promptItem?.role).toBe("user");
-        expect(promptItem?.markdownText).toBe("Ship the fix");
-        expect(Boolean(promptItem?.itemId.startsWith("item-"))).toBe(true);
+        expect(typeof clientUserMessageId).toBe("string");
+        expect(beforeEchoUserItems).toHaveLength(1);
+        expect(beforeEchoUserItems[0]?.markdownText).toBe("Ship the fix");
+        expect(beforeEcho?.canonicalState?.turns[0]?.items).toHaveLength(0);
+
+        const authoritativeUserMessage = makeProtocolUserMessage({
+          id: "authoritative-user-message",
+          clientId: clientUserMessageId,
+          content: [{
+            type: "text",
+            text: "Ship the fix",
+            text_elements: [],
+          }],
+        });
+        const authoritativeEchoNotification = {
+          method: "item/started",
+          params: {
+            threadId: "thr_start_prompt",
+            turnId: "turn_prompt",
+            item: authoritativeUserMessage,
+          },
+        } satisfies CodexTestServerNotification;
+        await serviceInternals.handleNotification(authoritativeEchoNotification);
+
+        const afterStartedEcho = service.serializeConversationSnapshot("thr_start_prompt");
+        const afterStartedUserItems = afterStartedEcho?.turns.flatMap((turn) =>
+          turn.items.filter((item) => item.role === "user")
+        ) ?? [];
+
+        expect(afterStartedEcho?.turns[0]?.status).toBe("inProgress");
+        expect(afterStartedUserItems).toHaveLength(1);
+        expect(afterStartedUserItems[0]?.markdownText).toBe("Ship the fix");
+        expect(afterStartedEcho?.canonicalState?.turns[0]?.items[0]).toMatchObject({
+          id: "turn_prompt:input",
+          type: "userMessage",
+          clientId: clientUserMessageId,
+        });
+
+        await serviceInternals.handleNotification({
+          method: "item/completed",
+          params: {
+            threadId: "thr_start_prompt",
+            turnId: "turn_prompt",
+            completedAtMs: 2,
+            item: authoritativeUserMessage,
+          },
+        });
+
+        const afterCompletedEcho = service.serializeConversationSnapshot("thr_start_prompt");
+        const afterCompletedUserItems = afterCompletedEcho?.turns.flatMap((turn) =>
+          turn.items.filter((item) => item.role === "user")
+        ) ?? [];
+        const detail = service.serializeThreadDetail("thr_start_prompt");
+
+        expect(afterCompletedEcho?.turns[0]?.status).toBe("inProgress");
+        expect(afterCompletedUserItems).toHaveLength(1);
+        expect(afterCompletedUserItems[0]?.markdownText).toBe("Ship the fix");
+        expect(
+          afterCompletedEcho?.canonicalState?.turns[0]?.items.some(
+            (item) => item.id === "authoritative-user-message",
+          ),
+        ).toBe(true);
+        expect(detail?.transcript.filter((entry) => entry.role === "user")).toHaveLength(1);
+        expect(
+          detail?.transcript.some((entry) => entry.itemId.startsWith("item-")),
+        ).toBe(false);
       } finally {
         await service.shutdown();
       }
@@ -17019,7 +17132,7 @@ describe("codex-service startThreadForSession", () => {
     if (!ran) expect(true).toBe(true);
   });
 
-  test("rebinds a new-session optimistic turn when lifecycle notifications beat turn/start", async () => {
+  test("rebinds a new-session params-owned turn when lifecycle notifications beat turn/start", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({
         projectId: defaultProjectId,

@@ -6,8 +6,8 @@
 | auto-review-behavior.md | Active | 2026-04-09 | Detailed Auto-review contract covering config-backed preset resolution, availability and reviewer fallback, UI surfaces, and approval request lifecycle |
 | desktop-notification-behavior.md | Active | 2026-04-09 | Detailed Electron desktop notification contract for thread turn-complete, approval, and question notifications, including suppression, payloads, and action routing |
 | codex-fast-mode-core-enablement.md | Active | 2026-04-09 | Detailed global Fast-mode preference contract covering persistence, shared renderer ownership, UI surfaces, request fallback, queue freezing, and reporting normalization |
-| codex-thread-transcript-behavior.md | Active | 2026-03-20 | Source of truth for visible Codex Threads transcript projection, rendering, optimistic prompts, tool/reasoning rows, and restart recovery |
-| codex-thread-owner-follower-streaming.md | Active | 2026-07-05 | Contract for multi-window Codex thread owner/follower streaming, revisioned patches, follower routing, queue/drain, complete-history, resume, and owner recovery |
+| codex-thread-transcript-behavior.md | Active | 2026-07-17 | Source of truth for visible Codex Threads transcript projection, rendering, pending prompt reconciliation, tool/reasoning rows, and restart recovery |
+| codex-thread-owner-follower-streaming.md | Active | 2026-07-17 | Contract for multi-window Codex thread owner/follower streaming, revisioned patches, follower routing, queue/drain, complete-history, resume, and owner recovery |
 | review-right-panel-behavior.md | Active | 2026-06-09 | Detailed Review right-panel contract for toolbar controls, diff sources, Git IPC, large-diff limits, file tree behavior, and code-comment annotations |
 | kanban-drag-and-drop-behavior.md | Active | 2026-03-17 | Detailed Kanban DnD contract covering same-column reorder, filtered/sorted behavior, editor interop, and persistence invariants |
 | command-palette-behavior.md | Active | 2026-03-14 | Detailed command-palette launch, mode switching, ranking, previews, highlights, and execution behavior |

@@ -489,7 +489,7 @@ export function ThreadStageDevStoryPage({
                     semanticKind: "userMessage",
                     status: "completed",
                     role: "user",
-                    source: "optimistic",
+                    source: "live",
                     sequence: turn.items.length,
                     markdownText: input.prompt,
                     steeringStatus: "pending",

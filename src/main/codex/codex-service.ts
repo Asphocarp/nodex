@@ -414,9 +414,6 @@ import {
   serializeReviewDiffCommentAttachmentForPrompt,
   serializeReviewDiffCommentAttachmentsForAdditionalContext,
 } from "../../shared/review-diff-comments";
-import {
-  buildCodexUserAttachmentsFromContent,
-} from "../../shared/codex-user-attachment-projection";
 import { buildTurnErrorItemView } from "../../shared/codex-turn-error-projection";
 import { normalizeCodexAppInfoLogos } from "../../shared/codex-app-info";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
@@ -485,7 +482,6 @@ import { buildCodexDesktopDeveloperInstructions } from "./codex-developer-instru
 import { resolveCodexForkWorkspaceInheritance } from "./codex-fork-workspace-inheritance";
 import {
   applyLiveTranscriptMutation,
-  applyOptimisticUserPrompt,
   buildTranscriptFromBootstrapEvents,
   finalizeTurnTranscriptState,
   projectItemToLiveTranscriptEntry,
@@ -1212,6 +1208,14 @@ type StartTurnOverrides = CodexTurnStartOptions & {
 
 interface SourceNullBroadcastOptions {
   emitSourceNullUpdates?: boolean;
+}
+
+interface MainOwnedStartTurnOptions extends SourceNullBroadcastOptions {
+  stateOwner?: "main";
+}
+
+interface RendererOwnedStartTurnOptions {
+  stateOwner: "renderer";
 }
 
 interface ResolvedThreadRunLocation {
@@ -2161,11 +2165,6 @@ function buildInitialAutoTitlePromptItems(input: {
   ];
 }
 
-function buildUserMessageInputFallback(markdownText: string | undefined): CodexSteeringUserInput[] {
-  const text = markdownText?.trim() ?? "";
-  return text ? [createTextUserInput(text)] : [];
-}
-
 interface PreparedPromptForTurn {
   promptText: string;
   inputItems: CodexUserInputItem[];
@@ -2783,7 +2782,6 @@ export class CodexService extends EventEmitter {
   });
 
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
-  private syntheticItemIdCounter = 0;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
   private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
   private rateLimitsPollInFlight = false;
@@ -8701,12 +8699,6 @@ export class CodexService extends EventEmitter {
       turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
     };
     this.mergeTurn(resumedThread.threadId, observedTurn);
-    this.seedTurnWithOptimisticUserMessage(
-      resumedThread.threadId,
-      observedTurn.turnId,
-      prompt,
-      undefined,
-    );
     this.markThreadAsActive(resumedThread.threadId);
     this.emitThreadStreamSnapshotFromRecord(resumedThread.threadId, "no-owner-fallback");
   }
@@ -9133,12 +9125,6 @@ export class CodexService extends EventEmitter {
         turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
       };
       this.mergeTurn(link.threadId, observedTurn);
-      this.seedTurnWithOptimisticUserMessage(
-        link.threadId,
-        observedTurn.turnId,
-        input.prompt,
-        undefined,
-      );
       this.markThreadAsActive(link.threadId);
       this.emitThreadStreamSnapshotFromRecord(link.threadId, "no-owner-fallback");
     } catch (error) {
@@ -11649,66 +11635,6 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private seedTurnWithOptimisticUserMessage(
-    threadId: string,
-    turnId: string,
-    promptText: string,
-    userAttachments?: CodexUserAttachment[],
-    itemId?: string,
-    clientUserMessageId?: string,
-  ): CodexTranscriptEntry {
-    const createdAt = Date.now();
-    const resolvedItemId = itemId ?? `item-${++this.syntheticItemIdCounter}`;
-    const item: CodexItemView = {
-      threadId,
-      turnId,
-      itemId: resolvedItemId,
-      type: "userMessage",
-      normalizedKind: "userMessage",
-      semanticKind: "userMessage",
-      status: "completed",
-      role: "user",
-      markdownText: promptText,
-      userAttachments,
-      rawItem: {
-        id: resolvedItemId,
-        type: "userMessage",
-        ...(clientUserMessageId ? { clientUserMessageId } : {}),
-        content: buildUserMessageInputFallback(promptText),
-      },
-      createdAt,
-      updatedAt: createdAt,
-    };
-
-    const turn = this.getKnownTurn(threadId, turnId);
-    if (turn && !turn.itemIds.includes(item.itemId)) {
-      this.mergeTurn(threadId, {
-        ...turn,
-        itemIds: [...turn.itemIds, item.itemId],
-      });
-    }
-
-    this.mergeItem(item, "optimistic");
-    return this.getThreadTranscript(threadId).find((entry) => entry.entryId === item.itemId)
-      ?? {
-        threadId,
-        turnId,
-        entryId: item.itemId,
-        itemId: item.itemId,
-        type: item.type,
-        kind: item.normalizedKind,
-        semanticKind: item.semanticKind,
-        status: item.status,
-        role: item.role,
-        source: "optimistic",
-        sequence: 0,
-        markdownText: item.markdownText,
-        userAttachments: item.userAttachments,
-        createdAt,
-        updatedAt: createdAt,
-      };
-  }
-
   private buildCanonicalSteeringUserMessageItem(input: {
     turnId: string;
     steerId: string;
@@ -12070,22 +11996,11 @@ export class CodexService extends EventEmitter {
         : [...currentTranscript, nextEntry]
       : null;
     const nextTranscript = authoritativeTranscript
-      ?? (source === "optimistic" && nextEntry.kind === "userMessage"
-      ? applyOptimisticUserPrompt({
-          transcript: currentTranscript,
-          threadId: nextEntry.threadId,
-          turnId: item.turnId,
-          entryId: nextEntry.entryId ?? nextEntry.itemId,
-          promptText: nextEntry.markdownText ?? "",
-          userAttachments: nextEntry.userAttachments,
-          rawItem: nextEntry.rawItem,
-          createdAt: nextEntry.createdAt,
-        })
-      : nextEntry.kind === "userMessage"
+      ?? (nextEntry.kind === "userMessage"
         ? reconcileCommittedUserPrompt(currentTranscript, nextEntry)
         : applyLiveTranscriptMutation(currentTranscript, { type: "upsert", entry: nextEntry }));
     this.setThreadTranscript(item.threadId, nextTranscript);
-    if (source !== "optimistic" && nextEntry.kind === "userMessage" && nextEntry.markdownText) {
+    if (nextEntry.kind === "userMessage" && nextEntry.markdownText) {
       this.clearPendingSteerForConsumedPrompt(item.threadId, item.turnId, nextEntry.markdownText);
     }
     return nextEntry;
@@ -13241,7 +13156,7 @@ export class CodexService extends EventEmitter {
     >;
     readonly clientUserMessageId: string;
     readonly currentCollaborationModel: string;
-    readonly requestParams: CodexAppPrivateTurnStartParams;
+    readonly request: () => Promise<TurnStartResponse>;
     readonly threadId: string;
   }): Promise<Turn> {
     const record = this.getConversationRecord(input.threadId);
@@ -13270,10 +13185,7 @@ export class CodexService extends EventEmitter {
     this.emitThreadStreamSnapshotFromRecord(input.threadId, "no-owner-fallback");
 
     try {
-      const response = await this.client.request<"turn/start", TurnStartResponse>(
-        "turn/start",
-        input.requestParams,
-      );
+      const response = await input.request();
       if (!this.asTurnSummary(input.threadId, response.turn)) {
         throw new Error("Codex turn/start returned an invalid turn payload");
       }
@@ -13282,8 +13194,17 @@ export class CodexService extends EventEmitter {
       if (!beforeBind) {
         throw new Error("Canonical conversation state disappeared during turn/start");
       }
+      const stateWithPendingTurn = beforeBind.turns.some(
+        (turn) => turn.sidecar.params.clientUserMessageId === input.clientUserMessageId,
+      )
+        ? beforeBind
+        : appendCodexCanonicalOptimisticTurn(beforeBind, {
+            params: input.canonicalParams,
+            currentCollaborationModel: input.currentCollaborationModel,
+            startedAtMs: optimisticStartedAt,
+          });
       const afterBind = bindCodexCanonicalOptimisticTurn(
-        beforeBind,
+        stateWithPendingTurn,
         input.clientUserMessageId,
         response.turn,
       );
@@ -13645,7 +13566,10 @@ export class CodexService extends EventEmitter {
         canonicalParams: canonicalTurnParams,
         clientUserMessageId,
         currentCollaborationModel: record.latestCollaborationMode.settings.model,
-        requestParams: turnStartParams,
+        request: () => this.client.request<"turn/start", TurnStartResponse>(
+          "turn/start",
+          turnStartParams,
+        ),
         threadId: link.threadId,
       });
       await this.applyStartedSessionThreadGoal({
@@ -15203,7 +15127,7 @@ export class CodexService extends EventEmitter {
           conversationId,
           prompt,
           startOverrides,
-          { emitSourceNullUpdates: false },
+          { stateOwner: "renderer" },
         );
         return result;
       }
@@ -16075,11 +15999,26 @@ export class CodexService extends EventEmitter {
   async startTurn(
     threadId: string,
     prompt: string,
+    overrides: StartTurnOverrides | undefined,
+    options: RendererOwnedStartTurnOptions,
+  ): Promise<TurnStartResponse>;
+  async startTurn(
+    threadId: string,
+    prompt: string,
     overrides?: StartTurnOverrides,
-    options: SourceNullBroadcastOptions = {},
-  ): Promise<CodexTurnSummary | null> {
+    options?: MainOwnedStartTurnOptions,
+  ): Promise<CodexTurnSummary | null>;
+  async startTurn(
+    threadId: string,
+    prompt: string,
+    overrides?: StartTurnOverrides,
+    options: MainOwnedStartTurnOptions | RendererOwnedStartTurnOptions = {},
+  ): Promise<CodexTurnSummary | TurnStartResponse | null> {
     await this.ensureClientReady();
-    const emitSourceNullUpdates = options.emitSourceNullUpdates ?? true;
+    const rendererOwnsState = options.stateOwner === "renderer";
+    const emitSourceNullUpdates = rendererOwnsState
+      ? false
+      : options.emitSourceNullUpdates ?? true;
 
     const preparedPrompt = await this.preparePromptForTurn(prompt, overrides?.promptInput);
     const promptText = preparedPrompt.promptText;
@@ -16161,46 +16100,107 @@ export class CodexService extends EventEmitter {
       promptPreview: previewText(promptText),
     });
 
-    const startTurnRequest = () => {
-      const turnStartParams: TurnStartParams = {
-        threadId,
-        clientUserMessageId,
-        ...(workspacePath ? { cwd: workspacePath } : {}),
-        ...(preparedPrompt.additionalContext ? { additionalContext: preparedPrompt.additionalContext } : {}),
-        ...turnPermissionOverrides,
-        ...(effectiveModel ? { model: effectiveModel } : {}),
-        ...buildServiceTierParams(overrides?.serviceTier),
-        ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
-        ...(collaborationMode ? { collaborationMode } : {}),
-        input: preparedPrompt.inputItems,
-      };
-      return this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+    const buildTurnStartParams = (): TurnStartParams => ({
+      threadId,
+      clientUserMessageId,
+      ...(workspacePath ? { cwd: workspacePath } : {}),
+      ...(preparedPrompt.additionalContext
+        ? { additionalContext: preparedPrompt.additionalContext }
+        : {}),
+      ...turnPermissionOverrides,
+      ...(effectiveModel ? { model: effectiveModel } : {}),
+      ...buildServiceTierParams(overrides?.serviceTier),
+      ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
+      ...(collaborationMode ? { collaborationMode } : {}),
+      input: preparedPrompt.inputItems,
+    });
+    const startTurnRequest = () => this.client.request<"turn/start", TurnStartResponse>(
+      "turn/start",
+      buildTurnStartParams(),
+    );
+
+    const requestTurnStartWithRecovery = async (): Promise<TurnStartResponse> => {
+      try {
+        return await startTurnRequest();
+      } catch (error) {
+        if (rendererOwnsState || !isThreadNotFoundError(error)) throw error;
+
+        this.logger.warn("Codex turn start hit missing thread; attempting resume", { threadId, error });
+        const recoveredDetail = await this.resumeThreadWithSeed(threadId, undefined, true);
+        if (!recoveredDetail) {
+          throw new Error(`Thread '${threadId}' could not be resumed after turn/start failed`);
+        }
+        workspacePath = recoveredDetail.cwd;
+        workspaceRoots = [
+          ...(workspacePath ? [workspacePath] : []),
+          ...workspaceRoots,
+        ].filter((root, index, roots) => roots.indexOf(root) === index);
+        turnPermissionOverrides = buildTurnPermissionOverrides({
+          permissionState,
+          workspaceRoots,
+        });
+        return await startTurnRequest();
+      }
     };
 
-    let turnStartResult: TurnStartResponse;
-    try {
-      turnStartResult = await startTurnRequest();
-    } catch (error) {
-      if (!isThreadNotFoundError(error)) throw error;
+    const canonicalState = record.canonicalState;
+    const hydration = canonicalState?.sidecar.hydrationContext;
+    const canonicalPermissionContext = hydration
+      ? this.resolveCanonicalResumePermissionContext(
+          permissionState,
+          workspaceRoots,
+          hydration.currentPermissions,
+        )
+      : null;
+    const canonicalParams = canonicalState && hydration && canonicalPermissionContext
+      ? {
+          ...buildTurnStartParams(),
+          cwd: workspacePath,
+          approvalPolicy: canonicalPermissionContext.approvalPolicy,
+          approvalsReviewer: canonicalPermissionContext.approvalsReviewer,
+          sandboxPolicy: canonicalPermissionContext.sandboxPolicy,
+          permissions: canonicalPermissionContext.activePermissionProfile?.id ?? null,
+          runtimeWorkspaceRoots: canonicalPermissionContext.activePermissionProfile
+            ? [...canonicalPermissionContext.runtimeWorkspaceRoots]
+            : null,
+          useAppServerPermissionDefault: permissionState.effectivePreset === "custom",
+          model: collaborationMode ? null : effectiveModel,
+          serviceTier:
+            normalizeCodexServiceTier(overrides?.serviceTier)
+            ?? hydration.latestThreadSettings?.serviceTier
+            ?? null,
+          effort: collaborationMode ? null : effectiveReasoningEffort ?? null,
+          multiAgentMode: hydration.latestThreadSettings?.multiAgentMode ?? "explicitRequestOnly",
+          summary: hydration.latestThreadSettings?.summary ?? "none",
+          personality: latestThreadSettings?.personality ?? this.personality,
+          outputSchema: null,
+          collaborationMode,
+          attachments: dedupeCodexLiveFileAttachments([
+            ...preparedPrompt.fileAttachments,
+            ...preparedPrompt.addedFiles,
+          ]),
+          commentAttachments: [...preparedPrompt.commentAttachments],
+        } satisfies CodexCanonicalLiveTurnParams<
+          CodexLiveFileAttachment,
+          CodexReviewDiffCommentAttachment
+        >
+      : null;
 
-      this.logger.warn("Codex turn start hit missing thread; attempting resume", { threadId, error });
-      const recoveredDetail = await this.resumeThreadWithSeed(threadId, undefined, true);
-      if (!recoveredDetail) {
-        throw new Error(`Thread '${threadId}' could not be resumed after turn/start failed`);
-      }
-      workspacePath = recoveredDetail.cwd;
-      workspaceRoots = [
-        ...(workspacePath ? [workspacePath] : []),
-        ...workspaceRoots,
-      ].filter((root, index, roots) => roots.indexOf(root) === index);
-      turnPermissionOverrides = buildTurnPermissionOverrides({
-        permissionState,
-        workspaceRoots,
-      });
-      turnStartResult = await startTurnRequest();
-    }
+    const usedCanonicalTransaction = !rendererOwnsState && canonicalParams !== null;
+    const turnStartResult = usedCanonicalTransaction
+      ? {
+          turn: await this.dispatchCanonicalOptimisticTurn({
+            canonicalParams,
+            clientUserMessageId,
+            currentCollaborationModel: record.latestCollaborationMode.settings.model,
+            request: requestTurnStartWithRecovery,
+            threadId,
+          }),
+        }
+      : await requestTurnStartWithRecovery();
 
     this.markAutomationRunAcceptedForUserContinuation(threadId);
+    if (rendererOwnsState) return turnStartResult;
 
     const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
     if (startedTurn) {
@@ -16208,21 +16208,11 @@ export class CodexService extends EventEmitter {
         ...startedTurn,
         turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
       };
-      this.mergeTurn(threadId, observedTurn);
-      const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
-        preparedPrompt.inputItems,
-        `optimistic:${observedTurn.turnId}`,
-      );
-      this.seedTurnWithOptimisticUserMessage(
-        threadId,
-        observedTurn.turnId,
-        promptText,
-        optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
-        undefined,
-        clientUserMessageId,
-      );
       this.clearPausedQueuedFollowUps(threadId, false);
-      this.markThreadAsActive(threadId);
+      if (!usedCanonicalTransaction) {
+        this.mergeTurn(threadId, observedTurn);
+        this.markThreadAsActive(threadId);
+      }
       if (emitSourceNullUpdates) {
         this.emitThreadStreamSnapshotFromRecord(threadId, "no-owner-fallback");
       }

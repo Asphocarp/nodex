@@ -24,9 +24,14 @@ import type {
 } from "@pierre/diffs/react";
 
 const invokeCalls: unknown[][] = [];
+const startThreadPromptCalls: Array<{ threadId: string; prompt: string }> = [];
 const clipboardWrites: string[] = [];
 let mockInvokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null;
 let lastFileDiffProps: FileDiffProps<unknown> | null = null;
+
+async function recordStartThreadPrompt(threadId: string, prompt: string): Promise<void> {
+  startThreadPromptCalls.push({ threadId, prompt });
+}
 
 function stripPatchPath(value: string): string {
   return value.replace(/^([ab])\//, "");
@@ -520,6 +525,7 @@ function buildGitDiffResultForTest(input: {
 
 beforeEach(() => {
   invokeCalls.length = 0;
+  startThreadPromptCalls.length = 0;
   clipboardWrites.length = 0;
   mockInvokeImpl = null;
   lastFileDiffProps = null;
@@ -536,9 +542,15 @@ beforeEach(() => {
 
 async function loadReviewDiffPanelModule() {
   function TestReviewDiffPanel(
-    props: Omit<ComponentProps<typeof ReviewDiffPanel>, "deps">,
+    props: Omit<ComponentProps<typeof ReviewDiffPanel>, "deps" | "onStartThreadPrompt">,
   ) {
-    return <ReviewDiffPanel {...props} deps={reviewDiffPanelTestDeps} />;
+    return (
+      <ReviewDiffPanel
+        {...props}
+        deps={reviewDiffPanelTestDeps}
+        onStartThreadPrompt={recordStartThreadPrompt}
+      />
+    );
   }
 
   return { ReviewDiffPanel: TestReviewDiffPanel };
@@ -1493,6 +1505,7 @@ describe("review diff panel", () => {
       <NodexTooltipProvider>
         <ReviewDiffPanel
           conversation={conversation}
+          onStartThreadPrompt={recordStartThreadPrompt}
           projectWorkspacePath="/tmp/codex"
           deps={{
             ...reviewDiffPanelTestDeps,
@@ -1689,6 +1702,7 @@ describe("review diff panel", () => {
       <NodexTooltipProvider>
         <ReviewDiffPanel
           conversation={conversation}
+          onStartThreadPrompt={recordStartThreadPrompt}
           projectWorkspacePath="/tmp/codex"
           deps={{
             ...reviewDiffPanelTestDeps,
@@ -1800,8 +1814,8 @@ describe("review diff panel", () => {
       fireEvent.click(view.getByLabelText("Commit or push"));
     });
     await waitFor(() => {
-      if (!invokeCalls.some((call) =>
-        call[0] === "codex:turn:start" && String(call[2]).includes("Commit or push")
+      if (!startThreadPromptCalls.some((call) =>
+        call.prompt.includes("Commit or push")
       )) {
         throw new Error("Expected commit prompt turn to start.");
       }
@@ -1811,21 +1825,18 @@ describe("review diff panel", () => {
       fireEvent.click(view.getByLabelText("Create PR"));
     });
     await waitFor(() => {
-      if (!invokeCalls.some((call) =>
-        call[0] === "codex:turn:start" && String(call[2]).includes("pull request")
+      if (!startThreadPromptCalls.some((call) =>
+        call.prompt.includes("pull request")
       )) {
         throw new Error("Expected pull request prompt turn to start.");
       }
     });
 
-    const turnStartCalls = invokeCalls.filter(
-      (call) => call[0] === "codex:turn:start",
-    );
-    expect(turnStartCalls.length).toBe(2);
-    expect(
-      String(turnStartCalls[0]?.[2]).includes("Commit or push"),
-    ).toBe(true);
-    expect(String(turnStartCalls[1]?.[2]).includes("pull request")).toBe(true);
+    expect(startThreadPromptCalls).toHaveLength(2);
+    expect(startThreadPromptCalls[0]?.threadId).toBe("thr_review");
+    expect(startThreadPromptCalls[0]?.prompt.includes("Commit or push")).toBe(true);
+    expect(startThreadPromptCalls[1]?.threadId).toBe("thr_review");
+    expect(startThreadPromptCalls[1]?.prompt.includes("pull request")).toBe(true);
   });
 
   test("renders codex-style review options with icons and diff toggle labels", async () => {

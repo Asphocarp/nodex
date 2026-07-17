@@ -1079,7 +1079,14 @@ export function projectCodexCanonicalVisibleTurnItemViews(
       goalProjection: null,
     }) !== null;
   return projectCodexCanonicalTurnItemViews(input).flatMap((view) => {
-    if (view.rawItemId && duplicateUserMessageIds.has(view.rawItemId)) return [];
+    if (
+      hasVisibleTurnParamsUserMessage
+      && input.preserveServerUserMessages !== true
+      && view.rawItemId
+      && duplicateUserMessageIds.has(view.rawItemId)
+    ) {
+      return [];
+    }
     if (
       input.preserveServerUserMessages === true
       || !hasVisibleTurnParamsUserMessage
