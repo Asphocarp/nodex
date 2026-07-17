@@ -93,6 +93,10 @@ import { refreshScheduledPageIndexProjection } from "./scheduled-page-store";
 import { createDocumentVersionCheckpoint } from "./document-versions";
 import { markDocumentRevisionSessionCheckpoint } from "./document-revision-session-store";
 import { cloneAuthoritativePageInTransaction } from "./authoritative-page-clone";
+import {
+  PageHierarchyError,
+  resolvePageHierarchy,
+} from "./page-hierarchy";
 
 export type BlockTransferFaultPoint =
   | "after_source_document"
@@ -209,6 +213,62 @@ const reject = (
     retryable: options.retryable,
     reloadRequired: options.reloadRequired,
   });
+};
+
+const assertMovePreservesPageHierarchy = (
+  database: Database.Database,
+  transfer: Pick<
+    BlockTransferIntent,
+    "mode" | "operationId" | "rootBlockIds"
+  >,
+  rows: readonly BlockRow[],
+  target: Readonly<{
+    kind: string;
+    documentId?: string;
+    pageId?: string;
+  }>,
+): void => {
+  if (transfer.mode !== "move" || target.kind !== "document") return;
+  const movedPageIds = new Set(
+    rows.filter((row) => row.type === "page").map((row) => row.id),
+  );
+  if (movedPageIds.size === 0 || !target.documentId) return;
+
+  const targetOwner = database.prepare(`
+    SELECT block_id AS pageId
+    FROM pages
+    WHERE document_id = ?
+  `).get(target.documentId) as { readonly pageId: string } | undefined;
+  if (target.pageId && targetOwner?.pageId !== target.pageId) {
+    reject(
+      transfer,
+      "invalid_target",
+      `Document ${target.documentId} is not owned by target Page ${target.pageId}`,
+    );
+  }
+  if (!targetOwner) return;
+
+  let targetHierarchy;
+  try {
+    targetHierarchy = resolvePageHierarchy(database, targetOwner.pageId);
+  } catch (error) {
+    if (!(error instanceof PageHierarchyError)) throw error;
+    return reject(
+      transfer,
+      "recovery_required",
+      `Target Page ${targetOwner.pageId} has an invalid ownership hierarchy`,
+      { retryable: false, reloadRequired: true },
+    );
+  }
+  const movedAncestorId = targetHierarchy.pageIds.find((pageId) =>
+    movedPageIds.has(pageId),
+  );
+  if (!movedAncestorId) return;
+  reject(
+    transfer,
+    "transfer_cycle",
+    `Page ${movedAncestorId} cannot be moved into itself or its descendant Page ${targetOwner.pageId}`,
+  );
 };
 
 const readStoreEpoch = (database: Database.Database): string | null =>
@@ -3691,6 +3751,12 @@ export const prepareBlockTransfer = (
       projectLibraryId,
     );
     const rows = readPreparationBlockRows(database, intent, preparedSource);
+    assertMovePreservesPageHierarchy(
+      database,
+      intent,
+      rows,
+      preparedTarget,
+    );
     const expectedLocationRevisions = Object.fromEntries(
       rows.map((row) => [row.id, row.location_revision]),
     );
@@ -3947,6 +4013,7 @@ export const applyBlockTransfer = (
     }
     const rows = readBlockRows(database, request);
     assertSourceParent(database, request, rows);
+    assertMovePreservesPageHierarchy(database, request, rows, request.target);
     const now = options.now?.() ?? new Date().toISOString();
     let documentCommits: readonly RelocationDocumentCommit[] = [];
     let affectedDatabaseBlockIds: readonly string[] = [];

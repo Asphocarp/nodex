@@ -29,7 +29,9 @@ Project                              execution context
 └── Sessions / Threads / terminals  runtime and approval
 ```
 
-Every Page has one exclusive `library | page | data_source` parent. A View,
+Every Page has one exclusive `library | page | data_source` parent. Page
+ownership is a rooted acyclic forest: a move into the Page itself or any of its
+descendants is invalid at both the command and SQLite boundaries. A View,
 `pageRef`, relation, mention, backlink, or linked View is non-owning and never
 expands authorization. Page ID equals Block ID. Document remains an independently
 synchronized content owner and is not a user-facing parent coordinate.
@@ -182,7 +184,7 @@ Modules.
 
 Block-first migration foundation:
 
-1. Current v78 stores extend the Block-first foundation with one persisted Profile-owned Library, stable Project-to-Database bindings and lifecycle, Database Containers, deterministic initial Data Sources, Source-owned schema/membership/value tables, explicit View-to-Source targets, Page View coordinates, canonical Page records with exclusive `library | page | data_source` parents, Library top-level placements, recursive Project resource-grant authorization, and immutable Database Module receipts. The persisted Page literals are `page` and `nodex.page`; active relational projections use `page_read_model`, `scheduled_page_index`, `canvas_page_references`, and Page-named key columns. Physical `blocks.location_kind` retains `space | document | database` only as the storage adapter compiled from canonical parents. Schema v78 atomically republishes normalized Canvas aggregate hashes and retained checkpoint JSON under the canonical Page-reference projection after validating all element/file evidence and the prior aggregate hash. Shipped v26/v57 and release-chain schemas remain import inputs, never runtime alternatives.
+1. Current v79 stores extend the Block-first foundation with one persisted Profile-owned Library, stable Project-to-Database bindings and lifecycle, Database Containers, deterministic initial Data Sources, Source-owned schema/membership/value tables, explicit View-to-Source targets, Page View coordinates, canonical Page records with exclusive `library | page | data_source` parents, Library top-level placements, recursive Project resource-grant authorization, and immutable Database Module receipts. The persisted Page literals are `page` and `nodex.page`; active relational projections use `page_read_model`, `scheduled_page_index`, `canvas_page_references`, and Page-named key columns. Physical `blocks.location_kind` retains `space | document | database` only as the storage adapter compiled from canonical parents. Schema v78 atomically republishes normalized Canvas aggregate hashes and retained checkpoint JSON under the canonical Page-reference projection after validating all element/file evidence and the prior aggregate hash; schema v79 validates the existing Page ownership forest and installs cycle-safe parent guards. Shipped v26/v57 and release-chain schemas remain import inputs, never runtime alternatives.
 2. A successful Document apply tentatively reconstructs and validates a Y.Doc, derives the changed title/Block identities from before/after state, reconciles the registry/index, and writes the binary update, immutable receipt, exact-blob checksum, state vector, reconstruction fingerprint, and new head under one immediate SQLite transaction. Receipts remain independently of update payload retention; compaction verifies a full snapshot at the current head, advances the physical reconstruction fingerprint, then atomically removes only its covered payload tail. Store epoch, Document generation, update identity, `headSeq`, Yjs state vector, exact-blob integrity, and non-canonical reconstruction fingerprint remain separate concepts.
 3. Production Page Stage prepares the exact owned descriptor before rendering content. Only a ready `yjs`/`block_tree` descriptor enters the Page editor: it mounts one independent Y.Doc surface, completes state-vector sync before resolving `Y.Text("title")` / `Y.XmlFragment("body")`, and binds BlockNote through its collaboration extension without projection-based initialization. Every active BlockNote-backed Document contains at least one registered application Block; a semantically blank Page is one stable-ID empty paragraph whose NFM/plain-text projections remain blank.
 4. A writable Block Document runtime belongs to one visible React effect incarnation, not to Activity-retained component state. Hiding a retained session removes Awareness, performs the bounded provider flush/disposable checkpoint, drains any already-accepted relocation lease to its terminal boundary, and destroys the provider before its Y.Doc; restoring the session waits for that close and creates a fresh Y.Doc/client session that repairs from SQLite through a state-vector handshake before exposing roots. The warm Activity tree may retain DOM and editor presentation state, but it must never retain or rebind a closing runtime. Normal durable ACKs are quiet; sustained pending/offline/error/reset states are the only Page Stage sync chrome.
@@ -265,7 +267,9 @@ Workbench reopen flow:
   Data Sources, Views, assets, search, schedule, and history. Project owns only
   execution state, binds one Database, and receives explicit grants; Project
   lifecycle never deletes Library content.
-- Every active Page has one `library | page | data_source` parent. A
+- Every active Page has one `library | page | data_source` parent, and following
+  Page parents always terminates at a matching Library or Data Source without
+  revisiting a Page. A
   Source-parented Page has one matching active membership. References and Views
   are non-owning and never expand grant closure.
 - Database Container owns Data Sources and Views but no schema/rows. Data Source

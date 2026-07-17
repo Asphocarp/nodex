@@ -13,6 +13,9 @@ import {
   revokeProjectResourceGrant,
 } from "./project-resource-grants";
 import { createProject, setProjectLifecycle } from "./projects";
+import { readPageDetailInDatabase } from "./page-detail";
+import { validateBackupStore } from "./backup-store-validation";
+import { getDatabasePath } from "./config";
 
 let tempDirectory = "";
 
@@ -32,6 +35,55 @@ afterEach(() => {
 });
 
 describe("Project resource grants", () => {
+  test("rejects ownership cycles and fails closed on legacy corruption", async () => {
+    const project = createProject({ name: "Hierarchy authority" });
+    const parent = await createPage(project.id, "draft", { title: "Parent" });
+    const child = await createPage(project.id, "draft", { title: "Child" });
+    const database = getDb();
+    const now = new Date().toISOString();
+    const detachFromDataSource = database.prepare(`
+      UPDATE data_source_page_memberships
+      SET removed_at = ?, revision = revision + 1
+      WHERE page_block_id = ? AND removed_at IS NULL
+    `);
+    const setParent = database.prepare(`
+      UPDATE pages
+      SET parent_kind = 'page', parent_id = ?,
+        parent_revision = parent_revision + 1, updated_at = ?
+      WHERE block_id = ?
+    `);
+
+    detachFromDataSource.run(now, child.id);
+    setParent.run(parent.id, now, child.id);
+    detachFromDataSource.run(now, parent.id);
+    expect(() => setParent.run(child.id, now, parent.id)).toThrow(
+      "Page parent hierarchy must be acyclic and rooted",
+    );
+
+    database.exec("DROP TRIGGER pages_validate_hierarchy_update");
+    setParent.run(child.id, now, parent.id);
+
+    expect(authorizeProjectResource({
+      projectId: project.id,
+      resource: { kind: "page", pageId: parent.id },
+      action: "read",
+    })).toMatchObject({
+      allowed: false,
+      reason: "resource_hierarchy_corrupt",
+    });
+    expect(readPageDetailInDatabase(database, project.id, parent.id)).toEqual({
+      ok: false,
+      error: {
+        code: "page_detail_corrupt",
+        message: `Page ${parent.id} has an invalid ownership hierarchy`,
+        retryable: false,
+      },
+    });
+    expect(() => validateBackupStore(getDatabasePath())).toThrow(
+      /invalid ownership hierarchy/u,
+    );
+  });
+
   test("follows recursive ownership while reserving Database management", async () => {
     const executor = createProject({ name: "Executor" });
     const foreign = createProject({ name: "Foreign Library work" });

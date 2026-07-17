@@ -35,6 +35,7 @@ import {
   migrateSchema75To76,
   migrateSchema76To77,
   migrateSchema77To78,
+  migrateSchema78To79,
 } from "./schema";
 import {
   createProjectSession,
@@ -239,11 +240,11 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v78 release boundary", () => {
+describe("schema v79 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
     expect(releaseVersions).toEqual([
-      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78,
+      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
     ]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
@@ -320,6 +321,84 @@ describe("schema v78 release boundary", () => {
     ).toBe(0);
     expect(database.pragma("foreign_key_check")).toEqual([]);
     expect(database.pragma("quick_check")).toEqual([{ quick_check: "ok" }]);
+  });
+
+  test("publishes the acyclic Page hierarchy guard at v79", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const project = createProject({ name: "Page hierarchy migration" });
+    const parent = await createPage(project.id, "draft", { title: "Parent" });
+    const child = await createPage(project.id, "draft", { title: "Child" });
+    const database = getDb();
+    const now = new Date().toISOString();
+
+    database.exec(`
+      DROP TRIGGER pages_validate_hierarchy_insert;
+      DROP TRIGGER pages_validate_hierarchy_update;
+    `);
+    database.pragma("user_version = 78");
+    database.prepare(`
+      UPDATE data_source_page_memberships
+      SET removed_at = ?, revision = revision + 1
+      WHERE page_block_id = ? AND removed_at IS NULL
+    `).run(now, child.id);
+    database.prepare(`
+      UPDATE pages
+      SET parent_kind = 'page', parent_id = ?,
+        parent_revision = parent_revision + 1, updated_at = ?
+      WHERE block_id = ?
+    `).run(parent.id, now, child.id);
+
+    migrateSchema78To79(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(79);
+    database.prepare(`
+      UPDATE data_source_page_memberships
+      SET removed_at = ?, revision = revision + 1
+      WHERE page_block_id = ? AND removed_at IS NULL
+    `).run(now, parent.id);
+    expect(() =>
+      database.prepare(`
+        UPDATE pages
+        SET parent_kind = 'page', parent_id = ?,
+          parent_revision = parent_revision + 1, updated_at = ?
+        WHERE block_id = ?
+      `).run(child.id, now, parent.id),
+    ).toThrow("Page parent hierarchy must be acyclic and rooted");
+  });
+
+  test("refuses to guess a repair for a corrupt v78 Page hierarchy", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const project = createProject({ name: "Corrupt Page hierarchy" });
+    const first = await createPage(project.id, "draft", { title: "First" });
+    const second = await createPage(project.id, "draft", { title: "Second" });
+    const database = getDb();
+    const now = new Date().toISOString();
+
+    database.exec(`
+      DROP TRIGGER pages_validate_hierarchy_insert;
+      DROP TRIGGER pages_validate_hierarchy_update;
+    `);
+    database.pragma("user_version = 78");
+    database.prepare(`
+      UPDATE data_source_page_memberships
+      SET removed_at = ?, revision = revision + 1
+      WHERE page_block_id IN (?, ?) AND removed_at IS NULL
+    `).run(now, first.id, second.id);
+    const setParent = database.prepare(`
+      UPDATE pages
+      SET parent_kind = 'page', parent_id = ?,
+        parent_revision = parent_revision + 1, updated_at = ?
+      WHERE block_id = ?
+    `);
+    setParent.run(first.id, now, second.id);
+    setParent.run(second.id, now, first.id);
+
+    expect(() => migrateSchema78To79(database)).toThrow(
+      /Schema v79 cannot publish Page .*ownership contains a cycle/u,
+    );
+    expect(database.pragma("user_version", { simple: true })).toBe(78);
   });
 
   test("creates one Profile Library and deterministic initial Data Source per Database", async () => {

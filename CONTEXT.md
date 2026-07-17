@@ -155,7 +155,9 @@ from mounting recursively.
 ### Parent and placement
 
 Parent answers who owns an active Block. Page uses the explicit `library |
-page | data_source` algebra. Non-Page Blocks are Library-owned or live in the
+page | data_source` algebra, and Page ownership is a rooted acyclic forest.
+Moving a Page into itself or an ownership descendant is rejected before commit
+and by the persistence boundary. Non-Page Blocks are Library-owned or live in the
 nearest Page/owner Document according to their registered behavior. Relational
 parent coordinates and the Document's exact tree/materialized index must agree.
 
@@ -293,7 +295,9 @@ lifecycle, binding/grant/access revisions, and independent approval policy.
 `BlockTransfer` moves/copies ownership within one Library. It accepts logical
 Page/Block roots and Library/Page/Data Source targets, while the writer compiles
 exact parent, membership, View, and Document heads. Copy recursively allocates
-fresh ownership identities and never follows reference targets. Project change
+fresh ownership identities and never follows reference targets. Move rejects
+any edge that would make a Page own itself transitively; prepare provides early
+feedback and the committing transaction rechecks current authority. Project change
 is no longer a content transfer; access changes through binding/grants.
 
 A Document operation batch addresses application Block IDs and validates the

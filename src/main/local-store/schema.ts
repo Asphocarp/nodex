@@ -32,11 +32,15 @@ import { finalizePageReferenceIdentityStorage } from "./page-reference-hint-fina
 import { finalizePageNfmIdentityProjection } from "./page-nfm-projection-finalization";
 import { finalizeRetiredCardAgentProperties } from "./retired-card-agent-properties-finalization";
 import { migrateCanvasPageReferenceHashes } from "./canvas-page-reference-hash-migration";
+import {
+  MAX_PAGE_HIERARCHY_DEPTH,
+  findInvalidPageHierarchy,
+} from "./page-hierarchy";
 
 export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 78;
+export const CURRENT_SCHEMA_VERSION = 79;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -69,6 +73,7 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
   { fromVersion: 75, toVersion: 76, migrate: migrateSchema75To76 },
   { fromVersion: 76, toVersion: 77, migrate: migrateSchema76To77 },
   { fromVersion: 77, toVersion: 78, migrate: migrateSchema77To78 },
+  { fromVersion: 78, toVersion: 79, migrate: migrateSchema78To79 },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
@@ -7841,6 +7846,54 @@ function createLibraryPageFoundationSchema(db: Database.Database): void {
   `);
 }
 
+const invalidPageParentHierarchySql = `(
+  NEW.parent_id = NEW.block_id
+  OR EXISTS (
+    WITH RECURSIVE ancestors(
+      block_id, library_id, parent_kind, parent_id, lifecycle
+    ) AS (
+      SELECT block_id, library_id, parent_kind, parent_id, lifecycle
+      FROM pages WHERE block_id = NEW.parent_id
+      UNION
+      SELECT parent.block_id, parent.library_id, parent.parent_kind,
+        parent.parent_id, parent.lifecycle
+      FROM ancestors current
+      INNER JOIN pages parent
+        ON current.parent_kind = 'page'
+        AND parent.block_id = current.parent_id
+    )
+    SELECT 1
+    WHERE EXISTS (
+        SELECT 1 FROM ancestors WHERE block_id = NEW.block_id
+      )
+      OR (SELECT COUNT(*) FROM ancestors) >= ${MAX_PAGE_HIERARCHY_DEPTH}
+      OR EXISTS (
+        SELECT 1 FROM ancestors
+        WHERE library_id <> NEW.library_id OR lifecycle = 'deleted'
+      )
+      OR NOT EXISTS (
+        SELECT 1
+        FROM ancestors terminal
+        WHERE (
+          terminal.parent_kind = 'library'
+          AND EXISTS (
+            SELECT 1 FROM libraries library
+            WHERE library.id = terminal.parent_id
+              AND library.id = NEW.library_id
+          )
+        ) OR (
+          terminal.parent_kind = 'data_source'
+          AND EXISTS (
+            SELECT 1 FROM data_sources source
+            WHERE source.id = terminal.parent_id
+              AND source.library_id = NEW.library_id
+              AND source.lifecycle <> 'deleted'
+          )
+        )
+      )
+  )
+)`;
+
 function installLibraryPageIntegrityTriggers(db: Database.Database): void {
   db.exec(`
     DROP TRIGGER IF EXISTS pages_validate_parent_insert;
@@ -7868,6 +7921,14 @@ function installLibraryPageIntegrityTriggers(db: Database.Database): void {
         SELECT RAISE(ABORT, 'Page parent must be an owned Library, Page, or Data Source');
       END;
 
+    DROP TRIGGER IF EXISTS pages_validate_hierarchy_insert;
+    CREATE TRIGGER pages_validate_hierarchy_insert
+      BEFORE INSERT ON pages
+      WHEN NEW.parent_kind = 'page' AND ${invalidPageParentHierarchySql}
+      BEGIN
+        SELECT RAISE(ABORT, 'Page parent hierarchy must be acyclic and rooted');
+      END;
+
     DROP TRIGGER IF EXISTS pages_validate_parent_update;
     CREATE TRIGGER pages_validate_parent_update
       BEFORE UPDATE OF library_id, parent_kind, parent_id ON pages
@@ -7891,6 +7952,14 @@ function installLibraryPageIntegrityTriggers(db: Database.Database): void {
       )
       BEGIN
         SELECT RAISE(ABORT, 'Page parent must be an owned Library, Page, or Data Source');
+      END;
+
+    DROP TRIGGER IF EXISTS pages_validate_hierarchy_update;
+    CREATE TRIGGER pages_validate_hierarchy_update
+      BEFORE UPDATE OF library_id, parent_kind, parent_id ON pages
+      WHEN NEW.parent_kind = 'page' AND ${invalidPageParentHierarchySql}
+      BEGIN
+        SELECT RAISE(ABORT, 'Page parent hierarchy must be acyclic and rooted');
       END;
 
     DROP TRIGGER IF EXISTS pages_validate_document_insert;
@@ -8862,6 +8931,38 @@ export function migrateSchema77To78(db: Database.Database): void {
       );
     }
     setUserVersion(db, 78);
+  });
+  migrate.immediate();
+}
+
+/**
+ * v79 makes the rooted, acyclic Page ownership forest a persistence invariant.
+ * Corrupt legacy stores fail closed with the first concrete Page coordinate;
+ * ownership is never guessed or repaired during migration.
+ */
+export function migrateSchema78To79(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 78) {
+    throw new Error(
+      `Schema v78 to v79 migration requires v78, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    const invalidHierarchy = findInvalidPageHierarchy(db);
+    if (invalidHierarchy) {
+      throw new Error(
+        `Schema v79 cannot publish Page ${invalidHierarchy.pageId}: ${invalidHierarchy.error.message}`,
+      );
+    }
+    installLibraryPageIntegrityTriggers(db);
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v79 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 79);
   });
   migrate.immediate();
 }

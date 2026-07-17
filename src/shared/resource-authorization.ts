@@ -24,6 +24,7 @@ export type ProjectResourceAuthorizationReason =
   | "allowed"
   | "project_not_found"
   | "resource_not_found"
+  | "resource_hierarchy_corrupt"
   | "library_mismatch"
   | "grant_missing"
   | "project_read_only"

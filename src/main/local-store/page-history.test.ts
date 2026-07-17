@@ -41,12 +41,14 @@ const createSchema = (database: Database.Database): void => {
       block_id TEXT PRIMARY KEY,
       library_id TEXT NOT NULL,
       parent_kind TEXT NOT NULL,
-      parent_id TEXT NOT NULL
+      parent_id TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active'
     );
     CREATE TABLE data_sources (
       id TEXT PRIMARY KEY,
       library_id TEXT NOT NULL,
-      home_database_block_id TEXT NOT NULL
+      home_database_block_id TEXT NOT NULL,
+      lifecycle TEXT NOT NULL DEFAULT 'active'
     );
     CREATE TABLE project_resource_grants (
       id TEXT PRIMARY KEY,

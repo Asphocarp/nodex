@@ -11,6 +11,10 @@ import type {
   RevokeProjectResourceGrantInput,
 } from "../../shared/resource-authorization";
 import { getDb } from "./database";
+import {
+  PageHierarchyError,
+  resolvePageHierarchy,
+} from "./page-hierarchy";
 
 interface ProjectAuthorityRow {
   readonly id: string;
@@ -81,54 +85,6 @@ const readProjectAuthority = (
     FROM projects WHERE id = ?
   `).get(projectId) as ProjectAuthorityRow | undefined) ?? null;
 
-const readPageAncestors = (
-  database: Database.Database,
-  pageId: string,
-): readonly string[] =>
-  (database.prepare(`
-    WITH RECURSIVE ancestors(page_id, parent_kind, parent_id, depth) AS (
-      SELECT block_id, parent_kind, parent_id, 0
-      FROM pages WHERE block_id = ?
-      UNION ALL
-      SELECT parent.block_id, parent.parent_kind, parent.parent_id,
-        ancestors.depth + 1
-      FROM ancestors
-      INNER JOIN pages parent
-        ON ancestors.parent_kind = 'page'
-        AND parent.block_id = ancestors.parent_id
-      WHERE ancestors.depth < 512
-    )
-    SELECT page_id AS pageId FROM ancestors ORDER BY depth ASC
-  `).all(pageId) as readonly { readonly pageId: string }[])
-    .map((row) => row.pageId);
-
-const readPageOwningDatabase = (
-  database: Database.Database,
-  pageId: string,
-): string | null =>
-  (database.prepare(`
-    WITH RECURSIVE ancestors(page_id, parent_kind, parent_id, depth) AS (
-      SELECT block_id, parent_kind, parent_id, 0
-      FROM pages WHERE block_id = ?
-      UNION ALL
-      SELECT parent.block_id, parent.parent_kind, parent.parent_id,
-        ancestors.depth + 1
-      FROM ancestors
-      INNER JOIN pages parent
-        ON ancestors.parent_kind = 'page'
-        AND parent.block_id = ancestors.parent_id
-      WHERE ancestors.depth < 512
-    )
-    SELECT source.home_database_block_id AS databaseId
-    FROM ancestors
-    INNER JOIN data_sources source
-      ON ancestors.parent_kind = 'data_source'
-      AND source.id = ancestors.parent_id
-    ORDER BY ancestors.depth ASC
-    LIMIT 1
-  `).get(pageId) as { readonly databaseId: string } | undefined)
-    ?.databaseId ?? null;
-
 const readDatabasePageAncestors = (
   database: Database.Database,
   databaseId: string,
@@ -142,7 +98,9 @@ const readDatabasePageAncestors = (
     WHERE database_block.id = ?
       AND database_block.location_kind = 'document'
   `).get(databaseId) as { readonly pageId: string } | undefined;
-  return hostPage ? readPageAncestors(database, hostPage.pageId) : [];
+  return hostPage
+    ? resolvePageHierarchy(database, hostPage.pageId).pageIds
+    : [];
 };
 
 const readResourceCoordinates = (
@@ -154,11 +112,14 @@ const readResourceCoordinates = (
       SELECT library_id AS libraryId FROM pages WHERE block_id = ?
     `).get(resource.pageId) as { readonly libraryId: string } | undefined;
     if (!page) return null;
-    const owningDatabase = readPageOwningDatabase(database, resource.pageId);
+    const hierarchy = resolvePageHierarchy(database, resource.pageId);
     return {
-      libraryId: page.libraryId,
-      owningDatabaseIds: owningDatabase ? [owningDatabase] : [],
-      pageAncestorIds: readPageAncestors(database, resource.pageId),
+      libraryId: hierarchy.libraryId,
+      owningDatabaseIds:
+        hierarchy.terminal.kind === "data_source"
+          ? [hierarchy.terminal.databaseId]
+          : [],
+      pageAncestorIds: hierarchy.pageIds,
     };
   }
 
@@ -285,7 +246,19 @@ export const authorizeProjectResourceInDatabase = (
     return deny(projectId, input.resource, input.action, "project_not_found");
   }
 
-  const coordinates = readResourceCoordinates(database, input.resource);
+  let coordinates: ResourceCoordinates | null;
+  try {
+    coordinates = readResourceCoordinates(database, input.resource);
+  } catch (error) {
+    if (!(error instanceof PageHierarchyError)) throw error;
+    return deny(
+      projectId,
+      input.resource,
+      input.action,
+      "resource_hierarchy_corrupt",
+      project,
+    );
+  }
   if (!coordinates) {
     return deny(
       projectId,

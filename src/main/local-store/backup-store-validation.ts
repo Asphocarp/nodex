@@ -24,6 +24,7 @@ import {
   isCanvasFileProjectionCurrent,
 } from "./canvas-scene-projection-equivalence";
 import { MAX_IMAGE_UPLOAD_BYTES } from "./assets";
+import { findInvalidPageHierarchy } from "./page-hierarchy";
 
 export interface ValidatedBackupStore {
   readonly schemaVersion: number;
@@ -367,6 +368,23 @@ const validateOpenDatabase = (
     throw new BackupStoreValidationError(
       `Backup database has ${invalidPageOwnership} Page(s) without a valid owned Document`,
     );
+  }
+
+  const hasCanonicalPages = scalarCount(
+    database,
+    `
+      SELECT COUNT(*) AS count
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'pages'
+    `,
+  ) === 1;
+  if (hasCanonicalPages) {
+    const invalidPageHierarchy = findInvalidPageHierarchy(database);
+    if (invalidPageHierarchy) {
+      throw new BackupStoreValidationError(
+        `Backup Page ${invalidPageHierarchy.pageId} has an invalid ownership hierarchy: ${invalidPageHierarchy.error.message}`,
+      );
+    }
   }
 
   const unownedDocuments = scalarCount(

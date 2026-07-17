@@ -26,6 +26,7 @@ import { applyDocumentOperationBatch } from "./block-document-operations";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { applyDatabaseMutation } from "./database-kernel";
 import { createProject } from "./projects";
+import { createPage } from "./database-pages";
 
 const seedCard = (
   database: ReturnType<typeof getDb>,
@@ -146,6 +147,109 @@ const seedCard = (
 };
 
 describe("BlockTransfer store", () => {
+  test("rejects moving a Page into itself or a descendant at prepare and commit", async () => {
+    closeDatabase();
+    const previous = process.env.NODEX_DIR;
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-block-transfer-cycle-"),
+    );
+    process.env.NODEX_DIR = directory;
+    try {
+      await initializeDatabase();
+      const project = createProject({ name: "Page hierarchy transfer" });
+      const ancestor = await createPage(project.id, "draft", {
+        title: "Ancestor",
+      });
+      const descendant = await createPage(project.id, "draft", {
+        title: "Descendant",
+      });
+      const database = getDb();
+      const metadata = database.prepare(`
+        SELECT store_epoch FROM block_store_metadata WHERE id = 1
+      `).get() as { readonly store_epoch: string };
+      const source = database.prepare(`
+        SELECT data_source_id AS dataSourceId
+        FROM data_source_page_memberships
+        WHERE page_block_id = ? AND removed_at IS NULL
+      `).get(ancestor.id) as { readonly dataSourceId: string };
+      const intent = (
+        operationId: string,
+        pageId: string,
+        targetPageId: string,
+      ): BlockTransferIntent => ({
+        version: 2,
+        operationId,
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: [pageId],
+        source: { kind: "data_source", dataSourceId: source.dataSourceId },
+        target: { kind: "page", pageId: targetPageId },
+      });
+
+      expect(
+        prepareBlockTransfer(
+          database,
+          intent("move-ancestor-into-self", ancestor.id, ancestor.id),
+        ),
+      ).toMatchObject({ ok: false, error: { code: "transfer_cycle" } });
+
+      const preparedBeforeHierarchyChange = prepareBlockTransfer(
+        database,
+        intent("move-ancestor-into-descendant-stale", ancestor.id, descendant.id),
+      );
+      expect(preparedBeforeHierarchyChange.ok).toBe(true);
+      if (!preparedBeforeHierarchyChange.ok) return;
+
+      const nestDescendant = prepareBlockTransfer(
+        database,
+        intent("nest-descendant", descendant.id, ancestor.id),
+      );
+      expect(nestDescendant.ok).toBe(true);
+      if (!nestDescendant.ok) return;
+      expect(
+        applyBlockTransfer(database, nestDescendant.value.request).ok,
+      ).toBe(true);
+
+      expect(
+        prepareBlockTransfer(
+          database,
+          intent("move-ancestor-into-descendant", ancestor.id, descendant.id),
+        ),
+      ).toMatchObject({ ok: false, error: { code: "transfer_cycle" } });
+      expect(
+        applyBlockTransfer(
+          database,
+          preparedBeforeHierarchyChange.value.request,
+        ),
+      ).toMatchObject({ ok: false, error: { code: "transfer_cycle" } });
+      expect(
+        database.prepare(`
+          SELECT block_id, parent_kind, parent_id
+          FROM pages WHERE block_id IN (?, ?)
+          ORDER BY block_id
+        `).all(ancestor.id, descendant.id),
+      ).toEqual([
+        {
+          block_id: ancestor.id,
+          parent_kind: "data_source",
+          parent_id: source.dataSourceId,
+        },
+        {
+          block_id: descendant.id,
+          parent_kind: "page",
+          parent_id: ancestor.id,
+        },
+      ].sort((left, right) => left.block_id.localeCompare(right.block_id)));
+    } finally {
+      closeDatabase();
+      fs.rmSync(directory, { recursive: true, force: true });
+      if (previous === undefined) delete process.env.NODEX_DIR;
+      else process.env.NODEX_DIR = previous;
+    }
+  });
+
   test("atomically moves one Card Database -> Document -> Database and restores dormant membership", async () => {
     closeDatabase();
     const previous = process.env.NODEX_DIR;

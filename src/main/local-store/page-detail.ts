@@ -222,6 +222,12 @@ export const readPageDetailInDatabase = (
         action: "read",
       });
       if (!authorization.allowed) {
+        if (authorization.reason === "resource_hierarchy_corrupt") {
+          return failure(
+            "page_detail_corrupt",
+            `Page ${pageId} has an invalid ownership hierarchy`,
+          );
+        }
         return failure(
           "authorization_denied",
           `Page read denied: ${authorization.reason}`,
