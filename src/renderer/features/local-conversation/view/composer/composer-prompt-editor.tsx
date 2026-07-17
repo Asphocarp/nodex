@@ -5,8 +5,10 @@ import {
   useImperativeHandle,
   useRef,
 } from "react";
-import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { EditorState, Plugin, TextSelection } from "@tiptap/pm/state";
+import { baseKeymap } from "@tiptap/pm/commands";
+import { keymap } from "@tiptap/pm/keymap";
+import { Schema, Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { EditorState, Plugin, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ComposerSlashTriggerState } from "./slash-command-menu/slash-command-types";
@@ -23,20 +25,25 @@ const promptSchema = new Schema({
       parseDOM: [{ tag: "p" }],
       toDOM: () => ["p", 0],
     },
-    hardBreak: {
-      group: "inline",
-      inline: true,
-      linebreakReplacement: true,
-      selectable: false,
-      parseDOM: [{ tag: "br" }],
-      toDOM: () => ["br"],
-      leafText: () => "\n",
-    },
     text: {
       group: "inline",
     },
   },
   marks: {},
+});
+
+const promptEditingKeymapPlugin = keymap({
+  ...baseKeymap,
+  "Shift-Enter": baseKeymap.Enter,
+});
+
+const promptClipboardPlugin = new Plugin({
+  props: {
+    clipboardTextParser: (text) => buildPromptTextSlice(text),
+    clipboardTextSerializer: (content) => (
+      content.content.textBetween(0, content.content.size, "\n")
+    ),
+  },
 });
 
 export interface ComposerPromptEditorHandle {
@@ -65,7 +72,7 @@ interface ComposerPromptEditorProps {
 }
 
 function buildPromptDoc(value: string): ProseMirrorNode {
-  const lines = value.split("\n");
+  const lines = value.split(/\r\n?|\n/u);
   const paragraphType = promptSchema.nodes.paragraph;
   const paragraphs = (lines.length > 0 ? lines : [""]).map((line) =>
     paragraphType.create(null, line.length > 0 ? promptSchema.text(line) : undefined)
@@ -74,18 +81,36 @@ function buildPromptDoc(value: string): ProseMirrorNode {
   return promptSchema.nodes.doc.create(null, paragraphs);
 }
 
+function buildPromptTextSlice(value: string): Slice {
+  return new Slice(buildPromptDoc(value).content, 1, 1);
+}
+
+function replacePromptTextRange(
+  transaction: Transaction,
+  range: { from: number; to: number; text: string },
+): Transaction {
+  if (!/[\r\n]/u.test(range.text)) {
+    return transaction.insertText(range.text, range.from, range.to);
+  }
+
+  const textSelection = TextSelection.create(transaction.doc, range.from, range.to);
+  return transaction
+    .setSelection(textSelection)
+    .replaceSelection(buildPromptTextSlice(range.text));
+}
+
 function readPromptDocText(doc: ProseMirrorNode): string {
-  return doc.textBetween(0, doc.content.size, "\n", "\n");
+  return doc.textBetween(0, doc.content.size, "\n");
 }
 
 function promptDocPositionToTextOffset(doc: ProseMirrorNode, position: number): number {
-  return doc.textBetween(0, position, "\n", "\n").length;
+  return doc.textBetween(0, position, "\n").length;
 }
 
 function promptTextOffsetToDocPosition(doc: ProseMirrorNode, offset: number): number {
   const targetOffset = Math.max(0, offset);
   for (let position = 0; position <= doc.content.size; position += 1) {
-    if (doc.textBetween(0, position, "\n", "\n").length >= targetOffset) {
+    if (doc.textBetween(0, position, "\n").length >= targetOffset) {
       return position;
     }
   }
@@ -125,31 +150,14 @@ function createPromptEditorState(value: string, placeholderRef: { current: strin
   return EditorState.create({
     schema: promptSchema,
     doc: buildPromptDoc(value),
-    plugins: [createPromptPlaceholderPlugin(placeholderRef)],
+    // Direct EditorView handlers own composer shortcuts first. Unconsumed
+    // editing keys fall through to ProseMirror's structural commands.
+    plugins: [
+      promptEditingKeymapPlugin,
+      promptClipboardPlugin,
+      createPromptPlaceholderPlugin(placeholderRef),
+    ],
   });
-}
-
-function insertPromptLineBreak(view: EditorView, event: KeyboardEvent): boolean {
-  if (
-    event.key !== "Enter"
-    || !event.shiftKey
-    || event.altKey
-    || event.ctrlKey
-    || event.metaKey
-    || event.isComposing
-  ) {
-    return false;
-  }
-
-  const hardBreak = view.state.schema.nodes.hardBreak;
-  if (!hardBreak) return false;
-
-  view.dispatch(
-    view.state.tr
-      .replaceSelectionWith(hardBreak.create())
-      .scrollIntoView(),
-  );
-  return true;
 }
 
 export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, ComposerPromptEditorProps>(
@@ -225,7 +233,11 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
 
       const from = Math.max(0, Math.min(range.from, view.state.doc.content.size));
       const to = Math.max(from, Math.min(range.to, view.state.doc.content.size));
-      view.dispatch(view.state.tr.insertText(range.text, from, to).scrollIntoView());
+      view.dispatch(replacePromptTextRange(view.state.tr, {
+        from,
+        to,
+        text: range.text,
+      }).scrollIntoView());
       view.focus();
       emitSlashTriggerState(view);
       return readPromptDocText(view.state.doc);
@@ -252,7 +264,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         }
 
         const { from, to } = view.state.selection;
-        view.dispatch(view.state.tr.insertText(text, from, to).scrollIntoView());
+        view.dispatch(replacePromptTextRange(view.state.tr, { from, to, text }).scrollIntoView());
         view.focus();
         return readPromptDocText(view.state.doc);
       },
@@ -307,9 +319,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           translate: "no",
           style: "font-size: var(--codex-chat-font-size); height: auto; resize: none; min-height: 2.75rem;",
         },
-        handleKeyDown: (view, event) => (
-          onKeyDownRef.current(event) || insertPromptLineBreak(view, event)
-        ),
+        handleKeyDown: (_view, event) => onKeyDownRef.current(event),
         handleDOMEvents: {
           mouseup(view) {
             window.setTimeout(() => emitSlashTriggerState(view), 0);
@@ -348,9 +358,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       if (!view) return;
       view.setProps({
         editable: () => !disabled,
-        handleKeyDown: (currentView, event) => (
-          onKeyDownRef.current(event) || insertPromptLineBreak(currentView, event)
-        ),
+        handleKeyDown: (_currentView, event) => onKeyDownRef.current(event),
         handleDOMEvents: {
           mouseup(view) {
             window.setTimeout(() => emitSlashTriggerState(view), 0);
