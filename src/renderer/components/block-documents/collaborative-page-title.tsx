@@ -32,6 +32,11 @@ import {
   restoreRichTitleDomSelection,
 } from "@/lib/rich-title-editor-dom";
 import {
+  createRichTitleClipboardPayload,
+  resolveRichTitleClipboardColor,
+  writeRichTitleClipboardPayload,
+} from "@/lib/rich-title-clipboard";
+import {
   applyRichTitleTextEdit,
   mapRichTitleCompositionIndexToBase,
   nextRichTitleCodePointIndex,
@@ -148,6 +153,8 @@ export function CollaborativePageTitle({
   onCompositionStart,
   onCompositionEnd,
   surfaceWriteFence,
+  onCopy,
+  onCut,
   onKeyDown,
   onFocus,
   onBlur,
@@ -519,6 +526,43 @@ export function CollaborativePageTitle({
     );
   };
 
+  const writeSelectionToClipboard = (
+    event: ClipboardEvent<HTMLDivElement>,
+  ): { readonly start: number; readonly end: number } | null => {
+    const editor = editorRef.current;
+    const selection = editor ? readRichTitleDomSelection(editor) : null;
+    if (!editor || !selection || selection.end <= selection.start) return null;
+
+    const computedStyle = editor.ownerDocument.defaultView?.getComputedStyle(editor);
+    const payload = createRichTitleClipboardPayload(
+      readPortableRichTextFromYText(title),
+      selection,
+      computedStyle
+        ? (color) => resolveRichTitleClipboardColor(
+            color,
+            (property) => computedStyle.getPropertyValue(property),
+          )
+        : undefined,
+    );
+    if (!writeRichTitleClipboardPayload(event.clipboardData, payload)) return null;
+    event.preventDefault();
+    return selection;
+  };
+
+  const handleCopy = (event: ClipboardEvent<HTMLDivElement>): void => {
+    onCopy?.(event);
+    if (event.defaultPrevented) return;
+    writeSelectionToClipboard(event);
+  };
+
+  const handleCut = (event: ClipboardEvent<HTMLDivElement>): void => {
+    onCut?.(event);
+    if (event.defaultPrevented || disabled) return;
+    const selection = writeSelectionToClipboard(event);
+    if (!selection) return;
+    applyEdit(selection.start, selection.end, "");
+  };
+
   const handleCompositionStart = (
     event: CompositionEvent<HTMLDivElement>,
   ): void => {
@@ -658,6 +702,8 @@ export function CollaborativePageTitle({
         spellCheck={spellCheck}
         tabIndex={disabled ? -1 : tabIndex}
         className={cn(TITLE_CLASS_NAME, className)}
+        onCopy={handleCopy}
+        onCut={handleCut}
         onInput={handleInput}
         onPaste={handlePaste}
         onCompositionStart={handleCompositionStart}

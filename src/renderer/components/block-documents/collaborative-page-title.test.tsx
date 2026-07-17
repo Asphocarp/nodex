@@ -134,6 +134,71 @@ describe("CollaborativePageTitle", () => {
     document.destroy();
   });
 
+  test("copies title semantics without leaking the presentation-level bold style", async () => {
+    const { document, title } = createTitle([
+      { type: "text", text: "Plain ", styles: {} },
+      { type: "text", text: "Bold", styles: { bold: true } },
+    ]);
+    const view = render(<CollaborativePageTitle title={title} />);
+    const editor = view.getByRole("textbox", { name: "Page title" }) as HTMLDivElement;
+    const clipboard = new Map<string, string>();
+    const clipboardData = {
+      setData(format: string, data: string) {
+        clipboard.set(format, data);
+      },
+    } as DataTransfer;
+
+    await act(async () => {
+      editor.focus();
+      restoreRichTitleDomSelection(editor, 0, title.length);
+      fireEvent.copy(editor, { clipboardData });
+      await Promise.resolve();
+    });
+
+    expect(clipboard.get("text/plain")).toBe("Plain Bold");
+    expect(clipboard.get("text/html")).toBe("Plain <strong>Bold</strong>");
+    expect(clipboard.get("text/html")?.includes("font-weight")).toBe(false);
+    document.destroy();
+  });
+
+  test("deletes a cut title selection only after writing its semantic clipboard payload", async () => {
+    const { document, title } = createTitle("Cut title");
+    const view = render(<CollaborativePageTitle title={title} />);
+    const editor = view.getByRole("textbox", { name: "Page title" }) as HTMLDivElement;
+    const clipboard = new Map<string, string>();
+    const clipboardData = {
+      setData(format: string, data: string) {
+        clipboard.set(format, data);
+      },
+    } as DataTransfer;
+
+    await act(async () => {
+      editor.focus();
+      restoreRichTitleDomSelection(editor, 0, 3);
+      fireEvent.cut(editor, { clipboardData });
+      await Promise.resolve();
+    });
+
+    expect(clipboard.get("text/plain")).toBe("Cut");
+    expect(clipboard.get("text/html")).toBe("Cut");
+    expect(title.toString()).toBe(" title");
+
+    await act(async () => {
+      restoreRichTitleDomSelection(editor, 0, 1);
+      fireEvent.cut(editor, {
+        clipboardData: {
+          setData() {
+            throw new Error("Clipboard unavailable");
+          },
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(title.toString()).toBe(" title");
+    document.destroy();
+  });
+
   test("keeps the selection alive while the inline link editor applies a URL", async () => {
     const { document, title } = createTitle("Link title");
     const view = render(<CollaborativePageTitle title={title} />);
