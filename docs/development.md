@@ -24,6 +24,9 @@ Start the desktop app in development mode:
 pnpm run dev
 ```
 
+Both `pnpm run dev` and `pnpm run build:run` expose the renderer Chrome DevTools
+Protocol endpoint on `127.0.0.1:9333` for local debugging.
+
 Run Nodex against disposable Codex and Nodex state when checking first-run or
 profile-scoped behavior:
 
