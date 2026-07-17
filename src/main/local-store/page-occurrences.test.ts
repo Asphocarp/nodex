@@ -172,7 +172,7 @@ function allDayInput(startIso: string, endIso: string): PageInput {
   };
 }
 
-async function createCard(targetProjectId: string, status: "in_progress", input: PageInput) {
+async function createCard(targetProjectId: string, status: "build", input: PageInput) {
   const database = getDb();
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Card fixture has no Block store epoch");
@@ -229,7 +229,7 @@ function recurringInputWithUntilDate(startIso: string, endIso: string, untilDate
   };
 }
 
-function authorityRows(lifecycle: "active" | "archived", status: "in_progress" | "done") {
+function authorityRows(lifecycle: "active" | "archived", status: "build" | "ship") {
   return executeReadOnlyQuery(
     `SELECT block.id,
             schedule.scheduled_start,
@@ -255,7 +255,7 @@ function authorityRows(lifecycle: "active" | "archived", status: "in_progress" |
 }
 
 function archiveRows() {
-  return authorityRows("archived", "done");
+  return authorityRows("archived", "ship");
 }
 
 describe("occurrence actions", () => {
@@ -263,7 +263,7 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
 
       const result = await completePageOccurrence(
         projectId,
@@ -300,7 +300,7 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const futureIso = "2026-03-05T10:00:00.000Z";
       const futureEndIso = "2026-03-05T11:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
 
       const result = await completePageOccurrence(projectId, {
         pageId: card.id,
@@ -339,7 +339,7 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", {
+      const card = await createCard(projectId, "build", {
         title: "One-time event",
         scheduledStart: new Date(startIso),
         scheduledEnd: new Date(endIso),
@@ -372,7 +372,7 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
 
       const result = await skipPageOccurrence(projectId, {
         pageId: card.id,
@@ -397,7 +397,7 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const detachedStartIso = "2026-03-01T12:00:00.000Z";
       const detachedEndIso = "2026-03-01T13:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
       const database = getDb();
       const richHead = database
         .prepare(
@@ -481,7 +481,7 @@ describe("occurrence actions", () => {
       expect(exceptions[0]?.override_start).toBe(null);
       expect(exceptions[0]?.override_end).toBe(null);
 
-      const rows = authorityRows("active", "in_progress");
+      const rows = authorityRows("active", "build");
       expect(rows.length).toBe(2);
       const detachedRow = rows.find((row) => row.id !== card.id);
       expect(detachedRow?.id).toBe(createdPageId);
@@ -517,7 +517,7 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
 
       const occurrences = await listPageOccurrences(
         projectId,
@@ -547,7 +547,7 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const card = await createCard(
         projectId,
-        "in_progress",
+        "build",
         recurringInput(startIso, endIso),
       );
       const database = getDb();
@@ -587,7 +587,7 @@ describe("occurrence actions", () => {
 
   test("calendar occurrences return explicit all-day flag", async () => {
     const ran = await withTempDatabase(async () => {
-      await createCard(projectId, "in_progress", allDayInput("2026-03-10T00:00:00.000Z", "2026-03-11T00:00:00.000Z"));
+      await createCard(projectId, "build", allDayInput("2026-03-10T00:00:00.000Z", "2026-03-11T00:00:00.000Z"));
 
       const occurrences = await listPageOccurrences(
         projectId,
@@ -611,7 +611,7 @@ describe("occurrence actions", () => {
       const splitOccurrenceIso = "2026-03-03T10:00:00.000Z";
       const splitStartIso = "2026-03-03T15:00:00.000Z";
       const splitEndIso = "2026-03-03T16:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
       const createdPageId = createUuidV7();
 
       const result = await updatePageOccurrence(projectId, {
@@ -636,7 +636,7 @@ describe("occurrence actions", () => {
         expect(master.recurrence.endCondition.untilDate).toBe("2026-03-02");
       }
 
-      const rows = authorityRows("active", "in_progress");
+      const rows = authorityRows("active", "build");
       expect(rows.length).toBe(2);
 
       const splitRow = rows.find((row) => row.id !== card.id);
@@ -666,7 +666,7 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const updatedStartIso = "2026-03-01T14:00:00.000Z";
       const updatedEndIso = "2026-03-01T15:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
 
       const result = await updatePageOccurrence(projectId, {
         pageId: card.id,
@@ -680,7 +680,7 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBe(true);
 
-      const rows = authorityRows("active", "in_progress");
+      const rows = authorityRows("active", "build");
       expect(rows.length).toBe(1);
       expect(rows[0]?.id).toBe(card.id);
       expect(toIso(rows[0]?.scheduled_start)).toBe(updatedStartIso);
@@ -700,7 +700,7 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const allStartIso = "2026-03-01T14:00:00.000Z";
       const allEndIso = "2026-03-01T15:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
 
       const result = await updatePageOccurrence(projectId, {
         pageId: card.id,
@@ -739,7 +739,7 @@ describe("occurrence actions", () => {
       const shiftedEndIso = "2026-03-03T11:00:00.000Z";
       const card = await createCard(
         projectId,
-        "in_progress",
+        "build",
         recurringInputWithUntilDate(startIso, endIso, "2026-03-10"),
       );
 
@@ -777,7 +777,7 @@ describe("occurrence actions", () => {
       const shiftedSplitEndIso = "2026-03-07T11:00:00.000Z";
       const card = await createCard(
         projectId,
-        "in_progress",
+        "build",
         recurringInputWithUntilDate(startIso, endIso, "2026-03-10"),
       );
 
@@ -793,7 +793,7 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBe(true);
 
-      const rows = authorityRows("active", "in_progress");
+      const rows = authorityRows("active", "build");
       expect(rows.length).toBe(2);
 
       const oldRow = rows.find((row) => row.id === card.id);
@@ -814,7 +814,7 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "build", recurringInput(startIso, endIso));
 
       const completeResult = await completePageOccurrence(projectId, {
         pageId: card.id,
@@ -846,7 +846,7 @@ describe("occurrence actions", () => {
       const createdPageId = createUuidV7();
       const card = await createCard(
         projectId,
-        "in_progress",
+        "build",
         recurringInput(startIso, endIso),
       );
 
@@ -989,7 +989,7 @@ describe("occurrence actions", () => {
       const operationId = "occurrence-invalid-created-uuid-v7";
       const card = await createCard(
         projectId,
-        "in_progress",
+        "build",
         recurringInput(
           "2026-03-01T10:00:00.000Z",
           "2026-03-01T11:00:00.000Z",
@@ -1027,7 +1027,7 @@ describe("occurrence actions", () => {
       const operationId = "occurrence-all-rejects-created-uuid-v7";
       const card = await createCard(
         projectId,
-        "in_progress",
+        "build",
         recurringInput(
           "2026-03-01T10:00:00.000Z",
           "2026-03-01T11:00:00.000Z",
@@ -1067,7 +1067,7 @@ describe("occurrence actions", () => {
       const end = new Date("2026-03-01T11:00:00.000Z");
       const page = await createCard(
         ownerProjectId,
-        "in_progress",
+        "build",
         recurringInput(start.toISOString(), end.toISOString()),
       );
 

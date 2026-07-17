@@ -35,13 +35,13 @@ const dragData = {
   dataSourceId: "source-a",
   storeEpoch: "epoch-a",
   sourcePageId: "card-target",
-  sourceColumnId: "draft",
+  sourceColumnId: "triage",
   sourcePage: { id: "card-target", title: "Target" },
   dragItems: [
     {
       card: { id: "card-target", title: "Target" },
-      columnId: "draft",
-      columnName: "Draft",
+      columnId: "triage",
+      columnName: "Triage",
     },
   ],
 } as unknown as KanbanCardDragData;

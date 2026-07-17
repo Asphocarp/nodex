@@ -230,7 +230,7 @@ const run = async (): Promise<void> => {
     const assetsPath = path.join(directory, "assets");
     fs.mkdirSync(assetsPath, { recursive: true });
     fs.writeFileSync(path.join(assetsPath, "before.txt"), "before", "utf8");
-    const card = await createPage(project.id, "draft", {
+    const card = await createPage(project.id, "triage", {
       title: "Backup title",
       description:
         '<attachment kind="file" mode="materialized" source="nodex://assets/before.txt" name="before.txt" mime="text/plain" bytes="6" />',

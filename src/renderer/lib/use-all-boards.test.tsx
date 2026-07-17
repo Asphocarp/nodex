@@ -31,7 +31,7 @@ const PROJECTS: Project[] = [
 const BOARD: BoardSummary = {
   columns: [
     {
-      id: "in_progress",
+      id: "build",
       name: "Doing",
       cards: [],
     },
@@ -59,7 +59,7 @@ function makeProject(id: string): Project {
 function makeCardSummary(): DatabasePageSummary {
   return {
     id: "card-1",
-    status: "in_progress",
+    status: "build",
     archived: false,
     title: "Event card",
     richTitle: plainTextToPortableRichText("Event card"),
@@ -215,8 +215,8 @@ describe("useBoardsForProjects", () => {
         listener({
           projectId: "project-1",
           changeType: "update",
-          columnId: "in_progress",
-          status: "in_progress",
+          columnId: "build",
+          status: "build",
           pageId: summary.id,
           summary,
         });

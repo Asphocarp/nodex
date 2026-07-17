@@ -17,7 +17,7 @@ const request = {
     pageId: "page-1",
     title: "Transport v2",
     nfm: "Body",
-    status: "draft",
+    status: "triage",
     dataSourceId: "source-1",
     tagOptionIds: ["o_AAAAAAAA"],
     newTagOptions: [{ optionId: "o_AAAAAAAA", name: "Release" }],

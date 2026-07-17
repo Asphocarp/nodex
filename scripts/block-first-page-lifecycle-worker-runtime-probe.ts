@@ -73,7 +73,7 @@ const createOperation = (
   pageId,
   title,
   nfm: "Page body committed through the worker FIFO",
-  status: "draft",
+  status: "triage",
 });
 
 const createWriter = (

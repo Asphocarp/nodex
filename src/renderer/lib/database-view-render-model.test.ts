@@ -138,7 +138,7 @@ const makeSnapshot = (input: {
         [statusPropertyId]: {
           propertyId: statusPropertyId,
           valueType: "select",
-          value: "in_progress",
+          value: "build",
           revision: 2,
         },
         [tagsPropertyId]: {
@@ -148,8 +148,8 @@ const makeSnapshot = (input: {
           revision: 1,
         },
       },
-      position: { groupKey: "in_progress", rankKey: "a", revision: 2 },
-      effectiveGroupKey: input.groupedByStatus === false ? null : "in_progress",
+      position: { groupKey: "build", rankKey: "a", revision: 2 },
+      effectiveGroupKey: input.groupedByStatus === false ? null : "build",
     }],
   };
   return {
@@ -254,7 +254,7 @@ describe("Database View render model", () => {
           kind: "clause" as const,
           propertyId: statusPropertyId,
           operator: "equals" as const,
-          value: "in_progress",
+          value: "build",
         },
       },
     };

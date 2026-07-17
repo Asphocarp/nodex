@@ -253,6 +253,8 @@ describe("use-workbench-state helpers", () => {
     const state = workbenchTestHelpers.loadInitialState();
     expect(state.dbViewPrefsByProject.default?.list?.summaryExpanded).toBe(false);
     expect(state.dbViewPrefsByProject.default?.list?.rules.sort[0]?.field).toBe("assignee");
+    expect(state.dbViewPrefsByProject.default?.list?.rules.filter.any[0]?.all[0])
+      .toEqual({ field: "status", op: "in", values: ["plan"] });
   });
 
   test("falls back to legacy workbench-session db-view prefs when dedicated storage is empty", () => {
@@ -285,6 +287,8 @@ describe("use-workbench-state helpers", () => {
     const state = workbenchTestHelpers.loadInitialState();
     expect(state.dbViewPrefsByProject.default?.kanban?.summaryExpanded).toBe(false);
     expect(state.dbViewPrefsByProject.default?.kanban?.rules.sort[0]?.field).toBe("created");
+    expect(state.dbViewPrefsByProject.default?.kanban?.rules.filter.any[0]?.all[0])
+      .toEqual({ field: "status", op: "in", values: ["ship"] });
   });
 
   test("normalizeRecentSessions caps persisted sessions at ten", () => {

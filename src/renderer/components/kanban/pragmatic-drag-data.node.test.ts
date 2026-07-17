@@ -10,12 +10,12 @@ import {
 const board: BoardSummary = {
   columns: [
     {
-      id: "in_progress",
-      name: "In Progress",
+      id: "build",
+      name: "Build",
       cards: [
         {
           id: "card-1",
-          status: "in_progress",
+          status: "build",
           archived: false,
           title: "Task",
           richTitle: plainTextToPortableRichText("Task"),
@@ -29,7 +29,7 @@ const board: BoardSummary = {
         },
         {
           id: "card-2",
-          status: "in_progress",
+          status: "build",
           archived: false,
           title: "Peer",
           richTitle: plainTextToPortableRichText("Peer"),
@@ -57,7 +57,7 @@ describe("pragmatic drag data", () => {
       dataSourceId: "source-default",
       storeEpoch: "epoch-default",
       activePage: board.columns[0]!.cards[0]!,
-      columnId: "in_progress",
+      columnId: "build",
     });
 
     expect(result.sourcePage.descriptionPreview).toBe("Persisted body");
@@ -79,7 +79,7 @@ describe("pragmatic drag data", () => {
       dataSourceId: "source-default",
       storeEpoch: "epoch-default",
       activePage: board.columns[0]!.cards[0]!,
-      columnId: "in_progress",
+      columnId: "build",
     });
 
     expect(canDropOnKanbanCard({

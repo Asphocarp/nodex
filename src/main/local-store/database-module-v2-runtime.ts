@@ -79,6 +79,7 @@ import type {
 } from "../../shared/resource-authorization";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type { NodexAgentResourceAccessOverlay } from "../../shared/nodex-agent-resource-access";
+import { DEFAULT_WORKFLOW_STATUS } from "../../shared/workflow-status";
 import {
   compareDatabaseViewOrderItems,
   type DatabaseViewOrderItem,
@@ -95,7 +96,7 @@ import {
   authorizeProjectResourceInDatabase,
 } from "./project-resource-grants";
 
-const CANONICAL_DATABASE_SCHEMA_VERSION = 81;
+const CANONICAL_DATABASE_SCHEMA_VERSION = 82;
 
 interface ProjectRow {
   readonly id: string;
@@ -2569,8 +2570,10 @@ const defaultValueForBuiltInProperty = (
   if (property.id === "tags") return [];
   if (property.id === "status") {
     const registry = readOptionRegistry(property);
-    return registry.options.some((option) => option.optionId === "draft")
-      ? "draft"
+    return registry.options.some(
+      (option) => option.optionId === DEFAULT_WORKFLOW_STATUS,
+    )
+      ? DEFAULT_WORKFLOW_STATUS
       : null;
   }
   return null;

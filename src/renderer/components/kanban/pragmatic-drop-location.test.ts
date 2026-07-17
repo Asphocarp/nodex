@@ -15,12 +15,12 @@ const instanceId = Symbol("test-dnd");
 const board: BoardSummary = {
   columns: [
     {
-      id: "in_progress",
-      name: "In Progress",
+      id: "build",
+      name: "Build",
       cards: [
         {
           id: "a",
-          status: "in_progress",
+          status: "build",
           archived: false,
           title: "A",
           richTitle: plainTextToPortableRichText("A"),
@@ -34,7 +34,7 @@ const board: BoardSummary = {
         },
         {
           id: "b",
-          status: "in_progress",
+          status: "build",
           archived: false,
           title: "B",
           richTitle: plainTextToPortableRichText("B"),
@@ -74,7 +74,7 @@ describe("pragmatic drop location", () => {
         data: buildKanbanCardDropTargetData({
           instanceId,
           pageId: "b",
-          columnId: "in_progress",
+          columnId: "build",
         }),
       }],
       draggedPageIds: ["a"],
@@ -82,7 +82,7 @@ describe("pragmatic drop location", () => {
       resolveColumnSurface: () => surface,
     });
 
-    expect(result?.columnId).toBe("in_progress");
+    expect(result?.columnId).toBe("build");
     expect(result?.index).toBe(0);
   });
 
@@ -95,7 +95,7 @@ describe("pragmatic drop location", () => {
         data: buildKanbanCardDropTargetData({
           instanceId,
           pageId: "a",
-          columnId: "in_progress",
+          columnId: "build",
         }),
       }],
       draggedPageIds: ["b"],
@@ -107,7 +107,7 @@ describe("pragmatic drop location", () => {
       dropTargets: [{
         data: buildKanbanColumnDropTargetData({
           instanceId,
-          columnId: "in_progress",
+          columnId: "build",
         }),
       }],
       draggedPageIds: ["b"],
@@ -126,7 +126,7 @@ describe("pragmatic drop location", () => {
         data: buildKanbanCardDropTargetData({
           instanceId,
           pageId: "a",
-          columnId: "in_progress",
+          columnId: "build",
         }),
       }],
       draggedPageIds: ["a"],
@@ -147,7 +147,7 @@ describe("pragmatic drop location", () => {
       dataSourceId: "source-default",
       storeEpoch: "epoch-default",
       activePage: board.columns[0]!.cards[0]!,
-      columnId: "in_progress",
+      columnId: "build",
     });
     const surface = createSurface();
 
@@ -158,13 +158,13 @@ describe("pragmatic drop location", () => {
           data: buildKanbanCardDropTargetData({
             instanceId,
             pageId: "a",
-            columnId: "in_progress",
+            columnId: "build",
           }),
         },
         {
           data: buildKanbanColumnDropTargetData({
             instanceId,
-            columnId: "in_progress",
+            columnId: "build",
           }),
         },
       ],
@@ -174,7 +174,7 @@ describe("pragmatic drop location", () => {
       resolveColumnSurface: () => surface,
     });
 
-    expect(result?.columnId).toBe("in_progress");
+    expect(result?.columnId).toBe("build");
     expect(result?.index).toBe(0);
   });
 
@@ -186,7 +186,7 @@ describe("pragmatic drop location", () => {
       dropTargets: [{
         data: buildKanbanColumnDropTargetData({
           instanceId,
-          columnId: "in_progress",
+          columnId: "build",
         }),
       }],
       draggedPageIds: ["x"],
@@ -205,7 +205,7 @@ describe("pragmatic drop location", () => {
         {
           data: buildKanbanColumnDropTargetData({
             instanceId,
-            columnId: "in_progress",
+            columnId: "build",
           }),
         },
       ],

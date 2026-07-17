@@ -54,17 +54,17 @@ const run = async (): Promise<void> => {
     const project = createProject({ name: "Database Page drag runtime" });
     const selected: string[] = [];
     for (let index = 0; index < 40; index += 1) {
-      const page = await createPage(project.id, "in_progress", {
+      const page = await createPage(project.id, "build", {
         title: `Selected ${index}`,
         priority: "p1-high",
       });
       selected.push(page.id);
     }
-    const targetBefore = await createPage(project.id, "done", {
+    const targetBefore = await createPage(project.id, "ship", {
       title: "Target before",
       priority: "p3-low",
     });
-    const targetAfter = await createPage(project.id, "done", {
+    const targetAfter = await createPage(project.id, "ship", {
       title: "Target after",
       priority: "p3-low",
     });
@@ -74,8 +74,8 @@ const run = async (): Promise<void> => {
     const compiled = compileDatabasePagesDrag({
       move: {
         pageIds: inputOrder,
-        fromStatus: "in_progress",
-        toStatus: "done",
+        fromStatus: "build",
+        toStatus: "ship",
         newOrder: 1,
         fieldPatch: { priority: "p2-medium" },
       },
@@ -106,7 +106,7 @@ const run = async (): Promise<void> => {
 
     const after = queryValue(readQuery(project.id));
     const doneOrder = after.rows
-      .filter((row) => row.effectiveGroupKey === "done")
+      .filter((row) => row.effectiveGroupKey === "ship")
       .map((row) => row.page.pageId);
     invariant(
       doneOrder.join(",") === [targetBefore.id, ...inputOrder, targetAfter.id].join(","),
@@ -121,7 +121,7 @@ const run = async (): Promise<void> => {
     for (const pageId of inputOrder) {
       const row = after.rows.find((candidate) => candidate.page.pageId === pageId);
       invariant(
-        row?.values[status?.propertyId ?? ""]?.value === "done"
+        row?.values[status?.propertyId ?? ""]?.value === "ship"
           && row?.values[priority?.propertyId ?? ""]?.value === "p2-medium",
         `Data Source values were not committed for Page ${pageId}`,
       );

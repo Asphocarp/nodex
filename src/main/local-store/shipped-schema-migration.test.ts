@@ -237,7 +237,7 @@ describe("shipped schema through v58 staging and current startup migrations", ()
     expect(await getDatabaseRowPage(project.id, source.cardId)).toMatchObject({
       title: "Legacy Card",
       description: "Legacy body",
-      status: "backlog",
+      status: "plan",
       tags: ["v26"],
     });
     expect(

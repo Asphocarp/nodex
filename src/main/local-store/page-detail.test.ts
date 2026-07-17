@@ -27,7 +27,7 @@ afterEach(() => {
 describe("Page Detail", () => {
   test("reads one canonical Page with its Source schema and values", async () => {
     const project = createProject({ name: "Detail" });
-    const created = await createPage(project.id, "in_progress", {
+    const created = await createPage(project.id, "build", {
       title: "Library Page",
       priority: "p1-high",
     });
@@ -54,14 +54,14 @@ describe("Page Detail", () => {
       result.value.dataSourceContext.dataSource.dataSourceId,
     );
     expect(status && result.value.dataSourceContext.values[status.propertyId]?.value)
-      .toBe("in_progress");
+      .toBe("build");
   });
 
   test("evaluates recursive Page grants without exposing sibling rows", async () => {
     const executor = createProject({ name: "Executor" });
     const owner = createProject({ name: "Owner" });
-    const granted = await createPage(owner.id, "draft", { title: "Granted" });
-    const sibling = await createPage(owner.id, "draft", { title: "Sibling" });
+    const granted = await createPage(owner.id, "triage", { title: "Granted" });
+    const sibling = await createPage(owner.id, "triage", { title: "Sibling" });
 
     expect(
       readPageDetailInDatabase(getDb(), executor.id, granted.id),
@@ -86,7 +86,7 @@ describe("Page Detail", () => {
 
   test("rejects a Source-parented Page without exactly one active membership", async () => {
     const project = createProject({ name: "Corrupt" });
-    const created = await createPage(project.id, "draft", { title: "Page" });
+    const created = await createPage(project.id, "triage", { title: "Page" });
     getDb().prepare(`
       UPDATE data_source_page_memberships
       SET removed_at = ?, revision = revision + 1

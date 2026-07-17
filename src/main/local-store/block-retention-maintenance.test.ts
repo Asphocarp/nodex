@@ -100,7 +100,7 @@ const createLifecycle = (
     pageId: string;
     title: string;
     nfm: string;
-    status: "draft";
+    status: "triage";
   }>,
 ) =>
   createPageLifecycleV2Fixture(fixture.database, {
@@ -210,7 +210,7 @@ describe("Block retention count maintenance", () => {
             pageId: cardId,
             title: "Retention atomic",
             nfm: "Retained body",
-            status: "draft",
+            status: "triage",
           },
         );
         const checkpoint = createDocumentVersionCheckpoint(
@@ -444,7 +444,7 @@ describe("Block retention count maintenance", () => {
             pageId: cardId,
             title: "Pinned revision",
             nfm: "Keep this recovery point",
-            status: "draft",
+            status: "triage",
           },
         );
         const checkpoint = createDocumentVersionCheckpoint(fixture.database, {
@@ -801,7 +801,7 @@ describe("Block retention count maintenance", () => {
           pageId: createUuidV7(),
           title: "Reference host",
           nfm: `<page-ref url="nodex://pages/${targetBlockId}" />`,
-          status: "draft",
+          status: "triage",
         },
       );
 

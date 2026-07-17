@@ -199,10 +199,10 @@ describe("BlockTransfer store", () => {
     try {
       await initializeDatabase();
       const project = createProject({ name: "Page hierarchy transfer" });
-      const ancestor = await createPage(project.id, "draft", {
+      const ancestor = await createPage(project.id, "triage", {
         title: "Ancestor",
       });
-      const descendant = await createPage(project.id, "draft", {
+      const descendant = await createPage(project.id, "triage", {
         title: "Descendant",
       });
       const database = getDb();
@@ -365,14 +365,14 @@ describe("BlockTransfer store", () => {
             dataSourceId: parseDataSourceId(primary.data_source_id),
             propertyId: parseDataSourcePropertyId("status"),
             expectedValueRevision: 1,
-            value: "backlog",
+            value: "plan",
           },
           {
             kind: "position_page",
             viewId: parseDatabaseViewId(primary.view_id),
             pageId: "card-source",
             expectedPositionRevision: 0,
-            groupKey: "backlog",
+            groupKey: "plan",
           },
         ],
       } as const;
@@ -552,7 +552,7 @@ describe("BlockTransfer store", () => {
           databaseBlockId: primary.database_block_id,
           dataSourceId: primary.data_source_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       };
       expect(() =>
@@ -823,7 +823,7 @@ describe("BlockTransfer store", () => {
           databaseBlockId: primary.database_block_id,
           dataSourceId: primary.data_source_id,
           viewId: primary.view_id,
-          groupKey: "done",
+          groupKey: "ship",
         },
       });
       expect(copiedWithinDatabase.ok).toBe(true);
@@ -837,7 +837,7 @@ describe("BlockTransfer store", () => {
                WHERE position.view_id = ? AND position.page_block_id = ?`,
             )
             .get(primary.view_id, copiedCardId),
-        ).toEqual({ group_key: "done" });
+        ).toEqual({ group_key: "ship" });
         expect(
           database
             .prepare(
@@ -854,7 +854,7 @@ describe("BlockTransfer store", () => {
                  AND membership.removed_at IS NULL`,
             )
             .get(copiedCardId),
-        ).toEqual({ value_json: '"done"' });
+        ).toEqual({ value_json: '"ship"' });
       }
 
       const standaloneDocumentId = seedCard(database, {
@@ -1102,7 +1102,7 @@ describe("BlockTransfer store", () => {
                 kind: "database",
                 databaseBlockId: primary.database_block_id,
                 viewId: primary.view_id,
-                groupKey: "backlog",
+                groupKey: "plan",
               },
             },
             {
@@ -1158,7 +1158,7 @@ describe("BlockTransfer store", () => {
           kind: "database",
           databaseBlockId: primary.database_block_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       };
       const promoted = applyBlockTransfer(database, promotionRequest);
@@ -1286,7 +1286,7 @@ describe("BlockTransfer store", () => {
           kind: "database",
           databaseBlockId: primary.database_block_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       });
       expect(promotedQuote.ok).toBe(true);
@@ -1340,7 +1340,7 @@ describe("BlockTransfer store", () => {
           kind: "database",
           databaseBlockId: primary.database_block_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       };
       const checklistCountsBeforeFault = database
@@ -1502,7 +1502,7 @@ describe("BlockTransfer store", () => {
           kind: "database",
           databaseBlockId: primary.database_block_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       });
       expect(copiedBlockToDatabase.ok).toBe(true);
@@ -1613,7 +1613,7 @@ describe("BlockTransfer store", () => {
           kind: "database",
           databaseBlockId: primary.database_block_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       });
       expect(copiedQuoteToDatabase.ok).toBe(true);
@@ -1816,7 +1816,7 @@ describe("BlockTransfer store", () => {
           kind: "database",
           databaseBlockId: primary.database_block_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       });
       expect(copiedOrdinaryForest.ok).toBe(true);
@@ -2060,7 +2060,7 @@ describe("BlockTransfer store", () => {
           kind: "database",
           databaseBlockId: primary.database_block_id,
           viewId: primary.view_id,
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       });
       expect(movedMixedSelection.ok).toBe(true);
@@ -2116,14 +2116,14 @@ describe("BlockTransfer store", () => {
             dataSourceId: parseDataSourceId(primary.data_source_id),
             propertyId: parseDataSourcePropertyId("status"),
             expectedValueRevision: 1,
-            value: "backlog",
+            value: "plan",
           },
           {
             kind: "position_page",
             viewId: parseDatabaseViewId(primary.view_id),
             pageId: crossSourcePageId,
             expectedPositionRevision: 0,
-            groupKey: "backlog",
+            groupKey: "plan",
           },
         ],
       });
@@ -2206,7 +2206,7 @@ describe("BlockTransfer store", () => {
           databaseBlockId: primary.database_block_id,
           dataSourceId: secondaryDataSourceId,
           viewId: secondaryViewId,
-          groupKey: "done",
+          groupKey: "ship",
         },
       };
       const movedAcrossSources = applyBlockTransfer(
@@ -2259,8 +2259,8 @@ describe("BlockTransfer store", () => {
       ).toEqual({
         parent_kind: "data_source",
         parent_id: secondaryDataSourceId,
-        value_json: '"done"',
-        group_key: "done",
+        value_json: '"ship"',
+        group_key: "ship",
       });
     } finally {
       closeDatabase();

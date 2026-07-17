@@ -49,9 +49,9 @@ describe("Page NFM identity projection finalization", () => {
     const storeEpoch = database.prepare(
       "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
     ).pluck().get() as string;
-    const host = await createPage(project.id, "draft", { title: "Host" });
-    const nested = await createPage(project.id, "draft", { title: "Nested" });
-    const mentioned = await createPage(project.id, "draft", { title: "Mentioned" });
+    const host = await createPage(project.id, "triage", { title: "Host" });
+    const nested = await createPage(project.id, "triage", { title: "Nested" });
+    const mentioned = await createPage(project.id, "triage", { title: "Mentioned" });
     const hostDocumentId = database.prepare(
       "SELECT document_id FROM block_documents WHERE block_id = ?",
     ).pluck().get(host.id) as string;

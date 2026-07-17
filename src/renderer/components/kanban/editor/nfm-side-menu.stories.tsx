@@ -61,21 +61,21 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "draft",
-          name: "Draft",
+          id: "triage",
+          name: "Triage",
           cards: [
-            makeCard("source-card", "Source card hidden from append targets", "draft", 0),
-            makeCard("nfm-dnd", "test-nfm-editor-dnd", "draft", 1),
-            makeCard("queue", "queue", "draft", 2),
-            makeCard("editor", "dig into editor", "draft", 3),
+            makeCard("source-card", "Source card hidden from append targets", "triage", 0),
+            makeCard("nfm-dnd", "test-nfm-editor-dnd", "triage", 1),
+            makeCard("queue", "queue", "triage", 2),
+            makeCard("editor", "dig into editor", "triage", 3),
           ],
         },
         {
-          id: "in_progress",
-          name: "In Progress",
+          id: "build",
+          name: "Build",
           cards: [
-            makeCard("rich-selection", "Rich selection send workflow", "in_progress", 0),
-            makeCard("page-stage", "Page Stage compact controls", "in_progress", 1),
+            makeCard("rich-selection", "Rich selection send workflow", "build", 0),
+            makeCard("page-stage", "Page Stage compact controls", "build", 1),
           ],
         },
       ],
@@ -86,11 +86,11 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog with a long label",
+          id: "plan",
+          name: "Plan with a long label",
           cards: [
-            makeCard("projection", "Projection pipeline cleanup", "backlog", 0),
-            makeCard("request-lanes", "Request lanes and composer cards", "backlog", 1),
+            makeCard("projection", "Projection pipeline cleanup", "plan", 0),
+            makeCard("request-lanes", "Request lanes and composer cards", "plan", 1),
           ],
         },
       ],

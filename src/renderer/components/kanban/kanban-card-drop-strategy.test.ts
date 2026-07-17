@@ -31,7 +31,7 @@ function makeCard(
 }
 
 function makeBoard(columns: Partial<Record<WorkflowStatus, DatabasePageSummary[]>>): BoardSummary {
-  const orderedStatuses: WorkflowStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
+  const orderedStatuses: WorkflowStatus[] = ["triage", "plan", "build", "review", "ship"];
   return {
     columns: orderedStatuses.map((status) => ({
       id: status,
@@ -47,7 +47,7 @@ function makeRules(sort: DbViewRules["sort"]): DbViewRules {
       any: [
         {
           all: [
-            { field: "status", op: "in", values: ["draft", "backlog", "in_progress", "in_review", "done"] },
+            { field: "status", op: "in", values: ["triage", "plan", "build", "review", "ship"] },
             { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"], includeEmpty: true },
           ],
         },
@@ -71,10 +71,10 @@ describe("kanban card drop strategy", () => {
 
   test("keeps visible-slot reordering enabled when board-order stays primary", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("a", "in_progress", 0),
-        makeCard("b", "in_progress", 1),
-        makeCard("c", "in_progress", 2),
+      build: [
+        makeCard("a", "build", 0),
+        makeCard("b", "build", 1),
+        makeCard("c", "build", 2),
       ],
     });
 
@@ -85,11 +85,11 @@ describe("kanban card drop strategy", () => {
         { field: "board-order", direction: "asc" },
         { field: "created", direction: "desc" },
       ]),
-      destinationColumnId: "in_progress",
+      destinationColumnId: "build",
       destinationIndex: 1,
       dragItems: [
         {
-          columnId: "in_progress",
+          columnId: "build",
           card: board.columns[2]!.cards[0]!,
         },
       ],
@@ -104,13 +104,13 @@ describe("kanban card drop strategy", () => {
 
   test("returns a property patch when a priority-sorted drop crosses buckets", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("p1-a", "in_progress", 0, { priority: "p1-high" }),
-        makeCard("p1-b", "in_progress", 1, { priority: "p1-high" }),
-        makeCard("p2-a", "in_progress", 2, { priority: "p2-medium" }),
+      build: [
+        makeCard("p1-a", "build", 0, { priority: "p1-high" }),
+        makeCard("p1-b", "build", 1, { priority: "p1-high" }),
+        makeCard("p2-a", "build", 2, { priority: "p2-medium" }),
       ],
-      in_review: [
-        makeCard("review", "in_review", 0, { priority: "p3-low" }),
+      review: [
+        makeCard("review", "review", 0, { priority: "p3-low" }),
       ],
     });
 
@@ -118,11 +118,11 @@ describe("kanban card drop strategy", () => {
       board,
       visibleBoard: board,
       rules: makeRules([{ field: "priority", direction: "asc" }]),
-      destinationColumnId: "in_progress",
+      destinationColumnId: "build",
       destinationIndex: 2,
       dragItems: [
         {
-          columnId: "in_review",
+          columnId: "review",
           card: board.columns[3]!.cards[0]!,
         },
       ],
@@ -138,10 +138,10 @@ describe("kanban card drop strategy", () => {
 
   test("keeps within-bucket priority drops as pure reorders", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("p1-a", "in_progress", 0, { priority: "p1-high" }),
-        makeCard("p1-b", "in_progress", 1, { priority: "p1-high" }),
-        makeCard("p2-a", "in_progress", 2, { priority: "p2-medium" }),
+      build: [
+        makeCard("p1-a", "build", 0, { priority: "p1-high" }),
+        makeCard("p1-b", "build", 1, { priority: "p1-high" }),
+        makeCard("p2-a", "build", 2, { priority: "p2-medium" }),
       ],
     });
 
@@ -149,11 +149,11 @@ describe("kanban card drop strategy", () => {
       board,
       visibleBoard: board,
       rules: makeRules([{ field: "priority", direction: "asc" }]),
-      destinationColumnId: "in_progress",
+      destinationColumnId: "build",
       destinationIndex: 1,
       dragItems: [
         {
-          columnId: "in_progress",
+          columnId: "build",
           card: board.columns[2]!.cards[1]!,
         },
       ],
@@ -164,10 +164,10 @@ describe("kanban card drop strategy", () => {
 
   test("maps same-column downward priority drops from the remaining visible slot space", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("p1-a", "in_progress", 0, { priority: "p1-high" }),
-        makeCard("p1-b", "in_progress", 1, { priority: "p1-high" }),
-        makeCard("p2-a", "in_progress", 2, { priority: "p2-medium" }),
+      build: [
+        makeCard("p1-a", "build", 0, { priority: "p1-high" }),
+        makeCard("p1-b", "build", 1, { priority: "p1-high" }),
+        makeCard("p2-a", "build", 2, { priority: "p2-medium" }),
       ],
     });
 
@@ -175,11 +175,11 @@ describe("kanban card drop strategy", () => {
       board,
       visibleBoard: board,
       rules: makeRules([{ field: "priority", direction: "asc" }]),
-      destinationColumnId: "in_progress",
+      destinationColumnId: "build",
       destinationIndex: 1,
       dragItems: [
         {
-          columnId: "in_progress",
+          columnId: "build",
           card: board.columns[2]!.cards[0]!,
         },
       ],
@@ -194,9 +194,9 @@ describe("kanban card drop strategy", () => {
 
   test("blocks same-column ranking when title owns the sort", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("a", "in_progress", 0, { title: "Alpha" }),
-        makeCard("b", "in_progress", 1, { title: "Beta" }),
+      build: [
+        makeCard("a", "build", 0, { title: "Alpha" }),
+        makeCard("b", "build", 1, { title: "Beta" }),
       ],
     });
 
@@ -204,11 +204,11 @@ describe("kanban card drop strategy", () => {
       board,
       visibleBoard: board,
       rules: makeRules([{ field: "title", direction: "asc" }]),
-      destinationColumnId: "in_progress",
+      destinationColumnId: "build",
       destinationIndex: 1,
       dragItems: [
         {
-          columnId: "in_progress",
+          columnId: "build",
           card: board.columns[2]!.cards[0]!,
         },
       ],
@@ -219,11 +219,11 @@ describe("kanban card drop strategy", () => {
 
   test("keeps cross-column moves enabled when title owns the sort", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("a", "in_progress", 0, { title: "Alpha" }),
+      build: [
+        makeCard("a", "build", 0, { title: "Alpha" }),
       ],
-      in_review: [
-        makeCard("b", "in_review", 0, { title: "Beta" }),
+      review: [
+        makeCard("b", "review", 0, { title: "Beta" }),
       ],
     });
 
@@ -231,11 +231,11 @@ describe("kanban card drop strategy", () => {
       board,
       visibleBoard: board,
       rules: makeRules([{ field: "title", direction: "asc" }]),
-      destinationColumnId: "done",
+      destinationColumnId: "ship",
       destinationIndex: 0,
       dragItems: [
         {
-          columnId: "in_progress",
+          columnId: "build",
           card: board.columns[2]!.cards[0]!,
         },
       ],

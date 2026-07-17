@@ -264,7 +264,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Always-editable fields (no edit mode toggle)
 - Page is the user-facing term for a document-bearing Block; Page Stage never introduces a second content identity.
 - Page Stage opens through membership-independent Page Detail. Library-, Page-, and Data Source-parented Pages all resolve the same Block and owned Document; absence from a Database View is never treated as a missing Page. Nested `page` and `pageRef` actions therefore open the same Y.Doc in a normal Page tab without copying content or restoring an old membership.
-- Title/body, history, Threads, and `Run in` controls are available for every Page. Live Agent execution state belongs to Thread/session runtime and is not shown as Page metadata. Status, priority, estimate, tags, assignee, due/scheduled dates, occurrence actions, Data Source moves, and Database lifecycle actions render only when Page Detail includes a matching active membership and property coordinates. A standalone Page receives no synthetic `draft` status or empty Data Source values.
+- Title/body, history, Threads, and `Run in` controls are available for every Page. Live Agent execution state belongs to Thread/session runtime and is not shown as Page metadata. Status, priority, estimate, tags, assignee, due/scheduled dates, occurrence actions, Data Source moves, and Database lifecycle actions render only when Page Detail includes a matching active membership and property coordinates. A standalone Page receives no synthetic `triage` status or empty Data Source values.
 - Membership refresh changes only the optional Page Stage Database capability. It keeps the Page Block ID, owned Document ID/provider boundary, collaborative content, and local undo scope stable. Opening a Page is read-only with respect to ownership.
 - Production Page Stage prepares the exact Project-scoped owned-Document descriptor before rendering content. Only a ready, schema-compatible `yjs` descriptor mounts the Page editor; `canvas_scene` descriptors route to Canvas view, and invalid descriptors remain on a retryable fail-closed diagnostic surface
 - Page Stage uses one continuous content skeleton across Page hydration, Document preparation, runtime creation, and the initial state-vector handshake. Normal opening never replaces that skeleton with a second text-only loading state. A terminal open or resync failure remains inline until recovery, shows the concrete failure reason beside Reload, and offers expandable, copyable diagnostics with the protocol error code and Document identity; delayed/offline sync status remains available after a Document has opened.
@@ -423,7 +423,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Calendar event rows display a repeat indicator on occurrences derived from recurring Pages, with a distinct icon for the first occurrence in each series.
 - Page Detail exposes repeat settings (frequency, interval, weekly weekdays, inclusive end date), reminder offsets, and schedule timezone.
 - Users can complete or skip a specific occurrence from Calendar quick actions and from Page Detail.
-- Completing an occurrence creates a new current-content Page with status `done` and `archived=true`; archived events remain visible on Calendar with muted styling. Because completion and recurring-series detach/split create sibling Pages, they require the executing Project's bound Data Source `create_child` authority; an explicit grant can update or skip the granted Page but cannot confer structural creation authority.
+- Shipping an occurrence creates a new current-content Page with status `ship` and `archived=true`; archived events remain visible on Calendar with muted styling. Because completion and recurring-series detach/split create sibling Pages, they require the executing Project's bound Data Source `create_child` authority; an explicit grant can update or skip the granted Page but cannot confer structural creation authority.
 - Complete, skip, and scoped update are idempotent logical commands. Every caller supplies and retains an `operationId`; retrying the same command after a lost response, app restart, or IPC/HTTP switch returns the first committed or rejected result without cloning or advancing again. Reusing that ID for a different Page, occurrence, scope, update, or command kind returns a typed collision.
 - Missing/unscheduled/unauthorized targets and invalid occurrence updates are durable rejections: an exact retry returns the same error, but no Page, schedule, exception, projection, or change-log entry is written. Complete and clone-capable update commands preallocate a UUID-v7 `createdPageId` as part of their canonical intent; complete/detach/split clone the source's current collaborative title/body and Data Source properties into that identity without creating another storage aggregate.
 - Recurrence logs are not exposed in product UI or API.
@@ -532,11 +532,11 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 | Order | ID | Name | Purpose |
 |---|-----|------|---------|
-| 1 | draft | Draft | Early ideas, rough notes, and planning-stage tasks |
-| 2 | backlog | Backlog | Refined tasks ready to queue up |
-| 3 | in_progress | In Progress | Currently being worked on |
-| 4 | in_review | In Review | Awaiting review or verification |
-| 5 | done | Done | Finished work |
+| 1 | triage | Triage | Incoming ideas or requests awaiting clarification and prioritization |
+| 2 | plan | Plan | Accepted work being scoped and prepared |
+| 3 | build | Build | Work actively being implemented |
+| 4 | review | Review | Work awaiting review or verification |
+| 5 | ship | Ship | Completed work ready for delivery or already delivered |
 
 `archived` is an orthogonal internal flag. Archived Pages are not rendered in the Kanban board, sidebar status groups, or toggle-list defaults.
 
@@ -1147,7 +1147,7 @@ Agent command options:
 
 CLI parsing is strict: unknown options and invalid enum/date values fail fast with actionable errors.
 
-Status args accept canonical ids plus ergonomic separator aliases such as `in-progress` -> `in_progress` and `in-review` -> `in_review`.
+Status args accept the canonical ids or names only: `triage`, `plan`, `build`, `review`, and `ship`.
 
 ### Backup Commands
 
@@ -1163,8 +1163,8 @@ nodex backups restore <backup-id> --yes --no-safety-backup
 Text fields (`--description`, `--title`) support reading from files or stdin:
 
 ```bash
-nodex add backlog "Task" -d @./plan.md        # Read from file
-cat spec.md | nodex add backlog "Task" -d @-  # Read from stdin
+nodex add plan "Task" -d @./plan.md        # Read from file
+cat spec.md | nodex add plan "Task" -d @-  # Read from stdin
 ```
 
 ---
@@ -1320,18 +1320,18 @@ External agents and scripts use the **`nodex` CLI** for board operations. The CL
 ### How Agents Use the Board
 
 ```bash
-# 1. Read backlog tasks (uses default project, or set --project)
-nodex ls backlog
+# 1. Read planned tasks (uses default project, or set --project)
+nodex ls plan
 
 # 2. Claim a task atomically (fails if another agent already claimed it)
-nodex mv abc1234 backlog in-progress
+nodex mv abc1234 plan build
 
-# 3. Complete task - move to review
-nodex mv abc1234 in-progress in-review
+# 3. Finish implementation - move to review
+nodex mv abc1234 build review
 
 # Working with a specific project
-nodex --project my-app ls backlog
-nodex --project my-app add backlog "New feature"
+nodex --project my-app ls plan
+nodex --project my-app add plan "New feature"
 
 # Create a manual safety snapshot before risky changes
 nodex backups create --label "before release refactor"
@@ -1372,12 +1372,12 @@ Page commands compile to Block/Document and Database Module authority. `mv` requ
 All CLI output is **JSON Lines by default** (machine-readable, one object per line). Use `--json` for JSON array/object output, `--csv` for CSV, or `--table` for aligned plain-text tables.
 
 ```bash
-nodex ls backlog            # JSONL (one Page object per line)
+nodex ls plan               # JSONL (one Page object per line)
 nodex get abc1234 --json    # JSON object
-nodex ls backlog --csv      # CSV table
-nodex ls backlog --table    # aligned plain-text table
-nodex ls backlog --full     # full Page fields + truncated body
-nodex ls backlog --full --description-full  # full description
+nodex ls plan --csv         # CSV table
+nodex ls plan --table       # aligned plain-text table
+nodex ls plan --full        # full Page fields + truncated body
+nodex ls plan --full --description-full  # full description
 nodex ls --offset 10 --limit 10      # paginate (skip 10, take 10)
 ```
 

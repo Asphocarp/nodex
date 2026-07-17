@@ -68,11 +68,11 @@ const BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "draft",
-          name: "Draft",
+          id: "triage",
+          name: "Triage",
           cards: [
-            makePage("command-palette", "Command palette polish", "draft", 0),
-            makePage("notes", "Meeting notes", "draft", 1),
+            makePage("command-palette", "Command palette polish", "triage", 0),
+            makePage("notes", "Meeting notes", "triage", 1),
           ],
         },
       ],
@@ -83,9 +83,9 @@ const BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
-          cards: [makePage("runtime", "Runtime polish", "backlog", 0)],
+          id: "plan",
+          name: "Plan",
+          cards: [makePage("runtime", "Runtime polish", "plan", 0)],
         },
       ],
     },

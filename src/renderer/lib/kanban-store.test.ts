@@ -135,12 +135,12 @@ function createDatabaseViewSnapshot(
         [statusPropertyId]: {
           propertyId: statusPropertyId,
           valueType: "select" as const,
-          value: "draft",
+          value: "triage",
           revision: 1,
         },
       },
-      position: { groupKey: "draft", rankKey: "a", revision: 1 },
-      effectiveGroupKey: "draft",
+      position: { groupKey: "triage", rankKey: "a", revision: 1 },
+      effectiveGroupKey: "triage",
     }],
   };
   return {
@@ -159,7 +159,7 @@ function createDatabaseViewSnapshot(
 function createPageSummary(title = "Initial title"): DatabasePageSummary {
   return {
     id: "card-1",
-    status: "draft",
+    status: "triage",
     archived: false,
     title,
     richTitle: plainTextToPortableRichText(title),
@@ -179,13 +179,13 @@ function createBoard(title = "Initial title"): BoardSummary {
   return {
     columns: [
       {
-        id: "draft",
+        id: "triage",
         name: "Ideas",
         cards: [createPageSummary(title)],
       },
       {
-        id: "done",
-        name: "Done",
+        id: "ship",
+        name: "Ship",
         cards: [],
       },
     ],
@@ -530,8 +530,8 @@ describe("kanban store", () => {
     callbacks.onBoardChange?.({
       projectId: "default",
       changeType: "update",
-      columnId: "draft",
-      status: "draft",
+      columnId: "triage",
+      status: "triage",
       pageId: "card-1",
       summary: createPageSummary("Patched from event"),
     });
@@ -559,7 +559,7 @@ describe("kanban store", () => {
     await waitForMicrotasks();
     notifications = 0;
 
-    store.applyLocalPatch("draft", "card-1", {
+    store.applyLocalPatch("triage", "card-1", {
       title: "Updated title",
     });
 
@@ -582,7 +582,7 @@ describe("kanban store", () => {
 
     store.applyRemoteCard({
       id: "card-1",
-      status: "draft",
+      status: "triage",
       archived: false,
       title: "Remote title",
       richTitle: plainTextToPortableRichText("Remote title"),
@@ -596,7 +596,7 @@ describe("kanban store", () => {
     const indexedPage = store.getSnapshot().pageIndex.get("card-1");
     const summary = toDatabasePageSummary({
       id: "card-1",
-      status: "draft",
+      status: "triage",
       archived: false,
       title: "Remote title",
       richTitle: plainTextToPortableRichText("Remote title"),
@@ -624,7 +624,7 @@ describe("kanban store", () => {
 
     store.applyRemoteCardSummary({
       id: "card-1",
-      status: "draft",
+      status: "triage",
       archived: false,
       title: "Ack title",
       richTitle: plainTextToPortableRichText("Ack title"),
@@ -654,7 +654,7 @@ describe("kanban store", () => {
     const store = registry.getStore("default");
     await store.fetchBoard();
 
-    store.applyLocalPatch("draft", "card-1", {
+    store.applyLocalPatch("triage", "card-1", {
       title: "Updated title",
     });
 
@@ -675,7 +675,7 @@ describe("kanban store", () => {
     const pendingMutation = store.runOptimisticMutation({
       kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "Updated title" }),
-      apply: buildPatchPageTransform("draft", "card-1", { title: "Updated title" }, { bumpRevision: true }),
+      apply: buildPatchPageTransform("triage", "card-1", { title: "Updated title" }, { bumpRevision: true }),
       runRemote: async () => deferred.promise,
     });
 
@@ -696,7 +696,7 @@ describe("kanban store", () => {
     await store.fetchBoard();
     const before = store.getSnapshot();
 
-    const changed = store.applyLocalPatch("draft", "card-1", {
+    const changed = store.applyLocalPatch("triage", "card-1", {
       title: "Initial title",
     });
     const after = store.getSnapshot();
@@ -722,30 +722,30 @@ describe("kanban store", () => {
     const mutationA = store.runOptimisticMutation({
       kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "A" }),
-      apply: buildPatchPageTransform("draft", "card-1", { title: "A" }),
+      apply: buildPatchPageTransform("triage", "card-1", { title: "A" }),
       runRemote: async () => {
         const result = await deferredA.promise;
-        serverBoard = buildPatchPageTransform("draft", "card-1", { title: "A" })(serverBoard);
+        serverBoard = buildPatchPageTransform("triage", "card-1", { title: "A" })(serverBoard);
         return result;
       },
     });
     const mutationB = store.runOptimisticMutation({
       kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "B" }),
-      apply: buildPatchPageTransform("draft", "card-1", { title: "B" }),
+      apply: buildPatchPageTransform("triage", "card-1", { title: "B" }),
       runRemote: async () => {
         const result = await deferredB.promise;
-        serverBoard = buildPatchPageTransform("draft", "card-1", { title: "B" })(serverBoard);
+        serverBoard = buildPatchPageTransform("triage", "card-1", { title: "B" })(serverBoard);
         return result;
       },
     });
     const mutationC = store.runOptimisticMutation({
       kind: "page:update",
       conflictKeys: conflictKeysForPatch("card-1", { title: "C" }),
-      apply: buildPatchPageTransform("draft", "card-1", { title: "C" }),
+      apply: buildPatchPageTransform("triage", "card-1", { title: "C" }),
       runRemote: async () => {
         const result = await deferredC.promise;
-        serverBoard = buildPatchPageTransform("draft", "card-1", { title: "C" })(serverBoard);
+        serverBoard = buildPatchPageTransform("triage", "card-1", { title: "C" })(serverBoard);
         return result;
       },
     });
@@ -787,11 +787,11 @@ describe("kanban store", () => {
 
     const createMutation = store.runOptimisticMutation({
       kind: "page:create",
-      conflictKeys: conflictKeysForCreate("draft", optimisticCard.id),
-      apply: buildCreateCardTransform("draft", optimisticCard, "bottom"),
+      conflictKeys: conflictKeysForCreate("triage", optimisticCard.id),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
       runRemote: async () => {
         const result = await createRemoteDeferred.promise;
-        serverBoard = buildCreateCardTransform("draft", optimisticCard, "bottom")(serverBoard);
+        serverBoard = buildCreateCardTransform("triage", optimisticCard, "bottom")(serverBoard);
         return result;
       },
     });
@@ -800,10 +800,10 @@ describe("kanban store", () => {
     const updateMutation = store.runOptimisticMutation({
       kind: "page:update",
       conflictKeys: conflictKeysForPatch("018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
-      apply: buildPatchPageTransform("draft", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
+      apply: buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" }),
       runRemote: async () => {
         const result = await updateRemoteDeferred.promise;
-        serverBoard = buildPatchPageTransform("draft", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" })(serverBoard);
+        serverBoard = buildPatchPageTransform("triage", "018f0f85-6d56-7625-bdea-000000000000", { title: "Created edited" })(serverBoard);
         return result;
       },
     });
@@ -813,40 +813,40 @@ describe("kanban store", () => {
       kind: "page:move",
       conflictKeys: conflictKeysForMove({
         pageId: "018f0f85-6d56-7625-bdea-000000000000",
-        fromStatus: "draft",
-        toStatus: "done",
+        fromStatus: "triage",
+        toStatus: "ship",
       }),
       apply: buildMovePageTransform({
         pageId: "018f0f85-6d56-7625-bdea-000000000000",
-        fromStatus: "draft",
-        toStatus: "done",
+        fromStatus: "triage",
+        toStatus: "ship",
       }),
       runRemote: async () => {
         const result = await moveRemoteDeferred.promise;
         serverBoard = buildMovePageTransform({
           pageId: "018f0f85-6d56-7625-bdea-000000000000",
-          fromStatus: "draft",
-          toStatus: "done",
+          fromStatus: "triage",
+          toStatus: "ship",
         })(serverBoard);
         return result;
       },
     });
 
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
 
     createRemoteDeferred.resolve({ id: "018f0f85-6d56-7625-bdea-000000000000" });
     await createMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
     expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
 
     updateRemoteDeferred.resolve({ ok: true });
     await updateMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
     expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
 
     moveRemoteDeferred.resolve({ ok: true });
     await moveMutation;
-    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("done");
+    expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.columnId).toBe("ship");
     expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000000")?.title).toBe("Created edited");
   });
 
@@ -862,7 +862,7 @@ describe("kanban store", () => {
     const mutation = store.runOptimisticMutation({
       kind: "page:delete",
       conflictKeys: conflictKeysForDelete("card-1"),
-      apply: buildDeletePageTransform("draft", "card-1"),
+      apply: buildDeletePageTransform("triage", "card-1"),
       runRemote: async () => {
         throw new Error("delete failed");
       },
@@ -901,8 +901,8 @@ describe("kanban store", () => {
     const deleteEvent: BoardChangeEvent = {
       projectId: "default",
       changeType: "delete",
-      columnId: "draft",
-      status: "draft",
+      columnId: "triage",
+      status: "triage",
       pageId: "card-1",
     };
 
@@ -914,8 +914,8 @@ describe("kanban store", () => {
     const ambiguousEvent: BoardChangeEvent = {
       projectId: "default",
       changeType: "move",
-      columnId: "draft",
-      status: "draft",
+      columnId: "triage",
+      status: "triage",
     };
 
     store.markMutation();
@@ -957,7 +957,7 @@ describe("kanban store", () => {
     const unsubscribe = store.subscribe(() => {});
     await waitForMicrotasks();
 
-    const queued = store.applyLocalPatch("draft", "card-1", { title: "Queued title" });
+    const queued = store.applyLocalPatch("triage", "card-1", { title: "Queued title" });
     expect(queued).toBe(true);
     expect(store.getSnapshot().board).toBe(null);
 
@@ -978,15 +978,15 @@ describe("kanban store", () => {
     const store = registry.getStore("default");
     await store.fetchBoard();
 
-    store.applyLocalPatch("draft", "card-1", { title: "Local title" });
+    store.applyLocalPatch("triage", "card-1", { title: "Local title" });
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Local title");
 
-    serverBoard = buildPatchPageTransform("draft", "card-1", { title: "Local title" })(serverBoard);
+    serverBoard = buildPatchPageTransform("triage", "card-1", { title: "Local title" })(serverBoard);
     await store.refreshBoard();
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Local title");
 
     // If local overlay was not collected, this server update would be masked.
-    serverBoard = buildPatchPageTransform("draft", "card-1", { title: "Server next" })(serverBoard);
+    serverBoard = buildPatchPageTransform("triage", "card-1", { title: "Server next" })(serverBoard);
     await store.refreshBoard();
     expect(store.getSnapshot().pageIndex.get("card-1")?.title).toBe("Server next");
   });
@@ -1009,16 +1009,16 @@ describe("kanban store", () => {
 
     const createMutation = store.runOptimisticMutation({
       kind: "page:create",
-      conflictKeys: conflictKeysForCreate("draft", optimisticCard.id),
-      apply: buildCreateCardTransform("draft", optimisticCard, "bottom"),
+      conflictKeys: conflictKeysForCreate("triage", optimisticCard.id),
+      apply: buildCreateCardTransform("triage", optimisticCard, "bottom"),
       runRemote: async () => {
         const result = await createRemoteDeferred.promise;
-        serverBoard = buildCreateCardTransform("draft", optimisticCard, "bottom")(serverBoard);
+        serverBoard = buildCreateCardTransform("triage", optimisticCard, "bottom")(serverBoard);
         return result;
       },
     });
 
-    store.applyLocalPatch("draft", "018f0f85-6d56-7625-bdea-000000000001", { title: "Edited while pending" });
+    store.applyLocalPatch("triage", "018f0f85-6d56-7625-bdea-000000000001", { title: "Edited while pending" });
     expect(store.getSnapshot().pageIndex.get("018f0f85-6d56-7625-bdea-000000000001")?.title).toBe("Edited while pending");
 
     // Re-fetch while create is still pending: patch must not be dropped.

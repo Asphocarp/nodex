@@ -410,7 +410,7 @@ function CanvasEditor({
   // Create a new card and place it on canvas
   const handleCreateAndPlace = useCallback(async () => {
     if (!excalidrawApiRef.current) return;
-    const card = await createPage("draft", { title: "New Page" });
+    const card = await createPage("triage", { title: "New Page" });
     if (!card) return;
     await handlePlaceCard(toDatabasePageSummary(card));
   }, [createPage, handlePlaceCard]);

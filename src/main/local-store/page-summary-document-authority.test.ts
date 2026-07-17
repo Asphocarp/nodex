@@ -67,7 +67,7 @@ describe("Card summary Document authority", () => {
     try {
       await initializeDatabase();
       const project = createProject({ name: "Summary authority" });
-      const card = await createPage(project.id, "in_progress", {
+      const card = await createPage(project.id, "build", {
         title: "Legacy title",
         description: "Legacy body",
         priority: "p1-high",
@@ -141,7 +141,7 @@ describe("Card summary Document authority", () => {
       );
       expect(restartedBoard?.hasDescription).toBe(restartedById?.hasDescription);
 
-      expect(restartedById?.status).toBe("in_progress");
+      expect(restartedById?.status).toBe("build");
       expect(restartedById?.priority).toBe("p1-high");
       expect(restartedById?.estimate).toBe("m");
       expect(restartedById?.tags.join(",")).toBe("alpha,beta");

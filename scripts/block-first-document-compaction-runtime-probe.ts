@@ -58,7 +58,7 @@ const createCard = (
         pageId: cardId,
         title: cardId,
         nfm: "Compaction body",
-        status: "draft",
+        status: "triage",
       },
     }),
   );

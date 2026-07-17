@@ -83,7 +83,7 @@ describe("headless Block Document schema", () => {
           meta: "In progress",
           snapshot: "",
           sourceProjectId: "project-1",
-          sourceStatus: "in_progress",
+          sourceStatus: "build",
           sourceStatusName: "In progress",
           projectionOwnerId: "",
           projectionKind: "",

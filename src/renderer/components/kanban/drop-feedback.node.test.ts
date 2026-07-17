@@ -6,8 +6,8 @@ import { resolveKanbanDropFeedback } from "./drop-feedback";
 const EMPTY_BOARD: BoardSummary = {
   columns: [
     {
-      id: "backlog",
-      name: "Backlog",
+      id: "plan",
+      name: "Plan",
       cards: [],
     },
   ],
@@ -16,12 +16,12 @@ const EMPTY_BOARD: BoardSummary = {
 const FILLED_BOARD: BoardSummary = {
   columns: [
     {
-      id: "backlog",
-      name: "Backlog",
+      id: "plan",
+      name: "Plan",
       cards: [
         {
           id: "card-1",
-          status: "backlog",
+          status: "plan",
           archived: false,
           title: "Task",
           richTitle: plainTextToPortableRichText("Task"),
@@ -41,26 +41,26 @@ describe("resolveKanbanDropFeedback", () => {
   test("uses whole-column feedback for empty target columns", () => {
     const feedback = resolveKanbanDropFeedback({
       visibleBoard: EMPTY_BOARD,
-      columnId: "backlog",
+      columnId: "plan",
       visibleIndex: 0,
       showSlotIndicator: true,
     });
 
     expect(feedback.dropIndicator).toBe(null);
-    expect(feedback.activeDropColumnId).toBe("backlog");
+    expect(feedback.activeDropColumnId).toBe("plan");
   });
 
   test("uses an insertion indicator for non-empty columns when slot feedback is truthful", () => {
     const feedback = resolveKanbanDropFeedback({
       visibleBoard: FILLED_BOARD,
-      columnId: "backlog",
+      columnId: "plan",
       visibleIndex: 1,
       showSlotIndicator: true,
       label: "P1",
     });
 
     expect(feedback.activeDropColumnId).toBe(null);
-    expect(feedback.dropIndicator?.columnId).toBe("backlog");
+    expect(feedback.dropIndicator?.columnId).toBe("plan");
     expect(feedback.dropIndicator?.index).toBe(1);
     expect(feedback.dropIndicator?.label).toBe("P1");
   });
@@ -68,12 +68,12 @@ describe("resolveKanbanDropFeedback", () => {
   test("uses whole-column feedback when slot indicators are intentionally disabled", () => {
     const feedback = resolveKanbanDropFeedback({
       visibleBoard: FILLED_BOARD,
-      columnId: "backlog",
+      columnId: "plan",
       visibleIndex: 0,
       showSlotIndicator: false,
     });
 
     expect(feedback.dropIndicator).toBe(null);
-    expect(feedback.activeDropColumnId).toBe("backlog");
+    expect(feedback.activeDropColumnId).toBe("plan");
   });
 });

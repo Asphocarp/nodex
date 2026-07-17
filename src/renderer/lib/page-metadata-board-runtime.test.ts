@@ -9,7 +9,7 @@ import {
 
 const page = (id = "page-1"): DatabasePage => ({
   id,
-  status: "draft",
+  status: "triage",
   title: "Page",
   richTitle: plainTextToPortableRichText("Page"),
   description: "",

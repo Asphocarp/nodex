@@ -48,7 +48,7 @@ const authority = (
           membershipId: "membership-1",
           databaseId,
           dataSourceId,
-          status: "draft",
+          status: "triage",
           position: { viewId },
         },
       }
@@ -136,7 +136,7 @@ const preflight = (
       }],
       rows: [{
         page: { pageId: "draft-first" },
-        effectiveGroupKey: "draft",
+        effectiveGroupKey: "triage",
       }] as unknown as PageLifecyclePreflightSnapshotV2["value"]["defaultView"]["rows"],
     },
   },
@@ -172,7 +172,7 @@ const receipt = (
 
 const canonicalPage = (archived = false): DatabasePage => ({
   id: "page-1",
-  status: "draft",
+  status: "triage",
   archived,
   title: "Page",
   richTitle: [{ type: "text", text: "Page", styles: {} }],
@@ -190,7 +190,7 @@ describe("Page lifecycle v2 runtime", () => {
         projectId: "project-1",
         operationId: "operation-1",
         pageId: "page-1",
-        status: "draft",
+        status: "triage",
         input: { title: "Page", tags: ["Release", " 新标签 "] },
         placement: "top",
       },
@@ -242,7 +242,7 @@ describe("Page lifecycle v2 runtime", () => {
         projectId: "project-1",
         operationId: "operation-1",
         pageId: "page-1",
-        status: "draft",
+        status: "triage",
         input: { title: "Page" },
       },
       {

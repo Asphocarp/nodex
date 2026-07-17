@@ -37,10 +37,10 @@ describe("Page target read model", () => {
     try {
       await initializeDatabase();
       const project = createProject({ name: "Target project" });
-      const host = await createPage(project.id, "draft", {
+      const host = await createPage(project.id, "triage", {
         title: "Host",
       });
-      const target = await createPage(project.id, "draft", {
+      const target = await createPage(project.id, "triage", {
         title: "Nested Page",
         description: "Independent body",
       });

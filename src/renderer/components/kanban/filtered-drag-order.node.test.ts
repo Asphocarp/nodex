@@ -20,7 +20,7 @@ function createPage(id: string, status: WorkflowStatus, order: number): Database
 }
 
 function createBoard(columns: Record<WorkflowStatus, string[]>): BoardSummary {
-  const orderedStatuses: WorkflowStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
+  const orderedStatuses: WorkflowStatus[] = ["triage", "plan", "build", "review", "ship"];
   return {
     columns: orderedStatuses.map((status) => ({
       id: status,
@@ -33,25 +33,25 @@ function createBoard(columns: Record<WorkflowStatus, string[]>): BoardSummary {
 describe("resolveFilteredDropOrder", () => {
   test("inserts before the next visible anchor while preserving hidden cards", () => {
     const board = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["hidden-a", "visible-b", "hidden-c", "visible-d", "hidden-e"],
-      in_review: ["moved"],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["hidden-a", "visible-b", "hidden-c", "visible-d", "hidden-e"],
+      review: ["moved"],
+      ship: [],
     });
     const visibleBoard = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["visible-b", "visible-d"],
-      in_review: ["moved"],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["visible-b", "visible-d"],
+      review: ["moved"],
+      ship: [],
     });
 
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
       draggedPageIds: ["moved"],
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 1,
     });
 
@@ -60,25 +60,25 @@ describe("resolveFilteredDropOrder", () => {
 
   test("drops after the last visible card instead of after trailing hidden cards", () => {
     const board = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["hidden-a", "visible-b", "hidden-c", "visible-d", "hidden-e"],
-      in_review: ["moved"],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["hidden-a", "visible-b", "hidden-c", "visible-d", "hidden-e"],
+      review: ["moved"],
+      ship: [],
     });
     const visibleBoard = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["visible-b", "visible-d"],
-      in_review: ["moved"],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["visible-b", "visible-d"],
+      review: ["moved"],
+      ship: [],
     });
 
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
       draggedPageIds: ["moved"],
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 2,
     });
 
@@ -87,25 +87,25 @@ describe("resolveFilteredDropOrder", () => {
 
   test("keeps same-column drops stable when the dragged card is the only visible match", () => {
     const board = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["visible-a", "hidden-b"],
-      in_review: [],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["visible-a", "hidden-b"],
+      review: [],
+      ship: [],
     });
     const visibleBoard = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["visible-a"],
-      in_review: [],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["visible-a"],
+      review: [],
+      ship: [],
     });
 
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
       draggedPageIds: ["visible-a"],
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 1,
     });
 
@@ -114,25 +114,25 @@ describe("resolveFilteredDropOrder", () => {
 
   test("maps same-column filtered drops from the remaining visible slot space", () => {
     const board = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["hidden-a", "visible-b", "hidden-c", "visible-d", "hidden-e"],
-      in_review: [],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["hidden-a", "visible-b", "hidden-c", "visible-d", "hidden-e"],
+      review: [],
+      ship: [],
     });
     const visibleBoard = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["visible-b", "visible-d"],
-      in_review: [],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["visible-b", "visible-d"],
+      review: [],
+      ship: [],
     });
 
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard,
       draggedPageIds: ["visible-b"],
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 1,
     });
 
@@ -141,18 +141,18 @@ describe("resolveFilteredDropOrder", () => {
 
   test("maps same-column unfiltered drops from the remaining visible slot space", () => {
     const board = createBoard({
-      draft: [],
-      backlog: [],
-      in_progress: ["a", "b", "c"],
-      in_review: [],
-      done: [],
+      triage: [],
+      plan: [],
+      build: ["a", "b", "c"],
+      review: [],
+      ship: [],
     });
 
     const order = resolveFilteredDropOrder({
       board,
       visibleBoard: board,
       draggedPageIds: ["a"],
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 1,
     });
 

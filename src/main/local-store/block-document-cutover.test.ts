@@ -45,7 +45,7 @@ describe("owned Document descriptor lookup", () => {
     try {
       await initializeDatabase();
       const project = createProject({ name: "Owned descriptor engines" });
-      const card = await createPage(project.id, "draft", {
+      const card = await createPage(project.id, "triage", {
         title: "Yjs Card",
       });
       const database = getDb();
@@ -93,7 +93,7 @@ describe("owned Document descriptor lookup", () => {
       await initializeDatabase();
       const requester = createProject({ name: "Requester" });
       const owner = createProject({ name: "Owner" });
-      const page = await createPage(owner.id, "draft", {
+      const page = await createPage(owner.id, "triage", {
         title: "Shared Page",
       });
       const database = getDb();

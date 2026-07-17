@@ -52,8 +52,8 @@ describe("Project resource grants", () => {
   test("plans direct, temporary, and persistent resource authority at the resource boundary", async () => {
     const actor = createProject({ name: "Resource actor" });
     const foreign = createProject({ name: "Resource target" });
-    const ownPage = await createPage(actor.id, "draft", { title: "Own" });
-    const foreignPage = await createPage(foreign.id, "draft", { title: "Foreign" });
+    const ownPage = await createPage(actor.id, "triage", { title: "Own" });
+    const foreignPage = await createPage(foreign.id, "triage", { title: "Foreign" });
     const database = getDb();
     const library = database.prepare(
       "SELECT library_id AS libraryId FROM projects WHERE id = ?",
@@ -153,7 +153,7 @@ describe("Project resource grants", () => {
   test("keeps read grants direct while requiring consent to upgrade their writes", async () => {
     const actor = createProject({ name: "Read actor" });
     const foreign = createProject({ name: "Read target" });
-    const page = await createPage(foreign.id, "draft", { title: "Read target" });
+    const page = await createPage(foreign.id, "triage", { title: "Read target" });
     putProjectResourceGrant({
       projectId: actor.id,
       root: { kind: "page", pageId: page.id },
@@ -191,7 +191,7 @@ describe("Project resource grants", () => {
 
   test("denies deleted Agent targets without breaking lifecycle restoration authority", async () => {
     const actor = createProject({ name: "Deleted target actor" });
-    const page = await createPage(actor.id, "draft", { title: "Deleted target" });
+    const page = await createPage(actor.id, "triage", { title: "Deleted target" });
     const database = getDb();
     const library = database.prepare(
       "SELECT library_id AS libraryId FROM projects WHERE id = ?",
@@ -230,7 +230,7 @@ describe("Project resource grants", () => {
   test("overlays temporary same-Library access without persisting grants", async () => {
     const actor = createProject({ name: "Full access actor" });
     const foreign = createProject({ name: "Foreign content owner" });
-    const page = await createPage(foreign.id, "draft", { title: "Foreign" });
+    const page = await createPage(foreign.id, "triage", { title: "Foreign" });
     const database = getDb();
     const library = database.prepare(
       "SELECT library_id AS libraryId FROM projects WHERE id = ?",
@@ -278,7 +278,7 @@ describe("Project resource grants", () => {
 
   test("rejects stale Project-scope Turn authority before grant delegation", async () => {
     const actor = createProject({ name: "Stale Project authority" });
-    const page = await createPage(actor.id, "draft", { title: "Owned" });
+    const page = await createPage(actor.id, "triage", { title: "Owned" });
     const database = getDb();
     const coordinate = database.prepare(`
       SELECT library_id AS libraryId FROM projects WHERE id = ?
@@ -306,8 +306,8 @@ describe("Project resource grants", () => {
 
   test("rejects ownership cycles and fails closed on legacy corruption", async () => {
     const project = createProject({ name: "Hierarchy authority" });
-    const parent = await createPage(project.id, "draft", { title: "Parent" });
-    const child = await createPage(project.id, "draft", { title: "Child" });
+    const parent = await createPage(project.id, "triage", { title: "Parent" });
+    const child = await createPage(project.id, "triage", { title: "Child" });
     const database = getDb();
     const now = new Date().toISOString();
     const detachFromDataSource = database.prepare(`
@@ -356,16 +356,16 @@ describe("Project resource grants", () => {
   test("follows recursive ownership while reserving Database management", async () => {
     const executor = createProject({ name: "Executor" });
     const foreign = createProject({ name: "Foreign Library work" });
-    const ownPage = await createPage(executor.id, "draft", {
+    const ownPage = await createPage(executor.id, "triage", {
       title: "Owned Page",
     });
-    const grantedRoot = await createPage(foreign.id, "draft", {
+    const grantedRoot = await createPage(foreign.id, "triage", {
       title: "Granted root",
     });
-    const nestedPage = await createPage(foreign.id, "draft", {
+    const nestedPage = await createPage(foreign.id, "triage", {
       title: "Nested Page",
     });
-    const siblingPage = await createPage(foreign.id, "draft", {
+    const siblingPage = await createPage(foreign.id, "triage", {
       title: "Sibling Page",
     });
     const database = getDb();
@@ -495,7 +495,7 @@ describe("Project resource grants", () => {
 
   test("makes inactive and archived Projects read-only without deleting access", async () => {
     const project = createProject({ name: "Lifecycle authority" });
-    const page = await createPage(project.id, "draft", { title: "Page" });
+    const page = await createPage(project.id, "triage", { title: "Page" });
 
     setProjectLifecycle(project.id, { lifecycle: "inactive" });
     expect(authorizeProjectResource({

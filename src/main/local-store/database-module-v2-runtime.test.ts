@@ -84,7 +84,7 @@ const createV81Fixture = async (
   };
   const pageIds: string[] = [];
   for (let index = 0; index < pageCount; index += 1) {
-    const page = await createPage(root.projectId, "draft", {
+    const page = await createPage(root.projectId, "triage", {
       title: `Database Module v2 fixture ${index + 1}`,
     });
     pageIds.push(page.id);
@@ -141,7 +141,7 @@ describe("dormant canonical Database Module v2 runtime", () => {
       readonly dataSourceId: string;
       readonly viewId: string;
     };
-    const page = await createPage(root.projectId, "draft", {
+    const page = await createPage(root.projectId, "triage", {
       title: "Database Module v2 fixture",
     });
     const metadata = database.prepare(`

@@ -19,7 +19,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
-    status: overrides.status ?? "in_progress",
+    status: overrides.status ?? "build",
     archived: overrides.archived ?? false,
     priority: overrides.priority,
     estimate: overrides.estimate,
@@ -81,7 +81,7 @@ function makeDescriptionResult(overrides: Partial<PageSearchResult> = {}): PageS
   return {
     projectId: overrides.projectId ?? "default",
     pageId: overrides.pageId ?? "page-1",
-    status: overrides.status ?? "in_progress",
+    status: overrides.status ?? "build",
     score: overrides.score ?? -1,
     excerpt: overrides.excerpt ?? "Server excerpt",
   };
@@ -210,11 +210,11 @@ describe("command palette page result selection", () => {
     const appBoard: BoardSummary = {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
+          id: "plan",
+          name: "Plan",
           cards: [
-            makePage({ id: "app-first", title: "App first", status: "backlog" }),
-            makePage({ id: "app-second", title: "App second", status: "backlog" }),
+            makePage({ id: "app-first", title: "App first", status: "plan" }),
+            makePage({ id: "app-second", title: "App second", status: "plan" }),
           ],
         },
       ],
@@ -222,9 +222,9 @@ describe("command palette page result selection", () => {
     const opsBoard: BoardSummary = {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
-          cards: [makePage({ id: "ops-first", title: "Ops first", status: "backlog" })],
+          id: "plan",
+          name: "Plan",
+          cards: [makePage({ id: "ops-first", title: "Ops first", status: "plan" })],
         },
       ],
     };

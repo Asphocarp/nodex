@@ -138,7 +138,7 @@ describe("DbViewToolbar", () => {
     prefs.rules.filter.any[0]!.all[0] = {
       field: "status",
       op: "in",
-      values: ["backlog", "in_progress"],
+      values: ["plan", "build"],
     };
 
     const { container, getByText } = render(
@@ -154,7 +154,7 @@ describe("DbViewToolbar", () => {
 
     expect(getByText("Board Order").textContent).toBe("Board Order");
     expect(textContent(container).includes("Status")).toBe(true);
-    expect(textContent(container).includes("Backlog, In Progress")).toBe(true);
+    expect(textContent(container).includes("Plan, Build")).toBe(true);
     expect(textContent(container).includes("Ascending")).toBe(false);
   });
 

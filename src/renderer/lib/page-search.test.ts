@@ -11,7 +11,7 @@ function makeCard(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
   const title = overrides.title ?? "Improve NFM search";
   return {
     id: "abc1234",
-    status: "draft",
+    status: "triage",
     archived: false,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),

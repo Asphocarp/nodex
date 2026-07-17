@@ -219,15 +219,15 @@ describe("legacy Card promotion cutover", () => {
     process.env.NODEX_DIR = directory;
     await initializeDatabase();
     const project = createProject({ name: "Cutover" });
-    const safe = await createPage(project.id, "backlog", {
+    const safe = await createPage(project.id, "plan", {
       title: "Safe promoted root",
       description: "Safe promoted root\n\tSafe child",
     });
-    const divergent = await createPage(project.id, "backlog", {
+    const divergent = await createPage(project.id, "plan", {
       title: "Original promoted root",
       description: "Original promoted root",
     });
-    const editedRoot = await createPage(project.id, "backlog", {
+    const editedRoot = await createPage(project.id, "plan", {
       title: "Edited promoted root",
       description: "Edited promoted root",
     });
@@ -375,11 +375,11 @@ describe("legacy Card promotion cutover", () => {
     process.env.NODEX_DIR = directory;
     await initializeDatabase();
     const project = createProject({ name: "Copy cutover" });
-    const copied = await createPage(project.id, "backlog", {
+    const copied = await createPage(project.id, "plan", {
       title: "Copied root",
       description: "Copied root\n\tLifted child\nFollowing sibling",
     });
-    const leaf = await createPage(project.id, "backlog", {
+    const leaf = await createPage(project.id, "plan", {
       title: "Copied leaf",
       description: "Copied leaf",
     });
@@ -449,7 +449,7 @@ describe("legacy Card promotion cutover", () => {
     process.env.NODEX_DIR = directory;
     await initializeDatabase();
     const project = createProject({ name: "Retired cutover" });
-    const card = await createPage(project.id, "backlog", {
+    const card = await createPage(project.id, "plan", {
       title: "Historical title",
       description: "Historical title",
     });

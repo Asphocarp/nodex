@@ -28,7 +28,7 @@ function makeCard(
 }
 
 function makeBoard(columns: Partial<Record<WorkflowStatus, DatabasePageSummary[]>>): BoardSummary {
-  const orderedStatuses: WorkflowStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
+  const orderedStatuses: WorkflowStatus[] = ["triage", "plan", "build", "review", "ship"];
   return {
     columns: orderedStatuses.map((status) => ({
       id: status,
@@ -44,7 +44,7 @@ function makeRules(partial: Partial<DbViewRules> = {}): DbViewRules {
       any: [
         {
           all: [
-            { field: "status", op: "in", values: ["draft", "backlog", "in_progress", "in_review", "done"] },
+            { field: "status", op: "in", values: ["triage", "plan", "build", "review", "ship"] },
             { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"], includeEmpty: true },
           ],
         },
@@ -58,17 +58,17 @@ function makeRules(partial: Partial<DbViewRules> = {}): DbViewRules {
 describe("resolveKanbanImportInference", () => {
   test("maps filtered board-order imports back into persisted order and applies unambiguous filter defaults", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("hidden-a", "in_progress", 0, { priority: "p2-medium" }),
-        makeCard("visible-b", "in_progress", 1, { priority: "p1-high" }),
-        makeCard("hidden-c", "in_progress", 2, { priority: "p3-low" }),
-        makeCard("visible-d", "in_progress", 3, { priority: "p1-high" }),
+      build: [
+        makeCard("hidden-a", "build", 0, { priority: "p2-medium" }),
+        makeCard("visible-b", "build", 1, { priority: "p1-high" }),
+        makeCard("hidden-c", "build", 2, { priority: "p3-low" }),
+        makeCard("visible-d", "build", 3, { priority: "p1-high" }),
       ],
     });
     const visibleBoard = makeBoard({
-      in_progress: [
-        makeCard("visible-b", "in_progress", 0, { priority: "p1-high" }),
-        makeCard("visible-d", "in_progress", 1, { priority: "p1-high" }),
+      build: [
+        makeCard("visible-b", "build", 0, { priority: "p1-high" }),
+        makeCard("visible-d", "build", 1, { priority: "p1-high" }),
       ],
     });
 
@@ -80,14 +80,14 @@ describe("resolveKanbanImportInference", () => {
           any: [
             {
               all: [
-                { field: "status", op: "in", values: ["in_progress"] },
+                { field: "status", op: "in", values: ["build"] },
                 { field: "priority", op: "in", values: ["p1-high"] },
               ],
             },
           ],
         },
       }),
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 1,
       cards: [{ title: "Dropped block" }],
       hasSearchFilter: false,
@@ -104,17 +104,17 @@ describe("resolveKanbanImportInference", () => {
 
   test("uses sortable neighbor properties to keep exact-slot imports under a priority sort", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("p1-a", "in_progress", 0, { priority: "p1-high" }),
-        makeCard("p1-b", "in_progress", 1, { priority: "p1-high" }),
-        makeCard("p2-a", "in_progress", 2, { priority: "p2-medium" }),
+      build: [
+        makeCard("p1-a", "build", 0, { priority: "p1-high" }),
+        makeCard("p1-b", "build", 1, { priority: "p1-high" }),
+        makeCard("p2-a", "build", 2, { priority: "p2-medium" }),
       ],
     });
     const visibleBoard = makeBoard({
-      in_progress: [
-        makeCard("p1-a", "in_progress", 0, { priority: "p1-high" }),
-        makeCard("p1-b", "in_progress", 1, { priority: "p1-high" }),
-        makeCard("p2-a", "in_progress", 2, { priority: "p2-medium" }),
+      build: [
+        makeCard("p1-a", "build", 0, { priority: "p1-high" }),
+        makeCard("p1-b", "build", 1, { priority: "p1-high" }),
+        makeCard("p2-a", "build", 2, { priority: "p2-medium" }),
       ],
     });
 
@@ -124,7 +124,7 @@ describe("resolveKanbanImportInference", () => {
       rules: makeRules({
         sort: [{ field: "priority", direction: "asc" }],
       }),
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 2,
       cards: [{ title: "Dropped block" }],
       hasSearchFilter: false,
@@ -141,9 +141,9 @@ describe("resolveKanbanImportInference", () => {
 
   test("falls back to column-only import when the active sort depends on title", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("alpha", "in_progress", 0, { title: "Alpha" }),
-        makeCard("beta", "in_progress", 1, { title: "Beta" }),
+      build: [
+        makeCard("alpha", "build", 0, { title: "Alpha" }),
+        makeCard("beta", "build", 1, { title: "Beta" }),
       ],
     });
 
@@ -153,7 +153,7 @@ describe("resolveKanbanImportInference", () => {
       rules: makeRules({
         sort: [{ field: "title", direction: "asc" }],
       }),
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 1,
       cards: [{ title: "Dropped block" }],
       hasSearchFilter: false,
@@ -164,14 +164,14 @@ describe("resolveKanbanImportInference", () => {
 
   test("blocks board import while search is active", () => {
     const board = makeBoard({
-      in_progress: [makeCard("match", "in_progress", 0)],
+      build: [makeCard("match", "build", 0)],
     });
 
     const result = resolveKanbanImportInference({
       board,
       visibleBoard: board,
       rules: makeRules(),
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 0,
       cards: [{ title: "Dropped block" }],
       hasSearchFilter: true,
@@ -182,7 +182,7 @@ describe("resolveKanbanImportInference", () => {
 
   test("blocks filtered imports when matching a tag subset would require inventing an ambiguous tag", () => {
     const board = makeBoard({
-      in_progress: [makeCard("visible", "in_progress", 0, { tags: ["backend"] })],
+      build: [makeCard("visible", "build", 0, { tags: ["backend"] })],
     });
 
     const result = resolveKanbanImportInference({
@@ -193,14 +193,14 @@ describe("resolveKanbanImportInference", () => {
           any: [
             {
               all: [
-                { field: "status", op: "in", values: ["in_progress"] },
+                { field: "status", op: "in", values: ["build"] },
                 { field: "tags", op: "hasAny", values: ["backend", "frontend"] },
               ],
             },
           ],
         },
       }),
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 1,
       cards: [{ title: "Dropped block" }],
       hasSearchFilter: false,
@@ -211,10 +211,10 @@ describe("resolveKanbanImportInference", () => {
 
   test("keeps a sorted import column-only when explicit imported sort values conflict with the hovered slot", () => {
     const board = makeBoard({
-      in_progress: [
-        makeCard("p1-a", "in_progress", 0, { priority: "p1-high" }),
-        makeCard("p1-b", "in_progress", 1, { priority: "p1-high" }),
-        makeCard("p2-a", "in_progress", 2, { priority: "p2-medium" }),
+      build: [
+        makeCard("p1-a", "build", 0, { priority: "p1-high" }),
+        makeCard("p1-b", "build", 1, { priority: "p1-high" }),
+        makeCard("p2-a", "build", 2, { priority: "p2-medium" }),
       ],
     });
 
@@ -224,7 +224,7 @@ describe("resolveKanbanImportInference", () => {
       rules: makeRules({
         sort: [{ field: "priority", direction: "asc" }],
       }),
-      targetColumnId: "in_progress",
+      targetColumnId: "build",
       targetVisibleIndex: 2,
       cards: [{ title: "Snapshot card", priority: "p4-later" } satisfies PageInput],
       hasSearchFilter: false,

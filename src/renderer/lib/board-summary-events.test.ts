@@ -42,8 +42,8 @@ function makeCard(id: string, status: DatabasePageSummary["status"], order: numb
 function makeBoard(): BoardSummary {
   return {
     columns: [
-      { id: "draft", name: "Draft", cards: [makeCard("card-1", "draft", 0)] },
-      { id: "done", name: "Done", cards: [] },
+      { id: "triage", name: "Triage", cards: [makeCard("card-1", "triage", 0)] },
+      { id: "ship", name: "Ship", cards: [] },
     ],
   };
 }
@@ -52,8 +52,8 @@ function makeEvent(summary?: DatabasePageSummary): BoardChangeEvent {
   return {
     projectId: "project-1",
     changeType: "update",
-    columnId: summary?.status ?? "draft",
-    status: summary?.status ?? "draft",
+    columnId: summary?.status ?? "triage",
+    status: summary?.status ?? "triage",
     pageId: summary?.id ?? "card-1",
     summary,
   };
@@ -62,7 +62,7 @@ function makeEvent(summary?: DatabasePageSummary): BoardChangeEvent {
 describe("board summary events", () => {
   test("patches an updated card summary without replacing unrelated columns", () => {
     const board = makeBoard();
-    const nextSummary = { ...makeCard("card-1", "draft", 0), title: "Updated", revision: 2 };
+    const nextSummary = { ...makeCard("card-1", "triage", 0), title: "Updated", revision: 2 };
     const next = applyBoardChangeEventToBoard(board, makeEvent(nextSummary));
 
     expect(next?.columns[0]?.cards[0]?.title).toBe("Updated");
@@ -71,7 +71,7 @@ describe("board summary events", () => {
 
   test("moves a card when the summary status changes", () => {
     const board = makeBoard();
-    const moved = { ...makeCard("card-1", "done", 0), title: "Moved", revision: 2 };
+    const moved = { ...makeCard("card-1", "ship", 0), title: "Moved", revision: 2 };
     const next = applyBoardChangeEventToBoard(board, makeEvent(moved));
 
     expect(next?.columns[0]?.cards.length).toBe(0);
@@ -80,7 +80,7 @@ describe("board summary events", () => {
 
   test("removes archived summaries from the visible board", () => {
     const board = makeBoard();
-    const archived = { ...makeCard("card-1", "draft", 0), archived: true };
+    const archived = { ...makeCard("card-1", "triage", 0), archived: true };
     const next = applyBoardChangeEventToBoard(board, makeEvent(archived));
 
     expect(next?.columns[0]?.cards.length).toBe(0);
@@ -91,11 +91,11 @@ describe("board summary events", () => {
     const tailOrder = Number.MAX_SAFE_INTEGER;
     const withLater = upsertCardSummaryInBoard(
       board,
-      makeCard("card-z", "draft", tailOrder),
+      makeCard("card-z", "triage", tailOrder),
     );
     const withBoth = upsertCardSummaryInBoard(
       withLater,
-      makeCard("card-a", "draft", tailOrder),
+      makeCard("card-a", "triage", tailOrder),
     );
 
     expect(withBoth.columns[0]?.cards.map((card) => card.id)).toEqual([

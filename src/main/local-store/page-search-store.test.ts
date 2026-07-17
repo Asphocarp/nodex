@@ -60,7 +60,7 @@ describe("authoritative Page search", () => {
         await initializeDatabase();
         const project = createProject({ name: "Card search authority" });
         const otherProject = createProject({ name: "Other search scope" });
-        const card = await createPage(project.id, "in_progress", {
+        const card = await createPage(project.id, "build", {
           title: "Search Card",
           description: "legacy-needle",
         });
@@ -101,7 +101,7 @@ describe("authoritative Page search", () => {
           .prepare(
             `
         UPDATE data_source_property_values
-        SET value_json = '"done"', revision = revision + 1
+        SET value_json = '"ship"', revision = revision + 1
         WHERE membership_id = (
             SELECT id FROM data_source_page_memberships
             WHERE page_block_id = ? AND removed_at IS NULL
@@ -132,7 +132,7 @@ describe("authoritative Page search", () => {
         expect(oldResults.length).toBe(0);
         expect(currentResults.length).toBe(1);
         expect(currentResults[0]?.pageId).toBe(card.id);
-        expect(currentResults[0]?.status).toBe("done");
+        expect(currentResults[0]?.status).toBe("ship");
         expect(
           currentResults[0]?.excerpt.includes("current-needle"),
         ).toBe(true);
@@ -148,7 +148,7 @@ describe("authoritative Page search", () => {
           query: "current-needle",
         });
         expect(granted).toMatchObject([
-          { projectId: otherProject.id, pageId: card.id, status: "done" },
+          { projectId: otherProject.id, pageId: card.id, status: "ship" },
         ]);
       } finally {
         closeDatabase();

@@ -11,12 +11,12 @@ describe("Column", () => {
       projectId: "default",
       projectName: "Default",
       column: {
-        id: "in_progress",
-        name: "In Progress",
+        id: "build",
+        name: "Build",
         cards: [
           {
             id: "card-1",
-            status: "in_progress",
+            status: "build",
             archived: false,
             title: "Task",
             richTitle: plainTextToPortableRichText("Task"),
@@ -49,8 +49,8 @@ describe("Column", () => {
       projectId: "default",
       projectName: "Default",
       column: {
-        id: "backlog",
-        name: "Backlog",
+        id: "plan",
+        name: "Plan",
         cards: [],
       },
       layout: {
@@ -65,7 +65,7 @@ describe("Column", () => {
       isDropTargetActive: true,
     }));
 
-    const columnRoot = container.querySelector("[data-kanban-column-id='backlog']");
+    const columnRoot = container.querySelector("[data-kanban-column-id='plan']");
     expect(columnRoot?.getAttribute("data-kanban-column-collapsed")).toBe("true");
     expect(container.textContent?.includes("New task")).toBe(false);
   });
@@ -76,12 +76,12 @@ describe("Column", () => {
       projectId: "default",
       projectName: "Default",
       column: {
-        id: "in_progress",
-        name: "In Progress",
+        id: "build",
+        name: "Build",
         cards: [
           {
             id: "card-1",
-            status: "in_progress",
+            status: "build",
             archived: false,
             title: "Task",
             richTitle: plainTextToPortableRichText("Task"),

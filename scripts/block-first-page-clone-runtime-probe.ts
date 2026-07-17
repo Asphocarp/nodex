@@ -111,7 +111,7 @@ const countProjectPageBlocks = (projectId: string): number => {
 
 const createPage = (
   projectId: string,
-  status: "in_progress",
+  status: "build",
   input: PageInput,
 ) => {
   const database = getDb();
@@ -167,7 +167,7 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Page clone runtime" });
-    const source = createPage(project.id, "in_progress", {
+    const source = createPage(project.id, "build", {
       title: "Initial source title",
       description: [
         "Current collaborative paragraph",
@@ -286,7 +286,7 @@ const main = async (): Promise<void> => {
       "Rejected operation ID reuse did not return a typed collision",
     );
 
-    const unscheduled = createPage(project.id, "in_progress", {
+    const unscheduled = createPage(project.id, "build", {
       title: "Unscheduled rejection target",
     });
     const notScheduled = await skipPageOccurrence(project.id, {
@@ -332,7 +332,7 @@ const main = async (): Promise<void> => {
             sourcePageId: source.id,
             newPageId: failedPageId,
             lifecycle: "active",
-            status: "in_progress",
+            status: "build",
             primaryViewRankKey: `fault:${point}`,
             operationId: `page-clone-fault:${point}`,
           },
@@ -359,7 +359,7 @@ const main = async (): Promise<void> => {
       sourcePageId: source.id,
       newPageId: exactRetryPageId,
       lifecycle: "active" as const,
-      status: "in_progress" as const,
+      status: "build" as const,
       primaryViewRankKey: `exact-retry:${exactRetryPageId}`,
       topLevelRankKey: `exact-retry:${exactRetryPageId}`,
       operationId: exactRetryOperationId,
@@ -415,7 +415,7 @@ const main = async (): Promise<void> => {
     try {
       cloneAuthoritativePage(database, {
         ...exactRetryInput,
-        status: "done",
+        status: "ship",
       });
     } catch (error) {
       cloneCollision =
@@ -449,11 +449,11 @@ const main = async (): Promise<void> => {
       sourcePageId: source.id,
       newPageId: clonePageId,
       lifecycle: "active",
-      status: "done",
+      status: "ship",
       primaryViewRankKey: `clone:${clonePageId}`,
       propertyOverrides: {
         database: {
-          status: "done",
+          status: "ship",
           scheduled_start: "2026-07-20T10:00:00.000Z",
           scheduled_end: "2026-07-20T11:00:00.000Z",
         },
@@ -476,7 +476,7 @@ const main = async (): Promise<void> => {
       "Clone did not read the current Document title",
     );
     assert(
-      clonedPage.status === "done",
+      clonedPage.status === "ship",
       "Clone status override was not relational",
     );
     assert(

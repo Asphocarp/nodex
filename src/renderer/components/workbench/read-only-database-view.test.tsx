@@ -129,11 +129,11 @@ const model: DatabaseViewRenderModel = {
     }],
   },
   columns: [{
-    id: "in_progress",
+    id: "build",
     name: "In Progress",
     rows: [{
       pageId: "page-focused",
-      status: "in_progress",
+      status: "build",
       title: "Focused Page",
       preview: "",
       plainText: "",

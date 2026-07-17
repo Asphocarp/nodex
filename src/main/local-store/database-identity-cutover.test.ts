@@ -75,7 +75,7 @@ const optionMappings = createOptionIdentityMappings([
     newPropertyId: parseDataSourcePropertyId("status"),
     oldOptionId: "draft",
   },
-]);
+], { preserveLegacyWorkflowStatusIds: true });
 
 const mappedOption = (oldOptionId: string): string => {
   const mapping = optionMappings.find(

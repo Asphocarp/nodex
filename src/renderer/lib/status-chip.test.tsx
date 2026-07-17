@@ -52,14 +52,14 @@ function createMockDocument(): Document {
 
 describe("status chip", () => {
   test("renders the shared in-review chip with an icon and label", () => {
-    const { container, getByText } = render(<StatusChip statusId="in_review" />);
+    const { container, getByText } = render(<StatusChip statusId="review" />);
 
-    expect(getByText("In Review").textContent).toBe("In Review");
+    expect(getByText("Review").textContent).toBe("Review");
     expect(container.querySelector("svg")).not.toBeNull();
   });
 
-  test("renders the draft icon as decorative svg markup", () => {
-    const { container } = render(<StatusIcon statusId="draft" />);
+  test("renders the triage icon as decorative svg markup", () => {
+    const { container } = render(<StatusIcon statusId="triage" />);
     const icon = container.querySelector("svg");
 
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
@@ -67,7 +67,7 @@ describe("status chip", () => {
   });
 
   test("creates a DOM icon element for editor-rendered status chips", () => {
-    const icon = createStatusIconElement("done", {
+    const icon = createStatusIconElement("ship", {
       documentRef: createMockDocument(),
     });
 
@@ -77,7 +77,7 @@ describe("status chip", () => {
   });
 
   test("maps status labels back to shared status metadata", () => {
-    expect(getStatusIdByLabel("Backlog")).toBe("backlog");
-    expect(getStatusAccentColorByLabel("Done")).toBe("var(--status-done-dot)");
+    expect(getStatusIdByLabel("Plan")).toBe("plan");
+    expect(getStatusAccentColorByLabel("Ship")).toBe("var(--status-ship-dot)");
   });
 });

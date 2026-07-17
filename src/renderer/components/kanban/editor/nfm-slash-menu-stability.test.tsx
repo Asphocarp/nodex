@@ -37,7 +37,7 @@ function makePalettePage(): CommandPalettePage {
       descriptionPreview,
       descriptionLength: descriptionPreview.length,
       hasDescription: true,
-      status: "in_progress",
+      status: "build",
       archived: false,
       tags: [],
       reminders: [],
@@ -285,7 +285,7 @@ describe("useNfmMentionGetItems", () => {
       oldPageSearch.resolve([{
         projectId: "project-1",
         pageId: "page-1",
-        status: "in_progress",
+        status: "build",
         score: 1,
         excerpt: "old async result",
       }]);
@@ -301,7 +301,7 @@ describe("useNfmMentionGetItems", () => {
       nowPageSearch.resolve([{
         projectId: "project-1",
         pageId: "page-1",
-        status: "in_progress",
+        status: "build",
         score: 1,
         excerpt: "now async result",
       }]);

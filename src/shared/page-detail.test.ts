@@ -86,7 +86,7 @@ const memberResult = (): PageDetailResult => ({
         dataSourceId,
         name: "Status",
         valueType: "select",
-        config: { options: [{ id: "draft", name: "Draft" }] },
+        config: { options: [{ id: "triage", name: "Triage" }] },
         rankKey: "a0",
         lifecycle: "active",
         revision: 1,
@@ -97,7 +97,7 @@ const memberResult = (): PageDetailResult => ({
         status: {
           propertyId: statusPropertyId,
           valueType: "select",
-          value: "draft",
+          value: "triage",
           revision: 1,
         },
       },

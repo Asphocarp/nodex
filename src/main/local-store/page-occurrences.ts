@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { isUuidV7 } from "../../shared/uuid-v7";
+import { COMPLETED_WORKFLOW_STATUS } from "../../shared/workflow-status";
 import type {
   PageOccurrence,
   DatabasePage,
@@ -615,7 +616,7 @@ export async function completePageOccurrence(
   const sourceScope = readOccurrenceAuthorityScope(database, target.id);
   const cloneOverrides: AuthoritativePageClonePropertyOverrides = {
     database: {
-      status: "done",
+      status: COMPLETED_WORKFLOW_STATUS,
       scheduled_start: occurrenceStart.toISOString(),
       scheduled_end: occurrenceEnd.toISOString(),
     },
@@ -633,7 +634,7 @@ export async function completePageOccurrence(
       sourcePageId: target.id,
       newPageId: archivePageId,
       lifecycle: "archived",
-      status: "done",
+      status: COMPLETED_WORKFLOW_STATUS,
       primaryViewRankKey: `~archive:${nowIso}:${archivePageId}`,
       propertyOverrides: cloneOverrides,
       operationId: occurrenceNestedOperationId(
@@ -691,7 +692,7 @@ export async function completePageOccurrence(
   dbNotifier.notifyChange(
     projectId,
     "create",
-    "done",
+    COMPLETED_WORKFLOW_STATUS,
     result.createdPageId ?? archivePageId,
   );
   return result;

@@ -41,7 +41,7 @@ const run = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Property worker" });
-    const card = await createPage(project.id, "draft", {
+    const card = await createPage(project.id, "triage", {
       title: "Property worker Card",
     });
     const database = getDb();
@@ -178,7 +178,7 @@ const run = async (): Promise<void> => {
           propertyId: status.id,
           operation: "set",
           expectedRevision: status.revision,
-          value: "done",
+          value: "ship",
         },
       ],
     };
@@ -187,7 +187,7 @@ const run = async (): Promise<void> => {
       moved.result.ok &&
         !moved.result.value.duplicate &&
         eventCount() === 2 &&
-        events[1]?.summary?.status === "done",
+        events[1]?.summary?.status === "ship",
       "Status property commit did not publish the new primary View group",
     );
 
@@ -259,9 +259,9 @@ const run = async (): Promise<void> => {
         projection.metadata_revision === projection.source_metadata_revision &&
           projection.metadata_revision ===
             projection.read_model_metadata_revision &&
-          projection.group_key === "done" &&
+          projection.group_key === "ship" &&
           databaseValues.priority === "p0-critical" &&
-          databaseValues.status === "done" &&
+          databaseValues.status === "ship" &&
           intrinsicValues["run.baseBranch"] === "running",
         `Worker ACK preceded scheduler/read-model/View projection freshness: ${JSON.stringify({
           projection,

@@ -993,7 +993,7 @@ vi.mock("@/lib/use-kanban", () => ({
       ? {
           id: "card-beta",
           projectId: "beta",
-          status: "in_progress",
+          status: "build",
           title: "Beta Card",
           description: "",
           tags: [],
@@ -1003,7 +1003,7 @@ vi.mock("@/lib/use-kanban", () => ({
           {
             id: "card-1",
             projectId: "alpha",
-            status: "in_progress",
+            status: "build",
             title: "Card One",
             description: "",
             tags: [],
@@ -1012,7 +1012,7 @@ vi.mock("@/lib/use-kanban", () => ({
           {
             id: "card-2",
             projectId: "alpha",
-            status: "in_progress",
+            status: "build",
             title: "Card Two",
             description: "",
             tags: [],
@@ -1024,8 +1024,8 @@ vi.mock("@/lib/use-kanban", () => ({
       board: {
         columns: [
           {
-            id: "in_progress",
-            name: "In Progress",
+            id: "build",
+            name: "Build",
             cards: visibleCards,
           },
         ],
@@ -1710,7 +1710,7 @@ function renderWorkbench({
     const standalone = row.standalone === true;
     const result = buildPageDetailStoryResult(projectId, {
       id: pageId,
-      status: (typeof row.status === "string" ? row.status : "draft") as "draft",
+      status: (typeof row.status === "string" ? row.status : "triage") as "triage",
       archived: false,
       title: typeof row.title === "string" ? row.title : pageId,
       richTitle: [],
@@ -2030,13 +2030,13 @@ function renderWorkbench({
         return {
           columns: [
             {
-              id: "in_progress",
-              name: "In Progress",
+              id: "build",
+              name: "Build",
               cards: [
                 {
                   id: "card-beta",
                   projectId: "beta",
-                  status: "in_progress",
+                  status: "build",
                   title: "Beta Card",
                   tags: [],
                   archived: false,
@@ -2055,13 +2055,13 @@ function renderWorkbench({
       return {
         columns: [
           {
-            id: "in_progress",
-            name: "In Progress",
+            id: "build",
+            name: "Build",
             cards: [
               {
                 id: "card-1",
                 projectId: "alpha",
-                status: "in_progress",
+                status: "build",
                 title: "Card One",
                 tags: [],
                 archived: false,
@@ -2075,7 +2075,7 @@ function renderWorkbench({
               {
                 id: "card-2",
                 projectId: "alpha",
-                status: "in_progress",
+                status: "build",
                 title: "Card Two",
                 tags: [],
                 archived: false,
@@ -2104,7 +2104,7 @@ function renderWorkbench({
         return asPageDetailResult({
           id: "card-beta",
           projectId: "beta",
-          status: "in_progress",
+          status: "build",
           title: "Beta Card",
           description: "",
           tags: [],
@@ -2118,7 +2118,7 @@ function renderWorkbench({
         return asPageDetailResult({
           id: "card-2",
           projectId: "alpha",
-          status: "in_progress",
+          status: "build",
           title: "Card Two",
           description: "",
           tags: [],
@@ -2134,7 +2134,7 @@ function renderWorkbench({
       return asPageDetailResult({
         id: "card-1",
         projectId: "alpha",
-        status: "in_progress",
+        status: "build",
         title: "Card One",
         description: "",
         tags: [],
@@ -2151,7 +2151,7 @@ function renderWorkbench({
           ? [{
               id: "card-beta",
               projectId: "beta",
-              status: "in_progress",
+              status: "build",
               title: "Beta Card",
               description: "",
               tags: [],
@@ -2164,7 +2164,7 @@ function renderWorkbench({
             ? [{
                 id: "card-2",
                 projectId: "alpha",
-                status: "in_progress",
+                status: "build",
                 title: "Card Two",
                 description: "",
                 tags: [],
@@ -2177,7 +2177,7 @@ function renderWorkbench({
             ? [{
                 id: "card-1",
                 projectId: "alpha",
-                status: "in_progress",
+                status: "build",
                 title: "Card One",
               description: "",
               tags: [],
@@ -11262,7 +11262,7 @@ describe(`workbench session shell / ${scope}`, () => {
       resolveCardDetail({
         id: "card-1",
         projectId: "alpha",
-        status: "in_progress",
+        status: "build",
         title: "Card One",
         description: "",
         tags: [],

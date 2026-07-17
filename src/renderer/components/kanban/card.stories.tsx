@@ -6,7 +6,7 @@ import { Card } from "./card";
 
 const SAMPLE_CARD: CardType = {
   id: "card-active-panel",
-  status: "in_progress",
+  status: "build",
   archived: false,
   title: "Refine panel-aware card focus",
   richTitle: plainTextToPortableRichText("Refine panel-aware card focus"),
@@ -37,7 +37,7 @@ function CardStoryFrame({
         <Card
           projectId="alpha"
           card={SAMPLE_CARD}
-          columnId="in_progress"
+          columnId="build"
           dragDisabled
           isActiveInPanel={isActiveInPanel}
           isSelected={isSelected}

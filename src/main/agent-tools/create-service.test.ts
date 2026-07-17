@@ -74,7 +74,7 @@ function createExistingCard(
       pageId,
       title: input.title,
       nfm: input.nfm,
-      status: "draft",
+      status: "triage",
     },
   });
   return BlockIdSchema.parse(pageId);
@@ -128,7 +128,7 @@ describe("Nodex Agent create service", () => {
           destination: {
             kind: "data_source",
             dataSourceId: destination.dataSourceId,
-            view: { viewId: destination.viewId, groupKey: "draft" },
+            view: { viewId: destination.viewId, groupKey: "triage" },
           },
           pages: [{ title: "Foreign owner Page", markdown: "Created directly" }],
         }),
@@ -301,7 +301,7 @@ describe("Nodex Agent create service", () => {
             dataSourceId: destination.data_source_id,
             view: {
               viewId: destination.view_id,
-              groupKey: "draft",
+              groupKey: "triage",
               at: { kind: "before", blockId: anchorId },
             },
           },

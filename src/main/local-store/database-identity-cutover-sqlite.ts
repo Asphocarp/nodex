@@ -504,7 +504,9 @@ const readPropertiesAndMappings = (database: Database.Database): {
   return {
     rows,
     propertyMappings,
-    optionMappings: createOptionIdentityMappings(optionCandidates),
+    optionMappings: createOptionIdentityMappings(optionCandidates, {
+      preserveLegacyWorkflowStatusIds: true,
+    }),
   };
 };
 

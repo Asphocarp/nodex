@@ -12,7 +12,7 @@ describe("toggle-list settings rules v2", () => {
   test("ignores legacy persisted filter and rank fields", () => {
     const normalized = normalizeToggleListSettings({
       filter: {
-        statuses: ["backlog", "backlog"],
+        statuses: ["plan", "plan"],
         priorities: ["p0-critical", "p1-high"],
         tags: ["infra"],
         tagMode: "none",
@@ -45,7 +45,7 @@ describe("toggle-list settings rules v2", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["draft", "backlog"] },
+              { field: "status", op: "in", values: ["triage", "plan"] },
               { field: "priority", op: "in", values: ["p0-critical", "p1-high"] },
               { field: "tags", op: "hasNone", values: ["blocked"] },
             ],
@@ -62,7 +62,7 @@ describe("toggle-list settings rules v2", () => {
     const derivedFilter = deriveToggleListFilterRule(next.rulesV2);
     expect(next.rulesV2.mode).toBe("advanced");
     expect(next.rulesV2.includeHostCard).toBe(true);
-    expect(JSON.stringify(derivedFilter.statuses)).toBe(JSON.stringify(["draft", "backlog"]));
+    expect(JSON.stringify(derivedFilter.statuses)).toBe(JSON.stringify(["triage", "plan"]));
     expect(JSON.stringify(derivedFilter.priorities)).toBe(JSON.stringify(["p0-critical", "p1-high"]));
     expect(derivedFilter.includeEmptyPriority).toBe(false);
     expect(JSON.stringify(derivedFilter.tags)).toBe(JSON.stringify(["blocked"]));

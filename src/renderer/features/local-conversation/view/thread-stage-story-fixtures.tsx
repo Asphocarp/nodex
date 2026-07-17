@@ -360,7 +360,7 @@ export function resolveThreadStageStoryPreset(preset: ThreadStageStoryPresetId):
 function buildStoryCard(): DatabasePage {
   return {
     id: STORY_CARD_ID,
-    status: "in_progress",
+    status: "build",
     archived: false,
     title: "Add Storybook coverage for thread surfaces",
     richTitle: plainTextToPortableRichText("Add Storybook coverage for thread surfaces"),
@@ -735,7 +735,7 @@ function buildBlockedFixedContentConversation(): CodexConversationSnapshot {
           rawItem: {
             plan: [
               { step: "Inspect bundle", status: "completed" },
-              { step: "Align fixed ownership", status: "in_progress" },
+              { step: "Align fixed ownership", status: "build" },
             ],
           },
           createdAt: 25_200,
@@ -1992,7 +1992,7 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
     rawItem: {
       id: "story_context_compaction_in_progress",
       type: "context_compaction",
-      status: "in_progress",
+      status: "build",
     },
   }),
   automaticApprovalReviewDenied: buildToolItemBase({

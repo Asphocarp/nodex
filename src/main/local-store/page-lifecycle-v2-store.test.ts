@@ -21,7 +21,6 @@ import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { resetAssetPathCacheForTests } from "./assets";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { migrateDatabaseIdentityAuthorityV80ToV81 } from "./database-identity-cutover-sqlite";
 import { listPageHistory } from "./page-history";
 import {
   applyPageLifecycleMutationV2,
@@ -74,13 +73,8 @@ const createFixture = async (): Promise<Fixture> => {
   await initializeDatabase();
   const database = getDb();
   const schemaVersion = Number(database.pragma("user_version", { simple: true }));
-  if (schemaVersion === 80) {
-    migrateDatabaseIdentityAuthorityV80ToV81(database, {
-      nextStoreEpoch: "epoch-page-lifecycle-v2",
-      now: NOW,
-    });
-  } else if (schemaVersion !== 81) {
-    throw new Error(`Page Lifecycle v2 fixture requires schema v81, got v${schemaVersion}`);
+  if (schemaVersion !== 82) {
+    throw new Error(`Page Lifecycle v2 fixture requires schema v82, got v${schemaVersion}`);
   }
   const root = database.prepare(`
     SELECT
@@ -192,7 +186,7 @@ const createIntent = (input: {
     pageId: input.pageId ?? createUuidV7(),
     title: "Source-owned Page",
     nfm: "A durable body",
-    status: "draft",
+    status: "triage",
     priority: "p1-high",
     estimate: "m",
     tags: input.tags,
@@ -310,7 +304,7 @@ describe("Page Lifecycle v2 authority", () => {
         projectId: fixture.projectId,
         operationId: "page-lifecycle-v2-preflight-create",
         pageId,
-        status: "draft",
+        status: "triage",
         input: { title: "Preflight Page", tags: [" 预检 标签 "] },
       },
       preflight: preflight.value,
@@ -352,7 +346,7 @@ describe("Page Lifecycle v2 authority", () => {
               membershipId: "membership-page-lifecycle-v2-preflight",
               dataSourceId: request.operation.dataSourceId,
               statusPropertyId: "status",
-              status: "draft",
+              status: "triage",
             },
           },
         },
@@ -392,7 +386,7 @@ describe("Page Lifecycle v2 authority", () => {
               membership: {
                 membershipId: "membership-page-lifecycle-v2-preflight",
                 dataSourceId: request.operation.dataSourceId,
-                status: "draft",
+                status: "triage",
               },
             },
           },
@@ -757,7 +751,7 @@ describe("Page Lifecycle v2 authority", () => {
         membershipId: page.membershipId,
         databaseId: fixture.databaseId,
         dataSourceId: fixture.dataSourceId,
-        status: "draft",
+        status: "triage",
         position: { viewId: fixture.viewId },
       },
     });

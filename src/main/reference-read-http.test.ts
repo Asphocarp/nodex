@@ -6,7 +6,7 @@ import { registerReferenceReadHttpRoutes } from "./reference-read-http";
 
 const summary = (id: string, title: string): DatabasePageSummary => ({
   id,
-  status: "draft",
+  status: "triage",
   archived: false,
   title,
   richTitle: [{ type: "text", text: title, styles: {} }],
@@ -111,8 +111,8 @@ describe("canonical reference HTTP reads", () => {
             updatedAt: "2026-01-01T00:00:00.000Z",
           },
           rows: [
-            { page: summary("card-b", "Second"), groupKey: "draft", rankKey: "a" },
-            { page: summary("card-a", "First"), groupKey: "draft", rankKey: "b" },
+            { page: summary("card-b", "Second"), groupKey: "triage", rankKey: "a" },
+            { page: summary("card-a", "First"), groupKey: "triage", rankKey: "b" },
           ],
         };
       },

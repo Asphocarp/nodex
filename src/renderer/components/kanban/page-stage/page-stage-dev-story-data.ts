@@ -30,7 +30,7 @@ export interface PageStageStoryPreset {
 
 export const PAGE_STAGE_STORY_PROJECT_ID = "nodex";
 export const PAGE_STAGE_STORY_COLUMN_ID = "6-in-progress";
-export const PAGE_STAGE_STORY_COLUMN_NAME = "In Progress";
+export const PAGE_STAGE_STORY_COLUMN_NAME = "Build";
 export const PAGE_STAGE_STORY_WORKSPACE_PATH = "/workspace/nodex";
 export const PAGE_STAGE_STORY_WORKTREE_PATH = "/workspace/.codex/worktrees/8153/nodex-page-stage";
 
@@ -164,7 +164,7 @@ export function buildPageStageStoryPage(controls: Pick<PageStageStoryControls, "
 
   return {
     id: "story-page-stage-1",
-    status: "in_progress",
+    status: "build",
     archived: false,
     title: "Refine page stage thread property UI",
     richTitle: plainTextToPortableRichText("Refine page stage thread property UI"),

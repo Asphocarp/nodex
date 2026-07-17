@@ -12,7 +12,7 @@ import { plainTextToPortableRichText } from "../../shared/block-documents";
 function createPageSummary(id: string, order: number): DatabasePageSummary {
   return {
     id,
-    status: "in_progress",
+    status: "build",
     archived: false,
     title: id,
     richTitle: plainTextToPortableRichText(id),
@@ -29,28 +29,28 @@ function createBoard(): BoardSummary {
   return {
     columns: [
       {
-        id: "draft",
-        name: "Draft",
+        id: "triage",
+        name: "Triage",
         cards: [],
       },
       {
-        id: "backlog",
-        name: "Backlog",
+        id: "plan",
+        name: "Plan",
         cards: [],
       },
       {
-        id: "in_progress",
-        name: "In Progress",
+        id: "build",
+        name: "Build",
         cards: ["a", "b", "c", "d"].map((id, order) => createPageSummary(id, order)),
       },
       {
-        id: "in_review",
-        name: "In Review",
+        id: "review",
+        name: "Review",
         cards: [],
       },
       {
-        id: "done",
-        name: "Done",
+        id: "ship",
+        name: "Ship",
         cards: [],
       },
     ],
@@ -71,7 +71,7 @@ describe("kanban optimistic ops", () => {
     const card = createPageSummary("new", 0);
 
     const nextBoard = buildCreateCardTransform(
-      "in_progress",
+      "build",
       card,
       { beforePageId: "c" },
     )(board);
@@ -88,12 +88,12 @@ describe("kanban optimistic ops", () => {
   test("treats equivalent projected title and structured values as a no-op", () => {
     const board = createBoard();
 
-    expect(buildPatchPageTransform("in_progress", "a", {
+    expect(buildPatchPageTransform("build", "a", {
       title: "a",
       tags: [],
     })(board)).toBe(board);
 
-    const renamed = buildPatchPageTransform("in_progress", "a", {
+    const renamed = buildPatchPageTransform("build", "a", {
       title: "Renamed",
     })(board);
     expect(renamed).not.toBe(board);
@@ -108,8 +108,8 @@ describe("kanban optimistic ops", () => {
 
     const nextBoard = buildMovePageTransform({
       pageId: "a",
-      fromStatus: "in_progress",
-      toStatus: "in_progress",
+      fromStatus: "build",
+      toStatus: "build",
       newOrder: 1,
     })(board);
 
@@ -121,8 +121,8 @@ describe("kanban optimistic ops", () => {
 
     const nextBoard = buildMovePagesTransform({
       pageIds: ["a", "c"],
-      fromStatus: "in_progress",
-      toStatus: "in_progress",
+      fromStatus: "build",
+      toStatus: "build",
       newOrder: 1,
     })(board);
 
@@ -134,8 +134,8 @@ describe("kanban optimistic ops", () => {
 
     const nextBoard = buildMovePageTransform({
       pageId: "a",
-      fromStatus: "in_progress",
-      toStatus: "in_progress",
+      fromStatus: "build",
+      toStatus: "build",
       newOrder: 1,
       fieldPatch: { priority: "p1-high" },
     })(board);
@@ -148,8 +148,8 @@ describe("kanban optimistic ops", () => {
 
     const nextBoard = buildMovePagesTransform({
       pageIds: ["a", "c"],
-      fromStatus: "in_progress",
-      toStatus: "in_progress",
+      fromStatus: "build",
+      toStatus: "build",
       newOrder: 1,
       fieldPatch: { estimate: "m" },
     })(board);

@@ -24,7 +24,7 @@ function buildPage(overrides: Partial<DatabasePage> = {}): DatabasePage {
   const title = overrides.title ?? "Projected title";
   return {
     id: "page-1",
-    status: "in_progress",
+    status: "build",
     archived: false,
     title,
     richTitle: plainTextToPortableRichText(title),

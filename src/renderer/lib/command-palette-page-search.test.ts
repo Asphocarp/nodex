@@ -21,7 +21,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
-    status: overrides.status ?? "in_progress",
+    status: overrides.status ?? "build",
     archived: overrides.archived ?? false,
     priority: overrides.priority,
     estimate: overrides.estimate,

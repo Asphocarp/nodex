@@ -151,10 +151,10 @@ describe("authoritative Page reads", () => {
       try {
         await initializeDatabase();
         const project = createProject({ name: "Unpositioned Database rows" });
-        const positioned = await createPage(project.id, "backlog", {
+        const positioned = await createPage(project.id, "plan", {
           title: "Positioned",
         });
-        const unpositioned = await createPage(project.id, "backlog", {
+        const unpositioned = await createPage(project.id, "plan", {
           title: "Unpositioned",
         });
         const database = getDb();
@@ -166,9 +166,9 @@ describe("authoritative Page reads", () => {
 
         const byId = await getDatabaseRowPage(project.id, unpositioned.id);
         const board = await getBoard(project.id);
-        const backlog = board.columns.find((column) => column.id === "backlog");
+        const backlog = board.columns.find((column) => column.id === "plan");
 
-        expect(byId?.status).toBe("backlog");
+        expect(byId?.status).toBe("plan");
         expect(byId?.order).toBe(Number.MAX_SAFE_INTEGER);
         expect(backlog?.cards.map((page) => page.id)).toEqual([
           positioned.id,
@@ -194,7 +194,7 @@ describe("authoritative Page reads", () => {
       try {
         await initializeDatabase();
         const project = createProject({ name: "Authoritative Page reads" });
-        const created = await createPage(project.id, "in_progress", {
+        const created = await createPage(project.id, "build", {
           title: "Legacy title",
           description: "Legacy body",
           priority: "p1-high",
@@ -278,7 +278,7 @@ describe("authoritative Page reads", () => {
         const details = await getDatabaseRowsDetails(project.id, {
           pageIds: [created.id],
         });
-        const column = await readColumn(project.id, "in_progress");
+        const column = await readColumn(project.id, "build");
         const boardPage = await readBoardPage(project.id, created.id);
         for (const page of [byId, details[0], column.cards[0], boardPage]) {
           expect(page?.title).toBe("Primary title");
@@ -294,7 +294,7 @@ describe("authoritative Page reads", () => {
           expect(page?.runInTarget).toBe("newWorktree");
         }
         expect(
-          (await getDatabaseRowPage(project.id, created.id, "done")) === null,
+          (await getDatabaseRowPage(project.id, created.id, "ship")) === null,
         ).toBe(true);
 
         database.transaction(() => {
@@ -351,7 +351,7 @@ describe("authoritative Page reads", () => {
       try {
         await initializeDatabase();
         const project = createProject({ name: "Page read freshness" });
-        const created = await createPage(project.id, "draft", {
+        const created = await createPage(project.id, "triage", {
           title: "Fresh title",
           description: "Fresh body",
         });

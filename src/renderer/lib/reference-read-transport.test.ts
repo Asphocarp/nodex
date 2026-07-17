@@ -9,7 +9,7 @@ import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../shared/block-documents";
 
 const makeCardSummaryWire = (created = "2026-01-01T00:00:00.000Z") => ({
   id: "card-target",
-  status: "draft",
+  status: "triage",
   archived: false,
   title: "Target Page",
   richTitle: [
@@ -175,7 +175,7 @@ describe("reference read renderer transport", () => {
         },
         rows: [{
           page: makeCardSummaryWire(),
-          groupKey: "draft",
+          groupKey: "triage",
           rankKey: "a0",
         }],
       }), { status: 200, headers: { "Content-Type": "application/json" } }),

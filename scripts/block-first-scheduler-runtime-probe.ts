@@ -85,7 +85,7 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Scheduler runtime" });
-    const card = await createPage(project.id, "in_progress", {
+    const card = await createPage(project.id, "build", {
       title: "Legacy reminder title",
       description: "Legacy reminder body",
       tags: ["relational"],

@@ -7,7 +7,7 @@ function InlinePropertyStripStory() {
   const [priority, setPriority] = useState<Priority | null>("p1-high");
   const [estimate, setEstimate] = useState("m");
   const [dueDate, setDueDate] = useState("2026-04-01");
-  const [column, setColumn] = useState({ id: "in-progress", name: "In Progress" });
+  const [column, setColumn] = useState({ id: "in-progress", name: "Build" });
 
   return (
     <div className="min-h-screen bg-(--background) p-8">
@@ -24,7 +24,7 @@ function InlinePropertyStripStory() {
           onClearDueDate={() => setDueDate("")}
           onSetDueDateToday={() => setDueDate("2026-03-28")}
           onColumnChange={async (nextColumnId) => {
-            const nextName = nextColumnId === "done" ? "Done" : nextColumnId === "review" ? "In Review" : "In Progress";
+            const nextName = nextColumnId === "ship" ? "Ship" : nextColumnId === "review" ? "Review" : "Build";
             setColumn({ id: nextColumnId, name: nextName });
           }}
         />

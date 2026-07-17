@@ -6,6 +6,7 @@ import { getDatabasePath } from "./config";
 import { migrateLegacyDatabaseFileName } from "./database-file-migration";
 import type { DatabaseMigrationProgress } from "../../shared/app-startup";
 import { WORKFLOW_STATUS_COLUMNS } from "../../shared/workflow-status";
+import { LEGACY_WORKFLOW_STATUS_COLUMNS } from "../../shared/workflow-status-cutover";
 import type { BlockTreeNode } from "../../shared/block-documents/block-document-codec";
 import { deriveBlockDocumentRecordsFromNfm } from "../../shared/block-documents/derived-records";
 import {
@@ -33,6 +34,7 @@ import { finalizePageReferenceIdentityStorage } from "./page-reference-hint-fina
 import { finalizePageNfmIdentityProjection } from "./page-nfm-projection-finalization";
 import { finalizeRetiredCardAgentProperties } from "./retired-card-agent-properties-finalization";
 import { migrateDatabaseIdentityAuthorityV80ToV81 } from "./database-identity-cutover-sqlite";
+import { migrateWorkflowStatusesV81ToV82 } from "./workflow-status-cutover-sqlite";
 import { createInitialDatabaseAuthorityInDatabase } from "./initial-database-authority";
 import { migrateCanvasPageReferenceHashes } from "./canvas-page-reference-hash-migration";
 import {
@@ -43,7 +45,7 @@ import {
 export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 81;
+export const CURRENT_SCHEMA_VERSION = 82;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -82,6 +84,11 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
     fromVersion: 80,
     toVersion: 81,
     migrate: migrateDatabaseIdentityAuthorityV80ToV81,
+  },
+  {
+    fromVersion: 81,
+    toVersion: 82,
+    migrate: migrateWorkflowStatusesV81ToV82,
   },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
@@ -215,7 +222,7 @@ const PRIMARY_DATABASE_PROPERTY_DEFINITIONS: readonly PrimaryDatabasePropertyDef
       key: "status",
       name: "Status",
       valueType: "select",
-      config: { options: WORKFLOW_STATUS_COLUMNS },
+      config: { options: LEGACY_WORKFLOW_STATUS_COLUMNS },
       rankKey: databaseFractionalRankForOrdinal(0, 8),
     },
     {
@@ -9543,20 +9550,23 @@ export function createHistoricalReleaseSchemaFixture(
     db.exec("PRAGMA foreign_keys = ON");
   }
 
+  const seedBeforeDatabaseIdentityCutover =
+    targetVersion === 81 && options.seedDefaultProject !== false;
+  const migrationTarget = seedBeforeDatabaseIdentityCutover ? 80 : targetVersion;
   let version = SHIPPED_SCHEMA_VERSION;
   for (const step of RELEASE_SCHEMA_MIGRATION_STEPS) {
-    if (version === targetVersion) break;
-    if (step.fromVersion !== version || step.toVersion > targetVersion) {
+    if (version === migrationTarget) break;
+    if (step.fromVersion !== version || step.toVersion > migrationTarget) {
       throw new Error(
-        `Cannot build historical release fixture from v${version} to v${targetVersion}`,
+        `Cannot build historical release fixture from v${version} to v${migrationTarget}`,
       );
     }
     step.migrate(db);
     version = getUserVersion(db);
   }
-  if (version !== targetVersion) {
+  if (version !== migrationTarget) {
     throw new Error(
-      `Historical release fixture stopped at v${version}, expected v${targetVersion}`,
+      `Historical release fixture stopped at v${version}, expected v${migrationTarget}`,
     );
   }
 
@@ -9582,6 +9592,14 @@ export function createHistoricalReleaseSchemaFixture(
     { shiftExisting: false },
   );
   ensureBlockFoundationForProject(db, projectId, now);
+
+  if (!seedBeforeDatabaseIdentityCutover) return;
+  migrateDatabaseIdentityAuthorityV80ToV81(db);
+  if (getUserVersion(db) !== targetVersion) {
+    throw new Error(
+      `Historical release fixture stopped at v${getUserVersion(db)}, expected v${targetVersion}`,
+    );
+  }
 }
 
 function seedDefaultProjectIfMissing(db: Database.Database): void {

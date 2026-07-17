@@ -25,7 +25,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
-    status: overrides.status ?? "in_progress",
+    status: overrides.status ?? "build",
     archived: overrides.archived ?? false,
     priority: overrides.priority,
     estimate: overrides.estimate,
@@ -278,28 +278,28 @@ describe("filterCommandPaletteItems", () => {
       page: makePage({
         id: "done-search",
         title: "Search polish",
-        status: "done",
+        status: "ship",
         tags: ["search", "palette"],
       }),
-      columnName: "Done",
+      columnName: "Ship",
     });
     const backlogSearchPage = makePalettePage({
       page: makePage({
         id: "backlog-search",
         title: "Search polish",
-        status: "backlog",
+        status: "plan",
         tags: ["search"],
       }),
-      columnName: "Backlog",
+      columnName: "Plan",
     });
     const doneOtherTagPage = makePalettePage({
       page: makePage({
         id: "done-other",
         title: "Other task",
-        status: "done",
+        status: "ship",
         tags: ["infra"],
       }),
-      columnName: "Done",
+      columnName: "Ship",
     });
 
     const result = filterCommandPaletteItems({
@@ -309,7 +309,7 @@ describe("filterCommandPaletteItems", () => {
       pages: [backlogSearchPage, doneOtherTagPage, doneSearchPage],
       pageFilters: {
         ...getDefaultCommandPalettePageFilters(),
-        statuses: ["done"],
+        statuses: ["ship"],
         tags: ["search"],
       },
       pageSearchIndex: createCommandPalettePageSearchIndex([
@@ -380,7 +380,7 @@ describe("filterCommandPaletteItems", () => {
     const summaries = summarizeCommandPalettePageFilters(
       {
         ...getDefaultCommandPalettePageFilters(),
-        statuses: ["backlog", "in_progress"],
+        statuses: ["plan", "build"],
         priorities: ["p0-critical"],
         includeEmptyPriority: true,
         tags: ["search"],
@@ -392,7 +392,7 @@ describe("filterCommandPaletteItems", () => {
 
     expect(summaries.length).toBe(5);
     expect(summaries[0]?.label).toBe("Status");
-    expect(summaries[0]?.value).toBe("Backlog, In Progress");
+    expect(summaries[0]?.value).toBe("Plan, Build");
     expect(summaries[1]?.value).toBe("P0, -");
     expect(summaries[2]?.label).toBe("Tags (any)");
     expect(summaries[4]?.value).toBe("Ops Console");

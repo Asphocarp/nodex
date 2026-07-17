@@ -16,7 +16,7 @@ function cardElement(pageId: string) {
     customData: {
       type: "nodex-card",
       pageId,
-      columnId: "draft",
+      columnId: "triage",
     },
   };
 }
@@ -121,8 +121,8 @@ describe("canvas-card-elements placed card helpers", () => {
       {
         columns: [
           {
-            id: "draft",
-            name: "Draft",
+            id: "triage",
+            name: "Triage",
             cards: [
               {
                 id: "card-1",

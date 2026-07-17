@@ -20,7 +20,7 @@ describe("bindKanbanColumnDropSurface", () => {
 
     const cleanup = bindKanbanColumnDropSurface(
       {
-        columnId: "done",
+        columnId: "ship",
         columnDropDisabled: false,
         dragInstanceId: Symbol("kanban"),
         element: {} as HTMLElement,
@@ -60,7 +60,7 @@ describe("bindKanbanColumnDropSurface", () => {
 
     const cleanup = bindKanbanColumnDropSurface(
       {
-        columnId: "in_progress",
+        columnId: "build",
         columnDropDisabled: false,
         dragInstanceId: Symbol("kanban"),
         element: {} as HTMLElement,

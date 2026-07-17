@@ -6,7 +6,7 @@ import { ToggleListReferenceRows } from "./toggle-list-view";
 const CARDS: DbViewCardRecord[] = [
   {
     id: "card-sync-contract",
-    status: "in_progress",
+    status: "build",
     archived: false,
     title: "Define the Page document sync contract",
     richTitle: plainTextToPortableRichText("Define the Page document sync contract"),
@@ -18,13 +18,13 @@ const CARDS: DbViewCardRecord[] = [
     descriptionPreview: "Each expanded row opens the Card's own Y.Doc.",
     descriptionLength: 45,
     hasDescription: true,
-    columnId: "in_progress",
-    columnName: "In Progress",
+    columnId: "build",
+    columnName: "Build",
     boardIndex: 0,
   },
   {
     id: "card-reference-migration",
-    status: "in_review",
+    status: "review",
     archived: false,
     title: "Verify foreign-body migration",
     richTitle: plainTextToPortableRichText("Verify foreign-body migration"),
@@ -36,8 +36,8 @@ const CARDS: DbViewCardRecord[] = [
     descriptionPreview: "Host documents retain references only.",
     descriptionLength: 37,
     hasDescription: true,
-    columnId: "in_review",
-    columnName: "In Review",
+    columnId: "review",
+    columnName: "Review",
     boardIndex: 1,
   },
 ];

@@ -132,7 +132,7 @@ describe("project service order and pinning", () => {
   test("archives a Project without deleting its Library content", async () => {
     const ran = await withTempDatabase(async () => {
       const project = createProject({ name: "Archived execution context" });
-      const page = await createPage(project.id, "draft", {
+      const page = await createPage(project.id, "triage", {
         title: "Durable Library Page",
       });
       const session = createProjectSession({

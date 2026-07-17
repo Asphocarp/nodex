@@ -676,7 +676,7 @@ describe("project session service", () => {
     const ran = await withTempDatabase(async () => {
       const alphaSession = createProjectSession({ projectId: projectId, noThreadFallbackTitle: "Alpha work" });
       const betaProject = createProject({ name: "Beta", sources: ["/tmp/beta"] });
-      const betaCard = await createPage(betaProject.id, "in_progress", {
+      const betaCard = await createPage(betaProject.id, "build", {
         title: "Beta card",
       });
 

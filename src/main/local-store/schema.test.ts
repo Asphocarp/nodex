@@ -483,11 +483,11 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v81 release boundary", () => {
+describe("schema v82 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
     expect(releaseVersions).toEqual([
-      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81,
+      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82,
     ]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
@@ -572,8 +572,8 @@ describe("schema v81 release boundary", () => {
     useTempStore();
     await initializeDatabase();
     const project = createProject({ name: "Page hierarchy migration" });
-    const parent = await createPage(project.id, "draft", { title: "Parent" });
-    const child = await createPage(project.id, "draft", { title: "Child" });
+    const parent = await createPage(project.id, "triage", { title: "Parent" });
+    const child = await createPage(project.id, "triage", { title: "Child" });
     const database = getDb();
     const now = new Date().toISOString();
 
@@ -739,8 +739,8 @@ describe("schema v81 release boundary", () => {
     useTempStore();
     await initializeDatabase();
     const project = createProject({ name: "Corrupt Page hierarchy" });
-    const first = await createPage(project.id, "draft", { title: "First" });
-    const second = await createPage(project.id, "draft", { title: "Second" });
+    const first = await createPage(project.id, "triage", { title: "First" });
+    const second = await createPage(project.id, "triage", { title: "Second" });
     const database = getDb();
     const now = new Date().toISOString();
 
@@ -822,7 +822,7 @@ describe("schema v81 release boundary", () => {
     expect(row?.defaultViewId).not.toContain(row?.databaseId ?? "");
     expect(row?.viewDataSourceId).toBe(row?.dataSourceId);
 
-    const page = await createPage(row?.projectId ?? "", "draft", {
+    const page = await createPage(row?.projectId ?? "", "triage", {
       title: "Projected Page",
     });
     expect(database.prepare(`
@@ -844,7 +844,7 @@ describe("schema v81 release boundary", () => {
     `).get(row?.defaultViewId, page.id)).toEqual({
       dataSourceId: row?.dataSourceId,
       positionedPageId: page.id,
-      statusValue: '"draft"',
+      statusValue: '"triage"',
     });
 
     expect(database.pragma("foreign_key_check")).toEqual([]);
@@ -855,7 +855,7 @@ describe("schema v81 release boundary", () => {
     await initializeDatabase();
     const database = getDb();
     const project = createProject({ name: "Page parent projection" });
-    const created = await createPage(project.id, "draft", {
+    const created = await createPage(project.id, "triage", {
       title: "Structured Page",
     });
 

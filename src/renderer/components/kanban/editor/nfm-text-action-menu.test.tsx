@@ -66,11 +66,11 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "draft",
-          name: "Draft",
+          id: "triage",
+          name: "Triage",
           cards: [
-            makeCard("source-card", "Source card", "draft", 0),
-            makeCard("target-card", "Target card", "draft", 1),
+            makeCard("source-card", "Source card", "triage", 0),
+            makeCard("target-card", "Target card", "triage", 1),
           ],
         },
       ],
@@ -81,9 +81,9 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
-          cards: [makeCard("runtime", "Runtime polish", "backlog", 0)],
+          id: "plan",
+          name: "Plan",
+          cards: [makeCard("runtime", "Runtime polish", "plan", 0)],
         },
       ],
     },
@@ -708,7 +708,7 @@ describe("nfm text action menu surface", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("option", { name: /Backlog\s*Renderer parity/ }));
+      fireEvent.click(view.getByRole("option", { name: /Plan\s*Renderer parity/ }));
       await settleAsyncRender();
     });
 
@@ -717,7 +717,7 @@ describe("nfm text action menu surface", () => {
     });
     expect(actions.moveDestinations[0]?.kind).toBe("db-column");
     expect(actions.moveDestinations[0]?.projectId).toBe("renderer");
-    expect(actions.moveDestinations[0]?.columnId).toBe("backlog");
+    expect(actions.moveDestinations[0]?.columnId).toBe("plan");
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Move to" }));
@@ -725,7 +725,7 @@ describe("nfm text action menu surface", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("option", { name: /Target card\s*Default \/ Draft/ }));
+      fireEvent.click(view.getByRole("option", { name: /Target card\s*Default \/ Triage/ }));
       await settleAsyncRender();
     });
 
@@ -738,7 +738,7 @@ describe("nfm text action menu surface", () => {
       throw new Error("expected card destination");
     }
     expect(cardDestination.projectId).toBe("default");
-    expect(cardDestination.columnId).toBe("draft");
+    expect(cardDestination.columnId).toBe("triage");
     expect(cardDestination.pageId).toBe("target-card");
   });
 

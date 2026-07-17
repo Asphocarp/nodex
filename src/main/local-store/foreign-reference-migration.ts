@@ -2,10 +2,11 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { createUuidV7, isUuidV7 } from "../../shared/uuid-v7";
 import {
+  DEFAULT_WORKFLOW_STATUS,
   WORKFLOW_STATUS_LABELS,
-  isWorkflowStatus,
   type WorkflowStatus,
 } from "../../shared/workflow-status";
+import { upgradeLegacyWorkflowStatus } from "../../shared/workflow-status-cutover";
 import {
   MAX_PAGE_ASSIGNEE_LENGTH,
   MAX_PAGE_TAG_COUNT,
@@ -638,8 +639,9 @@ const recoveryContent = (
   const tags = [...new Set([...(snapshot?.tags ?? []), ...meta.tags])];
   const status =
     meta.status ??
-    (isWorkflowStatus(block.sourceStatus) ? block.sourceStatus : undefined) ??
-    (isWorkflowStatus(snapshot?.status) ? snapshot.status : undefined);
+    upgradeLegacyWorkflowStatus(block.sourceStatus) ??
+    upgradeLegacyWorkflowStatus(snapshot?.status) ??
+    undefined;
   return {
     title,
     // The live host subtree is the newest editable copy. Snapshot body text is
@@ -1139,7 +1141,7 @@ const resolveCardProjection = async (
       ...recoveredCard
     } = recovery;
     void _recoveryProjectHint;
-    const status = recoveryStatus ?? "draft";
+    const status = recoveryStatus ?? DEFAULT_WORKFLOW_STATUS;
     const sanitizedRecoveredCard = sanitizeRecoveryCardInput(recoveredCard);
     await dependencies.createRecoveredCard({
       projectId: recoveryProjectId,
@@ -1460,4 +1462,8 @@ export const migrateLegacyForeignReferences = async (
     changedDocumentIds,
     errors,
   };
+};
+
+export const foreignReferenceMigrationTestHelpers = {
+  recoveryContent,
 };

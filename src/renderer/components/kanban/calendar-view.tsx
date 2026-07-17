@@ -256,11 +256,11 @@ export function CalendarView({
           event: {
             id: optimisticEventId,
             pageId: pageId,
-            status: "draft",
+            status: "triage",
             archived: false,
-            statusName: "Draft",
-            columnId: "draft",
-            columnName: "Draft",
+            statusName: "Triage",
+            columnId: "triage",
+            columnName: "Triage",
             title,
             richTitle: plainTextToPortableRichText(title),
             description: "",
@@ -276,7 +276,7 @@ export function CalendarView({
         });
         return next;
       });
-      const created = await createPage("draft", {
+      const created = await createPage("triage", {
         id: pageId,
         title,
         scheduledStart: start,

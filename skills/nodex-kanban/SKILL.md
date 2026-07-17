@@ -11,22 +11,22 @@ Kanban board CLI for coding agents. All reads and writes go through the `nodex` 
 
 | # | Accepted ID | Name | Purpose |
 |---|-----------|------|---------|
-| 1 | `draft` | Draft | Raw ideas and unrefined tasks |
-| 2 | `backlog` | Backlog | Ready for planning or pickup |
-| 3 | `in_progress` / `in-progress` | In Progress | Currently being worked on |
-| 4 | `in_review` / `in-review` | In Review | Done, awaiting human review |
-| 5 | `done` | Done | Finished |
+| 1 | `triage` | Triage | Incoming work awaiting clarification and prioritization |
+| 2 | `plan` | Plan | Accepted work being scoped and prepared |
+| 3 | `build` | Build | Work actively being implemented |
+| 4 | `review` | Review | Work awaiting review or verification |
+| 5 | `ship` | Ship | Completed work ready for delivery or already delivered |
 
 ## Workflows
 
-### Pick Up a Backlog Task to Plan
+### Pick Up a Plan Task for Research
 
 When a task needs research and planning before implementation:
 
 ```bash
 # 1. Claim the task (You are most likely in plan-mode when doing this.)
-nodex ls backlog --full
-nodex mv <id> backlog in-progress
+nodex ls plan --full
+nodex mv <id> plan build
 
 # 2. Do your planning (explore codebase, research, design)
 #    Write the plan to a markdown file: plans/<task-slug>.md
@@ -42,29 +42,29 @@ nodex update <id> -d @plans/<task-slug>.md
 
 **Why `@filepath`?** The `-d @plans/file.md` syntax reads the file and sends its contents as the description. This avoids pasting large plan text into the command, saving significant tokens. You already wrote the plan — reuse it, don't repeat it.
 
-### Pick Up a Backlog Task to Implement
+### Pick Up a Plan Task to Build
 
 The `mv` command is atomic: it fails if the card is no longer in `<from>` (i.e. another agent already claimed it). When that happens, re-list and pick a different task.
 
 ```bash
-nodex ls backlog                                            # List available tasks (JSONL)
-nodex mv <id> backlog in-progress                           # Claim the task
+nodex ls plan                                               # List available tasks (JSONL)
+nodex mv <id> plan build                                    # Claim the task
 # If this fails with "Card is no longer in the expected column",
-# another agent claimed it first — re-run `nodex ls backlog` and pick another.
+# another agent claimed it first — re-run `nodex ls plan` and pick another.
 ```
 
 ### Implementation Workflow
 
 ```bash
-# When done, move to review
-nodex mv <id> in-progress in-review
+# When implementation is complete, move to Review
+nodex mv <id> build review
 ```
 
 ### Create a Task
 
 ```bash
-nodex add backlog "Implement user auth" -P p1-high -e m -t "backend,auth"
-nodex add backlog "Fix login bug" -P p0-critical -d @./bug-report.md
+nodex add plan "Implement user auth" -P p1-high -e m -t "backend,auth"
+nodex add triage "Fix login bug" -P p0-critical -d @./bug-report.md
 ```
 
 ## CLI Quick Reference
@@ -86,14 +86,14 @@ nodex add backlog "Fix login bug" -P p0-critical -d @./bug-report.md
 Use these when an agent needs enough context in one command:
 
 ```bash
-nodex ls backlog --full
+nodex ls plan --full
 # Includes full card fields with description truncated to 240 chars,
 # plus descriptionLen and descriptionTruncated metadata.
 
-nodex ls backlog --full --description-chars 800
+nodex ls plan --full --description-chars 800
 # Same as above, with a larger description preview.
 
-nodex ls backlog --full --description-full
+nodex ls plan --full --description-full
 # Includes full descriptions (no truncation).
 ```
 
@@ -112,7 +112,7 @@ nodex ls backlog --full --description-full
 ## Tips
 
 - **Save tokens with `@filepath`**: Use `-d @plans/file.md` instead of pasting content inline. It also works with `@-` for stdin.
-- **Status spelling**: Use canonical ids such as `in_progress`; ergonomic hyphen forms such as `in-progress` are also accepted.
+- **Status spelling**: Use the canonical one-word ids `triage`, `plan`, `build`, `review`, and `ship`.
 - **Auto-resolution**: `update`, `rm`, and `get` find the card's column automatically — you only need the card ID. `mv` requires explicit `<from> <to>` for atomic claim safety.
 - **Filter `ls`**: Use `--priority`, `--assignee`, `--limit`, and `--offset` to narrow results.
 - **Full-card reads**: Use `ls --full` for one-shot agent context. Add `--description-chars <n>` or `--description-full` depending token budget.

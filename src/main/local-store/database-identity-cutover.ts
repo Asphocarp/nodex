@@ -42,6 +42,10 @@ import {
   type DataSourceOptionId,
   type DataSourcePropertyId,
 } from "../../shared/database-identities";
+import {
+  WORKFLOW_STATUS_CUTOVER_MAP,
+  isLegacyWorkflowStatus,
+} from "../../shared/workflow-status-cutover";
 
 const PROPERTY_ID_DOMAIN = "nodex:v81:data-source-property";
 const OPTION_ID_DOMAIN = "nodex:v81:data-source-option";
@@ -365,6 +369,7 @@ export const createPropertyIdentityMappings = (
 
 export const createOptionIdentityMappings = (
   candidates: readonly OptionIdentityCandidate[],
+  options: Readonly<{ preserveLegacyWorkflowStatusIds?: boolean }> = {},
 ): readonly OptionIdentityMapping[] => {
   const seenOld = new Set<string>();
   const takenByProperty = new Map<string, Set<string>>();
@@ -405,10 +410,14 @@ export const createOptionIdentityMappings = (
     const taken = takenByProperty.get(propertyKey) ?? new Set<string>();
     takenByProperty.set(propertyKey, taken);
     try {
-      const preserved = parseDataSourceOptionId({
-        propertyId: candidate.newPropertyId,
-        value: candidate.oldOptionId,
-      });
+      const preserved = options.preserveLegacyWorkflowStatusIds === true
+        && candidate.newPropertyId === "status"
+        && isLegacyWorkflowStatus(candidate.oldOptionId)
+        ? candidate.oldOptionId as DataSourceOptionId
+        : parseDataSourceOptionId({
+            propertyId: candidate.newPropertyId,
+            value: candidate.oldOptionId,
+          });
       if (taken.has(preserved)) {
         throw new DatabaseIdentityCutoverError(
           `Option identity ${preserved} collides in Property ${candidate.newPropertyId}`,
@@ -560,11 +569,16 @@ const rewriteRequiredOptionValue = (
   indexes: MappingIndexes,
   property: PropertyIdentityMapping,
   value: string,
-): DataSourceOptionId =>
-  parseDataSourceOptionId({
+): DataSourceOptionId => {
+  const rewritten = rewriteOptionValue(indexes, property, value, true);
+  if (property.newPropertyId === "status" && isLegacyWorkflowStatus(rewritten)) {
+    return rewritten as DataSourceOptionId;
+  }
+  return parseDataSourceOptionId({
     propertyId: property.newPropertyId,
-    value: rewriteOptionValue(indexes, property, value, true),
+    value: rewritten,
   });
+};
 
 const rewriteFilterValue = (
   indexes: MappingIndexes,
@@ -1814,13 +1828,36 @@ export const rewriteCommittedPageLifecycleCreateEvidence = (input: {
     return { kind: "unknown_evidence", reason: "not_create_page" };
   }
   const databaseId = oldReceipt.databaseId;
+  const oldOperation = logicalRequest.operation;
+  if (
+    typeof oldOperation !== "object"
+    || oldOperation === null
+    || Array.isArray(oldOperation)
+  ) {
+    throw new DatabaseIdentityCutoverError(
+      "Page Lifecycle logical request is not a canonical v80 create operation",
+    );
+  }
+  const historicalOperation = oldOperation as Record<string, unknown>;
+  if (
+    historicalOperation.kind !== "create_page"
+    || !isLegacyWorkflowStatus(historicalOperation.status)
+  ) {
+    throw new DatabaseIdentityCutoverError(
+      "Page Lifecycle logical request is not a canonical v80 create operation",
+    );
+  }
+  const legacyStatus = historicalOperation.status;
   const oldRequest = parsePageLifecycleMutationRequest({
     version: 1,
     operationId: oldReceipt.operationId,
     projectId: logicalRequest.projectId,
     storeEpoch: oldReceipt.storeEpoch,
     actor: {},
-    operation: logicalRequest.operation,
+    operation: {
+      ...historicalOperation,
+      status: WORKFLOW_STATUS_CUTOVER_MAP[legacyStatus],
+    },
   });
   if (oldRequest.operation.kind !== "create_page") {
     return { kind: "unknown_evidence", reason: "not_create_page" };

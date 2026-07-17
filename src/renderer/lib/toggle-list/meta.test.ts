@@ -5,7 +5,7 @@ import { plainTextToPortableRichText } from "../../../shared/block-documents";
 
 const baseCard: ToggleListCard = {
   id: "card-1",
-  status: "backlog",
+  status: "plan",
   archived: false,
   title: "Example",
   richTitle: plainTextToPortableRichText("Example"),
@@ -15,8 +15,8 @@ const baseCard: ToggleListCard = {
   tags: [],
   created: new Date("2026-02-10T00:00:00.000Z"),
   order: 0,
-  columnId: "backlog",
-  columnName: "Backlog",
+  columnId: "plan",
+  columnName: "Plan",
   boardIndex: 0,
 };
 
@@ -28,42 +28,42 @@ const taggedCard: ToggleListCard = {
 describe("toggle-list meta formatting", () => {
   test("formats all properties in requested order", () => {
     const meta = formatMeta(baseCard, ["priority", "estimate", "status"], []);
-    expect(meta).toBe("[P0] [L] [Backlog]");
+    expect(meta).toBe("[P0] [L] [Plan]");
   });
 
   test("hides selected properties", () => {
     const meta = formatMeta(baseCard, ["priority", "estimate", "status"], ["estimate"]);
-    expect(meta).toBe("[P0] [Backlog]");
+    expect(meta).toBe("[P0] [Plan]");
   });
 
   test("respects custom property ordering", () => {
     const meta = formatMeta(baseCard, ["status", "priority", "estimate"], []);
-    expect(meta).toBe("[Backlog] [P0] [L]");
+    expect(meta).toBe("[Plan] [P0] [L]");
   });
 
   test("includes tags as individual tokens", () => {
     const meta = formatMeta(taggedCard, ["priority", "estimate", "status", "tags"], []);
-    expect(meta).toBe("[P0] [L] [Backlog] [frontend] [bug]");
+    expect(meta).toBe("[P0] [L] [Plan] [frontend] [bug]");
   });
 
   test("hides tags when in hiddenProperties", () => {
     const meta = formatMeta(taggedCard, ["priority", "estimate", "status", "tags"], ["tags"]);
-    expect(meta).toBe("[P0] [L] [Backlog]");
+    expect(meta).toBe("[P0] [L] [Plan]");
   });
 
   test("respects tag position in propertyOrder", () => {
     const meta = formatMeta(taggedCard, ["tags", "priority", "status"], ["estimate"]);
-    expect(meta).toBe("[frontend] [bug] [P0] [Backlog]");
+    expect(meta).toBe("[frontend] [bug] [P0] [Plan]");
   });
 
   test("empty tags array produces no extra tokens", () => {
     const meta = formatMeta(baseCard, ["priority", "tags", "status"], []);
-    expect(meta).toBe("[P0] [Backlog]");
+    expect(meta).toBe("[P0] [Plan]");
   });
 
   test("hides estimate chip when estimate is empty", () => {
     const card: ToggleListCard = { ...baseCard, estimate: undefined };
     const meta = formatMeta(card, ["priority", "estimate", "status"], []);
-    expect(meta).toBe("[P0] [Backlog]");
+    expect(meta).toBe("[P0] [Plan]");
   });
 });

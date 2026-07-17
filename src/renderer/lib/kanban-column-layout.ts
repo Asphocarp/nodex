@@ -1,4 +1,8 @@
 import { WORKFLOW_STATUS_ORDER, type WorkflowStatus } from "../../shared/workflow-status";
+import {
+  LEGACY_WORKFLOW_STATUS_ORDER,
+  WORKFLOW_STATUS_CUTOVER_MAP,
+} from "../../shared/workflow-status-cutover";
 
 export const DEFAULT_KANBAN_COLUMN_WIDTH = 288;
 export const MIN_KANBAN_COLUMN_WIDTH = 224;
@@ -54,7 +58,11 @@ export function normalizeKanbanColumnLayoutPrefs(value: unknown): KanbanColumnLa
   const normalized: KanbanColumnLayoutPrefs = {};
 
   for (const status of WORKFLOW_STATUS_ORDER) {
-    const candidate = value[status];
+    const legacyStatus = LEGACY_WORKFLOW_STATUS_ORDER.find(
+      (candidate) => WORKFLOW_STATUS_CUTOVER_MAP[candidate] === status,
+    );
+    const candidate = value[status]
+      ?? (legacyStatus === undefined ? undefined : value[legacyStatus]);
     if (!isRecord(candidate)) continue;
 
     const next: Partial<KanbanColumnLayout> = {};

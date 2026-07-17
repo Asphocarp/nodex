@@ -13,7 +13,7 @@ function makeCard(overrides: Partial<DbViewCardRecord>): DbViewCardRecord {
   const title = overrides.title ?? "Card title";
   return {
     id: "card-1",
-    status: "backlog",
+    status: "plan",
     archived: false,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
@@ -26,8 +26,8 @@ function makeCard(overrides: Partial<DbViewCardRecord>): DbViewCardRecord {
     assignee: "",
     created: new Date("2026-02-10T00:00:00.000Z"),
     order: 0,
-    columnId: "backlog",
-    columnName: "Backlog",
+    columnId: "plan",
+    columnName: "Plan",
     boardIndex: 0,
     ...overrides,
   };
@@ -42,7 +42,7 @@ describe("db view prefs", () => {
           any: [
             {
               all: [
-                { field: "status", op: "in", values: ["backlog"] },
+                { field: "status", op: "in", values: ["plan"] },
               ],
             },
           ],
@@ -64,6 +64,29 @@ describe("db view prefs", () => {
     expect(JSON.stringify(normalized.display.propertyOrder)).toBe(JSON.stringify([]));
     expect(JSON.stringify(normalized.display.hiddenProperties)).toBe(JSON.stringify([]));
     expect(normalized.display.showEmptyEstimate).toBe(true);
+  });
+
+  test("upgrades legacy workflow filters once and returns canonical order", () => {
+    const normalized = normalizeDbViewPrefs("list", {
+      rules: {
+        filter: {
+          any: [{
+            all: [{
+              field: "status",
+              op: "in",
+              values: ["done", "draft", "in_review", "unknown", "done"],
+            }],
+          }],
+        },
+      },
+    });
+
+    expect(normalized.rules.filter.any[0]?.all[0]).toEqual({
+      field: "status",
+      op: "in",
+      values: ["triage", "review", "ship"],
+    });
+    expect(normalizeDbViewPrefs("list", normalized)).toEqual(normalized);
   });
 
   test("migrates legacy toggle-list display prefs onto the generic display field", () => {
@@ -98,7 +121,7 @@ describe("db view prefs", () => {
     prefs.rules.filter.any = [
       {
         all: [
-          { field: "status", op: "in", values: ["in_progress"] },
+          { field: "status", op: "in", values: ["build"] },
           { field: "tags", op: "hasAny", values: ["ops"] },
         ],
       },
@@ -106,9 +129,9 @@ describe("db view prefs", () => {
 
     const filtered = filterDbViewCards(
       [
-        makeCard({ id: "a", columnId: "in_progress", tags: ["ops"] }),
-        makeCard({ id: "b", columnId: "in_progress", tags: ["design"], boardIndex: 1 }),
-        makeCard({ id: "c", columnId: "backlog", tags: ["ops"], boardIndex: 2 }),
+        makeCard({ id: "a", columnId: "build", tags: ["ops"] }),
+        makeCard({ id: "b", columnId: "build", tags: ["design"], boardIndex: 1 }),
+        makeCard({ id: "c", columnId: "plan", tags: ["ops"], boardIndex: 2 }),
       ],
       prefs.rules,
     );
@@ -121,7 +144,7 @@ describe("db view prefs", () => {
     prefs.rules.filter.any = [
       {
         all: [
-          { field: "status", op: "in", values: ["backlog"] },
+          { field: "status", op: "in", values: ["plan"] },
           { field: "priority", op: "in", values: [], includeEmpty: true },
         ],
       },
@@ -145,7 +168,7 @@ describe("db view prefs", () => {
           any: [
             {
               all: [
-                { field: "status", op: "in", values: ["backlog"] },
+                { field: "status", op: "in", values: ["plan"] },
                 { field: "priority", op: "in", values: [], includeEmpty: true },
               ],
             },

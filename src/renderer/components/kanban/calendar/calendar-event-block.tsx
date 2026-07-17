@@ -34,7 +34,7 @@ interface CalendarEventBlockProps {
   muted?: boolean;
   dragVisual?: "default" | "source-ghost" | "overlay-ghost";
   zIndex?: number;
-  onMarkDone?: () => void;
+  onShip?: () => void;
   onSkip?: () => void;
   onOpen: () => void;
   onDragStartMove?: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -85,7 +85,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
   muted = false,
   dragVisual = "default",
   zIndex,
-  onMarkDone,
+  onShip,
   onSkip,
   onOpen,
   onDragStartMove,
@@ -205,9 +205,9 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
         />
       )}
 
-      {(onMarkDone || onSkip) && (
+      {(onShip || onSkip) && (
         <div className="absolute top-1 right-1 z-30 hidden items-center gap-1 group-focus-within:flex group-hover:flex">
-          {onMarkDone && (
+          {onShip && (
             <button
               type="button"
               draggable={false}
@@ -218,11 +218,11 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onMarkDone();
+                onShip();
               }}
               className="h-5 rounded-sm bg-(--background)/95 px-1.5 text-xs font-medium text-(--foreground-secondary) hover:text-(--foreground)"
             >
-              Done
+              Ship
             </button>
           )}
           {onSkip && isRecurring && (

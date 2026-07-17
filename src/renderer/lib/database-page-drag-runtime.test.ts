@@ -116,12 +116,12 @@ const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
           status: {
             propertyId: parseDataSourcePropertyId("status"),
             valueType: "select",
-            value: "draft",
+            value: "triage",
             revision: 2,
           },
         },
-        position: { groupKey: "draft", rankKey: "a", revision: 3 },
-        effectiveGroupKey: "draft",
+        position: { groupKey: "triage", rankKey: "a", revision: 3 },
+        effectiveGroupKey: "triage",
       }],
     },
   },
@@ -165,8 +165,8 @@ describe("Database Page drag runtime", () => {
       operationId: "drag-1",
       move: {
         pageId: "page-1",
-        fromStatus: "draft",
-        toStatus: "done",
+        fromStatus: "triage",
+        toStatus: "ship",
       },
       dependencies,
     })).resolves.toBe(true);
@@ -204,8 +204,8 @@ describe("Database Page drag runtime", () => {
       operationId: "drag-stale",
       move: {
         pageId: "page-1",
-        fromStatus: "draft",
-        toStatus: "done",
+        fromStatus: "triage",
+        toStatus: "ship",
       },
       dependencies,
     })).rejects.toBeInstanceOf(DatabasePageDragMutationError);

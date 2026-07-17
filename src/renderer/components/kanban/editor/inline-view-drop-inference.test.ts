@@ -11,7 +11,7 @@ function makeCard(id: string, overrides: Partial<DatabasePageSummary> = {}): Dat
   const title = overrides.title ?? `Card ${id}`;
   return {
     id,
-    status: "draft",
+    status: "triage",
     archived: false,
     title,
     richTitle: plainTextToPortableRichText(title),
@@ -30,7 +30,7 @@ function makeBoard(): BoardSummary {
   return {
     columns: [
       {
-        id: "draft",
+        id: "triage",
         name: "Ideas",
         cards: [
           makeCard("ideas-1", { order: 0, priority: "p1-high", estimate: "s" }),
@@ -38,8 +38,8 @@ function makeBoard(): BoardSummary {
         ],
       },
       {
-        id: "backlog",
-        name: "Backlog",
+        id: "plan",
+        name: "Plan",
         cards: [
           makeCard("backlog-1", { order: 0, priority: "p3-low" }),
         ],
@@ -52,8 +52,8 @@ describe("inline view drop inference", () => {
   test("infers target column and insert index from pointed projected rows", () => {
     const settings = getDefaultToggleListSettings();
     const projectedRows: InlineViewProjectedRow[] = [
-      { blockId: "row-1", pageId: "ideas-1", sourceStatus: "draft" },
-      { blockId: "row-2", pageId: "ideas-2", sourceStatus: "draft" },
+      { blockId: "row-1", pageId: "ideas-1", sourceStatus: "triage" },
+      { blockId: "row-2", pageId: "ideas-2", sourceStatus: "triage" },
     ];
 
     const inferred = inferInlineViewDropImport({
@@ -64,7 +64,7 @@ describe("inline view drop inference", () => {
       cards: [{ title: "Dropped block" }],
     });
 
-    expect(inferred.targetStatus).toBe("draft");
+    expect(inferred.targetStatus).toBe("triage");
     expect(inferred.insertIndex).toBe(1);
   });
 
@@ -76,7 +76,7 @@ describe("inline view drop inference", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"] },
             ],
           },
@@ -92,7 +92,7 @@ describe("inline view drop inference", () => {
       cards: [{ title: "Dropped block" }],
     });
 
-    expect(inferred.targetStatus).toBe("backlog");
+    expect(inferred.targetStatus).toBe("plan");
     expect(inferred.insertIndex).toBe(undefined);
   });
 
@@ -107,7 +107,7 @@ describe("inline view drop inference", () => {
     };
 
     const projectedRows: InlineViewProjectedRow[] = [
-      { blockId: "row-1", pageId: "ideas-2", sourceStatus: "draft" },
+      { blockId: "row-1", pageId: "ideas-2", sourceStatus: "triage" },
     ];
 
     const inferred = inferInlineViewDropImport({
@@ -130,7 +130,7 @@ describe("inline view drop inference", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["draft"] },
+              { field: "status", op: "in", values: ["triage"] },
               { field: "priority", op: "in", values: [], includeEmpty: true },
             ],
           },

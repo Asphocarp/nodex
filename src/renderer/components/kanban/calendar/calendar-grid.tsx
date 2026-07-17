@@ -1757,7 +1757,7 @@ export function CalendarGrid({
                           isSeriesFirstOccurrence={Boolean(event.thisAndFutureEquivalentToAll)}
                           muted={isArchivedEvent}
                           dragVisual={isDragSourceGhost ? "source-ghost" : "default"}
-                          onMarkDone={isArchivedEvent
+                          onShip={isArchivedEvent
                             ? undefined
                             : () =>
                               onCompleteOccurrence(

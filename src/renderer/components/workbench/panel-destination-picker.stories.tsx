@@ -55,18 +55,18 @@ const BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "draft",
-          name: "Draft",
+          id: "triage",
+          name: "Triage",
           cards: [
-            makeCard("panel-picker", "Panel picker polish", "draft", 0),
-            makeCard("right-panel", "Right panel composer overlay", "draft", 1),
+            makeCard("panel-picker", "Panel picker polish", "triage", 0),
+            makeCard("right-panel", "Right panel composer overlay", "triage", 1),
           ],
         },
         {
-          id: "in_progress",
-          name: "In Progress",
+          id: "build",
+          name: "Build",
           cards: [
-            makeCard("page-stage", "Page Stage retained editor", "in_progress", 0),
+            makeCard("page-stage", "Page Stage retained editor", "build", 0),
           ],
         },
       ],
@@ -77,10 +77,10 @@ const BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
+          id: "plan",
+          name: "Plan",
           cards: [
-            makeCard("research", "Move-to picker research notes", "backlog", 0),
+            makeCard("research", "Move-to picker research notes", "plan", 0),
           ],
         },
       ],

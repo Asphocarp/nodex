@@ -26,7 +26,7 @@ const createRequest = () => ({
     pageId: "card-one",
     title: "First Card",
     nfm: "Body",
-    status: "draft",
+    status: "triage",
     tags: ["z", "a", "z"],
     scheduledStart: "2026-07-11T10:00:00.000Z",
     scheduledEnd: "2026-07-11T11:00:00.000Z",
@@ -170,7 +170,7 @@ describe("Page lifecycle contract", () => {
           membershipId: "membership-one",
           databaseId: "database-one",
           dataSourceId: "source-one",
-          status: "draft",
+          status: "triage",
           position: {
             viewId: "view-one",
             beforeViewPageId: "card-anchor",

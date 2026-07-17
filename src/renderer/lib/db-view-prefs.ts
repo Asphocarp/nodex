@@ -1,5 +1,6 @@
 import type { DatabasePageSummary, Estimate, Priority } from "@/lib/types";
 import { WORKFLOW_STATUS_LABELS, WORKFLOW_STATUS_ORDER, compareWorkflowStatuses, type WorkflowStatus } from "../../shared/workflow-status";
+import { upgradeLegacyWorkflowStatus } from "../../shared/workflow-status-cutover";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
   DEFAULT_TOGGLE_LIST_SETTINGS,
@@ -314,7 +315,13 @@ function normalizeFilterClause(value: unknown): DbViewFilterClause | null {
   }
 
   if (value.field === "status" && value.op === "in") {
-    const values = Array.from(new Set(value.values.filter((item): item is WorkflowStatus => typeof item === "string" && WORKFLOW_STATUS_ORDER.includes(item as WorkflowStatus))));
+    const selected = new Set(
+      value.values.flatMap((item) => {
+        const status = upgradeLegacyWorkflowStatus(item);
+        return status ? [status] : [];
+      }),
+    );
+    const values = WORKFLOW_STATUS_ORDER.filter((status) => selected.has(status));
     return { field: "status", op: "in", values };
   }
 

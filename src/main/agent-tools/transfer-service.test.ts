@@ -550,7 +550,7 @@ describe("Nodex Agent transfer service", () => {
       const dataSourcePage = createPage(fixture, "move-data-source", "From Data Source", {
         kind: "data_source",
         dataSourceId,
-        view: { viewId: view.viewId, groupKey: "draft" },
+        view: { viewId: view.viewId, groupKey: "triage" },
       });
       const request = {
         threadId: "thread-v3",
@@ -723,19 +723,19 @@ describe("Nodex Agent transfer service", () => {
       const first = createPage(fixture, "same-db-first", "First", {
         kind: "data_source",
         dataSourceId,
-        view: { viewId: view.viewId, groupKey: "draft" },
+        view: { viewId: view.viewId, groupKey: "triage" },
       });
       const second = createPage(fixture, "same-db-second", "Second", {
         kind: "data_source",
         dataSourceId,
-        view: { viewId: view.viewId, groupKey: "draft" },
+        view: { viewId: view.viewId, groupKey: "triage" },
       });
       const input = MovePagesV3InputSchema.parse({
         pageIds: [second, first],
         destination: {
           kind: "data_source",
           dataSourceId,
-          view: { viewId: view.viewId, groupKey: "in_progress" },
+          view: { viewId: view.viewId, groupKey: "build" },
         },
       });
       const prepared = prepareNodexAgentMovePages(fixture.database, {
@@ -764,8 +764,8 @@ describe("Nodex Agent transfer service", () => {
         readonly group_key: string | null;
       }[];
       expect(positions).toEqual([
-        { block_id: second, group_key: "in_progress" },
-        { block_id: first, group_key: "in_progress" },
+        { block_id: second, group_key: "build" },
+        { block_id: first, group_key: "build" },
       ]);
 
       const rejected = prepareNodexAgentMovePages(fixture.database, {
@@ -777,8 +777,8 @@ describe("Nodex Agent transfer service", () => {
           destination: {
             kind: "data_source",
             dataSourceId,
-            values: [{ propertyId: "not-an-edit-endpoint", value: "Done" }],
-            view: { viewId: view.viewId, groupKey: "in_progress" },
+            values: [{ propertyId: "not-an-edit-endpoint", value: "Ship" }],
+            view: { viewId: view.viewId, groupKey: "build" },
           },
         }),
       });

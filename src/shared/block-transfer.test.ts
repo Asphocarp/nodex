@@ -117,7 +117,7 @@ describe("BlockTransfer contract", () => {
           databaseBlockId: "database-a",
           dataSourceId: "source-b",
           viewId: "view-b",
-          groupKey: "backlog",
+          groupKey: "plan",
         },
       }).target,
     ).toMatchObject({ dataSourceId: "source-b" });

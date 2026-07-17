@@ -11,7 +11,7 @@ describe("Card summary rich-title projection", () => {
 
     expect(toDatabasePageSummary({
       id: "card-1",
-      status: "draft",
+      status: "triage",
       archived: false,
       title: "Rich title",
       richTitle,

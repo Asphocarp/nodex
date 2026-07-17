@@ -99,7 +99,7 @@ describe("Block Property mutation v2 contract", () => {
             propertyId: "status",
             operation: "set",
             expectedRevision: 1,
-            value: "draft",
+            value: "triage",
           },
         ],
       }).fields[0],

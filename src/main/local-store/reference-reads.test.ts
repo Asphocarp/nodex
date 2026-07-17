@@ -41,13 +41,13 @@ describe("Project-scoped canonical reference reads", () => {
       const hostProject = createProject({ name: "Host" });
       const restrictedProject = createProject({ name: "Restricted host" });
       const targetProject = createProject({ name: "Target" });
-      const targetCard = await createPage(targetProject.id, "draft", {
+      const targetCard = await createPage(targetProject.id, "triage", {
         title: "Target Card",
       });
-      const siblingCard = await createPage(targetProject.id, "draft", {
+      const siblingCard = await createPage(targetProject.id, "triage", {
         title: "Sibling Card",
       });
-      const nestedPage = await createPage(targetProject.id, "draft", {
+      const nestedPage = await createPage(targetProject.id, "triage", {
         title: "Nested Page",
       });
       closeDatabase();

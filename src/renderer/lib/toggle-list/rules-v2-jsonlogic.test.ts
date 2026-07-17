@@ -11,14 +11,14 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["draft"] },
+              { field: "status", op: "in", values: ["triage"] },
               { field: "priority", op: "in", values: ["p0-critical"], includeEmpty: true },
               { field: "tags", op: "hasNone", values: ["sidebar"] },
             ],
           },
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: ["p0-critical", "p1-high"], includeEmpty: false },
             ],
           },
@@ -62,7 +62,7 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
         or: [
           {
             and: [
-              { in: [{ var: "status" }, ["draft"]] },
+              { in: [{ var: "status" }, ["triage"]] },
               { and: [{ in: ["frontend", { var: "tags" }] }, { in: ["ui", { var: "tags" }] }] },
             ],
           },
@@ -99,13 +99,13 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
         or: [
           {
             and: [
-              { in: [{ var: "status" }, ["draft"]] },
+              { in: [{ var: "status" }, ["triage"]] },
               { missing: ["priority"] },
             ],
           },
           {
             and: [
-              { in: [{ var: "status" }, ["backlog"]] },
+              { in: [{ var: "status" }, ["plan"]] },
               {
                 or: [
                   { in: [{ var: "priority" }, ["p0-critical"] ] },
@@ -142,7 +142,7 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: [], includeEmpty: true },
             ],
           },

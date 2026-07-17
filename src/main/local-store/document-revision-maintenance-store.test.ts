@@ -52,7 +52,7 @@ describe("Document revision maintenance", () => {
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .pluck()
       .get() as string;
-    const card = await createPage(projectId, "draft", { title: "Before" });
+    const card = await createPage(projectId, "triage", { title: "Before" });
     const documentId = database
       .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
       .pluck()
@@ -172,7 +172,7 @@ describe("Document revision maintenance", () => {
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .pluck()
       .get() as string;
-    const card = await createPage(projectId, "draft", { title: "Active" });
+    const card = await createPage(projectId, "triage", { title: "Active" });
     const documentId = database
       .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
       .pluck()
@@ -250,7 +250,7 @@ describe("Document revision maintenance", () => {
       .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
       .pluck()
       .get() as string;
-    const card = await createPage(projectId, "draft", { title: "No-op" });
+    const card = await createPage(projectId, "triage", { title: "No-op" });
     const documentId = database
       .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
       .pluck()

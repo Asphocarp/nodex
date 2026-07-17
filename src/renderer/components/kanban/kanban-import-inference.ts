@@ -47,11 +47,11 @@ interface SortAnchor {
 const SUPPORTED_SORT_FIELDS = new Set<DbViewSortField>(["board-order", "priority", "estimate"]);
 
 const WORKFLOW_STATUS_NAMES: Record<WorkflowStatus, string> = {
-  draft: "Draft",
-  backlog: "Backlog",
-  in_progress: "In Progress",
-  in_review: "In Review",
-  done: "Done",
+  triage: "Triage",
+  plan: "Plan",
+  build: "Build",
+  review: "Review",
+  ship: "Ship",
 };
 
 function hasOwn<T extends object, K extends keyof T>(value: T, key: K): boolean {

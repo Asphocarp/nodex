@@ -8,7 +8,7 @@ function makeCard(overrides: Partial<ToggleListCard>): ToggleListCard {
   const title = overrides.title ?? "Card title";
   return {
     id: "card-1",
-    status: "backlog",
+    status: "plan",
     archived: false,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
@@ -18,8 +18,8 @@ function makeCard(overrides: Partial<ToggleListCard>): ToggleListCard {
     tags: [],
     created: new Date("2026-02-10T00:00:00.000Z"),
     order: 0,
-    columnId: "backlog",
-    columnName: "Backlog",
+    columnId: "plan",
+    columnName: "Plan",
     boardIndex: 0,
     ...overrides,
   };
@@ -40,21 +40,21 @@ describe("toggle-list rules", () => {
         id: "card-a",
         title: "Fix parser",
         priority: "p0-critical",
-        columnId: "backlog",
-        columnName: "Backlog",
+        columnId: "plan",
+        columnName: "Plan",
       }),
       makeCard({
         id: "card-b",
         title: "Ship docs",
         priority: "p1-high",
-        columnId: "backlog",
+        columnId: "plan",
         columnName: "Ready",
       }),
       makeCard({
         id: "card-c",
         title: "Fix parser quickly",
         priority: "p0-critical",
-        columnId: "backlog",
+        columnId: "plan",
         columnName: "Ready",
       }),
     ];
@@ -66,7 +66,7 @@ describe("toggle-list rules", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: ["p0-critical"] },
             ],
           },
@@ -223,7 +223,7 @@ describe("toggle-list rules", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"] },
             ],
           },
@@ -250,7 +250,7 @@ describe("toggle-list rules", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: ["p1-high"], includeEmpty: false },
             ],
           },
@@ -275,7 +275,7 @@ describe("toggle-list rules", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: [], includeEmpty: true },
             ],
           },
@@ -291,19 +291,19 @@ describe("toggle-list rules", () => {
     const cards = [
       makeCard({
         id: "ideas-p0",
-        columnId: "draft",
+        columnId: "triage",
         priority: "p0-critical",
         tags: ["product"],
       }),
       makeCard({
         id: "backlog-p1",
-        columnId: "backlog",
+        columnId: "plan",
         priority: "p1-high",
         tags: ["platform"],
       }),
       makeCard({
         id: "ideas-sidebar",
-        columnId: "draft",
+        columnId: "triage",
         priority: "p0-critical",
         tags: ["sidebar"],
       }),
@@ -316,14 +316,14 @@ describe("toggle-list rules", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["draft"] },
+              { field: "status", op: "in", values: ["triage"] },
               { field: "priority", op: "in", values: ["p0-critical"] },
               { field: "tags", op: "hasNone", values: ["sidebar"] },
             ],
           },
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "priority", op: "in", values: ["p0-critical", "p1-high"] },
               { field: "tags", op: "hasNone", values: ["sidebar"] },
             ],
@@ -345,21 +345,21 @@ describe("toggle-list rules", () => {
     const cards = [
       makeCard({
         id: "a",
-        columnId: "backlog",
+        columnId: "plan",
         priority: "p1-high",
         created: new Date("2026-02-03T00:00:00.000Z"),
         boardIndex: 5,
       }),
       makeCard({
         id: "b",
-        columnId: "backlog",
+        columnId: "plan",
         priority: "p1-high",
         created: new Date("2026-02-02T00:00:00.000Z"),
         boardIndex: 4,
       }),
       makeCard({
         id: "c",
-        columnId: "draft",
+        columnId: "triage",
         priority: "p0-critical",
         created: new Date("2026-02-04T00:00:00.000Z"),
         boardIndex: 3,

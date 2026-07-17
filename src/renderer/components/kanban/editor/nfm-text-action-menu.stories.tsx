@@ -116,11 +116,11 @@ const STORY_MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "draft",
-          name: "Draft",
+          id: "triage",
+          name: "Triage",
           cards: [
-            makeStoryCard("source-card", "Source card", "draft", 0),
-            makeStoryCard("target-card", "Target card", "draft", 1),
+            makeStoryCard("source-card", "Source card", "triage", 0),
+            makeStoryCard("target-card", "Target card", "triage", 1),
           ],
         },
       ],
@@ -131,9 +131,9 @@ const STORY_MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
-          cards: [makeStoryCard("runtime", "Runtime polish", "backlog", 0)],
+          id: "plan",
+          name: "Plan",
+          cards: [makeStoryCard("runtime", "Runtime polish", "plan", 0)],
         },
       ],
     },

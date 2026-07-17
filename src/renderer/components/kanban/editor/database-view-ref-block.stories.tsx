@@ -44,11 +44,11 @@ const VIEW: DatabaseViewReadModel = {
     updatedAt: "2026-01-01T00:00:00.000Z",
   },
   rows: [
-    makeCard("bf-05", "Retire foreign-body projections", "in_progress"),
-    makeCard("bf-06", "Make cross-document moves atomic", "backlog"),
-    makeCard("bf-07", "Cut history and search over", "backlog"),
-    makeCard("bf-08", "Generalize durable Database views", "draft"),
-    makeCard("bf-09", "Add document-bearing Block types", "draft"),
+    makeCard("bf-05", "Retire foreign-body projections", "build"),
+    makeCard("bf-06", "Make cross-document moves atomic", "plan"),
+    makeCard("bf-07", "Cut history and search over", "plan"),
+    makeCard("bf-08", "Generalize durable Database views", "triage"),
+    makeCard("bf-09", "Add document-bearing Block types", "triage"),
   ].map((card, index) => ({ page: card, groupKey: null, rankKey: String(index) })),
 };
 

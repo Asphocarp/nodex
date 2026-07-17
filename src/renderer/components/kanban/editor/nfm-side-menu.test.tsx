@@ -71,11 +71,11 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "draft",
-          name: "Draft",
+          id: "triage",
+          name: "Triage",
           cards: [
-            makeCard("source-card", "Source card", "draft", 0),
-            makeCard("target-card", "Target card", "draft", 1),
+            makeCard("source-card", "Source card", "triage", 0),
+            makeCard("target-card", "Target card", "triage", 1),
           ],
         },
       ],
@@ -86,9 +86,9 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
-          cards: [makeCard("runtime", "Runtime polish", "backlog", 0)],
+          id: "plan",
+          name: "Plan",
+          cards: [makeCard("runtime", "Runtime polish", "plan", 0)],
         },
       ],
     },
@@ -544,16 +544,16 @@ describe("nfm side menu surface", () => {
       expect(calls.destinations.length).toBe(0);
 
       const backlogColumnRow = view
-        .getAllByRole("option", { name: /Backlog/ })
+        .getAllByRole("option", { name: /Plan/ })
         .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db-column");
-      if (!backlogColumnRow) throw new Error("Backlog column row not found.");
+      if (!backlogColumnRow) throw new Error("Plan column row not found.");
 
       fireEvent.click(backlogColumnRow);
 
       await waitFor(() => {
         expect(calls.destinations[0]?.kind).toBe("db-column");
         expect(calls.destinations[0]?.projectId).toBe("renderer");
-        expect(calls.destinations[0]?.columnId).toBe("backlog");
+        expect(calls.destinations[0]?.columnId).toBe("plan");
       });
       expect(consoleErrors.length).toBe(0);
     } finally {
@@ -594,16 +594,16 @@ describe("nfm side menu surface", () => {
     expect(calls.destinations.length).toBe(0);
 
     const backlogColumnRow = view
-      .getAllByRole("option", { name: /Backlog/ })
+      .getAllByRole("option", { name: /Plan/ })
       .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db-column");
-    if (!backlogColumnRow) throw new Error("Backlog column row not found.");
+    if (!backlogColumnRow) throw new Error("Plan column row not found.");
 
     fireEvent.click(backlogColumnRow);
 
     await waitFor(() => {
       expect(calls.destinations[0]?.kind).toBe("db-column");
       expect(calls.destinations[0]?.projectId).toBe("renderer");
-      expect(calls.destinations[0]?.columnId).toBe("backlog");
+      expect(calls.destinations[0]?.columnId).toBe("plan");
     });
   });
 
@@ -634,7 +634,7 @@ describe("nfm side menu surface", () => {
         throw new Error("Card destination was not accepted.");
       }
       expect(destination.projectId).toBe("default");
-      expect(destination.columnId).toBe("draft");
+      expect(destination.columnId).toBe("triage");
       expect(destination.pageId).toBe("target-card");
     });
   });

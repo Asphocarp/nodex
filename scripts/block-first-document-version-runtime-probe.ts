@@ -131,7 +131,7 @@ const main = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Document version runtime probe" });
-    const card = await createPage(project.id, "draft", {
+    const card = await createPage(project.id, "triage", {
       title: "Checkpoint title",
       description: "Checkpoint body",
     });
@@ -417,7 +417,7 @@ const main = async (): Promise<void> => {
       { length: 520 },
       (_, index) => `Large restore paragraph ${index}`,
     ).join("\n\n");
-    const largeCard = await createPage(project.id, "draft", {
+    const largeCard = await createPage(project.id, "triage", {
       title: "Large restore",
       description: largeNfm,
     });

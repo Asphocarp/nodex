@@ -17,7 +17,7 @@ const makeCard = (
   const title = overrides.title ?? "Collaborative Card";
   return {
     id: "card-1",
-    status: "in_progress",
+    status: "build",
     archived: false,
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
@@ -29,8 +29,8 @@ const makeCard = (
     descriptionPreview: "Summary preview is not an editable body.",
     descriptionLength: 40,
     hasDescription: true,
-    columnId: "in_progress",
-    columnName: "In Progress",
+    columnId: "build",
+    columnName: "Build",
     boardIndex: 0,
     ...overrides,
   };
@@ -101,7 +101,7 @@ describe("ToggleListReferenceRows", () => {
       />,
     );
 
-    const status = view.getByText("In Progress");
+    const status = view.getByText("Build");
     const tag = view.getByText("sync");
     const priority = view.getByText("P1");
     expect(

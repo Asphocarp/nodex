@@ -28,16 +28,16 @@ const STATUS_ICON_CLASS_NAME = "size-4.5 shrink-0";
 const STATUS_CHIP_CLASS_NAME = "inline-flex h-5.5 max-w-full items-center gap-0.5 overflow-hidden rounded-full pl-1 pr-2 text-sm/5 font-normal";
 
 const STATUS_ID_BY_LABEL: Record<string, StatusVisualId> = {
-  Draft: "draft",
-  Backlog: "backlog",
-  "In Progress": "in_progress",
-  "In Review": "in_review",
-  Done: "done",
+  Triage: "triage",
+  Plan: "plan",
+  Build: "build",
+  Review: "review",
+  Ship: "ship",
   Archived: "archived",
 };
 
 const STATUS_ICON_DEFINITIONS: Record<StatusVisualId, StatusIconDefinition> = {
-  draft: {
+  triage: {
     viewBox: "0 0 20 20",
     paths: [
       {
@@ -45,7 +45,7 @@ const STATUS_ICON_DEFINITIONS: Record<StatusVisualId, StatusIconDefinition> = {
       },
     ],
   },
-  backlog: {
+  plan: {
     viewBox: "0 0 20 20",
     paths: [
       {
@@ -57,7 +57,7 @@ const STATUS_ICON_DEFINITIONS: Record<StatusVisualId, StatusIconDefinition> = {
       },
     ],
   },
-  in_progress: {
+  build: {
     viewBox: "0 0 20 20",
     paths: [
       {
@@ -69,7 +69,7 @@ const STATUS_ICON_DEFINITIONS: Record<StatusVisualId, StatusIconDefinition> = {
       },
     ],
   },
-  in_review: {
+  review: {
     viewBox: "0 0 20 20",
     paths: [
       {
@@ -81,7 +81,7 @@ const STATUS_ICON_DEFINITIONS: Record<StatusVisualId, StatusIconDefinition> = {
       },
     ],
   },
-  done: {
+  ship: {
     viewBox: "0 0 20 20",
     paths: [
       {
@@ -105,31 +105,31 @@ const STATUS_ICON_DEFINITIONS: Record<StatusVisualId, StatusIconDefinition> = {
 };
 
 export const columnStyles: Record<string, StatusTone> = {
-  draft: {
-    dotColor: "bg-[var(--column-ideas-dot)]",
-    headerBg: "bg-[var(--column-ideas-header-bg)]",
-    badgeBg: "bg-[var(--status-ideas-bg)]",
-    badgeText: "text-[var(--status-ideas-text)]",
-    dropBg: "bg-[var(--column-ideas-drop-bg)]",
-    accentColor: "var(--status-ideas-dot)",
+  triage: {
+    dotColor: "bg-[var(--column-triage-dot)]",
+    headerBg: "bg-[var(--column-triage-header-bg)]",
+    badgeBg: "bg-[var(--status-triage-bg)]",
+    badgeText: "text-[var(--status-triage-text)]",
+    dropBg: "bg-[var(--column-triage-drop-bg)]",
+    accentColor: "var(--status-triage-dot)",
   },
-  backlog: {
-    dotColor: "bg-[var(--column-backlog-dot)]",
-    headerBg: "bg-[var(--column-backlog-header-bg)]",
-    badgeBg: "bg-[var(--status-backlog-bg)]",
-    badgeText: "text-[var(--status-backlog-text)]",
-    dropBg: "bg-[var(--column-backlog-drop-bg)]",
-    accentColor: "var(--status-backlog-dot)",
+  plan: {
+    dotColor: "bg-[var(--column-plan-dot)]",
+    headerBg: "bg-[var(--column-plan-header-bg)]",
+    badgeBg: "bg-[var(--status-plan-bg)]",
+    badgeText: "text-[var(--status-plan-text)]",
+    dropBg: "bg-[var(--column-plan-drop-bg)]",
+    accentColor: "var(--status-plan-dot)",
   },
-  in_progress: {
-    dotColor: "bg-[var(--column-in-progress-dot)]",
-    headerBg: "bg-[var(--column-in-progress-header-bg)]",
-    badgeBg: "bg-[var(--status-in-progress-bg)]",
-    badgeText: "text-[var(--status-in-progress-text)]",
-    dropBg: "bg-[var(--column-in-progress-drop-bg)]",
-    accentColor: "var(--status-in-progress-dot)",
+  build: {
+    dotColor: "bg-[var(--column-build-dot)]",
+    headerBg: "bg-[var(--column-build-header-bg)]",
+    badgeBg: "bg-[var(--status-build-bg)]",
+    badgeText: "text-[var(--status-build-text)]",
+    dropBg: "bg-[var(--column-build-drop-bg)]",
+    accentColor: "var(--status-build-dot)",
   },
-  in_review: {
+  review: {
     dotColor: "bg-[var(--column-review-dot)]",
     headerBg: "bg-[var(--column-review-header-bg)]",
     badgeBg: "bg-[var(--status-review-bg)]",
@@ -137,13 +137,13 @@ export const columnStyles: Record<string, StatusTone> = {
     dropBg: "bg-[var(--column-review-drop-bg)]",
     accentColor: "var(--status-review-dot)",
   },
-  done: {
-    dotColor: "bg-[var(--column-done-dot)]",
-    headerBg: "bg-[var(--column-done-header-bg)]",
-    badgeBg: "bg-[var(--status-done-bg)]",
-    badgeText: "text-[var(--status-done-text)]",
-    dropBg: "bg-[var(--column-done-drop-bg)]",
-    accentColor: "var(--status-done-dot)",
+  ship: {
+    dotColor: "bg-[var(--column-ship-dot)]",
+    headerBg: "bg-[var(--column-ship-header-bg)]",
+    badgeBg: "bg-[var(--status-ship-bg)]",
+    badgeText: "text-[var(--status-ship-text)]",
+    dropBg: "bg-[var(--column-ship-drop-bg)]",
+    accentColor: "var(--status-ship-dot)",
   },
   archived: {
     dotColor: "bg-[var(--column-archive-dot)]",
@@ -230,7 +230,7 @@ export function createStatusIconElement(
   },
 ): SVGSVGElement {
   const documentRef = options?.documentRef ?? document;
-  const resolved = resolveStatusVisualId(statusId, options?.label) ?? "draft";
+  const resolved = resolveStatusVisualId(statusId, options?.label) ?? "triage";
   const definition = STATUS_ICON_DEFINITIONS[resolved];
   const style = getStatusStyle(resolved);
   const svg = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -254,7 +254,7 @@ export function StatusIcon({
   statusId?: string | null;
   label?: string | null;
 }) {
-  const resolved = resolveStatusVisualId(statusId, label) ?? "draft";
+  const resolved = resolveStatusVisualId(statusId, label) ?? "triage";
   const definition = STATUS_ICON_DEFINITIONS[resolved];
   const tone = getStatusStyle(resolved);
 
@@ -294,7 +294,7 @@ export function StatusChip({
   labelClassName?: string;
   iconClassName?: string;
 }) {
-  const resolved = resolveStatusVisualId(statusId, label) ?? "draft";
+  const resolved = resolveStatusVisualId(statusId, label) ?? "triage";
   const chipLabel = resolveStatusLabel(resolved, label);
   const style = getStatusStyle(resolved);
 

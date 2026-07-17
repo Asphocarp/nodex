@@ -155,9 +155,9 @@ const querySnapshot = (input: {
     view,
     properties,
     rows: [
-      row("page-a", input.status ?? "in_progress", "p1-high", "a", 2),
-      row("page-b", "in_progress", "p1-high", "b", 3),
-      row("page-target", "done", "p2-medium", "c", 4),
+      row("page-a", input.status ?? "build", "p1-high", "a", 2),
+      row("page-b", "build", "p1-high", "b", 3),
+      row("page-target", "ship", "p2-medium", "c", 4),
     ],
   };
   return {
@@ -175,8 +175,8 @@ describe("Database Page drag compiler", () => {
     const compiled = compileDatabasePageDrag({
       move: {
         pageId: "page-b",
-        fromStatus: "in_progress",
-        toStatus: "in_progress",
+        fromStatus: "build",
+        toStatus: "build",
         newOrder: 0,
       },
       snapshot: querySnapshot(),
@@ -192,7 +192,7 @@ describe("Database Page drag compiler", () => {
       viewId: "view-1",
       pageId: "page-b",
       expectedPositionRevision: 23,
-      groupKey: "in_progress",
+      groupKey: "build",
       beforePageId: "page-a",
     }]);
   });
@@ -201,8 +201,8 @@ describe("Database Page drag compiler", () => {
     const compiled = compileDatabasePageDrag({
       move: {
         pageId: "page-a",
-        fromStatus: "in_progress",
-        toStatus: "done",
+        fromStatus: "build",
+        toStatus: "ship",
         newOrder: 0,
         fieldPatch: { priority: "p2-medium" },
       },
@@ -242,8 +242,8 @@ describe("Database Page drag compiler", () => {
     const compiled = compileDatabasePagesDrag({
       move: {
         pageIds: ["page-b", "page-a"],
-        fromStatus: "in_progress",
-        toStatus: "done",
+        fromStatus: "build",
+        toStatus: "ship",
         newOrder: 0,
       },
       snapshot: querySnapshot(),
@@ -270,10 +270,10 @@ describe("Database Page drag compiler", () => {
       compileDatabasePageDrag({
         move: {
           pageId: "page-a",
-          fromStatus: "in_progress",
-          toStatus: "done",
+          fromStatus: "build",
+          toStatus: "ship",
         },
-        snapshot: querySnapshot({ status: "in_review" }),
+        snapshot: querySnapshot({ status: "review" }),
       });
     } catch (error) {
       if (error instanceof DatabasePageDragError) code = error.code;

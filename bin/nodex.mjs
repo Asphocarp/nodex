@@ -16,11 +16,11 @@ const __dirname = dirname(__filename);
 // ─── Constants ───
 
 const STATUSES = [
-  { id: "draft", name: "Draft" },
-  { id: "backlog", name: "Backlog" },
-  { id: "in_progress", name: "In Progress" },
-  { id: "in_review", name: "In Review" },
-  { id: "done", name: "Done" },
+  { id: "triage", name: "Triage" },
+  { id: "plan", name: "Plan" },
+  { id: "build", name: "Build" },
+  { id: "review", name: "Review" },
+  { id: "ship", name: "Ship" },
 ];
 
 const PRIORITIES = new Set([
@@ -2674,8 +2674,8 @@ Env vars: NODEX_URL, NODEX_SESSION_ID, NODEX_PROJECT
 Server env vars: NODEX_DIR, NODEX_PORT, NODEX_BACKUP_*
 
 File Input: Use @filepath or @- for stdin
-  nodex add backlog "Task" -d @./plan.md
-  cat notes.md | nodex add backlog "Task" -d @-`);
+  nodex add plan "Task" -d @./plan.md
+  cat notes.md | nodex add plan "Task" -d @-`);
 }
 
 function printCommandHelp(cmd) {
@@ -2683,7 +2683,7 @@ function printCommandHelp(cmd) {
     ls: `Usage: nodex ls [status] [options]
 
   List Pages. Without a status, lists all Pages across all workflow statuses.
-  Status accepts canonical ids plus ergonomic separators: draft, backlog, in_progress/in-progress, in_review/in-review, done.
+  Status accepts canonical ids or names: triage, plan, build, review, ship.
 
   Options:
     -p, --project <id>  Project (default: "default")

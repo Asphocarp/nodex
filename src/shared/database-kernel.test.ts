@@ -62,7 +62,7 @@ describe("general Database mutation contract", () => {
           kind: "clause",
           propertyId: "status",
           operator: "equals",
-          value: "done",
+          value: "ship",
         },
         sort: [
           {
@@ -118,14 +118,14 @@ describe("general Database mutation contract", () => {
       databaseBlockId: "database-1",
       propertyId: "status-property",
       expectedValueRevision: 1,
-      value: "done",
+      value: "ship",
     };
     const position = {
       kind: "position_page" as const,
       viewId: "view-1",
       pageId: "card-1",
       expectedPositionRevision: 2,
-      groupKey: "done",
+      groupKey: "ship",
       beforePageId: "card-2",
     };
     const boardDrag = parseDatabaseMutationRequest({
@@ -137,7 +137,7 @@ describe("general Database mutation contract", () => {
       fails(() =>
         parseDatabaseMutationRequest({
           ...request(),
-          operations: [value, { ...value, value: "backlog" }],
+          operations: [value, { ...value, value: "plan" }],
         }),
       ),
     ).toBe(true);
@@ -187,7 +187,7 @@ describe("general Database mutation contract", () => {
       pageId: `card-${index}`,
       propertyId: "status-property",
       expectedValueRevision: index + 1,
-      value: "done",
+      value: "ship",
     }));
     const pages = entries.map((entry, index) => ({
       pageId: entry.pageId,
@@ -205,7 +205,7 @@ describe("general Database mutation contract", () => {
           kind: "position_pages",
           viewId: "view-1",
           pages,
-          groupKey: "done",
+          groupKey: "ship",
           beforePageId: "external-anchor",
         },
       ],
@@ -243,7 +243,7 @@ describe("general Database mutation contract", () => {
               kind: "position_pages",
               viewId: "view-1",
               pages,
-              groupKey: "done",
+              groupKey: "ship",
               beforePageId: pages[0]?.pageId,
             },
           ],
@@ -259,7 +259,7 @@ describe("general Database mutation contract", () => {
               kind: "position_pages",
               viewId: "view-1",
               pages,
-              groupKey: "done",
+              groupKey: "ship",
             },
             {
               kind: "set_values",
@@ -388,7 +388,7 @@ describe("general Database mutation contract", () => {
       },
     }).filter;
     const values = new Map<string, string | number | readonly string[]>([
-      ["stage", "backlog"],
+      ["stage", "plan"],
       ["score", 3],
       ["tags", ["urgent", "customer"]],
       ["owner", "person-1"],

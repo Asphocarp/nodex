@@ -83,7 +83,7 @@ class FakeWorker implements BlockMutationWorkerLike {
 function makeSummary(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
   return {
     id: "card-1",
-    status: "draft",
+    status: "triage",
     archived: false,
     title: "Card",
     priority: undefined,
@@ -447,7 +447,7 @@ describe("BlockMutationWriter", () => {
         dataSourceId: parseDataSourceId("source-1"),
         propertyId: parseDataSourcePropertyId("status"),
         expectedValueRevision: 1,
-        value: "done",
+        value: "ship",
       }],
     };
 
@@ -998,8 +998,8 @@ describe("BlockMutationWriter", () => {
       events: [{
         projectId: "project-1",
         changeType: "update",
-        columnId: "draft",
-        status: "draft",
+        columnId: "triage",
+        status: "triage",
         pageId: "card-1",
         summary,
         mutationId: firstRequest.mutationId,
@@ -1093,8 +1093,8 @@ describe("BlockMutationWriter", () => {
       events: [{
         projectId: "project-1",
         changeType: "update",
-        columnId: "draft",
-        status: "draft",
+        columnId: "triage",
+        status: "triage",
         pageId: "card-1",
         summary: makeSummary(),
         mutationId: request.mutationId,

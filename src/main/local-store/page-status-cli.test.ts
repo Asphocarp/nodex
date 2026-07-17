@@ -79,11 +79,11 @@ describe("Page status CLI arguments", () => {
       ) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
-          id: "backlog",
-          name: "Backlog",
+          id: "plan",
+          name: "Plan",
           cards: [{
             id: "page-legacy-agent-fields",
-            status: "backlog",
+            status: "plan",
             archived: false,
             title: "Current Page output",
             description: "Current description",
@@ -114,7 +114,7 @@ describe("Page status CLI arguments", () => {
         throw new Error("Failed to start test server");
       }
       const baseArgs = [
-        "backlog",
+        "plan",
         "--project",
         "default",
         "--url",
@@ -156,7 +156,7 @@ describe("Page status CLI arguments", () => {
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-status-cli-home-"));
     const requests: Array<{ method: string; path: string; body: Record<string, unknown> | null }> = [];
     let createdPageId = "";
-    let createdStatus = "draft";
+    let createdStatus = "triage";
 
     const server = http.createServer((req, res) => {
       const method = req.method ?? "GET";
@@ -174,7 +174,7 @@ describe("Page status CLI arguments", () => {
 
         if (method === "GET" && url.pathname === "/api/projects/default/column") {
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ id: url.searchParams.get("id"), name: "In Progress", cards: [] }));
+          res.end(JSON.stringify({ id: url.searchParams.get("id"), name: "Build", cards: [] }));
           return;
         }
 
@@ -193,7 +193,7 @@ describe("Page status CLI arguments", () => {
         ) {
           const operation = body?.operation as Record<string, unknown> | undefined;
           createdPageId = String(operation?.pageId ?? "");
-          createdStatus = String(operation?.status ?? "draft");
+          createdStatus = String(operation?.status ?? "triage");
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
             ok: true,
@@ -235,7 +235,7 @@ describe("Page status CLI arguments", () => {
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({
             id: "page-1",
-            status: "done",
+            status: "ship",
             archived: false,
             title: "Ship it",
             description: "",
@@ -281,11 +281,11 @@ describe("Page status CLI arguments", () => {
                     page: { pageId: "page-1" },
                     values: {
                       status: {
-                        value: "in_progress",
+                        value: "build",
                         revision: 3,
                       },
                     },
-                    effectiveGroupKey: "in_progress",
+                    effectiveGroupKey: "build",
                     position: { revision: 5 },
                   },
                   ],
@@ -327,14 +327,18 @@ describe("Page status CLI arguments", () => {
       }
       const baseUrl = `http://127.0.0.1:${address.port}`;
 
-      const lsResult = await runCli(["ls", "in-progress", "--project", "default", "--url", baseUrl, "--json"], homeDir);
+      const lsResult = await runCli(["ls", "build", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(lsResult.exitCode).toBe(0);
 
-      const addResult = await runCli(["add", "in-review", "Ship it", "--tags", "Release, 新标签", "--project", "default", "--url", baseUrl, "--json"], homeDir);
+      const addResult = await runCli(["add", "review", "Ship it", "--tags", "Release, 新标签", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(addResult.exitCode).toBe(0);
 
-      const moveResult = await runCli(["mv", "page-1", "in-progress", "done", "--project", "default", "--url", baseUrl, "--json"], homeDir);
+      const moveResult = await runCli(["mv", "page-1", "build", "ship", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(moveResult.exitCode).toBe(0);
+
+      const legacyStatus = await runCli(["ls", "in-progress", "--project", "default", "--url", baseUrl, "--json"], homeDir);
+      expect(legacyStatus.exitCode).toBe(1);
+      expect(legacyStatus.stderr.includes("Unknown status")).toBe(true);
 
       const legacyNumeric = await runCli(["ls", "5", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(legacyNumeric.exitCode).toBe(1);
@@ -345,7 +349,7 @@ describe("Page status CLI arguments", () => {
       expect(legacyReady.stderr.includes("Unknown status")).toBe(true);
 
       const listRequest = requests.find((request) => request.method === "GET");
-      expect(listRequest?.path).toBe("/api/projects/default/column?id=in_progress");
+      expect(listRequest?.path).toBe("/api/projects/default/column?id=build");
 
       const createRequest = requests.find(
         (request) =>
@@ -356,7 +360,7 @@ describe("Page status CLI arguments", () => {
       expect(
         (createRequest?.body?.operation as Record<string, unknown> | undefined)
           ?.status,
-      ).toBe("in_review");
+      ).toBe("review");
       expect(createRequest?.body?.version).toBe(2);
       expect(
         (createRequest?.body?.operation as Record<string, unknown> | undefined)
@@ -393,11 +397,11 @@ describe("Page status CLI arguments", () => {
       expect(moveOperations?.[0]?.dataSourceId).toBe("data-source-primary");
       expect(moveOperations?.[0]?.propertyId).toBe("status");
       expect(moveOperations?.[0]?.expectedValueRevision).toBe(3);
-      expect(moveOperations?.[0]?.value).toBe("done");
+      expect(moveOperations?.[0]?.value).toBe("ship");
       expect(moveOperations?.[1]?.kind).toBe("position_page");
       expect(moveOperations?.[1]?.viewId).toBe("view-primary");
       expect(moveOperations?.[1]?.expectedPositionRevision).toBe(5);
-      expect(moveOperations?.[1]?.groupKey).toBe("done");
+      expect(moveOperations?.[1]?.groupKey).toBe("ship");
     } finally {
       server.close();
       fs.rmSync(homeDir, { recursive: true, force: true });
@@ -522,7 +526,7 @@ describe("Page status CLI arguments", () => {
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({
               id: pageId,
-              status: "draft",
+              status: "triage",
               archived: false,
               title: isCreated ? "Exact retry" : "Existing",
               description: "",
@@ -552,7 +556,7 @@ describe("Page status CLI arguments", () => {
       const unsafeRetryIdentity = await runCli(
         [
           "add",
-          "draft",
+          "triage",
           "Unsafe retry",
           "--mutation-id",
           "operation-without-page-id",
@@ -568,7 +572,7 @@ describe("Page status CLI arguments", () => {
 
       const addArgs = [
         "add",
-        "draft",
+        "triage",
         "Exact retry",
         "--page-id",
         "page-create-stable",

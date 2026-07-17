@@ -14,7 +14,7 @@ function CommandPaletteFiltersStory() {
   const [open, setOpen] = useState(true);
   const [filters, setFilters] = useState<CommandPalettePageFilters>(() => ({
     ...getDefaultCommandPalettePageFilters(),
-    statuses: ["draft", "in_progress", "in_review"],
+    statuses: ["triage", "build", "review"],
     priorities: ["p0-critical", "p1-high"],
     tags: ["sidebar", "thread"],
     projectIds: ["default"],

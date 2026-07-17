@@ -101,7 +101,7 @@ describe("scheduled Page authority reads", () => {
   test("uses the typed schedule index, current Document, and Data Source properties", async () => {
     const ran = await withTempDatabase(async () => {
       const project = createProject({ name: "Scheduled authority" });
-      const card = await createPage(project.id, "in_progress", {
+      const card = await createPage(project.id, "build", {
         title: "Legacy schedule title",
         description: "Legacy schedule body",
         tags: ["relational-tag"],
@@ -258,7 +258,7 @@ describe("scheduled Page authority reads", () => {
     const ran = await withTempDatabase(async () => {
       const owner = createProject({ name: "Reminder owner" });
       const actor = createProject({ name: "Reminder actor" });
-      const page = await createPage(owner.id, "in_progress", {
+      const page = await createPage(owner.id, "build", {
         title: "Granted reminder Page",
         scheduledStart: new Date("2031-02-03T10:00:00.000Z"),
         scheduledEnd: new Date("2031-02-03T11:00:00.000Z"),

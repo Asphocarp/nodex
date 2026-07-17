@@ -39,8 +39,8 @@ describe("Page reference identity finalization", () => {
     const project = database.prepare("SELECT id FROM projects LIMIT 1").get() as {
       readonly id: string;
     };
-    const host = await createPage(project.id, "draft", { title: "Host" });
-    const target = await createPage(project.id, "draft", { title: "Target" });
+    const host = await createPage(project.id, "triage", { title: "Host" });
+    const target = await createPage(project.id, "triage", { title: "Target" });
     const documentId = database.prepare(
       "SELECT document_id FROM block_documents WHERE block_id = ?",
     ).pluck().get(host.id) as string;

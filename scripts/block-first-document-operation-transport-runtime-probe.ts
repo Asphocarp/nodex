@@ -114,7 +114,7 @@ const run = async (): Promise<void> => {
   try {
     await initializeDatabase();
     const project = createProject({ name: "Document operation transport" });
-    const card = await createPage(project.id, "draft", {
+    const card = await createPage(project.id, "triage", {
       title: "Original title",
       description: "First paragraph\n\nSecond paragraph",
     });

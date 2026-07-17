@@ -67,12 +67,12 @@ const BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "draft",
-          name: "Draft",
+          id: "triage",
+          name: "Triage",
           cards: [
-            makePage("source-page", "Source", "draft", 0),
-            makePage("draft-spec", "Draft spec", "draft", 1),
-            makePage("command-palette", "Command palette polish", "draft", 2, {
+            makePage("source-page", "Source", "triage", 0),
+            makePage("draft-spec", "Triage spec", "triage", 1),
+            makePage("command-palette", "Command palette polish", "triage", 2, {
               tags: ["secret-tag"],
               assignee: "alex",
               descriptionPreview: "Hidden body-only OCR pipeline note.",
@@ -82,9 +82,9 @@ const BOARD_MAP = new Map<string, BoardSummary>([
           ],
         },
         {
-          id: "done",
-          name: "Done",
-          cards: [makePage("ship-plan", "Ship plan", "done", 0)],
+          id: "ship",
+          name: "Ship",
+          cards: [makePage("ship-plan", "Ship plan", "ship", 0)],
         },
       ],
     },
@@ -94,9 +94,9 @@ const BOARD_MAP = new Map<string, BoardSummary>([
     {
       columns: [
         {
-          id: "backlog",
-          name: "Backlog",
-          cards: [makePage("runtime", "Runtime polish", "backlog", 0)],
+          id: "plan",
+          name: "Plan",
+          cards: [makePage("runtime", "Runtime polish", "plan", 0)],
         },
       ],
     },
@@ -121,7 +121,7 @@ describe("nfm move-to menu model", () => {
 
     expect(sections.map((section) => section.label).join(",")).toBe("DB,Page");
     expect(rows.map((row) => row.id).join(",")).toBe(
-      "db:alpha,db-column:alpha:draft,db-column:alpha:done,db:beta,page:alpha:draft-spec,page:alpha:command-palette,page:alpha:ship-plan,page:beta:runtime",
+      "db:alpha,db-column:alpha:triage,db-column:alpha:ship,db:beta,page:alpha:draft-spec,page:alpha:command-palette,page:alpha:ship-plan,page:beta:runtime",
     );
     expect(rows[0]?.kind).toBe("db");
     const firstRow = rows[0];
@@ -138,13 +138,13 @@ describe("nfm move-to menu model", () => {
 
   test("filters DB, column, and page rows while excluding the source page", () => {
     const pageRows = flattenNfmMoveToRows(buildSections("runtime"));
-    const columnRows = flattenNfmMoveToRows(buildSections("done"));
+    const columnRows = flattenNfmMoveToRows(buildSections("ship"));
     const projectRows = flattenNfmMoveToRows(buildSections("beta"));
     const sourceRows = flattenNfmMoveToRows(buildSections("source"));
 
     expect(pageRows.map((row) => row.id).join(",")).toBe("page:beta:runtime");
-    expect(columnRows.map((row) => row.id).join(",")).toBe("db:alpha,db-column:alpha:done,page:alpha:ship-plan");
-    expect(projectRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:backlog,page:beta:runtime");
+    expect(columnRows.map((row) => row.id).join(",")).toBe("db:alpha,db-column:alpha:ship,page:alpha:ship-plan");
+    expect(projectRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:plan,page:beta:runtime");
     expect(sourceRows.map((row) => row.id).join(",")).toBe("");
   });
 
@@ -172,7 +172,7 @@ describe("nfm move-to menu model", () => {
 
     expect(pageTitleSections.map((section) => section.label).join(",")).toBe("DB");
     expect(pageTitleRows.map((row) => row.id).join(",")).toBe("");
-    expect(dbRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:backlog");
+    expect(dbRows.map((row) => row.id).join(",")).toBe("db:beta,db-column:beta:plan");
   });
 
   test("uses command-palette-style fuzzy and prefix page search without description-only fields", () => {

@@ -14,7 +14,7 @@ import { DatabaseViewReferenceSurface } from "./reference-block-surfaces";
 
 const makeCard = (id: string, title: string): DatabasePageSummary => ({
   id,
-  status: "in_progress",
+  status: "build",
   archived: false,
   title,
   richTitle: plainTextToPortableRichText(title),
@@ -43,7 +43,7 @@ describe("DatabaseViewReferenceSurface", () => {
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
-      rows: [{ page: card, groupKey: "draft", rankKey: "a" }],
+      rows: [{ page: card, groupKey: "triage", rankKey: "a" }],
     };
     const view = render(
       <DatabaseViewReferenceSurface

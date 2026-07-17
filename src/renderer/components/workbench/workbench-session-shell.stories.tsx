@@ -155,12 +155,12 @@ const PROJECT_REFS = PROJECTS.map((project) => ({
 const STORY_BOARD: BoardSummary = {
   columns: [
     {
-      id: "in_progress",
+      id: "build",
       name: "In Progress",
       cards: [
         {
           id: "card-1",
-          status: "in_progress",
+          status: "build",
           archived: false,
           title: "Workbench redesign",
           richTitle: plainTextToPortableRichText("Workbench redesign"),
@@ -183,7 +183,7 @@ function buildStoryCardDetail(projectId: string, pageId: string): DatabasePage |
 
   return {
     id: pageId,
-    status: "in_progress",
+    status: "build",
     archived: false,
     title: crossProject ? "Readable pack review" : "Workbench redesign",
     richTitle: plainTextToPortableRichText(

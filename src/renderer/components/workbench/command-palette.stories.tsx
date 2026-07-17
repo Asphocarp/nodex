@@ -17,7 +17,7 @@ function makeStoryPage(overrides: Partial<DatabasePageSummary> = {}): DatabasePa
   const title = overrides.title ?? "Command palette shell refresh";
   return {
     id: overrides.id ?? "palette-page",
-    status: overrides.status ?? "in_progress",
+    status: overrides.status ?? "build",
     title,
     richTitle: overrides.richTitle ?? plainTextToPortableRichText(title),
     tags: overrides.tags ?? ["palette", "shell"],
@@ -45,7 +45,7 @@ function makePalettePage(
     projectId,
     projectName: overrides.projectName ?? "Nodex",
     projectIcon: overrides.projectIcon ?? "",
-    columnName: overrides.columnName ?? "In Progress",
+    columnName: overrides.columnName ?? "Build",
     page,
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
@@ -102,7 +102,7 @@ function CommandPaletteStory({
         id: "side-panel-db-view",
         title: "DB View command opens as a panel tab",
         tags: ["db", "tabs"],
-        status: "in_review",
+        status: "review",
         priority: "p1-high",
         descriptionPreview: "Keep project database work in the current session shell instead of a global view switch.",
       },

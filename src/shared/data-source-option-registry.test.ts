@@ -51,8 +51,8 @@ describe("Data Source option registry", () => {
       valueType: "select",
       config: {
         options: [
-          { id: "draft", name: "Draft", color: "gray" },
-          { id: "done", name: "Done" },
+          { id: "triage", name: "Triage", color: "gray" },
+          { id: "ship", name: "Ship" },
         ],
       },
     });
@@ -64,8 +64,8 @@ describe("Data Source option registry", () => {
     });
     expect(dataSourceOptionRegistryConfig(registry)).toEqual({
       options: [
-        { id: "draft", name: "Draft", color: "gray" },
-        { id: "done", name: "Done" },
+        { id: "triage", name: "Triage", color: "gray" },
+        { id: "ship", name: "Ship" },
       ],
     });
 

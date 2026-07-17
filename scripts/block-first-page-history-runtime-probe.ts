@@ -65,7 +65,7 @@ const createCard = (
         pageId: cardId,
         title: "History runtime Card",
         nfm: "Canonical Card body",
-        status: "draft",
+        status: "triage",
       },
     }),
     {

@@ -10,7 +10,7 @@ import {
 function createScheduledPage(overrides: Partial<DatabasePage>): DatabasePage {
   return {
     id: "card-1",
-    status: "draft",
+    status: "triage",
     archived: false,
     title: "Recurring task",
     description: "",

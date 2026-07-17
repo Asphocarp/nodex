@@ -80,7 +80,7 @@ const model: DatabaseViewRenderModel = {
         dataSourceId,
         name: "Status",
         valueType: "select",
-        config: { options: [{ id: "in_progress", name: "In Progress" }, { id: "done", name: "Done" }] },
+        config: { options: [{ id: "build", name: "Build" }, { id: "ship", name: "Ship" }] },
         rankKey: "a",
         lifecycle: "active",
         revision: 1,
@@ -125,20 +125,20 @@ const model: DatabaseViewRenderModel = {
         updatedAt: timestamp,
       },
       values: {
-        [statusPropertyId]: { propertyId: statusPropertyId, valueType: "select", value: "in_progress", revision: 1 },
+        [statusPropertyId]: { propertyId: statusPropertyId, valueType: "select", value: "build", revision: 1 },
         [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select", value: ["o_AAAAAAAA"], revision: 1 },
       },
-      position: { groupKey: "in_progress", rankKey: "a", revision: 1 },
-      effectiveGroupKey: "in_progress",
+      position: { groupKey: "build", rankKey: "a", revision: 1 },
+      effectiveGroupKey: "build",
     }],
   },
   columns: [
     {
-      id: "in_progress",
-      name: "In Progress",
+      id: "build",
+      name: "Build",
       rows: [{
         pageId: "page-1",
-        status: "in_progress",
+        status: "build",
         title: "Unify Database View rendering",
         preview: "",
         plainText: "",
@@ -147,7 +147,7 @@ const model: DatabaseViewRenderModel = {
         createdAt: new Date(timestamp),
       }],
     },
-    { id: "done", name: "Done", rows: [] },
+    { id: "ship", name: "Ship", rows: [] },
   ],
 };
 

@@ -99,7 +99,7 @@ function createCard(
       pageId: cardId,
       title: input.title,
       nfm: input.nfm,
-      status: "draft",
+      status: "triage",
     },
   });
   return BlockIdSchema.parse(cardId);

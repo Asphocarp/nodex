@@ -40,7 +40,7 @@ describe("kanban card", () => {
       projectId: "default",
       card: {
         id: "card-1",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "Persisted body",
@@ -49,7 +49,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       onClick: () => undefined,
     });
 
@@ -62,7 +62,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-1",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "Body",
@@ -71,7 +71,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       onClick: () => undefined,
     });
 
@@ -83,7 +83,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-1",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "Body",
@@ -92,7 +92,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       isActiveInPanel: true,
       onClick: () => undefined,
     });
@@ -107,7 +107,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-2",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "Body",
@@ -117,7 +117,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       onClick: () => undefined,
       onUpdateProperty: () => undefined,
     });
@@ -131,7 +131,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-inline",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "Body",
@@ -142,7 +142,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       onClick: () => undefined,
       onUpdateProperty: () => undefined,
     });
@@ -165,7 +165,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-display",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "Body",
@@ -176,7 +176,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       displayPrefs: {
         propertyOrder: ["assignee", "tags", "estimate", "priority"],
         hiddenProperties: ["priority"],
@@ -203,7 +203,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-empty-display",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "",
@@ -211,7 +211,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       displayPrefs: {
         propertyOrder: ["priority", "estimate", "tags", "assignee"],
         hiddenProperties: [],
@@ -232,7 +232,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-3",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "",
@@ -241,10 +241,10 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       onClick: () => undefined,
       contextMenu: {
-        currentColumnId: "in_progress",
+        currentColumnId: "build",
         currentProjectId: "default",
         currentProjectName: "Default",
         onDelete: () => undefined,
@@ -260,7 +260,7 @@ describe("kanban card", () => {
     const card = await renderCard({
       card: {
         id: "card-no-priority",
-        status: "in_progress",
+        status: "build",
         archived: false,
         title: "Task",
         description: "",
@@ -268,7 +268,7 @@ describe("kanban card", () => {
         created: new Date("2026-03-01T00:00:00.000Z"),
         order: 0,
       },
-      columnId: "in_progress",
+      columnId: "build",
       onClick: () => undefined,
       onUpdateProperty: () => undefined,
     });

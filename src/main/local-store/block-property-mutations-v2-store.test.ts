@@ -244,7 +244,7 @@ const createFixture = (): Fixture => {
       value_json, revision, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  insertValue.run(SOURCE_ID, MEMBERSHIP_ID, "status", "select", '"draft"', 1, NOW);
+  insertValue.run(SOURCE_ID, MEMBERSHIP_ID, "status", "select", '"triage"', 1, NOW);
   insertValue.run(
     SOURCE_ID,
     MEMBERSHIP_ID,
@@ -264,7 +264,7 @@ const createFixture = (): Fixture => {
   database.prepare(`
     INSERT INTO database_view_page_positions (
       view_id, page_block_id, group_key, updated_at
-    ) VALUES ('view-1', 'page-1', 'draft', ?)
+    ) VALUES ('view-1', 'page-1', 'triage', ?)
   `).run(NOW);
   return { database, storeEpoch };
 };
@@ -376,7 +376,7 @@ describe("dormant Source Block Property v2 store", () => {
       const raw = request(
         fixture,
         "status-1",
-        [scalarField("status", "in_progress", 1)],
+        [scalarField("status", "build", 1)],
       );
       const committed = requireOk(
         applySourceBlockPropertyMutationV2(fixture.database, raw, {
@@ -394,7 +394,7 @@ describe("dormant Source Block Property v2 store", () => {
           propertyId: "status",
           operation: "set",
           revision: 2,
-          value: "in_progress",
+          value: "build",
         },
       ]);
       expect(committed.value.blockMetadataRevisions).toEqual({ [PAGE_ID]: 5 });
@@ -403,7 +403,7 @@ describe("dormant Source Block Property v2 store", () => {
           SELECT group_key FROM database_view_page_positions
           WHERE view_id = 'view-1' AND page_block_id = 'page-1'
         `).pluck().get(),
-      ).toBe("in_progress");
+      ).toBe("build");
 
       const retry = requireOk(
         applySourceBlockPropertyMutationV2(fixture.database, raw, {
@@ -578,7 +578,7 @@ describe("dormant Source Block Property v2 store", () => {
       `).run(NOW);
       const rejected = requireError(
         apply(fixture, "mixed-stale", [
-          scalarField("status", "in_progress", 1),
+          scalarField("status", "build", 1),
           intrinsicField("run.target", "localProject", 0),
         ]),
       );
@@ -590,7 +590,7 @@ describe("dormant Source Block Property v2 store", () => {
           WHERE data_source_id = 'source-1'
             AND membership_id = 'membership-1' AND property_id = 'status'
         `).pluck().get(),
-      ).toBe('"draft":1');
+      ).toBe('"triage":1');
       expect(
         fixture.database.prepare("SELECT COUNT(*) FROM change_log").pluck().get(),
       ).toBe(0);
@@ -604,7 +604,7 @@ describe("dormant Source Block Property v2 store", () => {
           apply(
             fixture,
             "unauthorized",
-            [scalarField("status", "in_progress", 1)],
+            [scalarField("status", "build", 1)],
             "project-2",
           ),
         ).error.code,
@@ -623,7 +623,7 @@ describe("dormant Source Block Property v2 store", () => {
         apply(
           fixture,
           "authorized-grant",
-          [scalarField("status", "in_progress", 1)],
+          [scalarField("status", "build", 1)],
           "project-2",
         ).ok,
       ).toBe(true);
@@ -782,7 +782,7 @@ describe("dormant Source Block Property v2 store", () => {
         apply(
           fixture,
           "stale-status",
-          [scalarField("status", "in_progress", 0)],
+          [scalarField("status", "build", 0)],
         ),
       );
       expect(rejected.error).toMatchObject({
@@ -796,7 +796,7 @@ describe("dormant Source Block Property v2 store", () => {
           WHERE data_source_id = 'source-1'
             AND membership_id = 'membership-1' AND property_id = 'status'
         `).pluck().get(),
-      ).toBe('"draft"');
+      ).toBe('"triage"');
       expect(
         fixture.database.prepare(`
           SELECT metadata_revision FROM blocks WHERE id = 'page-1'
@@ -817,7 +817,7 @@ describe("dormant Source Block Property v2 store", () => {
             fixture,
             "rollback-status",
             [
-              scalarField("status", "in_progress", 1),
+              scalarField("status", "build", 1),
               intrinsicField("run.target", "localProject", 0),
             ],
           ),
@@ -836,13 +836,13 @@ describe("dormant Source Block Property v2 store", () => {
           WHERE data_source_id = 'source-1'
             AND membership_id = 'membership-1' AND property_id = 'status'
         `).pluck().get(),
-      ).toBe('"draft":1');
+      ).toBe('"triage":1');
       expect(
         fixture.database.prepare(`
           SELECT group_key FROM database_view_page_positions
           WHERE view_id = 'view-1' AND page_block_id = 'page-1'
         `).pluck().get(),
-      ).toBe("draft");
+      ).toBe("triage");
       expect(
         fixture.database.prepare(`
           SELECT metadata_revision FROM blocks WHERE id = 'page-1'

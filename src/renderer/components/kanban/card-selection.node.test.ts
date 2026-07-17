@@ -12,12 +12,12 @@ import {
 const board: BoardSummary = {
   columns: [
     {
-      id: "in_progress",
-      name: "In Progress",
+      id: "build",
+      name: "Build",
       cards: [
         {
           id: "a",
-          status: "in_progress",
+          status: "build",
           archived: false,
           title: "A",
           richTitle: plainTextToPortableRichText("A"),
@@ -31,7 +31,7 @@ const board: BoardSummary = {
         },
         {
           id: "b",
-          status: "in_progress",
+          status: "build",
           archived: false,
           title: "B",
           richTitle: plainTextToPortableRichText("B"),
@@ -46,12 +46,12 @@ const board: BoardSummary = {
       ],
     },
     {
-      id: "in_review",
+      id: "review",
       name: "Review",
       cards: [
         {
           id: "c",
-          status: "in_review",
+          status: "review",
           archived: false,
           title: "C",
           richTitle: plainTextToPortableRichText("C"),
@@ -65,7 +65,7 @@ const board: BoardSummary = {
         },
         {
           id: "d",
-          status: "in_review",
+          status: "review",
           archived: false,
           title: "D",
           richTitle: plainTextToPortableRichText("D"),
@@ -129,7 +129,7 @@ describe("card selection", () => {
 
     const dragGroup = resolveDragGroup(board, selection, {
       card: board.columns[1]!.cards[0]!,
-      columnId: "in_review",
+      columnId: "review",
     });
 
     expect(dragGroup.map((entry) => entry.card.id).join(",")).toBe("a,c,d");
@@ -142,7 +142,7 @@ describe("card selection", () => {
 
     const dragGroup = resolveDragGroup(board, selection, {
       card: board.columns[1]!.cards[1]!,
-      columnId: "in_review",
+      columnId: "review",
     });
 
     expect(dragGroup.map((entry) => entry.card.id).join(",")).toBe("d");

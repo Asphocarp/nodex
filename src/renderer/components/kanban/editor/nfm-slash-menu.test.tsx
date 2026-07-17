@@ -133,7 +133,7 @@ function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSum
     descriptionPreview,
     descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
     hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
-    status: overrides.status ?? "in_progress",
+    status: overrides.status ?? "build",
     archived: overrides.archived ?? false,
     priority: overrides.priority,
     estimate: overrides.estimate,
@@ -226,7 +226,7 @@ describe("NfmSlashMenu", () => {
   test("mention suggestion builders expose command-palette snippets in compact row tooltips", () => {
     const editor = {};
     const cardItem = buildNfmPageMentionSuggestionItem(editor, makePalettePage({
-      page: makePage({ id: "page-snippet", title: "Searchable page", status: "backlog" }),
+      page: makePage({ id: "page-snippet", title: "Searchable page", status: "plan" }),
       searchPreview: {
         excerpt: "Description-only vector clock hit.",
         segments: [{ text: "Description-only vector clock hit.", highlight: true }],
@@ -708,8 +708,8 @@ describe("NfmSlashMenu", () => {
 
   test("page mention tooltips suppress duplicate column and status labels", async () => {
     const item = buildNfmPageMentionSuggestionItem({}, makePalettePage({
-      columnName: "Draft",
-      page: makePage({ id: "draft-page", title: "Draft page", status: "draft" }),
+      columnName: "Triage",
+      page: makePage({ id: "draft-page", title: "Triage page", status: "triage" }),
     }));
     const view = renderSuggestionMenu(
       {
@@ -720,7 +720,7 @@ describe("NfmSlashMenu", () => {
       },
     );
 
-    expect(item.subtext).toBe("Alpha / Draft");
+    expect(item.subtext).toBe("Alpha / Triage");
 
     const row = view.container.querySelector("#bn-suggestion-menu-item-0") as HTMLElement | null;
     expect(row).not.toBeNull();
@@ -734,7 +734,7 @@ describe("NfmSlashMenu", () => {
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip).not.toBeNull();
     const tooltipText = tooltip?.textContent ?? "";
-    expect(tooltipText.includes("Alpha / Draft")).toBe(true);
-    expect(tooltipText.includes("Draft / draft")).toBe(false);
+    expect(tooltipText.includes("Alpha / Triage")).toBe(true);
+    expect(tooltipText.includes("Triage / draft")).toBe(false);
   });
 });

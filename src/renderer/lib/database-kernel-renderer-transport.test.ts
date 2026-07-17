@@ -98,8 +98,8 @@ describe("Database event renderer transport", () => {
           event: "board-changed",
           projectId: "project-1",
           changeType: "update",
-          columnId: "done",
-          status: "done",
+          columnId: "ship",
+          status: "ship",
           pageId: "card-1",
         }),
       } as MessageEvent<string>);

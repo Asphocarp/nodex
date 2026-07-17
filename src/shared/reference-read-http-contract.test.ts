@@ -14,7 +14,7 @@ const SCHEDULED_END = "2026-01-03T13:14:15.016Z";
 
 const makePageSummaryWire = () => ({
   id: "card-1",
-  status: "draft",
+  status: "triage",
   archived: false,
   title: "HTTP Page",
   richTitle: [
@@ -74,7 +74,7 @@ const makeDatabaseViewWire = () => ({
   },
   rows: [{
     page: makePageSummaryWire(),
-    groupKey: "draft",
+    groupKey: "triage",
     rankKey: "a0",
   }],
 });

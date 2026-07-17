@@ -40,7 +40,7 @@ function withMockedLocalStorage(run: () => void): void {
 
 describe("kanban column layout prefs", () => {
   test("defaults each column to expanded with the standard width", () => {
-    expect(JSON.stringify(getKanbanColumnLayout({}, "in_progress"))).toBe(JSON.stringify({
+    expect(JSON.stringify(getKanbanColumnLayout({}, "build"))).toBe(JSON.stringify({
       collapsed: false,
       width: DEFAULT_KANBAN_COLUMN_WIDTH,
     }));
@@ -61,27 +61,36 @@ describe("kanban column layout prefs", () => {
     });
 
     expect(JSON.stringify(normalized)).toBe(JSON.stringify({
-      backlog: {
+      plan: {
         collapsed: true,
         width: 416,
       },
-      done: {
+      ship: {
         width: 224,
       },
     }));
   });
 
+  test("prefers a canonical column key over its legacy alias", () => {
+    expect(normalizeKanbanColumnLayoutPrefs({
+      backlog: { collapsed: true, width: 320 },
+      plan: { collapsed: false, width: 360 },
+    })).toEqual({
+      plan: { collapsed: false, width: 360 },
+    });
+  });
+
   test("writes and reads project-scoped layout prefs", () => {
     withMockedLocalStorage(() => {
       const written = writeKanbanColumnLayoutPrefs("alpha", {
-        backlog: { collapsed: true, width: 360 },
+        plan: { collapsed: true, width: 360 },
       });
 
       expect(JSON.stringify(written)).toBe(JSON.stringify({
-        backlog: { collapsed: true, width: 360 },
+        plan: { collapsed: true, width: 360 },
       }));
       expect(JSON.stringify(readKanbanColumnLayoutPrefs("alpha"))).toBe(JSON.stringify({
-        backlog: { collapsed: true, width: 360 },
+        plan: { collapsed: true, width: 360 },
       }));
       expect(JSON.stringify(readKanbanColumnLayoutPrefs("beta"))).toBe(JSON.stringify({}));
     });
@@ -90,16 +99,16 @@ describe("kanban column layout prefs", () => {
   test("updates a single column while preserving the rest of the layout map", () => {
     const next = updateKanbanColumnLayoutPrefs(
       {
-        backlog: { collapsed: true, width: 360 },
-        done: { width: 240 },
+        plan: { collapsed: true, width: 360 },
+        ship: { width: 240 },
       },
-      "done",
+      "ship",
       { collapsed: true, width: 288 },
     );
 
     expect(JSON.stringify(next)).toBe(JSON.stringify({
-      backlog: { collapsed: true, width: 360 },
-      done: { collapsed: true, width: 288 },
+      plan: { collapsed: true, width: 360 },
+      ship: { collapsed: true, width: 288 },
     }));
   });
 });

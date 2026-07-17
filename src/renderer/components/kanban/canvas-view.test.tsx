@@ -53,8 +53,8 @@ let openedCards: Array<{
 
 const mockBoard = {
   columns: [{
-    id: "draft",
-    name: "Draft",
+    id: "triage",
+    name: "Triage",
     cards: [
       makeCardSummary("card-1", "One"),
       makeCardSummary("card-2", "Two"),
@@ -67,7 +67,7 @@ function makeCardSummary(id: string, title: string): DatabasePageSummary {
     id,
     title,
     richTitle: plainTextToPortableRichText(title),
-    status: "draft",
+    status: "triage",
     archived: false,
     priority: undefined,
     estimate: undefined,

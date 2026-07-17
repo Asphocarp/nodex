@@ -39,7 +39,7 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
     mode: "advanced",
     includeHostCard,
     filter: {
-      any: [{ all: [{ field: "status", op: "in", values: ["in_progress"] }] }],
+      any: [{ all: [{ field: "status", op: "in", values: ["build"] }] }],
     },
     sort: [{ field: "priority", direction: "asc" }],
   };
@@ -66,27 +66,27 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
     },
     rows: [
       {
-        page: makePage("host-card", "in_progress", "p0-critical"),
+        page: makePage("host-card", "build", "p0-critical"),
         groupKey: null,
         rankKey: "a",
       },
       {
-        page: makePage("filtered-backlog", "backlog", "p0-critical"),
+        page: makePage("filtered-backlog", "plan", "p0-critical"),
         groupKey: null,
         rankKey: "b",
       },
       {
-        page: makePage("p1-b", "in_progress", "p1-high"),
+        page: makePage("p1-b", "build", "p1-high"),
         groupKey: null,
         rankKey: "same",
       },
       {
-        page: makePage("p1-a", "in_progress", "p1-high"),
+        page: makePage("p1-a", "build", "p1-high"),
         groupKey: null,
         rankKey: "same",
       },
       {
-        page: makePage("p0-other", "in_progress", "p0-critical"),
+        page: makePage("p0-other", "build", "p0-critical"),
         groupKey: null,
         rankKey: "z",
       },
@@ -102,7 +102,7 @@ describe("durable Database View contracts", () => {
         any: [
           {
             all: [
-              { field: "status", op: "in", values: ["backlog"] },
+              { field: "status", op: "in", values: ["plan"] },
               { field: "tags", op: "hasNone", values: ["blocked"] },
             ],
           },
@@ -136,7 +136,7 @@ describe("durable Database View contracts", () => {
       "database-primary:property:status",
     ]);
     const values = new Map<string, string | readonly string[]>([
-      ["database-primary:property:status", "backlog"],
+      ["database-primary:property:status", "plan"],
       ["database-primary:property:tags", ["customer"]],
     ]);
     expect(
@@ -163,7 +163,7 @@ describe("durable Database View contracts", () => {
       includeHostCard: true,
       filter: {
         any: [
-          { all: [{ field: "status", op: "in", values: ["in_progress"] }] },
+          { all: [{ field: "status", op: "in", values: ["build"] }] },
         ],
       },
       sort: [{ field: "priority", direction: "desc" }],
@@ -214,11 +214,11 @@ describe("durable Database View contracts", () => {
                 field: "status",
                 op: "in",
                 values: [
-                  "draft",
-                  "backlog",
-                  "in_progress",
-                  "in_review",
-                  "done",
+                  "triage",
+                  "plan",
+                  "build",
+                  "review",
+                  "ship",
                 ],
               },
               {
@@ -329,13 +329,13 @@ describe("durable Database View contracts", () => {
       view: { ...base.view, config: JSON.parse(JSON.stringify(config)) },
       rows: [
         {
-          page: makePage("empty", "draft", undefined),
-          groupKey: "draft",
+          page: makePage("empty", "triage", undefined),
+          groupKey: "triage",
           rankKey: "a",
         },
         {
-          page: makePage("prioritized", "draft", "p1-high"),
-          groupKey: "draft",
+          page: makePage("prioritized", "triage", "p1-high"),
+          groupKey: "triage",
           rankKey: "b",
         },
       ],
@@ -397,11 +397,11 @@ describe("durable Database View contracts", () => {
           ...model.rows[0],
           page: {
             ...model.rows[0].page,
-            id: "done",
-            status: "done",
+            id: "ship",
+            status: "ship",
             created: new Date("2026-01-03T00:00:00.000Z"),
           },
-          groupKey: "draft",
+          groupKey: "triage",
           rankKey: "000",
         },
         {
@@ -409,10 +409,10 @@ describe("durable Database View contracts", () => {
           page: {
             ...model.rows[0].page,
             id: "draft-old",
-            status: "draft",
+            status: "triage",
             created: new Date("2026-01-01T00:00:00.000Z"),
           },
-          groupKey: "done",
+          groupKey: "ship",
           rankKey: "same",
         },
         {
@@ -420,10 +420,10 @@ describe("durable Database View contracts", () => {
           page: {
             ...model.rows[0].page,
             id: "draft-new",
-            status: "draft",
+            status: "triage",
             created: new Date("2026-01-02T00:00:00.000Z"),
           },
-          groupKey: "done",
+          groupKey: "ship",
           rankKey: "same",
         },
         {
@@ -431,9 +431,9 @@ describe("durable Database View contracts", () => {
           page: {
             ...model.rows[0].page,
             id: "progress",
-            status: "in_progress",
+            status: "build",
           },
-          groupKey: "done",
+          groupKey: "ship",
           rankKey: "500",
         },
       ],
@@ -443,6 +443,6 @@ describe("durable Database View contracts", () => {
       evaluateDatabaseViewRows(boardModel, { hostBlockId: "host-card" })
         .map((row) => row.page.id)
         .join(","),
-    ).toBe("draft-new,draft-old,progress,done");
+    ).toBe("draft-new,draft-old,progress,ship");
   });
 });

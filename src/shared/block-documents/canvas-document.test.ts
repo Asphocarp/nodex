@@ -66,7 +66,7 @@ describe("legacy Canvas Y.Doc migration codec", () => {
             customData: {
               type: "nodex-card",
               cardId: "card-1",
-              columnId: "draft",
+              columnId: "triage",
             },
             label: { text: "Card title snapshot" },
           },

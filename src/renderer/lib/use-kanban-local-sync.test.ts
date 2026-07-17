@@ -19,13 +19,13 @@ describe("kanban local optimistic mutation sync", () => {
     publishKanbanLocalMutation("default", {
       type: "patch",
       sourceInstanceId,
-      columnId: "backlog",
+      columnId: "plan",
       pageId: "abc",
       updates: { title: "Updated from projection" },
     });
 
     expect(received.length).toBe(1);
-    expect(received[0]).toBe("backlog:abc:Updated from projection");
+    expect(received[0]).toBe("plan:abc:Updated from projection");
     unsubscribe();
   });
 
@@ -41,7 +41,7 @@ describe("kanban local optimistic mutation sync", () => {
     publishKanbanLocalMutation("another-project", {
       type: "patch",
       sourceInstanceId,
-      columnId: "backlog",
+      columnId: "plan",
       pageId: "abc",
       updates: { description: "Should not cross project boundary" },
     });

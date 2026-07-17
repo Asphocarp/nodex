@@ -51,7 +51,7 @@ describe("board summary read model", () => {
   test("getBoardSummary omits full description and exposes bounded description metadata", async () => {
     const ran = await withTempDatabase(async (projectId) => {
       const description = `Visible opening ${"preview ".repeat(60)} hidden-body-marker`;
-      const created = await createPage(projectId, "draft", {
+      const created = await createPage(projectId, "triage", {
         title: "Large text",
         description,
       });
@@ -71,11 +71,11 @@ describe("board summary read model", () => {
 
   test("getDatabaseRowsDetails returns full cards in requested order", async () => {
     const ran = await withTempDatabase(async (projectId) => {
-      const first = await createPage(projectId, "draft", {
+      const first = await createPage(projectId, "triage", {
         title: "First",
         description: "First full body",
       });
-      const second = await createPage(projectId, "draft", {
+      const second = await createPage(projectId, "triage", {
         title: "Second",
         description: "Second full body",
       });
@@ -94,7 +94,7 @@ describe("board summary read model", () => {
 
   test("searchPages matches description text and returns only ids, score, and excerpt", async () => {
     const ran = await withTempDatabase(async (projectId) => {
-      const created = await createPage(projectId, "in_progress", {
+      const created = await createPage(projectId, "build", {
         title: "Routine card",
         description: "The body contains a rare-search-token for command palette lookup.",
       });
@@ -120,7 +120,7 @@ describe("board summary read model", () => {
       const hiddenMarker = "full-body-marker-should-not-enter-summary";
       const longBody = `${"preview ".repeat(40)} ${hiddenMarker} ${"body ".repeat(600)}`;
       for (let index = 0; index < cardCount; index += 1) {
-        await createPage(projectId, "draft", {
+        await createPage(projectId, "triage", {
           title: `Large ${index}`,
           description: longBody,
         });

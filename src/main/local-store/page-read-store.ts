@@ -8,6 +8,7 @@ import type {
   ReminderConfig,
 } from "../../shared/types";
 import { isWorkflowStatus, type WorkflowStatus } from "../../shared/workflow-status";
+import { upgradeLegacyWorkflowStatus } from "../../shared/workflow-status-cutover";
 import { summarizePageDescription } from "../../shared/page-summary";
 import { assertValidPageInput } from "./page-input-validation";
 import {
@@ -720,6 +721,7 @@ const assemblePage = (
     string,
     ReadonlyMap<string, ParsedPropertyValue>
   >,
+  allowLegacyWorkflowStatus: boolean,
 ): AssembledPage => {
   const intrinsic = requireProperties(
     row.page_block_id,
@@ -749,8 +751,13 @@ const assemblePage = (
     DATABASE_PROPERTY_KEYS,
     "page_database_property_missing",
   );
-  const statusValue = database.values.status;
-  if (!isWorkflowStatus(statusValue)) {
+  const storedStatusValue = database.values.status;
+  const statusValue = isWorkflowStatus(storedStatusValue)
+    ? storedStatusValue
+    : allowLegacyWorkflowStatus
+      ? upgradeLegacyWorkflowStatus(storedStatusValue)
+      : null;
+  if (statusValue === null) {
     return throwReadError(
       "page_property_invalid",
       row.page_block_id,
@@ -770,7 +777,10 @@ const assemblePage = (
       "has an incomplete primary View position",
     );
   }
-  if (hasCompleteViewPosition && row.view_group_key !== statusValue) {
+  const comparableViewGroupKey = allowLegacyWorkflowStatus
+    ? upgradeLegacyWorkflowStatus(row.view_group_key) ?? row.view_group_key
+    : row.view_group_key;
+  if (hasCompleteViewPosition && comparableViewGroupKey !== statusValue) {
     return throwReadError(
       "page_view_position_invalid",
       row.page_block_id,
@@ -1087,9 +1097,17 @@ const assembleRows = (
   const intrinsicProperties = indexProperties(
     readIntrinsicPropertyRows(database, pageIds),
   );
+  const allowLegacyWorkflowStatus = Number(
+    database.pragma("user_version", { simple: true }),
+  ) < 82;
 
   return rows.map((row) =>
-    assemblePage(row, databaseProperties, intrinsicProperties),
+    assemblePage(
+      row,
+      databaseProperties,
+      intrinsicProperties,
+      allowLegacyWorkflowStatus,
+    ),
   );
 };
 
