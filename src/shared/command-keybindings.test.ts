@@ -5,6 +5,7 @@ import {
   createCommandKeymapState,
   findCommandKeybindingConflict,
   formatAcceleratorLabel,
+  formatCommandShortcutLabel,
   getPrimaryCommandAccelerator,
   keyboardEventToAccelerator,
   matchesKeyboardEventToCommand,
@@ -39,6 +40,13 @@ describe("command keybindings", () => {
     expect(matchesKeyboardEventToCommand(keyboardEvent("b", { metaKey: true }), macState, "toggleSidebar")).toBe(true);
     expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), windowsState, "toggleSidebar")).toBe(true);
     expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), macState, "toggleSidebar")).toBe(false);
+  });
+
+  test("does not restore fallback labels for explicitly unassigned commands", () => {
+    const state = createCommandKeymapState({ toggleBottomPanel: [] }, "macOS");
+
+    expect(formatCommandShortcutLabel(state, "toggleBottomPanel", "CmdOrCtrl+J")).toBeUndefined();
+    expect(formatCommandShortcutLabel(undefined, "toggleBottomPanel", "CmdOrCtrl+J")).toBe("⌘J");
   });
 
   test("keeps close-tab and close-window defaults distinct", () => {

@@ -461,6 +461,11 @@ import {
   type WorkbenchThreadRenameCommandRequest,
 } from "../../../shared/window-navigation";
 import {
+  TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+  type WorkbenchCommandInvocation,
+  type WorkbenchCommandRequest,
+} from "../../../shared/workbench-commands";
+import {
   createCommandKeymapState,
   formatCommandShortcutLabel,
   getCommandEntry,
@@ -1007,6 +1012,7 @@ interface WorkbenchShellProps {
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   threadRenameRequest?: WorkbenchThreadRenameCommandRequest | null;
+  workbenchCommandRequest?: WorkbenchCommandRequest | null;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
   navigateToRecentSession?: unknown;
   navigateToPagesTab?: unknown;
@@ -2404,6 +2410,7 @@ export function WorkbenchShell({
   panelTabCycleRequest = null,
   panelTabCloseRequest = null,
   threadRenameRequest = null,
+  workbenchCommandRequest = null,
   onNavigationStateChange,
   commandKeymapState,
 }: WorkbenchShellProps) {
@@ -2417,6 +2424,7 @@ export function WorkbenchShell({
     readInitialExpandedProjects(projects, dbProjectId || fallbackProjectId),
   );
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [sessionsReady, setSessionsReady] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
   const [renameSession, setRenameSession] = useState<ProjectSession | null>(null);
@@ -2511,6 +2519,7 @@ export function WorkbenchShell({
   const lastHandledPanelTabCycleRequestTickRef = useRef(panelTabCycleRequest?.tick ?? 0);
   const lastHandledPanelTabCloseRequestTickRef = useRef(panelTabCloseRequest?.tick ?? 0);
   const lastHandledThreadRenameRequestTickRef = useRef(threadRenameRequest?.tick ?? 0);
+  const lastHandledWorkbenchCommandTickRef = useRef(0);
   const lastHandledCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
   const focusedPanelGroupRef = useRef<PanelTabCycleScope | null>(null);
@@ -3555,7 +3564,11 @@ export function WorkbenchShell({
   }, []);
 
   const refreshAllSessions = useCallback(async () => {
-    if (projects.length === 0) return;
+    if (projects.length === 0) {
+      setSessionsReady(true);
+      return;
+    }
+    setSessionsReady(false);
     setLoadingSessions(true);
     setSessionError(null);
     try {
@@ -3567,6 +3580,7 @@ export function WorkbenchShell({
       setSessionError(error instanceof Error ? error.message : "Unable to load project sessions");
     } finally {
       setLoadingSessions(false);
+      setSessionsReady(true);
     }
   }, [projects, refreshProjectSessionSummaries]);
 
@@ -8682,6 +8696,20 @@ export function WorkbenchShell({
     void hideActiveBottomPanel();
   }, [activeSession, bottomPanelOpen, hideActiveBottomPanel, showActiveBottomPanel]);
 
+  const executeWorkbenchCommand = useCallback(({ commandId }: WorkbenchCommandInvocation) => {
+    if (commandId !== TOGGLE_BOTTOM_PANEL_COMMAND_ID) return;
+    toggleActiveBottomPanel();
+  }, [toggleActiveBottomPanel]);
+
+  useEffect(() => {
+    if (!workbenchCommandRequest) return;
+    if (!sessionsReady) return;
+    if (workbenchCommandRequest.tick <= 0) return;
+    if (lastHandledWorkbenchCommandTickRef.current === workbenchCommandRequest.tick) return;
+    lastHandledWorkbenchCommandTickRef.current = workbenchCommandRequest.tick;
+    executeWorkbenchCommand(workbenchCommandRequest);
+  }, [executeWorkbenchCommand, sessionsReady, workbenchCommandRequest]);
+
   const sidebarCollapseControlLabel = sidebarLogicalCollapsed ? "Show sidebar" : "Hide sidebar";
   const sidebarCollapseControlButton = (
     <NodexTooltip
@@ -8771,7 +8799,14 @@ export function WorkbenchShell({
         align="end"
         order={200}
       >
-        <ToolbarIconButton label="Toggle bottom panel" pressed={bottomPanelOpen} onClick={toggleActiveBottomPanel}>
+        <ToolbarIconButton
+          label="Toggle bottom panel"
+          pressed={bottomPanelOpen}
+          onClick={() => executeWorkbenchCommand({
+            commandId: TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+            source: "toolbar",
+          })}
+        >
           {bottomPanelOpen ? <CodexPanelBottomVisibleIcon className="icon-sm" /> : <CodexPanelBottomHiddenIcon className="icon-sm" />}
         </ToolbarIconButton>
       </HeaderAction>
@@ -9207,7 +9242,10 @@ export function WorkbenchShell({
       toggleActiveSidePanel();
     },
     toggleBottomPanel: () => {
-      toggleActiveBottomPanel();
+      executeWorkbenchCommand({
+        commandId: TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+        source: "command_palette",
+      });
     },
     toggleFileTreePanel: () => {
       void openPreviewTab("files", "right");

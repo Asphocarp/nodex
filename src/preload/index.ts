@@ -15,6 +15,10 @@ import {
   RENAME_THREAD_HOST_CHANNEL,
   TOGGLE_SIDEBAR_HOST_CHANNEL,
 } from "../shared/window-navigation";
+import {
+  EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL,
+  type WorkbenchCommandInvocation,
+} from "../shared/workbench-commands";
 import { inspectClipboardPasteItems, readClipboardPastePayload } from "../main/clipboard-paste-inspector";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
 
@@ -139,6 +143,16 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on(CLOSE_PANEL_TAB_HOST_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(CLOSE_PANEL_TAB_HOST_CHANNEL, listener);
+    };
+  },
+  onWorkbenchCommand: (callback: (invocation: WorkbenchCommandInvocation) => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      invocation: WorkbenchCommandInvocation,
+    ) => callback(invocation);
+    ipcRenderer.on(EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL, listener);
     };
   },
   requestMicrophonePermission: () => {

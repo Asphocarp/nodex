@@ -13,6 +13,7 @@ import type {
   NativeContextMenuOptions,
 } from "../shared/native-context-menu";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
+import type { WorkbenchCommandInvocation } from "../shared/workbench-commands";
 
 declare module "*.css";
 
@@ -48,6 +49,9 @@ declare global {
       onCyclePanelTabPrevious?: (callback: () => void) => () => void;
       onCyclePanelTabNext?: (callback: () => void) => () => void;
       onClosePanelTab?: (callback: () => void) => () => void;
+      onWorkbenchCommand?: (
+        callback: (invocation: WorkbenchCommandInvocation) => void,
+      ) => () => void;
       requestMicrophonePermission?: () => void;
       serverUrl?: string;
       assetPathPrefix?: string;

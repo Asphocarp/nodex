@@ -122,7 +122,7 @@ const KEY_ALIASES = new Map<string, string>([
   ["mouseforward", "MouseForward"],
 ]);
 
-export const CODEX_COMMAND_REGISTRY: CommandRegistryEntry[] = [
+export const CODEX_COMMAND_REGISTRY = [
   command("archiveThread", "Archive chat", "Archive the current chat", 10, "app", ["CmdOrCtrl+Shift+A"]),
   command("newThread", "New chat", "Start a new chat", 20, "app", ["CmdOrCtrl+N", "CmdOrCtrl+Shift+O"], {
     allowsMultiple: true,
@@ -183,17 +183,19 @@ export const CODEX_COMMAND_REGISTRY: CommandRegistryEntry[] = [
     available: false,
     allowsBareModifiers: true,
   }),
-];
+] as const satisfies readonly CommandRegistryEntry[];
 
-function command(
-  id: string,
+export type CommandId = (typeof CODEX_COMMAND_REGISTRY)[number]["id"];
+
+function command<const Id extends string>(
+  id: Id,
   title: string,
   description: string,
   order: number,
   shortcutScope: CommandShortcutScope,
   defaultKeys: string[],
   options: Partial<Omit<CommandRegistryEntry, "id" | "title" | "description" | "order" | "shortcutScope" | "defaultKeybindings">> = {},
-): CommandRegistryEntry {
+): CommandRegistryEntry & { id: Id } {
   return {
     id,
     title,
@@ -381,6 +383,7 @@ export function formatCommandShortcutLabel(
   fallback?: string,
 ): string | undefined {
   const accelerator = getPrimaryCommandAccelerator(state, commandId);
+  if (!accelerator && getCommandEntry(state, commandId)) return undefined;
   if (!accelerator && !fallback) return undefined;
   const platform = state?.platform ?? resolveRuntimePlatform();
   return formatAcceleratorLabel(accelerator ?? fallback ?? "", platform);

@@ -9,6 +9,7 @@ import {
   RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../shared/window-navigation";
+import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../shared/workbench-commands";
 import type { CommandPaletteCommand, CommandPaletteCommandGroup } from "./command-palette";
 
 export const OPEN_DB_VIEW_TAB_COMMAND_ID = "openDbViewTab";
@@ -24,7 +25,7 @@ export type CommandPaletteShellCommandId =
   | "openThreadInNewWindow"
   | typeof TOGGLE_SIDEBAR_COMMAND_ID
   | "toggleSidePanel"
-  | "toggleBottomPanel"
+  | typeof TOGGLE_BOTTOM_PANEL_COMMAND_ID
   | "toggleFileTreePanel"
   | "openBrowserTab"
   | "openReviewTab"
@@ -67,7 +68,7 @@ export function isCommandPaletteShellCommandId(id: string): id is CommandPalette
     || id === "openThreadInNewWindow"
     || id === TOGGLE_SIDEBAR_COMMAND_ID
     || id === "toggleSidePanel"
-    || id === "toggleBottomPanel"
+    || id === TOGGLE_BOTTOM_PANEL_COMMAND_ID
     || id === "toggleFileTreePanel"
     || id === "openBrowserTab"
     || id === "openReviewTab"
@@ -206,8 +207,8 @@ export function buildCommandPaletteCommands(
       shortcut: shortcutLabel("toggleSidePanel", "CmdOrCtrl+Alt+B"),
       disabled: panelCommandDisabled,
     }),
-    command("toggleBottomPanel", "Panels", "Toggle bottom panel", "Show or hide the bottom panel", ["bottom", "panel", "shell"], 920, {
-      shortcut: shortcutLabel("toggleBottomPanel", "CmdOrCtrl+J"),
+    command(TOGGLE_BOTTOM_PANEL_COMMAND_ID, "Panels", "Toggle bottom panel", "Show or hide the bottom panel", ["bottom", "panel", "shell"], 920, {
+      shortcut: shortcutLabel(TOGGLE_BOTTOM_PANEL_COMMAND_ID, "CmdOrCtrl+J"),
       disabled: panelCommandDisabled,
     }),
     command("toggleFileTreePanel", "Panels", "Toggle file tree", "Open project files in the active panel", ["files", "file", "tree", "panel", "tab"], 910, {

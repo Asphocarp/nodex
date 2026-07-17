@@ -21,7 +21,10 @@ import {
   type WorkbenchView,
 } from "@/lib/use-workbench-state";
 import { usePageStageState } from "@/lib/use-page-stage";
-import { useWorkbenchShortcuts } from "@/lib/use-workbench-shortcuts";
+import {
+  shouldUseRendererWorkbenchCommandFallback,
+  useWorkbenchShortcuts,
+} from "@/lib/use-workbench-shortcuts";
 import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import type { CommandMenuMode, CommandMenuOpenRequest } from "@/lib/command-palette";
 import { invoke } from "@/lib/api";
@@ -55,6 +58,12 @@ import type {
   AppInitializationStep,
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
+import type {
+  WorkbenchCommandId,
+  WorkbenchCommandInvocation,
+  WorkbenchCommandRequest,
+  WorkbenchCommandSource,
+} from "../shared/workbench-commands";
 import type {
   WorkbenchNavigationCommandRequest,
   WorkbenchNavigationDirection,
@@ -189,6 +198,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     useState<WorkbenchPanelTabCloseCommandRequest | null>(null);
   const [threadRenameRequest, setThreadRenameRequest] =
     useState<WorkbenchThreadRenameCommandRequest | null>(null);
+  const [workbenchCommandRequest, setWorkbenchCommandRequest] =
+    useState<WorkbenchCommandRequest | null>(null);
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
   const [keyboardShortcutsSettingsOpenTick, setKeyboardShortcutsSettingsOpenTick] = useState(0);
   const [activeProjectSessionId, setActiveProjectSessionId] = useState<string | null>(
@@ -839,6 +850,17 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     }));
   }, []);
 
+  const requestWorkbenchCommand = useCallback((
+    commandId: WorkbenchCommandId,
+    source: WorkbenchCommandSource,
+  ) => {
+    setWorkbenchCommandRequest((current) => ({
+      tick: (current?.tick ?? 0) + 1,
+      commandId,
+      source,
+    }));
+  }, []);
+
   const requestContentSearchOpen = useCallback((
     source: ContentSearchOpenSource,
     preferredDomain?: ContentSearchDomain,
@@ -911,6 +933,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       requestPanelTabClose();
     });
   }, [requestPanelTabClose]);
+
+  useEffect(() => {
+    if (!window.api?.onWorkbenchCommand) return undefined;
+    return window.api.onWorkbenchCommand((invocation: WorkbenchCommandInvocation) => {
+      requestWorkbenchCommand(invocation.commandId, invocation.source);
+    });
+  }, [requestWorkbenchCommand]);
 
   useEffect(() => {
     if (!window.api) return;
@@ -1128,6 +1157,11 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     },
     onToggleSidebar: requestSidebarToggle,
     onRequestRenameThread: requestThreadRename,
+    onRequestWorkbenchCommand: shouldUseRendererWorkbenchCommandFallback(
+      Boolean(window.api?.onWorkbenchCommand),
+    )
+      ? (commandId) => requestWorkbenchCommand(commandId, "keyboard_shortcut")
+      : undefined,
     commandKeymapState: commandKeymapQuery.data,
   });
 
@@ -1226,6 +1260,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       panelTabCycleRequest={workbenchPanelTabCycleRequest}
       panelTabCloseRequest={workbenchPanelTabCloseRequest}
       threadRenameRequest={threadRenameRequest}
+      workbenchCommandRequest={workbenchCommandRequest}
       onRequestProjectPickerOpen={handleOpenProjectPicker}
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}

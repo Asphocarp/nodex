@@ -84,6 +84,11 @@ import type {
   WorkbenchSidebarToggleCommandSource,
 } from "../../../shared/window-navigation";
 import {
+  TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+  type WorkbenchCommandRequest,
+  type WorkbenchCommandSource,
+} from "../../../shared/workbench-commands";
+import {
   findNearestProjectSessionPanelLeafToRight,
   insertProjectSessionPanelLeaf,
   makeProjectSessionPanelLayout,
@@ -1622,6 +1627,7 @@ function renderWorkbench({
   navigationCommandRequest = null,
   panelTabCycleRequest = null,
   panelTabCloseRequest = null,
+  workbenchCommandRequest = null,
   onNavigationStateChange,
   cardGetOverride = null,
   scheduledAutomations = [],
@@ -1648,6 +1654,7 @@ function renderWorkbench({
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
+  workbenchCommandRequest?: WorkbenchCommandRequest | null;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
   cardGetOverride?: ((projectId: string, pageId: string) => Promise<unknown> | unknown) | null;
   scheduledAutomations?: CodexScheduledAutomation[];
@@ -2628,6 +2635,7 @@ function renderWorkbench({
   ) => void = () => undefined;
   let requestPanelTabClose: () => void = () => undefined;
   let requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => void = () => undefined;
+  let requestWorkbenchCommand: (source: WorkbenchCommandSource) => void = () => undefined;
   let openCommandPalette: (mode?: "root" | "chats" | "pages" | "files", initialQuery?: string) => void = () => undefined;
   type TestSidebarState = NonNullable<ComponentProps<typeof WorkbenchShell>["sidebar"]>;
 
@@ -2649,6 +2657,8 @@ function renderWorkbench({
       useState<WorkbenchPanelTabCycleCommandRequest | null>(panelTabCycleRequest);
     const [currentPanelTabCloseRequest, setCurrentPanelTabCloseRequest] =
       useState<WorkbenchPanelTabCloseCommandRequest | null>(panelTabCloseRequest);
+    const [currentWorkbenchCommandRequest, setCurrentWorkbenchCommandRequest] =
+      useState<WorkbenchCommandRequest | null>(workbenchCommandRequest);
     const [commandPaletteRequest, setCommandPaletteRequest] = useState({
       tick: 0,
       mode: "root" as "root" | "chats" | "pages" | "files",
@@ -2676,6 +2686,13 @@ function renderWorkbench({
     };
     requestSidebarToggle = (source) => {
       sidebarToggleHandlerRef.current?.(source);
+    };
+    requestWorkbenchCommand = (source) => {
+      setCurrentWorkbenchCommandRequest((current) => ({
+        tick: (current?.tick ?? 0) + 1,
+        commandId: "toggleBottomPanel",
+        source,
+      }));
     };
     openCommandPalette = (mode = "root", initialQuery = "") => {
       setCommandPaletteRequest((current) => ({
@@ -2746,6 +2763,7 @@ function renderWorkbench({
         navigationCommandRequest={currentNavigationCommandRequest}
         panelTabCycleRequest={currentPanelTabCycleRequest}
         panelTabCloseRequest={currentPanelTabCloseRequest}
+        workbenchCommandRequest={currentWorkbenchCommandRequest}
         onNavigationStateChange={(state) => {
           navigationStateChanges.push(state);
           onNavigationStateChange?.(state);
@@ -2780,6 +2798,9 @@ function renderWorkbench({
     },
     requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => {
       requestSidebarToggle(source);
+    },
+    requestWorkbenchCommand: (source: WorkbenchCommandSource) => {
+      requestWorkbenchCommand(source);
     },
     getScheduledAutomations: () => scheduledAutomations,
     getRunNowAutomationIds: () => runNowAutomationIds,
@@ -2878,7 +2899,10 @@ async function executeCommandPaletteCommand(
   await settleAsyncRender();
 
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: label }));
+    const paletteInput = screen.getByLabelText("Command palette search");
+    const paletteSurface = paletteInput.parentElement;
+    if (!paletteSurface) throw new Error("Expected the command palette surface");
+    fireEvent.click(within(paletteSurface).getByRole("button", { name: label }));
     await Promise.resolve();
   });
   await settleAsyncRender();
@@ -7033,6 +7057,72 @@ describe(`workbench session shell / ${scope}`, () => {
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBe(true);
     expect(screen.queryByTestId("session-bottom-panel") !== null).toBe(true);
+  });
+
+  test("native and command-palette bottom-panel commands share the shell action", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.requestWorkbenchCommand("menu");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("session-bottom-panel") !== null).toBe(true);
+
+    await executeCommandPaletteCommand(screen, "bottom panel", "Toggle bottom panel");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Toggle bottom panel" }).getAttribute("aria-pressed")).toBe("false");
+    });
+    const bottomPanelMutations = invokeCalls.filter((call) =>
+      call[0] === "project-session-panels:update"
+      && call[2] === "bottom"
+    );
+    expect(bottomPanelMutations.map((call) => call[3])).toEqual([
+      { collapsed: false },
+      { collapsed: true },
+    ]);
+  });
+
+  test("consumes a bottom-panel command queued before the shell mounts", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
+      workbenchCommandRequest: {
+        tick: 1,
+        commandId: TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+        source: "menu",
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("session-bottom-panel") !== null).toBe(true);
+    expect(invokeCalls.filter((call) =>
+      call[0] === "project-session-panels:update"
+      && call[2] === "bottom"
+    ).map((call) => call[3])).toEqual([{ collapsed: false }]);
+  });
+
+  test("bottom-panel commands safely no-op without an active session", async () => {
+    const screen = renderWorkbench({ sessionsByProject: { alpha: [] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.requestWorkbenchCommand("menu");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[2] === "bottom"
+    )).toBe(false);
   });
 
   test("thread summary toggle defaults to pinned open and persists collapsed state", async () => {

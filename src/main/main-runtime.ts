@@ -90,6 +90,10 @@ import {
   type WorkbenchNavigationHostChannel,
 } from "../shared/window-navigation";
 import {
+  EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL,
+  type WorkbenchCommandInvocation,
+} from "../shared/workbench-commands";
+import {
   BROWSER_SIDEBAR_PARTITION,
   parseBrowserSidebarRoutePartition,
 } from "../shared/browser-sidebar";
@@ -118,6 +122,7 @@ import {
   resolveElectronWindowBackdrop,
   shouldUseOpaqueElectronWindowSurface,
 } from "./electron-window-backdrop";
+import { buildWorkbenchViewMenu } from "./application-menu";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -381,24 +386,28 @@ async function requestHostMicrophonePermission(): Promise<void> {
   }
 }
 
-function configureMacWindowMenus(): void {
-  if (process.platform !== "darwin") return;
-
-  const commandKeymapState = getCommandKeymapState();
-  const menuAccelerator = (commandId: string, fallback: string): string => {
-    return toElectronAccelerator(getPrimaryCommandAccelerator(commandKeymapState, commandId)) ?? fallback;
+function configureApplicationMenus(
+  commandKeymapState = getCommandKeymapState(),
+): void {
+  const menuAccelerator = (commandId: string): string | undefined => {
+    return toElectronAccelerator(getPrimaryCommandAccelerator(commandKeymapState, commandId));
   };
 
   const dockMenuTemplate: MenuItemConstructorOptions[] = [
     {
       label: "New Window",
-      accelerator: menuAccelerator("newWindow", "CommandOrControl+Shift+N"),
+      accelerator: menuAccelerator("newWindow"),
       click: () => {
         openNewWindow();
       },
     },
   ];
   app.dock?.setMenu(Menu.buildFromTemplate(dockMenuTemplate));
+
+  const sendWorkbenchCommand = (invocation: WorkbenchCommandInvocation) => {
+    const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
+    safeSendToWindow(targetWindow, EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL, [invocation]);
+  };
 
   const sendNavigationMessage = (
     channel:
@@ -420,7 +429,7 @@ function configureMacWindowMenus(): void {
   };
 
   const appMenuTemplate: MenuItemConstructorOptions[] = [
-    {
+    ...(process.platform === "darwin" ? [{
       role: "appMenu",
       submenu: [
         {
@@ -430,13 +439,13 @@ function configureMacWindowMenus(): void {
           },
         },
       ],
-    },
+    } satisfies MenuItemConstructorOptions] : []),
     {
       label: "File",
       submenu: [
         {
           label: "New Window",
-          accelerator: menuAccelerator("newWindow", "CommandOrControl+Shift+N"),
+          accelerator: menuAccelerator("newWindow"),
           click: () => {
             openNewWindow();
           },
@@ -444,7 +453,7 @@ function configureMacWindowMenus(): void {
         { type: "separator" },
         {
           label: "Close Window",
-          accelerator: menuAccelerator("closeWindow", "CommandOrControl+Shift+W"),
+          accelerator: menuAccelerator("closeWindow"),
           click: closeFocusedWindow,
         },
       ],
@@ -455,14 +464,14 @@ function configureMacWindowMenus(): void {
       submenu: [
         {
           label: "Back",
-          accelerator: menuAccelerator("navigateBack", "CommandOrControl+["),
+          accelerator: menuAccelerator("navigateBack"),
           click: () => {
             sendNavigationMessage(NAVIGATE_BACK_HOST_CHANNEL);
           },
         },
         {
           label: "Forward",
-          accelerator: menuAccelerator("navigateForward", "CommandOrControl+]"),
+          accelerator: menuAccelerator("navigateForward"),
           click: () => {
             sendNavigationMessage(NAVIGATE_FORWARD_HOST_CHANNEL);
           },
@@ -470,10 +479,7 @@ function configureMacWindowMenus(): void {
         { type: "separator" },
         {
           label: WORKBENCH_CONTENT_SEARCH_COMMAND.label,
-          accelerator: menuAccelerator(
-            WORKBENCH_CONTENT_SEARCH_COMMAND.id,
-            "CommandOrControl+F",
-          ),
+          accelerator: menuAccelerator(WORKBENCH_CONTENT_SEARCH_COMMAND.id),
           click: () => {
             sendNavigationMessage(WORKBENCH_CONTENT_SEARCH_COMMAND.hostChannel);
           },
@@ -495,7 +501,7 @@ function configureMacWindowMenus(): void {
         },
         {
           label: "Close Panel Tab",
-          accelerator: menuAccelerator("closeTab", "CommandOrControl+W"),
+          accelerator: menuAccelerator("closeTab"),
           click: () => {
             sendNavigationMessage(CLOSE_PANEL_TAB_HOST_CHANNEL);
           },
@@ -503,21 +509,21 @@ function configureMacWindowMenus(): void {
         { type: "separator" },
         {
           label: WORKBENCH_SIDEBAR_TOGGLE_COMMAND.label,
-          accelerator: menuAccelerator("toggleSidebar", "CommandOrControl+B"),
+          accelerator: menuAccelerator("toggleSidebar"),
           click: () => {
             sendNavigationMessage(WORKBENCH_SIDEBAR_TOGGLE_COMMAND.hostChannel);
           },
         },
         {
           label: WORKBENCH_THREAD_RENAME_COMMAND.label,
-          accelerator: menuAccelerator("renameThread", "CommandOrControl+Alt+R"),
+          accelerator: menuAccelerator("renameThread"),
           click: () => {
             sendNavigationMessage(WORKBENCH_THREAD_RENAME_COMMAND.hostChannel);
           },
         },
       ],
     },
-    { role: "viewMenu" },
+    buildWorkbenchViewMenu(commandKeymapState, sendWorkbenchCommand),
     { role: "windowMenu" },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate));
@@ -1339,7 +1345,7 @@ export async function runMainAppStartup(
   const serverPort = getPort();
   const serverUrl = `http://127.0.0.1:${serverPort}`;
   serverUrlForWindows = serverUrl;
-  configureMacWindowMenus();
+  configureApplicationMenus();
   registerInitializationIpcHandlers();
   rendererClientRouter = new RendererClientRouter();
   codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
@@ -1397,8 +1403,8 @@ export async function runMainAppStartup(
     onAppUpdateSettingsChanged: () => {
       maybeStartAutomaticAppUpdateChecks();
     },
-    onCommandKeybindingsChanged: () => {
-      configureMacWindowMenus();
+    onCommandKeybindingsChanged: (state) => {
+      configureApplicationMenus(state);
     },
   });
 

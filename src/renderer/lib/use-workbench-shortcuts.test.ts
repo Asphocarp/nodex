@@ -6,10 +6,16 @@ import {
   handleWorkbenchMouseNavigationShortcut,
   handleWorkbenchShortcut,
   resolveWorkbenchMouseNavigationShortcut,
+  shouldUseRendererWorkbenchCommandFallback,
   useWorkbenchShortcuts,
   type WorkbenchShortcutActions,
 } from "./use-workbench-shortcuts";
 import { createCommandKeymapState } from "../../shared/command-keybindings";
+
+test("uses the renderer workbench-command fallback only without native command ingress", () => {
+  expect(shouldUseRendererWorkbenchCommandFallback(false)).toBe(true);
+  expect(shouldUseRendererWorkbenchCommandFallback(true)).toBe(false);
+});
 
 function makeInputTarget(): EventTarget {
   return { tagName: "INPUT", isContentEditable: false, closest: () => null } as unknown as EventTarget;
@@ -202,7 +208,8 @@ describe("handleWorkbenchShortcut", () => {
     expect(selectedIndex).toBe(-1);
   });
 
-  test("Cmd+J is not handled by the app-level shortcut hook", () => {
+  test("Cmd+J requests the bottom-panel command from editable targets", () => {
+    const commands: string[] = [];
     const handled = handleWorkbenchShortcut(
       {
         key: "j",
@@ -212,11 +219,89 @@ describe("handleWorkbenchShortcut", () => {
         altKey: false,
         target: makeInputTarget(),
       },
-      makeActions({ dbProjectId: "b" }),
+      makeActions({
+        dbProjectId: "b",
+        onRequestWorkbenchCommand: (commandId) => commands.push(commandId),
+      }),
+      true,
+    );
+
+    expect(handled).toBe(true);
+    expect(commands).toEqual(["toggleBottomPanel"]);
+  });
+
+  test("Ctrl+J requests the bottom-panel command on Windows and Linux", () => {
+    const commands: string[] = [];
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "j",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+        target: null,
+      },
+      makeActions({
+        onRequestWorkbenchCommand: (commandId) => commands.push(commandId),
+      }),
+      false,
+    );
+
+    expect(handled).toBe(true);
+    expect(commands).toEqual(["toggleBottomPanel"]);
+  });
+
+  test("an explicitly unassigned bottom-panel command does not handle Cmd+J", () => {
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "j",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: null,
+      },
+      makeActions({
+        commandKeymapState: createCommandKeymapState({ toggleBottomPanel: [] }, "macOS"),
+        onRequestWorkbenchCommand: () => {
+          throw new Error("Explicitly unassigned commands must not execute");
+        },
+      }),
       true,
     );
 
     expect(handled).toBe(false);
+  });
+
+  test("a custom bottom-panel binding replaces the default binding", () => {
+    const commands: string[] = [];
+    const actions = makeActions({
+      commandKeymapState: createCommandKeymapState({
+        toggleBottomPanel: ["CmdOrCtrl+Alt+J"],
+      }, "macOS"),
+      onRequestWorkbenchCommand: (commandId) => commands.push(commandId),
+    });
+
+    const defaultHandled = handleWorkbenchShortcut({
+      key: "j",
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+      altKey: false,
+      target: null,
+    }, actions, true);
+    const customHandled = handleWorkbenchShortcut({
+      key: "j",
+      ctrlKey: false,
+      metaKey: true,
+      shiftKey: false,
+      altKey: true,
+      target: null,
+    }, actions, true);
+
+    expect(defaultHandled).toBe(false);
+    expect(customHandled).toBe(true);
+    expect(commands).toEqual(["toggleBottomPanel"]);
   });
 
   test("Cmd+N is reserved for the workbench shell new chat action", () => {

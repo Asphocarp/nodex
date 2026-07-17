@@ -1,5 +1,9 @@
 import { useEffect } from "react";
 import type { StageId } from "./use-workbench-state";
+import {
+  TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+  type WorkbenchCommandId,
+} from "../../shared/workbench-commands";
 import type {
   WorkbenchNavigationCommandSource,
   WorkbenchSidebarToggleCommandSource,
@@ -31,11 +35,18 @@ export interface WorkbenchShortcutActions {
   onRequestSettingsToggle?: () => void;
   onRequestKeyboardShortcuts?: () => void;
   onRequestProcessManager?: () => void;
+  onRequestWorkbenchCommand?: (commandId: WorkbenchCommandId) => void;
   navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
   navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
   onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
   onRequestRenameThread?: (source: WorkbenchThreadRenameCommandSource) => void;
   commandKeymapState?: CommandKeymapState | null;
+}
+
+export function shouldUseRendererWorkbenchCommandFallback(
+  hasNativeWorkbenchCommandIngress: boolean,
+): boolean {
+  return !hasNativeWorkbenchCommandIngress;
 }
 
 const EDITOR_SURFACE_SELECTOR = ".nfm-editor, .bn-editor, .bn-container";
@@ -160,6 +171,12 @@ export function handleWorkbenchShortcut(
 
   if (matchesCommandShortcut(e, actions, "openProcessManager", isMac) && actions.onRequestProcessManager) {
     actions.onRequestProcessManager();
+    return true;
+  }
+
+  if (matchesCommandShortcut(e, actions, TOGGLE_BOTTOM_PANEL_COMMAND_ID, isMac)) {
+    if (!actions.onRequestWorkbenchCommand) return false;
+    actions.onRequestWorkbenchCommand(TOGGLE_BOTTOM_PANEL_COMMAND_ID);
     return true;
   }
 

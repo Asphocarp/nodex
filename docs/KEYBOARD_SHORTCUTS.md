@@ -4,7 +4,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 ## Editable Command Shortcuts
 
-Settings -> Keyboard shortcuts edits the command-keymap registry used by the workbench shortcut hook, command-palette labels, shell panel actions, and macOS menu accelerators. User overrides persist in `~/.nodex/config.toml` under `[server.command_keybindings]`: a missing command id uses defaults, an empty array means explicitly unassigned, and an array of strings is the custom accelerator list.
+Settings -> Keyboard shortcuts edits the command-keymap registry used by the workbench shortcut hook, command-palette labels, shell panel actions, and desktop application-menu accelerators. User overrides persist in `~/.nodex/config.toml` under `[server.command_keybindings]`: a missing command id uses defaults, an empty array means explicitly unassigned, and an array of strings is the custom accelerator list.
 
 The editable settings tab covers Nodex-supported command ids only. Editor-native shortcuts, text input behavior, and BlockNote/NFM editing shortcuts remain owned by the editor surface and are documented separately below.
 
@@ -43,6 +43,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
+| `⌘/Ctrl+J` | Toggle bottom panel | Shows or hides the active session's bottom panel; works from editable surfaces and desktop Browser tabs through the application-menu accelerator |
 | `⌘/Ctrl+Shift+E` | Files | Opens a Files preview in the side panel; interacting with it pins a durable Files tab |
 | `Alt+⌘/Ctrl+S` | Side chat | Starts a side chat in the active panel target |
 | `⌘/Ctrl+T` | Browser | Opens a Browser preview in the side panel; interacting with it pins a durable Browser tab |
@@ -52,7 +53,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+Shift+]` | Next panel tab | Uses the focused right or bottom panel tab group; wraps within the same split group |
 | `⌘/Ctrl+W` | Close panel tab | Closes the active closable tab in the focused right or bottom panel tab group, then reveals that leaf's most recently active remaining tab |
 
-Panel action shortcuts are ignored from editable targets and dialog surfaces. Focused panel tab cycling and close-tab shortcuts also work from NFM editor content inside a panel tab group, consume the shortcut as a no-op when the focused group has no matching action, still ignore input fields and dialogs, and leave plain `⌘/Ctrl+[` / `⌘/Ctrl+]` as app-window Back/Forward. Close-panel-tab routing is leaf-scoped for keyboard, menu, close-button, and middle-click single-tab closes: Nodex reveals the most recently active remaining tab, falling back to the right neighbor and then the left neighbor only when MRU cannot answer. Durable Card Stage tabs keep their description editor mounted across focused panel-tab cycling while the tab remains open, so returning to the tab restores the previous editor cursor. On macOS, `⌘⇧W` closes the app window.
+Bottom-panel toggle is a shell-global command and remains available from editable targets. Other panel action shortcuts are ignored from editable targets and dialog surfaces. Focused panel tab cycling and close-tab shortcuts also work from NFM editor content inside a panel tab group, consume the shortcut as a no-op when the focused group has no matching action, still ignore input fields and dialogs, and leave plain `⌘/Ctrl+[` / `⌘/Ctrl+]` as app-window Back/Forward. Close-panel-tab routing is leaf-scoped for keyboard, menu, close-button, and middle-click single-tab closes: Nodex reveals the most recently active remaining tab, falling back to the right neighbor and then the left neighbor only when MRU cannot answer. Durable Card Stage tabs keep their description editor mounted across focused panel-tab cycling while the tab remains open, so returning to the tab restores the previous editor cursor. On macOS, `⌘⇧W` closes the app window.
 
 ### Workbench Panel Borders
 
@@ -138,6 +139,6 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 
 The editable command registry and accelerator helpers live in `src/shared/command-keybindings.ts`. Renderer query/mutation state uses `codex-command-keymap-state`, `set-codex-command-keybinding`, and `reset-codex-command-keybindings`; main-process persistence writes user overrides to `~/.nodex/config.toml`.
 
-Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell-owned Back/Forward executor in `src/renderer/components/workbench/workbench-shell.tsx`. Project-session panel shortcuts, including focused right/bottom panel tab cycling and close-tab, are owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, renderer-local tab MRU, and tab registry. Desktop menu accelerators for focused panel tab commands enter that same shell-owned path through command requests, so the shortcut still works when Chromium does not deliver a useful panel-leaf key target. Legacy stage-focused shortcuts remain compatibility-only and should stay outside the command palette root mode while the shortcut model is rebuilt around sessions, panels, and tabs.
+Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into shell-owned executors in `src/renderer/components/workbench/workbench-shell.tsx`. The bottom-panel toolbar, command palette, browser-runtime keyboard fallback, and typed desktop application-menu request all execute the same Workbench command. Electron owns its application-menu accelerator while the browser runtime owns the renderer key listener, preventing one keypress from toggling twice. Project-session panel tab cycling and close-tab remain owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, renderer-local tab MRU, and tab registry. Legacy stage-focused shortcuts remain compatibility-only and should stay outside the command palette root mode while the shortcut model is rebuilt around sessions, panels, and tabs.
 Collaborative title/body undo is owned by the mounted Block Document surface and its local Yjs transaction origins. Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`; there is no Workbench- or Project-wide undo shortcut owner.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

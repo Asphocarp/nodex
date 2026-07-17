@@ -22,6 +22,7 @@ import {
   RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../../shared/window-navigation";
+import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../../shared/workbench-commands";
 
 vi.mock("./page-icon", () => ({
   PageIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
@@ -158,6 +159,19 @@ describe("buildCommandPaletteCommands", () => {
     const sidebarCommand = commands.find((command) => command.id === TOGGLE_SIDEBAR_COMMAND_ID);
 
     expect(sidebarCommand?.shortcut).toBe("⌘⌥B");
+  });
+
+  test("omits the shortcut label when a shell command is explicitly unassigned", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext({
+      commandKeymapState: createCommandKeymapState({
+        [TOGGLE_BOTTOM_PANEL_COMMAND_ID]: [],
+      }, "macOS"),
+    }));
+    const bottomPanelCommand = commands.find(
+      (command) => command.id === TOGGLE_BOTTOM_PANEL_COMMAND_ID,
+    );
+
+    expect(bottomPanelCommand?.shortcut).toBeUndefined();
   });
 
   test("disables unavailable session and side-chat commands", () => {
