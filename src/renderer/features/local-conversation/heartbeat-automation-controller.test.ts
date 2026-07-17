@@ -123,6 +123,7 @@ describe("heartbeat automation controller helpers", () => {
       threadId: "thread-1",
       conversation: conversation(),
       permissionState: permissionState(),
+      streamRole: "owner",
     });
 
     expect(state.isEligible).toBe(true);
@@ -141,6 +142,7 @@ describe("heartbeat automation controller helpers", () => {
       threadId: "thread-1",
       conversation: null,
       permissionState: null,
+      streamRole: "owner",
     });
     expect(missing.isEligible).toBe(false);
     expect(missing.reason).toBe("conversation_missing");
@@ -149,8 +151,18 @@ describe("heartbeat automation controller helpers", () => {
       threadId: "thread-1",
       conversation: conversation({ statusActiveFlags: ["waitingOnApproval"] }),
       permissionState: permissionState(),
+      streamRole: "owner",
     });
     expect(waiting.isEligible).toBe(false);
     expect(waiting.reason).toBe("waiting_on_approval");
+
+    const follower = buildHeartbeatAutomationThreadState({
+      threadId: "thread-1",
+      conversation: conversation(),
+      permissionState: permissionState(),
+      streamRole: "follower",
+    });
+    expect(follower.isEligible).toBe(false);
+    expect(follower.reason).toBe("not_conversation_owner");
   });
 });

@@ -42,6 +42,7 @@ import {
   useConversationQueuedFollowUps,
   useConversationRequests,
   useConversationResumeState,
+  useConversationStreamRole,
   useConversationStatusActiveFlags,
   useConversationStatusType,
   useConversationSubset,
@@ -676,6 +677,7 @@ export function ConnectedThreadStage({
   );
   const threadHeaderPortalTarget = useThreadHeaderPortalTarget();
   const resumeState = useConversationResumeState(activeThreadId);
+  const streamRole = useConversationStreamRole(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const requests = useConversationRequests(activeThreadId);
   const statusType = useConversationStatusType(activeThreadId);
@@ -807,7 +809,13 @@ export function ConnectedThreadStage({
     }
 
     const nextResumeState = resumeState ?? "needs_resume";
-    if (nextResumeState === "resuming" || nextResumeState === "resumed") {
+    if (nextResumeState === "resuming") {
+      return;
+    }
+    if (
+      nextResumeState === "resumed"
+      && (streamRole === "owner" || streamRole === "follower")
+    ) {
       return;
     }
 
@@ -816,6 +824,7 @@ export function ConnectedThreadStage({
     isActiveThreadArchived,
     isSideChat,
     resumeState,
+    streamRole,
     input.activeThreadId,
     input.isNewThreadTab,
     threadLifecycleActive,

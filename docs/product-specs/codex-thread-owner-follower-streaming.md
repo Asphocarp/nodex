@@ -1,7 +1,7 @@
 # Codex Thread Owner/Follower Streaming
 
 Status: Active
-Last Updated: 2026-07-07
+Last Updated: 2026-07-18
 
 ## Intent
 
@@ -14,7 +14,8 @@ This contract keeps live streaming text, request cards, queued state, edit/rollb
 - **Streaming thread**: a Codex app-server thread that is started, resumed, or attached to a live transport and may emit thread, turn, item, or server-request events.
 - **Owner window**: the renderer window allowed to reduce live app-server events into visible conversation state for one thread.
 - **Follower window**: a renderer window that displays the same thread from owner snapshots and patches.
-- **Source-null baseline**: a main-owned cold/recovery/no-owner stream baseline whose stream messages carry no renderer `sourceClientId`. It is not a follower role and cannot route actions to another window.
+- **Dormant conversation document**: a main recovery/hydration cache that is not a visible stream role. A renderer must adopt ownership or attach to an accepted owner baseline before showing live mutations.
+- **Command-only run**: a main-owned automation execution that may issue app-server commands and broker JSON-RPC requests, but does not own or publish conversation state.
 - **Stream revision**: a per-thread monotonically increasing revision attached to owner snapshots and patches.
 - **Owner client id**: the stable renderer-client identity carried with stream updates so followers can reject stale owners.
 - **Complete-history barrier**: a follower asks the owner to load complete history, waits for the owner-published revision, then continues with history-sensitive work.
@@ -59,20 +60,14 @@ Followers must:
 - route state-changing actions to the owner
 - mark the conversation `needs_resume` when the owner disappears
 
-Source-null baselines must:
-
-- accept only source-null snapshots and contiguous source-null patches
-- never be treated as routable followers
-- resume into current-window renderer ownership before owner-local actions such as edit, fork, or active visible mutations
-- ignore source-null refreshes once the renderer is a real follower of a non-empty owner client id
-
 Main process must:
 
 - provide stable renderer client ids
 - route owner/follower messages and validate response origins
 - host app-server transport and durable/recovery cache state
-- suppress competing source-null visible stream updates while a confirmed renderer owner exists
-- confirm renderer ownership only from an accepted owner stream-state publish, not from a fallible request entry point such as resume or turn start
+- keep no-owner hydration and command execution out of the visible stream plane
+- compare-and-set renderer ownership after successful resume hydration and before returning the owner result
+- return an accepted owner document/revision to a competing renderer so it attaches as follower instead of starting a second resume implementation
 
 ## Stream State
 
@@ -86,15 +81,9 @@ A follower applies a patch only when:
 - patch `sourceClientId` matches the recorded owner
 - local revision equals patch `baseRevision`
 
-A source-null baseline applies a patch only when:
+On mismatch, the follower drops the patch and waits for a future owner snapshot, explicit resume, or owner-loss recovery. It does not request a main-authored transcript snapshot just because a stale patch was observed.
 
-- local role is the source-null baseline
-- patch `sourceClientId` is null
-- local revision equals patch `baseRevision`
-
-On mismatch, the follower drops the patch and waits for a future owner snapshot, explicit resume, or owner-loss recovery. It does not request a source-null snapshot just because a stale patch was observed.
-
-A renderer that is already owner ignores incoming stream-state messages, including main fallback changes and publish echoes. A real follower ignores source-null snapshots and patches so explicit resyncs cannot downgrade it into a non-routable state.
+A renderer that is already owner ignores incoming stream-state messages, including publish echoes. Production `threadStreamStateChanged` messages always identify a renderer owner; main does not emit source-null conversation snapshots or patches.
 
 ## Prose Streaming
 
@@ -143,20 +132,25 @@ The owner performs visible mutations locally and publishes the resulting stream 
 
 For active owned threads, the renderer owner creates the submitted-user bubble:
 
-1. Generate `clientUserMessageId`.
-2. Append a nullable in-progress turn whose params retain the submitted input and client id; its raw item list contains no synthetic user message.
-3. Publish the pending-turn owner revision. The visible user row is projected from turn params.
-4. Call app-server `turn/start` through the owner-scoped facade with the same client id.
-5. Rebind the temporary turn to the returned app-server turn id.
-6. Publish the rebind revision.
+1. Compile the prompt once into app-server `UserInput[]`, attachments, review-comment context, and agent-config sidecars, then generate `clientUserMessageId`.
+2. Synchronously append a nullable in-progress turn whose params retain that exact prepared input and client id; its raw item list contains no synthetic user message.
+3. Queue the resulting owner patch in the renderer publication outbox. Publication does not gate owner-visible state or app-server dispatch.
+4. Call app-server `turn/start` through the owner-scoped facade with the same prepared input and client id. Main validates the owner and resolves permission, workspace, model, and authority policy, but does not parse the prompt again.
+5. Synchronously rebind the temporary turn to the returned app-server turn id and queue the rebind patch.
 
 A visible local conversation with no stream role resumes and adopts renderer ownership before step 1. It never falls through to the main-owned `codex:turn:start` IPC. The owner-scoped main facade is transport-only for `turn/start`: it forwards the request and returns the raw `TurnStartResponse` without merging a turn, inserting a transcript row, or publishing a source-null stream update.
 
-Every owner action snapshot mutation waits for the per-conversation publish cursor to become idle and only then re-reads and transforms the latest local conversation. Concurrent waiters serialize by letting one continuation claim the idle cursor while the rest wait again. A mutation must never publish a snapshot computed before that wait, because lifecycle notifications can advance the canonical turn while an earlier revision is in flight.
+All ordinary state-changing conversation actions use one authority router: owners execute locally, followers forward to the current owner, and no-role renderers resume/adopt before executing locally. There is no per-action main/no-owner transcript fallback; local interrupt is the explicit idempotent control-plane recovery exception.
 
-Direct new-thread creation follows the same canonical transaction before the route adopts the actual app-server thread. The client-created thread id remains route identity only and never owns a turn. Once `thread/start` returns the actual thread, main temporarily owns its source-null canonical state: it generates the per-submit `clientUserMessageId`, appends the complete nullable params turn before dispatching `turn/start`, sends the same id and input, and binds that occurrence in place whether `turn/started` or the RPC response arrives first. Main-only fallback start uses the same transaction and restores the same params-owned occurrence if thread-not-found recovery rehydrates the canonical document. It must not add a separate transcript-only user row after the response.
+Ordinary owner mutations commit against the latest renderer document synchronously. The owner action boundary automatically materializes canonical mutations into the visible projection, so callers such as start and steer cannot update canonical input while forgetting the transcript view. The per-conversation publication cursor computes patches from its last accepted shared document, coalesces mutations that arrive while a publish is in flight, and repairs a rejected patch with a full snapshot. Action receipts may wait for the outbox to reach the required revision, but local visibility and the app-server RPC never wait for publication. Full snapshots remain explicit barriers for resume, complete-history replacement, rollback, and repair.
 
-Later app-server user-message echoes remain canonical raw turn items but never create a second initial-user bubble while the params-owned row is visible. The echo must match the submitted `clientUserMessageId` or structural input and must occur after only the reference-approved metadata prelude. If actual turn work precedes the server `userMessage`, normal local-thread projection treats the completion as a `steered` lifecycle marker even when the client id matches. Preserving a second server-owned user bubble is reserved for explicit server-message-preserving views. The same identity rule applies to incremental `item/completed` projection, full turn hydration, and pending-turn rebind.
+Direct new-thread creation prepares the same input and client identity before transport and adopts the actual app-server thread as the route identity. Main may retain a dormant recovery document while the command is in flight, but it does not publish that document as a visible source-null stream or add a separate transcript-only user row after the response.
+
+Later app-server user-message echoes remain canonical raw turn items but never create a second initial-user bubble while the params-owned row is visible. When app-server supplies `clientId`, reconciliation requires the exact submitted `clientUserMessageId`; structural input comparison is only a compatibility fallback for echoes without a client id. If actual turn work precedes the server `userMessage`, normal local-thread projection treats the completion as a `steered` lifecycle marker even when the client id matches. Preserving a second server-owned user bubble is reserved for explicit server-message-preserving views. The same identity rule applies to incremental `item/completed` projection, full turn hydration, and pending-turn rebind.
+
+### Steer Turn
+
+Steer uses the same renderer-owned transaction model. The owner compiles one exact `TurnSteerParams`, creates a pending canonical steering item with the same `clientUserMessageId`, commits it synchronously, and dispatches that exact payload through main's transport-only owner facade. Identical steer text is reconciled by client id, not by content order. If app-server reports `expected active turn id ... but found ...`, the owner moves the same pending item to the reported active turn and retries once with unchanged client id, input, and additional context. Failure removes that identity; success leaves it for the authoritative user-message echo to accept.
 
 ### Edit Last User Turn
 
@@ -194,7 +188,7 @@ through the conversation state owner.
 Nodex Project-scope write consent is the deliberate exception to request-plane
 ownership. Main targets the most recently activated renderer presenting the
 direct task, or the root task for a background child. That renderer may be an
-owner, follower, or source-null viewer. It overlays the authorization card
+owner, follower, or not-yet-adopted viewer. It overlays the authorization card
 locally, preserves it across incoming canonical snapshots, and removes it on a
 response or terminal Turn; the occurrence is never published as canonical
 conversation state and never causes the renderer to adopt ownership.
@@ -203,7 +197,7 @@ conversation state and never causes the renderer to adopt ownership.
 
 History-sensitive actions must pass the complete-history barrier before they run from a follower. The owner loads complete history, publishes the target revision, and the follower waits for that revision before edit, fork, or older-turn work continues.
 
-Explicit resume hydrates the latest tail and returns the hydrated conversation to the requesting renderer. Main silently updates its recovery/broadcast cache for `resuming` and `resumed` without advancing the renderer stream revision or emitting source-null snapshots. The renderer applies the hydrated conversation, marks itself owner using its current renderer-local stream revision, releases buffered same-thread notifications and requests, then publishes the owner snapshot as the next renderer revision. Resume failure releases the buffer, returns the local conversation to `needs_resume`, and must not use a source-null snapshot to overwrite partial owner state.
+Explicit resume returns a role-tagged result. With no owner, main hydrates the latest tail, silently seeds its accepted recovery document, compare-and-sets the invoking renderer as owner, and returns `{ role: "owner", conversation, revision }`. The renderer applies that document, seeds its outbox from the returned revision, releases buffered same-thread events, publishes the next owner snapshot, then asks main to replay any transport-brokered pending requests. If another owner already exists, main performs no second resume; it returns `{ role: "follower", conversation, revision, ownerClientId }` from the accepted owner cache, and the renderer attaches directly without releasing buffers or publishing. Resume failure returns local state to `needs_resume` without broadcasting a main-authored transcript.
 
 Renderer ownership adoption is part of that resume transaction. Main resolves the invoking renderer's registered client ID from the resume IPC event and, after successful hydration but before returning the snapshot, adopts that client only when no different owner exists. A failed, archived, non-resumed, disposed-client, or competing-owner resume never installs or replaces an owner. The first resumed snapshot can therefore publish immediately while unknown and wrong-client publications remain fail-closed.
 
@@ -211,11 +205,13 @@ Background child-agent summaries are not active child-thread streams. Parent thr
 
 When the owner client disappears, followers reject revision waiters, clear the owner role, mark the conversation `needs_resume`, and recover through explicit resume.
 
-## Source-Null Boundaries
+## No-Owner and Automation Boundaries
 
-Source-null snapshots remain valid for cold load, explicit snapshot/resume, no-owner fallback, inactive-owner cleanup, and durable recovery. They must not be used as hot repair for active owner state.
+No-owner state is dormant, not a visible stream role. Main may hydrate/cache protocol history for recovery and may update durable sidebar/read models, but only an identified renderer owner may publish `threadStreamStateChanged`. Opening a dormant task runs resume/adopt; opening a task with an existing owner attaches to that owner's accepted baseline.
 
-Owner patch publication is a follower-broadcast side effect, not the owner-visible state boundary. Main validates the owner client, requires the patch base to match its last accepted owner revision, and applies the patch to that owner cache before broadcasting. A missing, mismatched, or unapplicable base is rejected without advancing revision or acknowledging the owner notification; the owner then publishes its current conversation as the repair snapshot. While a renderer owner exists, suppressed main/no-owner fallback snapshots may update main's canonical manager but never replace this accepted-owner patch base.
+Cron automation is a command-only runner: main owns workspace setup, `thread/start`, `turn/start`, tool execution, run lifecycle, and terminal/inbox bookkeeping. It suppresses those notifications from the conversation pipeline while no renderer owns the run. Heartbeat automation requires a fresh lease published by the exact current renderer owner; main then issues transport commands without hydrating, merging, or claiming conversation ownership. Pending automation approvals/user-input remain transport-brokered and replay to a renderer after it adopts the task. Delivery is idempotent per semantic request occurrence (`requestId` plus method and call/item identity) and owner client, so re-resume cannot execute or surface the same pending occurrence twice; reused protocol ids do not collapse distinct dynamic calls, and owner replacement makes the same unresolved request eligible for replay to the new owner.
+
+Owner patch publication is a follower-broadcast side effect, not the owner-visible state boundary. Main validates the owner client, requires the patch base to match its last accepted owner revision, and applies the patch to that accepted document before broadcasting. A missing, mismatched, or unapplicable base is rejected without advancing revision or acknowledging the owner notification; the owner then publishes its current shared document as the repair snapshot. Main's dormant recovery cache is never an alternate visible writer and never replaces the accepted-owner patch base.
 
 ## Implementation Coverage
 
@@ -226,12 +222,16 @@ The current implementation covers these owner/follower contract areas:
 | Single visible owner | complete | One renderer reduces active live transcript state; main owns transport, persistence, routing, and recovery caches. |
 | Follower mirror semantics | complete | Followers apply matching owner snapshots/patches and drop stale owner/base mismatches. |
 | Follower mutation guard | complete | State-changing follower actions route to the owner unless explicitly no-op, owner-local, or outside transcript ownership. |
+| Action authority routing | complete | One router implements owner-local, follower-forward, and no-role resume/adopt behavior for ordinary conversation actions. |
+| Canonical/view commit boundary | complete | Owner action mutations automatically materialize canonical changes before local notification and shared-document publication. |
 | Request ownership | complete | Approval, permission, user-input, and MCP elicitation request rows are owner-visible state. |
-| Notification ownership | complete | Owner-visible app-server notifications route to the renderer owner while source-null visible fanout is suppressed. |
+| Notification ownership | complete | Owner-visible app-server notifications route to the renderer owner; command-only/no-owner notifications never enter the visible conversation pipeline. |
 | Prose and output queues | complete | Assistant, plan, reasoning, command output, and terminal interaction updates are ordered through owner-local queues. |
 | Resume/start/history lifecycle | complete | Resume uses the renderer-local stream revision, releases the resume buffer before the owner snapshot, optimistic start/rebind, and complete-history revision waits are owner-published. |
 | Owner-loss recovery | complete | Owner disposal rejects waiters and marks followers `needs_resume`. |
-| Source-null discipline | complete | Source-null snapshots are restricted to cold load, explicit recovery, no-owner fallback, inactive-owner cleanup, and durable recovery. |
+| No-owner discipline | complete | Main keeps dormant recovery/automation state off the visible stream plane; a renderer must adopt or attach before transcript updates are visible. |
+| Late follower bootstrap | complete | A competing resume receives the accepted owner document, revision, and owner client id without replacing the owner or issuing another app-server resume. |
+| Automation boundary | complete | Cron is command-only; heartbeat requires a fresh exact-owner lease; protocol turns drive run/inbox bookkeeping without a main transcript. |
 
 Covered owner-routed actions include start turn, edit last user turn, steer turn, interrupt turn, thread settings, goal changes, memory mode, compaction, complete history, queued follow-ups, request responses, fork from turn, and plan-implementation request removal.
 
@@ -250,12 +250,17 @@ Required regression coverage includes:
 - edit rollback removes the old turn before replacement starts
 - follower actions wait for returned owner revisions
 - request responses route through owner by conversation id
-- stale patches are dropped without source-null resync
+- stale patches are dropped without main-authored transcript resync
 - rejected owner patches repair through an owner snapshot without exposing a split transcript
 - late server user-message completions remain canonical but project as steering lifecycle after work instead of duplicating the params-owned user bubble
 - owner-loss recovery marks followers `needs_resume`
 - failed resume/start requests do not leave stale main-side renderer owner mappings
-- renderer-owned resume seeds the owner cursor from the renderer-local stream revision, releases the resume buffer, and then publishes the hydrated owner snapshot
+- renderer-owned resume seeds the owner cursor from the returned accepted revision, releases the resume buffer, publishes the hydrated owner snapshot, and then replays brokered pending requests
+- competing renderer resume attaches as follower from the accepted owner baseline without a second app-server resume or owner publication
+- a renderer that loses a concurrent resume race receives the winning owner's accepted baseline instead of an adoption error
+- command-only automation emits no source-null conversation stream and protocol `turn/completed` drives run/inbox bookkeeping directly
+- brokered pending requests replay once per owner, resolve without canonical transcript state, and can replay again only after owner replacement
+- heartbeat dispatch is rejected when the renderer lease is missing, stale, or belongs to a non-owner window
 - ordinary resume IPC adopts its invoking renderer before returning, so the first owner snapshot succeeds without test-only owner seeding
 - resume failure releases the buffer and rolls local state back to `needs_resume`
 - parent thread mounts do not mark background child agents opened; only background-agent detail tabs do

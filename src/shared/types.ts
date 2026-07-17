@@ -1,5 +1,6 @@
 import type {
   ApprovalsReviewer as CodexAppServerApprovalsReviewer,
+  AdditionalContextEntry as CodexAppServerAdditionalContextEntry,
   AppInfo as CodexAppServerAppInfo,
   AskForApproval as CodexAppServerAskForApproval,
   CommandAction as CodexAppServerCommandAction,
@@ -47,6 +48,7 @@ import type {
   ThreadTokenUsage as CodexAppServerThreadTokenUsage,
   TokenUsageBreakdown as CodexAppServerTokenUsageBreakdown,
   TurnItemsView as CodexAppServerTurnItemsView,
+  TurnSteerParams as CodexAppServerTurnSteerParams,
   UserInput as CodexAppServerUserInput,
   ToolRequestUserInputOption as CodexAppServerUserInputOption,
   TurnStatus as CodexAppServerTurnStatus,
@@ -1538,6 +1540,7 @@ export interface CodexHeartbeatAutomationsEnabledChangedInput {
 
 export interface CodexHeartbeatAutomationThreadStateChangedInput {
   threadId: string;
+  streamRole: "owner" | "follower" | null;
   isEligible: boolean;
   reason?: string | null;
   collaborationMode?: CodexHeartbeatAutomationCollaborationMode | null;
@@ -1962,6 +1965,19 @@ export interface CodexPromptInput {
   agentConfigs?: CodexPromptAgentConfigInput[];
 }
 
+/** One renderer-owned prompt compilation shared by optimistic state and RPC. */
+export interface CodexPreparedPrompt {
+  promptText: string;
+  inputItems: CodexAppServerUserInput[];
+  pendingInputItems: CodexAppServerUserInput[];
+  fileAttachments: CodexLiveFileAttachment[];
+  addedFiles: CodexLiveFileAttachment[];
+  pastedTextAttachments: CodexPromptTextAttachmentInput[];
+  additionalContext?: Record<string, CodexAppServerAdditionalContextEntry>;
+  commentAttachments: CodexReviewDiffCommentAttachment[];
+  agentConfigs: CodexPromptAgentConfigInput[];
+}
+
 export type CodexSteeringStatus = "pending" | "accepted";
 
 export type CodexSteeringUserInput = CodexAppServerUserInput;
@@ -2010,10 +2026,10 @@ export type CodexOwnerAppServerRequest =
         prompt: string;
         opts?: CodexTurnStartOptions;
         clientUserMessageId: string;
-        promptInput?: CodexPromptInput;
+        preparedPrompt: CodexPreparedPrompt;
       };
     }
-  | { method: "turn/steer"; params: CodexSteerTurnInput }
+  | { method: "turn/steer"; params: CodexAppServerTurnSteerParams }
   | {
       method: "turn/interrupt";
       params: { threadId: string; turnId?: string };
@@ -3769,6 +3785,19 @@ export interface CodexThreadOwnerNotificationAckInput {
   conversationId: string;
   sequence: number;
 }
+
+export type CodexRendererConversationResumeResult =
+  | {
+      role: "owner";
+      conversation: CodexConversationSnapshot;
+      revision: number;
+    }
+  | {
+      role: "follower";
+      conversation: CodexConversationSnapshot;
+      revision: number;
+      ownerClientId: string;
+    };
 
 export type CodexThreadOwnerServerRequest =
   | CodexProtocolServerRequestOf<

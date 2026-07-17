@@ -1,10 +1,9 @@
 export type LocalConversationStreamRole =
   | { role: "owner" }
-  | { role: "follower"; ownerClientId: string }
-  | { role: "sourceNull" };
+  | { role: "follower"; ownerClientId: string };
 
 export type LocalConversationPatchDecision =
-  | { type: "apply"; sourceClientId: string | null }
+  | { type: "apply"; sourceClientId: string }
   | { type: "drop"; reason: "missing-follower-role" | "owner-mismatch" | "revision-mismatch" };
 
 type StreamStateTimer = unknown;
@@ -35,10 +34,8 @@ function formatOwner(ownerClientId: string | null): string {
   return ownerClientId ?? "unknown-owner";
 }
 
-function buildSnapshotRole(sourceClientId: string | null): LocalConversationStreamRole {
-  return typeof sourceClientId === "string" && sourceClientId.length > 0
-    ? { role: "follower", ownerClientId: sourceClientId }
-    : { role: "sourceNull" };
+function buildSnapshotRole(sourceClientId: string): LocalConversationStreamRole {
+  return { role: "follower", ownerClientId: sourceClientId };
 }
 
 export class LocalConversationStreamState {
@@ -95,7 +92,7 @@ export class LocalConversationStreamState {
   acceptSnapshot(input: {
     conversationId: string;
     revision: number;
-    sourceClientId: string | null;
+    sourceClientId: string;
   }): void {
     this.setRole(input.conversationId, buildSnapshotRole(input.sourceClientId));
     this.revisionByConversationId.set(input.conversationId, input.revision);
@@ -105,18 +102,14 @@ export class LocalConversationStreamState {
   evaluatePatch(input: {
     conversationId: string;
     baseRevision: number;
-    sourceClientId: string | null;
+    sourceClientId: string;
   }): LocalConversationPatchDecision {
     const role = this.rolesByConversationId.get(input.conversationId);
     if (!role || role.role === "owner") {
       return { type: "drop", reason: "missing-follower-role" };
     }
 
-    if (role.role === "sourceNull") {
-      if (input.sourceClientId !== null) {
-        return { type: "drop", reason: "owner-mismatch" };
-      }
-    } else if (role.ownerClientId !== input.sourceClientId) {
+    if (role.ownerClientId !== input.sourceClientId) {
       return { type: "drop", reason: "owner-mismatch" };
     }
 
@@ -130,7 +123,7 @@ export class LocalConversationStreamState {
   acceptPatch(input: {
     conversationId: string;
     revision: number;
-    sourceClientId: string | null;
+    sourceClientId: string;
   }): void {
     this.setRole(input.conversationId, buildSnapshotRole(input.sourceClientId));
     this.revisionByConversationId.set(input.conversationId, input.revision);
@@ -293,8 +286,6 @@ function areRolesCompatible(
   if (!previousRole) return true;
   if (previousRole.role !== nextRole.role) return false;
   if (previousRole.role === "owner") return true;
-  if (previousRole.role === "sourceNull") return true;
-  if (nextRole.role !== "follower") return true;
-
+  if (nextRole.role !== "follower") return false;
   return previousRole.ownerClientId === nextRole.ownerClientId;
 }

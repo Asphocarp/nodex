@@ -5,6 +5,7 @@ import type {
 } from "./codex-conversation-state";
 import {
   removeCodexCanonicalSteeringItem,
+  retargetCodexCanonicalSteeringItem,
   upsertCodexCanonicalSteeringItem,
 } from "./codex-steering-state";
 import { createCodexCanonicalHydratedConversationState } from "./codex-conversation-state";
@@ -87,5 +88,40 @@ describe("canonical steering state", () => {
 
     expect(next.turns[0]?.items.length).toBe(1);
     expect(next.turns[0]?.items[0]?.id).toBe("steer-b");
+  });
+
+  test("retargets the same steer identity to a newer active turn", () => {
+    const initial = buildState();
+    const withTarget = {
+      ...initial,
+      turns: [
+        initial.turns[0]!,
+        {
+          ...initial.turns[0]!,
+          protocol: { ...initial.turns[0]!.protocol, id: "turn-b" },
+          items: [],
+          sidecar: { ...initial.turns[0]!.sidecar, turnStartedAtMs: 20 },
+        },
+      ],
+    };
+    const pending = upsertCodexCanonicalSteeringItem(
+      withTarget,
+      "turn-a",
+      buildSteer(),
+    );
+    const next = retargetCodexCanonicalSteeringItem(
+      pending,
+      "turn-a",
+      "turn-b",
+      "steer-a",
+    );
+
+    expect(next.turns[0]?.items).toEqual([]);
+    expect(next.turns[1]?.items[0]).toMatchObject({
+      id: "steer-a",
+      clientUserMessageId: "steer-a",
+      targetTurnId: "turn-b",
+      targetTurnStartedAtMs: 20,
+    });
   });
 });

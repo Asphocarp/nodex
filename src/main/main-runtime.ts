@@ -1370,8 +1370,12 @@ export async function runMainAppStartup(
     onHeartbeatAutomationsEnabledChanged: (input) => {
       scheduledAutomationScheduler?.setHeartbeatAutomationsEnabled(input.enabled);
     },
-    onHeartbeatAutomationThreadStateChanged: (input) => {
-      scheduledAutomationScheduler?.setHeartbeatThreadRendererState(input);
+    onHeartbeatAutomationThreadStateChanged: (input, rendererClientId) => {
+      if (!rendererClientId) return;
+      scheduledAutomationScheduler?.setHeartbeatThreadRendererState({
+        ...input,
+        rendererClientId,
+      });
     },
     onCreateWindow: (seed) => {
       openNewWindow(seed);

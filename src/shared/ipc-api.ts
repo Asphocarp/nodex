@@ -126,6 +126,7 @@ import type {
   CodexReviewStartResponse,
   CodexRendererClientRequestMessage,
   CodexRendererClientResponseMessage,
+  CodexRendererConversationResumeResult,
   CodexAutomationRunsInboxResponse,
   CodexAutomationRunArchiveInput,
   CodexAutomationRunDeleteInput,
@@ -1304,6 +1305,10 @@ export interface IpcApi {
     args: [input: CodexThreadOwnerNotificationAckInput];
     result: boolean;
   };
+  "codex:thread-owner:pending-requests:replay": {
+    args: [threadId: string];
+    result: number;
+  };
   "codex:thread-owner:app-server-request": {
     args: [input: CodexOwnerAppServerRequestInput];
     result: unknown;
@@ -1417,7 +1422,7 @@ export interface IpcApi {
   };
   "codex:thread:resume:request": {
     args: [threadId: string];
-    result: CodexConversationSnapshot | null;
+    result: CodexRendererConversationResumeResult | null;
   };
   "codex:thread:background-subagents:hydrate": {
     args: [input: CodexBackgroundSubagentThreadsHydrateInput];

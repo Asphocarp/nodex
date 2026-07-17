@@ -21,6 +21,7 @@ export interface CodexScheduledAutomationRunContext {
 }
 
 export interface CodexScheduledAutomationHeartbeatRendererState {
+  rendererClientId: string;
   isEligible: boolean;
   reason: string | null;
   updatedAtMs: number;
@@ -35,6 +36,8 @@ export interface CodexScheduledAutomationHeartbeatRunContext {
 
 export interface CodexScheduledAutomationHeartbeatThreadStateInput {
   threadId: string;
+  rendererClientId: string;
+  streamRole: "owner" | "follower" | null;
   isEligible: boolean;
   reason?: string | null;
   collaborationMode?: CodexHeartbeatAutomationCollaborationMode | null;
@@ -184,8 +187,11 @@ export function startCodexScheduledAutomationScheduler(
       if (!threadId) return;
 
       heartbeatThreadRendererStates.set(threadId, {
-        isEligible: input.isEligible,
-        reason: input.reason?.trim() || null,
+        rendererClientId: input.rendererClientId,
+        isEligible: input.streamRole === "owner" && input.isEligible,
+        reason: input.streamRole === "owner"
+          ? input.reason?.trim() || null
+          : "not_conversation_owner",
         updatedAtMs: now(),
       });
 

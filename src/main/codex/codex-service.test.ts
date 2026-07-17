@@ -11,6 +11,7 @@ import type {
   CodexApprovalKind,
   CodexConversationSnapshot,
   CodexCanonicalConversationState,
+  CodexCanonicalServerRequest,
   CodexEvent,
   CodexGitSettings,
   CodexHostMessage,
@@ -38,6 +39,7 @@ import type {
   ManagedWorktreeRecord,
   ProjectSessionForkResult,
 } from "../../shared/types";
+import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2";
 import type {
   CodexHooksListInput,
   CodexHooksListResponse,
@@ -159,7 +161,10 @@ interface TestableCodexService {
   on: {
     (event: "event", listener: (event: CodexEvent) => void): unknown;
     (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void): unknown;
-    (event: "rendererOwnerHostMessage", listener: (message: { targetClientId: string; message: unknown }) => void): unknown;
+    (
+      event: "rendererOwnerHostMessage",
+      listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+    ): unknown;
   };
   shutdown: () => Promise<void>;
   getPersonality: () => import("../../shared/types").CodexPersonality;
@@ -200,13 +205,14 @@ interface TestableCodexService {
   requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   requestConversationResume: (
     threadId: string,
-    options?: { emitSourceNullSnapshots?: boolean; replayBufferedNotifications?: boolean },
+    options?: { syncDormantConversationSnapshots?: boolean; replayBufferedNotifications?: boolean },
   ) => Promise<CodexConversationSnapshot | null>;
   requestRendererConversationResume: (
     threadId: string,
     ownerClientId: string,
-  ) => Promise<CodexConversationSnapshot | null>;
+  ) => Promise<import("../../shared/types").CodexRendererConversationResumeResult | null>;
   releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
+  replayRendererOwnerPendingRequests: (threadId: string, ownerClientId: string) => number;
   ackRendererThreadOwnerNotification: (
     sourceClientId: string,
     input: { conversationId: string; sequence: number },
@@ -301,6 +307,7 @@ interface TestableCodexService {
   getCustomPermissionModeDescription: (projectId: string) => string;
   runScheduledAutomationNow: (
     input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
+    rendererClientId?: string | null,
   ) => Promise<void>;
   captureAutomationArchiveMessages: (threadId: string) => Promise<boolean>;
   runScheduledAutomation: (
@@ -310,7 +317,12 @@ interface TestableCodexService {
       reason?: "scheduled" | "run-now";
       heartbeat?: {
         automationsEnabled: boolean;
-        rendererState: { isEligible: boolean; reason: string | null; updatedAtMs?: number } | null;
+        rendererState: {
+          rendererClientId: string;
+          isEligible: boolean;
+          reason: string | null;
+          updatedAtMs?: number;
+        } | null;
         collaborationMode: import("../../shared/types").CodexHeartbeatAutomationCollaborationMode | null;
         permissions: import("../../shared/types").CodexHeartbeatAutomationPermissions | null;
       };
@@ -1153,7 +1165,7 @@ function createService(options?: {
   const steerService = service as unknown as {
     steerTurn: (
       input: CodexSteerTurnInput,
-      options?: { emitSourceNullUpdates?: boolean },
+      options?: { syncDormantConversationUpdates?: boolean },
     ) => Promise<{ turnId: string } | null>;
   };
   const steerTurn = steerService.steerTurn.bind(service);
@@ -2213,10 +2225,53 @@ describe("codex-service renderer owner stream publishing", () => {
       });
 
       const snapshot = await service.requestConversationSnapshot("thread-token-usage");
-      const latest = projectConversationFromHostMessages(hostMessages);
       expect(snapshot?.latestTokenUsageInfo?.last.totalTokens).toBe(30);
-      expect(latest?.latestTokenUsageInfo?.last.totalTokens).toBe(30);
+      expect(hostMessages).toHaveLength(0);
       expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBe(true);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("routes post-resume goal hydration through the renderer owner", async () => {
+    const service = createService();
+    const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+    const hostMessages: CodexHostMessage[] = [];
+    service.on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    service.on("hostMessage", (message) => {
+      if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+    });
+    const serviceInternals = service as unknown as {
+      applyThreadGoalHydratedAfterResume: (threadId: string, goal: ThreadGoal) => void;
+      publishPostResumeGoalSnapshot: (threadId: string) => void;
+    };
+
+    try {
+      installRendererOwnerConversation(service, {
+        threadId: "thread-owner-resume-goal",
+        ownerClientId: "owner-a",
+      });
+      serviceInternals.applyThreadGoalHydratedAfterResume("thread-owner-resume-goal", {
+        threadId: "thread-owner-resume-goal",
+        objective: "Finish the owner migration",
+        status: "paused",
+        tokenBudget: null,
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+        createdAt: 1,
+        updatedAt: 2,
+      });
+      serviceInternals.publishPostResumeGoalSnapshot("thread-owner-resume-goal");
+
+      expect(ownerMessages).toHaveLength(1);
+      expect(ownerMessages[0]?.targetClientId).toBe("owner-a");
+      expect(ownerMessages[0]?.message.type).toBe("threadOwnerNotification");
+      if (ownerMessages[0]?.message.type === "threadOwnerNotification") {
+        expect(ownerMessages[0].message.notification.method).toBe("thread/goal/updated");
+      }
+      expect(hostMessages).toHaveLength(0);
     } finally {
       await service.shutdown();
     }
@@ -2825,15 +2880,15 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      emitThreadStreamSnapshotFromRecord: (
+      syncDormantConversationFromRecord: (
         threadId: string,
-        reason: "no-owner-fallback" | "explicit-resync",
+        reason: "owner-unavailable" | "explicit-resync",
       ) => void;
-      mutateBroadcastConversationCacheSilently: (
+      mutateAcceptedConversationDocumentSilently: (
         threadId: string,
         recipe: (draft: CodexConversationSnapshot) => void,
       ) => void;
-      syncBroadcastConversationSnapshotCacheSilently: (threadId: string) => number;
+      syncAcceptedConversationDocumentSilently: (threadId: string) => number;
     };
 
     try {
@@ -2857,9 +2912,9 @@ describe("codex-service renderer owner stream publishing", () => {
         },
       })).toBe(true);
 
-      serviceInternals.emitThreadStreamSnapshotFromRecord("thread-source-null-guard", "no-owner-fallback");
-      serviceInternals.syncBroadcastConversationSnapshotCacheSilently("thread-source-null-guard");
-      serviceInternals.mutateBroadcastConversationCacheSilently(
+      serviceInternals.syncDormantConversationFromRecord("thread-source-null-guard", "owner-unavailable");
+      serviceInternals.syncAcceptedConversationDocumentSilently("thread-source-null-guard");
+      serviceInternals.mutateAcceptedConversationDocumentSilently(
         "thread-source-null-guard",
         (draft) => {
           draft.turns = [];
@@ -2882,13 +2937,7 @@ describe("codex-service renderer owner stream publishing", () => {
       hostMessages.length = 0;
       const snapshot = await service.requestConversationSnapshot("thread-source-null-guard");
       expect(snapshot).not.toBeNull();
-      expect(String(hostMessages.length)).toBe("1");
-      const message = hostMessages[0];
-      expect(message?.type).toBe("threadStreamStateChanged");
-      if (message?.type === "threadStreamStateChanged") {
-        expect(message.sourceClientId).toBe(null);
-        expect(message.change.type).toBe("snapshot");
-      }
+      expect(hostMessages).toHaveLength(0);
     } finally {
       await service.shutdown();
     }
@@ -3045,7 +3094,7 @@ describe("codex-service renderer owner stream publishing", () => {
         "owner-after-loss-resume-kernel",
       );
       expect(resumeCalls).toBe(1);
-      expect(reacquired?.turns[0]?.turnId).toBe("turn-reacquired");
+      expect(reacquired?.conversation.turns[0]?.turnId).toBe("turn-reacquired");
     } finally {
       await service.shutdown();
     }
@@ -3109,9 +3158,9 @@ describe("codex-service renderer owner stream publishing", () => {
 
         expect(staleAccepted).toBe(false);
         expect(requests.filter((request) => request.method === "thread/resume").length).toBe(1);
-        expect(reacquired?.resumeState).toBe("resumed");
-        expect(reacquired?.turns[0]?.turnId).toBe("turn-after-owner-loss");
-        expect(reacquired?.turnPagination?.hasLoadedOldest ?? true).toBe(false);
+        expect(reacquired?.conversation.resumeState).toBe("resumed");
+        expect(reacquired?.conversation.turns[0]?.turnId).toBe("turn-after-owner-loss");
+        expect(reacquired?.conversation.turnPagination?.hasLoadedOldest ?? true).toBe(false);
         expect(complete?.turns.map((turn) => turn.turnId).join(",")).toBe(
           "turn-before-owner-loss,turn-after-owner-loss",
         );
@@ -3250,11 +3299,7 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(service.getRendererConversationOwner("thread-inactive-owner")).toBe(null);
       expect(service.serializeConversationSnapshot("thread-inactive-owner")?.resumeState).toBe("needs_resume");
       expect(hostMessages[0]?.type).toBe("threadOwnerUnavailable");
-      expect(hostMessages[1]?.type).toBe("threadStreamStateChanged");
-      if (hostMessages[1]?.type === "threadStreamStateChanged") {
-        expect(hostMessages[1].sourceClientId).toBe(null);
-        expect(hostMessages[1].change.type).toBe("snapshot");
-      }
+      expect(hostMessages).toHaveLength(1);
     } finally {
       await service.shutdown();
     }
@@ -3829,14 +3874,74 @@ describe("codex-service renderer owner stream publishing", () => {
   test("renderer resume adoption never replaces an established owner", async () => {
     const service = createService();
     try {
+      const baseline = makeConversationSnapshot({ threadId: "thread-owner-adoption-race" });
       service.setRendererConversationOwner("thread-owner-adoption-race", "owner-a");
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner-adoption-race",
+        change: {
+          type: "snapshot",
+          revision: 7,
+          conversationState: baseline,
+        },
+      })).toBe(true);
 
-      await expect(service.requestRendererConversationResume(
+      const result = await service.requestRendererConversationResume(
         "thread-owner-adoption-race",
         "owner-b",
-      )).rejects.toThrow("already has another renderer owner");
+      );
+      expect(result).toEqual({
+        role: "follower",
+        conversation: baseline,
+        revision: 7,
+        ownerClientId: "owner-a",
+      });
       expect(service.getRendererConversationOwner("thread-owner-adoption-race")).toBe("owner-a");
     } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("a renderer that loses a concurrent resume race attaches to the accepted owner", async () => {
+    const service = createService();
+    const baseline = makeConversationSnapshot({ threadId: "thread-owner-concurrent-race" });
+    let releaseResume: () => void = () => {};
+    const resumeGate = new Promise<void>((resolve) => {
+      releaseResume = resolve;
+    });
+    const serviceInternals = service as unknown as {
+      requestConversationResume: () => Promise<CodexConversationSnapshot>;
+    };
+    serviceInternals.requestConversationResume = async () => {
+      await resumeGate;
+      return baseline;
+    };
+
+    try {
+      const competingResume = service.requestRendererConversationResume(
+        "thread-owner-concurrent-race",
+        "owner-b",
+      );
+      await Promise.resolve();
+      service.setRendererConversationOwner("thread-owner-concurrent-race", "owner-a");
+      expect(service.publishRendererThreadStreamStateChange("owner-a", {
+        conversationId: "thread-owner-concurrent-race",
+        change: {
+          type: "snapshot",
+          revision: 7,
+          conversationState: baseline,
+        },
+      })).toBe(true);
+      releaseResume();
+
+      await expect(competingResume).resolves.toEqual({
+        role: "follower",
+        conversation: baseline,
+        revision: 7,
+        ownerClientId: "owner-a",
+      });
+      expect(service.getRendererConversationOwner("thread-owner-concurrent-race")).toBe("owner-a");
+    } finally {
+      releaseResume();
       await service.shutdown();
     }
   });
@@ -4282,6 +4387,11 @@ describe("codex-service scheduled automations", () => {
         expect(run?.status).toBe("IN_PROGRESS");
         expect(run?.threadTitle).toBe("Daily report");
         expect(run?.sourceCwd).toBe("/tmp/codex");
+        expect(getCanonicalConversationState(service, "thread-automation")).toBe(null);
+        expect(
+          (Reflect.get(service as object, "acceptedConversationDocumentById") as Map<string, unknown>)
+            .has("thread-automation"),
+        ).toBe(false);
 
         await (
           service as unknown as {
@@ -4327,6 +4437,94 @@ describe("codex-service scheduled automations", () => {
     if (!ran) expect(true).toBe(true);
   });
 
+  test("keeps headless automation requests transport-only and replays them to an adopted owner", async () => {
+    const ran = await withTempDatabase(async () => {
+      const now = Date.UTC(2026, 6, 8, 13, 20, 0);
+      insertCodexAutomationRunInProgress({
+        threadId: "thread-command-only-request",
+        automationId: "daily-report",
+        threadTitle: "Daily report",
+        sourceCwd: "/tmp/codex",
+        now,
+      });
+      const service = createService();
+      const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
+      service.on("rendererOwnerHostMessage", (message) => {
+        ownerMessages.push(message);
+      });
+      const serviceInternals = service as unknown as {
+        reduceIncomingServerRequest: (
+          threadId: string,
+          request: CodexCanonicalServerRequest,
+        ) => { disposition: string };
+        getMaybeConversationRecord: (threadId: string) => {
+          canonicalState: CodexCanonicalConversationState | null;
+          serverRequests: CodexCanonicalServerRequest[];
+        } | null;
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
+      };
+      const request = {
+        id: 812,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: "thread-command-only-request",
+          turnId: "turn-command-only-request",
+          itemId: "item-command-only-request",
+          startedAtMs: now,
+          environmentId: null,
+          reason: "Needs permission",
+          command: "pnpm test",
+        },
+      } satisfies CodexCanonicalServerRequest;
+
+      try {
+        const lifecycle = serviceInternals.reduceIncomingServerRequest(
+          "thread-command-only-request",
+          request,
+        );
+        const record = serviceInternals.getMaybeConversationRecord("thread-command-only-request");
+        expect(lifecycle.disposition).toBe("stored");
+        expect(record?.canonicalState).toBe(null);
+        expect(record?.serverRequests.map((candidate) => candidate.id)).toEqual([812]);
+        expect(ownerMessages).toHaveLength(0);
+
+        service.setRendererConversationOwner("thread-command-only-request", "renderer-adopter");
+        expect(
+          service.replayRendererOwnerPendingRequests(
+            "thread-command-only-request",
+            "renderer-adopter",
+          ),
+        ).toBe(1);
+        expect(ownerMessages).toHaveLength(1);
+        expect(ownerMessages[0]?.targetClientId).toBe("renderer-adopter");
+        expect(ownerMessages[0]?.message.type).toBe("threadOwnerRequest");
+        if (ownerMessages[0]?.message.type === "threadOwnerRequest") {
+          expect(ownerMessages[0].message.request.id).toBe(812);
+        }
+        expect(
+          service.replayRendererOwnerPendingRequests(
+            "thread-command-only-request",
+            "renderer-adopter",
+          ),
+        ).toBe(0);
+        expect(ownerMessages).toHaveLength(1);
+
+        await serviceInternals.handleNotification({
+          method: "serverRequest/resolved",
+          params: {
+            threadId: "thread-command-only-request",
+            requestId: 812,
+          },
+        });
+        expect(record?.serverRequests).toHaveLength(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("captures automation inbox item directives when an automation turn completes", async () => {
     const ran = await withTempDatabase(async () => {
       const now = Date.UTC(2026, 6, 8, 13, 20, 0);
@@ -4362,39 +4560,10 @@ describe("codex-service scheduled automations", () => {
         }
       });
       const serviceInternals = service as unknown as {
-        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
 
       try {
-        serviceInternals.setConversationRecordDetail({
-          ...makeThreadDetail("thread-inbox-directive"),
-          turns: [{
-            threadId: "thread-inbox-directive",
-            turnId: "turn-inbox-directive",
-            status: "inProgress",
-            itemIds: ["assistant-inbox-directive"],
-          }],
-          transcript: [{
-            threadId: "thread-inbox-directive",
-            turnId: "turn-inbox-directive",
-            entryId: "assistant-inbox-directive",
-            itemId: "assistant-inbox-directive",
-            type: "assistant_message",
-            kind: "assistantMessage",
-            semanticKind: "assistantMessage",
-            role: "assistant",
-            source: "live",
-            status: "inProgress",
-            markdownText: [
-              "Checked the repository and found no new failures.",
-              "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
-            ].join("\n"),
-            createdAt: now,
-            updatedAt: now,
-          }],
-        });
-
         await serviceInternals.handleNotification({
           method: "turn/completed",
           params: {
@@ -4402,6 +4571,16 @@ describe("codex-service scheduled automations", () => {
             turn: {
               id: "turn-inbox-directive",
               status: "completed",
+              items: [{
+                type: "agentMessage",
+                id: "assistant-inbox-directive",
+                text: [
+                  "Checked the repository and found no new failures.",
+                  "::inbox-item{title=\"Daily report ready\" summary=\"Review the clean test summary\"}",
+                ].join("\n"),
+                phase: null,
+                memoryCitation: null,
+              }],
             },
           },
         });
@@ -4847,6 +5026,7 @@ describe("codex-service scheduled automations", () => {
         updatedAt: 10,
       });
       const service = createService();
+      service.setRendererConversationOwner("thread-heartbeat-target", "renderer-heartbeat");
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params?: unknown) => Promise<unknown>;
@@ -4930,16 +5110,13 @@ describe("codex-service scheduled automations", () => {
               excludeSlashTmp: false,
             },
           },
-        });
+        }, "renderer-heartbeat");
 
         const resumeRequest = requests.find((request) => request.method === "thread/resume");
         const resumeParams = resumeRequest?.params as { threadId?: string } | undefined;
         expect(resumeParams?.threadId).toBe("thread-heartbeat-target");
-        expect(
-          getCanonicalConversationState(service, "thread-heartbeat-target")
-            ?.sidecar.hydrationContext?.currentPermissions.activePermissionProfile?.id
-          ?? null,
-        ).toBe(":workspace");
+        expect(getCanonicalConversationState(service, "thread-heartbeat-target")).toBe(null);
+        expect(service.getRendererConversationOwner("thread-heartbeat-target")).toBe("renderer-heartbeat");
 
         const turnStartRequest = requests.find((request) => request.method === "turn/start");
         const turnStartParams = turnStartRequest?.params as {
@@ -5032,6 +5209,8 @@ describe("codex-service scheduled automations", () => {
       });
 
       const service = createService();
+      service.setRendererConversationOwner("thread-rollout-busy", "renderer-heartbeat");
+      service.setRendererConversationOwner("thread-rollout-complete", "renderer-heartbeat");
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params?: unknown) => Promise<unknown>;
@@ -5139,7 +5318,7 @@ describe("codex-service scheduled automations", () => {
                 excludeSlashTmp: false,
               },
             },
-          });
+          }, "renderer-heartbeat");
         } catch (error) {
           busyErrorMessage = error instanceof Error ? error.message : String(error);
         }
@@ -5167,7 +5346,7 @@ describe("codex-service scheduled automations", () => {
               excludeSlashTmp: false,
             },
           },
-        });
+        }, "renderer-heartbeat");
 
         const turnStartRequest = requests.find((request) => request.method === "turn/start");
         const turnStartParams = turnStartRequest?.params as { threadId?: string } | undefined;
@@ -5203,6 +5382,7 @@ describe("codex-service scheduled automations", () => {
         updatedAt: 10,
       });
       const service = createService();
+      service.setRendererConversationOwner("thread-heartbeat-target", "renderer-heartbeat");
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params?: unknown) => Promise<unknown>;
@@ -5236,6 +5416,7 @@ describe("codex-service scheduled automations", () => {
           heartbeat: {
             automationsEnabled: true,
             rendererState: {
+              rendererClientId: "renderer-heartbeat",
               isEligible: false,
               reason: "composer_busy",
               updatedAtMs: now,
@@ -5286,6 +5467,7 @@ describe("codex-service scheduled automations", () => {
         updatedAt: 10,
       });
       const service = createService();
+      service.setRendererConversationOwner("thread-heartbeat-target", "renderer-heartbeat");
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params?: unknown) => Promise<unknown>;
@@ -5320,7 +5502,12 @@ describe("codex-service scheduled automations", () => {
           reason: "scheduled",
           heartbeat: {
             automationsEnabled: true,
-            rendererState: { isEligible: true, reason: null, updatedAtMs: now },
+            rendererState: {
+              rendererClientId: "renderer-heartbeat",
+              isEligible: true,
+              reason: null,
+              updatedAtMs: now,
+            },
             collaborationMode: {
               mode: "plan",
               settings: {
@@ -5366,6 +5553,7 @@ describe("codex-service scheduled automations", () => {
         updatedAt: 10,
       });
       const service = createService();
+      service.setRendererConversationOwner("thread-heartbeat-target", "renderer-heartbeat");
       const client = Reflect.get(service as object, "client") as {
         emit: (event: string, payload: unknown) => boolean;
         start: () => Promise<void>;
@@ -5435,7 +5623,12 @@ describe("codex-service scheduled automations", () => {
           reason: "scheduled",
           heartbeat: {
             automationsEnabled: true,
-            rendererState: { isEligible: true, reason: null, updatedAtMs: now },
+            rendererState: {
+              rendererClientId: "renderer-heartbeat",
+              isEligible: true,
+              reason: null,
+              updatedAtMs: now,
+            },
             collaborationMode: {
               mode: "plan",
               settings: {
@@ -9616,13 +9809,6 @@ describe("codex-service session-backed transcript recovery", () => {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
-      const hostMessages: CodexHostMessage[] = [];
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
-
       client.start = async () => undefined;
       client.request = async (method: string, params: unknown) => {
         requests.push({ method, params });
@@ -9667,14 +9853,14 @@ describe("codex-service session-backed transcript recovery", () => {
           () => service.serializeConversationSnapshot("thr_resume_goal")?.threadGoal?.status === "paused",
           250,
         );
-        const projected = projectConversationFromHostMessages(hostMessages);
+        const hydrated = service.serializeConversationSnapshot("thr_resume_goal");
         const methods = requests.map((request) => request.method).join(",");
 
         expect(methods).toBe("thread/read,thread/resume,thread/goal/get");
         expect((requests[2]?.params as { threadId?: string } | undefined)?.threadId).toBe("thr_resume_goal");
         expect(conversation?.threadGoal ?? null).toBe(null);
-        expect(projected?.threadGoal?.status ?? "").toBe("paused");
-        expect(projected?.threadGoalResumeConfirmation ?? null).toBe(null);
+        expect(hydrated?.threadGoal?.status ?? "").toBe("paused");
+        expect(hydrated?.threadGoalResumeConfirmation ?? null).toBe(null);
       } finally {
         await service.shutdown();
       }
@@ -9994,12 +10180,13 @@ describe("codex-service session-backed transcript recovery", () => {
       };
 
       try {
-        const conversation = await service.requestRendererConversationResume(
+        const resumeResult = await service.requestRendererConversationResume(
           threadId,
           ownerClientId,
         );
 
-        expect(conversation?.threadId ?? "").toBe(threadId);
+        expect(resumeResult?.conversation.threadId ?? "").toBe(threadId);
+        expect(resumeResult?.role).toBe("owner");
         expect(service.getRendererConversationOwner(threadId)).toBe(ownerClientId);
         expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(false);
         expect(ownerMessages.length).toBe(0);
@@ -10015,13 +10202,13 @@ describe("codex-service session-backed transcript recovery", () => {
           return record.type === "threadOwnerNotification"
             && record.notification?.method === "item/agentMessage/delta";
         })).toBe(true);
-        if (!conversation) throw new Error("Missing renderer resume conversation");
+        if (!resumeResult) throw new Error("Missing renderer resume conversation");
         expect(service.publishRendererThreadStreamStateChange(ownerClientId, {
           conversationId: threadId,
           change: {
             type: "snapshot",
             revision: 1,
-            conversationState: conversation,
+            conversationState: resumeResult.conversation,
           },
         })).toBe(true);
         expect(hostMessages.some((message) => message.type === "threadStreamStateChanged")).toBe(true);
@@ -10689,7 +10876,6 @@ describe("codex-service session-backed transcript recovery", () => {
   test("resume returns before goal hydration, then publishes a revision-guarded goal with null confirmation", async () => {
     const service = createService();
     const threadId = "thr_async_goal_resume";
-    const hostMessages: CodexHostMessage[] = [];
     let resolveGoal: (value: unknown) => void = () => {
       throw new Error("goal gate was not initialized");
     };
@@ -10697,9 +10883,6 @@ describe("codex-service session-backed transcript recovery", () => {
       resolveGoal = resolve;
     });
     let goalRequestStarted = false;
-    service.on("hostMessage", (message) => {
-      if (message.type === "threadStreamStateChanged") hostMessages.push(message);
-    });
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       parseThreadRef: (id: string) => Record<string, unknown> | null;
@@ -10785,11 +10968,9 @@ describe("codex-service session-backed transcript recovery", () => {
         250,
       );
       const hydrated = service.serializeConversationSnapshot(threadId);
-      const projected = projectConversationFromHostMessages(hostMessages);
       expect(hydrated?.threadGoal?.objective ?? "").toBe("Ship async goal hydration");
       expect(hydrated?.threadGoalResumeConfirmation ?? null).toBe(null);
-      expect(projected?.threadGoal?.status ?? "").toBe("paused");
-      expect(projected?.threadGoalResumeConfirmation ?? null).toBe(null);
+      expect(hydrated?.threadGoal?.status ?? "").toBe("paused");
     } finally {
       await service.shutdown();
     }
@@ -10808,7 +10989,7 @@ describe("codex-service session-backed transcript recovery", () => {
       hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       hydrateThreadGoalAfterResume: (id: string, expectedRevision: number) => Promise<void>;
-      emitThreadStreamSnapshotFromRecord: (id: string, reason: string) => void;
+      syncDormantConversationFromRecord: (id: string, reason: string) => void;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -10828,7 +11009,7 @@ describe("codex-service session-backed transcript recovery", () => {
     try {
       const hydration = serviceInternals.hydrateThreadGoalAfterResume(threadId, 0);
       await Promise.resolve();
-      serviceInternals.emitThreadStreamSnapshotFromRecord(threadId, "explicit-resync");
+      serviceInternals.syncDormantConversationFromRecord(threadId, "explicit-resync");
       resolveGoal({
         goal: {
           threadId,
@@ -13275,6 +13456,16 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
                 prompt: string;
                 opts?: { permissionMode?: "auto"; serviceTier?: "fast" };
                 clientUserMessageId?: string;
+                preparedPrompt: {
+                  promptText: string;
+                  inputItems: Array<{ type: "text"; text: string; text_elements: [] }>;
+                  pendingInputItems: Array<{ type: "text"; text: string; text_elements: [] }>;
+                  fileAttachments: [];
+                  addedFiles: [];
+                  pastedTextAttachments: [];
+                  commentAttachments: [];
+                  agentConfigs: [];
+                };
               };
             };
           },
@@ -13321,6 +13512,16 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
                 prompt: "Ship the fix",
                 clientUserMessageId: "client-owner-start",
                 opts: { permissionMode: "auto", serviceTier: "fast" },
+                preparedPrompt: {
+                  promptText: "Ship the fix",
+                  inputItems: [{ type: "text", text: "Ship the fix", text_elements: [] }],
+                  pendingInputItems: [{ type: "text", text: "Ship the fix", text_elements: [] }],
+                  fileAttachments: [],
+                  addedFiles: [],
+                  pastedTextAttachments: [],
+                  commentAttachments: [],
+                  agentConfigs: [],
+                },
               },
             },
           },
@@ -13329,10 +13530,20 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("turn/start");
-        const requestParams = requests[0]?.params as { threadId?: string; serviceTier?: unknown; clientUserMessageId?: unknown } | undefined;
+        const requestParams = requests[0]?.params as {
+          threadId?: string;
+          serviceTier?: unknown;
+          clientUserMessageId?: unknown;
+          input?: unknown;
+        } | undefined;
         expect(requestParams?.threadId).toBe("thr_owner_start");
         expect(requestParams?.serviceTier).toBe("fast");
         expect(requestParams?.clientUserMessageId).toBe("client-owner-start");
+        expect(requestParams?.input).toEqual([{
+          type: "text",
+          text: "Ship the fix",
+          text_elements: [],
+        }]);
         expect(result.turn.id).toBe("turn_prompt");
         expect(result.conversationState === undefined).toBe(true);
         expect(detail?.transcript.length ?? 0).toBe(0);
@@ -13509,7 +13720,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
             conversationId: string;
             request: {
               method: "turn/steer";
-              params: CodexSteerTurnInput;
+              params: TurnSteerParams;
             };
           },
         ) => Promise<unknown>;
@@ -13554,7 +13765,12 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
               params: {
                 threadId: "thr_owner_steer",
                 expectedTurnId: "turn_active",
-                prompt: "Keep going",
+                clientUserMessageId: "client-steer-1",
+                input: [{
+                  type: "text",
+                  text: "Keep going",
+                  text_elements: [],
+                }],
               },
             },
           },
@@ -13563,9 +13779,15 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("turn/steer");
+        expect(requests[0]?.params).toEqual({
+          threadId: "thr_owner_steer",
+          expectedTurnId: "turn_active",
+          clientUserMessageId: "client-steer-1",
+          input: [{ type: "text", text: "Keep going", text_elements: [] }],
+        });
         expect(result?.turnId).toBe("turn_active");
         expect(String(hostMessages.length)).toBe("0");
-        expect(snapshot?.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
+        expect(snapshot?.turns[0]?.items).toEqual([]);
       } finally {
         await service.shutdown();
       }
@@ -25191,14 +25413,14 @@ describe("codex-service approval fallback", () => {
       threadId: string;
       requestIds: Array<string | number>;
       hasUnreadTurn: boolean;
-      emitSourceNullSnapshots: boolean | undefined;
+      syncDormantConversationSnapshots: boolean | undefined;
     }> = [];
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
       requestConversationResume: (
         threadId: string,
-        options?: { emitSourceNullSnapshots?: boolean },
+        options?: { syncDormantConversationSnapshots?: boolean },
       ) => Promise<CodexConversationSnapshot | null>;
       getConversationRecord: (threadId: string) => {
         serverRequests: Array<{ id: string | number }>;
@@ -25217,7 +25439,7 @@ describe("codex-service approval fallback", () => {
         threadId,
         requestIds: record.serverRequests.map((request) => request.id),
         hasUnreadTurn: record.hasUnreadTurn,
-        emitSourceNullSnapshots: options?.emitSourceNullSnapshots,
+        syncDormantConversationSnapshots: options?.syncDormantConversationSnapshots,
       });
       return null;
     };
@@ -25242,7 +25464,7 @@ describe("codex-service approval fallback", () => {
         threadId: "thr_file_approval_resume",
         requestIds: ["file-approval-resume"],
         hasUnreadTurn: true,
-        emitSourceNullSnapshots: false,
+        syncDormantConversationSnapshots: false,
       }));
 
       expect(await serviceInternals.respondToApproval("file-approval-resume", { kind: "file", decision: "decline" })).toBe(true);
@@ -26019,7 +26241,7 @@ describe("codex-service approval fallback", () => {
           hasUnreadTurn: boolean;
           unreadMessageCount?: number;
         };
-        lastBroadcastConversationById: Map<string, CodexConversationSnapshot>;
+        acceptedConversationDocumentById: Map<string, CodexConversationSnapshot>;
         setConversationUnreadState: (targetThreadId: string, hasUnreadTurn: boolean) => boolean;
       };
       const hostMessages: CodexHostMessage[] = [];
@@ -26082,7 +26304,7 @@ describe("codex-service approval fallback", () => {
           },
         })).toBe(true);
         expect(
-          serviceInternals.lastBroadcastConversationById.get(threadId)?.unreadMessageCount,
+          serviceInternals.acceptedConversationDocumentById.get(threadId)?.unreadMessageCount,
         ).toBe(0);
         const correction = hostMessages.at(-1);
         expect(correction?.type).toBe("threadReadStateChanged");
@@ -26345,9 +26567,8 @@ describe("codex-service streaming notification parity", () => {
           },
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_plan_delta_existing");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
 
       await serviceInternals.handleNotification({
         method: "item/plan/delta",
@@ -26367,16 +26588,14 @@ describe("codex-service streaming notification parity", () => {
           delta: " from deltas",
         },
       });
-      await waitForCondition(() => hostMessages.length > 0, 120);
+      await waitForCondition(
+        () => service.serializeConversationSnapshot("thr_plan_delta_existing")
+          ?.turns[0]?.items[0]?.markdownText === "Draft plan from deltas",
+        120,
+      );
 
-      expect(hostMessages.length > 0).toBe(true);
-      const firstHostMessage = hostMessages[0];
-      expect(
-        firstHostMessage?.type === "threadStreamStateChanged"
-          ? firstHostMessage.change.type
-          : "snapshot",
-      ).toBe("patches");
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = service.serializeConversationSnapshot("thr_plan_delta_existing");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Draft plan from deltas");
 
       let planItem = getRecordedItem(
@@ -26453,9 +26672,8 @@ describe("codex-service streaming notification parity", () => {
           },
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_reasoning_delta");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
 
       await serviceInternals.handleNotification({
         method: "item/reasoning/summaryTextDelta",
@@ -26467,16 +26685,14 @@ describe("codex-service streaming notification parity", () => {
           delta: "Thinking",
         },
       });
-      await waitForCondition(() => hostMessages.length > 0, 120);
+      await waitForCondition(
+        () => service.serializeConversationSnapshot("thr_reasoning_delta")
+          ?.turns[0]?.items[0]?.markdownText === "Thinking",
+        120,
+      );
 
-      expect(hostMessages.length > 0).toBe(true);
-      const firstHostMessage = hostMessages[0];
-      expect(
-        firstHostMessage?.type === "threadStreamStateChanged"
-          ? firstHostMessage.change.type
-          : "snapshot",
-      ).toBe("patches");
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = service.serializeConversationSnapshot("thr_reasoning_delta");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Thinking");
       const rawItem = latest?.turns[0]?.items[0]?.rawItem;
       const summary = rawItem && typeof rawItem === "object"
@@ -26485,7 +26701,6 @@ describe("codex-service streaming notification parity", () => {
       expect(Array.isArray(summary)).toBe(true);
       expect(String(summary?.[0] ?? "")).toBe("Thinking");
 
-      hostMessages.length = 0;
       await serviceInternals.handleNotification({
         method: "item/reasoning/textDelta",
         params: {
@@ -26496,9 +26711,16 @@ describe("codex-service streaming notification parity", () => {
           delta: "Private chain",
         },
       });
-      await waitForCondition(() => hostMessages.length > 0, 120);
+      await waitForCondition(() => {
+        const rawItem = service.serializeConversationSnapshot("thr_reasoning_delta")
+          ?.turns[0]?.items[0]?.rawItem;
+        const content = rawItem && typeof rawItem === "object"
+          ? (rawItem as { content?: unknown[] }).content
+          : null;
+        return String(content?.[0] ?? "") === "Private chain";
+      }, 120);
 
-      const contentLatest = projectConversationFromHostMessages(hostMessages, latest);
+      const contentLatest = service.serializeConversationSnapshot("thr_reasoning_delta");
       const contentRawItem = contentLatest?.turns[0]?.items[0]?.rawItem;
       const content = contentRawItem && typeof contentRawItem === "object"
         ? (contentRawItem as { content?: unknown[] }).content
@@ -27535,14 +27757,6 @@ describe("codex-service item lifecycle status fallback", () => {
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
-
       serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
         threadId: "thr_compaction_order",
         initialTurnsPage: {
@@ -27660,7 +27874,7 @@ describe("codex-service item lifecycle status fallback", () => {
 
         await new Promise((resolve) => setTimeout(resolve, 30));
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_compaction_order");
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
         expect(latest?.turns[0]?.items.length).toBe(3);
@@ -27685,14 +27899,6 @@ describe("codex-service item lifecycle status fallback", () => {
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
-
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_compaction_live_order"),
         turns: [{
@@ -27813,7 +28019,7 @@ describe("codex-service item lifecycle status fallback", () => {
         expect(detail?.turns.length).toBe(1);
         expect(detail?.turns[0]?.itemIds.join(",")).toBe("assistant_before,item_context_compaction,tool_after");
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_compaction_live_order");
         expect(latest).not.toBeNull();
         expect(latest?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
           "assistant_before,item_context_compaction,tool_after",
@@ -28069,9 +28275,7 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(raw?.fromModel).toBe("gpt-5.4-codex");
       expect(raw?.toModel).toBe("gpt-5.4-mini");
       expect(raw?.reason).toBe("highRiskCyberActivity");
-      expect(hostMessages.length > 0).toBe(true);
-      const latest = projectConversationFromHostMessages(hostMessages);
-      expect(latest?.turns[0]?.items[0]?.semanticKind).toBe("modelRerouted");
+      expect(hostMessages).toHaveLength(0);
     } finally {
       await service.shutdown();
     }
@@ -29138,9 +29342,8 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_streaming_delta");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -29151,18 +29354,14 @@ describe("codex-service terminal turn reconciliation", () => {
           delta: "hello",
         },
       });
-      await waitForCondition(() => hostMessages.length > 0, 120);
+      await waitForCondition(
+        () => service.serializeConversationSnapshot("thr_streaming_delta")
+          ?.turns[0]?.items[0]?.markdownText === "hello",
+        120,
+      );
 
-      expect(hostMessages.length > 0).toBe(true);
-      const firstHostMessage = hostMessages[0];
-      expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
-      expect(
-        firstHostMessage?.type === "threadStreamStateChanged"
-          ? firstHostMessage.change.type
-          : "snapshot",
-      ).toBe("patches");
-
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = service.serializeConversationSnapshot("thr_streaming_delta");
       expect(latest).not.toBeNull();
       expect(latest?.turns.length).toBe(1);
       expect(latest?.turns[0]?.turnStartedAtMs ?? null).toBe(null);
@@ -29184,14 +29383,6 @@ describe("codex-service terminal turn reconciliation", () => {
         hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
-
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_agent_message_completed"),
         turns: [
@@ -29243,7 +29434,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_agent_message_completed");
         expect(latest).not.toBeNull();
         expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Done");
         expect(latest?.turns[0]?.turnStartedAtMs ?? null).toBe(null);
@@ -29264,14 +29455,6 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
-
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_completion_timestamp_fallback"),
         turns: [
@@ -29301,7 +29484,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_completion_timestamp_fallback");
         expect(latest?.turns[0]?.status).toBe("completed");
         expect(latest?.turns[0]?.turnStartedAtMs).toBe(100);
         expect(latest?.turns[0]?.finalAssistantStartedAtMs).toBe(200);
@@ -29354,9 +29537,12 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_streaming_delta_hot_path");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
+      const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
+        string,
+        CodexConversationSnapshot
+      >;
 
       const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
       let serializeConversationSnapshotCallCount = 0;
@@ -29374,18 +29560,15 @@ describe("codex-service terminal turn reconciliation", () => {
           delta: "hello",
         },
       });
-      await waitForCondition(() => hostMessages.length > 0, 120);
+      await waitForCondition(
+        () => broadcastCache.get("thr_streaming_delta_hot_path")
+          ?.turns[0]?.items[0]?.markdownText === "hello",
+        120,
+      );
 
       expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-      expect(hostMessages.length > 0).toBe(true);
-      const firstHostMessage = hostMessages[0];
-      expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
-      expect(
-        firstHostMessage?.type === "threadStreamStateChanged"
-          ? firstHostMessage.change.type
-          : "snapshot",
-      ).toBe("patches");
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = broadcastCache.get("thr_streaming_delta_hot_path");
       expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
     } finally {
       await service.shutdown();
@@ -29430,9 +29613,12 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_streaming_large_delta");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
+      const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
+        string,
+        CodexConversationSnapshot
+      >;
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -29443,13 +29629,14 @@ describe("codex-service terminal turn reconciliation", () => {
           delta: largeDelta,
         },
       });
-      await waitForCondition(() => hostMessages.length > 0, 180);
+      await waitForCondition(
+        () => broadcastCache.get("thr_streaming_large_delta")
+          ?.turns[0]?.items[0]?.markdownText === largeDelta,
+        180,
+      );
 
-      expect(hostMessages.length).toBe(1);
-      const firstFlush = projectConversationFromHostMessages([hostMessages[0]!], baseConversation);
-      expect(firstFlush?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
-
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = broadcastCache.get("thr_streaming_large_delta");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
     } finally {
       await service.shutdown();
@@ -29516,9 +29703,8 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_streaming_completion_drain");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -29541,14 +29727,8 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
 
-      expect(hostMessages.length > 1).toBe(true);
-      const beforeCompleted = projectConversationFromHostMessages(
-        hostMessages.slice(0, -1),
-        baseConversation,
-      );
-      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
-      expect(beforeCompleted?.turns[0]?.items[0]?.status).toBe("inProgress");
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = service.serializeConversationSnapshot("thr_streaming_completion_drain");
       expect(latest?.turns[0]?.items[0]?.status).toBe("inProgress");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(largeDelta);
       expect(requestAnimationFrameCalled).toBe(false);
@@ -29610,9 +29790,8 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_streaming_short_completion_drain");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -29634,15 +29813,8 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      await waitForCondition(() => hostMessages.length > 1, 240);
-
-      const beforeCompleted = projectConversationFromHostMessages(
-        hostMessages.slice(0, -1),
-        baseConversation,
-      );
-      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(delta);
-      expect(beforeCompleted?.turns[0]?.items[0]?.status).toBe("inProgress");
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = service.serializeConversationSnapshot("thr_streaming_short_completion_drain");
       expect(latest?.turns[0]?.items[0]?.status).toBe("inProgress");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(delta);
     } finally {
@@ -29690,9 +29862,8 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = projectConversationFromHostMessages(hostMessages);
+      const baseConversation = service.serializeConversationSnapshot("thr_streaming_turn_completion_drain");
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -29715,24 +29886,8 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
 
-      let completedMessageIndex = -1;
-      let conversation = baseConversation;
-      for (let index = 0; index < hostMessages.length; index += 1) {
-        conversation = projectConversationFromHostMessages([hostMessages[index]!], conversation);
-        if (conversation?.turns[0]?.status === "completed") {
-          completedMessageIndex = index;
-          break;
-        }
-      }
-
-      expect(completedMessageIndex > 0).toBe(true);
-      const beforeCompleted = projectConversationFromHostMessages(
-        hostMessages.slice(0, completedMessageIndex),
-        baseConversation,
-      );
-      expect(beforeCompleted?.turns[0]?.status).toBe("inProgress");
-      expect(beforeCompleted?.turns[0]?.items[0]?.markdownText).toBe(delta);
-      const latest = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const latest = service.serializeConversationSnapshot("thr_streaming_turn_completion_drain");
       expect(latest?.turns[0]?.status).toBe("completed");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe(delta);
     } finally {
@@ -31261,7 +31416,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_turn_diff_stream");
         expect(latest).not.toBeNull();
         expect(String(latest?.turns[0]?.diff ?? "").includes("+new")).toBe(true);
         expect(latest?.turns[0]?.items.length).toBe(1);
@@ -31317,7 +31472,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_pre_tool_turn_diff");
         const items = latest?.turns[0]?.items ?? [];
         expect(items.length).toBe(0);
         expect(String(latest?.turns[0]?.diff ?? "").includes("+next")).toBe(true);
@@ -31419,7 +31574,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_patch_updated_create");
         expect(latest?.turns[0]?.turnStartedAtMs ?? null).toBe(null);
         expect(latest?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe(12_345);
         const item = latest?.turns[0]?.items[0] ?? null;
@@ -31471,7 +31626,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_patch_updated_empty_add");
         const item = latest?.turns[0]?.items[0] ?? null;
         expect(item).toBeNull();
         expect(latest?.turns[0]?.itemIds.join(",")).toBe("patch_live");
@@ -31540,7 +31695,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_patch_updated_replace");
         const items = latest?.turns[0]?.items ?? [];
         expect(items.length).toBe(1);
         const latestChange = getCodexFileChangeList(items[0]?.fileChange?.changes)[0];
@@ -31792,7 +31947,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_patch_updated_rebind");
         expect(latest?.turns.length ?? 0).toBe(1);
         expect(latest?.turns[0]?.turnId ?? "").toBe("turn_real");
         expect(latest?.turns[0]?.items.map((item) => item.itemId).join(",") ?? "").toBe(
@@ -31844,7 +31999,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_mcp_progress_placeholder");
         expect(latest?.turns.length ?? 0).toBe(1);
         expect(latest?.turns[0]?.turnId ?? "").toBe("turn_mcp_progress_bound");
         expect(latest?.turns[0]?.status ?? "").toBe("inProgress");
@@ -32048,7 +32203,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_completed_patch_batches");
         const turn = latest?.turns[0] ?? null;
         const turnDiff = latest?.turns[0]?.items.find((item) => item.itemId === "turn-diff:turn_completed_patch_batches");
         const rawItem = turnDiff?.rawItem as { unifiedDiff?: string; patchBatches?: unknown[] } | undefined;
@@ -32180,7 +32335,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_diff_fallback");
         const turn = latest?.turns[0] ?? null;
         const turnDiff = latest?.turns[0]?.items.find((item) => item.itemId === "turn-diff:turn_diff_fallback");
         const rawItem = turnDiff?.rawItem as {
@@ -32310,7 +32465,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_empty_diff_patch_fallback");
         const turn = latest?.turns[0] ?? null;
         const turnDiff = turn?.items.find((item) => item.itemId === "turn-diff:turn_empty_diff_patch_fallback");
         const rawItem = turnDiff?.rawItem as { unifiedDiff?: string; patchBatches?: unknown[] } | undefined;
@@ -32380,7 +32535,7 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
 
-        const latest = projectConversationFromHostMessages(hostMessages);
+        const latest = service.serializeConversationSnapshot("thr_empty_diff_no_patch");
         const turn = latest?.turns[0] ?? null;
         const turnDiff = turn?.items.find((item) => item.itemId === "turn-diff:turn_empty_diff_no_patch");
 
@@ -32425,20 +32580,11 @@ describe("codex-service terminal turn reconciliation", () => {
 
       try {
         await service.requestConversationSnapshot("thr_queue_direct_patch");
-        const snapshotMessage = hostMessages[0];
-        expect(
-          snapshotMessage?.type === "threadStreamStateChanged"
-            ? snapshotMessage.change.type
-            : "patches",
-        ).toBe("snapshot");
-        expect(
-          snapshotMessage?.type === "threadStreamStateChanged" &&
-            snapshotMessage.change.type === "snapshot"
-            ? String(snapshotMessage.change.revision)
-            : "missing",
-        ).toBe("1");
-        const initialConversation = service.serializeConversationSnapshot("thr_queue_direct_patch");
-        hostMessages.length = 0;
+        const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
+          string,
+          CodexConversationSnapshot
+        >;
+        expect(hostMessages).toHaveLength(0);
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
         let serializeConversationSnapshotCallCount = 0;
@@ -32450,21 +32596,8 @@ describe("codex-service terminal turn reconciliation", () => {
         await service.enqueueQueuedFollowUpPrompt("thr_queue_direct_patch", "Queue this next");
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBe(true);
-        expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
-        expect(
-          hostMessages[0]?.type === "threadStreamStateChanged"
-            ? hostMessages[0].change.type
-            : "snapshot",
-        ).toBe("patches");
-        expect(
-          hostMessages[0]?.type === "threadStreamStateChanged" &&
-            hostMessages[0].change.type === "patches"
-            ? `${hostMessages[0].change.baseRevision}->${hostMessages[0].change.revision}`
-            : "missing",
-        ).toBe("1->2");
-
-        const latest = projectConversationFromHostMessages(hostMessages, initialConversation);
+        expect(hostMessages).toHaveLength(0);
+        const latest = broadcastCache.get("thr_queue_direct_patch");
         expect(latest).not.toBeNull();
         expect(latest?.queuedFollowUps.length).toBe(1);
         expect(latest?.queuedFollowUps[0]?.prompt).toBe("Queue this next");
@@ -32538,8 +32671,10 @@ describe("codex-service terminal turn reconciliation", () => {
 
       try {
         await service.requestConversationSnapshot("thr_user_input_direct_patch");
-        const initialConversation = service.serializeConversationSnapshot("thr_user_input_direct_patch");
-        hostMessages.length = 0;
+        const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
+          string,
+          CodexConversationSnapshot
+        >;
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
         let serializeConversationSnapshotCallCount = 0;
@@ -32566,15 +32701,8 @@ describe("codex-service terminal turn reconciliation", () => {
         });
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBe(true);
-        expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
-        expect(
-          hostMessages[0]?.type === "threadStreamStateChanged"
-            ? hostMessages[0].change.type
-            : "snapshot",
-        ).toBe("patches");
-
-        const latest = projectConversationFromHostMessages(hostMessages, initialConversation);
+        expect(hostMessages).toHaveLength(0);
+        const latest = broadcastCache.get("thr_user_input_direct_patch");
         expect(latest).not.toBeNull();
         expect(latest?.requests.length).toBe(1);
         expect(latest?.requests[0]?.type).toBe("userInput");
@@ -32621,8 +32749,10 @@ describe("codex-service terminal turn reconciliation", () => {
 
       try {
         await service.requestConversationSnapshot("thr_item_started_direct_patch");
-        const initialConversation = service.serializeConversationSnapshot("thr_item_started_direct_patch");
-        hostMessages.length = 0;
+        const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
+          string,
+          CodexConversationSnapshot
+        >;
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
         let serializeConversationSnapshotCallCount = 0;
@@ -32644,15 +32774,8 @@ describe("codex-service terminal turn reconciliation", () => {
         });
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBe(true);
-        expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
-        expect(
-          hostMessages[0]?.type === "threadStreamStateChanged"
-            ? hostMessages[0].change.type
-            : "snapshot",
-        ).toBe("patches");
-
-        const latest = projectConversationFromHostMessages(hostMessages, initialConversation);
+        expect(hostMessages).toHaveLength(0);
+        const latest = broadcastCache.get("thr_item_started_direct_patch");
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
         expect(latest?.turns[0]?.items.length).toBe(1);
@@ -32688,7 +32811,10 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       const baseConversation = await service.requestConversationSnapshot(threadId);
       expect(baseConversation).not.toBeNull();
-      hostMessages.length = 0;
+      const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
+        string,
+        CodexConversationSnapshot
+      >;
 
       const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
       let serializeConversationSnapshotCallCount = 0;
@@ -32729,11 +32855,8 @@ describe("codex-service terminal turn reconciliation", () => {
       await Promise.resolve();
 
       expect(serializeConversationSnapshotCallCount).toBe(0);
-      expect(hostMessages.length > 0).toBe(true);
-      expect(hostMessages.every((message) =>
-        message.type === "threadStreamStateChanged" && message.change.type === "patches"
-      )).toBe(true);
-      const pendingConversation = projectConversationFromHostMessages(hostMessages, baseConversation);
+      expect(hostMessages).toHaveLength(0);
+      const pendingConversation = broadcastCache.get(threadId);
       expect(JSON.stringify(
         pendingConversation?.canonicalRequests?.map((request) => request.id) ?? [],
       )).toBe(JSON.stringify([701, "702"]));
@@ -32745,7 +32868,6 @@ describe("codex-service terminal turn reconciliation", () => {
         (item) => item.itemId === "mcp-server-elicitation-702",
       )?.status).toBe("inProgress");
 
-      hostMessages.length = 0;
       await serviceInternals.handleNotification({
         method: "serverRequest/resolved",
         params: {
@@ -32761,7 +32883,7 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
 
-      const resolvedConversation = projectConversationFromHostMessages(hostMessages, pendingConversation);
+      const resolvedConversation = broadcastCache.get(threadId);
       expect(serializeConversationSnapshotCallCount).toBe(0);
       expect(resolvedConversation?.canonicalRequests?.length ?? -1).toBe(0);
       expect(resolvedConversation?.hasUnreadTurn).toBe(true);

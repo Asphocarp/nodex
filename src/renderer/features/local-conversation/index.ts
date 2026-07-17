@@ -23,6 +23,7 @@ export {
   useComposerIntent,
   useConversation,
   useConversationCollaborationMode,
+  useConversationStreamRole,
   useConversationSubset,
   useLocalConversationAccount,
   useLocalConversationConnection,

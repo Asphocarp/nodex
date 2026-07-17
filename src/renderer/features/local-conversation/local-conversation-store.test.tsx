@@ -20,6 +20,7 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexAppServerManager as CodexAppServerManagerInstance } from "./local-conversation-store";
 import {
+  applyCodexConversationStateUpdates,
   buildCodexConversationStateUpdates,
 } from "../../../shared/codex-conversation-patches";
 import { createCodexCanonicalHydratedConversationState } from "../../../shared/codex-conversation-state/codex-conversation-state";
@@ -35,12 +36,17 @@ let snapshotByThread: Record<string, CodexConversationSnapshot | null> = {};
 let startThreadForSessionResult: unknown = null;
 let resumeThreadResult: unknown = null;
 let resumeThreadError: Error | null = null;
+let resumeThreadRole: "owner" | "follower" = "owner";
+let resumeThreadOwnerClientId = "renderer-owner";
+let resumeThreadRevision = 0;
 let olderThreadTurnsResult: Promise<CodexConversationSnapshot | null> | CodexConversationSnapshot | null = null;
 let completeThreadTurnsResult: CodexConversationSnapshot | null = null;
 let ownerEditRollbackResult: ThreadRollbackResponse | null = null;
 let ownerTurnStartResult: TurnStartResponse | null = null;
 let ownerTurnStartError: Error | null = null;
 let ownerTurnStartHandler: (() => void) | null = null;
+let ownerTurnStartGate: (() => Promise<void>) | null = null;
+let ownerTurnSteerHandler: ((params: unknown) => unknown | Promise<unknown>) | null = null;
 let followerActionResult: unknown = null;
 let followerActionError: Error | null = null;
 let followerActionHandler: ((input: unknown) => unknown | Promise<unknown>) | null = null;
@@ -118,7 +124,17 @@ vi.mock("./local-conversation-deps", () => ({
       if (resumeThreadError) {
         throw resumeThreadError;
       }
-      return ensureCanonicalResumeFixture(resumeThreadResult);
+      const conversation = ensureCanonicalResumeFixture(await Promise.resolve(resumeThreadResult));
+      return conversation
+        ? resumeThreadRole === "owner"
+          ? { role: "owner", conversation, revision: resumeThreadRevision }
+          : {
+              role: "follower",
+              conversation,
+              revision: resumeThreadRevision,
+              ownerClientId: resumeThreadOwnerClientId,
+            }
+        : null;
     }
 
     if (channel === "codex:model:list") {
@@ -181,6 +197,7 @@ vi.mock("./local-conversation-deps", () => ({
       }
       if (input.request?.method === "turn/start") {
         ownerTurnStartHandler?.();
+        await ownerTurnStartGate?.();
         if (ownerTurnStartError) {
           throw ownerTurnStartError;
         }
@@ -202,6 +219,9 @@ vi.mock("./local-conversation-deps", () => ({
         } satisfies TurnStartResponse;
       }
       if (input.request?.method === "turn/steer") {
+        if (ownerTurnSteerHandler) {
+          return await ownerTurnSteerHandler(input.request.params);
+        }
         return { turnId: input.request.params?.expectedTurnId ?? "turn-steered" };
       }
       if (input.request?.method === "turn/interrupt") {
@@ -1178,7 +1198,7 @@ describe("local-conversation-store", () => {
           conversationState: snapshot,
         },
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -1198,7 +1218,7 @@ describe("local-conversation-store", () => {
           conversationState: snapshot,
         },
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -1234,7 +1254,7 @@ describe("local-conversation-store", () => {
           patches: buildCodexConversationStateUpdates(previousConversation, nextConversation),
         },
         version: 2,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -1288,7 +1308,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
         hostId: "default",
@@ -1300,7 +1320,7 @@ describe("local-conversation-store", () => {
           revision: 2,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
 
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("hello");
@@ -2029,7 +2049,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       dispatchCodexAppServerMessage("thread-stream-state-changed", {
         hostId: "default",
@@ -2041,7 +2061,7 @@ describe("local-conversation-store", () => {
           revision: 2,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await flushAsyncWork();
 
@@ -2170,7 +2190,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await flushAsyncWork();
 
@@ -2347,8 +2367,8 @@ describe("local-conversation-store", () => {
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("owner");
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
-      expect(publishInput?.change?.baseRevision).toBe(2);
-      expect(publishInput?.change?.revision).toBe(3);
+      expect(publishInput?.change?.baseRevision).toBe(1);
+      expect(publishInput?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -2399,11 +2419,15 @@ describe("local-conversation-store", () => {
           conversationState?: CodexConversationSnapshot;
         };
       } | undefined;
+      const pendingRequestReplayIndex = invokeRecords.findIndex((record) =>
+        record.channel === "codex:thread-owner:pending-requests:replay"
+      );
 
       expect(result?.threadId ?? "").toBe("thread-resume-owner");
       expect(releaseIndex >= 0).toBe(true);
       expect(snapshotPublishIndex >= 0).toBe(true);
       expect(releaseIndex < snapshotPublishIndex).toBe(true);
+      expect(snapshotPublishIndex < pendingRequestReplayIndex).toBe(true);
       expect(snapshotPublish?.change?.revision).toBe(1);
       expect(snapshotPublish?.change?.conversationState?.resumeState).toBe("resumed");
       expect(snapshotPublish?.change?.conversationState?.turns[0]?.items[0]?.markdownText).toBe("hydrated");
@@ -2444,6 +2468,99 @@ describe("local-conversation-store", () => {
       expect(patchPublish?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("renderer resume attaches to an accepted owner baseline as a follower", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    resumeThreadRole = "follower";
+    resumeThreadOwnerClientId = "renderer-existing-owner";
+    resumeThreadRevision = 12;
+    resumeThreadResult = buildConversation("thread-resume-follower", "project-1");
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const result = await manager.requestThreadStreamResume("thread-resume-follower");
+
+      expect(result?.threadId).toBe("thread-resume-follower");
+      expect(manager.readConversationStreamRole("thread-resume-follower")).toBe("follower");
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread:resume-buffer:release"
+      )).toBe(false);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )).toBe(false);
+      expect(invokeRecords.some((record) =>
+        record.channel === "codex:thread-owner:pending-requests:replay"
+      )).toBe(false);
+    } finally {
+      resumeThreadRole = "owner";
+      resumeThreadOwnerClientId = "renderer-owner";
+      resumeThreadRevision = 0;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner publication strips renderer-private authorization overlays from the shared document", async () => {
+    invokeRecords = [];
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    const localView: CodexConversationSnapshot = {
+      ...buildConversation("thread-private-overlay", "project-1"),
+      requests: [{
+        type: "nodexAgentAuthorization",
+        requestId: "nodex-auth-private",
+        projectId: "project-1",
+        threadId: "thread-private-overlay",
+        turnId: "turn-1",
+        itemId: "tool-1",
+        tool: "update_page",
+        effect: "write",
+        preview: {
+          title: "Update Page",
+          summary: "Append one block.",
+          details: [],
+        },
+        createdAt: 1,
+      }],
+    };
+
+    try {
+      const accepted = await (
+        manager as unknown as {
+          dispatchOwnerStreamSnapshot: (
+            conversationId: string,
+            revision: number,
+            conversation: CodexConversationSnapshot,
+          ) => Promise<boolean>;
+        }
+      ).dispatchOwnerStreamSnapshot("thread-private-overlay", 1, localView);
+      const publish = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:stream-state:publish"
+      )?.args[0] as {
+        change?: { type?: string; conversationState?: CodexConversationSnapshot };
+      } | undefined;
+
+      expect(accepted).toBe(true);
+      expect(localView.requests).toHaveLength(1);
+      expect(publish?.change?.type).toBe("snapshot");
+      expect(publish?.change?.conversationState?.requests).toEqual([]);
+    } finally {
       manager.destroy();
     }
   });
@@ -2551,7 +2668,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: parentConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await flushAsyncWork();
 
@@ -2591,7 +2708,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: buildConversation("thread-parent", "project-1"),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await flushAsyncWork();
 
@@ -2663,7 +2780,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
 
       let threw = false;
@@ -2766,8 +2883,8 @@ describe("local-conversation-store", () => {
       expect(publishInput?.conversationId).toBe("thread-1");
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
-      expect(publishInput?.change?.baseRevision).toBe(2);
-      expect(publishInput?.change?.revision).toBe(3);
+      expect(publishInput?.change?.baseRevision).toBe(1);
+      expect(publishInput?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -3199,8 +3316,8 @@ describe("local-conversation-store", () => {
       expect(conversation?.canonicalState?.sidecar.completedThreadGoal?.status ?? "").toBe("complete");
       expect(String(publishRecords.length)).toBe("3");
       expect(firstPublish?.ownerNotificationSequence).toBe(1);
-      expect(firstPublish?.change?.baseRevision).toBe(2);
-      expect(firstPublish?.change?.revision).toBe(3);
+      expect(firstPublish?.change?.baseRevision).toBe(1);
+      expect(firstPublish?.change?.revision).toBe(2);
       expect(JSON.stringify(acknowledgedSequences)).toBe(JSON.stringify([3]));
       expect(clearRecord !== undefined).toBe(true);
     } finally {
@@ -3316,11 +3433,11 @@ describe("local-conversation-store", () => {
       } | undefined;
       expect(String(publishRecords.length)).toBe("2");
       expect(firstPublish?.ownerNotificationSequence).toBe(1);
-      expect(firstPublish?.change?.baseRevision).toBe(2);
-      expect(firstPublish?.change?.revision).toBe(3);
+      expect(firstPublish?.change?.baseRevision).toBe(1);
+      expect(firstPublish?.change?.revision).toBe(2);
       expect(secondPublish?.ownerNotificationSequence).toBe(2);
-      expect(secondPublish?.change?.baseRevision).toBe(3);
-      expect(secondPublish?.change?.revision).toBe(4);
+      expect(secondPublish?.change?.baseRevision).toBe(2);
+      expect(secondPublish?.change?.revision).toBe(3);
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.status).toBe("inProgress");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("done");
       expect(
@@ -4067,12 +4184,12 @@ describe("local-conversation-store", () => {
       expect(String(publishRecords.length)).toBe("2");
       expect(firstPublish?.ownerNotificationSequence).toBe(1);
       expect(firstPublish?.change?.type).toBe("patches");
-      expect(firstPublish?.change?.baseRevision).toBe(2);
-      expect(firstPublish?.change?.revision).toBe(3);
+      expect(firstPublish?.change?.baseRevision).toBe(1);
+      expect(firstPublish?.change?.revision).toBe(2);
       expect(secondPublish?.ownerNotificationSequence).toBe(2);
       expect(secondPublish?.change?.type).toBe("patches");
-      expect(secondPublish?.change?.baseRevision).toBe(3);
-      expect(secondPublish?.change?.revision).toBe(4);
+      expect(secondPublish?.change?.baseRevision).toBe(2);
+      expect(secondPublish?.change?.revision).toBe(3);
       expect(manager.readConversation("thread-1")?.statusType).toBe("idle");
       expect(manager.readConversation("thread-1")?.turns[0]?.status).toBe("completed");
       expect(manager.readConversation("thread-1")?.turns[0]?.durationMs).toBe(42);
@@ -4152,8 +4269,8 @@ describe("local-conversation-store", () => {
       expect(manager.readConversation("thread-1")?.canonicalState?.protocol.status.type).toBe("active");
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
-      expect(publishInput?.change?.baseRevision).toBe(2);
-      expect(publishInput?.change?.revision).toBe(3);
+      expect(publishInput?.change?.baseRevision).toBe(1);
+      expect(publishInput?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -4230,8 +4347,8 @@ describe("local-conversation-store", () => {
       expect(manager.readConversation("thread-1")?.updatedAt).toBe(beforeUpdatedAt);
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
-      expect(publishInput?.change?.baseRevision).toBe(2);
-      expect(publishInput?.change?.revision).toBe(3);
+      expect(publishInput?.change?.baseRevision).toBe(1);
+      expect(publishInput?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -4407,7 +4524,7 @@ describe("local-conversation-store", () => {
       expect(String(publishRecords.length)).toBe("2");
       expect(lastPublish?.ownerNotificationSequence).toBe(3);
       expect(lastPublish?.change?.type).toBe("patches");
-      expect(lastPublish?.change?.revision).toBe(4);
+      expect(lastPublish?.change?.revision).toBe(3);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -4523,8 +4640,8 @@ describe("local-conversation-store", () => {
       expect(String(conversation?.canonicalState?.turns.length ?? -1)).toBe("1");
       expect(publishInput?.ownerNotificationSequence).toBe(1);
       expect(publishInput?.change?.type).toBe("patches");
-      expect(publishInput?.change?.baseRevision).toBe(2);
-      expect(publishInput?.change?.revision).toBe(3);
+      expect(publishInput?.change?.baseRevision).toBe(1);
+      expect(publishInput?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -5364,7 +5481,7 @@ describe("local-conversation-store", () => {
           conversationId: threadId,
           version: 1,
           change: { type: "snapshot", revision: 1, conversationState: conversation },
-          sourceClientId: null,
+          sourceClientId: "test-owner",
         });
         await manager.requestThreadStreamResume(threadId);
         dispatchCodexAppServerMessage("thread-owner-request", {
@@ -5568,7 +5685,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await manager.requestThreadStreamResume(input.threadId);
 
@@ -5684,7 +5801,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: conversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await manager.requestThreadStreamResume(threadId);
       invokeRecords = [];
@@ -5903,7 +6020,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await manager.requestThreadStreamResume("thread-1");
       const before = manager.readConversation("thread-1");
@@ -5978,7 +6095,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await manager.requestThreadStreamResume("thread-dynamic");
       invokeRecords = [];
@@ -6075,7 +6192,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await manager.requestThreadStreamResume(threadId);
       invokeRecords = [];
@@ -6424,7 +6541,7 @@ describe("local-conversation-store", () => {
             unreadMessageCount: 3,
           },
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       invokeRecords = [];
 
@@ -6519,7 +6636,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await manager.requestThreadStreamResume(threadId);
       ownerStreamPublishHandler = (input) => {
@@ -6683,8 +6800,8 @@ describe("local-conversation-store", () => {
       expect(String(publishRecords.length)).toBe("1");
       expect(publish?.ownerNotificationSequence).toBe(1);
       expect(publish?.change?.type).toBe("patches");
-      expect(publish?.change?.baseRevision).toBe(2);
-      expect(publish?.change?.revision).toBe(3);
+      expect(publish?.change?.baseRevision).toBe(1);
+      expect(publish?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -6812,8 +6929,8 @@ describe("local-conversation-store", () => {
       expect(String(publishRecords.length)).toBe("2");
       expect(lastPublish?.ownerNotificationSequence).toBe(2);
       expect(lastPublish?.change?.type).toBe("patches");
-      expect(lastPublish?.change?.baseRevision).toBe(3);
-      expect(lastPublish?.change?.revision).toBe(4);
+      expect(lastPublish?.change?.baseRevision).toBe(2);
+      expect(lastPublish?.change?.revision).toBe(3);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -6959,8 +7076,8 @@ describe("local-conversation-store", () => {
       expect(String(publishRecords.length)).toBe("2");
       expect(lastPublish?.ownerNotificationSequence).toBe(2);
       expect(lastPublish?.change?.type).toBe("patches");
-      expect(lastPublish?.change?.baseRevision).toBe(3);
-      expect(lastPublish?.change?.revision).toBe(4);
+      expect(lastPublish?.change?.baseRevision).toBe(2);
+      expect(lastPublish?.change?.revision).toBe(3);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -7068,8 +7185,8 @@ describe("local-conversation-store", () => {
       expect(String(publishRecords.length)).toBe("1");
       expect(publish?.ownerNotificationSequence).toBe(2);
       expect(publish?.change?.type).toBe("patches");
-      expect(publish?.change?.baseRevision).toBe(2);
-      expect(publish?.change?.revision).toBe(3);
+      expect(publish?.change?.baseRevision).toBe(1);
+      expect(publish?.change?.revision).toBe(2);
     } finally {
       resumeThreadResult = null;
       manager.destroy();
@@ -7416,8 +7533,8 @@ describe("local-conversation-store", () => {
       expect(String(publishInputs.length)).toBe("2");
       expect(secondPublish?.ownerNotificationSequence).toBe(2);
       expect(secondPublish?.change?.type).toBe("patches");
-      expect(secondPublish?.change?.baseRevision).toBe(3);
-      expect(secondPublish?.change?.revision).toBe(4);
+      expect(secondPublish?.change?.baseRevision).toBe(2);
+      expect(secondPublish?.change?.revision).toBe(3);
     } finally {
       ownerStreamPublishHandler = null;
       if (browserWindow) {
@@ -10967,13 +11084,13 @@ describe("local-conversation-store", () => {
       const publishInput = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       )?.args[0] as {
-        change?: { type?: string; revision?: number; conversationState?: CodexConversationSnapshot };
+        change?: { type?: string; revision?: number; patches?: CodexConversationStateUpdate[] };
       } | undefined;
       expect(String(conversation?.queuedFollowUps.length ?? -1)).toBe("1");
       expect(conversation?.queuedFollowUps[0]?.prompt).toBe("first queued prompt");
       expect(conversation?.queuedFollowUps[0]?.serviceTier).toBe("fast");
-      expect(publishInput?.change?.type).toBe("snapshot");
-      expect(String(publishInput?.change?.conversationState?.queuedFollowUps.length ?? -1)).toBe("1");
+      expect(publishInput?.change?.type).toBe("patches");
+      expect((publishInput?.change?.patches?.length ?? 0) > 0).toBe(true);
       expect(invokeRecords.some((record) => record.channel === "codex:thread:follow-up:enqueue")).toBe(false);
     } finally {
       resumeThreadResult = null;
@@ -11127,6 +11244,146 @@ describe("local-conversation-store", () => {
     }
   });
 
+  test("source-null steer resumes into renderer ownership instead of using the legacy writer", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    const sourceNullConversation = withCanonicalState({
+      ...buildConversation("thread-1", "project-1"),
+      statusType: "active",
+      turns: [{
+        threadId: "thread-1",
+        turnId: "turn-active",
+        status: "inProgress",
+        itemIds: [],
+        items: [],
+      }],
+    });
+    resumeThreadResult = sourceNullConversation;
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const { dispatchCodexAppServerMessage } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: sourceNullConversation,
+        },
+        sourceClientId: null,
+      });
+      invokeRecords = [];
+
+      await manager.steerTurn({
+        threadId: "thread-1",
+        expectedTurnId: "turn-active",
+        prompt: "Continue now",
+      });
+
+      const channels = invokeRecords.map((record) => record.channel);
+      const resumeIndex = channels.indexOf("codex:thread:resume:request");
+      const steerIndex = invokeRecords.findIndex((record) =>
+        record.channel === "codex:thread-owner:app-server-request"
+        && (record.args[0] as { request?: { method?: string } }).request?.method === "turn/steer"
+      );
+      expect(resumeIndex).toBeGreaterThanOrEqual(0);
+      expect(steerIndex).toBeGreaterThan(resumeIndex);
+      expect(channels.includes("codex:turn:steer")).toBe(false);
+      expect(manager.getThreadRoleForRendererClientRequest("thread-1")).toBe("owner");
+    } finally {
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner start is visible before transport or publication settles", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [],
+    };
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+      const startDeferred: { resolve?: () => void } = {};
+      ownerTurnStartGate = () => new Promise<void>((resolve) => {
+        startDeferred.resolve = resolve;
+      });
+      const publishDeferred: { resolve?: (accepted: boolean) => void } = {};
+      let publishCount = 0;
+      ownerStreamPublishHandler = () => {
+        publishCount += 1;
+        if (publishCount > 1) return true;
+        return new Promise<boolean>((resolve) => {
+          publishDeferred.resolve = resolve;
+        });
+      };
+
+      const startPromise = manager.startTurn("thread-1", "Visible immediately", {
+        permissionMode: "auto",
+      });
+      await flushAsyncWork(3);
+
+      const optimistic = manager.readConversation("thread-1")?.turns[0];
+      const startRequest = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:app-server-request"
+        && (record.args[0] as { request?: { method?: string } }).request?.method === "turn/start"
+      )?.args[0] as {
+        request?: {
+          params?: {
+            clientUserMessageId?: string;
+            preparedPrompt?: { inputItems?: unknown[] };
+          };
+        };
+      } | undefined;
+      const optimisticUser = optimistic?.items.find((item) => item.semanticKind === "userMessage");
+      expect(optimisticUser?.markdownText).toBe("Visible immediately");
+      expect(startRequest?.request?.params?.preparedPrompt?.inputItems).toEqual([{
+        type: "text",
+        text: "Visible immediately",
+        text_elements: [],
+      }]);
+      expect(startRequest?.request?.params?.clientUserMessageId).toBe(
+        optimisticUser?.rawItem && typeof optimisticUser.rawItem === "object"
+          ? (optimisticUser.rawItem as { clientId?: string }).clientId
+          : undefined,
+      );
+
+      if (!startDeferred.resolve || !publishDeferred.resolve) {
+        throw new Error("Expected deferred owner start and publication");
+      }
+      startDeferred.resolve();
+      publishDeferred.resolve(true);
+      await startPromise;
+    } finally {
+      ownerTurnStartGate = null;
+      ownerStreamPublishHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
   test("owner start turn publishes params-owned user row snapshot from bundle 49055-49112", async () => {
     invokeCalls = [];
     invokeRecords = [];
@@ -11147,6 +11404,8 @@ describe("local-conversation-store", () => {
     const manager = new CodexAppServerManager("default");
     try {
       await manager.requestThreadStreamResume("thread-1");
+      const beforeStart = manager.readConversation("thread-1");
+      if (!beforeStart) throw new Error("Expected owner conversation before start");
       invokeRecords = [];
 
       const result = await manager.startTurn("thread-1", "Continue", { permissionMode: "auto" }) as {
@@ -11157,35 +11416,44 @@ describe("local-conversation-store", () => {
       const publishInput = invokeRecords.find((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
       )?.args[0] as {
-        change?: { type?: string; revision?: number; conversationState?: CodexConversationSnapshot };
+        change?: { type?: string; revision?: number; patches?: CodexConversationStateUpdate[] };
       } | undefined;
       const publishInputs = invokeRecords
         .filter((record) => record.channel === "codex:thread-owner:stream-state:publish")
         .map((record) => record.args[0] as {
-          change?: { type?: string; revision?: number; conversationState?: CodexConversationSnapshot };
+          change?: {
+            type?: string;
+            revision?: number;
+            patches?: CodexConversationStateUpdate[];
+            conversationState?: CodexConversationSnapshot;
+          };
         });
-      const userItem = publishInput?.change?.conversationState?.turns[0]?.items[0];
+      const optimistic = applyCodexConversationStateUpdates(
+        beforeStart,
+        publishInput?.change?.patches ?? [],
+      );
+      const rebound = applyCodexConversationStateUpdates(
+        optimistic,
+        publishInputs[1]?.change?.patches ?? [],
+      );
+      const userItem = optimistic.turns[0]?.items[0];
       expect(result?.turnId).toBe("turn-owner-start");
       expect(result?.streamRevision).toBe(3);
-      expect(publishInput?.change?.type).toBe("snapshot");
+      expect(publishInput?.change?.type).toBe("patches");
       expect(publishInput?.change?.revision).toBe(2);
       expect(userItem?.kind).toBe("userMessage");
       expect(userItem?.markdownText).toBe("Continue");
-      expect(publishInput?.change?.conversationState?.turns[0]?.turnId).toBe(null);
-      expect(publishInput?.change?.conversationState?.canonicalState?.turns[0]?.protocol.id)
-        .toBe(null);
+      expect(optimistic.turns[0]?.turnId).toBe(null);
+      expect(optimistic.canonicalState?.turns[0]?.protocol.id).toBe(null);
       expect(
-        publishInput?.change?.conversationState?.canonicalState?.turns[0]?.sidecar.params
-          .clientUserMessageId,
+        optimistic.canonicalState?.turns[0]?.sidecar.params.clientUserMessageId,
       ).toBe(userItem?.rawItem && typeof userItem.rawItem === "object"
         ? (userItem.rawItem as { clientId?: string }).clientId
         : undefined);
       expect(publishInputs[1]?.change?.revision).toBe(3);
-      expect(publishInputs[1]?.change?.conversationState?.turns[0]?.turnId).toBe("turn-owner-start");
-      expect(publishInputs[1]?.change?.conversationState?.updatedAt)
-        .toBe(publishInputs[0]?.change?.conversationState?.updatedAt);
-      expect(publishInputs[1]?.change?.conversationState?.canonicalState?.turns[0]?.protocol.id)
-        .toBe("turn-owner-start");
+      expect(rebound.turns[0]?.turnId).toBe("turn-owner-start");
+      expect(rebound.updatedAt).toBe(optimistic.updatedAt);
+      expect(rebound.canonicalState?.turns[0]?.protocol.id).toBe("turn-owner-start");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.itemId)
         .toBe("turn-owner-start:input");
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("Continue");
@@ -11445,6 +11713,8 @@ describe("local-conversation-store", () => {
     const manager = new CodexAppServerManager("default");
     try {
       await manager.requestThreadStreamResume("thread-1");
+      const beforeStart = manager.readConversation("thread-1");
+      if (!beforeStart) throw new Error("Expected owner conversation before failed start");
       invokeRecords = [];
 
       let caught: unknown = null;
@@ -11457,9 +11727,12 @@ describe("local-conversation-store", () => {
       const publishInputs = invokeRecords
         .filter((record) => record.channel === "codex:thread-owner:stream-state:publish")
         .map((record) => record.args[0] as {
-          change?: { conversationState?: CodexConversationSnapshot };
+          change?: { patches?: CodexConversationStateUpdate[] };
         });
-      const optimistic = publishInputs[0]?.change?.conversationState;
+      const optimistic = applyCodexConversationStateUpdates(
+        beforeStart,
+        publishInputs[0]?.change?.patches ?? [],
+      );
       const failed = manager.readConversation("thread-1");
       const failedItem = failed?.turns[0]?.items.find((item) => item.type === "error");
 
@@ -11569,12 +11842,13 @@ describe("local-conversation-store", () => {
         (record.args[0] as { request?: { method?: string } }).request?.method === "turn/start"
       );
       const publishInput = invokeRecords[publishIndex]?.args[0] as {
-        change?: { type?: string; conversationState?: CodexConversationSnapshot };
+        change?: { type?: string; patches?: CodexConversationStateUpdate[] };
       } | undefined;
       expect(String(manager.readConversation("thread-1")?.queuedFollowUps.length ?? -1)).toBe("0");
       expect(publishIndex >= 0).toBe(true);
       expect(startIndex > publishIndex).toBe(true);
-      expect(String(publishInput?.change?.conversationState?.queuedFollowUps.length ?? -1)).toBe("0");
+      expect(publishInput?.change?.type).toBe("patches");
+      expect((publishInput?.change?.patches?.length ?? 0) > 0).toBe(true);
       expect(invokeRecords.some((record) => record.channel === "codex:thread:follow-up:send-now")).toBe(false);
     } finally {
       resumeThreadResult = null;
@@ -11582,7 +11856,7 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("owner steer publishes pending state around facade turn steer", async () => {
+  test("owner steer is visible before transport or publication settles", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
@@ -11610,38 +11884,155 @@ describe("local-conversation-store", () => {
       await manager.requestThreadStreamResume("thread-1");
       invokeRecords = [];
 
-      const result = await manager.steerTurn({
+      const publishDeferred: { resolve?: (accepted: boolean) => void } = {};
+      let publishCount = 0;
+      ownerStreamPublishHandler = () => {
+        publishCount += 1;
+        if (publishCount > 1) return true;
+        return new Promise<boolean>((resolve) => {
+          publishDeferred.resolve = resolve;
+        });
+      };
+      const steerDeferred: { resolve?: (result: { turnId: string }) => void } = {};
+      const exactSteerParams: Array<{
+        expectedTurnId?: string;
+        clientUserMessageId?: string | null;
+        input?: unknown[];
+      }> = [];
+      ownerTurnSteerHandler = (params) => {
+        exactSteerParams.push(params as typeof exactSteerParams[number]);
+        return new Promise<{ turnId: string }>((resolve) => {
+          steerDeferred.resolve = resolve;
+        });
+      };
+
+      const steerPromise = manager.steerTurn({
         threadId: "thread-1",
         prompt: "adjust the active turn",
       });
+      await flushAsyncWork(3);
 
-      const publishInputs = invokeRecords
-        .filter((record) => record.channel === "codex:thread-owner:stream-state:publish")
-        .map((record) => record.args[0] as {
-          change?: { type?: string; conversationState?: CodexConversationSnapshot };
-        });
-      const steerIndex = invokeRecords.findIndex((record) =>
+      const optimisticConversation = manager.readConversation("thread-1");
+      const optimisticSteer = optimisticConversation?.turns[0]?.items.find(
+        (item) => item.steeringStatus === "pending",
+      );
+      expect(optimisticConversation?.pendingSteers).toHaveLength(1);
+      expect(optimisticSteer?.markdownText).toBe("adjust the active turn");
+      expect(exactSteerParams[0]?.expectedTurnId).toBe("turn-active");
+      expect(exactSteerParams[0]?.input).toEqual([{
+        type: "text",
+        text: "adjust the active turn",
+        text_elements: [],
+      }]);
+      expect(exactSteerParams[0]?.clientUserMessageId).toBe(
+        optimisticConversation?.pendingSteers[0]?.steerId,
+      );
+      expect(invokeRecords.some((record) =>
         record.channel === "codex:thread-owner:app-server-request" &&
         (record.args[0] as { request?: { method?: string } }).request?.method === "turn/steer"
-      );
-      const firstPublishIndex = invokeRecords.findIndex((record) =>
+      )).toBe(true);
+      expect(invokeRecords.some((record) =>
         record.channel === "codex:thread-owner:stream-state:publish"
-      );
+      )).toBe(true);
+
+      if (!steerDeferred.resolve || !publishDeferred.resolve) {
+        throw new Error("Expected deferred owner steer and publication");
+      }
+      steerDeferred.resolve({ turnId: "turn-active" });
+      publishDeferred.resolve(true);
+      const result = await steerPromise;
+      await flushAsyncWork(2);
+
       expect(result?.turnId).toBe("turn-active");
       expect(String(manager.readConversation("thread-1")?.pendingSteers.length ?? -1)).toBe("0");
-      expect(String(publishInputs.length)).toBe("2");
-      expect(String(publishInputs[0]?.change?.conversationState?.pendingSteers.length ?? -1)).toBe("1");
-      expect(String(publishInputs[1]?.change?.conversationState?.pendingSteers.length ?? -1)).toBe("0");
       expect(
-        publishInputs[0]?.change?.conversationState?.canonicalState?.turns[0]?.items.at(-1)?.type,
+        manager.readConversation("thread-1")?.canonicalState?.turns[0]?.items.at(-1)?.type,
       ).toBe("steeringUserMessage");
-      expect(
-        publishInputs[1]?.change?.conversationState?.canonicalState?.turns[0]?.items.at(-1)?.type,
-      ).toBe("steeringUserMessage");
-      expect(firstPublishIndex >= 0).toBe(true);
-      expect(steerIndex > firstPublishIndex).toBe(true);
       expect(invokeRecords.some((record) => record.channel === "codex:turn:steer")).toBe(false);
     } finally {
+      ownerTurnSteerHandler = null;
+      ownerStreamPublishHandler = null;
+      resumeThreadResult = null;
+      manager.destroy();
+    }
+  });
+
+  test("owner steer retargets and retries once without changing prepared identity", async () => {
+    invokeCalls = [];
+    invokeRecords = [];
+    hostMessageListener = null;
+    rendererClientRequestListener = null;
+    threadListByProject = {};
+    resumeThreadResult = withCanonicalState({
+      ...buildConversation("thread-1", "project-1"),
+      statusType: "active",
+      turns: [
+        {
+          threadId: "thread-1",
+          turnId: "turn-stale",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+          turnStartedAtMs: 10,
+        },
+        {
+          threadId: "thread-1",
+          turnId: "turn-actual",
+          status: "inProgress",
+          itemIds: [],
+          items: [],
+          turnStartedAtMs: 20,
+        },
+      ],
+    });
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      await manager.requestThreadStreamResume("thread-1");
+      invokeRecords = [];
+      const requests: Array<{
+        expectedTurnId?: string;
+        clientUserMessageId?: string | null;
+        input?: unknown[];
+      }> = [];
+      ownerTurnSteerHandler = (params) => {
+        requests.push(params as typeof requests[number]);
+        if (requests.length === 1) {
+          throw new Error("expected active turn id `turn-stale` but found `turn-actual`");
+        }
+        return { turnId: "turn-actual" };
+      };
+
+      const result = await manager.steerTurn({
+        threadId: "thread-1",
+        expectedTurnId: "turn-stale",
+        prompt: "same prepared steer",
+      });
+
+      expect(result?.turnId).toBe("turn-actual");
+      expect(requests.map((request) => request.expectedTurnId)).toEqual([
+        "turn-stale",
+        "turn-actual",
+      ]);
+      expect(requests[1]?.clientUserMessageId).toBe(requests[0]?.clientUserMessageId);
+      expect(requests[1]?.input).toEqual(requests[0]?.input);
+      const canonicalTurns = manager.readConversation("thread-1")?.canonicalState?.turns ?? [];
+      expect(canonicalTurns[0]?.items.some(
+        (item) => item.type === "steeringUserMessage",
+      )).toBe(false);
+      expect(canonicalTurns[1]?.items.find(
+        (item) => item.type === "steeringUserMessage",
+      )).toMatchObject({
+        clientUserMessageId: requests[0]?.clientUserMessageId,
+        targetTurnId: "turn-actual",
+      });
+    } finally {
+      ownerTurnSteerHandler = null;
       resumeThreadResult = null;
       manager.destroy();
     }
@@ -12636,7 +13027,7 @@ describe("local-conversation-store", () => {
       const publishedSnapshot = (invokeRecords[publishIndex]?.args[0] as {
         change?: {
           type?: string;
-          conversationState?: CodexConversationSnapshot;
+          patches?: CodexConversationStateUpdate[];
         };
       } | undefined)?.change;
 
@@ -12662,8 +13053,8 @@ describe("local-conversation-store", () => {
         record.channel === "codex:thread:plan-implementation:remove"
       )).toBe(true);
       expect(publishIndex >= 0).toBe(true);
-      expect(publishedSnapshot?.type).toBe("snapshot");
-      expect(String(publishedSnapshot?.conversationState?.canonicalRequests?.length ?? -1)).toBe("0");
+      expect(publishedSnapshot?.type).toBe("patches");
+      expect((publishedSnapshot?.patches?.length ?? 0) > 0).toBe(true);
       expect(mainSyncIndex > publishIndex).toBe(true);
       expect(invokeRecords.some((record) => record.channel === "codex:thread-follower:action")).toBe(false);
     } finally {
@@ -12818,7 +13209,7 @@ describe("local-conversation-store", () => {
       await flushAsyncWork();
 
       expect(manager.readConversation("thread-1")?.resumeState).toBe("needs_resume");
-      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("canonical fallback");
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.markdownText).toBe("working");
       expect(invokeRecords.some((record) =>
         record.channel === "codex:thread:snapshot:request" &&
         record.args[0] === "thread-1"
@@ -13360,7 +13751,7 @@ describe("local-conversation-store", () => {
         revision: 1,
         conversationState: mainOwnedConversation,
       },
-      sourceClientId: null,
+      sourceClientId: "test-owner",
     });
     await flushAsyncWork();
     invokeRecords = [];
@@ -13408,7 +13799,7 @@ describe("local-conversation-store", () => {
           threadName: "Main-owned update",
         },
       },
-      sourceClientId: null,
+      sourceClientId: "test-owner",
     });
     await flushAsyncWork();
     expect(activeManager.readConversation("thread-1")?.requests.some(
@@ -13484,7 +13875,7 @@ describe("local-conversation-store", () => {
           }],
         },
       },
-      sourceClientId: null,
+      sourceClientId: "test-owner",
     });
     await waitForCondition(() => invokeRecords.some((record) =>
       record.channel === "codex:renderer-client:response"
@@ -14110,13 +14501,14 @@ describe("local-conversation-store", () => {
     }
   });
 
-  test("direct thread goal status updates use protocol-shaped IPC params", async () => {
+  test("no-role thread goal status updates adopt an owner and use protocol-shaped params", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
     rendererClientRequestListener = null;
     threadListByProject = {};
     followerActionResult = null;
+    resumeThreadResult = buildConversation("thread-standalone", "project-1");
     const {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
@@ -14129,14 +14521,21 @@ describe("local-conversation-store", () => {
         threadId: "thread-standalone",
         status: "paused",
       });
-      const goalRecord = invokeRecords.find((record) => record.channel === "codex:thread:goal:set");
-      const params = goalRecord?.args[0] as { threadId?: string; objective?: unknown; status?: unknown } | undefined;
+      const goalRecord = invokeRecords.find((record) =>
+        record.channel === "codex:thread-owner:app-server-request" &&
+        (record.args[0] as { request?: { method?: string } }).request?.method === "thread/goal/set"
+      );
+      const params = (goalRecord?.args[0] as {
+        request?: { params?: { threadId?: string; objective?: unknown; status?: unknown } };
+      } | undefined)?.request?.params;
 
-      expect(goalRecord?.args.length).toBe(1);
       expect(params?.threadId).toBe("thread-standalone");
       expect(params?.status).toBe("paused");
       expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBe(false);
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:resume:request")).toBe(true);
+      expect(invokeRecords.some((record) => record.channel === "codex:thread:goal:set")).toBe(false);
     } finally {
+      resumeThreadResult = null;
       manager.destroy();
     }
   });
@@ -15076,9 +15475,9 @@ describe("local-conversation-store", () => {
       expect(resumeIndex >= 0).toBe(true);
       expect(rollbackIndex > resumeIndex).toBe(true);
       expect(startIndex > rollbackIndex).toBe(true);
-      expect(publishInputs[0]?.change?.revision).toBe(2);
-      expect(publishInputs.at(-1)?.change?.revision).toBe(5);
-      expect(result.streamRevision).toBe(5);
+      expect(publishInputs[0]?.change?.revision).toBe(1);
+      expect(publishInputs.at(-1)?.change?.revision).toBe(4);
+      expect(result.streamRevision).toBe(4);
       expect(manager.getThreadRoleForRendererClientRequest("thread-1")).toBe("owner");
       expect(manager.readConversation("thread-1")?.turns.at(-1)?.items[0]?.markdownText).toBe("Rewrite latest prompt");
     } finally {
@@ -15133,6 +15532,8 @@ describe("local-conversation-store", () => {
       ownerEditRollbackResult = buildRollbackResponseFromConversation(rollbackConversation);
 
       await manager.requestThreadStreamResume("thread-1");
+      const beforeEdit = manager.readConversation("thread-1");
+      if (!beforeEdit) throw new Error("Expected owner conversation before edit");
       invokeRecords = [];
 
       const result = await manager.editLastUserTurn("thread-1", "turn-latest", "Rewrite latest prompt");
@@ -15151,12 +15552,26 @@ describe("local-conversation-store", () => {
       const publishInputs = invokeRecords
         .filter((record) => record.channel === "codex:thread-owner:stream-state:publish")
         .map((record) => record.args[0] as {
-          change?: { type?: string; revision?: number; conversationState?: CodexConversationSnapshot };
+          change?: {
+            type?: string;
+            revision?: number;
+            patches?: CodexConversationStateUpdate[];
+            conversationState?: CodexConversationSnapshot;
+          };
         });
       const publishInput = publishInputs[0];
       const optimisticPublishInput = publishInputs[1];
       const rebindPublishInput = publishInputs[2];
-      const replacementTurn = optimisticPublishInput?.change?.conversationState?.turns.at(-1);
+      const rolledBack = publishInput?.change?.conversationState ?? beforeEdit;
+      const optimistic = applyCodexConversationStateUpdates(
+        rolledBack,
+        optimisticPublishInput?.change?.patches ?? [],
+      );
+      const rebound = applyCodexConversationStateUpdates(
+        optimistic,
+        rebindPublishInput?.change?.patches ?? [],
+      );
+      const replacementTurn = optimistic.turns.at(-1);
       const replacementUser = replacementTurn?.items[0];
       const optimisticPublishRecordIndex = invokeRecords.findIndex((record) =>
         record.args[0] === optimisticPublishInput
@@ -15168,7 +15583,11 @@ describe("local-conversation-store", () => {
         record.args[0] === publishInput
       );
       const publishInputForType = publishInput as {
-        change?: { type?: string; revision?: number; conversationState?: CodexConversationSnapshot };
+        change?: {
+          type?: string;
+          revision?: number;
+          conversationState?: CodexConversationSnapshot;
+        };
       } | undefined;
       expect(rollbackIndex >= 0).toBe(true);
       expect(publishIndex > rollbackIndex).toBe(true);
@@ -15178,22 +15597,16 @@ describe("local-conversation-store", () => {
       expect(result.streamRevision).toBe(4);
       expect(publishInputForType?.change?.type).toBe("snapshot");
       expect(publishInputForType?.change?.revision).toBe(2);
-      expect(String(publishInputForType?.change?.conversationState?.turns.length ?? -1)).toBe("1");
-      expect(
-        String(
-          publishInputForType?.change?.conversationState?.canonicalState?.turns.length ?? -1,
-        ),
-      ).toBe("1");
-      expect(
-        publishInputForType?.change?.conversationState?.canonicalState?.turns.some(
-          (turn) => turn.protocol.id === "turn-latest",
-        ) ?? true,
-      ).toBe(false);
-      expect(optimisticPublishInput?.change?.type).toBe("snapshot");
+      expect(rolledBack.turns).toHaveLength(1);
+      expect(rolledBack.canonicalState?.turns).toHaveLength(1);
+      expect(rolledBack.canonicalState?.turns.some(
+        (turn) => turn.protocol.id === "turn-latest",
+      )).toBe(false);
+      expect(optimisticPublishInput?.change?.type).toBe("patches");
       expect(optimisticPublishInput?.change?.revision).toBe(3);
-      expect(String(optimisticPublishInput?.change?.conversationState?.turns.length ?? -1)).toBe("2");
+      expect(optimistic.turns).toHaveLength(2);
       expect(rebindPublishInput?.change?.revision).toBe(4);
-      expect(rebindPublishInput?.change?.conversationState?.turns.at(-1)?.turnId).toBe("turn-owner-start");
+      expect(rebound.turns.at(-1)?.turnId).toBe("turn-owner-start");
       expect(replacementUser?.markdownText).toBe("Rewrite latest prompt");
       expect(manager.readConversation("thread-1")?.turns.length ?? -1).toBe(2);
       expect(invokeRecords.some((record) => record.channel === "codex:thread:edit-last-user-turn")).toBe(false);
@@ -15475,7 +15888,7 @@ describe("local-conversation-store", () => {
 
       expect(removalResult?.accepted).toBe(true);
       expect(removalResult?.streamRevision).toBe(2);
-      expect(removalPublish?.change?.type).toBe("snapshot");
+      expect(removalPublish?.change?.type).toBe("patches");
       expect(removalPublish?.change?.revision).toBe(2);
       expect(prosePublish?.ownerNotificationSequence).toBe(7);
       expect(prosePublish?.change?.type).toBe("patches");
@@ -15701,7 +16114,7 @@ describe("local-conversation-store", () => {
             }],
           }),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       dispatchCodexAppServerMessage("mcp-notification", {
         hostId: "default",
@@ -15773,7 +16186,7 @@ describe("local-conversation-store", () => {
               }],
             }),
           },
-          sourceClientId: null,
+          sourceClientId: "test-owner",
         });
       }
 
@@ -15834,7 +16247,7 @@ describe("local-conversation-store", () => {
             }],
           }),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       const assistantRawItem = manager.readConversation("thread-1")
         ?.turns[0]?.items[1]?.rawItem;
@@ -15896,7 +16309,7 @@ describe("local-conversation-store", () => {
             }],
           }),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
 
       dispatchCodexAppServerMessage("mcp-notification", {
@@ -15953,7 +16366,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: baseConversation,
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
 
       dispatchCodexAppServerMessage("mcp-notification", {
@@ -15983,7 +16396,7 @@ describe("local-conversation-store", () => {
             }],
           }),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe("single append\n");
       await new Promise((resolve) => setTimeout(resolve, 70));
@@ -16112,7 +16525,7 @@ describe("local-conversation-store", () => {
           },
         },
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16174,7 +16587,7 @@ describe("local-conversation-store", () => {
           },
         },
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16241,7 +16654,7 @@ describe("local-conversation-store", () => {
           revision: 1,
           conversationState: buildConversation("thread-1", "project-1"),
         },
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
 
       expect(manager.readThreadSummary("thread-1")?.threadId).toBe("thread-1");
@@ -16264,6 +16677,7 @@ describe("local-conversation-store", () => {
     invokeCalls = [];
     hostMessageListener = null;
     threadListByProject = {};
+    followerActionResult = true;
     const {
       __resetLocalConversationStoreForTests,
       LocalConversationProvider,
@@ -16394,7 +16808,7 @@ describe("local-conversation-store", () => {
           conversationState: initialConversation,
         },
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16432,7 +16846,7 @@ describe("local-conversation-store", () => {
           patches: buildCodexConversationStateUpdates(initialConversation, liveInProgressConversation),
         },
         version: 2,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16499,7 +16913,7 @@ describe("local-conversation-store", () => {
           patches: buildCodexConversationStateUpdates(liveInProgressConversation, completedConversation),
         },
         version: 3,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16527,7 +16941,7 @@ describe("local-conversation-store", () => {
           conversationState: completedConversation,
         },
         version: 4,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16563,7 +16977,7 @@ describe("local-conversation-store", () => {
           patches: buildCodexConversationStateUpdates(completedConversation, interruptedBaseConversation),
         },
         version: 5,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
       await manager.interruptTurn("thread-1", "turn-3");
     });
@@ -16593,7 +17007,7 @@ describe("local-conversation-store", () => {
           patches: buildCodexConversationStateUpdates(interruptedBaseConversation, interruptedTerminalConversation),
         },
         version: 6,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16652,7 +17066,7 @@ describe("local-conversation-store", () => {
           conversationState: systemInitialConversation,
         },
         version: 7,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();
@@ -16669,7 +17083,7 @@ describe("local-conversation-store", () => {
           patches: buildCodexConversationStateUpdates(systemInitialConversation, systemCompletedConversation),
         },
         version: 8,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
       });
     });
     await settleAsyncRender();

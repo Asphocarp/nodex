@@ -192,6 +192,7 @@ export type {
   CodexSharedObject,
   CodexMcpNotificationMessage,
   CodexPendingSteer,
+  CodexPreparedPrompt,
   CodexQueuedFollowUp,
   CodexBackgroundTerminalRow,
   CodexConversationChildMembership,

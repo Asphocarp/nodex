@@ -52,10 +52,14 @@ export function buildHeartbeatAutomationThreadState(input: {
   threadId: string;
   conversation: CodexConversationSnapshot | null;
   permissionState: CodexPermissionState | null;
+  streamRole: "owner" | "follower" | null;
 }): CodexHeartbeatAutomationThreadStateChangedInput {
-  const eligibility = resolveHeartbeatAutomationEligibility(input.conversation);
+  const eligibility = input.streamRole === "owner"
+    ? resolveHeartbeatAutomationEligibility(input.conversation)
+    : { isEligible: false, reason: "not_conversation_owner" };
   return {
     threadId: input.threadId,
+    streamRole: input.streamRole,
     isEligible: eligibility.isEligible,
     reason: eligibility.reason,
     collaborationMode: input.conversation?.latestCollaborationMode ?? null,
@@ -139,6 +143,7 @@ export function HeartbeatAutomationController() {
         threadId,
         conversation,
         permissionState,
+        streamRole: manager.readConversationStreamRole(threadId),
       });
       const serialized = JSON.stringify(state);
       nextPublishedStateByThreadId.set(threadId, serialized);

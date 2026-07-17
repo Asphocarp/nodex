@@ -367,6 +367,7 @@ function enqueueCollabHydrationEffect(
 
 function isMatchingPendingSteer(
   item: CodexCanonicalItem,
+  clientUserMessageId: string | null,
   content: readonly UserInput[],
   turn: CodexCanonicalTurnState,
 ): item is CodexCanonicalSteeringUserMessageItem {
@@ -382,6 +383,10 @@ function isMatchingPendingSteer(
     return false;
   }
 
+  if (clientUserMessageId) {
+    return item.clientUserMessageId === clientUserMessageId;
+  }
+
   const compareKey = buildCodexSteeringCompareKey(
     content,
     item.restoreMessage.context.commentAttachments,
@@ -392,10 +397,13 @@ function isMatchingPendingSteer(
 
 function findMatchingPendingSteerIndex(
   items: readonly CodexCanonicalItem[],
+  clientUserMessageId: string | null,
   content: readonly UserInput[],
   turn: CodexCanonicalTurnState,
 ): number {
-  return items.findIndex((item) => isMatchingPendingSteer(item, content, turn));
+  return items.findIndex((item) =>
+    isMatchingPendingSteer(item, clientUserMessageId, content, turn)
+  );
 }
 
 function getHeartbeatField(text: string, field: string): string | null {
@@ -586,7 +594,7 @@ function reduceItemStarted(
 
   let turn = ensureCodexCanonicalTurnCollections(resolved.turns[resolved.turnIndex]!);
   const hasMatchingPendingSteer = item.type === "userMessage"
-    && findMatchingPendingSteerIndex(turn.items, item.content, turn) >= 0;
+    && findMatchingPendingSteerIndex(turn.items, item.clientId, item.content, turn) >= 0;
   const metadata = reduceCodexItemLifecycleMetadata(
     {
       items: turn.items,
@@ -714,7 +722,7 @@ function reduceItemCompleted(
     ? buildCompletedContextCompaction(item, turn.items)
     : materializeCanonicalLifecycleItem(item, context);
   const pendingIndex = item.type === "userMessage"
-    ? findMatchingPendingSteerIndex(turn.items, item.content, turn)
+    ? findMatchingPendingSteerIndex(turn.items, item.clientId, item.content, turn)
     : -1;
   const metadata = reduceCodexItemLifecycleMetadata(
     {

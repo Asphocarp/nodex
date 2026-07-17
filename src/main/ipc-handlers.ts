@@ -502,6 +502,7 @@ interface RegisterIpcHandlersOptions {
   ) => void;
   onHeartbeatAutomationThreadStateChanged?: (
     input: CodexHeartbeatAutomationThreadStateChangedInput,
+    rendererClientId: string | null,
   ) => void;
 }
 
@@ -798,6 +799,10 @@ export function registerIpcHandlers(
       sourceClientId,
       input,
     );
+  });
+  registerHandle("codex:thread-owner:pending-requests:replay", (event, threadId) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return codexService.replayRendererOwnerPendingRequests(threadId, sourceClientId);
   });
   registerHandle(
     "codex:thread-owner:app-server-request",
@@ -2497,8 +2502,8 @@ export function registerIpcHandlers(
 
   registerCodexScheduledAutomationIpcHandlers({
     registerHandle,
-    runScheduledAutomationNow: (input) =>
-      codexService.runScheduledAutomationNow(input),
+    runScheduledAutomationNow: (input, rendererClientId) =>
+      codexService.runScheduledAutomationNow(input, rendererClientId),
     captureAutomationArchiveMessages: (threadId) =>
       codexService.captureAutomationArchiveMessages(threadId),
     unarchiveThread: (threadId) => codexService.unarchiveThread(threadId),
@@ -2508,6 +2513,8 @@ export function registerIpcHandlers(
     },
     onHeartbeatAutomationsEnabledChanged:
       options.onHeartbeatAutomationsEnabledChanged,
+    resolveRendererClientId: (event) =>
+      resolveRendererClientId(event as IpcMainInvokeEvent),
     onHeartbeatAutomationThreadStateChanged:
       options.onHeartbeatAutomationThreadStateChanged,
   });

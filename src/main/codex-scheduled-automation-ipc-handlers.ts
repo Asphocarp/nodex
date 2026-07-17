@@ -33,7 +33,10 @@ export interface CodexScheduledAutomationIpcRegistration {
     channel: Channel,
     listener: CodexScheduledAutomationIpcHandler<Channel>,
   ) => void;
-  runScheduledAutomationNow: (input: CodexScheduledAutomationRunNowInput) => Promise<void>;
+  runScheduledAutomationNow: (
+    input: CodexScheduledAutomationRunNowInput,
+    rendererClientId: string | null,
+  ) => Promise<void>;
   captureAutomationArchiveMessages: (threadId: string) => Promise<boolean>;
   unarchiveThread: (threadId: string) => Promise<unknown>;
   broadcastScheduledAutomationChanged: (
@@ -43,7 +46,11 @@ export interface CodexScheduledAutomationIpcRegistration {
   ) => void;
   broadcastAutomationRunsUpdated: (event: CodexAutomationRunsUpdatedEvent) => void;
   onHeartbeatAutomationsEnabledChanged?: (input: CodexHeartbeatAutomationsEnabledChangedInput) => void;
-  onHeartbeatAutomationThreadStateChanged?: (input: CodexHeartbeatAutomationThreadStateChangedInput) => void;
+  resolveRendererClientId?: (event: unknown) => string | null;
+  onHeartbeatAutomationThreadStateChanged?: (
+    input: CodexHeartbeatAutomationThreadStateChangedInput,
+    rendererClientId: string | null,
+  ) => void;
 }
 
 export function registerCodexScheduledAutomationIpcHandlers(
@@ -97,8 +104,11 @@ export function registerCodexScheduledAutomationIpcHandlers(
     };
   });
 
-  options.registerHandle("codex:scheduled-automations:run-now", async (_, input) => {
-    await options.runScheduledAutomationNow(input);
+  options.registerHandle("codex:scheduled-automations:run-now", async (event, input) => {
+    await options.runScheduledAutomationNow(
+      input,
+      options.resolveRendererClientId?.(event) ?? null,
+    );
     return { success: true };
   });
 
@@ -107,8 +117,11 @@ export function registerCodexScheduledAutomationIpcHandlers(
     return { success: true };
   });
 
-  options.registerHandle("codex:scheduled-automations:heartbeat-thread-state-changed", (_, input) => {
-    options.onHeartbeatAutomationThreadStateChanged?.(input);
+  options.registerHandle("codex:scheduled-automations:heartbeat-thread-state-changed", (event, input) => {
+    options.onHeartbeatAutomationThreadStateChanged?.(
+      input,
+      options.resolveRendererClientId?.(event) ?? null,
+    );
     return { success: true };
   });
 

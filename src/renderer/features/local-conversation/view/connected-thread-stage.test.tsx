@@ -466,7 +466,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         hostId: "default",
         conversationId: "thread_active",
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
         change: {
           type: "snapshot",
           revision: 1,
@@ -502,7 +502,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
         hostId: "default",
         conversationId: "thread_active",
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
         change: {
           type: "snapshot",
           revision: 1,
@@ -625,7 +625,7 @@ describe("ConnectedThreadStage read-state control plane", () => {
           hostId: "default",
           conversationId: "thread_active",
           version: 1,
-          sourceClientId: null,
+          sourceClientId: "test-owner",
           change: {
             type: "snapshot",
             revision: 1,
@@ -673,7 +673,7 @@ describe("ConnectedThreadStage read-state control plane", () => {
           hostId: "default",
           conversationId: "thread_active",
           version: 1,
-          sourceClientId: null,
+          sourceClientId: "test-owner",
           change: {
             type: "snapshot",
             revision: 1,
@@ -726,7 +726,7 @@ describe("ConnectedThreadStage read-state control plane", () => {
           hostId: "default",
           conversationId: "thread_active",
           version: 1,
-          sourceClientId: null,
+          sourceClientId: "test-owner",
           change: {
             type: "snapshot",
             revision: 1,
@@ -840,7 +840,7 @@ describe("ConnectedThreadStage new-chat home", () => {
         hostId: "default",
         conversationId: threadId,
         version: 1,
-        sourceClientId: null,
+        sourceClientId: "test-owner",
         change: {
           type: "snapshot",
           revision: 1,

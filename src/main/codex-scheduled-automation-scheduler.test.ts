@@ -174,6 +174,8 @@ describe("codex scheduled automation scheduler", () => {
 
     scheduler.setHeartbeatThreadRendererState({
       threadId: "thread-follow-up",
+      rendererClientId: "renderer-owner",
+      streamRole: "owner",
       isEligible: true,
       reason: null,
       collaborationMode: "plan",
@@ -196,13 +198,18 @@ describe("codex scheduled automation scheduler", () => {
     const enabled = contexts[contexts.length - 1] as {
       heartbeat?: {
         automationsEnabled?: boolean;
-        rendererState?: { isEligible?: boolean; reason?: string | null } | null;
+        rendererState?: {
+          rendererClientId?: string;
+          isEligible?: boolean;
+          reason?: string | null;
+        } | null;
         collaborationMode?: string | null;
         permissions?: { approvalPolicy?: string | null } | null;
       };
     };
     expect(enabled.heartbeat?.automationsEnabled).toBe(true);
     expect(enabled.heartbeat?.rendererState?.isEligible).toBe(true);
+    expect(enabled.heartbeat?.rendererState?.rendererClientId).toBe("renderer-owner");
     expect(enabled.heartbeat?.rendererState?.reason).toBe(null);
     expect(enabled.heartbeat?.collaborationMode).toBe("plan");
     expect(enabled.heartbeat?.permissions?.approvalPolicy).toBe("on-request");
