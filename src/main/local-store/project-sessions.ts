@@ -345,6 +345,19 @@ function parseStoredProjectSessionTabConfig(
   row: DbProjectSessionTab,
 ): { readonly config: ProjectSessionTabConfig; readonly updatedAt: string } {
   const parsed = parseProjectSessionTabConfig(row.kind, parseJson(row.config_json));
+  if (row.kind === "page_stage") {
+    const configJson = JSON.stringify(parsed);
+    if (configJson === row.config_json) {
+      return { config: parsed, updatedAt: row.updated_at };
+    }
+    const updatedAt = new Date().toISOString();
+    database.prepare(`
+      UPDATE project_session_tabs
+      SET config_json = ?, updated_at = ?
+      WHERE id = ? AND config_json = ?
+    `).run(configJson, updatedAt, row.id, row.config_json);
+    return { config: parsed, updatedAt };
+  }
   if (row.kind !== "db_view") {
     return { config: parsed, updatedAt: row.updated_at };
   }

@@ -26,6 +26,7 @@ import { readBlockStoreEpoch } from "./block-store-metadata";
 import {
   PageHierarchyError,
   resolvePageHierarchy,
+  type PageHierarchy,
 } from "./page-hierarchy";
 
 interface ProjectAuthorityRow {
@@ -233,6 +234,47 @@ const readGrantMatch = (
       : databaseIds.has(candidate.root_id),
   );
   return row ?? null;
+};
+
+/**
+ * Return the contiguous target-to-root Page prefix readable by one Project.
+ * The caller supplies a hierarchy resolved in the same read transaction, so
+ * visibility is computed with one grant scan instead of re-walking every
+ * ancestor hierarchy.
+ */
+export const readAuthorizedPageHierarchyPrefixInDatabase = (
+  database: Database.Database,
+  input: Readonly<{
+    projectId: string;
+    hierarchy: PageHierarchy;
+  }>,
+): readonly string[] => {
+  const project = readProjectAuthority(database, input.projectId);
+  if (!project || project.library_id !== input.hierarchy.libraryId) return [];
+
+  const grants = database.prepare(`
+    SELECT id, root_kind, root_id, access
+    FROM project_resource_grants
+    WHERE project_id = ? AND lifecycle = 'active'
+  `).all(input.projectId) as readonly GrantMatch[];
+  const owningDatabaseId = input.hierarchy.terminal.kind === "data_source"
+    ? input.hierarchy.terminal.databaseId
+    : null;
+  const hasWholeHierarchyAccess = owningDatabaseId !== null && (
+    owningDatabaseId === project.database_block_id
+    || grants.some((grant) =>
+      grant.root_kind === "database" && grant.root_id === owningDatabaseId)
+  );
+  if (hasWholeHierarchyAccess) return input.hierarchy.pageIds;
+
+  const pageIndexById = new Map(
+    input.hierarchy.pageIds.map((pageId, index) => [pageId, index]),
+  );
+  const furthestVisibleIndex = grants.reduce((furthest, grant) => {
+    if (grant.root_kind !== "page") return furthest;
+    return Math.max(furthest, pageIndexById.get(grant.root_id) ?? -1);
+  }, -1);
+  return input.hierarchy.pageIds.slice(0, furthestVisibleIndex + 1);
 };
 
 const deny = (

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   readDatabaseViewReference,
+  resolvePageOwnershipPath,
   resolvePageTarget,
 } from "./api";
 import { ReferenceReadHttpBoundaryError } from "../../shared/reference-read-http-contract";
@@ -62,6 +63,15 @@ describe("reference read renderer transport", () => {
         targetPageId: "card/target",
       }), { status: 200, headers: { "Content-Type": "application/json" } }),
       new Response(JSON.stringify({
+        status: "available",
+        targetPageId: "card/target",
+        ancestors: [{
+          pageId: "page/root",
+          title: "Root",
+          lifecycle: "active",
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
+      new Response(JSON.stringify({
         view: {
           id: "view/one",
           databaseBlockId: "database:source:primary",
@@ -96,6 +106,15 @@ describe("reference read renderer transport", () => {
       targetPageId: "card/target",
     });
     expect(card?.status).toBe("missing");
+    const ownershipPath = await resolvePageOwnershipPath({
+      requestingProjectId: "host/project",
+      targetPageId: "card/target",
+    });
+    expect(ownershipPath?.status).toBe("available");
+    if (ownershipPath?.status !== "available") {
+      throw new Error("Expected an available Page ownership path");
+    }
+    expect(ownershipPath.ancestors.map((ancestor) => ancestor.title)).toEqual(["Root"]);
     const view = await readDatabaseViewReference({
       requestingProjectId: "host/project",
       databaseViewId: "view/one",
@@ -111,6 +130,9 @@ describe("reference read renderer transport", () => {
       "http://localhost:51283/api/projects/host%2Fproject/page-targets/card%2Ftarget",
     );
     expect(requestedUrls[1]).toBe(
+      "http://localhost:51283/api/projects/host%2Fproject/page-targets/card%2Ftarget/ownership-path",
+    );
+    expect(requestedUrls[2]).toBe(
       "http://localhost:51283/api/projects/host%2Fproject/references/database-views/view%2Fone?hostBlockId=host%2Fcard",
     );
   });

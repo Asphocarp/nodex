@@ -1,25 +1,24 @@
 import { act, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import {
-  PAGE_DOCUMENT_SCHEMA_VERSION,
-  plainTextToPortableRichText,
-} from "../../shared/block-documents";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
-import type { PageTargetReadModel } from "../../shared/page-targets";
+import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
 import { render } from "../test/dom";
 import { TestQueryProvider } from "../test/query";
-import { usePageTargetReadModels } from "./block-reference-queries";
+import { usePageOwnershipPathReadModel } from "./block-reference-queries";
 
 const mocks = vi.hoisted(() => ({
-  resolvePageTarget: vi.fn(),
+  resolvePageOwnershipPath: vi.fn(),
   projectListeners: new Map<
     string,
     (event: PageTargetChangedEvent) => void
   >(),
+  ownershipPathChangeListener: null as (
+    (event: PageOwnershipPathsChangedEvent) => void
+  ) | null,
 }));
 
 vi.mock("./api", () => ({
-  resolvePageTarget: mocks.resolvePageTarget,
+  resolvePageOwnershipPath: mocks.resolvePageOwnershipPath,
   readDatabaseViewReference: vi.fn(),
 }));
 
@@ -37,96 +36,88 @@ vi.mock("./renderer-transport", () => ({
         }
       };
     },
+    subscribePageOwnershipPathChanges: (
+      _projectId: string,
+      listener: (event: PageOwnershipPathsChangedEvent) => void,
+    ) => {
+      mocks.ownershipPathChangeListener = listener;
+      return () => {
+        if (mocks.ownershipPathChangeListener === listener) {
+          mocks.ownershipPathChangeListener = null;
+        }
+      };
+    },
   }),
 }));
 
-function availableTarget(
-  pageId: string,
-  title: string,
-): Extract<PageTargetReadModel, { readonly status: "available" }> {
-  return {
-    status: "available",
-    targetPageId: pageId,
-    page: {
-      pageId: pageId,
-      libraryId: "library:canonical",
-      lifecycle: "active",
-      parent: { kind: "page", pageId: "host-page" },
-      parentRevision: 1,
-      metadataRevision: 1,
-      documentId: `document:${pageId}`,
-      documentGeneration: 1,
-      documentHeadSeq: 2,
-      title,
-      richTitle: plainTextToPortableRichText(title),
-      preview: "",
-      plainText: "",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-    document: {
-      readiness: "ready",
-      schemaKey: "nodex.page",
-      schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
-    },
-  };
-}
-
-function BreadcrumbTargetHarness() {
-  const targets = usePageTargetReadModels("host-project", [
-    "grandparent-card",
-    "parent-card",
-  ]);
+function OwnershipPathHarness() {
+  const path = usePageOwnershipPathReadModel("host-project", "nested-page");
   return (
     <output>
-      {targets.map((target) =>
-        target.data?.status === "available"
-          ? target.data.page.title
-          : "pending").join("|")}
+      {path.data?.status === "available"
+        ? path.data.ancestors.map((ancestor) => ancestor.title).join("|")
+        : "pending"}
     </output>
   );
 }
 
-describe("usePageTargetReadModels", () => {
+describe("Page reference queries", () => {
   beforeEach(() => {
     mocks.projectListeners.clear();
-    mocks.resolvePageTarget.mockReset();
+    mocks.resolvePageOwnershipPath.mockReset();
+    mocks.ownershipPathChangeListener = null;
   });
 
-  test("keeps every ancestor fresh through identity-specific invalidation", async () => {
-    const titles = new Map([
-      ["grandparent-card", "Grandparent"],
-      ["parent-card", "Parent before rename"],
-    ]);
-    mocks.resolvePageTarget.mockImplementation(
-      async ({ targetPageId }: { targetPageId: string }) =>
-        availableTarget(targetPageId, titles.get(targetPageId) ?? "Untitled"),
-    );
+  test("refreshes the canonical ownership path when an observed Page moves", async () => {
+    let parentTitle = "Parent before move";
+    mocks.resolvePageOwnershipPath.mockImplementation(async () => ({
+      status: "available",
+      targetPageId: "nested-page",
+      ancestors: [{
+        pageId: "parent-page",
+        title: parentTitle,
+        lifecycle: "active",
+      }],
+    }));
 
     const view = render(
       <TestQueryProvider>
-        <BreadcrumbTargetHarness />
+        <OwnershipPathHarness />
       </TestQueryProvider>,
     );
 
     await waitFor(() => {
-      expect(view.getByText("Grandparent|Parent before rename")).toBeTruthy();
+      expect(view.getByText("Parent before move")).toBeTruthy();
     });
-    expect(mocks.resolvePageTarget).toHaveBeenCalledTimes(2);
+    expect(mocks.resolvePageOwnershipPath).toHaveBeenCalledTimes(1);
 
-    titles.set("parent-card", "Parent after rename");
+    parentTitle = "Parent after move";
     await act(async () => {
       mocks.projectListeners.get("host-project")?.({
         libraryId: "library-1",
-        targetPageId: "parent-card",
-        changeKind: "content",
+        targetPageId: "parent-page",
+        changeKind: "location",
       });
       await Promise.resolve();
     });
 
     await waitFor(() => {
-      expect(view.getByText("Grandparent|Parent after rename")).toBeTruthy();
+      expect(view.getByText("Parent after move")).toBeTruthy();
     });
-    expect(mocks.resolvePageTarget).toHaveBeenCalledTimes(3);
+    expect(mocks.resolvePageOwnershipPath).toHaveBeenCalledTimes(2);
+
+    parentTitle = "Parent after coarse invalidation";
+    await act(async () => {
+      mocks.ownershipPathChangeListener?.({
+        libraryId: "library-1",
+        changeKind: "access",
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(view.getByText("Parent after coarse invalidation")).toBeTruthy();
+    });
+    expect(mocks.resolvePageOwnershipPath).toHaveBeenCalledTimes(3);
   });
 });

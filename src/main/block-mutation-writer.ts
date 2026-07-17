@@ -216,6 +216,11 @@ export class BlockMutationWriter {
       payload: input,
     });
     dbNotifier.notifyProjectsChanged("update", input.authority.actorProjectId);
+    dbNotifier.notifyPageOwnershipPathsChanged({
+      libraryId: input.authority.libraryId,
+      projectId: input.authority.actorProjectId,
+      changeKind: "access",
+    });
     return envelope;
   }
 

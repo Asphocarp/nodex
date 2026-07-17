@@ -81,6 +81,7 @@ import { registerPageHistoryHttpRoute } from "./page-history-http";
 import { registerBlockTransferHttpRoute } from "./block-transfer-http";
 import {
   readProjectScopedDatabaseViewReference,
+  resolveProjectScopedPageOwnershipPath,
   resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
 import { authorizeProjectResource } from "./local-store/project-resource-grants";
@@ -283,6 +284,7 @@ registerDocumentSyncHttpRoutes(app, {
 });
 
 registerReferenceReadHttpRoutes(app, {
+  resolvePageOwnershipPath: resolveProjectScopedPageOwnershipPath,
   resolvePageTarget: resolveProjectScopedPageTarget,
   readDatabaseViewReference: readProjectScopedDatabaseViewReference,
 });
@@ -1546,7 +1548,8 @@ app.get("/api/projects/events", (c) => {
 });
 
 app.get("/api/projects/:projectId/events", (c) => {
-  const projectId = projectsStore.getProject(c.req.param("projectId"))?.id ?? c.req.param("projectId");
+  const project = projectsStore.getProject(c.req.param("projectId"));
+  const projectId = project?.id ?? c.req.param("projectId");
 
   const stream = new ReadableStream({
     start(controller) {
@@ -1573,6 +1576,18 @@ app.get("/api/projects/:projectId/events", (c) => {
         if (!authorization.allowed || authorization.libraryId !== event.libraryId) return;
         send(JSON.stringify({ event: "page-target-changed", ...event }));
       };
+      const pageOwnershipPathsHandler = (event: {
+        libraryId: string;
+        projectId?: string;
+        changeKind: string;
+      }) => {
+        if (!project || event.libraryId !== project.libraryId) return;
+        if (event.projectId && event.projectId !== projectId) return;
+        send(JSON.stringify({
+          event: "page-ownership-paths-changed",
+          changeKind: event.changeKind,
+        }));
+      };
       const sessionHandler = (event: { projectId: string }) => {
         if (event.projectId === projectId) {
           send(JSON.stringify({ event: "project-sessions-changed" }));
@@ -1586,6 +1601,7 @@ app.get("/api/projects/:projectId/events", (c) => {
 
       dbNotifier.on("board-changed", handler);
       dbNotifier.on("page-target-changed", pageTargetHandler);
+      dbNotifier.on("page-ownership-paths-changed", pageOwnershipPathsHandler);
       dbNotifier.on("database-changed", databaseHandler);
       dbNotifier.on("project-sessions-changed", sessionHandler);
 
@@ -1602,6 +1618,7 @@ app.get("/api/projects/:projectId/events", (c) => {
       c.req.raw.signal.addEventListener("abort", () => {
         dbNotifier.removeListener("board-changed", handler);
         dbNotifier.removeListener("page-target-changed", pageTargetHandler);
+        dbNotifier.removeListener("page-ownership-paths-changed", pageOwnershipPathsHandler);
         dbNotifier.removeListener("database-changed", databaseHandler);
         dbNotifier.removeListener("project-sessions-changed", sessionHandler);
         clearInterval(pingInterval);

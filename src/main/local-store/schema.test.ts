@@ -1067,7 +1067,7 @@ describe("schema v81 release boundary", () => {
     expect(database.pragma("foreign_key_check")).toEqual([]);
   });
 
-  test("migrates durable Page Stage tab identities and ancestor trails", async () => {
+  test("migrates durable Page Stage tab identities without interaction ancestry", async () => {
     useTempStore();
     const database = getDb();
     createHistoricalReleaseSchemaFixture(database, 75);
@@ -1087,7 +1087,6 @@ describe("schema v81 release boundary", () => {
       config: {
         projectId: project.id,
         pageId: "page:nested",
-        ancestors: [{ pageId: "page:root" }],
       },
     });
     database.pragma("ignore_check_constraints = ON");
@@ -1113,7 +1112,6 @@ describe("schema v81 release boundary", () => {
     expect(JSON.parse(migrated.config_json)).toEqual({
       projectId: project.id,
       pageId: "page:nested",
-      ancestors: [{ pageId: "page:root" }],
     });
     expect(database.pragma("foreign_key_check")).toEqual([]);
   });

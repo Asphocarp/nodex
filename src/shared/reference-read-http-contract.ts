@@ -4,6 +4,7 @@ import {
   type DatabasePageSummary,
 } from "./types";
 import type { PageTargetReadModel } from "./page-targets";
+import type { PageOwnershipPathReadModel } from "./page-ownership-paths";
 import type {
   DatabaseViewJsonValue,
   DatabaseViewReadModel,
@@ -155,6 +156,22 @@ const PageTargetReadModelHttpSchema = z.discriminatedUnion("status", [
   }),
 ]);
 
+const PageOwnershipPathReadModelHttpSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("missing"),
+    targetPageId: z.string(),
+  }),
+  z.object({
+    status: z.literal("available"),
+    targetPageId: z.string(),
+    ancestors: z.array(z.object({
+      pageId: z.string(),
+      title: z.string(),
+      lifecycle: z.enum(["active", "archived"]),
+    })),
+  }),
+]);
+
 const DatabaseViewJsonValueSchema: z.ZodType<DatabaseViewJsonValue> = z.lazy(
   () => z.union([
     z.null(),
@@ -220,6 +237,15 @@ export const decodePageTargetReadModelHttp = (
     PageTargetReadModelHttpSchema,
     value,
     "Page target read model",
+  );
+
+export const decodePageOwnershipPathReadModelHttp = (
+  value: unknown,
+): PageOwnershipPathReadModel =>
+  decode(
+    PageOwnershipPathReadModelHttpSchema,
+    value,
+    "Page ownership path read model",
   );
 
 export const decodeDatabaseViewReadModelHttp = (

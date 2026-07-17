@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import type { DatabasePageSummary } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
+import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
 import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
@@ -45,7 +46,7 @@ export interface ProjectsChangeEvent {
   changeType: ProjectChangeType;
 }
 
-class DatabaseNotifier extends EventEmitter {
+export class DatabaseNotifier extends EventEmitter {
   constructor() {
     super();
     // Each SSE connection adds a listener; disable the default cap
@@ -76,6 +77,16 @@ class DatabaseNotifier extends EventEmitter {
 
   notifyPageTargetChanged(event: PageTargetChangedEvent): void {
     this.emit("page-target-changed", event);
+    if (event.changeKind === "location" || event.changeKind === "lifecycle") {
+      this.notifyPageOwnershipPathsChanged({
+        libraryId: event.libraryId,
+        changeKind: event.changeKind,
+      });
+    }
+  }
+
+  notifyPageOwnershipPathsChanged(event: PageOwnershipPathsChangedEvent): void {
+    this.emit("page-ownership-paths-changed", event);
   }
 
   notifyProjectsChanged(changeType: ProjectChangeType, projectId?: string): void {

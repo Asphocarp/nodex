@@ -31,7 +31,6 @@ import type {
   ProjectSessionListOptions,
   ProjectSessionForkInput,
 } from "../types";
-import { MAX_PAGE_STAGE_ANCESTOR_DEPTH } from "../page-stage-ancestors";
 import { WorkbenchViewSchema } from "./workbench";
 import {
   CodexCollaborationModeKindSchema,
@@ -53,9 +52,6 @@ export const ProjectSessionPageStageTabConfigSchema = z.object({
   projectId: z.string().min(1),
   pageId: z.string().min(1),
   titleSnapshot: z.string().optional(),
-  ancestors: z.array(z.object({
-    pageId: z.string().min(1),
-  })).max(MAX_PAGE_STAGE_ANCESTOR_DEPTH).optional(),
 }) satisfies z.ZodType<ProjectSessionPageStageTabConfig>;
 
 export const ProjectSessionTerminalTabConfigSchema = z.object({

@@ -1,9 +1,11 @@
 import { useEffect, useEffectEvent } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PageTargetReadModel } from "../../shared/page-targets";
+import type { PageOwnershipPathReadModel } from "../../shared/page-ownership-paths";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
 import {
   readDatabaseViewReference,
+  resolvePageOwnershipPath,
   resolvePageTarget,
 } from "./api";
 import { queryKeys } from "./query-keys";
@@ -33,9 +35,19 @@ const pageTargetChangeSubscriptions =
       resolveRendererTransport().subscribePageTargetChanges(projectId, listener),
   });
 
+const pageOwnershipPathChangeSubscriptions =
+  createProjectBoardChangeSubscriptionHub({
+    subscribeToProject: (projectId, listener) =>
+      resolveRendererTransport().subscribePageOwnershipPathChanges(
+        projectId,
+        listener,
+      ),
+  });
+
 interface PageTargetChangeSubscription {
   readonly requestingProjectId: string;
   readonly targetBlockId: string;
+  readonly queryKey: readonly unknown[];
 }
 
 const pageTargetQueryOptions = (
@@ -59,16 +71,15 @@ const usePageTargetChangeRefresh = (
   const subscriptionFingerprint = JSON.stringify(targets);
   const subscribeToTargets = useEffectEvent(() => {
     const unsubscribers = targets.map((target) => {
-      const queryKey = queryKeys.pageTargets.byId(
-        target.requestingProjectId,
-        target.targetBlockId,
-      );
       return pageTargetChangeSubscriptions.subscribe(
         target.requestingProjectId,
         target.targetBlockId,
-        JSON.stringify(queryKey),
+        JSON.stringify(target.queryKey),
         () => {
-          void queryClient.invalidateQueries({ queryKey, exact: true });
+          void queryClient.invalidateQueries({
+            queryKey: target.queryKey,
+            exact: true,
+          });
         },
       );
     });
@@ -103,10 +114,11 @@ export const usePageTargetReadModel = (
 ): ReferenceQueryResult<PageTargetReadModel> => {
   const enabled = requestingProjectId.length > 0 && targetBlockId.length > 0;
   const query = useQuery(pageTargetQueryOptions(requestingProjectId, targetBlockId));
-  usePageTargetChangeRefresh([{
+  usePageTargetChangeRefresh(enabled ? [{
     requestingProjectId,
     targetBlockId,
-  }]);
+    queryKey: queryKeys.pageTargets.byId(requestingProjectId, targetBlockId),
+  }] : []);
   return {
     data: query.data ?? null,
     loading: enabled && query.status === "pending",
@@ -114,32 +126,53 @@ export const usePageTargetReadModel = (
   };
 };
 
-/**
- * Resolve a dynamic identity path without violating the Rules of Hooks. Every
- * available target stays subscribed to its identity-specific change stream,
- * including ancestors currently collapsed into breadcrumb overflow.
- */
-export const usePageTargetReadModels = (
+export const usePageOwnershipPathReadModel = (
   requestingProjectId: string,
-  targetBlockIds: readonly string[],
-): readonly ReferenceQueryResult<PageTargetReadModel>[] => {
-  const queries = useQueries({
-    queries: targetBlockIds.map((targetBlockId) =>
-      pageTargetQueryOptions(requestingProjectId, targetBlockId)),
+  targetPageId: string,
+): ReferenceQueryResult<PageOwnershipPathReadModel> => {
+  const queryClient = useQueryClient();
+  const enabled = requestingProjectId.length > 0 && targetPageId.length > 0;
+  const queryKey = queryKeys.pageOwnershipPaths.byPage(
+    requestingProjectId,
+    targetPageId,
+  );
+  const query = useQuery({
+    queryKey,
+    queryFn: () => resolvePageOwnershipPath({
+      requestingProjectId,
+      targetPageId,
+    }),
+    enabled,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
   });
-  usePageTargetChangeRefresh(targetBlockIds.map((targetBlockId) => ({
+  const observedPageIds = query.data?.status === "available"
+    ? [targetPageId, ...query.data.ancestors.map((ancestor) => ancestor.pageId)]
+    : [targetPageId];
+  usePageTargetChangeRefresh((enabled ? observedPageIds : []).map((targetBlockId) => ({
     requestingProjectId,
     targetBlockId,
+    queryKey,
   })));
 
-  return queries.map((query, index) => ({
+  useEffect(() => {
+    if (!enabled) return;
+    return pageOwnershipPathChangeSubscriptions.subscribe(
+      requestingProjectId,
+      "page-ownership-paths",
+      () => {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.pageOwnershipPaths.byProject(requestingProjectId),
+        });
+      },
+    );
+  }, [enabled, queryClient, requestingProjectId]);
+
+  return {
     data: query.data ?? null,
-    loading:
-      requestingProjectId.length > 0
-      && (targetBlockIds[index]?.length ?? 0) > 0
-      && query.status === "pending",
+    loading: enabled && query.status === "pending",
     error: toError(query.error),
-  }));
+  };
 };
 
 export const useDatabaseViewReadModel = (

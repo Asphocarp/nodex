@@ -398,6 +398,17 @@ vi.mock("@/lib/api", () => ({
       targetPageId: input.targetPageId,
     };
   },
+  resolvePageOwnershipPath: async (input: {
+    requestingProjectId: string;
+    targetPageId: string;
+  }) => {
+    invokeCalls.push(["page-ownership-path:resolve", input]);
+    return mockInvokeImpl?.("page-ownership-path:resolve", input) ?? {
+      status: "available",
+      targetPageId: input.targetPageId,
+      ancestors: [],
+    };
+  },
   subscribeBoardChanges: () => () => undefined,
   subscribeDatabaseChanges: () => () => undefined,
   subscribeCommandKeymapChanges: () => () => undefined,
@@ -1630,6 +1641,7 @@ function renderWorkbench({
   workbenchCommandRequest = null,
   onNavigationStateChange,
   cardGetOverride = null,
+  ownershipPathsByPage = {},
   scheduledAutomations = [],
   automationInboxItems = [],
   worktreeEnvironmentOptionsByProject = {},
@@ -1657,6 +1669,11 @@ function renderWorkbench({
   workbenchCommandRequest?: WorkbenchCommandRequest | null;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
   cardGetOverride?: ((projectId: string, pageId: string) => Promise<unknown> | unknown) | null;
+  ownershipPathsByPage?: Record<string, ReadonlyArray<{
+    pageId: string;
+    title: string;
+    lifecycle: "active" | "archived";
+  }>>;
   scheduledAutomations?: CodexScheduledAutomation[];
   automationInboxItems?: CodexAutomationInboxItem[];
   worktreeEnvironmentOptionsByProject?: Record<string, WorktreeEnvironmentOption[]>;
@@ -1758,6 +1775,14 @@ function renderWorkbench({
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
+    if (channel === "page-ownership-path:resolve") {
+      const input = args[0] as { targetPageId: string };
+      return {
+        status: "available",
+        targetPageId: input.targetPageId,
+        ancestors: ownershipPathsByPage[input.targetPageId] ?? [],
+      };
+    }
     if (channel === "codex:pending-worktrees:list") return [];
     if (channel === "project-sessions:list") {
       const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
@@ -11269,7 +11294,60 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(props?.onMove).toBeUndefined();
   });
 
-  test("persists the ancestor trail when a page stage opens a nested card tab", async () => {
+  test("projects the current ownership path into the Page Stage breadcrumb", async () => {
+    const session = makeSession({
+      tabs: [{
+        id: "nested-page-tab",
+        sessionId: "session:alpha:database-view",
+        projectId: "alpha",
+        kind: "page_stage",
+        title: "Nested Page",
+        panelId: "right",
+        config: {
+          projectId: "alpha",
+          pageId: "nested-page",
+          titleSnapshot: "Nested Page",
+        },
+      }],
+    });
+    renderWorkbench({
+      projects: [makeProject("alpha", "Alpha")],
+      sessionsByProject: { alpha: [session] },
+      ownershipPathsByPage: {
+        "nested-page": [{
+          pageId: "actual-parent",
+          title: "Actual Parent",
+          lifecycle: "active",
+        }],
+      },
+      cardGetOverride: (_projectId, pageId) => ({
+        id: pageId,
+        title: "Nested Page",
+        description: "Page body",
+        archived: false,
+        agentBlocked: false,
+        created: new Date("2026-07-14T00:00:00.000Z"),
+        revision: 2,
+        standalone: true,
+      }),
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId?.["nested-page"];
+    expect(props?.breadcrumb).toMatchObject({
+      ancestors: [{
+        projectId: "alpha",
+        pageId: "actual-parent",
+        title: "Actual Parent",
+        disabled: false,
+      }],
+    });
+  });
+
+  test("opens a referenced Page without persisting interaction ancestry", async () => {
     const session = makeSession({
       tabs: [
         {
@@ -11290,11 +11368,11 @@ describe(`workbench session shell / ${scope}`, () => {
     renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, pageId) => pageId === "parent-card"
+      cardGetOverride: (_projectId, pageId) => ["parent-card", "nested-card"].includes(pageId)
         ? {
             id: pageId,
-            title: "Parent Card",
-            description: "Parent body",
+            title: pageId === "parent-card" ? "Parent Card" : "Nested Card",
+            description: "Page body",
             archived: false,
             agentBlocked: false,
             created: new Date("2026-07-14T00:00:00.000Z"),
@@ -11332,17 +11410,17 @@ describe(`workbench session shell / ${scope}`, () => {
       config?: {
         projectId?: string;
         pageId?: string;
-        ancestors?: unknown;
       };
     } | undefined;
     expect(input?.config).toEqual({
       projectId: "alpha",
       pageId: "nested-card",
       titleSnapshot: "Nested Card",
-      ancestors: [{
-        pageId: "parent-card",
-      }],
     });
+    const nestedProps = (globalThis as {
+      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+    }).__mockPageStagePropsByPageId?.["nested-card"];
+    expect(nestedProps?.breadcrumb).toBeUndefined();
   });
 
   test("renders Page detail load failures as load errors instead of missing pages", async () => {

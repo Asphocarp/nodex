@@ -57,6 +57,15 @@ describe("canonical reference HTTP reads", () => {
           },
         };
       },
+      resolvePageOwnershipPath: (input) => ({
+        status: "available",
+        targetPageId: input.targetPageId,
+        ancestors: [{
+          pageId: "page:root",
+          title: "Root",
+          lifecycle: "active",
+        }],
+      }),
       readDatabaseViewReference: () => null,
     });
 
@@ -72,6 +81,13 @@ describe("canonical reference HTTP reads", () => {
     expect(capturedScope).toBe("host-project");
     expect(body.page?.libraryId).toBe("library:target");
     expect(body.targetPageId).toBe("page:target");
+
+    const pathResponse = await app.request(
+      "/api/projects/host-project/page-targets/page%3Atarget/ownership-path",
+    );
+    expect(pathResponse.status).toBe(200);
+    const path = await pathResponse.json() as { ancestors?: Array<{ title?: string }> };
+    expect(path.ancestors?.map((ancestor) => ancestor.title)).toEqual(["Root"]);
   });
 
   test("returns durable Database View rows in authority order", async () => {
@@ -79,6 +95,7 @@ describe("canonical reference HTTP reads", () => {
     let capturedHostBlockId = "";
     registerReferenceReadHttpRoutes(app, {
       resolvePageTarget: () => null,
+      resolvePageOwnershipPath: () => null,
       readDatabaseViewReference: (input) => {
         capturedHostBlockId = input.hostBlockId ?? "";
         return {
@@ -119,6 +136,7 @@ describe("canonical reference HTTP reads", () => {
     const app = new Hono();
     registerReferenceReadHttpRoutes(app, {
       resolvePageTarget: () => null,
+      resolvePageOwnershipPath: () => null,
       readDatabaseViewReference: () => null,
     });
 

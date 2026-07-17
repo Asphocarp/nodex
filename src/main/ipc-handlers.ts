@@ -19,6 +19,7 @@ import * as pageOccurrences from "./local-store/page-occurrences";
 import * as pagesStore from "./local-store/database-pages";
 import {
   readProjectScopedDatabaseViewReference,
+  resolveProjectScopedPageOwnershipPath,
   resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
 import {
@@ -837,6 +838,9 @@ export function registerIpcHandlers(
   });
   registerHandle("page-target:resolve", (_, input) =>
     resolveProjectScopedPageTarget(input),
+  );
+  registerHandle("page-ownership-path:resolve", (_, input) =>
+    resolveProjectScopedPageOwnershipPath(input),
   );
   registerHandle("database-view:reference:get", (_, input) =>
     readProjectScopedDatabaseViewReference(input),

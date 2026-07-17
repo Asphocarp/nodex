@@ -14,6 +14,10 @@ import type {
   ResolvePageTargetInput,
 } from "../../shared/page-targets";
 import type {
+  PageOwnershipPathReadModel,
+  ResolvePageOwnershipPathInput,
+} from "../../shared/page-ownership-paths";
+import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
@@ -196,6 +200,12 @@ export function resolvePageTarget(
   input: ResolvePageTargetInput,
 ): Promise<PageTargetReadModel | null> {
   return invoke("page-target:resolve", input);
+}
+
+export function resolvePageOwnershipPath(
+  input: ResolvePageOwnershipPathInput,
+): Promise<PageOwnershipPathReadModel | null> {
+  return invoke("page-ownership-path:resolve", input);
 }
 
 export function readDatabaseViewReference(

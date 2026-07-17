@@ -3,7 +3,7 @@ import { useState } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { PageStageToolbar } from "./toolbar";
 
-const CARD_PATH = [
+const PAGE_OWNERSHIP_PATH = [
   { projectId: "nodex", pageId: "planning", title: "Planning" },
   { projectId: "nodex", pageId: "workbench", title: "Workbench" },
   { projectId: "nodex", pageId: "page-tabs", title: "Page tabs" },
@@ -12,8 +12,8 @@ const CARD_PATH = [
 ] as const;
 
 function NestedPageToolbarStory() {
-  const [currentIndex, setCurrentIndex] = useState(CARD_PATH.length - 1);
-  const current = CARD_PATH[currentIndex] ?? CARD_PATH[0];
+  const [currentIndex, setCurrentIndex] = useState(PAGE_OWNERSHIP_PATH.length - 1);
+  const current = PAGE_OWNERSHIP_PATH[currentIndex] ?? PAGE_OWNERSHIP_PATH[0];
 
   return (
     <NodexTooltipProvider>
@@ -28,7 +28,7 @@ function NestedPageToolbarStory() {
           onToggleContentWidth={() => undefined}
           onToggleShowRawContent={() => undefined}
           breadcrumb={{
-            ancestors: CARD_PATH.slice(0, currentIndex),
+            ancestors: PAGE_OWNERSHIP_PATH.slice(0, currentIndex),
             currentTitle: current.title,
             onOpenAncestor: (_ancestor, ancestorIndex) => {
               setCurrentIndex(ancestorIndex);
@@ -52,4 +52,4 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const NestedPageBreadcrumb: Story = {};
+export const CanonicalOwnershipBreadcrumb: Story = {};

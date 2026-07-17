@@ -492,11 +492,6 @@ export interface ProjectSessionPageStageTabConfig {
   projectId: string;
   pageId: string;
   titleSnapshot?: string;
-  ancestors?: ProjectSessionPageStageAncestor[];
-}
-
-export interface ProjectSessionPageStageAncestor {
-  pageId: string;
 }
 
 export interface ProjectSessionTerminalTabConfig {

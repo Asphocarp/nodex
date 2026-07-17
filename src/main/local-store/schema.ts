@@ -6686,22 +6686,7 @@ const migratePageStageTabIdentity = (
   }
   delete config.cardId;
 
-  if (Array.isArray(config.ancestors)) {
-    config.ancestors = config.ancestors.map((ancestor) => {
-      if (
-        typeof ancestor !== "object"
-        || ancestor === null
-        || Array.isArray(ancestor)
-      ) return ancestor;
-
-      const migrated = { ...ancestor } as Record<string, unknown>;
-      if (!("pageId" in migrated) && typeof migrated.cardId === "string") {
-        migrated.pageId = migrated.cardId;
-      }
-      delete migrated.cardId;
-      return migrated;
-    });
-  }
+  delete config.ancestors;
 
   return {
     kind: "page_stage",

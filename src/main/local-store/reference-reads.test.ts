@@ -10,6 +10,7 @@ import { createProject } from "./projects";
 import { putProjectResourceGrantInDatabase } from "./project-resource-grants";
 import {
   readProjectScopedDatabaseViewReference,
+  resolveProjectScopedPageOwnershipPath,
   resolveProjectScopedPageTarget,
 } from "./reference-reads";
 
@@ -38,12 +39,16 @@ describe("Project-scoped canonical reference reads", () => {
     try {
       await initializeDatabase();
       const hostProject = createProject({ name: "Host" });
+      const restrictedProject = createProject({ name: "Restricted host" });
       const targetProject = createProject({ name: "Target" });
       const targetCard = await createPage(targetProject.id, "draft", {
         title: "Target Card",
       });
       const siblingCard = await createPage(targetProject.id, "draft", {
         title: "Sibling Card",
+      });
+      const nestedPage = await createPage(targetProject.id, "draft", {
+        title: "Nested Page",
       });
       closeDatabase();
 
@@ -59,10 +64,26 @@ describe("Project-scoped canonical reference reads", () => {
           WHERE project.id = ?
         `).get(targetProject.id) as { block_id: string; view_id: string };
         const now = "2026-01-01T00:00:00.000Z";
+        database.prepare(`
+          UPDATE data_source_page_memberships
+          SET removed_at = ?, revision = revision + 1
+          WHERE page_block_id = ? AND removed_at IS NULL
+        `).run(now, nestedPage.id);
+        database.prepare(`
+          UPDATE pages
+          SET parent_kind = 'page', parent_id = ?,
+            parent_revision = parent_revision + 1, updated_at = ?
+          WHERE block_id = ?
+        `).run(targetCard.id, now, nestedPage.id);
 
         putProjectResourceGrantInDatabase(database, {
           projectId: hostProject.id,
           root: { kind: "database", databaseId: databaseBlock.block_id },
+          access: "read",
+        }, now);
+        putProjectResourceGrantInDatabase(database, {
+          projectId: restrictedProject.id,
+          root: { kind: "page", pageId: nestedPage.id },
           access: "read",
         }, now);
 
@@ -74,6 +95,41 @@ describe("Project-scoped canonical reference reads", () => {
         if (card?.status === "available") {
           expect(card.page.libraryId).toBe(targetProject.libraryId);
         }
+        expect(resolveProjectScopedPageOwnershipPath({
+          requestingProjectId: hostProject.id,
+          targetPageId: nestedPage.id,
+        }, database)).toEqual({
+          status: "available",
+          targetPageId: nestedPage.id,
+          ancestors: [{
+            pageId: targetCard.id,
+            title: "Target Card",
+            lifecycle: "active",
+          }],
+        });
+        expect(resolveProjectScopedPageOwnershipPath({
+          requestingProjectId: hostProject.id,
+          targetPageId: siblingCard.id,
+        }, database)).toEqual({
+          status: "available",
+          targetPageId: siblingCard.id,
+          ancestors: [],
+        });
+        expect(resolveProjectScopedPageOwnershipPath({
+          requestingProjectId: restrictedProject.id,
+          targetPageId: nestedPage.id,
+        }, database)).toEqual({
+          status: "available",
+          targetPageId: nestedPage.id,
+          ancestors: [],
+        });
+        expect(resolveProjectScopedPageOwnershipPath({
+          requestingProjectId: hostProject.id,
+          targetPageId: "missing-page",
+        }, database)).toEqual({
+          status: "missing",
+          targetPageId: "missing-page",
+        });
         const view = readProjectScopedDatabaseViewReference({
           requestingProjectId: hostProject.id,
           databaseViewId: databaseBlock.view_id,
@@ -85,12 +141,16 @@ describe("Project-scoped canonical reference reads", () => {
           databaseViewId: databaseBlock.view_id,
           hostBlockId: targetCard.id,
         }, database);
-        expect(withoutHost?.rows.map((row) => row.page.id).join(",")).toBe(
+        expect(withoutHost?.rows.map((row) => row.page.id)).toEqual([
           siblingCard.id,
-        );
+        ]);
         expect(resolveProjectScopedPageTarget({
           requestingProjectId: "missing-project",
           targetPageId: targetCard.id,
+        }, database) === null).toBe(true);
+        expect(resolveProjectScopedPageOwnershipPath({
+          requestingProjectId: "missing-project",
+          targetPageId: nestedPage.id,
         }, database) === null).toBe(true);
         expect(readProjectScopedDatabaseViewReference({
           requestingProjectId: "missing-project",

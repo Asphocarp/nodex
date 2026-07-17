@@ -39,6 +39,18 @@ export const queryKeys = {
       targetBlockId,
     ] as const,
   },
+  pageOwnershipPaths: {
+    all: () => ["pageOwnershipPaths"] as const,
+    byProject: (requestingProjectId: string) => [
+      "pageOwnershipPaths",
+      requestingProjectId,
+    ] as const,
+    byPage: (requestingProjectId: string, targetPageId: string) => [
+      "pageOwnershipPaths",
+      requestingProjectId,
+      targetPageId,
+    ] as const,
+  },
   blockReferences: {
     databaseView: (
       requestingProjectId: string,

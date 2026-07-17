@@ -1072,6 +1072,9 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   dbNotifier.on("page-target-changed", (event) => {
     broadcastToWindows("page-target-changed", event);
   });
+  dbNotifier.on("page-ownership-paths-changed", (event) => {
+    broadcastToWindows("page-ownership-paths-changed", event);
+  });
   dbNotifier.on("database-changed", (event) => {
     broadcastToWindows("database-changed", event);
   });

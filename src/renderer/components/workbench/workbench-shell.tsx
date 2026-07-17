@@ -146,8 +146,7 @@ import { useCodexScheduledAutomations } from "@/lib/use-codex-scheduled-automati
 import { useKanban } from "@/lib/use-kanban";
 import { ensureFreshDatabaseViewBoard } from "@/lib/kanban-store";
 import { fetchPageDetail, usePageDetail } from "@/lib/page-detail-store";
-import { usePageTargetReadModels } from "@/lib/block-reference-queries";
-import { resolvePageStageBreadcrumbTarget } from "@/lib/page-stage-breadcrumb-target";
+import { usePageOwnershipPathReadModel } from "@/lib/block-reference-queries";
 import {
   projectPageDetailToStageModel,
   type PageStageDatabaseProperties,
@@ -296,11 +295,9 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import type {
-  ProjectSessionPageStageAncestor,
   ProjectSessionPageStageTabConfig,
   TerminalSessionSnapshot,
 } from "../../../shared/types";
-import { appendPageStageAncestor } from "../../../shared/page-stage-ancestors";
 import type { ThreadActionControllerInput, ThreadStageActions } from "@/features/local-conversation";
 import type {
   ThreadOpenSideChatInput,
@@ -1025,7 +1022,6 @@ interface WorkbenchShellProps {
 interface OpenPageTabOptions {
   sourceTabId?: string;
   openMode?: "preview" | "durable";
-  ancestors?: readonly ProjectSessionPageStageAncestor[];
 }
 
 type OpenPageTabHandler = (
@@ -2213,7 +2209,6 @@ function makePreviewPageStageTab(
     projectId: string;
     pageId: string;
     titleSnapshot?: string;
-    ancestors?: readonly ProjectSessionPageStageAncestor[];
   },
 ): ProjectSessionPreviewTab {
   const projectId = resolveProjectBoundSessionId(session);
@@ -2235,7 +2230,6 @@ function makePreviewPageStageTab(
       projectId: input.projectId,
       pageId: input.pageId,
       ...(input.titleSnapshot ? { titleSnapshot: input.titleSnapshot } : {}),
-      ...(input.ancestors !== undefined ? { ancestors: [...input.ancestors] } : {}),
     },
     stateKey: 0,
     state: {},
@@ -2319,17 +2313,6 @@ function readPageStagePanelTabPageRef(tab: ProjectSessionTab | null | undefined)
     projectId: tab.config.projectId,
     pageId: tab.config.pageId,
   };
-}
-
-function pageStageAncestorsEqual(
-  left: readonly ProjectSessionPageStageAncestor[] | undefined,
-  right: readonly ProjectSessionPageStageAncestor[],
-): boolean {
-  if ((left?.length ?? 0) !== right.length) return false;
-  return right.every((ancestor, index) => {
-    const candidate = left?.[index];
-    return candidate?.pageId === ancestor.pageId;
-  });
 }
 
 function buildShellNavigationSnapshot(input: {
@@ -6327,24 +6310,10 @@ export function WorkbenchShell({
       && tab.config.projectId === projectId,
     );
     if (existing) {
-      const requestedAncestors = options?.ancestors;
-      const existingConfig = existing.config as ProjectSessionPageStageTabConfig;
-      const shouldRefreshBreadcrumb = requestedAncestors !== undefined
-        && !pageStageAncestorsEqual(existingConfig.ancestors, requestedAncestors);
-      if (shouldRefreshBreadcrumb) {
-        await invoke("project-session-tabs:update", existing.id, {
-          config: {
-            ...existingConfig,
-            ...(titleSnapshot !== undefined ? { titleSnapshot } : {}),
-            ancestors: [...requestedAncestors],
-          },
-        });
-      }
       const existingLeafId = resolveLeafIdForPanelTab(activeSession, "right", existing.id);
       clearPanelPreviewTab(activeSession.id, "right", existingLeafId);
       await updateActivePanel("right", { collapsed: false });
       await setActivePanelTab("right", existing.id, { leafId: existingLeafId, openPanel: true });
-      if (shouldRefreshBreadcrumb) await refreshProjectSessions(sessionProjectId);
       return;
     }
 
@@ -6378,7 +6347,7 @@ export function WorkbenchShell({
           activeSession,
           "right",
           previewLeafId,
-          { projectId, pageId, titleSnapshot, ancestors: options?.ancestors },
+          { projectId, pageId, titleSnapshot },
         ),
       }));
       await ensureActivePanelOpenWithoutRefresh("right");
@@ -6397,9 +6366,6 @@ export function WorkbenchShell({
         projectId,
         pageId: pageId,
         titleSnapshot,
-        ...(options?.ancestors !== undefined
-          ? { ancestors: [...options.ancestors] }
-          : {}),
       },
     });
     await ensureActivePanelOpenWithoutRefresh("right");
@@ -13572,29 +13538,22 @@ function PageStageSessionTab({
   useEffect(() => () => {
     titleStore.release(titleStoreKey);
   }, [titleStore, titleStoreKey]);
-  const pageAncestors = tab.config.ancestors ?? [];
-  const ancestorTargetReads = usePageTargetReadModels(
+  const ownershipPath = usePageOwnershipPathReadModel(
     project?.id ?? "",
-    pageAncestors.map((ancestor) => ancestor.pageId),
+    tab.config.pageId,
   );
-  const breadcrumb = pageAncestors.length > 0 ? {
-    ancestors: pageAncestors.map((ancestor, index) => {
-      const target = resolvePageStageBreadcrumbTarget({
-        targetBlockId: ancestor.pageId,
-        model: ancestorTargetReads[index]?.data ?? null,
-        loading: ancestorTargetReads[index]?.loading ?? false,
-        error: ancestorTargetReads[index]?.error ?? null,
-      });
-      return {
-        projectId: tab.config.projectId,
-        pageId: target.navigationTarget?.pageId ?? ancestor.pageId,
-        title: target.title,
-        disabled: target.navigationTarget === null,
-      };
-    }),
+  const ownershipAncestors = ownershipPath.data?.status === "available"
+    ? ownershipPath.data.ancestors
+    : [];
+  const breadcrumb = ownershipAncestors.length > 0 ? {
+    ancestors: ownershipAncestors.map((ancestor) => ({
+      projectId: tab.config.projectId,
+      pageId: ancestor.pageId,
+      title: ancestor.title.trim() || "Untitled",
+      disabled: false,
+    })),
     onOpenAncestor: (
       ancestor: { projectId: string; pageId: string; title: string },
-      ancestorIndex: number,
     ) => {
       void onOpenPageTab(
         ancestor.projectId,
@@ -13602,7 +13561,6 @@ function PageStageSessionTab({
         ancestor.title,
         {
           openMode: "durable",
-          ancestors: pageAncestors.slice(0, ancestorIndex),
         },
       );
     },
@@ -13795,12 +13753,8 @@ function PageStageSessionTab({
             linkedCodexThreads={[]}
             onOpenCodexThread={onOpenThread}
             onOpenPage={({ projectId, pageId, titleSnapshot }) => {
-              const ancestors = appendPageStageAncestor(pageAncestors, {
-                pageId: tab.config.pageId,
-              });
               void onOpenPageTab(projectId, pageId, titleSnapshot, {
                 openMode: "durable",
-                ancestors,
               });
             }}
             onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}

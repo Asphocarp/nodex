@@ -66,6 +66,10 @@ import type {
   ResolvePageTargetInput,
 } from "./page-targets";
 import type {
+  PageOwnershipPathReadModel,
+  ResolvePageOwnershipPathInput,
+} from "./page-ownership-paths";
+import type {
   DatabaseViewReadModel,
   ReadDatabaseViewReferenceInput,
 } from "./database-views";
@@ -531,6 +535,10 @@ export interface IpcApi {
   "page-target:resolve": {
     args: [input: ResolvePageTargetInput];
     result: PageTargetReadModel | null;
+  };
+  "page-ownership-path:resolve": {
+    args: [input: ResolvePageOwnershipPathInput];
+    result: PageOwnershipPathReadModel | null;
   };
   "database-view:reference:get": {
     args: [input: ReadDatabaseViewReferenceInput];
@@ -1632,6 +1640,7 @@ export interface IpcEvents {
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;
   "page-target-changed": import("./page-target-events").PageTargetChangedEvent;
+  "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;

@@ -32,6 +32,7 @@ import {
   decodeOwnedDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
 import {
+  decodePageOwnershipPathReadModelHttp,
   decodePageTargetReadModelHttp,
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
@@ -978,6 +979,27 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         );
       }
       return decodePageTargetReadModelHttp(await res.json());
+    }
+    case "page-ownership-path:resolve": {
+      const [input] = args as [
+        {
+          requestingProjectId: string;
+          targetPageId: string;
+        },
+      ];
+      const res = await fetch(
+        toApiUrl(
+          `/api/projects/${encodeURIComponent(input.requestingProjectId)}` +
+            `/page-targets/${encodeURIComponent(input.targetPageId)}/ownership-path`,
+        ),
+      );
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        throw new Error(
+          `Page ownership path lookup failed with status ${res.status}`,
+        );
+      }
+      return decodePageOwnershipPathReadModelHttp(await res.json());
     }
     case "database-view:reference:get": {
       const [input] = args as [
@@ -2128,6 +2150,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 type ProjectEventName =
   | "board-changed"
   | "page-target-changed"
+  | "page-ownership-paths-changed"
   | "database-changed"
   | "project-sessions-changed";
 
@@ -2181,6 +2204,7 @@ const ensureBrowserProjectEventStream = (
       if (
         eventName !== "board-changed" &&
         eventName !== "page-target-changed" &&
+        eventName !== "page-ownership-paths-changed" &&
         eventName !== "database-changed" &&
         eventName !== "project-sessions-changed"
       ) {
@@ -2245,6 +2269,22 @@ function subscribePageTargetChanges(
     projectId,
     "page-target-changed",
     (event) => callback(event as unknown as import("../../shared/page-target-events").PageTargetChangedEvent),
+  );
+}
+
+function subscribePageOwnershipPathChanges(
+  projectId: string,
+  callback: (
+    event: import("../../shared/page-ownership-path-events").PageOwnershipPathsChangedEvent,
+  ) => void,
+): () => void {
+  return subscribeBrowserProjectEvent(
+    projectId,
+    "page-ownership-paths-changed",
+    (event) => callback({
+      changeKind: event.changeKind as
+        import("../../shared/page-ownership-path-events").PageOwnershipPathsChangedEvent["changeKind"],
+    }),
   );
 }
 
@@ -2678,6 +2718,7 @@ export const browserRendererTransport = {
   invoke,
   subscribeBoardChanges,
   subscribePageTargetChanges,
+  subscribePageOwnershipPathChanges,
   subscribeDatabaseChanges,
   subscribeProjectSessionChanges,
   subscribeProjectChanges,
