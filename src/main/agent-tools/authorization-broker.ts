@@ -20,7 +20,7 @@ interface NodexAgentAuthorizationGrant {
   readonly rootThreadId: string;
   readonly projectId: string;
   readonly storeEpoch: string;
-  readonly ownerClientId: string;
+  readonly presentationClientId: string;
 }
 
 export interface NodexAgentAuthorizationBrokerOptions {
@@ -30,12 +30,16 @@ export interface NodexAgentAuthorizationBrokerOptions {
   readonly readStoreEpoch?: () => string | null;
 }
 
+export interface NodexAgentAuthorizationPresentationTarget {
+  readonly clientId: string;
+  readonly threadId: string;
+  readonly turnId: string;
+}
+
 export interface AuthorizeNodexAgentWriteInput
   extends NodexAgentDynamicAuthorizationInput {
   readonly rootThreadId: string;
-  readonly ownerClientId: string | null;
-  readonly presentationThreadId: string;
-  readonly presentationTurnId: string;
+  readonly presentation: NodexAgentAuthorizationPresentationTarget | null;
 }
 
 function parseResponse(value: unknown): NodexAgentAuthorizationResponse | null {
@@ -88,21 +92,21 @@ export class NodexAgentAuthorizationBroker {
       return "unavailable";
     }
     this.revokeStaleRootGrants(input.rootThreadId, input.projectId, storeEpoch);
-    if (!input.ownerClientId) return "unavailable";
     const key = this.grantKey({
       rootThreadId: input.rootThreadId,
       projectId: input.projectId,
       storeEpoch,
     });
     if (input.effect === "write" && this.grants.has(key)) return "allow_task";
+    if (!input.presentation) return "unavailable";
 
     const authorizationId = `nodex-authorization:${randomUUID()}`;
     const request: NodexAgentAuthorizationRequest = {
       type: "nodexAgentAuthorization",
       requestId: authorizationId,
       projectId: input.projectId,
-      threadId: input.presentationThreadId,
-      turnId: input.presentationTurnId,
+      threadId: input.presentation.threadId,
+      turnId: input.presentation.turnId,
       itemId: input.callId,
       tool: input.tool,
       effect: input.effect,
@@ -112,7 +116,7 @@ export class NodexAgentAuthorizationBroker {
     let rawResponse: unknown;
     try {
       rawResponse = await this.router.sendRequest(
-        input.ownerClientId,
+        input.presentation.clientId,
         NODEX_AGENT_AUTHORIZATION_RENDERER_METHOD,
         request,
         { timeoutMs: NODEX_AGENT_AUTHORIZATION_TIMEOUT_MS },
@@ -131,7 +135,7 @@ export class NodexAgentAuthorizationBroker {
       rootThreadId: input.rootThreadId,
       projectId: input.projectId,
       storeEpoch,
-      ownerClientId: input.ownerClientId,
+      presentationClientId: input.presentation.clientId,
     });
     return "allow_task";
   }
@@ -142,9 +146,9 @@ export class NodexAgentAuthorizationBroker {
     }
   }
 
-  revokeOwner(ownerClientId: string): void {
+  revokePresentationClient(presentationClientId: string): void {
     for (const [key, grant] of this.grants) {
-      if (grant.ownerClientId === ownerClientId) this.grants.delete(key);
+      if (grant.presentationClientId === presentationClientId) this.grants.delete(key);
     }
   }
 

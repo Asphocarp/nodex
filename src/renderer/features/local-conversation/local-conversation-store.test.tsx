@@ -13302,13 +13302,13 @@ describe("local-conversation-store", () => {
     resumeThreadResult = null;
   });
 
-  test("renderer client request bridge keeps Nodex authorization pending until the owner responds", async () => {
+  test("renderer-local Nodex authorization survives main-owned snapshots until the viewer responds", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
     rendererClientRequestListener = null;
     threadListByProject = {};
-    resumeThreadResult = {
+    const mainOwnedConversation: CodexConversationSnapshot = {
       ...buildConversation("thread-1", "project-1"),
       turns: [{
         threadId: "thread-1",
@@ -13318,6 +13318,7 @@ describe("local-conversation-store", () => {
         items: [],
       }],
     };
+    resumeThreadResult = mainOwnedConversation;
     const {
       LocalConversationProvider,
       useDefaultCodexAppServerManager,
@@ -13327,7 +13328,6 @@ describe("local-conversation-store", () => {
     __resetLocalConversationStoreForTests();
 
     let manager: {
-      requestThreadStreamResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
       readConversation: (threadId: string) => CodexConversationSnapshot | null;
       respondNodexAgentAuthorization: (
         requestId: string,
@@ -13344,7 +13344,6 @@ describe("local-conversation-store", () => {
     await settleAsyncRender();
     if (!manager) throw new Error("Expected manager");
     const activeManager = manager as {
-      requestThreadStreamResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
       readConversation: (threadId: string) => CodexConversationSnapshot | null;
       respondNodexAgentAuthorization: (
         requestId: string,
@@ -13352,9 +13351,18 @@ describe("local-conversation-store", () => {
         conversationId: string,
       ) => Promise<boolean>;
     };
-    await act(async () => {
-      await activeManager.requestThreadStreamResume("thread-1");
+    dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      hostId: "default",
+      conversationId: "thread-1",
+      version: 1,
+      change: {
+        type: "snapshot",
+        revision: 1,
+        conversationState: mainOwnedConversation,
+      },
+      sourceClientId: null,
     });
+    await flushAsyncWork();
     invokeRecords = [];
 
     await act(async () => {
@@ -13387,6 +13395,25 @@ describe("local-conversation-store", () => {
         (request) => request.requestId === "nodex-auth-1",
       ) === true
     , 1_000);
+
+    dispatchCodexAppServerMessage("thread-stream-state-changed", {
+      hostId: "default",
+      conversationId: "thread-1",
+      version: 2,
+      change: {
+        type: "snapshot",
+        revision: 2,
+        conversationState: {
+          ...mainOwnedConversation,
+          threadName: "Main-owned update",
+        },
+      },
+      sourceClientId: null,
+    });
+    await flushAsyncWork();
+    expect(activeManager.readConversation("thread-1")?.requests.some(
+      (request) => request.requestId === "nodex-auth-1",
+    )).toBe(true);
     expect(invokeRecords.some((record) =>
       record.channel === "codex:renderer-client:response"
     )).toBe(false);
@@ -13442,23 +13469,22 @@ describe("local-conversation-store", () => {
       ) === true
     , 1_000);
 
-    dispatchCodexAppServerMessage("thread-owner-notification", {
+    dispatchCodexAppServerMessage("thread-stream-state-changed", {
       hostId: "default",
-      sequence: 1,
-      notification: {
-        method: "turn/completed",
-        params: {
-          threadId: "thread-1",
-          turn: buildProtocolTurn({
-            id: "turn-1",
+      conversationId: "thread-1",
+      version: 3,
+      change: {
+        type: "snapshot",
+        revision: 3,
+        conversationState: {
+          ...mainOwnedConversation,
+          turns: [{
+            ...mainOwnedConversation.turns[0]!,
             status: "interrupted",
-            error: null,
-            startedAt: 1,
-            completedAt: 2,
-            durationMs: 1,
-          }),
+          }],
         },
       },
+      sourceClientId: null,
     });
     await waitForCondition(() => invokeRecords.some((record) =>
       record.channel === "codex:renderer-client:response"

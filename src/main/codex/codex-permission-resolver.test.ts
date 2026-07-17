@@ -253,17 +253,21 @@ describe("codex-permission-resolver", () => {
     expect(state.approvalsReviewer).toBe("user");
   });
 
-  test("exposes Custom for explicit config even when it folds to a fixed preset", () => {
+  test("keeps explicit config Custom even when it is equivalent to a fixed preset", () => {
     const state = resolveCodexPermissionState({
-      config: buildConfig(),
+      config: buildConfig({
+        approval_policy: "never",
+        approvals_reviewer: "user",
+        sandbox_mode: "danger-full-access",
+      }),
       origins: buildPermissionOrigins(),
       requirements: null,
       defaultUserConfigPath: "/Users/test/.codex/config.toml",
       workspaceRoots: ["/Users/test/project"],
     });
 
-    expect(state.mode).toBe("auto");
-    expect(state.effectivePreset).toBe("auto");
+    expect(state.mode).toBe("custom");
+    expect(state.effectivePreset).toBe("custom");
     expect(state.availableModes.includes("custom")).toBe(true);
   });
 

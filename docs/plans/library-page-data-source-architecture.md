@@ -244,7 +244,8 @@ resource grant is committed; and a reference never expands authority.
 
 ## Outcomes & Retrospective
 
-The accepted architecture now exists through schema v78. Profile/Library
+The accepted architecture landed at schema v78 and remains the foundation of
+the current schema v80. Profile/Library
 ownership, deterministic initial Data Sources, exclusive Page parents, Project
 bindings/lifecycle, recursive grants, Page occurrence authorization, the deep
 Database Module, Page Detail/search/history, Page-first Agent tools, realtime

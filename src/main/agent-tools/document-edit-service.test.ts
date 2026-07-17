@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
 import type { DocumentMutationRequest } from "../../shared/block-documents";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import {
   BlockIdSchema,
   AdvancedUpdatePageV3InputSchema,
@@ -21,8 +22,11 @@ import {
 } from "../local-store/block-document-operations";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
-import { createProject } from "../local-store/projects";
-import { putProjectResourceGrantInDatabase } from "../local-store/project-resource-grants";
+import { createProject, setProjectLifecycle } from "../local-store/projects";
+import {
+  assertNodexAgentResourceAuthorizationInDatabase,
+  putProjectResourceGrantInDatabase,
+} from "../local-store/project-resource-grants";
 import {
   completeNodexAgentDocumentEdit,
   prepareNodexAgentDocumentEdit,
@@ -164,6 +168,23 @@ function edit(value: unknown): EditDocumentInput {
   return EditDocumentInputSchema.parse(value);
 }
 
+function fullAccessAuthority(fixture: Fixture): FrozenNodexAgentTurnAuthority {
+  const coordinate = fixture.database.prepare(`
+    SELECT library_id AS libraryId FROM projects WHERE id = ?
+  `).get(fixture.projectId) as { readonly libraryId: string } | undefined;
+  if (!coordinate) throw new Error("Project has no Library coordinate");
+  return {
+    threadId: "thread-edit-full",
+    turnId: "turn-edit-full",
+    rootThreadId: "thread-edit-full",
+    actorProjectId: fixture.projectId,
+    libraryId: coordinate.libraryId,
+    storeEpoch: fixture.storeEpoch,
+    scope: "library",
+    source: "builtin_full_access",
+  };
+}
+
 function prepare(
   fixture: Fixture,
   callId: string,
@@ -179,6 +200,121 @@ function prepare(
 }
 
 describe("Nodex Agent Document edit service", () => {
+  sqliteTest("updates a foreign Page with ephemeral Full access and no grant", async () => {
+    await withFixture((fixture) => {
+      const owner = createProject({ name: "Full access Page owner" });
+      const pageId = createCard(fixture, {
+        title: "Foreign editable Page",
+        nfm: "Original",
+      }, owner.id);
+      const authority = fullAccessAuthority(fixture);
+      const prepared = prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
+        threadId: authority.threadId,
+        callId: "update-full-access-page",
+        authority,
+        projectId: fixture.projectId,
+        input: UpdatePageV3InputSchema.parse({
+          pageId,
+          body: {
+            kind: "insert",
+            at: { kind: "end" },
+            markdown: "Full access edit",
+          },
+          return: ["markdown"],
+        }),
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Full access update was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      expect(prepared.value.mutation.projectId).toBe(owner.id);
+      const committed = applyMutation(fixture, prepared.value.mutation);
+      if (!committed.ok) throw new Error(committed.error.message);
+      const completed = completeNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
+        threadId: authority.threadId,
+        callId: "update-full-access-page",
+        authority,
+        projectId: fixture.projectId,
+        pageId,
+        result: committed.value,
+      });
+      expect(completed.ok ? completed.output.data.body?.markdown : null)
+        .toBe("Original\nFull access edit");
+      expect(fixture.database.prepare(`
+        SELECT COUNT(*) AS count FROM project_resource_grants
+        WHERE project_id = ?
+      `).get(fixture.projectId)).toEqual({ count: 0 });
+    });
+  });
+
+  sqliteTest("revalidates frozen authority inside the Document mutation transaction", async () => {
+    await withFixture((fixture) => {
+      const owner = createProject({ name: "Execution-time Page owner" });
+      const pageId = createCard(fixture, {
+        title: "Execution-time guarded Page",
+        nfm: "Original",
+      }, owner.id);
+      const authority = fullAccessAuthority(fixture);
+      const prepared = prepareNodexAgentPageUpdate(fixture.database, {
+        tool: "update_page",
+        threadId: authority.threadId,
+        callId: "execution-time-authority",
+        authority,
+        projectId: fixture.projectId,
+        input: UpdatePageV3InputSchema.parse({
+          pageId,
+          body: {
+            kind: "insert",
+            at: { kind: "end" },
+            markdown: "Must not commit",
+          },
+        }),
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Execution-time update was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      const mutation = prepared.value.mutation;
+      if (!("operations" in mutation)) {
+        throw new Error("Execution-time update did not compile to block operations");
+      }
+      const before = fixture.database.prepare(`
+        SELECT document.head_seq AS headSeq, materialization.nfm
+        FROM documents document
+        INNER JOIN document_materializations materialization
+          ON materialization.document_id = document.id
+        WHERE document.id = ?
+      `).get(mutation.documentId);
+      setProjectLifecycle(fixture.projectId, { lifecycle: "archived" });
+
+      expect(() => applyDocumentOperationBatch(fixture.database, mutation, {
+        writeFence: {
+          leaseId: `test-lease:${mutation.mutationId}`,
+          documentId: mutation.documentId,
+          generation: mutation.generation,
+          headSeq: mutation.expectedHeadSeq,
+        },
+        beforeMutationApply: () => {
+          assertNodexAgentResourceAuthorizationInDatabase(fixture.database, {
+            authority,
+            resource: { kind: "page", pageId },
+            action: "write",
+          });
+        },
+      })).toThrow("project_read_only");
+      expect(fixture.database.prepare(`
+        SELECT document.head_seq AS headSeq, materialization.nfm
+        FROM documents document
+        INNER JOIN document_materializations materialization
+          ON materialization.document_id = document.id
+        WHERE document.id = ?
+      `).get(mutation.documentId)).toEqual(before);
+      expect(fixture.database.prepare(`
+        SELECT status FROM nodex_agent_call_receipts WHERE call_id = ?
+      `).get("execution-time-authority")).toEqual({ status: "prepared" });
+    });
+  });
+
   sqliteTest("updates a foreign Page through a recursive read-write grant", async () => {
     await withFixture((fixture) => {
       const owner = createProject({ name: "Granted Page owner" });

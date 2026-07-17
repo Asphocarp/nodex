@@ -82,6 +82,8 @@ export interface ApplyDocumentOperationOptions {
   readonly faultInjector?: (point: DocumentOperationFaultPoint) => void;
   /** Trusted coordinator evidence; never populate this from raw client input. */
   readonly writeFence?: DocumentWriteFenceProof;
+  /** Trusted Agent authority check executed inside the mutation transaction. */
+  readonly beforeMutationApply?: () => void;
   /** Trusted promotion seam; target must be staged in the same outer transaction. */
   readonly allowPendingSyncedReferenceTargetIds?: readonly string[];
   /**
@@ -1430,6 +1432,7 @@ const applyMutationInTransaction = (
   }
   const existing = readStoredMutation(database, request.mutationId);
   if (existing) return loadStoredOutcome(database, existing, request, evidence);
+  options.beforeMutationApply?.();
 
   let projectId: string;
   try {

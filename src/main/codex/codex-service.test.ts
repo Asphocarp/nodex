@@ -2923,6 +2923,73 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
+  test("routes Nodex authorization presentation through a visible renderer without adopting state ownership", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      resolveNodexAgentAuthorizationPresentation: (
+        threadId: string,
+        turnId: string,
+        rootThreadId: string,
+      ) => {
+        clientId: string;
+        threadId: string;
+        turnId: string;
+      } | null;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+    };
+
+    try {
+      service.setRendererConversationViewActive("thread-main-owned", "renderer-viewer", true);
+
+      expect(service.getRendererConversationOwner("thread-main-owned")).toBeNull();
+      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
+        "thread-main-owned",
+        "turn-1",
+        "thread-main-owned",
+      )).toEqual({
+        clientId: "renderer-viewer",
+        threadId: "thread-main-owned",
+        turnId: "turn-1",
+      });
+
+      service.setRendererConversationOwner("thread-main-owned", "renderer-state-owner");
+      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
+        "thread-main-owned",
+        "turn-1",
+        "thread-main-owned",
+      )?.clientId).toBe("renderer-viewer");
+
+      service.setRendererConversationViewActive("thread-main-owned", "renderer-viewer", false);
+      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
+        "thread-main-owned",
+        "turn-1",
+        "thread-main-owned",
+      )).toBeNull();
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thread-root"),
+        turns: [{
+          threadId: "thread-root",
+          turnId: "turn-root",
+          status: "inProgress",
+          itemIds: [],
+        }],
+      });
+      service.setRendererConversationViewActive("thread-root", "renderer-root-viewer", true);
+      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
+        "thread-child",
+        "turn-child",
+        "thread-root",
+      )).toEqual({
+        clientId: "renderer-root-viewer",
+        threadId: "thread-root",
+        turnId: "turn-root",
+      });
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("disposed owner state cannot bypass the next renderer resume kernel", async () => {
     const service = createService();
     const threadId = "thread-owner-loss-resume-kernel";
@@ -6392,6 +6459,113 @@ describe("codex-service readThread fallback", () => {
         });
 
         expect(Array.from(serviceInternals.subagentThreadIds).join(",")).toBe("thr_subagent_child,thr_lowercase_subagent");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("binds a background child to the exact parent Turn active at spawn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const project = createProject({ name: "Exact child inheritance" });
+      const service = createService();
+      let activeParentTurnId = "turn-parent-full";
+      const serviceInternals = service as unknown as {
+        handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
+        routeAppServerNotification: (notification: {
+          method: string;
+          params: unknown;
+        }) => void;
+        listKnownTurns: (threadId: string) => readonly {
+          turnId: string | null;
+          status: string;
+        }[];
+        parseThreadRef: (threadId: string) => {
+          projectId: string;
+          cwd: string | null;
+        } | null;
+        nodexAgentAuthorityRegistry: {
+          beginTurn: (input: {
+            threadId: string;
+            rootThreadId: string;
+            actorProjectId: string;
+            builtinFullAccess: boolean;
+          }) => unknown;
+          bindTurn: (launch: unknown, turnId: string) => unknown;
+        };
+      };
+      serviceInternals.handleNotification = async () => {};
+      serviceInternals.parseThreadRef = (threadId) => threadId === "thread-child"
+        ? null
+        : { projectId: project.id, cwd: "/tmp/codex" };
+      serviceInternals.listKnownTurns = (threadId) => threadId === "thread-parent"
+        ? [{ turnId: activeParentTurnId, status: "inProgress" }]
+        : [];
+      const fullLaunch = serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
+        threadId: "thread-parent",
+        rootThreadId: "thread-parent",
+        actorProjectId: project.id,
+        builtinFullAccess: true,
+      });
+      serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
+        fullLaunch,
+        activeParentTurnId,
+      );
+
+      try {
+        serviceInternals.routeAppServerNotification({
+          method: "thread/started",
+          params: {
+            thread: {
+              ...makeSidebarListThread({
+                id: "thread-child",
+                cwd: "/tmp/codex",
+                preview: "Child",
+              }),
+              parentThreadId: "thread-parent",
+              source: {
+                subAgent: {
+                  thread_spawn: { parent_thread_id: "thread-parent" },
+                },
+              },
+            },
+          },
+        });
+
+        activeParentTurnId = "turn-parent-next";
+        const projectLaunch = serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
+          threadId: "thread-parent",
+          rootThreadId: "thread-parent",
+          actorProjectId: project.id,
+          builtinFullAccess: false,
+        });
+        serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
+          projectLaunch,
+          activeParentTurnId,
+        );
+        serviceInternals.routeAppServerNotification({
+          method: "turn/started",
+          params: {
+            threadId: "thread-child",
+            turn: {
+              id: "turn-child-first",
+              status: "inProgress",
+              items: [],
+            },
+          },
+        });
+
+        expect(getDb().prepare(`
+          SELECT scope, source, root_thread_id AS rootThreadId
+          FROM nodex_agent_turn_authorities
+          WHERE thread_id = 'thread-child' AND turn_id = 'turn-child-first'
+        `).get()).toEqual({
+          scope: "library",
+          source: "inherited_builtin_full_access",
+          rootThreadId: "thread-parent",
+        });
       } finally {
         await service.shutdown();
       }
@@ -16282,6 +16456,84 @@ describe("codex-service startTurn", () => {
     }
   });
 
+  test("freezes Nodex Library authority to the exact built-in Full access Turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const project = createProject({ name: "Exact Full access Turn" });
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
+        markThreadAsActive: (threadId: string) => void;
+        persistThreadSnapshot: (threadId: string) => void;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      let turnIndex = 0;
+      serviceInternals.parseThreadRef = () => ({
+        projectId: project.id,
+        cwd: "/tmp/codex",
+      });
+      serviceInternals.markThreadAsActive = () => {};
+      serviceInternals.persistThreadSnapshot = () => {};
+      client.start = async () => undefined;
+      client.request = async (method) => {
+        if (method !== "turn/start") return {};
+        turnIndex += 1;
+        return {
+          turn: {
+            id: `turn-authority-${turnIndex}`,
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      };
+
+      try {
+        await service.setProjectPermissionMode(project.id, "full-access");
+        await service.startTurn("thread-authority", "Full", {
+          permissionMode: "full-access",
+        });
+        await service.setProjectPermissionMode(project.id, "custom");
+        await service.startTurn("thread-authority", "Custom", {
+          permissionMode: "custom",
+        });
+        await service.startTurn("thread-authority", "Spoofed Full", {
+          permissionMode: "full-access",
+        });
+        expect(getDb().prepare(`
+          SELECT turn_id AS turnId, scope, source, permission_profile_id AS profileId
+          FROM nodex_agent_turn_authorities
+          WHERE thread_id = 'thread-authority'
+          ORDER BY turn_id
+        `).all()).toEqual([
+          {
+            turnId: "turn-authority-1",
+            scope: "library",
+            source: "builtin_full_access",
+            profileId: ":danger-full-access",
+          },
+          {
+            turnId: "turn-authority-2",
+            scope: "project",
+            source: "project_turn",
+            profileId: null,
+          },
+          {
+            turnId: "turn-authority-3",
+            scope: "project",
+            source: "project_turn",
+            profileId: null,
+          },
+        ]);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
   test("omits explicit permission overrides for custom mode", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -23469,6 +23721,168 @@ describe("codex-service approval fallback", () => {
     } finally {
       await service.shutdown();
     }
+  });
+
+  test("executes Project-scope Nodex calls in main without detouring through the state owner", async () => {
+    const service = createService();
+    const handleDynamicToolCall = vi.fn(async () => ({
+      success: true,
+      contentItems: [],
+    }));
+    const projectAuthority = {
+      threadId: "thread-direct-project",
+      turnId: "turn-direct-project",
+      rootThreadId: "thread-direct-project",
+      actorProjectId: "project-direct",
+      libraryId: "library-direct",
+      storeEpoch: "store-direct",
+      scope: "project" as const,
+      source: "project_turn" as const,
+    };
+    const serviceInternals = service as unknown as {
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      handleDynamicToolCall: typeof handleDynamicToolCall;
+      captureNodexAgentTurnAuthority: () => typeof projectAuthority;
+      pendingDynamicToolCalls: { readonly size: number };
+      on: (
+        event: "rendererOwnerHostMessage",
+        listener: (message: unknown) => void,
+      ) => void;
+    };
+    const ownerMessages: unknown[] = [];
+    serviceInternals.handleDynamicToolCall = handleDynamicToolCall;
+    serviceInternals.captureNodexAgentTurnAuthority = () => projectAuthority;
+    serviceInternals.on("rendererOwnerHostMessage", (message) => {
+      ownerMessages.push(message);
+    });
+    service.setRendererConversationOwner(
+      "thread-direct-project",
+      "renderer-state-owner",
+    );
+
+    try {
+      await expect(serviceInternals.handleServerRequest({
+        id: "request-direct-project",
+        method: "item/tool/call",
+        params: {
+          threadId: "thread-direct-project",
+          turnId: "turn-direct-project",
+          callId: "call-direct-project",
+          namespace: "nodex_app",
+          tool: "get_context",
+          arguments: {},
+        },
+      })).resolves.toMatchObject({ success: true });
+      expect(handleDynamicToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-direct-project",
+          turnId: "turn-direct-project",
+        }),
+        {},
+        projectAuthority,
+      );
+      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+      expect(ownerMessages).toEqual([]);
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("executes Full-access Nodex calls directly even when a renderer owner exists", async () => {
+    const ran = await withTempDatabase(async () => {
+      const project = createProject({ name: "Direct Full access" });
+      const service = createService();
+      const handleDynamicToolCall = vi.fn(async () => ({
+        success: true,
+        contentItems: [],
+      }));
+      const serviceInternals = service as unknown as {
+        handleServerRequest: (request: {
+          id: string | number;
+          method: string;
+          params: unknown;
+        }) => Promise<unknown>;
+        handleDynamicToolCall: typeof handleDynamicToolCall;
+        parseThreadRef: (threadId: string) => {
+          projectId: string;
+          cwd: string | null;
+        } | null;
+        pendingDynamicToolCalls: Map<string | number, unknown>;
+        nodexAgentAuthorityRegistry: {
+          beginTurn: (input: {
+            threadId: string;
+            rootThreadId: string;
+            actorProjectId: string;
+            builtinFullAccess: boolean;
+          }) => unknown;
+          bindTurn: (launch: unknown, turnId: string) => unknown;
+        };
+        setRendererConversationOwner: (
+          threadId: string,
+          clientId: string | null | undefined,
+        ) => void;
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: unknown) => void,
+        ) => void;
+      };
+      const ownerMessages: unknown[] = [];
+      serviceInternals.parseThreadRef = () => ({
+        projectId: project.id,
+        cwd: "/tmp/codex",
+      });
+      const launch = serviceInternals.nodexAgentAuthorityRegistry.beginTurn({
+        threadId: "thread-direct-full",
+        rootThreadId: "thread-direct-full",
+        actorProjectId: project.id,
+        builtinFullAccess: true,
+      });
+      serviceInternals.nodexAgentAuthorityRegistry.bindTurn(
+        launch,
+        "turn-direct-full",
+      );
+      serviceInternals.handleDynamicToolCall = handleDynamicToolCall;
+      serviceInternals.on("rendererOwnerHostMessage", (message) => {
+        ownerMessages.push(message);
+      });
+      serviceInternals.setRendererConversationOwner(
+        "thread-direct-full",
+        "owner-direct-full",
+      );
+
+      try {
+        await expect(serviceInternals.handleServerRequest({
+          id: "request-direct-full",
+          method: "item/tool/call",
+          params: {
+            threadId: "thread-direct-full",
+            turnId: "turn-direct-full",
+            callId: "call-direct-full",
+            namespace: "nodex_app",
+            tool: "search",
+            arguments: { query: "foreign" },
+          },
+        })).resolves.toMatchObject({ success: true });
+        expect(handleDynamicToolCall).toHaveBeenCalledWith(
+          expect.objectContaining({
+            threadId: "thread-direct-full",
+            turnId: "turn-direct-full",
+          }),
+          {},
+          expect.objectContaining({ scope: "library" }),
+        );
+        expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
+        expect(ownerMessages).toEqual([]);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
   });
 
   test("does not dispatch or answer ordinary dynamic tool calls without a thread id", async () => {

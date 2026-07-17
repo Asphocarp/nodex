@@ -8,9 +8,11 @@ import { initialDataSourceId } from "../../shared/library";
 import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
 import {
   BlockIdSchema,
+  ViewIdSchema,
   type BlockId,
   type NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import { applyPageLifecycleMutation } from "../local-store/page-lifecycle";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
@@ -85,7 +87,116 @@ function readV3(fixture: Fixture, request: NodexAgentV3ReadRequest) {
   return readNodexAgentV3Tool(fixture.database, request);
 }
 
+function fullAccessAuthority(fixture: Fixture): FrozenNodexAgentTurnAuthority {
+  const coordinate = fixture.database.prepare(`
+    SELECT library_id AS libraryId FROM projects WHERE id = ?
+  `).get(fixture.projectId) as { readonly libraryId: string } | undefined;
+  if (!coordinate) throw new Error("Project has no Library coordinate");
+  return {
+    threadId: "thread-read-full",
+    turnId: "turn-read-full",
+    rootThreadId: "thread-read-full",
+    actorProjectId: fixture.projectId,
+    libraryId: coordinate.libraryId,
+    storeEpoch: fixture.storeEpoch,
+    scope: "library",
+    source: "builtin_full_access",
+  };
+}
+
 describe("Nodex Agent read service", () => {
+  sqliteTest("keeps ordinary reads isolated while Full access spans the Library", async () => {
+    await withFixture((fixture) => {
+      const owner = createProject({ name: "Foreign Full access owner" });
+      const pageId = createCard(fixture, {
+        title: "Foreign Full access note",
+        nfm: "Library-wide readable body",
+      }, owner.id);
+      const dataSourceId = BlockIdSchema.parse(initialDataSourceId(owner.databaseId));
+      const view = fixture.database.prepare(`
+        SELECT id AS viewId FROM database_views
+        WHERE project_id = ? AND database_block_id = ? AND lifecycle = 'active'
+        ORDER BY is_primary DESC, rank_key, id LIMIT 1
+      `).get(owner.id, owner.databaseId) as { readonly viewId: string } | undefined;
+      if (!view) throw new Error("Foreign Database has no View");
+
+      const ordinarySearch = readV3(fixture, {
+        tool: "search",
+        projectId: fixture.projectId,
+        input: { query: "Foreign Full access note" },
+      });
+      expect(ordinarySearch.ok && ordinarySearch.tool === "search"
+        ? ordinarySearch.output.data.results
+        : null).toEqual([]);
+      const ordinaryFetch = readV3(fixture, {
+        tool: "fetch",
+        projectId: fixture.projectId,
+        input: { id: pageId },
+      });
+      expect(ordinaryFetch).toMatchObject({
+        ok: false,
+        error: { code: "authorization_denied" },
+      });
+
+      const authority = fullAccessAuthority(fixture);
+      const access = {
+        read: "allowed" as const,
+        write: "granted" as const,
+        domains: [] as Array<"document" | "placement" | "database">,
+      };
+      const context = readV3(fixture, {
+        tool: "get_context",
+        authority,
+        projectId: fixture.projectId,
+        access,
+        input: { include: { databases: true } },
+      });
+      expect(context.ok && context.tool === "get_context"
+        ? context.output.data.databases?.map((entry) => entry.databaseId)
+        : null).toEqual(expect.arrayContaining([owner.databaseId]));
+      const searched = readV3(fixture, {
+        tool: "search",
+        authority,
+        projectId: fixture.projectId,
+        input: { query: "Foreign Full access note" },
+      });
+      expect(searched.ok && searched.tool === "search"
+        ? searched.output.data.results
+        : null).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "page", id: pageId }),
+      ]));
+      const fetched = readV3(fixture, {
+        tool: "fetch",
+        authority,
+        projectId: fixture.projectId,
+        input: { id: pageId },
+      });
+      expect(fetched.ok && fetched.tool === "fetch" ? fetched.output.data : null)
+        .toMatchObject({
+          resource: { id: pageId },
+          content: { markdown: "Library-wide readable body" },
+        });
+      const queriedView = readV3(fixture, {
+        tool: "query_database_view",
+        authority,
+        projectId: fixture.projectId,
+        input: { viewId: ViewIdSchema.parse(view.viewId) },
+      });
+      expect(queriedView.ok && queriedView.tool === "query_database_view"
+        ? queriedView.output.data.rows
+        : null).toEqual(expect.arrayContaining([expect.objectContaining({ pageId })]));
+      const queriedSource = readV3(fixture, {
+        tool: "query_data_source",
+        authority,
+        projectId: fixture.projectId,
+        input: { dataSourceId },
+      });
+      expect(queriedSource.ok && queriedSource.tool === "query_data_source"
+        ? queriedSource.output.data.rows
+        : null).toEqual(expect.arrayContaining([expect.objectContaining({ pageId })]));
+    });
+  });
+
   sqliteTest("reads, searches, and queries granted Library resources across Projects", async () => {
     await withFixture((fixture) => {
       const owner = createProject({ name: "Library resource owner" });

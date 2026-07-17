@@ -45,6 +45,7 @@ import {
 import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
 import { maintainStoreBlockRetention } from "./local-store/block-retention-maintenance-store";
 import { deleteProjectBlockFirst } from "./local-store/project-deletion";
+import { assertNodexAgentResourceAuthorizationInDatabase } from "./local-store/project-resource-grants";
 import { applyAdditionalDocumentCommand } from "./local-store/additional-document-command-kernel";
 import {
   applyDocumentOperationBatch,
@@ -826,9 +827,23 @@ async function runRequest(
       );
     case "applyDocumentMutation": {
       const mutation = request.payload.request;
-      const options = request.payload.writeFence
-        ? { writeFence: request.payload.writeFence }
-        : {};
+      const executionAuthority = request.payload.executionAuthority;
+      const options = {
+        ...(request.payload.writeFence
+          ? { writeFence: request.payload.writeFence }
+          : {}),
+        ...(executionAuthority
+          ? {
+              beforeMutationApply: () => {
+                assertNodexAgentResourceAuthorizationInDatabase(getDb(), {
+                  authority: executionAuthority.authority,
+                  resource: executionAuthority.resource,
+                  action: "write",
+                });
+              },
+            }
+          : {}),
+      };
       const result = "operations" in mutation
         ? applyDocumentOperationBatch(getDb(), mutation, options)
         : "nfm" in mutation

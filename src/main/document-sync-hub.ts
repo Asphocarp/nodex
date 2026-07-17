@@ -88,6 +88,7 @@ import {
   type DocumentRelocationLeaseEvent,
   type DocumentRelocationLeaseFailure,
 } from "./document-relocation-lease-coordinator";
+import type { NodexAgentMutationExecutionAuthority } from "./nodex-agent-execution-authority";
 
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 
@@ -119,6 +120,7 @@ export interface DocumentSyncDurableBackend {
   applyDocumentMutation(
     request: DocumentMutationRequest,
     writeFence?: DocumentWriteFenceProof,
+    executionAuthority?: NodexAgentMutationExecutionAuthority,
   ): Promise<DocumentOperationCommandResult>;
   lookupCommittedRelocation(
     intent: RelocationIntent,
@@ -1004,10 +1006,15 @@ export class DocumentSyncHub {
 
   applyDocumentMutation = async (
     request: DocumentMutationRequest,
+    executionAuthority?: NodexAgentMutationExecutionAuthority,
   ): Promise<DocumentOperationCommandResult> => {
     let initial: DocumentOperationCommandResult;
     try {
-      initial = await this.backend.applyDocumentMutation(request);
+      initial = await this.backend.applyDocumentMutation(
+        request,
+        undefined,
+        executionAuthority,
+      );
     } catch {
       return unknownDocumentMutationBackendFailure(request.mutationId);
     }
@@ -1094,12 +1101,16 @@ export class DocumentSyncHub {
 
     let committed: DocumentOperationCommandResult;
     try {
-      committed = await this.backend.applyDocumentMutation(request, {
-        leaseId,
-        documentId: request.documentId,
-        generation: request.generation,
-        headSeq: request.expectedHeadSeq,
-      });
+      committed = await this.backend.applyDocumentMutation(
+        request,
+        {
+          leaseId,
+          documentId: request.documentId,
+          generation: request.generation,
+          headSeq: request.expectedHeadSeq,
+        },
+        executionAuthority,
+      );
     } catch {
       this.cancelRelocationLease(leaseId);
       return unknownDocumentMutationBackendFailure(request.mutationId);

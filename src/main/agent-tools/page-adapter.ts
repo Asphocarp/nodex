@@ -1,7 +1,11 @@
 import type Database from "better-sqlite3";
 import type { DocumentId } from "../../shared/nodex-agent-tools";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type { ProjectResourceAction } from "../../shared/resource-authorization";
-import { authorizeProjectResourceInDatabase } from "../local-store/project-resource-grants";
+import {
+  authorizeNodexAgentResourceInDatabase,
+  authorizeProjectResourceInDatabase,
+} from "../local-store/project-resource-grants";
 import { NodexAgentReadError } from "./read-support";
 
 export interface PageStorageContext {
@@ -18,12 +22,19 @@ export function requirePageStorageContext(
   projectId: string,
   pageId: string,
   action: ProjectResourceAction = "read",
+  authority?: FrozenNodexAgentTurnAuthority,
 ): PageStorageContext {
-  const authorization = authorizeProjectResourceInDatabase(database, {
-    projectId,
-    resource: { kind: "page", pageId },
-    action,
-  });
+  const authorization = authority
+    ? authorizeNodexAgentResourceInDatabase(database, {
+        authority,
+        resource: { kind: "page", pageId },
+        action,
+      })
+    : authorizeProjectResourceInDatabase(database, {
+        projectId,
+        resource: { kind: "page", pageId },
+        action,
+      });
   if (!authorization.allowed) {
     throw new NodexAgentReadError(
       authorization.reason === "resource_not_found" ? "not_found" : "authorization_denied",
@@ -63,8 +74,15 @@ export function requirePageDocumentId(
   projectId: string,
   pageId: string,
   action: ProjectResourceAction = "read",
+  authority?: FrozenNodexAgentTurnAuthority,
 ): DocumentId {
-  return requirePageStorageContext(database, projectId, pageId, action).documentId;
+  return requirePageStorageContext(
+    database,
+    projectId,
+    pageId,
+    action,
+    authority,
+  ).documentId;
 }
 
 export function requireDocumentPageId(
@@ -101,8 +119,15 @@ export function readPageLocation(
   database: Database.Database,
   projectId: string,
   pageId: string,
+  authority?: FrozenNodexAgentTurnAuthority,
 ) {
-  const page = requirePageStorageContext(database, projectId, pageId, "read");
+  const page = requirePageStorageContext(
+    database,
+    projectId,
+    pageId,
+    "read",
+    authority,
+  );
   if (page.parentKind === "library") {
     return { kind: "library" as const, libraryId: page.libraryId };
   }

@@ -46,7 +46,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
       arguments: {},
     }, {
       toolsetRevision: null,
-      projectId: "project-1",
+      authority: null,
       access,
       authorize: async () => "deny",
     });
@@ -70,7 +70,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
       arguments: { blockId: "card-old" },
     }, {
       toolsetRevision: NODEX_APP_V2_TOOLSET_REVISION,
-      projectId: "project-1",
+      authority: null,
       access,
       authorize: async () => "deny",
     });
@@ -92,7 +92,7 @@ describe("Nodex agent dynamic-tool runtime", () => {
       arguments: {},
     }, {
       toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      projectId: "project-1",
+      authority: null,
       access,
       authorize: async () => "deny",
     });

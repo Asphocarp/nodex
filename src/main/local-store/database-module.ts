@@ -39,6 +39,7 @@ import {
   type DatabaseViewSort,
 } from "../../shared/database-kernel";
 import type { Page } from "../../shared/page";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type {
   LibraryResource,
   ProjectResourceAction,
@@ -55,6 +56,7 @@ import {
 } from "./database-view-order";
 import { getDb } from "./database";
 import {
+  authorizeNodexAgentResourceInDatabase,
   authorizeProjectResourceInDatabase,
   putProjectResourceGrantInDatabase,
 } from "./project-resource-grants";
@@ -624,6 +626,7 @@ const readValue = (
   database: Database.Database,
   project: ProjectRow,
   request: DatabaseModuleReadRequest,
+  authority?: FrozenNodexAgentTurnAuthority,
 ): DatabaseReadValue | null => {
   const target = request.read.target;
   if (target.kind === "project_default") {
@@ -633,17 +636,28 @@ const readValue = (
     );
     if (!descriptor) return null;
     if (request.read.mode === "catalog") {
-      const grantedDatabaseIds = database.prepare(`
-        SELECT root_id AS databaseId
-        FROM project_resource_grants
-        WHERE project_id = ? AND root_kind = 'database'
-          AND lifecycle = 'active'
-        ORDER BY created_at, id
-      `).all(project.id) as readonly { readonly databaseId: string }[];
-      const ids = uniqueSorted([
-        project.database_block_id,
-        ...grantedDatabaseIds.map((row) => row.databaseId),
-      ]);
+      const ids = authority?.scope === "library"
+        ? (database.prepare(`
+            SELECT block_id AS databaseId
+            FROM database_containers
+            WHERE library_id = ? AND lifecycle <> 'deleted'
+            ORDER BY block_id
+          `).all(authority.libraryId) as readonly {
+            readonly databaseId: string;
+          }[]).map((row) => row.databaseId)
+        : (() => {
+            const grantedDatabaseIds = database.prepare(`
+              SELECT root_id AS databaseId
+              FROM project_resource_grants
+              WHERE project_id = ? AND root_kind = 'database'
+                AND lifecycle = 'active'
+              ORDER BY created_at, id
+            `).all(project.id) as readonly { readonly databaseId: string }[];
+            return uniqueSorted([
+              project.database_block_id,
+              ...grantedDatabaseIds.map((row) => row.databaseId),
+            ]);
+          })();
       return {
         kind: "catalog",
         databases: ids.flatMap((databaseId) => {
@@ -710,7 +724,10 @@ const readValue = (
 export const readDatabaseModule = (
   database: Database.Database,
   request: DatabaseModuleReadRequest,
-  options: { readonly afterCursorRead?: () => void } = {},
+  options: {
+    readonly afterCursorRead?: () => void;
+    readonly authority?: FrozenNodexAgentTurnAuthority;
+  } = {},
 ): DatabaseModuleReadResult => {
   try {
     if (request.version !== DATABASE_MODULE_CONTRACT_VERSION) {
@@ -758,11 +775,17 @@ export const readDatabaseModule = (
           },
         };
       }
-      const authorization = authorizeProjectResourceInDatabase(database, {
-        projectId,
-        resource,
-        action: "read",
-      });
+      const authorization = options.authority
+        ? authorizeNodexAgentResourceInDatabase(database, {
+            authority: options.authority,
+            resource,
+            action: "read",
+          })
+        : authorizeProjectResourceInDatabase(database, {
+            projectId,
+            resource,
+            action: "read",
+          });
       if (!authorization.allowed) {
         return {
           ok: false,
@@ -777,7 +800,7 @@ export const readDatabaseModule = (
         SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log
       `).get() as { readonly seq: number };
       options.afterCursorRead?.();
-      const value = readValue(database, project, request);
+      const value = readValue(database, project, request, options.authority);
       if (!value) {
         return {
           ok: false,

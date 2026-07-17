@@ -695,6 +695,14 @@ export const FullAccessPermissions: Story = {
   args: {
     permissionMode: "full-access",
   },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Full access allows unrestricted file and network access, and can read or modify the entire Nodex Library without approval prompts for the exact Turn.",
+      },
+    },
+  },
 };
 
 export const CustomPermissions: Story = {

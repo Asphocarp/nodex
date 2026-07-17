@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import {
   BlockIdSchema,
   CreatePagesV3InputSchema,
@@ -85,7 +86,81 @@ function createExistingCard(
   return BlockIdSchema.parse(pageId);
 }
 
+function fullAccessAuthority(fixture: Fixture): FrozenNodexAgentTurnAuthority {
+  const coordinate = fixture.database.prepare(`
+    SELECT library_id AS libraryId FROM projects WHERE id = ?
+  `).get(fixture.projectId) as { readonly libraryId: string } | undefined;
+  if (!coordinate) throw new Error("Project has no Library coordinate");
+  return {
+    threadId: "thread-create-full",
+    turnId: "turn-create-full",
+    rootThreadId: "thread-create-full",
+    actorProjectId: fixture.projectId,
+    libraryId: coordinate.libraryId,
+    storeEpoch: fixture.storeEpoch,
+    scope: "library",
+    source: "builtin_full_access",
+  };
+}
+
 describe("Nodex Agent create service", () => {
+  sqliteTest("creates directly under a foreign Data Source compatibility owner", async () => {
+    await withFixture((fixture) => {
+      const owner = createProject({ name: "Foreign create owner" });
+      const destination = fixture.database.prepare(`
+        SELECT source.id AS dataSourceId, view.id AS viewId
+        FROM data_sources source
+        INNER JOIN database_views view
+          ON view.data_source_id = source.id
+          AND view.project_id = ?
+          AND view.lifecycle = 'active'
+        WHERE source.home_database_block_id = ? AND source.lifecycle = 'active'
+        ORDER BY view.is_primary DESC, view.rank_key, view.id
+        LIMIT 1
+      `).get(owner.id, owner.databaseId) as {
+        readonly dataSourceId: string;
+        readonly viewId: string;
+      } | undefined;
+      if (!destination) throw new Error("Foreign Data Source is unavailable");
+      const authority = fullAccessAuthority(fixture);
+      const prepared = prepareNodexAgentCreatePages(fixture.database, {
+        threadId: authority.threadId,
+        callId: "create-foreign-data-source",
+        authority,
+        projectId: fixture.projectId,
+        input: CreatePagesV3InputSchema.parse({
+          destination: {
+            kind: "data_source",
+            dataSourceId: destination.dataSourceId,
+            view: { viewId: destination.viewId, groupKey: "draft" },
+          },
+          pages: [{ title: "Foreign owner Page", markdown: "Created directly" }],
+        }),
+      });
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Foreign create was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      expect(prepared.value.command.destination.contentProjectId).toBe(owner.id);
+      const executed = executeNodexAgentCreatePages(
+        fixture.database,
+        prepared.value.command,
+      );
+      if (!executed.ok) throw new Error(executed.error.message);
+      const pageId = executed.value.output.data.pages[0]?.pageId;
+      expect(fixture.database.prepare(`
+        SELECT project_id AS projectId, containing_database_id AS databaseId
+        FROM blocks WHERE id = ?
+      `).get(pageId)).toEqual({
+        projectId: owner.id,
+        databaseId: owner.databaseId,
+      });
+      expect(fixture.database.prepare(`
+        SELECT COUNT(*) AS count FROM project_resource_grants
+        WHERE project_id = ?
+      `).get(fixture.projectId)).toEqual({ count: 0 });
+    });
+  });
+
   sqliteTest("creates and replays an ordered atomic Page batch with inline-Markdown titles", async () => {
     await withFixture((fixture) => {
       const batchInput = CreatePagesV3InputSchema.parse({

@@ -5,6 +5,7 @@ import {
   type NodexAgentAccess,
   type ToolFailure,
 } from "../../shared/nodex-agent-tools";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import {
   NodexAgentDynamicToolFailure,
   type NodexAgentDynamicExecutionContext,
@@ -72,7 +73,7 @@ export async function executeNodexAgentDynamicToolCall(
   params: DynamicToolCallParams,
   input: {
     readonly toolsetRevision: number | null;
-    readonly projectId: string | null;
+    readonly authority: FrozenNodexAgentTurnAuthority | null;
     readonly access: NodexAgentAccess;
     readonly authorize: NodexAgentDynamicExecutionContext["authorize"];
   },
@@ -103,7 +104,7 @@ export async function executeNodexAgentDynamicToolCall(
       {
         threadId: params.threadId,
         callId: params.callId,
-        projectId: input.projectId,
+        authority: input.authority,
         access: input.access,
         authorize: input.authorize,
       },

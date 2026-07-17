@@ -1,5 +1,6 @@
 import type { ToolFailure } from "./base-schemas";
 import type { NodexAgentAccess } from "./read-runtime";
+import type { FrozenNodexAgentTurnAuthority } from "../nodex-agent-authority";
 import type {
   FetchV3InputSchema,
   FetchV3OutputSchema,
@@ -17,27 +18,32 @@ export type NodexAgentV3ReadRequest =
   | {
       readonly tool: "get_context";
       readonly projectId: string | null;
+      readonly authority?: FrozenNodexAgentTurnAuthority | null;
       readonly access: NodexAgentAccess;
       readonly input: z.infer<typeof GetContextV3InputSchema>;
     }
   | {
       readonly tool: "fetch";
       readonly projectId: string;
+      readonly authority?: FrozenNodexAgentTurnAuthority;
       readonly input: z.infer<typeof FetchV3InputSchema>;
     }
   | {
       readonly tool: "search";
       readonly projectId: string;
+      readonly authority?: FrozenNodexAgentTurnAuthority;
       readonly input: z.infer<typeof SearchV3InputSchema>;
     }
   | {
       readonly tool: "query_database_view";
       readonly projectId: string;
+      readonly authority?: FrozenNodexAgentTurnAuthority;
       readonly input: z.infer<typeof QueryDatabaseViewV3InputSchema>;
     }
   | {
       readonly tool: "query_data_source";
       readonly projectId: string;
+      readonly authority?: FrozenNodexAgentTurnAuthority;
       readonly input: z.infer<typeof QueryDataSourceV3InputSchema>;
     };
 

@@ -19,6 +19,9 @@ type PermissionModeDropdownItem = {
   disabledDescription?: string;
 };
 
+export const FULL_ACCESS_PERMISSION_DESCRIPTION =
+  "Allow unrestricted file and network access, and read or modify the entire Nodex Library without approval prompts.";
+
 const PERMISSION_MODE_ITEMS: PermissionModeDropdownItem[] = [
   {
     value: "auto",
@@ -37,7 +40,7 @@ const PERMISSION_MODE_ITEMS: PermissionModeDropdownItem[] = [
     value: "full-access",
     triggerLabel: "Full access",
     optionLabel: "Full access",
-    description: "Unrestricted access to the internet and any file on your computer",
+    description: FULL_ACCESS_PERMISSION_DESCRIPTION,
     disabledDescription: "Disabled by requirements.toml",
   },
   {

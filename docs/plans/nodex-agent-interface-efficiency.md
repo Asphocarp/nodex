@@ -6,6 +6,10 @@ This ExecPlan is a living document. Maintain the `Progress`, `Surprises & Discov
 
 After this work, a newly started Codex task receives `nodex_app@3`: an intent-oriented Agent API whose common search/fetch, saved-View query, plural Card creation, Card update, movement, and duplication paths are materially smaller and harder to misunderstand than v2 without weakening semantic concurrency, atomic creation, transcript observability, or advanced stable-Block updates.
 
+This completed plan records the historical v3 cutover. The later Library
+Page/Data Source migration renamed the public nouns and published the current
+catalog as `nodex_app@4`; it did not rewrite this plan's measured v3 artifacts.
+
 An Agent can follow the familiar `search → fetch` workflow, query a saved View without constructing a source union, atomically create one or several complete Cards, update a Card by its public Card ID, move several Cards, or duplicate one complete Card without choosing a generic operation mode. Nested Markdown is the default format, and the namespace explains its tab-nesting rule with one immediately usable example. Rich titles use its inline Markdown syntax instead of an Agent-specific `plain|rich` JSON tree. Rare identity-sensitive Block operations and `advanced_query_database` remain separately deferred. Independent value edits on an existing Database membership are deliberately absent until their user intents are designed. Deterministic CI budgets and task-success evaluations prevent future catalog growth or misleading simplification from going unnoticed.
 
 The user-visible proof is a Code Mode workflow that discovers Cards, reads only selected complete Nested Markdown, performs a bulk semantic edit, and returns a short summary while every nested call remains readable and raw-inspectable in the transcript. The engineering proof is a generated catalog report and behavior fixtures that meet the budgets below.

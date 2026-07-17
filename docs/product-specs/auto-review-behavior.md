@@ -169,7 +169,7 @@ Dropdown copy:
 - `Ask for approval`: `Always ask to edit external files and use the internet`
 - `Approve for me`: `Only ask for actions detected as potentially unsafe`
 - `Approve for me` disabled: `Requires default sandboxed permissions in this workspace`
-- `Full access`: `Unrestricted access to the internet and any file on your computer`
+- `Full access`: `Allow unrestricted file and network access, and read or modify the entire Nodex Library without approval prompts.`
 - `Full access` disabled: `Disabled by requirements.toml`
 - `Custom (config.toml)`: `Uses permissions defined in config.toml`
 

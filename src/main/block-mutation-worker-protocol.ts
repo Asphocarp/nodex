@@ -277,6 +277,7 @@ export type BlockMutationWorkerRequest =
       payload: {
         readonly request: DocumentMutationRequest;
         readonly writeFence?: DocumentWriteFenceProof;
+        readonly executionAuthority?: import("./nodex-agent-execution-authority").NodexAgentMutationExecutionAuthority;
       };
     })
   | (BlockMutationWorkerRequestBase & {

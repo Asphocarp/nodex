@@ -21,7 +21,7 @@ const AUTO_REVIEW_APPROVALS_REVIEWER: CodexApprovalsReviewer = "auto_review";
 const LEGACY_AUTO_REVIEW_APPROVALS_REVIEWER: CodexApprovalsReviewer = "guardian_subagent";
 const READ_ONLY_PERMISSION_PROFILE_ID = ":read-only";
 const WORKSPACE_PERMISSION_PROFILE_ID = ":workspace";
-const FULL_ACCESS_PERMISSION_PROFILE_ID = ":danger-full-access";
+export const FULL_ACCESS_PERMISSION_PROFILE_ID = ":danger-full-access";
 const DEFAULT_CUSTOM_DESCRIPTION =
   "No project or user Codex config was found. Codex will fall back to its built-in permission defaults.";
 
@@ -410,7 +410,10 @@ export function resolveCodexPermissionState(input: {
       approvalsReviewer,
       input.requirements,
     );
-  const isCustom = hasRepresentableExplicitConfig && !matchedPresetAllowed;
+  // Raw config values describe effective Codex sandbox behavior, not proof that
+  // the user selected one of Nodex's built-in presets. Main may overlay a
+  // separately persisted built-in selection after validating these values.
+  const isCustom = hasRepresentableExplicitConfig;
   const effectivePreset = isCustom
     ? "custom"
     : (matchedResolvedPreset && matchedPresetAllowed

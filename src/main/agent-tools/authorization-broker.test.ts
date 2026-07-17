@@ -20,9 +20,11 @@ function authorizationInput(
       details: [{ label: "Page", value: "page-1" }],
     },
     rootThreadId: "thread-root",
-    ownerClientId: "renderer-1",
-    presentationThreadId: "thread-root",
-    presentationTurnId: "turn-root",
+    presentation: {
+      clientId: "renderer-1",
+      threadId: "thread-root",
+      turnId: "turn-root",
+    },
     ...overrides,
   };
 }
@@ -87,7 +89,7 @@ describe("NodexAgentAuthorizationBroker", () => {
     expect(sendRequest).toHaveBeenCalledTimes(2);
   });
 
-  test("fails closed without a visible owner or stable store identity", async () => {
+  test("fails closed without a presentation target or stable store identity", async () => {
     const { router, sendRequest } = createRouter(["allow_once"]);
     const broker = new NodexAgentAuthorizationBroker({
       rendererClientRouter: router,
@@ -96,12 +98,12 @@ describe("NodexAgentAuthorizationBroker", () => {
 
     await expect(broker.authorize(authorizationInput())).resolves.toBe("unavailable");
     await expect(broker.authorize(authorizationInput({
-      ownerClientId: null,
+      presentation: null,
     }))).resolves.toBe("unavailable");
     expect(sendRequest).not.toHaveBeenCalled();
   });
 
-  test("revokes grants by owner, root task, and store epoch", async () => {
+  test("revokes grants by presentation client, root task, and store epoch", async () => {
     let storeEpoch = "store-1";
     const { router } = createRouter(["allow_task", "allow_task", "allow_task"]);
     const broker = new NodexAgentAuthorizationBroker({
@@ -110,7 +112,7 @@ describe("NodexAgentAuthorizationBroker", () => {
     });
 
     await broker.authorize(authorizationInput());
-    broker.revokeOwner("renderer-1");
+    broker.revokePresentationClient("renderer-1");
     expect(broker.hasGrant({ rootThreadId: "thread-root", projectId: "project-1" })).toBe(false);
 
     await broker.authorize(authorizationInput());
@@ -120,6 +122,22 @@ describe("NodexAgentAuthorizationBroker", () => {
     await broker.authorize(authorizationInput());
     storeEpoch = "store-2";
     expect(broker.hasGrant({ rootThreadId: "thread-root", projectId: "project-1" })).toBe(false);
+  });
+
+  test("keeps an existing task grant usable while no renderer is visible", async () => {
+    const { router, sendRequest } = createRouter(["allow_task"]);
+    const broker = new NodexAgentAuthorizationBroker({
+      rendererClientRouter: router,
+      readStoreEpoch: () => "store-1",
+    });
+
+    await expect(broker.authorize(authorizationInput())).resolves.toBe("allow_task");
+    await expect(broker.authorize(authorizationInput({
+      callId: "call-2",
+      presentation: null,
+    }))).resolves.toBe("allow_task");
+
+    expect(sendRequest).toHaveBeenCalledTimes(1);
   });
 
   test("revokes the former Project grant when a root task is rebound", async () => {

@@ -130,6 +130,7 @@ export function prepareNodexAgentPageUpdate(
         request.projectId,
         request.input.pageId,
         "write",
+        request.authority,
       );
       const result = prepareNodexAgentDocumentEditWithResolver(
         database,
@@ -174,6 +175,7 @@ export function completeNodexAgentPageUpdate(
       request.projectId,
       request.pageId,
       "write",
+      request.authority,
     );
   } catch (error) {
     const failure = readFailure(error);

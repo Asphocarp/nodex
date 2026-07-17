@@ -5,6 +5,7 @@ import type {
   NodexAgentV3ToolName,
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type { DynamicToolEffect } from "../codex/dynamic-tool-registry";
 import {
   sameAuthorizationFootprint,
@@ -32,7 +33,7 @@ export interface NodexAgentDynamicAuthorizationInput {
 export interface NodexAgentDynamicExecutionContext {
   readonly threadId: string;
   readonly callId: string;
-  readonly projectId: string | null;
+  readonly authority: FrozenNodexAgentTurnAuthority | null;
   readonly access: NodexAgentAccess;
   readonly authorize: (
     input: NodexAgentDynamicAuthorizationInput,
@@ -64,7 +65,7 @@ export function fail(failure: ToolFailure): never {
 export function projectRequired(
   context: NodexAgentDynamicExecutionContext,
 ): string {
-  if (context.projectId) return context.projectId;
+  if (context.authority) return context.authority.actorProjectId;
   return fail(toolFailure(
     "project_context_required",
     "This Nodex tool requires a task bound to a Project",

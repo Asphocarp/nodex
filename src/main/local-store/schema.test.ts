@@ -36,6 +36,7 @@ import {
   migrateSchema76To77,
   migrateSchema77To78,
   migrateSchema78To79,
+  migrateSchema79To80,
 } from "./schema";
 import {
   createProjectSession,
@@ -240,11 +241,11 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v79 release boundary", () => {
+describe("schema v80 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
     expect(releaseVersions).toEqual([
-      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
+      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80,
     ]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
@@ -302,8 +303,12 @@ describe("schema v79 release boundary", () => {
       "codex_project_thread_orders",
       "codex_sidebar_chat_order",
       "codex_thread_dynamic_tool_catalogs",
+      "codex_project_permission_mode_selections",
       "nodex_agent_token_keys",
       "nodex_agent_call_receipts",
+      "nodex_agent_turn_authorities",
+      "library_content_relocations",
+      "library_content_relocation_members",
     ]) {
       expect(names.has(tableName)).toBe(true);
     }
@@ -365,6 +370,129 @@ describe("schema v79 release boundary", () => {
         WHERE block_id = ?
       `).run(child.id, now, parent.id),
     ).toThrow("Page parent hierarchy must be acyclic and rooted");
+  });
+
+  test("migrates v79 stores with exact-Turn authority provenance", async () => {
+    useTempStore();
+    await initializeDatabase();
+    const project = createProject({ name: "Turn authority migration" });
+    const database = getDb();
+    database.exec(`
+      DROP TABLE library_content_relocation_members;
+      DROP TABLE library_content_relocations;
+      DROP TABLE nodex_agent_turn_authorities;
+      DROP TABLE nodex_agent_call_receipts;
+      CREATE TABLE nodex_agent_call_receipts (
+        call_identity TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        tool TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        mutation_id TEXT NOT NULL UNIQUE,
+        allocations_json TEXT NOT NULL DEFAULT '[]',
+        result_metadata_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'prepared',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (thread_id, call_id)
+      ) WITHOUT ROWID;
+    `);
+    const legacyCreatedAt = new Date().toISOString();
+    database.prepare(`
+      INSERT INTO nodex_agent_call_receipts (
+        call_identity, thread_id, call_id, project_id, tool,
+        request_hash, mutation_id, allocations_json, result_metadata_json,
+        status, created_at, updated_at
+      ) VALUES (?, 'thread-legacy', 'call-legacy', ?, 'update_page', ?,
+        'mutation-legacy', '[]', '{"output":{}}', 'committed', ?, ?)
+    `).run(
+      "1".repeat(64),
+      project.id,
+      "2".repeat(64),
+      legacyCreatedAt,
+      legacyCreatedAt,
+    );
+    database.pragma("user_version = 79");
+
+    migrateSchema79To80(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(80);
+    for (const column of ["turn_id", "authority_fingerprint", "provenance_version"]) {
+      expect(hasColumn(database, "nodex_agent_call_receipts", column)).toBe(true);
+    }
+    const names = tableNames(database);
+    expect(names.has("nodex_agent_turn_authorities")).toBe(true);
+    expect(names.has("library_content_relocations")).toBe(true);
+    expect(names.has("library_content_relocation_members")).toBe(true);
+    expect(names.has("codex_project_permission_mode_selections")).toBe(true);
+    expect(database.prepare(`
+      SELECT turn_id AS turnId, authority_fingerprint AS fingerprint,
+        provenance_version AS provenanceVersion, status
+      FROM nodex_agent_call_receipts WHERE call_identity = ?
+    `).get("1".repeat(64))).toEqual({
+      turnId: null,
+      fingerprint: null,
+      provenanceVersion: null,
+      status: "committed",
+    });
+    expect(() => database.prepare(`
+      UPDATE nodex_agent_call_receipts SET result_metadata_json = '{}'
+      WHERE call_identity = ?
+    `).run("1".repeat(64))).toThrow("receipt identity is immutable");
+    expect(() => database.prepare(`
+      DELETE FROM nodex_agent_call_receipts WHERE call_identity = ?
+    `).run("1".repeat(64))).toThrow("Committed Nodex Agent call receipts are immutable");
+    expect(() => database.prepare(`
+      INSERT INTO nodex_agent_call_receipts (
+        call_identity, thread_id, turn_id, call_id, project_id, tool,
+        request_hash, mutation_id, authority_fingerprint, provenance_version,
+        allocations_json, result_metadata_json, status, created_at, updated_at
+      ) VALUES (?, 'thread-partial', 'turn-partial', 'call-partial', ?,
+        'update_page', ?, 'mutation-partial', NULL, 1, '[]', '{}',
+        'prepared', ?, ?)
+    `).run(
+      "3".repeat(64),
+      project.id,
+      "4".repeat(64),
+      legacyCreatedAt,
+      legacyCreatedAt,
+    )).toThrow("CHECK constraint failed");
+    const coordinate = database.prepare(`
+      SELECT project.library_id AS libraryId, library.profile_id AS profileId,
+        metadata.store_epoch AS storeEpoch
+      FROM projects project
+      INNER JOIN libraries library ON library.id = project.library_id
+      CROSS JOIN block_store_metadata metadata
+      WHERE project.id = ?
+    `).get(project.id) as {
+      readonly libraryId: string;
+      readonly profileId: string;
+      readonly storeEpoch: string;
+    };
+    database.prepare(`
+      INSERT INTO nodex_agent_turn_authorities (
+        thread_id, turn_id, root_thread_id, actor_project_id, library_id,
+        profile_id, store_epoch, scope, source, permission_profile_id,
+        authority_fingerprint, provenance_version, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'library', 'builtin_full_access',
+        ':danger-full-access', ?, 1, ?)
+    `).run(
+      "thread-migration",
+      "turn-migration",
+      "thread-migration",
+      project.id,
+      coordinate.libraryId,
+      coordinate.profileId,
+      coordinate.storeEpoch,
+      "a".repeat(64),
+      new Date().toISOString(),
+    );
+    expect(() => database.exec(`
+      UPDATE nodex_agent_turn_authorities SET scope = 'project'
+    `)).toThrow("Turn authorities are immutable");
+    expect(database.pragma("foreign_key_check")).toEqual([]);
+    expect(database.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
   });
 
   test("refuses to guess a repair for a corrupt v78 Page hierarchy", async () => {

@@ -115,6 +115,7 @@ export type BlockTransferFaultPoint =
 export interface ApplyBlockTransferOptions {
   readonly now?: () => string;
   readonly faultInjector?: (point: BlockTransferFaultPoint) => void;
+  readonly persistTopLevelGrant?: boolean;
 }
 
 interface BlockRow {
@@ -4169,7 +4170,10 @@ export const applyBlockTransfer = (
             | undefined
         )?.type === "page",
     );
-    if (request.target.kind === "space") {
+    if (
+      request.target.kind === "space"
+      && options.persistTopLevelGrant !== false
+    ) {
       for (const pageId of resultRootBlockIds.filter((blockId) => movedPageIds.includes(blockId))) {
         putProjectResourceGrantInDatabase(database, {
           projectId: request.projectId,

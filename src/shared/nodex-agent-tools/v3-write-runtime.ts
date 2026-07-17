@@ -173,8 +173,25 @@ export type ExecuteNodexAgentDuplicatePageResult =
 
 export interface NodexAgentMovePageTransferStep {
   readonly pageId: string;
+  readonly sourceProjectId?: string;
+  readonly targetProjectId?: string;
   readonly normalizedInput: NodexAgentTransferCommand["input"];
-  readonly transfer: NodexAgentTransferCommand["transfer"];
+  readonly transfer: NodexAgentTransferCommand["transfer"] | null;
+  readonly rehome?: {
+    readonly operationId: string;
+    readonly callIdentity: string;
+    readonly requestHash: string;
+    readonly actorProjectId: string;
+    readonly sourceProjectId: string;
+    readonly targetProjectId: string;
+    readonly libraryId: string;
+    readonly storeEpoch: string;
+    readonly rootPageIds: readonly string[];
+    readonly blockIds: readonly string[];
+    readonly documentIds: readonly string[];
+    readonly databaseBlockIds: readonly string[];
+    readonly databaseViewIds: readonly string[];
+  };
 }
 
 export interface NodexAgentMovePagesCommand extends NodexAgentCallIdentity {

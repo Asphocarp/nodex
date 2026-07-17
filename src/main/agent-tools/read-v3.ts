@@ -26,7 +26,10 @@ import {
   type DataSourceQueryResult,
 } from "../../shared/database-module";
 import { readDatabaseModule } from "../local-store/database-module";
-import { authorizeProjectResourceInDatabase } from "../local-store/project-resource-grants";
+import {
+  authorizeNodexAgentResourceInDatabase,
+  authorizeProjectResourceInDatabase,
+} from "../local-store/project-resource-grants";
 import { readNodexAgentBlock } from "./read-block";
 import {
   readNodexAgentSearch,
@@ -87,8 +90,8 @@ function readContextV3(
     ? readDatabaseModule(database, {
         version: DATABASE_MODULE_CONTRACT_VERSION,
         projectId: request.projectId,
-        read: { target: { kind: "project_default" }, mode: "catalog" },
-      })
+      read: { target: { kind: "project_default" }, mode: "catalog" },
+      }, request.authority ? { authority: request.authority } : undefined)
     : null;
   if (catalog && !catalog.ok) {
     throw new NodexAgentReadError(
@@ -181,7 +184,13 @@ function readFetchV3(
       "none",
     );
   }
-  const page = requirePageStorageContext(database, request.projectId, owner.pageId, "read");
+  const page = requirePageStorageContext(
+    database,
+    request.projectId,
+    owner.pageId,
+    "read",
+    request.authority,
+  );
   const legacy = readNodexAgentBlock(database, page.contentProjectId, {
     blockId: request.input.id,
     include: {
@@ -236,7 +245,12 @@ function readFetchV3(
         } : {}),
         lifecycle: legacy.data.block.lifecycle,
         location: legacy.data.block.blockId === owner.pageId
-          ? readPageLocation(database, request.projectId, owner.pageId)
+          ? readPageLocation(
+              database,
+              request.projectId,
+              owner.pageId,
+              request.authority,
+            )
           : { kind: "page", pageId: owner.pageId },
         ...(legacy.data.block.properties ? {
           properties: Object.fromEntries(Object.entries(legacy.data.block.properties).map(
@@ -353,11 +367,17 @@ function readSearchV3(
   const visible = results.filter((result) => {
     const pageId = result.kind === "page" ? result.blockId : result.ownerBlockId;
     if (seen.has(`${result.kind}:${result.blockId}`)) return false;
-    const authorization = authorizeProjectResourceInDatabase(database, {
-      projectId: request.projectId,
-      resource: { kind: "page", pageId },
-      action: "read",
-    });
+    const authorization = request.authority
+      ? authorizeNodexAgentResourceInDatabase(database, {
+          authority: request.authority,
+          resource: { kind: "page", pageId },
+          action: "read",
+        })
+      : authorizeProjectResourceInDatabase(database, {
+          projectId: request.projectId,
+          resource: { kind: "page", pageId },
+          action: "read",
+        });
     if (!authorization.allowed) return false;
     if (!pageMatchesSearchScope(database, pageId, request.input.scope)) return false;
     seen.add(`${result.kind}:${result.blockId}`);
@@ -371,7 +391,12 @@ function readSearchV3(
             kind: result.kind,
             id: result.blockId,
             title: result.title,
-            location: readPageLocation(database, request.projectId, result.blockId),
+            location: readPageLocation(
+              database,
+              request.projectId,
+              result.blockId,
+              request.authority,
+            ),
             matches: result.matches,
           }
         : {
@@ -412,7 +437,7 @@ function readQueryV3(
     version: DATABASE_MODULE_CONTRACT_VERSION,
     projectId: request.projectId,
     read,
-  });
+  }, request.authority ? { authority: request.authority } : undefined);
   if (!result.ok) {
     throw new NodexAgentReadError(
       result.error.code === "authorization_denied"

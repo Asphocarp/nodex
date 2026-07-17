@@ -656,12 +656,14 @@ export class BlockMutationWriter {
   async applyDocumentMutation(
     request: DocumentMutationRequest,
     writeFence?: DocumentWriteFenceProof,
+    executionAuthority?: import("./nodex-agent-execution-authority").NodexAgentMutationExecutionAuthority,
   ): Promise<DocumentOperationCommandResult> {
     const envelope = await this.executeTyped<DocumentOperationCommandResult>({
       type: "applyDocumentMutation",
       payload: {
         request,
         ...(writeFence ? { writeFence } : {}),
+        ...(executionAuthority ? { executionAuthority } : {}),
       },
     });
     return envelope.result;

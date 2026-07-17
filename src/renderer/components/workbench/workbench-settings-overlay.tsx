@@ -118,7 +118,10 @@ import {
   NodexSettingsRow as SettingRow,
   NodexSettingsPageSurface as SettingsPageSurface,
 } from "../ui/settings";
-import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
+import {
+  FULL_ACCESS_PERMISSION_DESCRIPTION,
+  PermissionModeDropdown,
+} from "@/features/local-conversation/view/shared/permission-mode-dropdown";
 import { SettingsSidebar } from "./workbench-settings-sidebar";
 import {
   buildSettingsPath,
@@ -2155,7 +2158,9 @@ function AgentSettingsPage({
       <SectionBlock title="Permissions modes">
         <SettingRow
           label="Default permissions mode"
-          description="Choose the preset used for new local Codex threads."
+          description={permissionState?.mode === "full-access"
+            ? FULL_ACCESS_PERMISSION_DESCRIPTION
+            : "Choose the preset used for new local Codex threads."}
         >
           <PermissionModeDropdown
             selectedMode={permissionState?.mode ?? "custom"}

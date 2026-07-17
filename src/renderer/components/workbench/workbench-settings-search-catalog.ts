@@ -198,6 +198,8 @@ const SETTINGS_SEARCH_PANELS = {
               "full-access",
               "custom",
               "sandbox",
+              "Nodex Library",
+              "without approval prompts",
               "elevated requests",
             ],
           ),

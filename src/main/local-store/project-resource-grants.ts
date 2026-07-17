@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 
 import type { ProjectResourceGrant } from "../../shared/library";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import type {
   LibraryResource,
   ProjectResourceAction,
@@ -11,6 +12,7 @@ import type {
   RevokeProjectResourceGrantInput,
 } from "../../shared/resource-authorization";
 import { getDb } from "./database";
+import { readBlockStoreEpoch } from "./block-store-metadata";
 import {
   PageHierarchyError,
   resolvePageHierarchy,
@@ -338,6 +340,136 @@ export const authorizeProjectResource = (input: Readonly<{
   action: ProjectResourceAction;
 }>): ProjectResourceAuthorization =>
   authorizeProjectResourceInDatabase(getDb(), input);
+
+export const authorizeNodexAgentResourceInDatabase = (
+  database: Database.Database,
+  input: Readonly<{
+    authority: FrozenNodexAgentTurnAuthority;
+    resource: LibraryResource;
+    action: ProjectResourceAction;
+  }>,
+): ProjectResourceAuthorization => {
+  const { authority } = input;
+  const project = readProjectAuthority(database, authority.actorProjectId);
+  if (!project) {
+    return deny(
+      authority.actorProjectId,
+      input.resource,
+      input.action,
+      "project_not_found",
+    );
+  }
+  if (
+    project.library_id !== authority.libraryId
+    || readBlockStoreEpoch(database) !== authority.storeEpoch
+  ) {
+    return deny(
+      authority.actorProjectId,
+      input.resource,
+      input.action,
+      "authority_stale",
+      project,
+      authority.libraryId,
+    );
+  }
+  if (authority.scope === "project") {
+    return authorizeProjectResourceInDatabase(database, {
+      projectId: authority.actorProjectId,
+      resource: input.resource,
+      action: input.action,
+    });
+  }
+  if (project.lifecycle !== "active") {
+    return deny(
+      authority.actorProjectId,
+      input.resource,
+      input.action,
+      "project_read_only",
+      project,
+    );
+  }
+
+  let coordinates: ResourceCoordinates | null;
+  try {
+    coordinates = readResourceCoordinates(database, input.resource);
+  } catch (error) {
+    if (!(error instanceof PageHierarchyError)) throw error;
+    return deny(
+      authority.actorProjectId,
+      input.resource,
+      input.action,
+      "resource_hierarchy_corrupt",
+      project,
+    );
+  }
+  if (!coordinates) {
+    return deny(
+      authority.actorProjectId,
+      input.resource,
+      input.action,
+      "resource_not_found",
+      project,
+    );
+  }
+  if (coordinates.libraryId !== authority.libraryId) {
+    return deny(
+      authority.actorProjectId,
+      input.resource,
+      input.action,
+      "library_mismatch",
+      project,
+      coordinates.libraryId,
+    );
+  }
+
+  const base = {
+    projectId: authority.actorProjectId,
+    projectLifecycle: project.lifecycle,
+    resource: input.resource,
+    action: input.action,
+    libraryId: coordinates.libraryId,
+    effectiveAccess: "read_write",
+    source: "thread_full_access",
+    grantId: null,
+  } as const;
+  return { ...base, allowed: true, reason: "allowed" };
+};
+
+export const assertCurrentNodexAgentTurnAuthorityInDatabase = (
+  database: Database.Database,
+  authority: FrozenNodexAgentTurnAuthority | undefined,
+): void => {
+  if (!authority) return;
+  const project = readProjectAuthority(database, authority.actorProjectId);
+  if (!project) throw new Error("Nodex Agent actor Project no longer exists");
+  if (
+    project.library_id !== authority.libraryId
+    || readBlockStoreEpoch(database) !== authority.storeEpoch
+  ) {
+    throw new Error("Nodex Agent Turn authority is stale");
+  }
+  if (project.lifecycle !== "active") {
+    throw new Error("Nodex Agent actor Project is no longer active");
+  }
+};
+
+export const assertNodexAgentResourceAuthorizationInDatabase = (
+  database: Database.Database,
+  input: Readonly<{
+    authority: FrozenNodexAgentTurnAuthority | undefined;
+    resource: LibraryResource;
+    action: ProjectResourceAction;
+  }>,
+): void => {
+  if (!input.authority) return;
+  const authorization = authorizeNodexAgentResourceInDatabase(database, {
+    authority: input.authority,
+    resource: input.resource,
+    action: input.action,
+  });
+  if (authorization.allowed) return;
+  throw new Error(`Nodex Agent authority denied: ${authorization.reason}`);
+};
 
 const requireProjectLibrary = (
   database: Database.Database,

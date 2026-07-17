@@ -262,6 +262,10 @@ import {
 } from "../../shared/schemas/project-sessions";
 import * as projectSessionService from "../local-store/project-sessions";
 import {
+  getCodexProjectPermissionModeSelection,
+  putCodexProjectPermissionModeSelection,
+} from "../local-store/codex-project-permission-modes";
+import {
   getThreadGoalAttachmentsRoot,
   PastedTextAttachmentManager,
   readThreadGoalEditableObjective,
@@ -273,6 +277,14 @@ import {
   buildTurnPermissionOverrides,
   resolveCodexPermissionState,
 } from "./codex-permission-resolver";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
+import {
+  canAutoApproveNodexAgentWrite,
+  CodexNodexAgentAuthorityRegistry,
+  resolveNodexAgentWriteAccess,
+  type NodexAgentTurnAuthorityLaunch,
+} from "./codex-nodex-agent-authority";
+import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import {
   buildPlanImplementationRequestId,
   selectPrimaryBackgroundConversationRequest,
@@ -542,7 +554,10 @@ import {
   getCodexThreadDynamicToolRevision,
   replaceCodexThreadDynamicToolCatalogs,
 } from "./codex-dynamic-tool-catalog-repository";
-import type { NodexAgentAuthorizationBroker } from "../agent-tools/authorization-broker";
+import type {
+  NodexAgentAuthorizationBroker,
+  NodexAgentAuthorizationPresentationTarget,
+} from "../agent-tools/authorization-broker";
 import {
   buildNodexAgentDynamicToolSpecs,
   executeNodexAgentDynamicToolCall,
@@ -1005,6 +1020,7 @@ interface CodexAutomationPermissionContext {
 
 interface PendingDynamicToolCall {
   request: CodexServerRequest & { method: "item/tool/call"; params: DynamicToolCallParams };
+  nodexAuthority: FrozenNodexAgentTurnAuthority | null;
   disposition: "stored" | "dispatched";
   resolve: (value: DynamicToolCallResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE) => void;
   reject: (reason?: unknown) => void;
@@ -2699,8 +2715,10 @@ export class CodexService extends EventEmitter {
   private forkSidePanelTransferLifecycle:
     CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
+  private readonly nodexAgentAuthorityRegistry = new CodexNodexAgentAuthorityRegistry();
 
   private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
+  private readonly verifiedPermissionModeByProject = new Map<string, CodexPermissionMode>();
   private readonly collaborationModePresets = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
   private readonly pendingApprovals = new PendingServerRequestRegistry<PendingApproval>();
   private readonly pendingUserInputs = new PendingServerRequestRegistry<PendingUserInput>();
@@ -2723,6 +2741,10 @@ export class CodexService extends EventEmitter {
   private readonly internalNotificationHandlers = new Set<InternalNotificationHandler>();
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
   private readonly subagentThreadIds = new Set<string>();
+  private readonly inheritedNodexAuthorityBySubagentThreadId = new Map<
+    string,
+    FrozenNodexAgentTurnAuthority
+  >();
   private readonly fullFidelitySubagentThreadIds = new Set<string>();
   private readonly backgroundSubagentMetadataRepairInFlightByThreadId = new Map<string, Promise<void>>();
   private readonly backgroundSubagentMetadataRepairCompletedThreadIds = new Set<string>();
@@ -2735,7 +2757,7 @@ export class CodexService extends EventEmitter {
   private readonly conversationStreamRevisionById = new Map<string, number>();
   private readonly rendererOwnerClientIdByConversationId = new Map<string, string>();
   private readonly disposedRendererClientIds = new Set<string>();
-  private readonly activeRendererViewClientIdsByConversationId = new Map<string, Set<string>>();
+  private readonly rendererViewRegistry = new CodexRendererViewRegistry();
   private readonly inactiveRendererOwnerCandidateSinceByConversationId = new Map<string, number>();
   private readonly inactiveRendererOwnerCleanupTimersByConversationId = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly inactiveRendererOwnerCleanupInFlight = new Set<string>();
@@ -3014,6 +3036,27 @@ export class CodexService extends EventEmitter {
     const threadId = typeof thread.id === "string" ? thread.id.trim() : "";
     if (threadId.length === 0) return;
     this.subagentThreadIds.add(threadId);
+    const parentThreadId = parseThreadParentThreadId(thread);
+    if (!parentThreadId || this.inheritedNodexAuthorityBySubagentThreadId.has(threadId)) {
+      return;
+    }
+    const parentTurnId = [...this.listKnownTurns(parentThreadId)]
+      .reverse()
+      .find((turn) => turn.status === "inProgress" && turn.turnId)?.turnId ?? null;
+    if (!parentTurnId) return;
+    const parentRootThreadId = this.resolveNodexAgentRootThreadId(parentThreadId);
+    const parentProjectId = this.parseThreadRef(parentThreadId)?.projectId
+      ?? this.parseThreadRef(parentRootThreadId)?.projectId
+      ?? null;
+    if (!parentProjectId) return;
+    const parentAuthority = this.nodexAgentAuthorityRegistry.capture({
+      threadId: parentThreadId,
+      turnId: parentTurnId,
+      rootThreadId: parentRootThreadId,
+      actorProjectId: parentProjectId,
+    });
+    if (parentAuthority?.scope !== "library") return;
+    this.inheritedNodexAuthorityBySubagentThreadId.set(threadId, parentAuthority);
   }
 
   private resolveNotificationThreadId(notification: CodexServerNotification): string | null {
@@ -3040,6 +3083,34 @@ export class CodexService extends EventEmitter {
   }
 
   private routeAppServerNotification(notification: CodexServerNotification): void {
+    if (notification.method === "turn/started") {
+      const params = asRecord(notification.params);
+      const threadId = parseEventThreadId(params);
+      const turnId = parseEventTurnId(params);
+      if (threadId && turnId) {
+        try {
+          const inherited = this.inheritedNodexAuthorityBySubagentThreadId.get(threadId);
+          if (inherited) {
+            this.inheritedNodexAuthorityBySubagentThreadId.delete(threadId);
+            this.nodexAgentAuthorityRegistry.inheritTurn({
+              threadId,
+              turnId,
+              rootThreadId: inherited.rootThreadId,
+              actorProjectId: inherited.actorProjectId,
+            }, inherited);
+          } else {
+            this.nodexAgentAuthorityRegistry.observeTurnStarted(threadId, turnId);
+          }
+        } catch (error) {
+          this.logger.error("Failed to bind Nodex Agent Turn authority", {
+            threadId,
+            turnId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
     for (const handler of [...this.internalNotificationHandlers]) {
       try {
         handler(notification);
@@ -3598,11 +3669,6 @@ export class CodexService extends EventEmitter {
     this.rendererOwnerClientIdByConversationId.set(threadId, clientId);
     this.syncInactiveRendererOwnerCleanup(threadId);
     if (previousClientId === clientId) return;
-    if (previousClientId) {
-      this.nodexAgentAuthorizationBroker?.revokeRoot(
-        this.resolveNodexAgentRootThreadId(threadId),
-      );
-    }
 
     this.clearOwnerNotificationDrain(threadId);
     this.ownerNotificationAckSequenceByConversationId.set(
@@ -3621,47 +3687,17 @@ export class CodexService extends EventEmitter {
     active: boolean,
   ): void {
     if (!clientId) return;
-
-    if (active) {
-      let clientIds = this.activeRendererViewClientIdsByConversationId.get(threadId);
-      if (!clientIds) {
-        clientIds = new Set();
-        this.activeRendererViewClientIdsByConversationId.set(threadId, clientIds);
-      }
-      clientIds.add(clientId);
-      this.syncInactiveRendererOwnerCleanup(threadId);
-      return;
-    }
-
-    const clientIds = this.activeRendererViewClientIdsByConversationId.get(threadId);
-    if (!clientIds) {
-      this.syncInactiveRendererOwnerCleanup(threadId);
-      return;
-    }
-
-    clientIds.delete(clientId);
-    if (clientIds.size === 0) {
-      this.activeRendererViewClientIdsByConversationId.delete(threadId);
-    }
+    if (active && this.disposedRendererClientIds.has(clientId)) return;
+    this.rendererViewRegistry.setActive(threadId, clientId, active);
     this.syncInactiveRendererOwnerCleanup(threadId);
   }
 
   private removeRendererClientActiveViews(clientId: string): string[] {
-    const affectedConversationIds: string[] = [];
-
-    for (const [conversationId, clientIds] of this.activeRendererViewClientIdsByConversationId.entries()) {
-      if (!clientIds.delete(clientId)) continue;
-      affectedConversationIds.push(conversationId);
-      if (clientIds.size === 0) {
-        this.activeRendererViewClientIdsByConversationId.delete(conversationId);
-      }
-    }
-
-    return affectedConversationIds;
+    return this.rendererViewRegistry.removeClient(clientId);
   }
 
   private hasActiveRendererView(threadId: string): boolean {
-    return (this.activeRendererViewClientIdsByConversationId.get(threadId)?.size ?? 0) > 0;
+    return this.rendererViewRegistry.hasActiveView(threadId);
   }
 
   private hasActiveRuntimeForInactiveOwner(threadId: string): boolean {
@@ -3792,10 +3828,6 @@ export class CodexService extends EventEmitter {
     }
 
     const ownerClientId = this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
-    const rootThreadId = this.resolveNodexAgentRootThreadId(threadId);
-    if (rootThreadId === threadId) {
-      this.nodexAgentAuthorizationBroker?.revokeRoot(rootThreadId);
-    }
     this.rendererOwnerClientIdByConversationId.delete(threadId);
     this.ownerNotificationSequenceByConversationId.delete(threadId);
     this.ownerNotificationAckSequenceByConversationId.delete(threadId);
@@ -3815,7 +3847,7 @@ export class CodexService extends EventEmitter {
   }
 
   handleRendererClientDisposed(clientId: string): void {
-    this.nodexAgentAuthorizationBroker?.revokeOwner(clientId);
+    this.nodexAgentAuthorizationBroker?.revokePresentationClient(clientId);
     this.disposedRendererClientIds.add(clientId);
     const viewConversationIds = this.removeRendererClientActiveViews(clientId);
     const conversationIds = [...this.rendererOwnerClientIdByConversationId.entries()]
@@ -5615,7 +5647,7 @@ export class CodexService extends EventEmitter {
     this.conversationVersionById.delete(threadId);
     this.conversationStreamRevisionById.delete(threadId);
     this.rendererOwnerClientIdByConversationId.delete(threadId);
-    this.activeRendererViewClientIdsByConversationId.delete(threadId);
+    this.rendererViewRegistry.clearConversation(threadId);
     this.clearInactiveRendererOwnerCleanup(threadId);
     this.inactiveRendererOwnerCleanupInFlight.delete(threadId);
     this.ownerNotificationSequenceByConversationId.delete(threadId);
@@ -5927,6 +5959,57 @@ export class CodexService extends EventEmitter {
     });
   }
 
+  private permissionStateMatchesSelectedMode(
+    state: CodexPermissionState,
+    mode: Exclude<CodexPermissionMode, "custom">,
+  ): boolean {
+    if (!state.availableModes.includes(mode)) return false;
+    if (mode === "full-access") {
+      return state.sandboxMode === "danger-full-access"
+        && state.approvalPolicy === "never"
+        && state.approvalsReviewer === "user";
+    }
+    if (mode === "guardian-approvals") {
+      return state.sandboxMode === "workspace-write"
+        && state.approvalPolicy === "on-request"
+        && state.approvalsReviewer === "auto_review";
+    }
+    return state.sandboxMode === "workspace-write"
+      && state.approvalPolicy === "on-request"
+      && state.approvalsReviewer === "user";
+  }
+
+  private applyPersistedPermissionModeSelection(
+    projectId: string,
+    state: CodexPermissionState,
+    workspaceRoots: readonly string[],
+  ): CodexPermissionState {
+    const selection = getCodexProjectPermissionModeSelection(projectId);
+    if (!selection) {
+      this.verifiedPermissionModeByProject.delete(projectId);
+      return state;
+    }
+    if (selection === "custom") {
+      this.verifiedPermissionModeByProject.set(projectId, selection);
+      return this.buildFallbackPermissionState(selection, workspaceRoots, state);
+    }
+    if (!this.permissionStateMatchesSelectedMode(state, selection)) {
+      this.verifiedPermissionModeByProject.delete(projectId);
+      return state;
+    }
+    this.verifiedPermissionModeByProject.set(projectId, selection);
+    return this.buildFallbackPermissionState(selection, workspaceRoots, state);
+  }
+
+  private isVerifiedBuiltinFullAccess(
+    projectId: string | null,
+    state: CodexPermissionState,
+  ): boolean {
+    return projectId !== null
+      && state.mode === "full-access"
+      && this.verifiedPermissionModeByProject.get(projectId) === "full-access";
+  }
+
   private async readPermissionState(projectId: string | null): Promise<CodexPermissionState> {
     if (!projectId) {
       return {
@@ -5971,13 +6054,18 @@ export class CodexService extends EventEmitter {
         this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>("configRequirements/read", undefined),
       ]);
 
-      const nextState = resolveCodexPermissionState({
+      const resolvedState = resolveCodexPermissionState({
         config: configResult.config,
         origins: configResult.origins,
         requirements: requirementsResult.requirements,
         defaultUserConfigPath: path.join(resolveCodexHomeDir(), "config.toml"),
         workspaceRoots,
       });
+      const nextState = this.applyPersistedPermissionModeSelection(
+        projectId,
+        resolvedState,
+        workspaceRoots,
+      );
       this.permissionStateByProject.set(projectId, nextState);
       return nextState;
     } catch {
@@ -6055,13 +6143,13 @@ export class CodexService extends EventEmitter {
   private resolvePermissionStateForRequest(
     permissionState: CodexPermissionState,
     mode: CodexPermissionMode | undefined,
-    workspaceRoots: readonly string[],
   ): CodexPermissionState {
     if (!mode || mode === permissionState.mode) {
       return permissionState;
     }
-
-    return this.buildFallbackPermissionState(mode, workspaceRoots, permissionState);
+    // Renderer input may choose among modes for UI, but only the main-owned
+    // persisted selection may establish built-in preset provenance.
+    return permissionState;
   }
 
   private async readAutomationPermissionContext(): Promise<CodexAutomationPermissionContext | null> {
@@ -6106,6 +6194,7 @@ export class CodexService extends EventEmitter {
   private invalidatePermissionState(projectId: string | null): void {
     if (!projectId) return;
     this.permissionStateByProject.delete(projectId);
+    this.verifiedPermissionModeByProject.delete(projectId);
   }
 
   async getPermissionState(projectId: string): Promise<CodexPermissionState> {
@@ -6125,6 +6214,8 @@ export class CodexService extends EventEmitter {
 
     const edits = buildPermissionModeConfigEdits(mode);
     if (edits.length === 0) {
+      putCodexProjectPermissionModeSelection(projectId, mode);
+      this.verifiedPermissionModeByProject.set(projectId, mode);
       const nextState = this.buildFallbackPermissionState(mode, [], current);
       this.permissionStateByProject.set(projectId, nextState);
       return nextState;
@@ -6138,14 +6229,18 @@ export class CodexService extends EventEmitter {
     try {
       await this.client.request("config/batchWrite", params);
     } catch {
+      putCodexProjectPermissionModeSelection(projectId, mode);
+      this.verifiedPermissionModeByProject.set(projectId, mode);
       const nextState = this.buildFallbackPermissionState(mode, [], current);
       this.permissionStateByProject.set(projectId, nextState);
       return nextState;
     }
+    putCodexProjectPermissionModeSelection(projectId, mode);
     this.invalidatePermissionState(projectId);
     const nextState = await this.readPermissionState(projectId);
     if (mode !== "custom" && nextState.mode !== mode) {
       const fallbackState = this.buildFallbackPermissionState(mode, [], nextState);
+      this.verifiedPermissionModeByProject.set(projectId, mode);
       this.permissionStateByProject.set(projectId, fallbackState);
       return fallbackState;
     }
@@ -6168,6 +6263,7 @@ export class CodexService extends EventEmitter {
     } catch {
       return current;
     }
+    putCodexProjectPermissionModeSelection(projectId, "custom");
     this.invalidatePermissionState(projectId);
     return await this.readPermissionState(projectId);
   }
@@ -8686,9 +8782,29 @@ export class CodexService extends EventEmitter {
       outputSchema: null,
       collaborationMode: input.collaborationMode,
     };
-    const turnStart = input.waitForCompletion
-      ? await this.startHeartbeatTurnAndWaitForCompletion(turnStartParams)
-      : await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+    const actorProjectId = this.parseThreadRef(resumedThread.threadId)?.projectId ?? null;
+    const actorPermissionState = actorProjectId && !input.permissions
+      ? await this.readPermissionState(actorProjectId)
+      : null;
+    const authorityLaunch = this.beginNodexAgentTurnAuthority(
+      resumedThread.threadId,
+      actorPermissionState
+        ? this.isVerifiedBuiltinFullAccess(actorProjectId, actorPermissionState)
+        : false,
+    );
+    let turnStart: TurnStartResponse;
+    try {
+      turnStart = input.waitForCompletion
+        ? await this.startHeartbeatTurnAndWaitForCompletion(turnStartParams)
+        : await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+      this.nodexAgentAuthorityRegistry.bindTurn(
+        authorityLaunch,
+        turnStart.turn.id,
+      );
+    } catch (error) {
+      this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
+      throw error;
+    }
     const startedTurn = this.asTurnSummary(resumedThread.threadId, turnStart.turn);
     if (!startedTurn) {
       throw new Error("Codex turn/start returned an invalid turn payload");
@@ -12990,7 +13106,6 @@ export class CodexService extends EventEmitter {
     const effectivePermissionState = this.resolvePermissionStateForRequest(
       permissionState,
       input.request.permissionMode,
-      [sourceWorkspaceRoot],
     );
     const collaborationMode = this.buildCollaborationModePayload({
       ...(input.effectiveCollaborationMode
@@ -13150,6 +13265,7 @@ export class CodexService extends EventEmitter {
   }
 
   private async dispatchCanonicalOptimisticTurn(input: {
+    readonly authorityLaunch: NodexAgentTurnAuthorityLaunch | null;
     readonly canonicalParams: CodexCanonicalLiveTurnParams<
       CodexLiveFileAttachment,
       CodexReviewDiffCommentAttachment
@@ -13189,6 +13305,10 @@ export class CodexService extends EventEmitter {
       if (!this.asTurnSummary(input.threadId, response.turn)) {
         throw new Error("Codex turn/start returned an invalid turn payload");
       }
+      this.nodexAgentAuthorityRegistry.bindTurn(
+        input.authorityLaunch,
+        response.turn.id,
+      );
 
       const beforeBind = record.canonicalState;
       if (!beforeBind) {
@@ -13219,6 +13339,7 @@ export class CodexService extends EventEmitter {
       });
       return response.turn;
     } catch (error) {
+      this.nodexAgentAuthorityRegistry.abortTurn(input.authorityLaunch);
       const beforeFailure = record.canonicalState;
       if (beforeFailure) {
         const afterFailure = failCodexCanonicalOptimisticTurn(
@@ -13327,7 +13448,6 @@ export class CodexService extends EventEmitter {
       const effectivePermissionState = this.resolvePermissionStateForRequest(
         resolvedPermissionState,
         input.permissionMode,
-        runLocation.workspaceRoots,
       );
       const permissionMode = effectivePermissionState.mode;
       const turnPermissionOverrides = buildTurnPermissionOverrides({
@@ -13563,6 +13683,13 @@ export class CodexService extends EventEmitter {
         commentAttachments: [...preparedPrompt.commentAttachments],
       };
       const startedTurn = await this.dispatchCanonicalOptimisticTurn({
+        authorityLaunch: this.beginNodexAgentTurnAuthority(
+          link.threadId,
+          this.isVerifiedBuiltinFullAccess(
+            input.projectId,
+            effectivePermissionState,
+          ),
+        ),
         canonicalParams: canonicalTurnParams,
         clientUserMessageId,
         currentCollaborationModel: record.latestCollaborationMode.settings.model,
@@ -15927,7 +16054,28 @@ export class CodexService extends EventEmitter {
       input: [],
       ...(detail?.cwd ? { cwd: detail.cwd } : {}),
     };
-    await this.client.request<"turn/start", TurnStartResponse>("turn/start", params);
+    const projectId = this.parseThreadRef(threadId)?.projectId ?? null;
+    const permissionState = this.resolvePermissionStateForRequest(
+      await this.readPermissionState(projectId),
+      undefined,
+    );
+    const authorityLaunch = this.beginNodexAgentTurnAuthority(
+      threadId,
+      this.isVerifiedBuiltinFullAccess(projectId, permissionState),
+    );
+    try {
+      const response = await this.client.request<"turn/start", TurnStartResponse>(
+        "turn/start",
+        params,
+      );
+      this.nodexAgentAuthorityRegistry.bindTurn(
+        authorityLaunch,
+        response.turn.id,
+      );
+    } catch (error) {
+      this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
+      throw error;
+    }
   }
 
   private async maybeContinueActiveThreadGoal(threadId: string): Promise<void> {
@@ -16064,7 +16212,6 @@ export class CodexService extends EventEmitter {
     const permissionState = this.resolvePermissionStateForRequest(
       resolvedPermissionState,
       overrides?.permissionMode,
-      workspaceRoots,
     );
     const permissionMode = permissionState.mode;
     let turnPermissionOverrides = buildTurnPermissionOverrides({
@@ -16086,6 +16233,10 @@ export class CodexService extends EventEmitter {
     }));
     const startedAt = Date.now();
     const clientUserMessageId = overrides?.clientUserMessageId ?? randomUUID();
+    const authorityLaunch = this.beginNodexAgentTurnAuthority(
+      threadId,
+      this.isVerifiedBuiltinFullAccess(threadRef?.projectId ?? null, permissionState),
+    );
 
     this.logger.info("Starting Codex turn", {
       threadId,
@@ -16187,17 +16338,32 @@ export class CodexService extends EventEmitter {
       : null;
 
     const usedCanonicalTransaction = !rendererOwnsState && canonicalParams !== null;
-    const turnStartResult = usedCanonicalTransaction
-      ? {
-          turn: await this.dispatchCanonicalOptimisticTurn({
-            canonicalParams,
-            clientUserMessageId,
-            currentCollaborationModel: record.latestCollaborationMode.settings.model,
-            request: requestTurnStartWithRecovery,
-            threadId,
-          }),
-        }
-      : await requestTurnStartWithRecovery();
+    let turnStartResult: TurnStartResponse;
+    try {
+      turnStartResult = usedCanonicalTransaction
+        ? {
+            turn: await this.dispatchCanonicalOptimisticTurn({
+              authorityLaunch,
+              canonicalParams,
+              clientUserMessageId,
+              currentCollaborationModel: record.latestCollaborationMode.settings.model,
+              request: requestTurnStartWithRecovery,
+              threadId,
+            }),
+          }
+        : await requestTurnStartWithRecovery();
+      if (!usedCanonicalTransaction) {
+        this.nodexAgentAuthorityRegistry.bindTurn(
+          authorityLaunch,
+          turnStartResult.turn.id,
+        );
+      }
+    } catch (error) {
+      if (!usedCanonicalTransaction) {
+        this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
+      }
+      throw error;
+    }
 
     this.markAutomationRunAcceptedForUserContinuation(threadId);
     if (rendererOwnsState) return turnStartResult;
@@ -18990,6 +19156,7 @@ export class CodexService extends EventEmitter {
     readonly collaborationMode: CodexDynamicCreateModelProjection["collaborationMode"];
     readonly cwd: string;
     readonly inputItems: TurnStartParams["input"];
+    readonly nodexBuiltinFullAccess: boolean;
     readonly permissionOverrides?: CodexDynamicCreatePermissionSelection["turnParams"];
     readonly reasoningEffort: TurnStartParams["effort"];
     readonly previousPermissionContext: CodexCanonicalHydratedPermissionContext;
@@ -19004,6 +19171,10 @@ export class CodexService extends EventEmitter {
     readonly workspaceKind: CodexResolvedDynamicDirectThreadTarget["workspaceKind"];
   }): Promise<void> {
     return (async () => {
+      const authorityLaunch = this.beginNodexAgentTurnAuthority(
+        input.threadId,
+        input.nodexBuiltinFullAccess,
+      );
       try {
         const permissionParams: Pick<
           TurnStartParams,
@@ -19045,6 +19216,10 @@ export class CodexService extends EventEmitter {
           "turn/start",
           turnStartParams,
         );
+        this.nodexAgentAuthorityRegistry.bindTurn(
+          authorityLaunch,
+          response.turn.id,
+        );
         const record = this.getMaybeConversationRecord(input.threadId);
         if (record?.canonicalState) {
           const before = record.canonicalState;
@@ -19063,6 +19238,7 @@ export class CodexService extends EventEmitter {
         this.markThreadAsActive(input.threadId);
         this.emitThreadStreamSnapshotFromRecord(input.threadId, "no-owner-fallback");
       } catch (error) {
+        this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
         this.logger.error("Background first turn failed", {
           threadId: input.threadId,
           error,
@@ -19374,6 +19550,12 @@ export class CodexService extends EventEmitter {
       collaborationMode,
       cwd: effectiveCwd,
       inputItems: delegatedInput,
+      nodexBuiltinFullAccess: Boolean(
+        input.projectSessionId
+          && input.target.projectId
+          && input.permissionSelection?.mode === "full-access"
+          && this.verifiedPermissionModeByProject.get(input.target.projectId) === "full-access",
+      ),
       ...(turnPermissionSelection
         ? { permissionOverrides: turnPermissionSelection.turnParams }
         : {}),
@@ -19445,33 +19627,100 @@ export class CodexService extends EventEmitter {
     return threadId;
   }
 
-  private async handleNodexAgentDynamicToolCall(
-    params: DynamicToolCallParams,
-  ): Promise<DynamicToolCallResponse> {
-    const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
-    const projectId = this.parseThreadRef(params.threadId)?.projectId
+  private beginNodexAgentTurnAuthority(
+    threadId: string,
+    builtinFullAccess: boolean,
+    inheritedAuthority?: FrozenNodexAgentTurnAuthority | null,
+  ): NodexAgentTurnAuthorityLaunch | null {
+    const rootThreadId = this.resolveNodexAgentRootThreadId(threadId);
+    const actorProjectId = this.parseThreadRef(threadId)?.projectId
       ?? this.parseThreadRef(rootThreadId)?.projectId
       ?? null;
+    if (!actorProjectId) return null;
+    return this.nodexAgentAuthorityRegistry.beginTurn({
+      threadId,
+      rootThreadId,
+      actorProjectId,
+      builtinFullAccess,
+      inheritedAuthority,
+    });
+  }
+
+  private captureNodexAgentTurnAuthority(
+    params: DynamicToolCallParams,
+  ): FrozenNodexAgentTurnAuthority | null {
+    const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
+    const actorProjectId = this.parseThreadRef(params.threadId)?.projectId
+      ?? this.parseThreadRef(rootThreadId)?.projectId
+      ?? null;
+    if (!actorProjectId) return null;
+    const captureInput = {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      rootThreadId,
+      actorProjectId,
+    };
+    const persisted = this.nodexAgentAuthorityRegistry.capturePersisted(captureInput);
+    if (persisted) return persisted;
+    if (this.nodexAgentAuthorityRegistry.hasRecordedAuthority(
+      params.threadId,
+      params.turnId,
+    )) return null;
+    return this.nodexAgentAuthorityRegistry.capture(captureInput);
+  }
+
+  private resolveNodexAgentAuthorizationPresentation(
+    threadId: string,
+    turnId: string,
+    rootThreadId: string,
+  ): NodexAgentAuthorizationPresentationTarget | null {
+    const directClientId = this.rendererViewRegistry.resolvePresentationClient(threadId);
+    if (directClientId) {
+      return {
+        clientId: directClientId,
+        threadId,
+        turnId,
+      };
+    }
+
+    if (rootThreadId === threadId) return null;
+    const rootClientId = this.rendererViewRegistry.resolvePresentationClient(rootThreadId);
+    if (!rootClientId) return null;
+    const rootTurnId = [...this.listKnownTurns(rootThreadId)]
+      .reverse()
+      .find((turn) => turn.turnId !== null)?.turnId ?? null;
+    if (!rootTurnId) return null;
+    return {
+      clientId: rootClientId,
+      threadId: rootThreadId,
+      turnId: rootTurnId,
+    };
+  }
+
+  private async handleNodexAgentDynamicToolCall(
+    params: DynamicToolCallParams,
+    frozenAuthority?: FrozenNodexAgentTurnAuthority | null,
+  ): Promise<DynamicToolCallResponse> {
+    const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
+    const authority = frozenAuthority === undefined
+      ? this.captureNodexAgentTurnAuthority(params)
+      : frozenAuthority;
+    const projectId = authority?.actorProjectId ?? null;
     const broker = this.nodexAgentAuthorizationBroker;
-    const directOwnerClientId = this.rendererOwnerClientIdByConversationId.get(params.threadId)
-      ?? null;
-    const rootOwnerClientId = this.rendererOwnerClientIdByConversationId.get(rootThreadId)
-      ?? null;
-    const ownerClientId = directOwnerClientId ?? rootOwnerClientId;
-    const presentationThreadId = directOwnerClientId ? params.threadId : rootThreadId;
-    const presentationTurnId = presentationThreadId === params.threadId
-      ? params.turnId
-      : [...(this.getMaybeConversationRecord(presentationThreadId)?.detail?.turns ?? [])]
-          .reverse()
-          .find((turn) => turn.turnId !== null)?.turnId ?? null;
-    const writeAccess: NodexAgentAccess["write"] = projectId === null
-      || !broker
-      || !ownerClientId
-      || !presentationTurnId
-      ? "unavailable"
-      : broker.hasGrant({ rootThreadId, projectId })
-        ? "granted"
-        : "consent_required";
+    const presentation = this.resolveNodexAgentAuthorizationPresentation(
+      params.threadId,
+      params.turnId,
+      rootThreadId,
+    );
+    const writeAccess: NodexAgentAccess["write"] = resolveNodexAgentWriteAccess({
+      authorityScope: authority?.scope ?? null,
+      hasActorProject: projectId !== null,
+      hasBroker: broker !== null,
+      hasTaskGrant: projectId !== null && broker !== null
+        ? broker.hasGrant({ rootThreadId, projectId })
+        : false,
+      hasPresentationTarget: presentation !== null,
+    });
     const access: NodexAgentAccess = {
       read: "allowed",
       write: writeAccess,
@@ -19484,16 +19733,26 @@ export class CodexService extends EventEmitter {
 
     return await executeNodexAgentDynamicToolCall(params, {
       toolsetRevision,
-      projectId,
+      authority,
       access,
       authorize: async (authorization) => {
-        if (!broker || !presentationTurnId) return "unavailable";
+        if (authority?.scope === "library") {
+          const current = this.captureNodexAgentTurnAuthority(params);
+          if (canAutoApproveNodexAgentWrite(authority, current)) {
+            return "allow_once";
+          }
+          return "unavailable";
+        }
+        if (!broker) return "unavailable";
+        const currentPresentation = this.resolveNodexAgentAuthorizationPresentation(
+          params.threadId,
+          params.turnId,
+          rootThreadId,
+        );
         const decision = await broker.authorize({
           ...authorization,
           rootThreadId,
-          ownerClientId,
-          presentationThreadId,
-          presentationTurnId,
+          presentation: currentPresentation,
         });
         const currentRootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
         const currentProjectId = this.parseThreadRef(params.threadId)?.projectId
@@ -19510,12 +19769,16 @@ export class CodexService extends EventEmitter {
   private async handleDynamicToolCall(
     params: DynamicToolCallParams,
     context: CodexDynamicToolExecutionContext = {},
+    frozenNodexAuthority?: FrozenNodexAgentTurnAuthority | null,
   ): Promise<DynamicToolCallResponse> {
     const args = asRecord(params.arguments) ?? {};
 
     try {
       if (params.namespace === NODEX_APP_TOOL_NAMESPACE) {
-        return await this.handleNodexAgentDynamicToolCall(params);
+        return await this.handleNodexAgentDynamicToolCall(
+          params,
+          frozenNodexAuthority,
+        );
       }
       if (!isCodexAppDynamicTool(params)) {
         const namespace = params.namespace ?? "<none>";
@@ -19892,6 +20155,9 @@ export class CodexService extends EventEmitter {
     }
 
     const isStoredSpecialRequest = lifecycle.disposition === "stored";
+    const nodexAuthority = request.params.namespace === NODEX_APP_TOOL_NAMESPACE
+      ? this.captureNodexAgentTurnAuthority(request.params)
+      : null;
     if (!isStoredSpecialRequest && !threadId) {
       this.logger.warn("Ignored Codex dynamic tool call without a thread id", {
         requestId: request.id,
@@ -19902,14 +20168,22 @@ export class CodexService extends EventEmitter {
 
     if (
       !isStoredSpecialRequest
-      && !this.rendererOwnerClientIdByConversationId.has(threadId)
+      && (
+        request.params.namespace === NODEX_APP_TOOL_NAMESPACE
+        || !this.rendererOwnerClientIdByConversationId.has(threadId)
+      )
     ) {
-      return await this.handleDynamicToolCall(request.params);
+      return await this.handleDynamicToolCall(
+        request.params,
+        {},
+        nodexAuthority,
+      );
     }
 
     return await new Promise<DynamicToolCallResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE>((resolve, reject) => {
       const pending: PendingDynamicToolCall = {
         request,
+        nodexAuthority,
         disposition: isStoredSpecialRequest ? "stored" : "dispatched",
         resolve,
         reject,
@@ -19932,7 +20206,11 @@ export class CodexService extends EventEmitter {
       }
 
       this.pendingDynamicToolCalls.takeFirst(request.id, (candidate) => candidate === pending);
-      void this.handleDynamicToolCall(request.params).then(resolve, reject);
+      void this.handleDynamicToolCall(
+        request.params,
+        {},
+        nodexAuthority,
+      ).then(resolve, reject);
     });
   }
 
@@ -19954,7 +20232,11 @@ export class CodexService extends EventEmitter {
     if (!pending) return null;
 
     try {
-      const response = await this.handleDynamicToolCall(pending.request.params, context);
+      const response = await this.handleDynamicToolCall(
+        pending.request.params,
+        context,
+        pending.nodexAuthority,
+      );
       pending.resolve(response);
       return response;
     } catch (error) {

@@ -18,7 +18,8 @@ export type ProjectResourceAction =
 export type ProjectResourceAuthorizationSource =
   | "implicit_database_binding"
   | "explicit_page_grant"
-  | "explicit_database_grant";
+  | "explicit_database_grant"
+  | "thread_full_access";
 
 export type ProjectResourceAuthorizationReason =
   | "allowed"
@@ -26,6 +27,7 @@ export type ProjectResourceAuthorizationReason =
   | "resource_not_found"
   | "resource_hierarchy_corrupt"
   | "library_mismatch"
+  | "authority_stale"
   | "grant_missing"
   | "project_read_only"
   | "grant_read_only"

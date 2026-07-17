@@ -186,7 +186,18 @@ Live approval, permission, request-user-input, and MCP elicitation rows are visi
 - owner response cleanup removes the request and publishes completed request item state
 - stale followers do not call direct response IPC when they missed the request row locally
 
-Dynamic tool calls that do not create visible request state are owner-gated and ACKed without ordinary stream patches.
+Non-Nodex dynamic tool calls that do not create visible request state are
+owner-gated and ACKed without ordinary stream patches. Every `nodex_app` call
+executes directly in main with its frozen Turn authority; it never detours
+through the conversation state owner.
+
+Nodex Project-scope write consent is the deliberate exception to request-plane
+ownership. Main targets the most recently activated renderer presenting the
+direct task, or the root task for a background child. That renderer may be an
+owner, follower, or source-null viewer. It overlays the authorization card
+locally, preserves it across incoming canonical snapshots, and removes it on a
+response or terminal Turn; the occurrence is never published as canonical
+conversation state and never causes the renderer to adopt ownership.
 
 ## History and Resume
 

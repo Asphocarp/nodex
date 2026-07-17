@@ -292,13 +292,29 @@ The host binds Profile, Library, Project, Session, actor, and store epoch; publi
 callers cannot forge scope. Every content mutation evaluates current Project
 lifecycle, binding/grant/access revisions, and independent approval policy.
 
+For `nodex_app`, the host also binds one immutable authority snapshot to the
+exact Codex Turn. Ordinary snapshots have Project scope and continue to resolve
+the current primary Database plus recursive Page/Database grants. A Turn
+started with Nodex's built-in Full access preset has temporary Library scope:
+it may use the existing tool catalog across the actor Project's Library and its
+writes do not require a Nodex approval card. This overlay is never persisted as
+a Project resource grant, cannot cross a Profile/Library/store epoch, and does
+not transfer to a later Turn merely because permission settings changed. Main
+tracks the selected built-in preset separately from raw Codex config, so an
+equivalent Custom sandbox configuration or renderer-supplied mode cannot create
+Library authority.
+
 `BlockTransfer` moves/copies ownership within one Library. It accepts logical
 Page/Block roots and Library/Page/Data Source targets, while the writer compiles
 exact parent, membership, View, and Document heads. Copy recursively allocates
 fresh ownership identities and never follows reference targets. Move rejects
 any edge that would make a Page own itself transitively; prepare provides early
-feedback and the committing transaction rechecks current authority. Project change
-is no longer a content transfer; access changes through binding/grants.
+feedback and the committing transaction rechecks current authority. Project is
+not a product content owner; ordinary access changes through binding/grants.
+When a Full-access Agent operation crosses private compatibility owners, the
+writer rehomes the complete owned Block/Document closure in one transaction and
+records actor, source owner, final owner, and every relocation member without
+changing stable content identity.
 
 A Document operation batch addresses application Block IDs and validates the
 complete result on a current-head clone before atomically committing the engine

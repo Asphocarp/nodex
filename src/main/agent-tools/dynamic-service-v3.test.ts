@@ -44,7 +44,16 @@ function context(
   return {
     threadId: "thread-v3",
     callId: "call-v3",
-    projectId: "project-v3",
+    authority: {
+      threadId: "thread-v3",
+      turnId: "turn-v3",
+      rootThreadId: "thread-v3",
+      actorProjectId: "project-v3",
+      libraryId: "library-v3",
+      storeEpoch: "store-v3",
+      scope: "project",
+      source: "project_turn",
+    },
     access: {
       read: "allowed",
       write: "consent_required",
@@ -218,17 +227,21 @@ describe("NodexAgentV3DynamicService", () => {
       expect(request.preview.markdownPreview).toBe("# New body");
       return "allow_once" as const;
     });
+    const executionContext = context(authorize);
 
     await expect(service.registry.execute({
       namespace: NODEX_APP_TOOL_NAMESPACE,
       toolsetRevision: NODEX_APP_V3_TOOLSET_REVISION,
       tool: "update_page",
-    }, input, context(authorize))).resolves.toEqual({
+    }, input, executionContext)).resolves.toEqual({
       effect: "destructive",
       output,
     });
     expect(prepareNodexAgentPageUpdate).toHaveBeenCalledTimes(2);
-    expect(applyDocumentMutation).toHaveBeenCalledWith(mutation);
+    expect(applyDocumentMutation).toHaveBeenCalledWith(mutation, {
+      authority: executionContext.authority,
+      resource: { kind: "page", pageId: "page-update" },
+    });
     expect(completeNodexAgentPageUpdate).toHaveBeenCalledWith(expect.objectContaining({
       tool: "update_page",
       pageId: "page-update",

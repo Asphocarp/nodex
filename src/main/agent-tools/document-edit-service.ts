@@ -46,6 +46,7 @@ import {
 
 import {
   nodexAgentCallIdentity,
+  nodexAgentCallProvenance,
   readNodexAgentCallReceipt,
   requireMatchingNodexAgentCallReceipt,
   type NodexAgentCallReceiptRow,
@@ -546,18 +547,22 @@ export function prepareNodexAgentDocumentEditWithResolver(
     database.prepare(
       `
       INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, call_id, project_id, tool, request_hash,
-        mutation_id, allocations_json, result_metadata_json, status,
+        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
+        mutation_id, authority_fingerprint, provenance_version,
+        allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
+      request.authority?.turnId ?? null,
       request.callId,
       request.projectId,
       request.tool,
       requestHash,
       mutationId,
+      nodexAgentCallProvenance(request)[1],
+      nodexAgentCallProvenance(request)[2],
       JSON.stringify(allocations),
       preparationMetadata,
       now,

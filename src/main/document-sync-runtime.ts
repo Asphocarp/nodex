@@ -8,8 +8,12 @@ export const documentSyncHub = new DocumentSyncHub({
   syncCanvasScene: (request) => blockMutationWriter.syncCanvasScene(request),
   applyCanvasSceneMutation: (request) =>
     blockMutationWriter.applyCanvasSceneMutation(request),
-  applyDocumentMutation: (request, writeFence) =>
-    blockMutationWriter.applyDocumentMutation(request, writeFence),
+  applyDocumentMutation: (request, writeFence, executionAuthority) =>
+    blockMutationWriter.applyDocumentMutation(
+      request,
+      writeFence,
+      executionAuthority,
+    ),
   lookupCommittedRelocation: (intent) =>
     blockMutationWriter.readCommittedRelocation(intent),
   prepareRelocationCommand: (intent) =>

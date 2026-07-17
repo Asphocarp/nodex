@@ -19,10 +19,12 @@ import type {
   TransferBlocksInput,
   TransferBlocksOutput,
 } from "./write-schemas";
+import type { FrozenNodexAgentTurnAuthority } from "../nodex-agent-authority";
 
 export interface NodexAgentCallIdentity {
   readonly threadId: string;
   readonly callId: string;
+  readonly authority?: FrozenNodexAgentTurnAuthority;
 }
 
 export type NodexAgentDocumentEditTool =
@@ -69,10 +71,12 @@ export interface NodexAgentLeaseDocument {
 export type PreparedNodexAgentCreateDestination =
   | {
       readonly kind: "space";
+      readonly contentProjectId?: string;
       readonly beforeBlockId?: string;
     }
   | {
       readonly kind: "document";
+      readonly contentProjectId?: string;
       readonly documentId: string;
       readonly generation: number;
       readonly expectedHeadSeq: number;
@@ -81,6 +85,7 @@ export type PreparedNodexAgentCreateDestination =
     }
   | {
       readonly kind: "database";
+      readonly contentProjectId?: string;
       readonly databaseBlockId: string;
       readonly schemaRevision: number;
       readonly view?: {

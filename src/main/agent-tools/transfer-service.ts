@@ -12,7 +12,16 @@ import { applyBlockTransfer } from "../local-store/block-transfers";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import { applyDatabaseMutation } from "../local-store/database-kernel";
-import { authorizeProjectResourceInDatabase } from "../local-store/project-resource-grants";
+import {
+  assertCurrentNodexAgentTurnAuthorityInDatabase,
+  assertNodexAgentResourceAuthorizationInDatabase,
+  authorizeNodexAgentResourceInDatabase,
+  authorizeProjectResourceInDatabase,
+} from "../local-store/project-resource-grants";
+import {
+  applyLibraryContentRehomeInTransaction,
+  prepareLibraryContentRehome,
+} from "../local-store/library-content-rehome";
 import {
   DATABASE_MUTATION_CONTRACT_VERSION,
   databaseGroupValueFromKey,
@@ -57,6 +66,7 @@ import type {
 import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../../shared/block-transfer";
 import {
   nodexAgentCallIdentity,
+  nodexAgentCallProvenance,
   readNodexAgentCallReceipt,
   requireMatchingNodexAgentCallReceipt,
   type NodexAgentCallReceiptRow,
@@ -69,6 +79,7 @@ import {
   readFailure,
   requireProject,
 } from "./read-support";
+
 import {
   readPageLocation,
   requirePageDocumentId,
@@ -77,8 +88,37 @@ import {
 import { documentBodyEtagState, titleEtagState } from "./semantic-guards";
 import { publicV3Failure } from "./v3-errors";
 
+const assertTransferDestinationAuthority = (
+  database: Database.Database,
+  command: Pick<NodexAgentDuplicatePageCommand, "authority" | "destination">,
+): void => {
+  assertCurrentNodexAgentTurnAuthorityInDatabase(database, command.authority);
+  if (command.destination.kind === "database") {
+    assertNodexAgentResourceAuthorizationInDatabase(database, {
+      authority: command.authority,
+      resource: { kind: "database", databaseId: command.destination.databaseBlockId },
+      action: "write",
+    });
+    return;
+  }
+  if (command.destination.kind !== "document") return;
+  const owner = database.prepare(`
+    SELECT ownership.block_id AS pageId
+    FROM block_documents ownership
+    INNER JOIN pages page ON page.block_id = ownership.block_id
+    WHERE ownership.document_id = ?
+  `).get(command.destination.documentId) as { readonly pageId: string } | undefined;
+  if (!owner) throw new Error("Nodex Agent transfer destination has no Page owner");
+  assertNodexAgentResourceAuthorizationInDatabase(database, {
+    authority: command.authority,
+    resource: { kind: "page", pageId: owner.pageId },
+    action: "write",
+  });
+};
+
 interface BlockLocationRow {
   readonly id: string;
+  readonly project_id: string;
   readonly type: string;
   readonly lifecycle: "active" | "archived" | "deleted";
   readonly location_kind: "space" | "document" | "database";
@@ -99,7 +139,7 @@ function readBlock(
 ): BlockLocationRow {
   const row = database.prepare(
     `
-    SELECT block.id, block.type, block.lifecycle, block.location_kind,
+    SELECT block.id, block.project_id, block.type, block.lifecycle, block.location_kind,
       block.containing_document_id, block.containing_database_id,
       block.location_revision, block_index.parent_block_id
     FROM blocks block
@@ -530,17 +570,21 @@ function prepareTransfer(
     database.prepare(
       `
       INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, call_id, project_id, tool, request_hash,
-        mutation_id, allocations_json, result_metadata_json, status,
+        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
+        mutation_id, authority_fingerprint, provenance_version,
+        allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'transfer_blocks', ?, ?, '[]', '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'transfer_blocks', ?, ?, ?, ?, '[]', '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
+      request.authority?.turnId ?? null,
       request.callId,
       request.projectId,
       requestHash,
       mutationId,
+      nodexAgentCallProvenance(request)[1],
+      nodexAgentCallProvenance(request)[2],
       now,
       now,
     );
@@ -552,6 +596,7 @@ function prepareTransfer(
       command: {
         threadId: request.threadId,
         callId: request.callId,
+        ...(request.authority ? { authority: request.authority } : {}),
         projectId: request.projectId,
         requestHash,
         mutationId,
@@ -836,6 +881,9 @@ type CanonicalTransferDestination =
 function legacyTransferDestination(
   database: Database.Database,
   projectId: string,
+  authority:
+    | PrepareNodexAgentDuplicatePageRequest["authority"]
+    | PrepareNodexAgentMovePagesRequest["authority"],
   destination: CanonicalTransferDestination,
 ): TransferBlocksInput["destination"] {
   if (destination.kind === "library") {
@@ -849,15 +897,22 @@ function legacyTransferDestination(
         projectId,
         destination.pageId,
         "create_child",
+        authority,
       ),
       at: destination.at ?? { kind: "end" },
     };
   }
-  const authorization = authorizeProjectResourceInDatabase(database, {
-    projectId,
-    resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
-    action: "create_child",
-  });
+  const authorization = authority
+    ? authorizeNodexAgentResourceInDatabase(database, {
+        authority,
+        resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
+        action: "create_child",
+      })
+    : authorizeProjectResourceInDatabase(database, {
+        projectId,
+        resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
+        action: "create_child",
+      });
   if (!authorization.allowed) {
     throw new NodexAgentReadError(
       authorization.reason === "resource_not_found" ? "not_found" : "authorization_denied",
@@ -894,6 +949,7 @@ function normalizedDuplicateInput(
   const destination = legacyTransferDestination(
     database,
     request.projectId,
+    request.authority,
     request.input.destination,
   );
   return TransferBlocksInputSchema.parse({
@@ -929,8 +985,15 @@ function prepareDuplicatePage(
     }
   }
 
-  requirePageStorageContext(database, request.projectId, request.input.pageId, "read");
-  const sourceBlock = readBlock(database, request.projectId, request.input.pageId);
+  const sourcePage = requirePageStorageContext(
+    database,
+    request.projectId,
+    request.input.pageId,
+    "read",
+    request.authority,
+  );
+  const sourceProjectId = sourcePage.contentProjectId;
+  const sourceBlock = readBlock(database, sourceProjectId, request.input.pageId);
   if (sourceBlock.type !== "page") {
     throw new NodexAgentReadError(
       "unsupported_resource",
@@ -940,27 +1003,51 @@ function prepareDuplicatePage(
       { resourceId: request.input.pageId, domainCode: "page_root_required" },
     );
   }
-  requirePageDocumentId(database, request.projectId, request.input.pageId);
+  requirePageDocumentId(
+    database,
+    request.projectId,
+    request.input.pageId,
+    "read",
+    request.authority,
+  );
   const normalizedInput = normalizedDuplicateInput(database, request);
   const destination = prepareNodexAgentDestination(
     database,
     request.projectId,
     normalizedInput.destination as CreateInput["destination"],
+    request.authority?.scope === "library",
   );
+  const targetProjectId = destination.contentProjectId ?? request.projectId;
+  if (
+    sourceProjectId !== targetProjectId
+    && request.authority?.scope !== "library"
+  ) {
+    throw new NodexAgentReadError(
+      "authorization_denied",
+      "Cross-owner Page duplication requires Full access",
+      false,
+      "none",
+    );
+  }
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Nodex store has no epoch");
   const mutationId = existing?.mutation_id ?? `nodex-duplicate-page:${identity}`;
   const preparation = prepareBlockTransfer(database, {
     version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
     operationId: mutationId,
-    projectId: request.projectId,
+    projectId: sourceProjectId,
     storeEpoch,
     clientSessionId: `nodex-agent:${request.threadId}`,
     actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
     mode: "copy",
     rootBlockIds: [request.input.pageId],
-    source: sourceIntent(database, request.projectId, sourceBlock),
-    target: transferTarget(database, request.projectId, destination),
+    source: sourceIntent(database, sourceProjectId, sourceBlock),
+    target: sourceProjectId === targetProjectId
+      ? transferTarget(database, sourceProjectId, destination)
+      : transferTarget(database, sourceProjectId, {
+          kind: "space",
+          contentProjectId: sourceProjectId,
+        }),
   });
   if (!preparation.ok) {
     throw new NodexAgentReadError(
@@ -990,17 +1077,21 @@ function prepareDuplicatePage(
     database.prepare(
       `
       INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, call_id, project_id, tool, request_hash,
-        mutation_id, allocations_json, result_metadata_json, status,
+        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
+        mutation_id, authority_fingerprint, provenance_version,
+        allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'duplicate_page', ?, ?, '[]', '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'duplicate_page', ?, ?, ?, ?, '[]', '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
+      request.authority?.turnId ?? null,
       request.callId,
       request.projectId,
       requestHash,
       mutationId,
+      nodexAgentCallProvenance(request)[1],
+      nodexAgentCallProvenance(request)[2],
       now,
       now,
     );
@@ -1012,6 +1103,7 @@ function prepareDuplicatePage(
       command: {
         threadId: request.threadId,
         callId: request.callId,
+        ...(request.authority ? { authority: request.authority } : {}),
         projectId: request.projectId,
         requestHash,
         mutationId,
@@ -1032,6 +1124,8 @@ function duplicatePageOutput(
   command: NodexAgentDuplicatePageCommand,
   receipt: BlockTransferReceipt,
 ) {
+  const contentProjectId = command.destination.contentProjectId
+    ?? command.projectId;
   const pageId = receipt.copiedBlockIds[command.input.pageId]
     ?? receipt.resultRootBlockIds[0];
   if (!pageId || pageId === command.input.pageId) {
@@ -1042,7 +1136,13 @@ function duplicatePageOutput(
       "none",
     );
   }
-  const documentId = requirePageDocumentId(database, command.projectId, pageId);
+  const documentId = requirePageDocumentId(
+    database,
+    command.projectId,
+    pageId,
+    "read",
+    command.authority,
+  );
   const materialization = database.prepare(
     `
     SELECT title_rich_json, nfm, block_tree_json
@@ -1074,7 +1174,12 @@ function duplicatePageOutput(
     data: {
       sourcePageId: command.input.pageId,
       pageId,
-      location: readPageLocation(database, command.projectId, pageId),
+      location: readPageLocation(
+        database,
+        command.projectId,
+        pageId,
+        command.authority,
+      ),
       bodyBlocksCreated: flattenBlocks(blocks as unknown as readonly BlockTreeNode[]).length,
       ...(command.input.return?.includes("block_map")
         ? { blockMap: receipt.copiedBlockIds }
@@ -1083,12 +1188,12 @@ function duplicatePageOutput(
         ? {
             etags: {
               title: mintNodexAgentEtag(database, titleEtagState({
-                projectId: command.projectId,
+                projectId: contentProjectId,
                 documentId,
                 richTitle,
               })),
               body: mintNodexAgentEtag(database, documentBodyEtagState({
-                projectId: command.projectId,
+                projectId: contentProjectId,
                 documentId,
                 nfm: materialization.nfm,
               })),
@@ -1127,6 +1232,12 @@ function executeDuplicatePage(
       },
     };
   }
+  assertTransferDestinationAuthority(database, command);
+  assertNodexAgentResourceAuthorizationInDatabase(database, {
+    authority: command.authority,
+    resource: { kind: "page", pageId: command.input.pageId },
+    action: "write",
+  });
   if (readBlockStoreEpoch(database) !== command.storeEpoch) {
     throw new NodexAgentReadError(
       "conflict",
@@ -1135,7 +1246,88 @@ function executeDuplicatePage(
       "get_block_again",
     );
   }
-  const transferred = applyBlockTransfer(database, command.transfer);
+  const sourceProjectId = command.transfer.projectId;
+  const targetProjectId = command.destination.contentProjectId
+    ?? command.projectId;
+  const staged = applyBlockTransfer(database, command.transfer, {
+    persistTopLevelGrant: command.authority?.scope !== "library",
+  });
+  const transferred = (() => {
+    if (!staged.ok || sourceProjectId === targetProjectId) return staged;
+    if (command.authority?.scope !== "library") {
+      throw new NodexAgentReadError(
+        "authorization_denied",
+        "Cross-owner Page duplication requires Full access",
+        false,
+        "none",
+      );
+    }
+    const copiedPageId = staged.value.copiedBlockIds[command.input.pageId]
+      ?? staged.value.resultRootBlockIds[0];
+    if (!copiedPageId) {
+      throw new Error("Staged Page copy did not produce a root identity");
+    }
+    const rehome = prepareLibraryContentRehome(database, {
+      operationId: `${command.mutationId}:rehome`,
+      callIdentity: identity,
+      actorProjectId: command.projectId,
+      sourceProjectId,
+      targetProjectId,
+      rootPageIds: [copiedPageId],
+      storeEpoch: command.storeEpoch,
+    });
+    applyLibraryContentRehomeInTransaction(database, rehome);
+    const copiedBlock = readBlock(database, targetProjectId, copiedPageId);
+    const targetPreparation = prepareBlockTransfer(database, {
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: `${command.mutationId}:target`,
+      projectId: targetProjectId,
+      storeEpoch: command.storeEpoch,
+      clientSessionId: `nodex-agent:${command.threadId}`,
+      actor: {
+        kind: "nodex_agent",
+        threadId: command.threadId,
+        callId: command.callId,
+      },
+      mode: "move",
+      rootBlockIds: [copiedPageId],
+      source: sourceIntent(database, targetProjectId, copiedBlock),
+      target: transferTarget(database, targetProjectId, command.destination),
+    });
+    if (!targetPreparation.ok) {
+      throw new NodexAgentReadError(
+        targetPreparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
+        targetPreparation.error.message,
+        targetPreparation.error.retryable,
+        targetPreparation.error.reloadRequired ? "get_block_again" : "none",
+      );
+    }
+    const placed = applyBlockTransfer(database, targetPreparation.value.request, {
+      persistTopLevelGrant: false,
+    });
+    if (!placed.ok) return placed;
+    return {
+      ok: true as const,
+      value: {
+        ...placed.value,
+        mode: "copy" as const,
+        sourceRootBlockIds: command.transfer.rootBlockIds,
+        copiedBlockIds: staged.value.copiedBlockIds,
+        documentCommits: [
+          ...staged.value.documentCommits,
+          ...placed.value.documentCommits,
+        ],
+        affectedDatabaseBlockIds: [...new Set([
+          ...staged.value.affectedDatabaseBlockIds,
+          ...placed.value.affectedDatabaseBlockIds,
+        ])].sort((left, right) => left.localeCompare(right)),
+        changeLogSeq: Math.max(
+          staged.value.changeLogSeq,
+          placed.value.changeLogSeq,
+        ),
+      },
+    };
+  })();
   if (!transferred.ok) {
     throw new NodexAgentReadError(
       transferred.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
@@ -1147,6 +1339,7 @@ function executeDuplicatePage(
   }
   const normalizedCommand: NodexAgentTransferCommand = {
     ...command,
+    projectId: targetProjectId,
     input: command.normalizedInput,
   };
   const databaseReceipts = applyDestinationValues(
@@ -1228,12 +1421,13 @@ function normalizedMoveInput(
   const destination = legacyTransferDestination(
     database,
     request.projectId,
+    request.authority,
     request.input.destination,
   );
   return TransferBlocksInputSchema.parse({
     mode: "move",
     blockIds: [pageId],
-    from: resultLocation(database, request.projectId, source.id),
+    from: resultLocation(database, source.project_id, source.id),
     destination,
   });
 }
@@ -1312,8 +1506,14 @@ function prepareMovePages(
   }
   assertExternalMoveAnchors(request);
   const blocks = request.input.pageIds.map((pageId) => {
-    requirePageStorageContext(database, request.projectId, pageId, "move");
-    const block = readBlock(database, request.projectId, pageId);
+    const page = requirePageStorageContext(
+      database,
+      request.projectId,
+      pageId,
+      "move",
+      request.authority,
+    );
+    const block = readBlock(database, page.contentProjectId, pageId);
     if (block.type === "page") return block;
     throw new NodexAgentReadError(
       "unsupported_resource",
@@ -1323,7 +1523,13 @@ function prepareMovePages(
       { resourceId: pageId, domainCode: "page_root_required" },
     );
   });
-  blocks.forEach((block) => requirePageDocumentId(database, request.projectId, block.id));
+  blocks.forEach((block) => requirePageDocumentId(
+    database,
+    request.projectId,
+    block.id,
+    "read",
+    request.authority,
+  ));
   const normalizedInputs = blocks.map((block) =>
     normalizedMoveInput(database, request, block.id, block)
   );
@@ -1331,9 +1537,13 @@ function prepareMovePages(
     database,
     request.projectId,
     normalizedInputs[0]?.destination as CreateInput["destination"],
+    request.authority?.scope === "library",
   );
+  const targetProjectId = destination.contentProjectId ?? request.projectId;
   const hasSameDatabasePage = destination.kind === "database"
     && blocks.some((block) =>
+      block.project_id === targetProjectId
+      &&
       block.location_kind === "database"
       && block.containing_database_id === destination.databaseBlockId
     );
@@ -1362,23 +1572,55 @@ function prepareMovePages(
   const leases = [];
   for (const [index, block] of blocks.entries()) {
     const normalizedInput = normalizedInputs[index] as TransferBlocksInput;
+    const sourceProjectId = block.project_id;
     const sameDatabase = block.location_kind === "database"
+      && sourceProjectId === targetProjectId
       && destination.kind === "database"
       && block.containing_database_id === destination.databaseBlockId;
     if (sameDatabase) continue;
-    const preparation = prepareBlockTransfer(database, {
+    if (
+      sourceProjectId !== targetProjectId
+      && request.authority?.scope !== "library"
+    ) {
+      throw new NodexAgentReadError(
+        "authorization_denied",
+        "Cross-owner Page movement requires Full access",
+        false,
+        "none",
+      );
+    }
+    const rehome = sourceProjectId === targetProjectId
+      ? undefined
+      : prepareLibraryContentRehome(database, {
+          operationId: `${mutationId}:page:${index}:rehome`,
+          callIdentity: identity,
+          actorProjectId: request.projectId,
+          sourceProjectId,
+          targetProjectId,
+          rootPageIds: [block.id],
+          storeEpoch,
+        });
+    const intendedTarget = rehome
+      ? {
+          kind: "space" as const,
+          contentProjectId: sourceProjectId,
+        }
+      : destination;
+    const preparation = block.location_kind === "space" && rehome
+      ? null
+      : prepareBlockTransfer(database, {
       version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
       operationId: `${mutationId}:page:${index}`,
-      projectId: request.projectId,
+      projectId: sourceProjectId,
       storeEpoch,
       clientSessionId: `nodex-agent:${request.threadId}`,
       actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
       mode: "move",
       rootBlockIds: [block.id],
-      source: sourceIntent(database, request.projectId, block),
-      target: transferTarget(database, request.projectId, destination),
+      source: sourceIntent(database, sourceProjectId, block),
+      target: transferTarget(database, sourceProjectId, intendedTarget),
     });
-    if (!preparation.ok) {
+    if (preparation && !preparation.ok) {
       throw new NodexAgentReadError(
         preparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
         preparation.error.message,
@@ -1387,8 +1629,47 @@ function prepareMovePages(
         { domainCode: preparation.error.code },
       );
     }
-    transfers.push({ pageId: block.id, normalizedInput, transfer: preparation.value.request });
-    leases.push(...preparation.value.leaseDocuments);
+    transfers.push({
+      pageId: block.id,
+      sourceProjectId,
+      targetProjectId,
+      normalizedInput,
+      transfer: preparation?.value.request ?? null,
+      ...(rehome ? { rehome } : {}),
+    });
+    if (preparation?.ok) leases.push(...preparation.value.leaseDocuments);
+    if (rehome) {
+      const documentPlaceholders = rehome.documentIds.map(() => "?").join(", ");
+      leases.push(...(database.prepare(`
+        SELECT id AS documentId, generation, head_seq AS expectedHeadSeq
+        FROM documents
+        WHERE project_id = ? AND id IN (${documentPlaceholders})
+      `).all(sourceProjectId, ...rehome.documentIds) as readonly {
+        readonly documentId: string;
+        readonly generation: number;
+        readonly expectedHeadSeq: number;
+      }[]));
+    }
+  }
+  const claimedRehomeBlockIds = new Map<string, string>();
+  for (const transfer of transfers) {
+    if (!transfer.rehome) continue;
+    for (const blockId of transfer.rehome.blockIds) {
+      const claimedByPageId = claimedRehomeBlockIds.get(blockId);
+      if (claimedByPageId && claimedByPageId !== transfer.pageId) {
+        throw new NodexAgentReadError(
+          "invalid_arguments",
+          "Cross-owner Page moves cannot select both an ownership ancestor and its descendant",
+          false,
+          "none",
+          {
+            resourceId: transfer.pageId,
+            domainCode: "overlapping_ownership_closures",
+          },
+        );
+      }
+      claimedRehomeBlockIds.set(blockId, transfer.pageId);
+    }
   }
   if (hasSameDatabasePage) {
     if (request.input.destination.kind !== "data_source" || !request.input.destination.view) {
@@ -1413,17 +1694,21 @@ function prepareMovePages(
     database.prepare(
       `
       INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, call_id, project_id, tool, request_hash,
-        mutation_id, allocations_json, result_metadata_json, status,
+        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
+        mutation_id, authority_fingerprint, provenance_version,
+        allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'move_pages', ?, ?, '[]', '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'move_pages', ?, ?, ?, ?, '[]', '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
+      request.authority?.turnId ?? null,
       request.callId,
       request.projectId,
       requestHash,
       mutationId,
+      nodexAgentCallProvenance(request)[1],
+      nodexAgentCallProvenance(request)[2],
       now,
       now,
     );
@@ -1435,6 +1720,7 @@ function prepareMovePages(
       command: {
         threadId: request.threadId,
         callId: request.callId,
+        ...(request.authority ? { authority: request.authority } : {}),
         projectId: request.projectId,
         requestHash,
         mutationId,
@@ -1476,6 +1762,7 @@ function compileFinalViewPlacement(
 ): DatabaseMutationRequest | null {
   if (command.destination.kind !== "database" || !command.destination.view) return null;
   const destination = command.destination;
+  const contentProjectId = destination.contentProjectId ?? command.projectId;
   const view = database.prepare(
     `
     SELECT revision, config_json
@@ -1484,7 +1771,7 @@ function compileFinalViewPlacement(
   `).get(
     command.destination.view.viewId,
     command.destination.databaseBlockId,
-    command.projectId,
+    contentProjectId,
   ) as { readonly revision: number; readonly config_json: string } | undefined;
   if (!view || view.revision !== command.destination.view.viewRevision) {
     throw new NodexAgentReadError(
@@ -1524,7 +1811,7 @@ function compileFinalViewPlacement(
       groupPropertyId,
       pageId,
       destination.databaseBlockId,
-      command.projectId,
+      contentProjectId,
     ) as {
       readonly membership_id: string;
       readonly position_revision: number;
@@ -1548,7 +1835,7 @@ function compileFinalViewPlacement(
         `).get(
           groupPropertyId,
           command.destination.databaseBlockId,
-          command.projectId,
+          contentProjectId,
         ) as {
           readonly value_type: DatabasePropertyValueType;
           readonly config_json: string;
@@ -1586,7 +1873,7 @@ function compileFinalViewPlacement(
   return {
     version: DATABASE_MUTATION_CONTRACT_VERSION,
     operationId: `${command.mutationId}:final-view-placement`,
-    projectId: command.projectId,
+    projectId: contentProjectId,
     storeEpoch: command.storeEpoch,
     clientSessionId: `nodex-agent:${command.threadId}`,
     actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
@@ -1636,6 +1923,14 @@ function executeMovePages(
       },
     };
   }
+  assertTransferDestinationAuthority(database, command);
+  for (const pageId of command.input.pageIds) {
+    assertNodexAgentResourceAuthorizationInDatabase(database, {
+      authority: command.authority,
+      resource: { kind: "page", pageId },
+      action: "write",
+    });
+  }
   if (readBlockStoreEpoch(database) !== command.storeEpoch) {
     throw new NodexAgentReadError(
       "conflict",
@@ -1647,9 +1942,83 @@ function executeMovePages(
   const heads = new Map<string, { readonly generation: number; readonly headSeq: number }>();
   const transferReceipts: BlockTransferReceipt[] = [];
   const databaseReceipts = [];
-  for (const step of command.transfers) {
-    const request = rebaseTransferRequest(step.transfer, heads);
-    const transferred = applyBlockTransfer(database, request);
+  for (const [index, step] of command.transfers.entries()) {
+    const targetProjectId = step.targetProjectId ?? command.projectId;
+    const stagingRequest = step.transfer
+      ? rebaseTransferRequest(step.transfer, heads)
+      : null;
+    let completedRequest = stagingRequest;
+    const staged = stagingRequest
+      ? applyBlockTransfer(database, stagingRequest, {
+          persistTopLevelGrant: command.authority?.scope !== "library",
+        })
+      : null;
+    if (staged && !staged.ok) {
+      throw new NodexAgentReadError(
+        staged.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
+        staged.error.message,
+        staged.error.retryable,
+        staged.error.reloadRequired ? "get_block_again" : "none",
+        { resourceId: step.pageId, domainCode: staged.error.code },
+      );
+    }
+    if (staged?.ok) {
+      transferReceipts.push(staged.value);
+      for (const commit of staged.value.documentCommits) {
+        heads.set(commit.documentId, { generation: commit.generation, headSeq: commit.headSeq });
+      }
+    }
+
+    const transferred = (() => {
+      if (!step.rehome) {
+        if (!staged?.ok || !stagingRequest) {
+          throw new NodexAgentReadError(
+            "internal_error",
+            `Page ${step.pageId} has no prepared transfer`,
+            false,
+            "none",
+          );
+        }
+        return staged;
+      }
+      applyLibraryContentRehomeInTransaction(database, step.rehome);
+      const rehomedBlock = readBlock(database, targetProjectId, step.pageId);
+      const finalPreparation = prepareBlockTransfer(database, {
+        version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+        operationId: `${command.mutationId}:page:${index}:target`,
+        projectId: targetProjectId,
+        storeEpoch: command.storeEpoch,
+        clientSessionId: `nodex-agent:${command.threadId}`,
+        actor: {
+          kind: "nodex_agent",
+          threadId: command.threadId,
+          callId: command.callId,
+        },
+        mode: "move",
+        rootBlockIds: [step.pageId],
+        source: sourceIntent(database, targetProjectId, rehomedBlock),
+        target: transferTarget(database, targetProjectId, command.destination),
+      });
+      if (!finalPreparation.ok) {
+        throw new NodexAgentReadError(
+          finalPreparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
+          finalPreparation.error.message,
+          finalPreparation.error.retryable,
+          finalPreparation.error.reloadRequired ? "get_block_again" : "none",
+          { resourceId: step.pageId, domainCode: finalPreparation.error.code },
+        );
+      }
+      completedRequest = finalPreparation.value.request;
+      const placed = applyBlockTransfer(database, finalPreparation.value.request, {
+        persistTopLevelGrant: false,
+      });
+      if (!placed.ok) return placed;
+      transferReceipts.push(placed.value);
+      for (const commit of placed.value.documentCommits) {
+        heads.set(commit.documentId, { generation: commit.generation, headSeq: commit.headSeq });
+      }
+      return placed;
+    })();
     if (!transferred.ok) {
       throw new NodexAgentReadError(
         transferred.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
@@ -1659,19 +2028,24 @@ function executeMovePages(
         { resourceId: step.pageId, domainCode: transferred.error.code },
       );
     }
-    transferReceipts.push(transferred.value);
-    for (const commit of transferred.value.documentCommits) {
-      heads.set(commit.documentId, { generation: commit.generation, headSeq: commit.headSeq });
+    if (!completedRequest) {
+      throw new NodexAgentReadError(
+        "internal_error",
+        `Page ${step.pageId} has no completed transfer request`,
+        false,
+        "none",
+      );
     }
     const normalizedCommand: NodexAgentTransferCommand = {
       threadId: command.threadId,
       callId: command.callId,
-      projectId: command.projectId,
+      ...(command.authority ? { authority: command.authority } : {}),
+      projectId: targetProjectId,
       requestHash: command.requestHash,
-      mutationId: request.operationId,
+      mutationId: `${command.mutationId}:page:${index}`,
       storeEpoch: command.storeEpoch,
       input: step.normalizedInput,
-      transfer: request,
+      transfer: completedRequest,
       destination: command.destination,
       leaseDocuments: command.leaseDocuments,
     };
@@ -1699,7 +2073,12 @@ function executeMovePages(
     data: {
       pages: command.input.pageIds.map((pageId) => ({
         pageId,
-        location: readPageLocation(database, command.projectId, pageId),
+        location: readPageLocation(
+          database,
+          command.projectId,
+          pageId,
+          command.authority,
+        ),
       })),
       moved: command.input.pageIds.length,
     },

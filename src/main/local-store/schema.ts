@@ -40,7 +40,7 @@ import {
 export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 79;
+export const CURRENT_SCHEMA_VERSION = 80;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -74,6 +74,7 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
   { fromVersion: 76, toVersion: 77, migrate: migrateSchema76To77 },
   { fromVersion: 77, toVersion: 78, migrate: migrateSchema77To78 },
   { fromVersion: 78, toVersion: 79, migrate: migrateSchema78To79 },
+  { fromVersion: 79, toVersion: 80, migrate: migrateSchema79To80 },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
@@ -89,6 +90,8 @@ const RESETTABLE_TABLES = [
   "document_revision_sessions",
   "document_versions",
   "block_mutations",
+  "library_content_relocation_members",
+  "library_content_relocations",
   "block_relocation_members",
   "block_relocation_source_states",
   "document_recovery_artifacts",
@@ -155,8 +158,10 @@ const RESETTABLE_TABLES = [
   "codex_project_thread_orders",
   "codex_unread_threads",
   "codex_thread_dynamic_tool_catalogs",
+  "codex_project_permission_mode_selections",
   "codex_threads",
   "nodex_agent_token_keys",
+  "nodex_agent_turn_authorities",
   "nodex_agent_call_receipts",
   "codex_card_threads",
   "description_revisions",
@@ -3389,6 +3394,13 @@ function createShippedV57Schema(
       CHECK (toolset_revision > 0)
     ) WITHOUT ROWID;
 
+    CREATE TABLE IF NOT EXISTS codex_project_permission_mode_selections (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      mode TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (mode IN ('auto', 'guardian-approvals', 'full-access', 'custom'))
+    ) WITHOUT ROWID;
+
     CREATE TABLE IF NOT EXISTS nodex_agent_token_keys (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       key_material BLOB NOT NULL CHECK (length(key_material) = 32)
@@ -3400,11 +3412,14 @@ function createShippedV57Schema(
     CREATE TABLE IF NOT EXISTS nodex_agent_call_receipts (
       call_identity TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL,
+      turn_id TEXT,
       call_id TEXT NOT NULL,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       tool TEXT NOT NULL,
       request_hash TEXT NOT NULL,
       mutation_id TEXT NOT NULL UNIQUE,
+      authority_fingerprint TEXT,
+      provenance_version INTEGER,
       allocations_json TEXT NOT NULL DEFAULT '[]',
       result_metadata_json TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL DEFAULT 'prepared',
@@ -3413,14 +3428,188 @@ function createShippedV57Schema(
       UNIQUE (thread_id, call_id),
       CHECK (length(call_identity) = 64),
       CHECK (length(trim(thread_id)) BETWEEN 1 AND 512),
+      CHECK (turn_id IS NULL OR length(trim(turn_id)) BETWEEN 1 AND 512),
       CHECK (length(trim(call_id)) BETWEEN 1 AND 512),
       CHECK (length(trim(tool)) BETWEEN 1 AND 128),
       CHECK (length(request_hash) = 64),
       CHECK (length(trim(mutation_id)) BETWEEN 1 AND 512),
+      CHECK (
+        (turn_id IS NULL AND authority_fingerprint IS NULL AND provenance_version IS NULL)
+        OR (
+          turn_id IS NOT NULL
+          AND authority_fingerprint IS NOT NULL
+          AND provenance_version IS NOT NULL
+          AND
+          length(trim(turn_id)) BETWEEN 1 AND 512
+          AND length(authority_fingerprint) = 64
+          AND provenance_version = 1
+        )
+      ),
       CHECK (json_valid(allocations_json) AND json_type(allocations_json) = 'array'),
       CHECK (json_valid(result_metadata_json) AND json_type(result_metadata_json) = 'object'),
       CHECK (status IN ('prepared', 'committed'))
     ) WITHOUT ROWID;
+
+    CREATE TRIGGER IF NOT EXISTS nodex_agent_call_receipts_validate_update
+    BEFORE UPDATE ON nodex_agent_call_receipts
+    WHEN OLD.status = 'committed'
+      OR NEW.call_identity IS NOT OLD.call_identity
+      OR NEW.thread_id IS NOT OLD.thread_id
+      OR NEW.turn_id IS NOT OLD.turn_id
+      OR NEW.call_id IS NOT OLD.call_id
+      OR NEW.project_id IS NOT OLD.project_id
+      OR NEW.tool IS NOT OLD.tool
+      OR NEW.request_hash IS NOT OLD.request_hash
+      OR NEW.mutation_id IS NOT OLD.mutation_id
+      OR NEW.authority_fingerprint IS NOT OLD.authority_fingerprint
+      OR NEW.provenance_version IS NOT OLD.provenance_version
+      OR NEW.created_at IS NOT OLD.created_at
+      OR (OLD.status = 'prepared' AND NEW.status NOT IN ('prepared', 'committed'))
+    BEGIN
+      SELECT RAISE(ABORT, 'Nodex Agent call receipt identity is immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS nodex_agent_committed_call_receipts_cannot_delete
+    BEFORE DELETE ON nodex_agent_call_receipts
+    WHEN OLD.status = 'committed'
+    BEGIN
+      SELECT RAISE(ABORT, 'Committed Nodex Agent call receipts are immutable');
+    END;
+
+    CREATE TABLE IF NOT EXISTS nodex_agent_turn_authorities (
+      thread_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      root_thread_id TEXT NOT NULL,
+      actor_project_id TEXT NOT NULL,
+      library_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      store_epoch TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      source TEXT NOT NULL,
+      permission_profile_id TEXT,
+      authority_fingerprint TEXT NOT NULL,
+      provenance_version INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (thread_id, turn_id),
+      CHECK (length(trim(thread_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(turn_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(root_thread_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(actor_project_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(library_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(profile_id)) BETWEEN 1 AND 512),
+      CHECK (length(trim(store_epoch)) BETWEEN 1 AND 512),
+      CHECK (scope IN ('project', 'library')),
+      CHECK (source IN (
+        'project_turn',
+        'builtin_full_access',
+        'inherited_builtin_full_access'
+      )),
+      CHECK (
+        (scope = 'library' AND permission_profile_id = ':danger-full-access')
+        OR (scope = 'project' AND permission_profile_id IS NULL)
+      ),
+      CHECK (length(authority_fingerprint) = 64),
+      CHECK (provenance_version = 1)
+    ) WITHOUT ROWID;
+
+    CREATE TRIGGER IF NOT EXISTS nodex_agent_turn_authorities_are_immutable
+    BEFORE UPDATE ON nodex_agent_turn_authorities
+    BEGIN
+      SELECT RAISE(ABORT, 'Nodex Agent Turn authorities are immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS nodex_agent_turn_authorities_cannot_delete
+    BEFORE DELETE ON nodex_agent_turn_authorities
+    BEGIN
+      SELECT RAISE(ABORT, 'Nodex Agent Turn authorities are immutable');
+    END;
+
+    CREATE TABLE IF NOT EXISTS library_content_relocations (
+      operation_id TEXT PRIMARY KEY,
+      call_identity TEXT NOT NULL,
+      actor_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      source_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      target_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+      store_epoch TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      root_page_ids_json TEXT NOT NULL,
+      block_ids_json TEXT NOT NULL,
+      document_ids_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'committed',
+      committed_at TEXT NOT NULL,
+      CHECK (length(trim(operation_id)) BETWEEN 1 AND 512),
+      CHECK (length(call_identity) = 64),
+      CHECK (length(trim(store_epoch)) BETWEEN 1 AND 512),
+      CHECK (length(request_hash) = 64),
+      CHECK (json_valid(root_page_ids_json) AND json_type(root_page_ids_json) = 'array'),
+      CHECK (json_valid(block_ids_json) AND json_type(block_ids_json) = 'array'),
+      CHECK (json_valid(document_ids_json) AND json_type(document_ids_json) = 'array'),
+      CHECK (status = 'committed')
+    ) WITHOUT ROWID;
+
+    CREATE TABLE IF NOT EXISTS library_content_relocation_members (
+      operation_id TEXT NOT NULL REFERENCES library_content_relocations(operation_id)
+        ON DELETE RESTRICT,
+      resource_kind TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      source_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      final_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+      PRIMARY KEY (operation_id, resource_kind, resource_id),
+      CHECK (resource_kind IN ('block', 'document')),
+      CHECK (length(trim(resource_id)) BETWEEN 1 AND 512)
+    ) WITHOUT ROWID;
+
+    CREATE TRIGGER IF NOT EXISTS library_content_relocation_members_validate_insert
+    BEFORE INSERT ON library_content_relocation_members
+    WHEN NOT EXISTS (
+      SELECT 1
+      FROM library_content_relocations relocation
+      WHERE relocation.operation_id = NEW.operation_id
+        AND relocation.source_project_id = NEW.source_project_id
+        AND relocation.target_project_id = NEW.final_project_id
+    ) OR (
+      NEW.resource_kind = 'block'
+      AND NOT EXISTS (
+        SELECT 1 FROM blocks block
+        WHERE block.id = NEW.resource_id
+          AND block.project_id = NEW.final_project_id
+      )
+    ) OR (
+      NEW.resource_kind = 'document'
+      AND NOT EXISTS (
+        SELECT 1 FROM documents document
+        WHERE document.id = NEW.resource_id
+          AND document.project_id = NEW.final_project_id
+      )
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'Library content relocation member is invalid');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS library_content_relocations_are_immutable
+    BEFORE UPDATE ON library_content_relocations
+    BEGIN
+      SELECT RAISE(ABORT, 'Library content relocations are immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS library_content_relocations_cannot_delete
+    BEFORE DELETE ON library_content_relocations
+    BEGIN
+      SELECT RAISE(ABORT, 'Library content relocations are immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS library_content_relocation_members_are_immutable
+    BEFORE UPDATE ON library_content_relocation_members
+    BEGIN
+      SELECT RAISE(ABORT, 'Library content relocation members are immutable');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS library_content_relocation_members_cannot_delete
+    BEFORE DELETE ON library_content_relocation_members
+    BEGIN
+      SELECT RAISE(ABORT, 'Library content relocation members are immutable');
+    END;
 
 	    CREATE TABLE IF NOT EXISTS codex_scheduled_automations (
 	      automation_id TEXT PRIMARY KEY,
@@ -8963,6 +9152,284 @@ export function migrateSchema78To79(db: Database.Database): void {
       );
     }
     setUserVersion(db, 79);
+  });
+  migrate.immediate();
+}
+
+/**
+ * v80 binds Nodex Agent authority and write receipts to exact Codex Turns.
+ * Historical receipts remain nullable so committed calls can replay, while
+ * new writes are required by the execution layer to publish v1 provenance.
+ */
+export function migrateSchema79To80(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 79) {
+    throw new Error(
+      `Schema v79 to v80 migration requires v79, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    const receiptNeedsRebuild = !tableHasColumn(db, "nodex_agent_call_receipts", "turn_id")
+      || !tableHasColumn(db, "nodex_agent_call_receipts", "authority_fingerprint")
+      || !tableHasColumn(db, "nodex_agent_call_receipts", "provenance_version");
+    if (receiptNeedsRebuild) {
+      db.exec(`
+        CREATE TABLE nodex_agent_call_receipts_v80 (
+          call_identity TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL,
+          turn_id TEXT,
+          call_id TEXT NOT NULL,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          tool TEXT NOT NULL,
+          request_hash TEXT NOT NULL,
+          mutation_id TEXT NOT NULL UNIQUE,
+          authority_fingerprint TEXT,
+          provenance_version INTEGER,
+          allocations_json TEXT NOT NULL DEFAULT '[]',
+          result_metadata_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'prepared',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (thread_id, call_id),
+          CHECK (length(call_identity) = 64),
+          CHECK (length(trim(thread_id)) BETWEEN 1 AND 512),
+          CHECK (length(trim(call_id)) BETWEEN 1 AND 512),
+          CHECK (length(trim(tool)) BETWEEN 1 AND 128),
+          CHECK (length(request_hash) = 64),
+          CHECK (length(trim(mutation_id)) BETWEEN 1 AND 512),
+          CHECK (
+            (turn_id IS NULL AND authority_fingerprint IS NULL AND provenance_version IS NULL)
+            OR (
+              turn_id IS NOT NULL
+              AND authority_fingerprint IS NOT NULL
+              AND provenance_version IS NOT NULL
+              AND
+              length(trim(turn_id)) BETWEEN 1 AND 512
+              AND length(authority_fingerprint) = 64
+              AND provenance_version = 1
+            )
+          ),
+          CHECK (json_valid(allocations_json) AND json_type(allocations_json) = 'array'),
+          CHECK (json_valid(result_metadata_json) AND json_type(result_metadata_json) = 'object'),
+          CHECK (status IN ('prepared', 'committed'))
+        ) WITHOUT ROWID;
+
+        INSERT INTO nodex_agent_call_receipts_v80 (
+          call_identity, thread_id, turn_id, call_id, project_id, tool,
+          request_hash, mutation_id, authority_fingerprint, provenance_version,
+          allocations_json, result_metadata_json, status, created_at, updated_at
+        )
+        SELECT
+          call_identity, thread_id, NULL, call_id, project_id, tool,
+          request_hash, mutation_id, NULL, NULL,
+          allocations_json, result_metadata_json, status, created_at, updated_at
+        FROM nodex_agent_call_receipts;
+
+        DROP TABLE nodex_agent_call_receipts;
+        ALTER TABLE nodex_agent_call_receipts_v80
+          RENAME TO nodex_agent_call_receipts;
+      `);
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS nodex_agent_turn_authorities (
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        root_thread_id TEXT NOT NULL,
+        actor_project_id TEXT NOT NULL,
+        library_id TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        store_epoch TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        source TEXT NOT NULL,
+        permission_profile_id TEXT,
+        authority_fingerprint TEXT NOT NULL,
+        provenance_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (thread_id, turn_id),
+        CHECK (length(trim(thread_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(turn_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(root_thread_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(actor_project_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(library_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(profile_id)) BETWEEN 1 AND 512),
+        CHECK (length(trim(store_epoch)) BETWEEN 1 AND 512),
+        CHECK (scope IN ('project', 'library')),
+        CHECK (source IN (
+          'project_turn',
+          'builtin_full_access',
+          'inherited_builtin_full_access'
+        )),
+        CHECK (
+          (scope = 'library' AND permission_profile_id = ':danger-full-access')
+          OR (scope = 'project' AND permission_profile_id IS NULL)
+        ),
+        CHECK (length(authority_fingerprint) = 64),
+        CHECK (provenance_version = 1)
+      ) WITHOUT ROWID;
+
+      CREATE TABLE IF NOT EXISTS codex_project_permission_mode_selections (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        mode TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (mode IN ('auto', 'guardian-approvals', 'full-access', 'custom'))
+      ) WITHOUT ROWID;
+
+      CREATE TRIGGER IF NOT EXISTS nodex_agent_call_receipts_validate_update
+      BEFORE UPDATE ON nodex_agent_call_receipts
+      WHEN OLD.status = 'committed'
+        OR NEW.call_identity IS NOT OLD.call_identity
+        OR NEW.thread_id IS NOT OLD.thread_id
+        OR NEW.turn_id IS NOT OLD.turn_id
+        OR NEW.call_id IS NOT OLD.call_id
+        OR NEW.project_id IS NOT OLD.project_id
+        OR NEW.tool IS NOT OLD.tool
+        OR NEW.request_hash IS NOT OLD.request_hash
+        OR NEW.mutation_id IS NOT OLD.mutation_id
+        OR NEW.authority_fingerprint IS NOT OLD.authority_fingerprint
+        OR NEW.provenance_version IS NOT OLD.provenance_version
+        OR NEW.created_at IS NOT OLD.created_at
+        OR (OLD.status = 'prepared' AND NEW.status NOT IN ('prepared', 'committed'))
+      BEGIN
+        SELECT RAISE(ABORT, 'Nodex Agent call receipt identity is immutable');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS nodex_agent_committed_call_receipts_cannot_delete
+      BEFORE DELETE ON nodex_agent_call_receipts
+      WHEN OLD.status = 'committed'
+      BEGIN
+        SELECT RAISE(ABORT, 'Committed Nodex Agent call receipts are immutable');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS nodex_agent_turn_authorities_are_immutable
+      BEFORE UPDATE ON nodex_agent_turn_authorities
+      BEGIN
+        SELECT RAISE(ABORT, 'Nodex Agent Turn authorities are immutable');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS nodex_agent_turn_authorities_cannot_delete
+      BEFORE DELETE ON nodex_agent_turn_authorities
+      BEGIN
+        SELECT RAISE(ABORT, 'Nodex Agent Turn authorities are immutable');
+      END;
+
+      CREATE TABLE IF NOT EXISTS library_content_relocations (
+        operation_id TEXT PRIMARY KEY,
+        call_identity TEXT NOT NULL,
+        actor_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+        source_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+        target_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+        library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE RESTRICT,
+        store_epoch TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        root_page_ids_json TEXT NOT NULL,
+        block_ids_json TEXT NOT NULL,
+        document_ids_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'committed',
+        committed_at TEXT NOT NULL,
+        CHECK (length(trim(operation_id)) BETWEEN 1 AND 512),
+        CHECK (length(call_identity) = 64),
+        CHECK (length(trim(store_epoch)) BETWEEN 1 AND 512),
+        CHECK (length(request_hash) = 64),
+        CHECK (json_valid(root_page_ids_json) AND json_type(root_page_ids_json) = 'array'),
+        CHECK (json_valid(block_ids_json) AND json_type(block_ids_json) = 'array'),
+        CHECK (json_valid(document_ids_json) AND json_type(document_ids_json) = 'array'),
+        CHECK (status = 'committed')
+      ) WITHOUT ROWID;
+
+      CREATE TABLE IF NOT EXISTS library_content_relocation_members (
+        operation_id TEXT NOT NULL REFERENCES library_content_relocations(operation_id)
+          ON DELETE RESTRICT,
+        resource_kind TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        source_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+        final_project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+        PRIMARY KEY (operation_id, resource_kind, resource_id),
+        CHECK (resource_kind IN ('block', 'document')),
+        CHECK (length(trim(resource_id)) BETWEEN 1 AND 512)
+      ) WITHOUT ROWID;
+
+      CREATE TRIGGER IF NOT EXISTS library_content_relocations_validate_insert
+      BEFORE INSERT ON library_content_relocations
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM projects actor
+        INNER JOIN projects source ON source.id = NEW.source_project_id
+        INNER JOIN projects target ON target.id = NEW.target_project_id
+        INNER JOIN block_store_metadata metadata ON metadata.id = 1
+        WHERE actor.id = NEW.actor_project_id
+          AND actor.library_id = NEW.library_id
+          AND source.library_id = NEW.library_id
+          AND target.library_id = NEW.library_id
+          AND actor.lifecycle = 'active'
+          AND source.lifecycle <> 'archived'
+          AND target.lifecycle = 'active'
+          AND metadata.store_epoch = NEW.store_epoch
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Library content relocation coordinates are invalid');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS library_content_relocation_members_validate_insert
+      BEFORE INSERT ON library_content_relocation_members
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM library_content_relocations relocation
+        WHERE relocation.operation_id = NEW.operation_id
+          AND relocation.source_project_id = NEW.source_project_id
+          AND relocation.target_project_id = NEW.final_project_id
+      ) OR (
+        NEW.resource_kind = 'block'
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks block
+          WHERE block.id = NEW.resource_id
+            AND block.project_id = NEW.final_project_id
+        )
+      ) OR (
+        NEW.resource_kind = 'document'
+        AND NOT EXISTS (
+          SELECT 1 FROM documents document
+          WHERE document.id = NEW.resource_id
+            AND document.project_id = NEW.final_project_id
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Library content relocation member is invalid');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS library_content_relocations_are_immutable
+      BEFORE UPDATE ON library_content_relocations
+      BEGIN
+        SELECT RAISE(ABORT, 'Library content relocations are immutable');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS library_content_relocations_cannot_delete
+      BEFORE DELETE ON library_content_relocations
+      BEGIN
+        SELECT RAISE(ABORT, 'Library content relocations are immutable');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS library_content_relocation_members_are_immutable
+      BEFORE UPDATE ON library_content_relocation_members
+      BEGIN
+        SELECT RAISE(ABORT, 'Library content relocation members are immutable');
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS library_content_relocation_members_cannot_delete
+      BEFORE DELETE ON library_content_relocation_members
+      BEGIN
+        SELECT RAISE(ABORT, 'Library content relocation members are immutable');
+      END;
+    `);
+
+    const foreignKeyViolations = db.pragma("foreign_key_check") as unknown[];
+    if (foreignKeyViolations.length > 0) {
+      throw new Error(
+        `Schema v80 migration produced ${foreignKeyViolations.length} foreign-key violation(s)`,
+      );
+    }
+    setUserVersion(db, 80);
   });
   migrate.immediate();
 }

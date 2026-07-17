@@ -7,11 +7,13 @@ import { initialDataSourceId } from "../../shared/library";
 import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
+  authorizeNodexAgentResourceInDatabase,
   authorizeProjectResource,
   listProjectResourceGrants,
   putProjectResourceGrant,
   revokeProjectResourceGrant,
 } from "./project-resource-grants";
+import { requireBlockStoreEpoch } from "./block-store-metadata";
 import { createProject, setProjectLifecycle } from "./projects";
 import { readPageDetailInDatabase } from "./page-detail";
 import { validateBackupStore } from "./backup-store-validation";
@@ -35,6 +37,83 @@ afterEach(() => {
 });
 
 describe("Project resource grants", () => {
+  test("overlays temporary same-Library access without persisting grants", async () => {
+    const actor = createProject({ name: "Full access actor" });
+    const foreign = createProject({ name: "Foreign content owner" });
+    const page = await createPage(foreign.id, "draft", { title: "Foreign" });
+    const database = getDb();
+    const library = database.prepare(
+      "SELECT library_id AS libraryId FROM projects WHERE id = ?",
+    ).get(actor.id) as { readonly libraryId: string };
+    const authority = {
+      threadId: "thread-full",
+      turnId: "turn-full",
+      rootThreadId: "thread-full",
+      actorProjectId: actor.id,
+      libraryId: library.libraryId,
+      storeEpoch: requireBlockStoreEpoch(database),
+      scope: "library" as const,
+      source: "builtin_full_access" as const,
+    };
+
+    expect(authorizeProjectResource({
+      projectId: actor.id,
+      resource: { kind: "page", pageId: page.id },
+      action: "write",
+    })).toMatchObject({ allowed: false, reason: "grant_missing" });
+    expect(authorizeNodexAgentResourceInDatabase(database, {
+      authority,
+      resource: { kind: "page", pageId: page.id },
+      action: "write",
+    })).toMatchObject({
+      allowed: true,
+      source: "thread_full_access",
+      effectiveAccess: "read_write",
+      grantId: null,
+    });
+    expect(listProjectResourceGrants(actor.id)).toEqual([]);
+
+    setProjectLifecycle(actor.id, { lifecycle: "archived" });
+    expect(authorizeNodexAgentResourceInDatabase(database, {
+      authority,
+      resource: { kind: "page", pageId: page.id },
+      action: "read",
+    })).toMatchObject({ allowed: false, reason: "project_read_only" });
+    expect(authorizeNodexAgentResourceInDatabase(database, {
+      authority,
+      resource: { kind: "page", pageId: page.id },
+      action: "write",
+    })).toMatchObject({ allowed: false, reason: "project_read_only" });
+  });
+
+  test("rejects stale Project-scope Turn authority before grant delegation", async () => {
+    const actor = createProject({ name: "Stale Project authority" });
+    const page = await createPage(actor.id, "draft", { title: "Owned" });
+    const database = getDb();
+    const coordinate = database.prepare(`
+      SELECT library_id AS libraryId FROM projects WHERE id = ?
+    `).get(actor.id) as { readonly libraryId: string };
+    const authority = {
+      threadId: "thread-project",
+      turnId: "turn-project",
+      rootThreadId: "thread-project",
+      actorProjectId: actor.id,
+      libraryId: coordinate.libraryId,
+      storeEpoch: requireBlockStoreEpoch(database),
+      scope: "project" as const,
+      source: "project_turn" as const,
+    };
+    database.prepare(`
+      UPDATE block_store_metadata SET store_epoch = 'restored-epoch' WHERE id = 1
+    `).run();
+
+    expect(authorizeNodexAgentResourceInDatabase(database, {
+      authority,
+      resource: { kind: "page", pageId: page.id },
+      action: "read",
+    })).toMatchObject({ allowed: false, reason: "authority_stale" });
+  });
+
   test("rejects ownership cycles and fails closed on legacy corruption", async () => {
     const project = createProject({ name: "Hierarchy authority" });
     const parent = await createPage(project.id, "draft", { title: "Parent" });

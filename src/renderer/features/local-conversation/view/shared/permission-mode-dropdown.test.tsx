@@ -193,6 +193,9 @@ describe("permission mode dropdown", () => {
       await openPermissionMenu(view);
 
       const fullAccessItem = view.getByText("Full access");
+      expect((view.container.ownerDocument.body.textContent ?? "").includes(
+        "Allow unrestricted file and network access, and read or modify the entire Nodex Library without approval prompts.",
+      )).toBe(true);
 
       await act(async () => {
         fireEvent.click(fullAccessItem);

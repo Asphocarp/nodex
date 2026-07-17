@@ -3497,6 +3497,7 @@ export class CodexAppServerManager {
     {
       readonly threadId: string;
       readonly turnId: string;
+      readonly request: NodexAgentAuthorizationRequest;
       readonly timeout: ReturnType<typeof setTimeout>;
       readonly resolve: (response: NodexAgentAuthorizationResponse) => void;
     }
@@ -5892,15 +5893,13 @@ export class CodexAppServerManager {
   requestNodexAgentAuthorization(
     request: NodexAgentAuthorizationRequest,
   ): Promise<NodexAgentAuthorizationResponse> {
-    const role = this.streamState.getRole(request.threadId);
     const conversation = this.conversationsById.get(request.threadId);
     if (
-      role?.role !== "owner"
-      || !conversation
+      !conversation
       || conversation.projectId !== request.projectId
       || conversation.threadId !== request.threadId
     ) {
-      return Promise.reject(new Error("Nodex authorization requires the bound task owner"));
+      return Promise.reject(new Error("Nodex authorization requires the visible bound task"));
     }
     if (this.pendingNodexAgentAuthorizations.has(request.requestId)) {
       return Promise.reject(new Error("Nodex authorization occurrence is already pending"));
@@ -5916,13 +5915,12 @@ export class CodexAppServerManager {
       this.pendingNodexAgentAuthorizations.set(request.requestId, {
         threadId: request.threadId,
         turnId: request.turnId,
+        request,
         timeout,
         resolve,
       });
       try {
-        this.applyOwnerSilentConversationMutation(request.threadId, (current) =>
-          upsertOwnerConversationRequest(current, request)
-        );
+        this.applyConversationSnapshot(request.threadId, conversation);
       } catch (error) {
         this.pendingNodexAgentAuthorizations.delete(request.requestId);
         clearTimeout(timeout);
@@ -5948,33 +5946,23 @@ export class CodexAppServerManager {
     }
     this.pendingNodexAgentAuthorizations.delete(requestId);
     clearTimeout(pending.timeout);
-    this.applyOwnerSilentConversationMutation(pending.threadId, (conversation) => ({
-      ...conversation,
-      requests: conversation.requests.filter(
-        (request) => request.requestId !== requestId,
-      ),
-    }));
+    const conversation = this.conversationsById.get(pending.threadId);
+    if (conversation) this.applyConversationSnapshot(pending.threadId, conversation);
     pending.resolve(response);
     return true;
   }
 
   cancelPendingNodexAgentAuthorizations(): void {
-    const requestIdsByThread = new Map<string, Set<string>>();
-    for (const [requestId, pending] of this.pendingNodexAgentAuthorizations) {
+    const affectedThreadIds = new Set<string>();
+    for (const pending of this.pendingNodexAgentAuthorizations.values()) {
       clearTimeout(pending.timeout);
-      const requestIds = requestIdsByThread.get(pending.threadId) ?? new Set<string>();
-      requestIds.add(requestId);
-      requestIdsByThread.set(pending.threadId, requestIds);
+      affectedThreadIds.add(pending.threadId);
       pending.resolve({ decision: "deny" });
     }
     this.pendingNodexAgentAuthorizations.clear();
-    for (const [threadId, requestIds] of requestIdsByThread) {
-      this.applyOwnerSilentConversationMutation(threadId, (conversation) => ({
-        ...conversation,
-        requests: conversation.requests.filter(
-          (request) => !requestIds.has(String(request.requestId)),
-        ),
-      }));
+    for (const threadId of affectedThreadIds) {
+      const conversation = this.conversationsById.get(threadId);
+      if (conversation) this.applyConversationSnapshot(threadId, conversation);
     }
   }
 
@@ -9072,6 +9060,27 @@ export class CodexAppServerManager {
     }
   }
 
+  private withNodexAgentAuthorizationPresentationOverlays(
+    conversation: CodexConversationSnapshot,
+  ): CodexConversationSnapshot {
+    const canonicalRequests = conversation.requests.filter(
+      (request) => request.type !== "nodexAgentAuthorization",
+    );
+    const presentationRequests = [...this.pendingNodexAgentAuthorizations.values()]
+      .filter((pending) => pending.threadId === conversation.threadId)
+      .map((pending) => pending.request);
+    if (
+      canonicalRequests.length === conversation.requests.length
+      && presentationRequests.length === 0
+    ) {
+      return conversation;
+    }
+    return {
+      ...conversation,
+      requests: [...canonicalRequests, ...presentationRequests],
+    };
+  }
+
   private applyConversationSnapshot(
     threadId: string,
     conversation: CodexConversationSnapshot,
@@ -9086,23 +9095,14 @@ export class CodexAppServerManager {
     const terminalTurnIds = new Set(normalizedConversation.turns
       .filter((turn) => turn.turnId !== null && turn.status !== "inProgress")
       .map((turn) => turn.turnId));
-    const canceledAuthorizationIds = new Set<string>();
     for (const [requestId, pending] of this.pendingNodexAgentAuthorizations) {
       if (pending.threadId !== threadId || !terminalTurnIds.has(pending.turnId)) continue;
       this.pendingNodexAgentAuthorizations.delete(requestId);
       clearTimeout(pending.timeout);
-      canceledAuthorizationIds.add(requestId);
       pending.resolve({ decision: "deny" });
     }
     const nextConversation = this.withCachedConversationTitle(
-      canceledAuthorizationIds.size === 0
-        ? normalizedConversation
-        : {
-            ...normalizedConversation,
-            requests: normalizedConversation.requests.filter(
-              (request) => !canceledAuthorizationIds.has(String(request.requestId)),
-            ),
-          },
+      this.withNodexAgentAuthorizationPresentationOverlays(normalizedConversation),
     );
     const currentConversation = this.conversationsById.get(threadId);
     if (currentConversation === nextConversation) {

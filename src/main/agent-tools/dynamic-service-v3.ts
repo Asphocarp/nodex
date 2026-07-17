@@ -184,12 +184,15 @@ function createPagesFootprint(
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
+      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.pages.map((page) => `page:${page.pageId}`),
     ],
     deletions: [],
     transformations: command.pages.map((page) =>
       `page.create:${page.pageId}:body-blocks:${page.bodyBlockIds.length}`
-    ),
+    ).concat([
+      `owner.create:${command.destination.contentProjectId ?? command.projectId}`,
+    ]),
   });
 }
 
@@ -237,12 +240,17 @@ function movePagesFootprint(
     effect: "write",
     resources: [
       destinationResource(command.input.destination),
+      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.input.pageIds.map((pageId) => `page:${pageId}`),
       ...command.leaseDocuments.map((lease) => `document:${lease.documentId}`),
+      ...command.transfers.flatMap((step) => [
+        ...(step.rehome?.blockIds.map((blockId) => `block:${blockId}`) ?? []),
+        ...(step.rehome?.documentIds.map((documentId) => `document:${documentId}`) ?? []),
+      ]),
     ],
     deletions: [],
-    transformations: command.input.pageIds.map((pageId) =>
-      `page.move:${pageId}->${command.input.destination.kind}`
+    transformations: command.transfers.map((step) =>
+      `page.move:${step.pageId}:${step.sourceProjectId ?? command.projectId}->${step.targetProjectId ?? command.projectId}:${command.input.destination.kind}`
     ),
   });
 }
@@ -258,10 +266,13 @@ function duplicatePageFootprint(
     resources: [
       `page:${command.input.pageId}`,
       destinationResource(command.input.destination),
+      `compatibility_owner:${command.destination.contentProjectId ?? command.projectId}`,
       ...command.leaseDocuments.map((lease) => `document:${lease.documentId}`),
     ],
     deletions: [],
-    transformations: [`page.duplicate:${command.input.pageId}->${command.input.destination.kind}`],
+    transformations: [
+      `page.duplicate:${command.input.pageId}:${command.transfer.projectId}->${command.destination.contentProjectId ?? command.projectId}:${command.input.destination.kind}`,
+    ],
   });
 }
 
@@ -290,9 +301,11 @@ export class NodexAgentV3DynamicService {
       ?? NODEX_AGENT_EXECUTION_TIMEOUT_MS;
     const handlers: NodexAgentV3ToolHandlers<NodexAgentDynamicExecutionContext> = {
       get_context: async ({ input, context }) => {
+        const projectId = context.authority?.actorProjectId ?? null;
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "get_context",
-          projectId: context.projectId,
+          projectId,
+          authority: context.authority,
           access: context.access,
           input,
         })).result;
@@ -304,6 +317,7 @@ export class NodexAgentV3DynamicService {
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "search",
           projectId: projectRequired(context),
+          authority: context.authority ?? undefined,
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -314,6 +328,7 @@ export class NodexAgentV3DynamicService {
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "fetch",
           projectId: projectRequired(context),
+          authority: context.authority ?? undefined,
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -324,6 +339,7 @@ export class NodexAgentV3DynamicService {
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "query_database_view",
           projectId: projectRequired(context),
+          authority: context.authority ?? undefined,
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -336,6 +352,7 @@ export class NodexAgentV3DynamicService {
         const result = (await this.writer.readNodexAgentV3Tool({
           tool: "query_data_source",
           projectId: projectRequired(context),
+          authority: context.authority ?? undefined,
           input,
         })).result;
         if (!result.ok) return fail({ error: result.error });
@@ -350,6 +367,7 @@ export class NodexAgentV3DynamicService {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
+          authority: context.authority ?? undefined,
           input,
         };
         const prepared = await prepareAuthorizedWrite(context, {
@@ -385,6 +403,7 @@ export class NodexAgentV3DynamicService {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
+          authority: context.authority ?? undefined,
           input,
         };
         const prepared = await prepareAuthorizedWrite(context, {
@@ -413,6 +432,7 @@ export class NodexAgentV3DynamicService {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
+          authority: context.authority ?? undefined,
           input,
         };
         const prepared = await prepareAuthorizedWrite(context, {
@@ -451,6 +471,7 @@ export class NodexAgentV3DynamicService {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
+          authority: context.authority ?? undefined,
           input: input as NodexAgentV3ToolInput<"update_page">,
         }
       : {
@@ -458,6 +479,7 @@ export class NodexAgentV3DynamicService {
           threadId: context.threadId,
           callId: context.callId,
           projectId,
+          authority: context.authority ?? undefined,
           input: input as NodexAgentV3ToolInput<"advanced_update_page">,
         };
     const prepared = await prepareAuthorizedWrite(context, {
@@ -474,7 +496,15 @@ export class NodexAgentV3DynamicService {
     });
     if (prepared.kind === "completed") return prepared.output;
     const mutationResult = await withExecutionTimeout(
-      async () => await this.documentHub.applyDocumentMutation(prepared.mutation),
+      async () => await this.documentHub.applyDocumentMutation(
+        prepared.mutation,
+        context.authority
+          ? {
+              authority: context.authority,
+              resource: { kind: "page", pageId: input.pageId },
+            }
+          : undefined,
+      ),
       this.executionTimeoutMs,
     );
     if (!mutationResult.ok) return fail(mapDocumentMutationFailure(mutationResult.error));
@@ -483,6 +513,7 @@ export class NodexAgentV3DynamicService {
       threadId: context.threadId,
       callId: context.callId,
       projectId,
+      authority: context.authority ?? undefined,
       pageId: input.pageId,
       result: mutationResult.value,
     })).result;

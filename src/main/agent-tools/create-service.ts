@@ -45,9 +45,15 @@ import {
   resolveLegacyDatabaseViewOrderConfig,
 } from "../local-store/legacy-database-view-logical-order";
 import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
-import { authorizeProjectResourceInDatabase } from "../local-store/project-resource-grants";
+import {
+  assertCurrentNodexAgentTurnAuthorityInDatabase,
+  assertNodexAgentResourceAuthorizationInDatabase,
+  authorizeNodexAgentResourceInDatabase,
+  authorizeProjectResourceInDatabase,
+} from "../local-store/project-resource-grants";
 import {
   nodexAgentCallIdentity,
+  nodexAgentCallProvenance,
   readNodexAgentCallReceipt,
   requireMatchingNodexAgentCallReceipt,
   type NodexAgentCallReceiptRow,
@@ -174,6 +180,7 @@ function prepareLibraryDestination(
   );
   return {
     kind: "space",
+    contentProjectId: projectId,
     ...(beforeBlockId ? { beforeBlockId } : {}),
   };
 }
@@ -229,8 +236,29 @@ function prepareDocumentDestination(
   database: Database.Database,
   projectId: string,
   destination: Extract<CreateInput["destination"], { readonly kind: "document" }>,
+  allowForeignOwner = false,
 ): PreparedNodexAgentCreateDestination {
-  const row = readDocumentDestination(database, projectId, destination.documentId);
+  const contentOwner = database.prepare(`
+    SELECT project_id AS contentProjectId
+    FROM documents
+    WHERE id = ? AND (? = 1 OR project_id = ?)
+    LIMIT 1
+  `).get(destination.documentId, allowForeignOwner ? 1 : 0, projectId) as
+    | { readonly contentProjectId: string }
+    | undefined;
+  if (!contentOwner) {
+    throw new NodexAgentReadError(
+      "not_found",
+      `Document ${destination.documentId} was not found in the authorized Project`,
+      false,
+      "none",
+    );
+  }
+  const row = readDocumentDestination(
+    database,
+    contentOwner.contentProjectId,
+    destination.documentId,
+  );
   const blockTree = parseJsonValue(
     row.block_tree_json as string,
     `Document ${destination.documentId} Block tree`,
@@ -238,6 +266,7 @@ function prepareDocumentDestination(
   const anchor = resolveDocumentAnchor(blockTree, destination.at);
   return {
     kind: "document",
+    contentProjectId: contentOwner.contentProjectId,
     documentId: destination.documentId,
     generation: row.generation,
     expectedHeadSeq: row.head_seq,
@@ -308,19 +337,21 @@ function prepareDatabaseDestination(
   database: Database.Database,
   projectId: string,
   destination: Extract<CreateInput["destination"], { readonly kind: "database" }>,
+  allowForeignOwner = false,
 ): PreparedNodexAgentCreateDestination {
   const databaseRow = database.prepare(
     `
-    SELECT capability.schema_revision
+    SELECT capability.schema_revision, capability.project_id AS contentProjectId
     FROM database_capabilities capability
     INNER JOIN blocks block
       ON block.id = capability.block_id
      AND block.project_id = capability.project_id
      AND block.type = 'database'
      AND block.lifecycle = 'active'
-    WHERE capability.block_id = ? AND capability.project_id = ?
-  `).get(destination.databaseBlockId, projectId) as
-    | { readonly schema_revision: number }
+    WHERE capability.block_id = ?
+      AND (? = 1 OR capability.project_id = ?)
+  `).get(destination.databaseBlockId, allowForeignOwner ? 1 : 0, projectId) as
+    | { readonly schema_revision: number; readonly contentProjectId: string }
     | undefined;
   if (!databaseRow) {
     throw new NodexAgentReadError(
@@ -334,12 +365,17 @@ function prepareDatabaseDestination(
   const schemaRevision = databaseRow.schema_revision;
   validateValueDrafts(
     database,
-    projectId,
+    databaseRow.contentProjectId,
     destination.databaseBlockId,
     destination.values,
   );
   if (!destination.view) {
-    return { kind: "database", databaseBlockId: destination.databaseBlockId, schemaRevision };
+    return {
+      kind: "database",
+      contentProjectId: databaseRow.contentProjectId,
+      databaseBlockId: destination.databaseBlockId,
+      schemaRevision,
+    };
   }
   const viewRow = database.prepare(
     `
@@ -347,7 +383,11 @@ function prepareDatabaseDestination(
     FROM database_views
     WHERE id = ? AND database_block_id = ? AND project_id = ?
       AND lifecycle = 'active'
-  `).get(destination.view.viewId, destination.databaseBlockId, projectId) as
+  `).get(
+    destination.view.viewId,
+    destination.databaseBlockId,
+    databaseRow.contentProjectId,
+  ) as
     | { readonly revision: number; readonly config_json: string }
     | undefined;
   if (!viewRow) {
@@ -365,7 +405,7 @@ function prepareDatabaseDestination(
     viewRow.config_json,
   );
   const logicalOrder = readLegacyDatabaseViewLogicalOrder(database, {
-    projectId,
+    projectId: databaseRow.contentProjectId,
     databaseBlockId: destination.databaseBlockId,
     viewId: destination.view.viewId,
     groupPropertyId: orderConfig.groupPropertyId,
@@ -379,6 +419,7 @@ function prepareDatabaseDestination(
   );
   return {
     kind: "database",
+    contentProjectId: databaseRow.contentProjectId,
     databaseBlockId: destination.databaseBlockId,
     schemaRevision,
     view: {
@@ -394,14 +435,25 @@ export function prepareNodexAgentDestination(
   database: Database.Database,
   projectId: string,
   destination: CreateInput["destination"],
+  allowForeignOwner = false,
 ): PreparedNodexAgentCreateDestination {
   if (destination.kind === "space") {
     return prepareLibraryDestination(database, projectId, destination);
   }
   if (destination.kind === "document") {
-    return prepareDocumentDestination(database, projectId, destination);
+    return prepareDocumentDestination(
+      database,
+      projectId,
+      destination,
+      allowForeignOwner,
+    );
   }
-  return prepareDatabaseDestination(database, projectId, destination);
+  return prepareDatabaseDestination(
+    database,
+    projectId,
+    destination,
+    allowForeignOwner,
+  );
 }
 
 function replayOutput(receipt: NodexAgentCallReceiptRow): CreateOutput {
@@ -514,17 +566,21 @@ function prepareCreate(
     database.prepare(
       `
       INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, call_id, project_id, tool, request_hash,
-        mutation_id, allocations_json, result_metadata_json, status,
+        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
+        mutation_id, authority_fingerprint, provenance_version,
+        allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'create', ?, ?, ?, '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'create', ?, ?, ?, ?, ?, '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
+      request.authority?.turnId ?? null,
       request.callId,
       request.projectId,
       requestHash,
       mutationId,
+      nodexAgentCallProvenance(request)[1],
+      nodexAgentCallProvenance(request)[2],
       JSON.stringify(allocations),
       now,
       now,
@@ -533,6 +589,7 @@ function prepareCreate(
   const command: NodexAgentCreatePageCommand = {
     threadId: request.threadId,
     callId: request.callId,
+    ...(request.authority ? { authority: request.authority } : {}),
     projectId: request.projectId,
     requestHash,
     mutationId,
@@ -693,6 +750,8 @@ function applySpaceOrDocumentPlacement(
       },
     },
     target,
+  }, {
+    persistTopLevelGrant: command.authority?.scope !== "library",
   });
   if (result.ok) return result.value;
   throwDomainFailure({
@@ -815,6 +874,8 @@ function assertPreparedAuthority(
   database: Database.Database,
   command: NodexAgentCreatePageCommand,
 ): void {
+  const contentProjectId = command.destination.contentProjectId
+    ?? command.projectId;
   const storeEpoch = readBlockStoreEpoch(database);
   if (storeEpoch !== command.storeEpoch) {
     throw new NodexAgentReadError(
@@ -827,7 +888,7 @@ function assertPreparedAuthority(
   if (command.destination.kind === "document") {
     const row = readDocumentDestination(
       database,
-      command.projectId,
+      contentProjectId,
       command.destination.documentId,
     );
     if (
@@ -845,7 +906,7 @@ function assertPreparedAuthority(
   if (command.destination.kind !== "database") return;
   const databaseRow = database.prepare(
     "SELECT schema_revision FROM database_capabilities WHERE block_id = ? AND project_id = ?",
-  ).get(command.destination.databaseBlockId, command.projectId) as
+  ).get(command.destination.databaseBlockId, contentProjectId) as
     | { readonly schema_revision: number }
     | undefined;
   if (!databaseRow || databaseRow.schema_revision !== command.destination.schemaRevision) {
@@ -862,7 +923,7 @@ function assertPreparedAuthority(
   ).get(
     command.destination.view.viewId,
     command.destination.databaseBlockId,
-    command.projectId,
+    contentProjectId,
   ) as { readonly revision: number } | undefined;
   if (!view || view.revision !== command.destination.view.viewRevision) {
     throw new NodexAgentReadError(
@@ -872,6 +933,34 @@ function assertPreparedAuthority(
       "query_database_again",
     );
   }
+}
+
+function assertExecutionAuthority(
+  database: Database.Database,
+  command: NodexAgentCreatePageCommand,
+): void {
+  assertCurrentNodexAgentTurnAuthorityInDatabase(database, command.authority);
+  if (command.destination.kind === "database") {
+    assertNodexAgentResourceAuthorizationInDatabase(database, {
+      authority: command.authority,
+      resource: { kind: "database", databaseId: command.destination.databaseBlockId },
+      action: "write",
+    });
+    return;
+  }
+  if (command.destination.kind !== "document") return;
+  const owner = database.prepare(`
+    SELECT ownership.block_id AS pageId
+    FROM block_documents ownership
+    INNER JOIN pages page ON page.block_id = ownership.block_id
+    WHERE ownership.document_id = ?
+  `).get(command.destination.documentId) as { readonly pageId: string } | undefined;
+  if (!owner) throw new Error("Nodex Agent destination Document has no Page owner");
+  assertNodexAgentResourceAuthorizationInDatabase(database, {
+    authority: command.authority,
+    resource: { kind: "page", pageId: owner.pageId },
+    action: "write",
+  });
 }
 
 function buildCreateOutput(
@@ -1017,6 +1106,7 @@ function executeCreate(
       },
     };
   }
+  assertExecutionAuthority(database, command);
   assertPreparedAuthority(database, command);
   const lifecycle = applyLifecycleGenesis(database, command);
   options.faultInjector?.("after_genesis");
@@ -1063,6 +1153,7 @@ function replayCreatePagesOutput(receipt: NodexAgentCallReceiptRow) {
 function legacyCreatePagesDestination(
   database: Database.Database,
   projectId: string,
+  authority: PrepareNodexAgentCreatePagesRequest["authority"],
   destination: PrepareNodexAgentCreatePagesRequest["input"]["destination"],
   values: PrepareNodexAgentCreatePagesRequest["input"]["pages"][number]["values"],
 ): CreateInput["destination"] {
@@ -1089,15 +1180,22 @@ function legacyCreatePagesDestination(
         projectId,
         destination.pageId,
         "create_child",
+        authority,
       ),
       at: destination.at ?? { kind: "end" },
     };
   }
-  const authorization = authorizeProjectResourceInDatabase(database, {
-    projectId,
-    resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
-    action: "create_child",
-  });
+  const authorization = authority
+    ? authorizeNodexAgentResourceInDatabase(database, {
+        authority,
+        resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
+        action: "create_child",
+      })
+    : authorizeProjectResourceInDatabase(database, {
+        projectId,
+        resource: { kind: "data_source", dataSourceId: destination.dataSourceId },
+        action: "create_child",
+      });
   if (!authorization.allowed) {
     throw new NodexAgentReadError(
       authorization.reason === "resource_not_found" ? "not_found" : "authorization_denied",
@@ -1130,6 +1228,7 @@ function legacyCreatePagesDestination(
 function normalizedCreateInput(
   database: Database.Database,
   projectId: string,
+  authority: PrepareNodexAgentCreatePagesRequest["authority"],
   batch: PrepareNodexAgentCreatePagesRequest["input"],
   index: number,
 ): CreateInput {
@@ -1138,6 +1237,7 @@ function normalizedCreateInput(
   const destination = legacyCreatePagesDestination(
     database,
     projectId,
+    authority,
     batch.destination,
     draft.values,
   );
@@ -1237,7 +1337,13 @@ function prepareCreatePages(
   }
 
   const inputs = request.input.pages.map((_, index) =>
-    normalizedCreateInput(database, request.projectId, request.input, index)
+    normalizedCreateInput(
+      database,
+      request.projectId,
+      request.authority,
+      request.input,
+      index,
+    )
   );
   const allocations = existing
     ? parseStringArray(existing.allocations_json, "Agent Page batch allocation receipt")
@@ -1251,7 +1357,12 @@ function prepareCreatePages(
   };
   const pages = inputs.map((input) => preparedCreatePage(input, allocate));
   const destinations = inputs.map((input) =>
-    prepareNodexAgentDestination(database, request.projectId, input.destination)
+    prepareNodexAgentDestination(
+      database,
+      request.projectId,
+      input.destination,
+      request.authority?.scope === "library",
+    )
   );
   const destination = destinations[0];
   if (!destination || destinations.some((candidate) =>
@@ -1286,17 +1397,21 @@ function prepareCreatePages(
     database.prepare(
       `
       INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, call_id, project_id, tool, request_hash,
-        mutation_id, allocations_json, result_metadata_json, status,
+        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
+        mutation_id, authority_fingerprint, provenance_version,
+        allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'create_pages', ?, ?, ?, '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'create_pages', ?, ?, ?, ?, ?, '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
+      request.authority?.turnId ?? null,
       request.callId,
       request.projectId,
       requestHash,
       mutationId,
+      nodexAgentCallProvenance(request)[1],
+      nodexAgentCallProvenance(request)[2],
       JSON.stringify(allocations),
       now,
       now,
@@ -1305,6 +1420,7 @@ function prepareCreatePages(
   const command: NodexAgentCreatePagesCommand = {
     threadId: request.threadId,
     callId: request.callId,
+    ...(request.authority ? { authority: request.authority } : {}),
     projectId: request.projectId,
     requestHash,
     mutationId,
@@ -1344,7 +1460,8 @@ function batchPageCommand(
   return {
     threadId: command.threadId,
     callId: command.callId,
-    projectId: command.projectId,
+    ...(command.authority ? { authority: command.authority } : {}),
+    projectId: command.destination.contentProjectId ?? command.projectId,
     requestHash: command.requestHash,
     mutationId: `${command.mutationId}:page:${index}`,
     storeEpoch: command.storeEpoch,
@@ -1395,7 +1512,7 @@ function applyBatchSpaceOrDocumentPlacement(
   const result = applyBlockTransfer(database, {
     version: 1,
     operationId: `${command.mutationId}:placement`,
-    projectId: command.projectId,
+    projectId: command.destination.contentProjectId ?? command.projectId,
     storeEpoch: command.storeEpoch,
     clientSessionId: `nodex-agent:${command.threadId}`,
     actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
@@ -1413,6 +1530,8 @@ function applyBatchSpaceOrDocumentPlacement(
       ])),
     },
     target,
+  }, {
+    persistTopLevelGrant: command.authority?.scope !== "library",
   });
   if (result.ok) return result.value;
   throwDomainFailure({
@@ -1432,7 +1551,12 @@ function createdPageV3Output(
   const legacy = buildCreateOutput(database, batchPageCommand(command, index));
   return {
     pageId: page.pageId,
-    location: readPageLocation(database, command.projectId, page.pageId),
+    location: readPageLocation(
+      database,
+      command.projectId,
+      page.pageId,
+      command.authority,
+    ),
     bodyBlocksCreated: page.bodyBlockIds.length,
     ...(command.input.return?.includes("block_ids")
       ? { blockIds: page.bodyBlockIds }
@@ -1501,6 +1625,7 @@ function executeCreatePages(
       },
     };
   }
+  assertExecutionAuthority(database, batchPageCommand(command, 0));
   assertPreparedAuthority(database, batchPageCommand(command, 0));
   const lifecycles = command.pages.map((_, index) =>
     applyLifecycleGenesis(database, batchPageCommand(command, index))

@@ -9,6 +9,7 @@ import {
   MovePagesV3InputSchema,
   type BlockId,
 } from "../../shared/nodex-agent-tools";
+import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
 import { createProject } from "../local-store/projects";
@@ -131,7 +132,114 @@ function initialDataSourceId(fixture: Fixture, databaseId: string): string {
   throw new Error("Initial Data Source is unavailable");
 }
 
+function fullAccessAuthority(
+  fixture: Fixture,
+  turnId = "turn-full-access",
+): FrozenNodexAgentTurnAuthority {
+  const coordinate = fixture.database.prepare(`
+    SELECT project.library_id AS libraryId
+    FROM projects project
+    WHERE project.id = ?
+  `).get(fixture.projectId) as { readonly libraryId: string } | undefined;
+  const storeEpoch = readBlockStoreEpoch(fixture.database);
+  if (!coordinate || !storeEpoch) throw new Error("Full-access fixture is incomplete");
+  return {
+    threadId: "thread-full-access",
+    turnId,
+    rootThreadId: "thread-full-access",
+    actorProjectId: fixture.projectId,
+    libraryId: coordinate.libraryId,
+    storeEpoch,
+    scope: "library",
+    source: "builtin_full_access",
+  };
+}
+
 describe("Nodex Agent transfer service", () => {
+  sqliteTest("moves and duplicates Pages across compatibility owners without persisting grants", async () => {
+    await withFixture((fixture) => {
+      const target = createProject({ name: "Foreign target owner" });
+      const targetFixture = { ...fixture, projectId: target.id };
+      const targetParent = createPage(targetFixture, "foreign-target-parent", "Foreign Parent");
+      const movedPage = createPage(fixture, "foreign-move-source", "Move Source");
+      const copiedPage = createPage(fixture, "foreign-copy-source", "Copy Source");
+      const authority = fullAccessAuthority(fixture);
+      const grantCountBefore = fixture.database.prepare(
+        "SELECT COUNT(*) AS count FROM project_resource_grants",
+      ).get() as { readonly count: number };
+
+      const preparedMove = prepareNodexAgentMovePages(fixture.database, {
+        threadId: authority.threadId,
+        callId: "foreign-owner-move",
+        authority,
+        projectId: fixture.projectId,
+        input: MovePagesV3InputSchema.parse({
+          pageIds: [movedPage],
+          destination: { kind: "page", pageId: targetParent },
+        }),
+      });
+      if (!preparedMove.ok || preparedMove.value.kind !== "prepared") {
+        throw new Error(`Foreign move was not prepared: ${JSON.stringify(preparedMove)}`);
+      }
+      expect(preparedMove.value.command.transfers[0]).toMatchObject({
+        sourceProjectId: fixture.projectId,
+        targetProjectId: target.id,
+        rehome: {
+          actorProjectId: fixture.projectId,
+          sourceProjectId: fixture.projectId,
+          targetProjectId: target.id,
+        },
+      });
+      const moved = executeNodexAgentMovePages(
+        fixture.database,
+        preparedMove.value.command,
+      );
+      if (!moved.ok) throw new Error(moved.error.message);
+      expect(moved.value.output.data.pages).toEqual([{
+        pageId: movedPage,
+        location: { kind: "page", pageId: targetParent },
+      }]);
+
+      const preparedCopy = prepareNodexAgentDuplicatePage(fixture.database, {
+        threadId: authority.threadId,
+        callId: "foreign-owner-copy",
+        authority,
+        projectId: fixture.projectId,
+        input: DuplicatePageV3InputSchema.parse({
+          pageId: copiedPage,
+          destination: { kind: "page", pageId: targetParent },
+        }),
+      });
+      if (!preparedCopy.ok || preparedCopy.value.kind !== "prepared") {
+        throw new Error(`Foreign duplicate was not prepared: ${JSON.stringify(preparedCopy)}`);
+      }
+      const copied = executeNodexAgentDuplicatePage(
+        fixture.database,
+        preparedCopy.value.command,
+      );
+      if (!copied.ok) throw new Error(copied.error.message);
+      const resultPageId = copied.value.output.data.pageId;
+      const owners = fixture.database.prepare(`
+        SELECT id, project_id AS projectId FROM blocks WHERE id IN (?, ?, ?)
+        ORDER BY id
+      `).all(movedPage, copiedPage, resultPageId) as readonly {
+        readonly id: string;
+        readonly projectId: string;
+      }[];
+      expect(Object.fromEntries(owners.map((owner) => [owner.id, owner.projectId]))).toEqual({
+        [movedPage]: target.id,
+        [copiedPage]: fixture.projectId,
+        [resultPageId]: target.id,
+      });
+      const grantCountAfter = fixture.database.prepare(
+        "SELECT COUNT(*) AS count FROM project_resource_grants",
+      ).get() as { readonly count: number };
+      expect(grantCountAfter).toEqual(grantCountBefore);
+      expect(fixture.database.pragma("foreign_key_check")).toEqual([]);
+      expect(fixture.database.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
+    });
+  });
+
   sqliteTest("duplicates one complete Page with a Page-native result and exact replay", async () => {
     await withFixture((fixture) => {
       const parent = createPage(fixture, "duplicate-parent", "Parent");
@@ -261,6 +369,42 @@ describe("Nodex Agent transfer service", () => {
     });
   });
 
+  sqliteTest("rejects overlapping cross-owner ownership closures during prepare", async () => {
+    await withFixture((fixture) => {
+      const target = createProject({ name: "Overlap target owner" });
+      const targetParent = createPage(
+        { ...fixture, projectId: target.id },
+        "overlap-target-parent",
+        "Target Parent",
+      );
+      const ancestor = createPage(fixture, "overlap-ancestor", "Ancestor");
+      const descendant = createPage(
+        fixture,
+        "overlap-descendant",
+        "Descendant",
+        { kind: "page", pageId: ancestor },
+      );
+      const authority = fullAccessAuthority(fixture, "turn-overlap");
+
+      expect(prepareNodexAgentMovePages(fixture.database, {
+        threadId: authority.threadId,
+        callId: "overlapping-cross-owner-move",
+        authority,
+        projectId: fixture.projectId,
+        input: MovePagesV3InputSchema.parse({
+          pageIds: [ancestor, descendant],
+          destination: { kind: "page", pageId: targetParent },
+        }),
+      })).toMatchObject({
+        ok: false,
+        error: {
+          code: "invalid_arguments",
+          message: "Cross-owner Page moves cannot select both an ownership ancestor and its descendant",
+        },
+      });
+    });
+  });
+
   sqliteTest("rolls back every Page when a later move loses freshness", async () => {
     await withFixture((fixture) => {
       const parent = createPage(fixture, "rollback-parent", "Parent");
@@ -280,6 +424,7 @@ describe("Nodex Agent transfer service", () => {
       }
       const secondStep = prepared.value.command.transfers[1];
       if (!secondStep) throw new Error("Second move step is unavailable");
+      if (!secondStep.transfer) throw new Error("Second move transfer is unavailable");
       const staleCommand = {
         ...prepared.value.command,
         transfers: [
