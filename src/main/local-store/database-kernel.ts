@@ -30,6 +30,14 @@ import {
   planDatabaseFractionalRank,
   type DatabaseRankedItem,
 } from "./database-fractional-rank";
+import {
+  DatabaseViewPositionPlanError,
+  planDatabaseViewPositionRun,
+} from "./database-view-position-plan";
+import {
+  readLegacyDatabaseViewLogicalOrder,
+  resolveLegacyDatabaseViewOrderConfig,
+} from "./legacy-database-view-logical-order";
 import { mapCompatibleDatabasePropertyValue } from "../../shared/database-property-mapping";
 import { refreshScheduledPageIndexProjection } from "./scheduled-page-store";
 
@@ -1333,30 +1341,53 @@ const deleteProperty = (
   };
 };
 
-const allocateViewPositionRank = (
+const explicitlyPositionedPageIdsForView = (
+  request: DatabaseMutationRequest,
+  viewId: string,
+): ReadonlySet<string> => new Set(request.operations.flatMap((operation) => {
+  if (operation.kind === "position_page" && operation.viewId === viewId) {
+    return [operation.pageId];
+  }
+  if (operation.kind === "position_pages" && operation.viewId === viewId) {
+    return operation.pages.map((entry) => entry.pageId);
+  }
+  return [];
+}));
+
+const planLegacyViewPositionRun = (
   database: Database.Database,
   request: DatabaseMutationRequest,
   input: {
-    readonly viewId: string;
-    readonly pageId: string;
+    readonly view: ViewRow;
+    readonly pageIds: readonly string[];
     readonly groupKey: string | null;
     readonly beforePageId?: string;
+    readonly now: string;
   },
-): { readonly rankKey: string; readonly rebalanced: number } => {
+): ReturnType<typeof planDatabaseViewPositionRun> => {
+  const orderConfig = resolveLegacyDatabaseViewOrderConfig(
+    input.view.config_json,
+  );
+  const requestPositionPageIds = explicitlyPositionedPageIdsForView(
+    request,
+    input.view.id,
+  );
+  const logicalOrder = readLegacyDatabaseViewLogicalOrder(database, {
+    projectId: request.projectId,
+    databaseBlockId: input.view.database_block_id,
+    viewId: input.view.id,
+    groupPropertyId: orderConfig.groupPropertyId,
+    groupKey: input.groupKey,
+    sort: orderConfig.sort,
+    excludedPageIds: new Set(input.pageIds),
+    positionConsistencyExemptPageIds: requestPositionPageIds,
+  });
   if (input.beforePageId !== undefined) {
-    const anchor = readPosition(
-      database,
-      input.viewId,
-      input.beforePageId,
-    );
-    if (!anchor) {
-      return reject(
-        "position_anchor_not_found",
-        `View position anchor does not exist: ${input.beforePageId}`,
-        request,
-      );
-    }
-    if (anchor.group_key !== input.groupKey) {
+    const anchorGroupKey = logicalOrder.effectiveGroupKeys.get(input.beforePageId);
+    if (
+      logicalOrder.effectiveGroupKeys.has(input.beforePageId)
+      && anchorGroupKey !== input.groupKey
+    ) {
       reject(
         "position_anchor_group_mismatch",
         `View position anchor ${input.beforePageId} belongs to another group`,
@@ -1364,31 +1395,90 @@ const allocateViewPositionRank = (
       );
     }
   }
-  const items = database
-    .prepare(
-      `
-      SELECT block_id AS id, rank_key AS rankKey
-      FROM database_view_positions
-      WHERE view_id = ? AND group_key IS ?
-      ORDER BY rank_key, block_id
-    `,
-    )
-    .all(input.viewId, input.groupKey) as DatabaseRankedItem[];
-  return applyFractionalRankPlan({
-    request,
-    items,
-    targetId: input.pageId,
+
+  let plan: ReturnType<typeof planDatabaseViewPositionRun>;
+  try {
+    plan = planDatabaseViewPositionRun({
+      logicalGroupOrder: logicalOrder.items,
+      movedPageIds: input.pageIds,
+      rankDirection: orderConfig.sort.find(
+        (entry) => entry.field.kind === "manual",
+      )?.direction ?? "asc",
+      ...(input.beforePageId === undefined
+        ? {}
+        : { beforePageId: input.beforePageId }),
+    });
+  } catch (error) {
+    if (!(error instanceof DatabaseViewPositionPlanError)) throw error;
+    if (error.code === "rebalance_limit") {
+      return reject("rank_rebalance_limit", error.message, request);
+    }
+    return reject("position_anchor_not_found", error.message, request);
+  }
+
+  const siblingWrites = plan.siblingWrites.filter((write) =>
+    write.kind !== "materialize"
+    || !requestPositionPageIds.has(write.pageId)
+  );
+  for (const write of siblingWrites) {
+    if (write.kind === "materialize") {
+      database.prepare(`
+        INSERT INTO database_view_positions (
+          view_id, block_id, project_id, group_key, rank_key,
+          revision, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+      `).run(
+        input.view.id,
+        write.pageId,
+        request.projectId,
+        input.groupKey,
+        write.rankKey,
+        input.now,
+        input.now,
+      );
+      continue;
+    }
+    const updated = database.prepare(`
+      UPDATE database_view_positions SET rank_key = ?, updated_at = ?
+      WHERE view_id = ? AND block_id = ? AND project_id = ?
+    `).run(
+      write.rankKey,
+      input.now,
+      input.view.id,
+      write.pageId,
+      request.projectId,
+    );
+    if (updated.changes === 1) continue;
+    throw new Error(
+      `View ${input.view.id} sibling position disappeared during rank maintenance`,
+    );
+  }
+  return { movedRankKeys: plan.movedRankKeys, siblingWrites };
+};
+
+const allocateViewPositionRank = (
+  database: Database.Database,
+  request: DatabaseMutationRequest,
+  input: {
+    readonly view: ViewRow;
+    readonly pageId: string;
+    readonly groupKey: string | null;
+    readonly beforePageId?: string;
+    readonly now: string;
+  },
+): { readonly rankKey: string; readonly rebalanced: number } => {
+  const plan = planLegacyViewPositionRun(database, request, {
+    view: input.view,
+    pageIds: [input.pageId],
+    groupKey: input.groupKey,
     ...(input.beforePageId === undefined
       ? {}
-      : { beforeId: input.beforePageId }),
-    updateExisting: (id, rankKey) => {
-      database
-        .prepare(
-          `UPDATE database_view_positions SET rank_key = ? WHERE view_id = ? AND block_id = ?`,
-        )
-        .run(rankKey, input.viewId, id);
-    },
+      : { beforePageId: input.beforePageId }),
+    now: input.now,
   });
+  const rankKey = plan.movedRankKeys.get(input.pageId);
+  if (!rankKey) throw new Error(`Rank plan omitted Page ${input.pageId}`);
+  return { rankKey, rebalanced: plan.siblingWrites.length };
 };
 
 const groupedValueKey = (
@@ -1797,12 +1887,13 @@ const transferMembership = (
   } | null = null;
   if (operation.target && targetView && operation.target.viewId) {
     targetRank = allocateViewPositionRank(database, request, {
-      viewId: operation.target.viewId,
+      view: targetView,
       pageId: operation.pageId,
       groupKey: operation.target.groupKey ?? null,
       ...(operation.target.beforePageId === undefined
         ? {}
         : { beforePageId: operation.target.beforePageId }),
+      now,
     });
   }
   const spaceRank = operation.target || offDatabaseParent.kind !== "space"
@@ -2414,12 +2505,13 @@ const positionPage = (
     );
   }
   const rank = allocateViewPositionRank(database, request, {
-    viewId: operation.viewId,
+    view,
     pageId: operation.pageId,
     groupKey: operation.groupKey,
     ...(operation.beforePageId === undefined
       ? {}
       : { beforePageId: operation.beforePageId }),
+    now,
   });
   const revision = currentRevision + 1;
   if (!current) {
@@ -2478,74 +2570,6 @@ const positionPage = (
     committedRevisions: { position: revision },
     projectionPageIds: [],
   };
-};
-
-const compareRankedItems = (
-  left: DatabaseRankedItem,
-  right: DatabaseRankedItem,
-): number =>
-  left.rankKey === right.rankKey
-    ? compareStrings(left.id, right.id)
-    : compareStrings(left.rankKey, right.rankKey);
-
-const planBulkPositionRanks = (
-  request: DatabaseMutationRequest,
-  input: {
-    readonly items: readonly DatabaseRankedItem[];
-    readonly pageIds: readonly string[];
-    readonly beforePageId?: string;
-  },
-): {
-  readonly selectedRankKeys: ReadonlyMap<string, string>;
-  readonly rebalancedRemainingRankKeys: ReadonlyMap<string, string>;
-} => {
-  const selected = new Set(input.pageIds);
-  const originalRemaining = new Map(
-    input.items
-      .filter((item) => !selected.has(item.id))
-      .map((item) => [item.id, item.rankKey] as const),
-  );
-  let virtualItems = [...originalRemaining].map(([id, rankKey]) => ({
-    id,
-    rankKey,
-  }));
-  const selectedRankKeys = new Map<string, string>();
-  const effectiveRanks = new Map(originalRemaining);
-
-  try {
-    for (const pageId of input.pageIds) {
-      const plan = planDatabaseFractionalRank({
-        items: virtualItems,
-        targetId: pageId,
-        ...(input.beforePageId === undefined
-          ? {}
-          : { beforeId: input.beforePageId }),
-      });
-      for (const [id, rankKey] of plan.rebalancedRankKeys) {
-        effectiveRanks.set(id, rankKey);
-        if (selected.has(id)) selectedRankKeys.set(id, rankKey);
-      }
-      effectiveRanks.set(pageId, plan.rankKey);
-      selectedRankKeys.set(pageId, plan.rankKey);
-      virtualItems = [...effectiveRanks]
-        .map(([id, rankKey]) => ({ id, rankKey }))
-        .sort(compareRankedItems);
-    }
-  } catch (error) {
-    if (!(error instanceof DatabaseFractionalRankError)) throw error;
-    if (error.code === "anchor_not_found") {
-      return reject("position_anchor_not_found", error.message, request);
-    }
-    return reject("rank_rebalance_limit", error.message, request);
-  }
-
-  const rebalancedRemainingRankKeys = new Map<string, string>();
-  for (const [id, originalRankKey] of originalRemaining) {
-    const effectiveRankKey = effectiveRanks.get(id);
-    if (!effectiveRankKey || effectiveRankKey === originalRankKey) continue;
-    rebalancedRemainingRankKeys.set(id, effectiveRankKey);
-  }
-  return { selectedRankKeys, rebalancedRemainingRankKeys };
 };
 
 const positionPages = (
@@ -2626,60 +2650,21 @@ const positionPages = (
     return { entry, current };
   });
 
-  if (operation.beforePageId !== undefined) {
-    const anchor = readPosition(
-      database,
-      operation.viewId,
-      operation.beforePageId,
-    );
-    if (!anchor) {
-      return reject(
-        "position_anchor_not_found",
-        `View position anchor does not exist: ${operation.beforePageId}`,
-        request,
-      );
-    }
-    if (anchor.group_key !== operation.groupKey) {
-      return reject(
-        "position_anchor_group_mismatch",
-        `View position anchor ${operation.beforePageId} belongs to another group`,
-        request,
-      );
-    }
-  }
   inject("bulk_after_validation");
 
-  const items = database
-    .prepare(
-      `
-      SELECT block_id AS id, rank_key AS rankKey
-      FROM database_view_positions
-      WHERE view_id = ? AND group_key IS ?
-      ORDER BY rank_key, block_id
-    `,
-    )
-    .all(operation.viewId, operation.groupKey) as DatabaseRankedItem[];
-  const rankPlan = planBulkPositionRanks(request, {
-    items,
+  const rankPlan = planLegacyViewPositionRun(database, request, {
+    view,
     pageIds: operation.pages.map((entry) => entry.pageId),
+    groupKey: operation.groupKey,
     ...(operation.beforePageId === undefined
       ? {}
       : { beforePageId: operation.beforePageId }),
+    now,
   });
   inject("bulk_after_rank_plan");
 
-  for (const [pageId, rankKey] of rankPlan.rebalancedRemainingRankKeys) {
-    database
-      .prepare(
-        `UPDATE database_view_positions
-         SET rank_key = ?, updated_at = ?
-         WHERE view_id = ? AND block_id = ? AND project_id = ?`,
-      )
-      .run(rankKey, now, operation.viewId, pageId, request.projectId);
-  }
-
   const positions = validated.map(({ entry, current }) => {
-    const rankKey = rankPlan.selectedRankKeys.get(entry.pageId);
+    const rankKey = rankPlan.movedRankKeys.get(entry.pageId);
     if (!rankKey) {
       throw new Error(`Bulk rank plan omitted Page ${entry.pageId}`);
     }
@@ -2743,7 +2728,7 @@ const positionPages = (
       databaseBlockId: view.database_block_id,
       groupKey: operation.groupKey,
       positions,
-      rebalancedPositions: rankPlan.rebalancedRemainingRankKeys.size,
+      rebalancedPositions: rankPlan.siblingWrites.length,
     },
     targetBlockIds: uniqueSorted([
       view.database_block_id,
@@ -2873,9 +2858,10 @@ const reconcileGroupedViewPositions = (
     const groupKey = groupedValueKey(input.value);
     if (position.group_key === groupKey) continue;
     const rank = allocateViewPositionRank(database, request, {
-      viewId: view.id,
+      view,
       pageId: input.membership.page_block_id,
       groupKey,
+      now: input.now,
     });
     const update = database
       .prepare(

@@ -195,6 +195,60 @@ describe("Nodex Agent create service", () => {
     });
   });
 
+  sqliteTest("resolves a Data Source anchor that has no manual View position", async () => {
+    await withFixture((fixture) => {
+      const anchorId = createExistingCard(fixture, {
+        title: "Unpositioned anchor",
+        nfm: "Anchor body",
+      });
+      const destination = fixture.database.prepare(`
+        SELECT view.id AS view_id, view.data_source_id
+        FROM database_memberships membership
+        INNER JOIN database_views view
+          ON view.database_block_id = membership.database_block_id
+          AND view.project_id = membership.project_id
+          AND view.is_primary = 1
+          AND view.lifecycle = 'active'
+        WHERE membership.page_block_id = ?
+          AND membership.project_id = ?
+          AND membership.removed_at IS NULL
+      `).get(anchorId, fixture.projectId) as {
+        readonly view_id: string;
+        readonly data_source_id: string;
+      };
+      fixture.database.prepare(`
+        DELETE FROM database_view_positions
+        WHERE view_id = ? AND block_id = ? AND project_id = ?
+      `).run(destination.view_id, anchorId, fixture.projectId);
+
+      const prepared = prepareNodexAgentCreatePages(fixture.database, {
+        threadId: "thread-v3",
+        callId: "batch-unpositioned-anchor",
+        projectId: fixture.projectId,
+        input: CreatePagesV3InputSchema.parse({
+          destination: {
+            kind: "data_source",
+            dataSourceId: destination.data_source_id,
+            view: {
+              viewId: destination.view_id,
+              groupKey: "draft",
+              at: { kind: "before", blockId: anchorId },
+            },
+          },
+          pages: [{ title: "Before anchor" }],
+        }),
+      });
+
+      if (!prepared.ok || prepared.value.kind !== "prepared") {
+        throw new Error(`Page batch was not prepared: ${JSON.stringify(prepared)}`);
+      }
+      expect(prepared.value.command.destination).toMatchObject({
+        kind: "database",
+        view: { beforePageId: anchorId },
+      });
+    });
+  });
+
   sqliteTest("rolls back every Page in a batch when a late aggregate seam fails", async () => {
     await withFixture((fixture) => {
       const prepared = prepareNodexAgentCreatePages(fixture.database, {

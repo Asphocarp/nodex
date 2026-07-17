@@ -885,23 +885,26 @@ describe("general Database kernel", () => {
           }),
         );
         expect(resultCode(secondView)).toBe("ok");
-        for (const [cardId, beforePageId] of [
-          [first.id, undefined],
-          [second.id, undefined],
-        ] as const) {
-          const result = applyDatabaseMutation(
-            fixture.database,
-            request(fixture, `position-${cardId}`, {
+        const sequentialPositions = applyDatabaseMutation(
+          fixture.database,
+          batchRequest(fixture, "position-sequential-pages", [
+            {
               kind: "position_page",
               viewId: "view-custom-second",
-              pageId: cardId,
+              pageId: first.id,
               expectedPositionRevision: 0,
               groupKey: null,
-              ...(beforePageId === undefined ? {} : { beforePageId }),
-            }),
-          );
-          expect(resultCode(result)).toBe("ok");
-        }
+            },
+            {
+              kind: "position_page",
+              viewId: "view-custom-second",
+              pageId: second.id,
+              expectedPositionRevision: 0,
+              groupKey: null,
+            },
+          ]),
+        );
+        expect(resultCode(sequentialPositions)).toBe("ok");
         expect(
           queryDatabaseViewForTest(
             fixture.projectId,
@@ -1192,6 +1195,161 @@ describe("general Database kernel", () => {
           }),
         );
         expect(resultCode(removeUsedOption)).toBe("property_option_in_use");
+      });
+    },
+  );
+
+  sqliteTest(
+    "materializes an unpositioned target group for one cross-group Page run",
+    async () => {
+      await withFixture(async (fixture) => {
+        const movedFirst = await createPage(fixture.projectId, "in_progress", {
+          title: "Moved first",
+        });
+        const movedSecond = await createPage(fixture.projectId, "in_progress", {
+          title: "Moved second",
+        });
+        const targetFirst = await createPage(fixture.projectId, "draft", {
+          title: "Target first",
+        });
+        const targetSecond = await createPage(fixture.projectId, "draft", {
+          title: "Target second",
+        });
+        const primary = fixture.database.prepare(`
+          SELECT project.database_block_id, view.id AS view_id
+          FROM projects project
+          INNER JOIN database_views view
+            ON view.database_block_id = project.database_block_id
+            AND view.project_id = project.id
+            AND view.is_primary = 1
+            AND view.lifecycle = 'active'
+          WHERE project.id = ?
+        `).get(fixture.projectId) as {
+          readonly database_block_id: string;
+          readonly view_id: string;
+        };
+        const initial = queryDatabaseViewForTest(
+          fixture.projectId,
+          primary.view_id,
+          fixture.database,
+        );
+        const status = initial?.properties.find((property) => property.key === "status");
+        if (!initial || !status) throw new Error("Missing primary View status property");
+        expect(resultCode(applyDatabaseMutation(
+          fixture.database,
+          request(fixture, "logical-target:configure-view-order", {
+            kind: "put_view",
+            databaseBlockId: primary.database_block_id,
+            viewId: primary.view_id,
+            expectedRevision: initial.view.revision,
+            name: initial.view.name,
+            viewKind: initial.view.kind,
+            config: viewConfig({
+              group: { propertyId: status.propertyId },
+              sort: [
+                {
+                  field: { kind: "manual" },
+                  direction: "asc",
+                  nulls: "first",
+                },
+                {
+                  field: { kind: "title" },
+                  direction: "desc",
+                  nulls: "last",
+                },
+              ],
+            }),
+            isPrimary: true,
+          }),
+        ))).toBe("ok");
+
+        const removeManualPosition = (pageId: string, prefix: string): void => {
+          const membership = readActiveMembership(fixture, pageId);
+          const detached = applyDatabaseMutation(
+            fixture.database,
+            request(fixture, `${prefix}:detach`, {
+              kind: "transfer_membership",
+              pageId,
+              expectedMembership: {
+                membershipId: membership.id,
+                revision: membership.revision,
+              },
+              target: null,
+            }),
+          );
+          expect(resultCode(detached)).toBe("ok");
+          const restored = applyDatabaseMutation(
+            fixture.database,
+            request(fixture, `${prefix}:restore`, {
+              kind: "transfer_membership",
+              pageId,
+              expectedMembership: null,
+              target: {
+                databaseBlockId: primary.database_block_id,
+                membershipId: `${prefix}:unused-membership`,
+              },
+            }),
+          );
+          expect(resultCode(restored)).toBe("ok");
+        };
+
+        removeManualPosition(targetFirst.id, "logical-target:first");
+        removeManualPosition(targetSecond.id, "logical-target:second");
+        const before = queryDatabaseViewForTest(
+          fixture.projectId,
+          primary.view_id,
+          fixture.database,
+        );
+        if (!before) throw new Error("Missing primary View");
+        const rows = new Map(before.rows.map((row) => [row.page.pageId, row] as const));
+        const targetOrder = before.rows
+          .filter((row) => [targetFirst.id, targetSecond.id].includes(row.page.pageId))
+          .map((row) => row.page.pageId);
+        expect(targetOrder).toEqual([targetSecond.id, targetFirst.id]);
+        expect(targetOrder.every((pageId) => rows.get(pageId)?.position === null)).toBe(true);
+
+        const movedPageIds = [movedSecond.id, movedFirst.id];
+        const result = applyDatabaseMutation(
+          fixture.database,
+          batchRequest(fixture, "logical-position-run", [
+            {
+              kind: "set_values",
+              databaseBlockId: primary.database_block_id,
+              entries: movedPageIds.map((pageId) => ({
+                pageId,
+                propertyId: status.propertyId,
+                expectedValueRevision:
+                  rows.get(pageId)?.values[status.propertyId]?.revision ?? 0,
+                value: "draft",
+              })),
+            },
+            ...movedPageIds.map((pageId) => ({
+              kind: "position_page",
+              viewId: primary.view_id,
+              pageId,
+              expectedPositionRevision: rows.get(pageId)?.position?.revision ?? 0,
+              groupKey: "draft",
+              beforePageId: targetOrder[1],
+            } as const)),
+          ]),
+        );
+
+        expect(resultCode(result)).toBe("ok");
+        const after = queryDatabaseViewForTest(
+          fixture.projectId,
+          primary.view_id,
+          fixture.database,
+        );
+        expect(after?.rows
+          .filter((row) => [...targetOrder, ...movedPageIds].includes(row.page.pageId))
+          .map((row) => row.page.pageId)).toEqual([
+            targetOrder[0],
+            ...movedPageIds,
+            targetOrder[1],
+          ]);
+        expect(after?.rows
+          .filter((row) => targetOrder.includes(row.page.pageId))
+          .map((row) => row.position?.revision)).toEqual([1, 1]);
       });
     },
   );

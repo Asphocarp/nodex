@@ -795,4 +795,220 @@ describe("Database Module", () => {
         target.id,
       ]);
   });
+
+  test("inserts across groups before an unpositioned logical Page anchor", async () => {
+    const project = createProject({ name: "Logical View positions" });
+    const moved = await createPage(project.id, "in_progress", { title: "Moved" });
+    const firstTarget = await createPage(project.id, "draft", { title: "First target" });
+    const secondTarget = await createPage(project.id, "draft", { title: "Second target" });
+
+    const removeManualPosition = (pageId: string, operationPrefix: string): void => {
+      const before = readQuery(project.id, { kind: "project_default" });
+      const query = queryValue(before);
+      const row = query.rows.find((candidate) => candidate.page.pageId === pageId);
+      if (!row) throw new Error(`Missing Page ${pageId}`);
+      const detached = applyDatabaseModule(getDb(), {
+        version: DATABASE_MODULE_CONTRACT_VERSION,
+        operationId: `${operationPrefix}:detach`,
+        projectId: project.id,
+        storeEpoch: before.storeEpoch,
+        actor: { kind: "test" },
+        operations: [{
+          kind: "transfer_page",
+          pageId,
+          expectedParentRevision: row.page.parentRevision,
+          expectedActiveMembershipRevision: row.membership.revision,
+          target: { kind: "library", libraryId: project.libraryId },
+        }],
+      });
+      if (!detached.ok) throw new Error(detached.error.message);
+      const detail = readPageDetailInDatabase(getDb(), project.id, pageId);
+      if (!detail.ok) throw new Error(detail.error.message);
+      const restored = applyDatabaseModule(getDb(), {
+        version: DATABASE_MODULE_CONTRACT_VERSION,
+        operationId: `${operationPrefix}:restore`,
+        projectId: project.id,
+        storeEpoch: before.storeEpoch,
+        actor: { kind: "test" },
+        operations: [{
+          kind: "transfer_page",
+          pageId,
+          expectedParentRevision: detail.value.page.parentRevision,
+          expectedActiveMembershipRevision: 0,
+          target: {
+            kind: "data_source",
+            dataSourceId: query.dataSource.dataSourceId,
+          },
+        }],
+      });
+      if (!restored.ok) throw new Error(restored.error.message);
+    };
+
+    removeManualPosition(firstTarget.id, "logical-position:first");
+    removeManualPosition(secondTarget.id, "logical-position:second");
+    const beforeSnapshot = readQuery(project.id, { kind: "project_default" });
+    const before = queryValue(beforeSnapshot);
+    const status = before.properties.find((property) => property.key === "status");
+    const movedRow = before.rows.find((row) => row.page.pageId === moved.id);
+    if (!status || !movedRow) throw new Error("Missing status authority");
+    const targetOrder = [firstTarget.id, secondTarget.id].sort();
+    expect(targetOrder.every((pageId) =>
+      before.rows.find((row) => row.page.pageId === pageId)?.position === null
+    )).toBe(true);
+
+    const rejected = applyDatabaseModule(getDb(), {
+      version: DATABASE_MODULE_CONTRACT_VERSION,
+      operationId: "database-module:missing-logical-position-anchor",
+      projectId: project.id,
+      storeEpoch: beforeSnapshot.storeEpoch,
+      actor: { kind: "test" },
+      operations: [
+        {
+          kind: "set_value",
+          pageId: moved.id,
+          dataSourceId: before.dataSource.dataSourceId,
+          propertyId: status.propertyId,
+          expectedValueRevision:
+            movedRow.values[status.propertyId]?.revision ?? 0,
+          value: "draft",
+        },
+        {
+          kind: "position_page",
+          viewId: before.view.viewId,
+          pageId: moved.id,
+          expectedPositionRevision: movedRow.position?.revision ?? 0,
+          groupKey: "draft",
+          beforePageId: "missing-logical-anchor",
+        },
+      ],
+    });
+    expect(rejected).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    const afterRejected = queryValue(readQuery(project.id, {
+      kind: "project_default",
+    }));
+    expect(afterRejected.rows.find((row) => row.page.pageId === moved.id)
+      ?.effectiveGroupKey).toBe("in_progress");
+    expect(targetOrder.every((pageId) =>
+      afterRejected.rows.find((row) => row.page.pageId === pageId)?.position === null
+    )).toBe(true);
+
+    const result = applyDatabaseModule(getDb(), {
+      version: DATABASE_MODULE_CONTRACT_VERSION,
+      operationId: "database-module:logical-position-anchor",
+      projectId: project.id,
+      storeEpoch: beforeSnapshot.storeEpoch,
+      actor: { kind: "test" },
+      operations: [
+        {
+          kind: "set_value",
+          pageId: moved.id,
+          dataSourceId: before.dataSource.dataSourceId,
+          propertyId: status.propertyId,
+          expectedValueRevision:
+            movedRow.values[status.propertyId]?.revision ?? 0,
+          value: "draft",
+        },
+        {
+          kind: "position_page",
+          viewId: before.view.viewId,
+          pageId: moved.id,
+          expectedPositionRevision: movedRow.position?.revision ?? 0,
+          groupKey: "draft",
+          beforePageId: targetOrder[1],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    const after = queryValue(readQuery(project.id, { kind: "project_default" }));
+    expect(after.rows
+      .filter((row) => [moved.id, ...targetOrder].includes(row.page.pageId))
+      .map((row) => row.page.pageId)).toEqual([
+        targetOrder[0],
+        moved.id,
+        targetOrder[1],
+      ]);
+    expect(after.rows
+      .filter((row) => targetOrder.includes(row.page.pageId))
+      .map((row) => row.position?.revision)).toEqual([1, 1]);
+  });
+
+  test("keeps sequential explicit position intents at their captured revisions", async () => {
+    const project = createProject({ name: "Sequential View positions" });
+    const first = await createPage(project.id, "draft", { title: "First" });
+    const second = await createPage(project.id, "draft", { title: "Second" });
+    const later = await createPage(project.id, "draft", { title: "Later" });
+    const initial = readQuery(project.id, { kind: "project_default" });
+    const view = queryValue(initial).view;
+    getDb().prepare(`
+      DELETE FROM database_view_positions
+      WHERE view_id = ? AND block_id IN (?, ?, ?)
+    `).run(view.viewId, first.id, second.id, later.id);
+    const before = readQuery(project.id, { kind: "project_default" });
+    expect(queryValue(before).rows
+      .filter((row) => [first.id, second.id].includes(row.page.pageId))
+      .every((row) => row.position === null)).toBe(true);
+
+    const result = applyDatabaseModule(getDb(), {
+      version: DATABASE_MODULE_CONTRACT_VERSION,
+      operationId: "database-module:sequential-position-pages",
+      projectId: project.id,
+      storeEpoch: before.storeEpoch,
+      actor: { kind: "test" },
+      operations: [first.id, second.id].map((pageId) => ({
+        kind: "position_page" as const,
+        viewId: view.viewId,
+        pageId,
+        expectedPositionRevision: 0,
+        groupKey: "draft",
+      })),
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(queryValue(readQuery(project.id, { kind: "project_default" })).rows
+      .filter((row) => [first.id, second.id].includes(row.page.pageId))
+      .map((row) => [row.page.pageId, row.position?.revision])).toEqual([
+        [first.id, 1],
+        [second.id, 1],
+      ]);
+    const staleLater = applyDatabaseModule(getDb(), {
+      version: DATABASE_MODULE_CONTRACT_VERSION,
+      operationId: "database-module:stale-materialized-position",
+      projectId: project.id,
+      storeEpoch: before.storeEpoch,
+      actor: { kind: "test" },
+      operations: [{
+        kind: "position_page",
+        viewId: view.viewId,
+        pageId: later.id,
+        expectedPositionRevision: 0,
+        groupKey: "draft",
+      }],
+    });
+    expect(staleLater).toMatchObject({
+      ok: false,
+      error: { code: "revision_conflict", actualRevision: 1 },
+    });
+    const refreshed = queryValue(readQuery(project.id, {
+      kind: "project_default",
+    })).rows.find((row) => row.page.pageId === later.id);
+    expect(refreshed?.position?.revision).toBe(1);
+    expect(applyDatabaseModule(getDb(), {
+      version: DATABASE_MODULE_CONTRACT_VERSION,
+      operationId: "database-module:fresh-materialized-position",
+      projectId: project.id,
+      storeEpoch: before.storeEpoch,
+      actor: { kind: "test" },
+      operations: [{
+        kind: "position_page",
+        viewId: view.viewId,
+        pageId: later.id,
+        expectedPositionRevision: refreshed?.position?.revision ?? 0,
+        groupKey: "draft",
+      }],
+    })).toMatchObject({ ok: true });
+  });
 });

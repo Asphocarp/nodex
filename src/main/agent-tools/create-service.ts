@@ -40,6 +40,10 @@ import { applyBlockTransfer } from "../local-store/block-transfers";
 import { applyPageLifecycleMutation } from "../local-store/page-lifecycle";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { applyDatabaseMutation } from "../local-store/database-kernel";
+import {
+  readLegacyDatabaseViewLogicalOrder,
+  resolveLegacyDatabaseViewOrderConfig,
+} from "../local-store/legacy-database-view-logical-order";
 import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import { authorizeProjectResourceInDatabase } from "../local-store/project-resource-grants";
 import {
@@ -339,12 +343,12 @@ function prepareDatabaseDestination(
   }
   const viewRow = database.prepare(
     `
-    SELECT revision
+    SELECT revision, config_json
     FROM database_views
     WHERE id = ? AND database_block_id = ? AND project_id = ?
       AND lifecycle = 'active'
   `).get(destination.view.viewId, destination.databaseBlockId, projectId) as
-    | { readonly revision: number }
+    | { readonly revision: number; readonly config_json: string }
     | undefined;
   if (!viewRow) {
     throw new NodexAgentReadError(
@@ -357,20 +361,19 @@ function prepareDatabaseDestination(
   }
   const viewRevision = viewRow.revision;
   const groupKey = destination.view.groupKey ?? null;
-  const positionRows = database.prepare(
-    `
-    SELECT position.block_id AS id
-    FROM database_view_positions position
-    INNER JOIN blocks block
-      ON block.id = position.block_id
-     AND block.project_id = position.project_id
-     AND block.lifecycle <> 'deleted'
-    WHERE position.view_id = ? AND position.project_id = ?
-      AND position.group_key IS ?
-    ORDER BY position.rank_key, position.block_id
-  `).all(destination.view.viewId, projectId, groupKey) as readonly { readonly id: string }[];
+  const orderConfig = resolveLegacyDatabaseViewOrderConfig(
+    viewRow.config_json,
+  );
+  const logicalOrder = readLegacyDatabaseViewLogicalOrder(database, {
+    projectId,
+    databaseBlockId: destination.databaseBlockId,
+    viewId: destination.view.viewId,
+    groupPropertyId: orderConfig.groupPropertyId,
+    groupKey,
+    sort: orderConfig.sort,
+  });
   const beforePageId = resolveSiblingAnchor(
-    positionRows.map((row) => row.id),
+    logicalOrder.items.map((item) => item.pageId),
     destination.view.at,
     `View ${destination.view.viewId}`,
   );

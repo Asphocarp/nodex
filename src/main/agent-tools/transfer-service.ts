@@ -18,11 +18,11 @@ import {
   databaseGroupValueFromKey,
   normalizeDatabasePropertyValue,
   parseDatabasePropertyConfig,
-  parseDatabaseViewConfig,
   type DatabaseJsonValue,
   type DatabaseMutationRequest,
   type DatabasePropertyValueType,
 } from "../../shared/database-kernel";
+import { resolveLegacyDatabaseViewOrderConfig } from "../local-store/legacy-database-view-logical-order";
 import {
   DuplicatePageV3OutputSchema,
   MovePagesV3OutputSchema,
@@ -1494,10 +1494,10 @@ function compileFinalViewPlacement(
       "query_database_again",
     );
   }
-  const config = parseDatabaseViewConfig(JSON.parse(view.config_json) as unknown);
-  const groupPropertyId = config.group?.propertyId ?? null;
+  const orderConfig = resolveLegacyDatabaseViewOrderConfig(view.config_json);
+  const groupPropertyId = orderConfig.groupPropertyId;
   const groupKey = command.destination.view.groupKey;
-  if (!groupPropertyId && groupKey !== null) {
+  if (!orderConfig.usesExplicitGroups && !groupPropertyId && groupKey !== null) {
     throw new NodexAgentReadError(
       "invalid_arguments",
       `Ungrouped View ${command.destination.view.viewId} requires a null groupKey`,

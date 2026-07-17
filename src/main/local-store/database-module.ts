@@ -44,6 +44,15 @@ import type {
   ProjectResourceAction,
 } from "../../shared/resource-authorization";
 import { planDatabaseFractionalRank } from "./database-fractional-rank";
+import {
+  DatabaseViewPositionPlanError,
+  planDatabaseViewPositionRun,
+  type LogicalDatabaseViewPositionItem,
+} from "./database-view-position-plan";
+import {
+  compareDatabaseViewOrderItems,
+  type DatabaseViewOrderItem,
+} from "./database-view-order";
 import { getDb } from "./database";
 import {
   authorizeProjectResourceInDatabase,
@@ -412,61 +421,6 @@ const isEmptyValue = (value: DatabaseJsonValue | undefined): boolean =>
   || value === ""
   || (Array.isArray(value) && value.length === 0);
 
-const compareViewValues = (
-  left: DatabaseJsonValue | undefined,
-  right: DatabaseJsonValue | undefined,
-  nulls: "first" | "last",
-  direction: "asc" | "desc",
-): number => {
-  const leftEmpty = isEmptyValue(left);
-  const rightEmpty = isEmptyValue(right);
-  if (leftEmpty && rightEmpty) return 0;
-  if (leftEmpty) return nulls === "first" ? -1 : 1;
-  if (rightEmpty) return nulls === "first" ? 1 : -1;
-  let comparison: number;
-  if (typeof left === "number" && typeof right === "number") {
-    comparison = left - right;
-  } else if (typeof left === "boolean" && typeof right === "boolean") {
-    comparison = Number(left) - Number(right);
-  } else {
-    comparison = stableStringifyDatabaseJson(left).localeCompare(
-      stableStringifyDatabaseJson(right),
-    );
-  }
-  return comparison * (direction === "asc" ? 1 : -1);
-};
-
-const compareRows = (
-  left: DataSourcePageRow,
-  right: DataSourcePageRow,
-  sort: readonly DatabaseViewSort[],
-): number => {
-  for (const sortEntry of sort) {
-    const leftValue = sortEntry.field.kind === "manual"
-      ? left.position?.rankKey
-      : sortEntry.field.kind === "title"
-        ? left.page.title
-        : sortEntry.field.kind === "created"
-          ? left.page.createdAt
-          : left.values[sortEntry.field.propertyId]?.value;
-    const rightValue = sortEntry.field.kind === "manual"
-      ? right.position?.rankKey
-      : sortEntry.field.kind === "title"
-        ? right.page.title
-        : sortEntry.field.kind === "created"
-          ? right.page.createdAt
-          : right.values[sortEntry.field.propertyId]?.value;
-    const comparison = compareViewValues(
-      leftValue,
-      rightValue,
-      sortEntry.nulls,
-      sortEntry.direction,
-    );
-    if (comparison !== 0) return comparison;
-  }
-  return left.page.pageId.localeCompare(right.page.pageId);
-};
-
 const groupKeyForValue = (
   value: DatabaseJsonValue | undefined,
 ): string | null => {
@@ -483,6 +437,7 @@ const materializeDataSourceRows = (
     readonly groupPropertyId: string | null;
     readonly filter: DatabaseViewFilterNode;
     readonly sort: readonly DatabaseViewSort[];
+    readonly excludedPositionConsistencyPageIds?: ReadonlySet<string>;
   },
 ): {
   readonly properties: readonly DataSourcePropertyRecord[];
@@ -518,6 +473,7 @@ const materializeDataSourceRows = (
       input.groupPropertyId !== null
       && membership.rank_key !== null
       && membership.group_key !== effectiveGroupKey
+      && !input.excludedPositionConsistencyPageIds?.has(page.pageId)
     ) {
       throw new DatabaseModuleStateError(
         `View ${input.viewId} position for Page ${page.pageId} diverges from its grouping property`,
@@ -543,15 +499,34 @@ const materializeDataSourceRows = (
       effectiveGroupKey,
     };
   });
-  return {
-    properties,
-    rows: rows
-      .filter((row) => evaluateDatabaseViewFilter(
-        input.filter,
-        (propertyId) => row.values[propertyId]?.value,
-      ))
-      .sort((left, right) => compareRows(left, right, input.sort)),
-  };
+  const visibleRows = rows.filter((row) => evaluateDatabaseViewFilter(
+    input.filter,
+    (propertyId) => row.values[propertyId]?.value,
+  ));
+  const orderItems = new Map(visibleRows.map((row) => [
+    row.page.pageId,
+    {
+      pageId: row.page.pageId,
+      title: row.page.title,
+      createdAt: row.page.createdAt,
+      rankKey: row.position?.rankKey ?? null,
+      propertyValues: Object.fromEntries(
+        Object.entries(row.values).map(([propertyId, value]) => [
+          propertyId,
+          value.value,
+        ]),
+      ),
+    } satisfies DatabaseViewOrderItem,
+  ] as const));
+  visibleRows.sort((left, right) => {
+    const leftOrder = orderItems.get(left.page.pageId);
+    const rightOrder = orderItems.get(right.page.pageId);
+    if (!leftOrder || !rightOrder) {
+      throw new DatabaseModuleStateError("View order item disappeared during query");
+    }
+    return compareDatabaseViewOrderItems(leftOrder, rightOrder, input.sort);
+  });
+  return { properties, rows: visibleRows };
 };
 
 const queryView = (
@@ -2097,237 +2072,67 @@ const applyDeleteView = (
   accumulator.revisions[`view:${view.id}`] = revision;
 };
 
-const readPositionRows = (
+const readLogicalPositionItems = (
   database: Database.Database,
-  viewId: string,
-  groupKey: string | null,
-): readonly { readonly id: string; readonly rankKey: string }[] =>
-  database.prepare(`
-    SELECT page_block_id AS id, rank_key AS rankKey
-    FROM database_view_page_positions
-    WHERE view_id = ? AND group_key IS ?
-    ORDER BY rank_key, page_block_id
-  `).all(viewId, groupKey) as readonly {
-    readonly id: string;
-    readonly rankKey: string;
-  }[];
-
-const applyPositionPage = (
-  database: Database.Database,
-  request: DatabaseApply,
-  operation: Extract<DatabaseApplyOperation, { readonly kind: "position_page" }>,
-  now: string,
-  accumulator: ApplyAccumulator,
-): void => {
-  const viewRow = requireApplyResource(
-    readViewRow(database, operation.viewId),
-    `View does not exist: ${operation.viewId}`,
-    request,
-  );
-  if (viewRow.lifecycle !== "active") {
-    rejectApply(
-      "resource_not_found",
-      `Active View does not exist: ${operation.viewId}`,
-      request,
-    );
-  }
-  const view = rowToView(viewRow);
-  requireAuthorization(
-    database,
-    request,
-    { kind: "view", viewId: view.viewId },
-    "read",
-  );
-  requireAuthorization(
-    database,
-    request,
-    { kind: "page", pageId: operation.pageId },
-    "write",
-  );
-  const membership = requireApplyResource(
-    readActiveMembership(
-      database,
-      operation.pageId,
-      view.dataSourceId,
-    ),
-    `Page ${operation.pageId} is not in View ${view.viewId}'s Data Source`,
-    request,
-  );
-  const existing = database.prepare(`
-    SELECT revision FROM database_view_page_positions
-    WHERE view_id = ? AND page_block_id = ?
-  `).get(view.viewId, operation.pageId) as
-    | { readonly revision: number }
-    | undefined;
-  requireRevision(
-    request,
-    `View position ${view.viewId}/${operation.pageId}`,
-    operation.expectedPositionRevision,
-    existing?.revision ?? 0,
-  );
-  if (view.config.group) {
-    const value = database.prepare(`
-      SELECT value.value_json AS valueJson
-      FROM data_source_property_values value
-      WHERE value.membership_id = ? AND value.property_id = ?
-    `).get(membership.id, view.config.group.propertyId) as
-      | { readonly valueJson: string }
-      | undefined;
-    const effectiveGroup = groupKeyForValue(
-      value
-        ? parseJsonValue(value.valueJson, "Grouped property value")
-        : undefined,
-    );
-    if (operation.groupKey !== effectiveGroup) {
-      rejectApply(
-        "invalid_request",
-        `Position group ${operation.groupKey ?? "null"} does not match grouped property ${effectiveGroup ?? "null"}`,
-        request,
-      );
-    }
-  }
-  const ranks = planDatabaseFractionalRank({
-    items: readPositionRows(database, view.viewId, operation.groupKey),
-    targetId: operation.pageId,
-    ...(operation.beforePageId === undefined
-      ? {}
-      : { beforeId: operation.beforePageId }),
+  input: {
+    readonly view: DatabaseViewRecord;
+    readonly groupKey: string | null;
+    readonly excludedPageIds: ReadonlySet<string>;
+    readonly positionConsistencyExemptPageIds: ReadonlySet<string>;
+  },
+): readonly LogicalDatabaseViewPositionItem[] => {
+  const materialized = materializeDataSourceRows(database, {
+    dataSourceId: input.view.dataSourceId,
+    viewId: input.view.viewId,
+    groupPropertyId: input.view.config.group?.propertyId ?? null,
+    filter: { kind: "group", operator: "and", children: [] },
+    sort: input.view.config.sort,
+    excludedPositionConsistencyPageIds:
+      input.positionConsistencyExemptPageIds,
   });
-  const updateCanonical = database.prepare(`
-    UPDATE database_view_page_positions
-    SET rank_key = ?, revision = revision + 1, updated_at = ?
-    WHERE view_id = ? AND page_block_id = ?
-  `);
-  const updateLegacy = database.prepare(`
-    UPDATE database_view_positions
-    SET rank_key = ?, revision = revision + 1, updated_at = ?
-    WHERE view_id = ? AND block_id = ?
-  `);
-  for (const [pageId, rankKey] of ranks.rebalancedRankKeys) {
-    updateCanonical.run(rankKey, now, view.viewId, pageId);
-    updateLegacy.run(rankKey, now, view.viewId, pageId);
-  }
-  const revision = (existing?.revision ?? 0) + 1;
-  database.prepare(`
-    INSERT INTO database_view_page_positions (
-      view_id, page_block_id, group_key, rank_key, revision,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(view_id, page_block_id) DO UPDATE SET
-      group_key = excluded.group_key,
-      rank_key = excluded.rank_key,
-      revision = excluded.revision,
-      updated_at = excluded.updated_at
-  `).run(
-    view.viewId,
-    operation.pageId,
-    operation.groupKey,
-    ranks.rankKey,
-    revision,
-    now,
-    now,
+  return materialized.rows.flatMap(
+    (row): readonly LogicalDatabaseViewPositionItem[] => {
+      if (
+        input.excludedPageIds.has(row.page.pageId)
+        || row.effectiveGroupKey !== input.groupKey
+      ) {
+        return [];
+      }
+      return [{
+        pageId: row.page.pageId,
+        rankKey: row.position?.rankKey ?? null,
+      }];
+    },
   );
-  const pageProjectId = readPageProjectId(database, operation.pageId);
-  database.prepare(`
-    INSERT INTO database_view_positions (
-      view_id, block_id, project_id, group_key, rank_key, revision,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(view_id, block_id) DO UPDATE SET
-      group_key = excluded.group_key,
-      rank_key = excluded.rank_key,
-      revision = excluded.revision,
-      updated_at = excluded.updated_at
-  `).run(
-    view.viewId,
-    operation.pageId,
-    pageProjectId,
-    operation.groupKey,
-    ranks.rankKey,
-    revision,
-    now,
-    now,
-  );
-  const metadataRevision = updatePageMetadataProjection(
-    database,
-    operation.pageId,
-    now,
-  );
-  accumulator.databaseIds.add(view.databaseId);
-  accumulator.dataSourceIds.add(view.dataSourceId);
-  accumulator.pageIds.add(operation.pageId);
-  accumulator.viewIds.add(view.viewId);
-  accumulator.revisions[
-    `position:${view.viewId}:${operation.pageId}`
-  ] = revision;
-  accumulator.revisions[`page:${operation.pageId}:metadata`] = metadataRevision;
 };
 
-interface RankedPage {
-  readonly id: string;
-  readonly rankKey: string;
+interface PositionRunEntry {
+  readonly pageId: string;
+  readonly expectedPositionRevision: number;
 }
 
-const compareRankedPages = (left: RankedPage, right: RankedPage): number =>
-  left.rankKey === right.rankKey
-    ? compareStrings(left.id, right.id)
-    : compareStrings(left.rankKey, right.rankKey);
-
-const planPageRunRanks = (input: {
-  readonly items: readonly RankedPage[];
-  readonly pageIds: readonly string[];
-  readonly beforePageId?: string;
-}): {
-  readonly selectedRanks: ReadonlyMap<string, string>;
-  readonly remainingRanks: ReadonlyMap<string, string>;
-} => {
-  const selected = new Set(input.pageIds);
-  const originalRemaining = new Map(
-    input.items
-      .filter((item) => !selected.has(item.id))
-      .map((item) => [item.id, item.rankKey] as const),
-  );
-  const effectiveRanks = new Map(originalRemaining);
-  const selectedRanks = new Map<string, string>();
-  let virtualItems = [...originalRemaining].map(([id, rankKey]) => ({
-    id,
-    rankKey,
-  }));
-
-  for (const pageId of input.pageIds) {
-    const plan = planDatabaseFractionalRank({
-      items: virtualItems,
-      targetId: pageId,
-      ...(input.beforePageId === undefined
-        ? {}
-        : { beforeId: input.beforePageId }),
-    });
-    for (const [rebalancedPageId, rankKey] of plan.rebalancedRankKeys) {
-      effectiveRanks.set(rebalancedPageId, rankKey);
-      if (selected.has(rebalancedPageId)) {
-        selectedRanks.set(rebalancedPageId, rankKey);
-      }
-    }
-    effectiveRanks.set(pageId, plan.rankKey);
-    selectedRanks.set(pageId, plan.rankKey);
-    virtualItems = [...effectiveRanks]
-      .map(([id, rankKey]) => ({ id, rankKey }))
-      .sort(compareRankedPages);
+const explicitlyPositionedPageIds = (
+  request: DatabaseApply,
+  viewId: string,
+): ReadonlySet<string> => new Set(request.operations.flatMap((operation) => {
+  if (operation.kind === "position_page" && operation.viewId === viewId) {
+    return [operation.pageId];
   }
-
-  const remainingRanks = new Map<string, string>();
-  for (const [pageId, originalRank] of originalRemaining) {
-    const rankKey = effectiveRanks.get(pageId);
-    if (!rankKey || rankKey === originalRank) continue;
-    remainingRanks.set(pageId, rankKey);
+  if (operation.kind === "position_pages" && operation.viewId === viewId) {
+    return operation.pages.map((entry) => entry.pageId);
   }
-  return { selectedRanks, remainingRanks };
-};
+  return [];
+}));
 
-const applyPositionPages = (
+const applyPositionRun = (
   database: Database.Database,
   request: DatabaseApply,
-  operation: Extract<DatabaseApplyOperation, { readonly kind: "position_pages" }>,
+  operation: {
+    readonly viewId: string;
+    readonly pages: readonly PositionRunEntry[];
+    readonly groupKey: string | null;
+    readonly beforePageId?: string;
+  },
   now: string,
   accumulator: ApplyAccumulator,
 ): void => {
@@ -2392,37 +2197,37 @@ const applyPositionPages = (
     }
     return { entry, existing };
   });
+  const requestPositionPageIds = explicitlyPositionedPageIds(
+    request,
+    view.viewId,
+  );
 
   const ranks = (() => {
     try {
-      return planPageRunRanks({
-        items: readPositionRows(database, view.viewId, operation.groupKey),
-        pageIds,
+      return planDatabaseViewPositionRun({
+        logicalGroupOrder: readLogicalPositionItems(database, {
+          view,
+          groupKey: operation.groupKey,
+          excludedPageIds: new Set(pageIds),
+          positionConsistencyExemptPageIds: requestPositionPageIds,
+        }),
+        movedPageIds: pageIds,
+        rankDirection: view.config.sort.find(
+          (entry) => entry.field.kind === "manual",
+        )?.direction ?? "asc",
         ...(operation.beforePageId === undefined
           ? {}
           : { beforePageId: operation.beforePageId }),
       });
     } catch (error) {
+      if (!(error instanceof DatabaseViewPositionPlanError)) throw error;
       return rejectApply(
         "invalid_request",
-        error instanceof Error ? error.message : "Unable to allocate View positions",
+        error.message,
         request,
       );
     }
   })();
-
-  const updateCanonicalRank = database.prepare(`
-    UPDATE database_view_page_positions SET rank_key = ?, updated_at = ?
-    WHERE view_id = ? AND page_block_id = ?
-  `);
-  const updateLegacyRank = database.prepare(`
-    UPDATE database_view_positions SET rank_key = ?, updated_at = ?
-    WHERE view_id = ? AND block_id = ?
-  `);
-  for (const [pageId, rankKey] of ranks.remainingRanks) {
-    updateCanonicalRank.run(rankKey, now, view.viewId, pageId);
-    updateLegacyRank.run(rankKey, now, view.viewId, pageId);
-  }
 
   const putCanonical = database.prepare(`
     INSERT INTO database_view_page_positions (
@@ -2446,8 +2251,57 @@ const applyPositionPages = (
       revision = excluded.revision,
       updated_at = excluded.updated_at
   `);
+  const updateCanonicalRank = database.prepare(`
+    UPDATE database_view_page_positions SET rank_key = ?, updated_at = ?
+    WHERE view_id = ? AND page_block_id = ?
+  `);
+  const updateLegacyRank = database.prepare(`
+    UPDATE database_view_positions SET rank_key = ?, updated_at = ?
+    WHERE view_id = ? AND block_id = ?
+  `);
+  for (const write of ranks.siblingWrites) {
+    if (write.kind === "materialize") {
+      if (requestPositionPageIds.has(write.pageId)) continue;
+      putCanonical.run(
+        view.viewId,
+        write.pageId,
+        operation.groupKey,
+        write.rankKey,
+        1,
+        now,
+        now,
+      );
+      putLegacy.run(
+        view.viewId,
+        write.pageId,
+        readPageProjectId(database, write.pageId),
+        operation.groupKey,
+        write.rankKey,
+        1,
+        now,
+        now,
+      );
+      continue;
+    }
+    const canonical = updateCanonicalRank.run(
+      write.rankKey,
+      now,
+      view.viewId,
+      write.pageId,
+    );
+    const legacy = updateLegacyRank.run(
+      write.rankKey,
+      now,
+      view.viewId,
+      write.pageId,
+    );
+    if (canonical.changes === 1 && legacy.changes === 1) continue;
+    throw new DatabaseModuleStateError(
+      `View ${view.viewId} sibling position disappeared during rank maintenance`,
+    );
+  }
   for (const { entry, existing } of validated) {
-    const rankKey = ranks.selectedRanks.get(entry.pageId);
+    const rankKey = ranks.movedRankKeys.get(entry.pageId);
     if (!rankKey) throw new DatabaseModuleStateError(`Rank plan omitted Page ${entry.pageId}`);
     const revision = (existing?.revision ?? 0) + 1;
     putCanonical.run(
@@ -2478,6 +2332,32 @@ const applyPositionPages = (
   accumulator.dataSourceIds.add(view.dataSourceId);
   accumulator.viewIds.add(view.viewId);
 };
+
+const applyPositionPage = (
+  database: Database.Database,
+  request: DatabaseApply,
+  operation: Extract<DatabaseApplyOperation, { readonly kind: "position_page" }>,
+  now: string,
+  accumulator: ApplyAccumulator,
+): void => applyPositionRun(database, request, {
+  viewId: operation.viewId,
+  pages: [{
+    pageId: operation.pageId,
+    expectedPositionRevision: operation.expectedPositionRevision,
+  }],
+  groupKey: operation.groupKey,
+  ...(operation.beforePageId === undefined
+    ? {}
+    : { beforePageId: operation.beforePageId }),
+}, now, accumulator);
+
+const applyPositionPages = (
+  database: Database.Database,
+  request: DatabaseApply,
+  operation: Extract<DatabaseApplyOperation, { readonly kind: "position_pages" }>,
+  now: string,
+  accumulator: ApplyAccumulator,
+): void => applyPositionRun(database, request, operation, now, accumulator);
 
 const executeOperation = (
   database: Database.Database,

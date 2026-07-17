@@ -55,7 +55,7 @@ const requiresRebalance = (items: readonly FractionalRankedItem[]): boolean => {
 };
 
 const makeRebalancedRanks = (
-  items: readonly FractionalRankedItem[],
+  items: readonly { readonly id: string }[],
 ): ReadonlyMap<string, string> => {
   if (items.length > MAX_FRACTIONAL_RANK_REBALANCE_ITEMS) {
     throw new FractionalRankError(
@@ -70,6 +70,16 @@ const makeRebalancedRanks = (
     ]),
   );
 };
+
+/**
+ * Materialize one complete logical order into canonical, evenly spaced keys.
+ * Callers own identity validation; this primitive owns only the bounded rank
+ * space and intentionally does not know about persistence or revisions.
+ */
+export const materializeFractionalRankOrder = (
+  itemIds: readonly string[],
+): ReadonlyMap<string, string> =>
+  makeRebalancedRanks(itemIds.map((id) => ({ id })));
 
 /**
  * Allocate one server-owned key from logical anchor intent. Input order is the
