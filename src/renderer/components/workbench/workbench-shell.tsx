@@ -361,6 +361,7 @@ import {
   CodexAutomationsIcon,
   CodexCloseIcon,
   CodexExpandPanelIcon,
+  CodexNewChatIcon,
   CodexPanelBottomHiddenIcon,
   CodexPanelBottomVisibleIcon,
   CodexPanelRightHiddenIcon,
@@ -390,6 +391,7 @@ import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
   CodexProjectRow,
   CodexProjectSessionList,
+  CodexSidebarActionButton,
   CodexSidebarSection,
   CodexSidebarThreadRow,
   CodexSidebarTopActionButton,
@@ -6437,7 +6439,7 @@ export function WorkbenchShell({
     return session;
   }, [projectlessSessions, queryClient, refreshProjectSessions, selectSession, sessionsByProject]);
 
-  const startNewChatInProject = useCallback(async (projectId: string) => {
+  const startNewChatInProject = useCallback(async (projectId: string | null) => {
     const session = await ensureBlankSessionForProject(projectId);
     await invoke("project-session-panels:update", session.id, "right", {
       size: { ...session.panels.right.size, fullWidth: false },
@@ -10677,7 +10679,7 @@ function SidebarThreadOrganizerSections({
   onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
-  onStartNewChatInProject: (projectId: string) => void | Promise<void>;
+  onStartNewChatInProject: (projectId: string | null) => void | Promise<void>;
   pendingStableWorktrees: readonly StableWorktreeEntry[];
   onOpenStableWorktree: (pendingWorktreeId: string) => void;
   onCreateStableWorktree: (project: Project, projectName: string) => Promise<void>;
@@ -11365,6 +11367,15 @@ function SidebarThreadOrganizerSections({
         heading="Chats"
         collapsed={chatsSectionCollapsed}
         onToggle={onToggleChatsSectionCollapsed}
+        actions={(
+          <CodexSidebarActionButton
+            label="New projectless chat"
+            data-app-action-sidebar-projectless-new-chat=""
+            onClick={() => void onStartNewChatInProject(null)}
+          >
+            <CodexNewChatIcon />
+          </CodexSidebarActionButton>
+        )}
       >
         <SidebarThreadContainerRowsContent
           containerId="chats"
@@ -11490,7 +11501,7 @@ function ProjectSessionSidebar({
   onArchiveSidebarThread?: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onToggleSidebarThreadPinned?: (item: CodexSidebarThreadItem) => void | Promise<void>;
-  onStartNewChatInProject: (projectId: string) => void | Promise<void>;
+  onStartNewChatInProject: (projectId: string | null) => void | Promise<void>;
   onOpenStableWorktree: (pendingWorktreeId: string) => void;
   onCreateStableWorktree: (project: Project, projectName: string) => Promise<void>;
   onOpenCommandPalette: () => void;
@@ -12106,8 +12117,8 @@ function SessionThreadPage({
   project: Project | null;
   projects: Project[];
   threadViewportActive: boolean;
-  onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
-  onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
+  onRefreshProjectSessions: (projectId: string | null) => Promise<ProjectSession[]>;
+  onEnsureBlankSessionForProject: (projectId: string | null) => Promise<ProjectSession>;
   onOpenPendingWorktree: (clientThreadId: string) => void;
   newThreadComposerIntent?: CodexComposerIntent | null;
   onConsumeNewThreadComposerIntent?: ThreadStageActions["onConsumeNewThreadComposerIntent"];
@@ -12160,18 +12171,23 @@ function SessionThreadPage({
   commandKeymapState?: CommandKeymapState | null;
   isMac: boolean;
 }) {
-  const projectId = session.projectId ?? project?.id ?? projects[0]?.id ?? "default";
+  const fallbackProjectId = project?.id ?? projects[0]?.id ?? "default";
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
-  const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState(projectId);
+  const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState<string | null>(
+    session.projectId,
+  );
   const [selectedNewThreadRunInTarget, setSelectedNewThreadRunInTarget] = useState<PageRunInTarget>("localProject");
   const [selectedNewThreadEnvironmentPath, setSelectedNewThreadEnvironmentPath] = useState<string | null>(null);
   const [newThreadEnvironmentOptions, setNewThreadEnvironmentOptions] = useState<WorktreeEnvironmentOption[]>([]);
   const [newThreadEnvironmentsLoading, setNewThreadEnvironmentsLoading] = useState(false);
   const [canForkCurrentThreadIntoWorktree, setCanForkCurrentThreadIntoWorktree] = useState(false);
-  const selectedNewThreadProject = projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ?? project ?? null;
+  const selectedNewThreadProject = selectedNewThreadProjectId === null
+    ? null
+    : projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ?? project ?? null;
   const startInSelectorProject = summary ? project : selectedNewThreadProject;
   const newThreadEnvironmentWorkspaceRoot = projectWorkspaceRootOrNull(startInSelectorProject);
-  const effectiveProjectId = summary ? projectId : selectedNewThreadProject?.id ?? projectId;
+  const effectiveProjectId = summary ? session.projectId : selectedNewThreadProject?.id ?? null;
+  const surfaceProjectId = effectiveProjectId ?? fallbackProjectId;
   const codexControl = useCodexAppServerControl(effectiveProjectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
@@ -12192,15 +12208,16 @@ function SessionThreadPage({
 
   useEffect(() => {
     if (summary) return;
-    setSelectedNewThreadProjectId(projectId);
+    setSelectedNewThreadProjectId(session.projectId);
     setSelectedNewThreadRunInTarget("localProject");
     setSelectedNewThreadEnvironmentPath(null);
-  }, [projectId, session.id, summary]);
+  }, [session.id, session.projectId, summary]);
 
   useEffect(() => {
+    if (selectedNewThreadProjectId === null) return;
     if (projects.some((candidate) => candidate.id === selectedNewThreadProjectId)) return;
-    setSelectedNewThreadProjectId(projectId);
-  }, [projectId, projects, selectedNewThreadProjectId]);
+    setSelectedNewThreadProjectId(session.projectId);
+  }, [projects, selectedNewThreadProjectId, session.projectId]);
 
   useEffect(() => {
     void loadModels().catch(() => undefined);
@@ -12237,6 +12254,12 @@ function SessionThreadPage({
   }, [summary?.cwd, summary?.managedWorktreePath]);
 
   const refreshNewThreadEnvironments = useCallback(async () => {
+    if (effectiveProjectId === null) {
+      setNewThreadEnvironmentsLoading(false);
+      setNewThreadEnvironmentOptions([]);
+      setSelectedNewThreadEnvironmentPath(null);
+      return;
+    }
     setNewThreadEnvironmentsLoading(true);
     try {
       const options = await invoke("worktrees:environments:list", effectiveProjectId) as WorktreeEnvironmentOption[];
@@ -12274,7 +12297,7 @@ function SessionThreadPage({
       worktreeStartMode,
       worktreeBranchPrefix,
     },
-    disabled: false,
+    disabled: effectiveProjectId === null,
     worktreeAvailable: Boolean(normalizeProjectPrimaryWorkspaceRoot(startInSelectorProject)),
     environments: newThreadEnvironmentOptions,
     environmentsLoading: newThreadEnvironmentsLoading,
@@ -12284,6 +12307,7 @@ function SessionThreadPage({
   }), [
     newThreadEnvironmentOptions,
     newThreadEnvironmentsLoading,
+    effectiveProjectId,
     selectedNewThreadEnvironmentPath,
     selectedNewThreadRunInTarget,
     startInSelectorProject,
@@ -12303,7 +12327,7 @@ function SessionThreadPage({
       onOpenTurnDiffReview,
       onOpenTurnDiffFileInSidePanel,
       onForkSessionFromTurn,
-      currentSessionProjectId: projectId,
+      currentSessionProjectId: session.projectId,
       projectId: effectiveProjectId,
       onNewThreadProjectChange: setSelectedNewThreadProjectId,
       onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
@@ -12368,7 +12392,7 @@ function SessionThreadPage({
     onRequestRenameThread,
     onArchiveThread,
     onToggleThreadPin,
-    projectId,
+    session.projectId,
     changeNewThreadEnvironment,
     refreshNewThreadEnvironments,
     effectiveProjectId,
@@ -12379,7 +12403,7 @@ function SessionThreadPage({
   return (
     <div className="h-full min-h-0">
       <ConnectedThreadStage
-        projectId={effectiveProjectId}
+        projectId={surfaceProjectId}
         sessionId={session.id}
         threadPinned={session.pinned ?? false}
         threadActionShortcuts={threadActionShortcuts}
@@ -12387,7 +12411,7 @@ function SessionThreadPage({
         isNewThreadTab={!summary}
         newThreadTarget={summary ? null : {
           projectId: effectiveProjectId,
-          projectName: selectedNewThreadProject?.name ?? effectiveProjectId,
+          projectName: selectedNewThreadProject?.name ?? "No project",
           sessionId: session.id,
           threadTitle: "New thread",
           runInTarget: selectedNewThreadRunInTarget,
@@ -12611,7 +12635,9 @@ function BackgroundAgentSessionTab({
     activeThreadId: tab.threadId,
     codexControl,
     onEnsureBlankSessionForProject: async () => activeSession,
-    onRefreshProjectSessions: onRefreshSessions,
+    onRefreshProjectSessions: (projectId) => projectId === null
+      ? Promise.resolve([])
+      : onRefreshSessions(projectId),
     onQueueingEnabledChange,
     onOpenThread,
     onOpenTurnDiffReview,
@@ -12747,7 +12773,9 @@ function SideChatSessionTab({
     activeThreadId: tab.threadId,
     codexControl,
     onEnsureBlankSessionForProject: async () => activeSession,
-    onRefreshProjectSessions: onRefreshSessions,
+    onRefreshProjectSessions: (projectId) => projectId === null
+      ? Promise.resolve([])
+      : onRefreshSessions(projectId),
     onQueueingEnabledChange,
     onOpenThread,
     onOpenTurnDiffReview,

@@ -145,7 +145,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused Codex Electron parity story for the new-chat project selector rendered in the lower composer status row.",
+          "Focused product story for the new-chat project selector rendered in the lower composer status row.",
       },
     },
   },
@@ -156,6 +156,13 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const SelectedProject: Story = {};
+
+export const ProjectlessDefault: Story = {
+  args: {
+    selectedProjectId: null,
+    state: "default",
+  },
+};
 
 export const EmptyProjects: Story = {
   args: {

@@ -67,7 +67,7 @@ export function buildCodexProjectlessThreadInstructions(input: {
 
   return [
     "### Projectless Chat",
-    "This projectless thread starts in a generated directory under the user's Documents/Codex folder.",
+    "This projectless thread starts in a generated directory under the user's Documents/Nodex folder.",
     "Prefer answering inline in chat unless using local files would make the result more useful.",
     splitOutputDirectory
       ? `Use work/ for intermediate files, scratch analysis, scripts, drafts, and temporary assets. Use ${outputRoot} only for user-facing deliverables that should appear as outputs.`

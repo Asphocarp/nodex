@@ -57,6 +57,10 @@ import { resolveAssetPath } from "./local-store/assets";
 import { parseAssetSource } from "../shared/assets";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import { codexService } from "./codex/codex-service";
+import {
+  createCodexProjectlessWorkspace,
+  parseCodexProjectlessThreadCwdInput,
+} from "./codex/codex-projectless-workspace";
 import type {
   PageOccurrenceActionInput,
   PageOccurrenceCompleteInput,
@@ -2522,6 +2526,15 @@ export function registerIpcHandlers(
   registerHandle("codex:collaboration-mode:list", () =>
     codexService.listCollaborationModes(),
   );
+
+  registerHandle("codex:projectless-thread-cwd", (_, rawInput) => {
+    const input = parseCodexProjectlessThreadCwdInput(rawInput);
+    return createCodexProjectlessWorkspace({
+      prompt: input.prompt,
+      directoryName: input.directoryName,
+      createSplitDirectories: input.createSplitDirectories !== false,
+    });
+  });
 
   registerHandle(
     "codex:thread:start-for-session",

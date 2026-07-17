@@ -3418,15 +3418,17 @@ function isConversationStreaming(conversation: CodexConversationSnapshot): boole
 
 function resolveProjectPermissionMode(
   permissionStateByProject: ReadonlyMap<string, CodexPermissionState>,
-  projectId: string,
+  projectId: string | null,
 ): CodexPermissionMode {
+  if (projectId === null) return DEFAULT_PERMISSION_STATE.mode;
   return permissionStateByProject.get(projectId)?.mode ?? DEFAULT_PERMISSION_STATE.mode;
 }
 
 function resolveProjectPermissionState(
   permissionStateByProject: ReadonlyMap<string, CodexPermissionState>,
-  projectId: string,
+  projectId: string | null,
 ): CodexPermissionState {
+  if (projectId === null) return DEFAULT_PERMISSION_STATE;
   return permissionStateByProject.get(projectId) ?? DEFAULT_PERMISSION_STATE;
 }
 
@@ -3659,15 +3661,15 @@ export class CodexAppServerManager {
     return this.composerIntentsByThread.get(threadId) ?? null;
   }
 
-  readPermissionMode(projectId: string): CodexPermissionMode {
+  readPermissionMode(projectId: string | null): CodexPermissionMode {
     return resolveProjectPermissionMode(this.permissionStateByProject, projectId);
   }
 
-  readPermissionState(projectId: string): CodexPermissionState {
+  readPermissionState(projectId: string | null): CodexPermissionState {
     return resolveProjectPermissionState(this.permissionStateByProject, projectId);
   }
 
-  readThreadStartProgress(projectId: string, sessionId: string): CodexThreadStartProgressState | null {
+  readThreadStartProgress(projectId: string | null, sessionId: string): CodexThreadStartProgressState | null {
     return this.threadStartProgressByTarget.get(getThreadStartProgressTargetKey(projectId, sessionId)) ?? null;
   }
 
@@ -6175,7 +6177,8 @@ export class CodexAppServerManager {
     }
   }
 
-  async setPermissionMode(projectId: string, mode: CodexPermissionMode): Promise<void> {
+  async setPermissionMode(projectId: string | null, mode: CodexPermissionMode): Promise<void> {
+    if (projectId === null) return;
     const current = this.permissionStateByProject.get(projectId);
     if (current?.mode === mode) {
       return;
@@ -6438,7 +6441,8 @@ export class CodexAppServerManager {
     // Permission state is loaded lazily per project from the main process.
   }
 
-  async loadPermissionState(projectId: string): Promise<CodexPermissionState> {
+  async loadPermissionState(projectId: string | null): Promise<CodexPermissionState> {
+    if (projectId === null) return DEFAULT_PERMISSION_STATE;
     const inFlight = this.permissionStateLoadsInFlightByProject.get(projectId);
     if (inFlight) {
       return await inFlight;
@@ -10053,16 +10057,14 @@ export function useCodexDictationState(): CodexDictationStateSnapshot {
   );
 }
 
-export function useCodexPermissionMode(projectId: string): CodexPermissionMode {
+export function useCodexPermissionMode(projectId: string | null): CodexPermissionMode {
   return useCodexPermissionState(projectId).mode;
 }
 
-export function useCodexPermissionState(projectId: string): CodexPermissionState {
+export function useCodexPermissionState(projectId: string | null): CodexPermissionState {
   const manager = useDefaultCodexAppServerManager();
   useEffect(() => {
-    if (!projectId) {
-      return;
-    }
+    if (projectId === null) return;
 
     void manager.loadPermissionState(projectId).catch(() => {
       // main-process authority will retry on the next interaction
@@ -10085,9 +10087,7 @@ export function useCodexThreadStartProgress(
 ): Omit<CodexThreadStartProgressState, "outputCarriageReturnPending"> | null {
   return useManagerControlSelection(
     (manager) => {
-      if (!projectId || !sessionId) {
-        return null;
-      }
+      if (!sessionId) return null;
 
       const progress = manager.readThreadStartProgress(projectId, sessionId);
       if (!progress) {
@@ -10109,7 +10109,7 @@ export function useCodexThreadStartProgress(
   );
 }
 
-export function useCodexAppServerControl(activeProjectId: string) {
+export function useCodexAppServerControl(activeProjectId: string | null) {
   const manager = useDefaultCodexAppServerManager();
   const availableModels = useCodexAvailableModels();
   const permissionState = useCodexPermissionState(activeProjectId);
@@ -10177,7 +10177,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
       ...requestSettings,
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     });
-    if (result.kind === "started") {
+    if (result.kind === "started" && input.projectId !== null) {
       await manager.loadThreads(input.projectId);
     }
     return result;
@@ -10434,7 +10434,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
     [manager],
   );
   const setPermissionMode = useCallback(
-    async (projectId: string, mode: CodexPermissionMode) => manager.setPermissionMode(projectId, mode),
+    async (projectId: string | null, mode: CodexPermissionMode) => manager.setPermissionMode(projectId, mode),
     [manager],
   );
   const setThreadModel = useCallback((model: string) => {

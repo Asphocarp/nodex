@@ -2,15 +2,15 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import type {
+  CodexProjectlessThreadCwdInput,
+  CodexProjectlessWorkspace,
+} from "../../shared/types";
+
+export type { CodexProjectlessWorkspace } from "../../shared/types";
 
 const CODEX_PROJECTLESS_NUMERIC_ATTEMPTS = 100;
 const CODEX_PROJECTLESS_UNIQUE_ATTEMPTS = 5;
-
-export interface CodexProjectlessWorkspace {
-  readonly cwd: string;
-  readonly outputDirectory: string;
-  readonly workspaceRoot: string;
-}
 
 export interface CodexProjectlessWorkspaceFileSystem {
   readonly createDirectory: (input: {
@@ -49,7 +49,60 @@ const nodeProjectlessWorkspaceFileSystem: CodexProjectlessWorkspaceFileSystem = 
 export function resolveCodexProjectlessWorkspaceRoot(
   homeDirectory: string = homedir(),
 ): string {
-  return path.join(homeDirectory, "Documents", "Codex");
+  return path.join(homeDirectory, "Documents", "Nodex");
+}
+
+function parseOptionalNullableStringField(
+  input: Record<string, unknown>,
+  key: "directoryName" | "prompt",
+): string | null | undefined {
+  const value = input[key];
+  if (value === undefined || value === null || typeof value === "string") return value;
+  throw new Error(`${key} must be a string, null, or omitted`);
+}
+
+export function parseCodexProjectlessThreadCwdInput(
+  input: unknown,
+): CodexProjectlessThreadCwdInput {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("Projectless thread cwd input must be an object");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  const createSplitDirectories = candidate.createSplitDirectories;
+  if (
+    createSplitDirectories !== undefined
+    && typeof createSplitDirectories !== "boolean"
+  ) {
+    throw new Error("createSplitDirectories must be a boolean or omitted");
+  }
+
+  return {
+    prompt: parseOptionalNullableStringField(candidate, "prompt"),
+    directoryName: parseOptionalNullableStringField(candidate, "directoryName"),
+    ...(createSplitDirectories === undefined ? {} : { createSplitDirectories }),
+  };
+}
+
+export function parseCodexProjectlessWorkspace(
+  input: unknown,
+): CodexProjectlessWorkspace {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("Projectless workspace must be an object");
+  }
+
+  const candidate = input as Record<string, unknown>;
+  for (const key of ["cwd", "outputDirectory", "workspaceRoot"] as const) {
+    if (typeof candidate[key] !== "string" || candidate[key].trim().length === 0) {
+      throw new Error(`Projectless workspace ${key} must be a non-empty string`);
+    }
+  }
+
+  return {
+    cwd: candidate.cwd as string,
+    outputDirectory: candidate.outputDirectory as string,
+    workspaceRoot: candidate.workspaceRoot as string,
+  };
 }
 
 export function formatCodexProjectlessLocalDate(date: Date = new Date()): string {

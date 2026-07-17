@@ -210,6 +210,8 @@ import type {
   CodexPermissionRequestResponse,
   CodexProtocolRequestId,
   CodexPermissionState,
+  CodexProjectlessThreadCwdInput,
+  CodexProjectlessWorkspace,
   CodexSteerTurnInput,
   CodexSideChatStartInput,
   CodexSideChatStartResult,
@@ -1265,6 +1267,10 @@ export interface IpcApi {
   "codex:collaboration-mode:list": {
     args: [];
     result: CodexCollaborationModePreset[];
+  };
+  "codex:projectless-thread-cwd": {
+    args: [input: CodexProjectlessThreadCwdInput];
+    result: CodexProjectlessWorkspace;
   };
   "codex:thread:start-for-session": {
     args: [CodexThreadStartForSessionInput];

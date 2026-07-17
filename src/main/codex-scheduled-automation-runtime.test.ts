@@ -123,14 +123,15 @@ describe("codex scheduled automation runtime helpers", () => {
 
   test("builds split projectless output instructions", () => {
     const instructions = buildCodexProjectlessThreadInstructions({
-      cwd: "/Users/test/Documents/Codex/2026-07-08/daily/work",
-      outputDirectory: "/Users/test/Documents/Codex/2026-07-08/daily/outputs",
-      workspaceBrowserRoot: "/Users/test/Documents/Codex",
+      cwd: "/Users/test/Documents/Nodex/2026-07-08/daily/work",
+      outputDirectory: "/Users/test/Documents/Nodex/2026-07-08/daily/outputs",
+      workspaceBrowserRoot: "/Users/test/Documents/Nodex",
     });
 
     expect(instructions.includes("### Projectless Chat")).toBe(true);
     expect(instructions.includes("Use work/ for intermediate files")).toBe(true);
-    expect(instructions.includes("/Users/test/Documents/Codex/2026-07-08/daily/outputs")).toBe(true);
+    expect(instructions.includes("Documents/Nodex")).toBe(true);
+    expect(instructions.includes("/Users/test/Documents/Nodex/2026-07-08/daily/outputs")).toBe(true);
     expect(instructions.includes("Do not write directly in the home directory")).toBe(true);
   });
 

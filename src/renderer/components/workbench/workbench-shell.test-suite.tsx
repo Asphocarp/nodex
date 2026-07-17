@@ -2373,8 +2373,9 @@ function renderWorkbench({
       return updated;
     }
     if (channel === "project-sessions:create") {
-      const input = (args[0] ?? {}) as { projectId: string; noThreadFallbackTitle?: string };
-      const existingSessions = sessionState[input.projectId] ?? [];
+      const input = (args[0] ?? {}) as { projectId: string | null; noThreadFallbackTitle?: string };
+      const sessionStateKey = input.projectId ?? projectlessSessionStateKey;
+      const existingSessions = sessionState[sessionStateKey] ?? [];
       const insertOrder = 0;
       const shiftedSessions = existingSessions.map((session) => (
         session.order >= insertOrder
@@ -2382,7 +2383,7 @@ function renderWorkbench({
           : session
       ));
       const session = makeSession({
-        id: `session:${input.projectId}:created`,
+        id: `session:${input.projectId ?? "projectless"}:created`,
         projectId: input.projectId,
         noThreadFallbackTitle: input.noThreadFallbackTitle ?? "New thread",
         displayTitle: input.noThreadFallbackTitle ?? "New thread",
@@ -2393,7 +2394,7 @@ function renderWorkbench({
       });
       sessionState = {
         ...sessionState,
-        [input.projectId]: sortProjectSessionsForTest([...shiftedSessions, session]),
+        [sessionStateKey]: sortProjectSessionsForTest([...shiftedSessions, session]),
       };
       return session;
     }
@@ -4340,6 +4341,39 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:created"')).toBe(true);
     expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
     expect(screen.queryByTestId("session-right-panel")).toBe(null);
+  });
+
+  test("Chats section creates a projectless blank-session composer", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New projectless chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const props = (globalThis as {
+      __lastConnectedThreadStageProps?: Record<string, unknown>;
+    }).__lastConnectedThreadStageProps;
+    expect(invokeCalls.some((call) => (
+      call[0] === "project-sessions:create"
+      && JSON.stringify(call[1]) === JSON.stringify({
+        projectId: null,
+        noThreadFallbackTitle: "New thread",
+      })
+    ))).toBe(true);
+    expect(props?.isNewThreadTab).toBe(true);
+    expect(props?.newThreadTarget).toMatchObject({
+      projectId: null,
+      projectName: "No project",
+      sessionId: "session:projectless:created",
+      runInTarget: "localProject",
+    });
+    expect(props?.newThreadProjectSelector).toMatchObject({
+      selectedProjectId: null,
+    });
   });
 
   test("new project chats render above older project chats", async () => {

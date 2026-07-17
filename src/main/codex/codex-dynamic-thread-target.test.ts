@@ -18,9 +18,9 @@ function project(
 
 function workspace(id: string): CodexProjectlessWorkspace {
   return {
-    cwd: `/Documents/Codex/2026-07-11/${id}`,
-    outputDirectory: `/Documents/Codex/2026-07-11/${id}/outputs`,
-    workspaceRoot: "/Documents/Codex",
+    cwd: `/Documents/Nodex/2026-07-11/${id}`,
+    outputDirectory: `/Documents/Nodex/2026-07-11/${id}/outputs`,
+    workspaceRoot: "/Documents/Nodex",
   };
 }
 
@@ -131,20 +131,20 @@ describe("Codex dynamic create-thread target resolution", () => {
     expect(JSON.stringify(empty)).toBe(JSON.stringify({
       launchMode: "direct",
       projectId: "empty",
-      cwd: "/Documents/Codex/2026-07-11/empty-task",
-      workspaceRoots: ["/Documents/Codex"],
+      cwd: "/Documents/Nodex/2026-07-11/empty-task",
+      workspaceRoots: ["/Documents/Nodex"],
       workspaceKind: "project",
-      projectlessOutputDirectory: "/Documents/Codex/2026-07-11/empty-task/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Codex",
+      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/empty-task/outputs",
+      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
     }));
     expect(JSON.stringify(many)).toBe(JSON.stringify({
       launchMode: "direct",
       projectId: "many",
-      cwd: "/Documents/Codex/2026-07-11/many-task",
-      workspaceRoots: ["/Documents/Codex", "/repo/a", "/repo/b"],
+      cwd: "/Documents/Nodex/2026-07-11/many-task",
+      workspaceRoots: ["/Documents/Nodex", "/repo/a", "/repo/b"],
       workspaceKind: "project",
-      projectlessOutputDirectory: "/Documents/Codex/2026-07-11/many-task/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Codex",
+      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/many-task/outputs",
+      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
     }));
     expect(JSON.stringify(deps.workspaceInputs)).toBe(JSON.stringify([
       { createSplitDirectories: true, prompt: "empty prompt" },
@@ -172,20 +172,20 @@ describe("Codex dynamic create-thread target resolution", () => {
     expect(JSON.stringify(first)).toBe(JSON.stringify({
       launchMode: "direct",
       projectId: null,
-      cwd: "/Documents/Codex/2026-07-11/first",
-      workspaceRoots: ["/Documents/Codex"],
+      cwd: "/Documents/Nodex/2026-07-11/first",
+      workspaceRoots: ["/Documents/Nodex"],
       workspaceKind: "projectless",
-      projectlessOutputDirectory: "/Documents/Codex/2026-07-11/first/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Codex",
+      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/first/outputs",
+      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
     }));
     expect(JSON.stringify(second)).toBe(JSON.stringify({
       launchMode: "direct",
       projectId: null,
-      cwd: "/Documents/Codex/2026-07-11/second",
-      workspaceRoots: ["/Documents/Codex"],
+      cwd: "/Documents/Nodex/2026-07-11/second",
+      workspaceRoots: ["/Documents/Nodex"],
       workspaceKind: "projectless",
-      projectlessOutputDirectory: "/Documents/Codex/2026-07-11/second/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Codex",
+      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/second/outputs",
+      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
     }));
     expect(JSON.stringify(deps.workspaceInputs)).toBe(JSON.stringify([
       {

@@ -180,7 +180,7 @@ export interface ThreadStageRouteInput {
   projectWorkspacePath?: string | null;
   isNewThreadTab: boolean;
   newThreadTarget: {
-    projectId: string;
+    projectId: string | null;
     projectName: string;
     sessionId: string;
     threadTitle?: string;
@@ -240,7 +240,7 @@ export interface ThreadStageActions {
   onQueueingEnabledChange: (enabled: boolean) => void;
   onComposerIdeContextEnabledChange?: (enabled: boolean) => void;
   onStartThreadForSession?: (input: {
-    projectId: string;
+    projectId: string | null;
     sessionId: string;
     prompt: string;
     promptInput?: CodexPromptInput;

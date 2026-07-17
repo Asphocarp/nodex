@@ -1,10 +1,18 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
   GIT_ACTION_CREATE_PR_PROMPT,
 } from "@/lib/git-action-prompts";
 import type { CodexApprovalResponse, CodexProtocolRequestId } from "@/lib/types";
 import { createThreadStageActions, type ThreadActionControllerInput } from "./thread-action-controller";
+
+const { invokeMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => ({
+  invoke: invokeMock,
+}));
 
 function buildInput(overrides?: Partial<ThreadActionControllerInput>): ThreadActionControllerInput {
   const settingsUpdates: unknown[] = [];
@@ -232,6 +240,60 @@ describe("createThreadStageActions settings routing", () => {
     expect(JSON.stringify(calls)).toBe(JSON.stringify([
       "refresh:project_1",
     ]));
+  });
+
+  test("allocates a split workspace before starting a projectless session", async () => {
+    const startInputs: unknown[] = [];
+    const refreshScopes: Array<string | null> = [];
+    const workspace = {
+      cwd: "/Users/test/Documents/Nodex/2026-07-18/research-projectless-launch",
+      outputDirectory:
+        "/Users/test/Documents/Nodex/2026-07-18/research-projectless-launch/outputs",
+      workspaceRoot: "/Users/test/Documents/Nodex",
+    };
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(workspace);
+    const input = buildInput({
+      activeThreadId: null,
+      currentSessionProjectId: null,
+      projectId: null,
+      codexControl: {
+        startThreadForSession: async (startInput: unknown) => {
+          startInputs.push(startInput);
+          return {
+            kind: "started" as const,
+            detail: { threadId: "thread-projectless" },
+          };
+        },
+      } as unknown as ThreadActionControllerInput["codexControl"],
+      onRefreshProjectSessions: async (projectId) => {
+        refreshScopes.push(projectId);
+        return [];
+      },
+    });
+    const actions = createThreadStageActions(input);
+
+    await actions.onStartThreadForSession?.({
+      projectId: null,
+      sessionId: "session-projectless",
+      prompt: "Research projectless launch behavior",
+      runInTarget: "localProject",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("codex:projectless-thread-cwd", {
+      prompt: "Research projectless launch behavior",
+      createSplitDirectories: true,
+    });
+    expect(startInputs).toHaveLength(1);
+    expect(startInputs[0]).toMatchObject({
+      projectId: null,
+      sessionId: "session-projectless",
+      prompt: "Research projectless launch behavior",
+      projectlessWorkspace: workspace,
+      runInTarget: "localProject",
+      collaborationMode: "default",
+    });
+    expect(refreshScopes).toStrictEqual([null]);
   });
 
   test("cleans a materialized goal when cross-project session preflight fails", async () => {

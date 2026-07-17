@@ -826,6 +826,7 @@ function createService(options?: {
   threadCodexConfigBuilder?: (
     cwd: string | null,
   ) => Promise<Record<string, boolean | string | number | null> | null>;
+  projectlessHomeDirectory?: () => string;
   resolveThreadGoalAttachmentsRoot?: () => Promise<string> | string;
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   browserTransferStateReader?: {
@@ -844,6 +845,8 @@ function createService(options?: {
       options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
     threadCodexConfigBuilder: options?.threadCodexConfigBuilder,
+    projectlessHomeDirectory:
+      options?.projectlessHomeDirectory ?? (() => DEFAULT_TEST_LOCAL_STORE_ROOT),
     resolveThreadGoalAttachmentsRoot:
       options?.resolveThreadGoalAttachmentsRoot
       ?? (() => DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT),
@@ -5793,7 +5796,7 @@ describe("codex-service scheduled automations", () => {
           cwd?: string;
           developerInstructions?: string | null;
         } | undefined;
-        const expectedRoot = path.join(tempHome, "Documents", "Codex");
+        const expectedRoot = path.join(tempHome, "Documents", "Nodex");
         const expectedRunRoot = path.join(expectedRoot, "2026-07-08", "draft-a-status-update");
         const expectedCwd = expectedRunRoot;
         const expectedOutputs = path.join(expectedRunRoot, "outputs");
@@ -10382,6 +10385,96 @@ describe("codex-service session-backed transcript recovery", () => {
     }
   });
 
+  test("projectless resume migrates its persisted generated workspace to Documents/Nodex", async () => {
+    const homeDirectory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-projectless-resume-migration-"),
+    );
+    const threadId = "thr_projectless_resume_migration";
+    const legacyWorkspaceRoot = path.join(homeDirectory, "Documents", "Codex");
+    const legacyCwd = path.join(legacyWorkspaceRoot, "2026-07-18", "example");
+    const legacyOutputDirectory = path.join(legacyCwd, "outputs");
+    const expectedWorkspaceRoot = path.join(homeDirectory, "Documents", "Nodex");
+    const expectedCwd = path.join(expectedWorkspaceRoot, "2026-07-18", "example");
+    const expectedOutputDirectory = path.join(expectedCwd, "outputs");
+    fs.mkdirSync(legacyOutputDirectory, { recursive: true });
+    fs.writeFileSync(path.join(legacyOutputDirectory, "report.md"), "preserved");
+    upsertCodexThread({
+      projectId: null,
+      threadId,
+      threadName: "Legacy projectless task",
+      threadPreview: "Migrate the generated workspace",
+      modelProvider: "openai",
+      cwd: legacyCwd,
+      projectlessOutputDirectory: legacyOutputDirectory,
+      projectlessWorkspaceBrowserRoot: legacyWorkspaceRoot,
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const service = createService({ projectlessHomeDirectory: () => homeDirectory });
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const serviceInternals = service as unknown as {
+      resumeConversationRecord: (id: string) => Promise<CodexThreadDetail | null>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    client.start = async () => undefined;
+    client.request = async (method, params) => {
+      requests.push({ method, params });
+      if (method === "thread/read") {
+        return { thread: makeProtocolThread(threadId, legacyCwd, []) };
+      }
+      if (method === "thread/resume") {
+        const response = makeCanonicalResumeResponse({
+          threadId,
+          initialTurnsPage: {
+            data: [],
+            nextCursor: null,
+            backwardsCursor: null,
+          },
+          runtimeWorkspaceRoots: [expectedWorkspaceRoot],
+        });
+        response.thread.cwd = expectedCwd;
+        response.cwd = expectedCwd;
+        response.sandbox = {
+          type: "workspaceWrite",
+          writableRoots: [expectedWorkspaceRoot],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        };
+        return response;
+      }
+      throw new Error(`Unexpected client request: ${method}`);
+    };
+
+    try {
+      const detail = await serviceInternals.resumeConversationRecord(threadId);
+      const resumeParams = requests.find(({ method }) => method === "thread/resume")
+        ?.params as Record<string, unknown> | undefined;
+      const persisted = getCodexThread(threadId);
+
+      expect(resumeParams?.cwd).toBe(expectedCwd);
+      expect(resumeParams?.runtimeWorkspaceRoots).toStrictEqual([expectedWorkspaceRoot]);
+      expect(detail?.cwd).toBe(expectedCwd);
+      expect(persisted?.projectId).toBe(null);
+      expect(persisted?.cwd).toBe(expectedCwd);
+      expect(persisted?.projectlessOutputDirectory).toBe(expectedOutputDirectory);
+      expect(persisted?.projectlessWorkspaceBrowserRoot).toBe(expectedWorkspaceRoot);
+      expect(fs.readFileSync(path.join(expectedOutputDirectory, "report.md"), "utf8"))
+        .toBe("preserved");
+      expect(fs.existsSync(legacyCwd)).toBe(false);
+    } finally {
+      await service.shutdown();
+      fs.rmSync(homeDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("projectless cold resume stays read-only when persisted roots are its only roots", async () => {
     const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-projectless-retained-roots-"));
     setCodexThreadWritableRootsPathOverrideForTests(path.join(temporaryDirectory, "roots.json"));
@@ -11399,9 +11492,13 @@ describe("codex-service session-backed transcript recovery", () => {
   test("resume hydrates raw turns from thread/read only when the initial page is absent", async () => {
     const ran = await withTempDatabase(async () => {
       const threadId = "thr_canonical_read_fallback";
+      const persistedCwd = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-canonical-read-fallback-"),
+      );
       upsertCodexThread({
+        projectId: null,
         threadId,
-        cwd: "/workspace/project/subdir",
+        cwd: persistedCwd,
         modelProvider: "openai",
       });
       const service = createService();
@@ -11428,6 +11525,8 @@ describe("codex-service session-backed transcript recovery", () => {
               "/workspace/shared",
             ],
           });
+          response.cwd = path.dirname(persistedCwd);
+          response.thread.cwd = path.dirname(persistedCwd);
           response.thread.name = "Resume response metadata";
           return response;
         }
@@ -11435,7 +11534,7 @@ describe("codex-service session-backed transcript recovery", () => {
           const includeTurns = (params as { includeTurns?: boolean }).includeTurns === true;
           if (!includeTurns) {
             return {
-              thread: makeProtocolThread(threadId, "/workspace/project", []),
+              thread: makeProtocolThread(threadId, path.dirname(persistedCwd), []),
             };
           }
           const fallbackThread = makeProtocolThread(
@@ -11456,7 +11555,7 @@ describe("codex-service session-backed transcript recovery", () => {
         const detail = await service.resumeThread(threadId);
         expect(detail?.turns[0]?.turnId ?? null).toBe("turn_from_read");
         expect(detail?.threadName ?? null).toBe("Resume response metadata");
-        expect(detail?.cwd ?? null).toBe("/workspace/project/subdir");
+        expect(detail?.cwd ?? null).toBe(persistedCwd);
         expect(requests.map((request) => request.method).join(",")).toBe(
           "thread/read,thread/resume,thread/read,thread/goal/get",
         );
@@ -11471,9 +11570,9 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(canonicalTurn?.sidecar.params.model ?? null).toBe("gpt-canonical");
         expect(canonicalTurn?.sidecar.params.permissions ?? null).toBe(":workspace");
         expect(JSON.stringify(canonicalTurn?.sidecar.params.runtimeWorkspaceRoots ?? [])).toBe(
-          JSON.stringify(["/workspace/project/subdir"]),
+          JSON.stringify([persistedCwd]),
         );
-        expect(canonicalTurn?.sidecar.params.cwd ?? null).toBe("/workspace/project/subdir");
+        expect(canonicalTurn?.sidecar.params.cwd ?? null).toBe(persistedCwd);
         expect(canonicalTurn?.sidecar.params.sandboxPolicy?.type ?? null).toBe("workspaceWrite");
         expect(
           canonical?.sidecar.hydrationContext?.currentPermissions.activePermissionProfile?.id
@@ -11484,6 +11583,7 @@ describe("codex-service session-backed transcript recovery", () => {
         )).toBe(JSON.stringify(["/workspace/project", "/workspace/shared"]));
       } finally {
         await service.shutdown();
+        fs.rmSync(persistedCwd, { recursive: true, force: true });
       }
     });
 
@@ -19312,6 +19412,84 @@ describe("codex-service startThreadForSession", () => {
         const cwd = (threadStart?.params as { cwd?: string } | undefined)?.cwd ?? "";
         expect(result.detail.threadId).toBe("thr_projectless_session");
         expect(cwd.includes(path.join("projectless-workspaces", project.id))).toBe(true);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("starts a projectless session in its host-allocated Nodex workspace", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({
+        projectId: null,
+        noThreadFallbackTitle: "Projectless chat",
+      });
+      const workspaceRoot = "/Users/test/Documents/Nodex";
+      const cwd = `${workspaceRoot}/2026-07-18/research-projectless-launch`;
+      const outputDirectory = `${cwd}/outputs`;
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/start") {
+          return makeCanonicalThreadStartResponse({
+            threadId: "thr_native_projectless_session",
+            cwd,
+          });
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_native_projectless_session",
+              status: "in_progress",
+              items: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        const result = await service.startThreadForSession({
+          projectId: null,
+          sessionId: session.id,
+          prompt: "Research projectless launch behavior",
+          projectlessWorkspace: {
+            cwd,
+            outputDirectory,
+            workspaceRoot,
+          },
+          skipAutoTitleGeneration: true,
+        });
+        if (result.kind !== "started") {
+          throw new Error("Expected an immediately started projectless thread");
+        }
+
+        const threadStart = requests.find((request) => request.method === "thread/start")
+          ?.params as Record<string, unknown> | undefined;
+        const turnStart = requests.find((request) => request.method === "turn/start")
+          ?.params as Record<string, unknown> | undefined;
+        const linked = getProjectSession(session.id)?.thread;
+
+        expect(result.detail.threadId).toBe("thr_native_projectless_session");
+        expect(threadStart?.cwd).toBe(cwd);
+        expect(threadStart?.runtimeWorkspaceRoots).toStrictEqual([workspaceRoot]);
+        expect(String(threadStart?.developerInstructions)).toContain("Documents/Nodex");
+        expect(turnStart?.cwd).toBe(cwd);
+        expect(turnStart?.responsesapiClientMetadata).toStrictEqual({
+          workspace_kind: "projectless",
+        });
+        expect(linked?.projectId ?? null).toBe(null);
+        expect(linked?.cwd).toBe(cwd);
+        expect(linked?.projectlessOutputDirectory).toBe(outputDirectory);
+        expect(linked?.projectlessWorkspaceBrowserRoot).toBe(workspaceRoot);
       } finally {
         await service.shutdown();
       }

@@ -1786,10 +1786,23 @@ export interface CodexThreadStartMemoryPreferences {
   useMemories: boolean;
 }
 
+export interface CodexProjectlessWorkspace {
+  cwd: string;
+  outputDirectory: string;
+  workspaceRoot: string;
+}
+
+export interface CodexProjectlessThreadCwdInput {
+  prompt?: string | null;
+  directoryName?: string | null;
+  createSplitDirectories?: boolean;
+}
+
 export interface CodexThreadStartForSessionInput {
-  projectId: string;
+  projectId: string | null;
   sessionId: string;
   prompt: string;
+  projectlessWorkspace?: CodexProjectlessWorkspace;
   promptInput?: CodexPromptInput;
   threadGoalDraft?: CodexThreadGoalDraftInput;
   threadGoalMaterializedDraft?: CodexThreadGoalMaterializedDraft;

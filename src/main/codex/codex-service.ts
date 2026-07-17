@@ -136,6 +136,7 @@ import type {
   CodexPermissionMode,
   CodexPermissionState,
   CodexPersonality,
+  CodexProjectlessWorkspace,
   CodexQueuedFollowUp,
   CodexReviewDiffCommentAttachment,
   CodexRateLimitsSnapshot,
@@ -645,7 +646,14 @@ import {
   persistCodexWorktreeShellEnvironment,
   runCodexWorktreeSetupScript,
 } from "./codex-worktree-shell-environment";
-import { createCodexProjectlessWorkspace } from "./codex-projectless-workspace";
+import {
+  createCodexProjectlessWorkspace,
+  parseCodexProjectlessWorkspace,
+} from "./codex-projectless-workspace";
+import {
+  migrateLegacyCodexProjectlessWorkspace,
+  repairCodexProjectlessWorkspace,
+} from "./codex-projectless-workspace-repair";
 import {
   listMissingCodexProjectMoveSources,
   resolveCodexProjectlessThreadWorkspaceMove,
@@ -1245,6 +1253,8 @@ interface ResolvedThreadRunLocation {
   workspaceRoots: string[];
   runInTarget: PageRunInTarget;
   managedWorktreePath: string | null;
+  projectlessOutputDirectory?: string | null;
+  projectlessWorkspaceBrowserRoot?: string | null;
 }
 
 interface ThreadStartProgressUpdate {
@@ -1366,6 +1376,7 @@ type CodexServiceOptions = {
   threadCodexConfigBuilder?: (
     cwd: string | null,
   ) => Promise<NonNullable<ThreadStartParams["config"]> | null>;
+  projectlessHomeDirectory?: () => string;
   resolveThreadGoalAttachmentsRoot?: () => Promise<string> | string;
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   browserTransferStateReader?: {
@@ -2706,6 +2717,7 @@ export class CodexService extends EventEmitter {
   private readonly threadCodexConfigBuilder: ((
     cwd: string | null,
   ) => Promise<NonNullable<ThreadStartParams["config"]> | null>) | null;
+  private readonly projectlessHomeDirectory: () => string;
   private readonly resolveThreadGoalAttachmentsRoot: () => Promise<string>;
   private readonly pastedTextAttachmentManagersByRoot = new Map<
     string,
@@ -2858,6 +2870,7 @@ export class CodexService extends EventEmitter {
     this.projectAwareDeveloperInstructionsResolver =
       options?.projectAwareDeveloperInstructionsResolver ?? null;
     this.threadCodexConfigBuilder = options?.threadCodexConfigBuilder ?? null;
+    this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.resolveThreadGoalAttachmentsRoot = async () => {
       const configuredRoot = options?.resolveThreadGoalAttachmentsRoot?.();
       if (configuredRoot !== undefined) return await configuredRoot;
@@ -5940,7 +5953,7 @@ export class CodexService extends EventEmitter {
   }
 
   private emitThreadStartProgress(input: {
-    projectId: string;
+    projectId: string | null;
     sessionId: string | null;
     runInTarget: PageRunInTarget;
     threadId?: string | null;
@@ -10017,7 +10030,8 @@ export class CodexService extends EventEmitter {
   }
 
   private async resolveSessionThreadRunLocation(input: {
-    projectId: string;
+    projectId: string | null;
+    projectlessWorkspace?: CodexThreadStartForSessionInput["projectlessWorkspace"];
     sessionId: string;
     sessionTitle?: string | null;
     threadTitle?: string | null;
@@ -10032,6 +10046,21 @@ export class CodexService extends EventEmitter {
 
     if (runInTarget === "cloud") {
       throw new Error("Cloud run target is not available yet. Choose Work locally or New worktree.");
+    }
+
+    if (input.projectId === null) {
+      if (runInTarget !== "localProject") {
+        throw new Error("Projectless threads can only work locally");
+      }
+      const workspace = parseCodexProjectlessWorkspace(input.projectlessWorkspace);
+      return {
+        cwd: workspace.cwd,
+        workspaceRoots: [workspace.workspaceRoot],
+        runInTarget: "localProject",
+        managedWorktreePath: null,
+        projectlessOutputDirectory: workspace.outputDirectory,
+        projectlessWorkspaceBrowserRoot: workspace.workspaceRoot,
+      };
     }
 
     if (runInTarget !== "newWorktree") {
@@ -13082,7 +13111,7 @@ export class CodexService extends EventEmitter {
   }
 
   private async enqueueSessionPendingWorktreeStart(input: {
-    readonly request: CodexThreadStartForSessionInput;
+    readonly request: CodexThreadStartForSessionInput & { readonly projectId: string };
     readonly session: ProjectSession;
     readonly preparedPrompt: PreparedPromptForTurn;
     readonly effectiveModel: string | null;
@@ -13387,6 +13416,12 @@ export class CodexService extends EventEmitter {
       if (session.projectId !== input.projectId) {
         throw new Error("Thread project must match the owning session project");
       }
+      if (input.projectId === null && requestedRunInTarget !== "localProject") {
+        throw new Error("Projectless threads can only work locally");
+      }
+      if (input.projectId !== null && input.projectlessWorkspace !== undefined) {
+        throw new Error("Project threads cannot use a projectless workspace");
+      }
 
       const preparedPrompt = await this.preparePromptForTurn(
         input.prompt,
@@ -13406,8 +13441,11 @@ export class CodexService extends EventEmitter {
         ? normalizeCodexManualThreadTitle(input.threadName)
         : null;
       if (requestedRunInTarget === "newWorktree") {
+        if (input.projectId === null) {
+          throw new Error("Projectless threads can only work locally");
+        }
         return await this.enqueueSessionPendingWorktreeStart({
-          request: input,
+          request: { ...input, projectId: input.projectId },
           session,
           preparedPrompt,
           effectiveModel,
@@ -13427,6 +13465,7 @@ export class CodexService extends EventEmitter {
       });
       const runLocation = await this.resolveSessionThreadRunLocation({
         projectId: input.projectId,
+        projectlessWorkspace: input.projectlessWorkspace,
         sessionId: input.sessionId,
         sessionTitle: session.noThreadFallbackTitle,
         threadTitle: explicitThreadName,
@@ -13499,6 +13538,17 @@ export class CodexService extends EventEmitter {
         effectivePermissionState.effectivePreset === "custom"
           ? null
           : threadPermissionOverrides;
+      const projectlessDeveloperInstructions = input.projectId === null
+        ? buildCodexProjectlessThreadInstructions({
+            cwd: runLocation.cwd,
+            outputDirectory: runLocation.projectlessOutputDirectory ?? null,
+            workspaceBrowserRoot: runLocation.projectlessWorkspaceBrowserRoot ?? null,
+          })
+        : null;
+      const additionalDeveloperInstructions = [
+        input.additionalDeveloperInstructions?.trim() || null,
+        projectlessDeveloperInstructions,
+      ].filter((value): value is string => value !== null).join("\n\n") || null;
       const threadStartParams: ThreadStartParams = {
         ...await this.buildNewConversationParams({
           model: effectiveModel ?? null,
@@ -13507,6 +13557,10 @@ export class CodexService extends EventEmitter {
           permissions: launchPermissions,
           defaultFeatureOverrides: CODEX_DEFAULT_FEATURE_OVERRIDES,
           personality: this.personality,
+          baseInstructions: input.baseInstructions,
+          additionalDeveloperInstructions,
+          mode: input.mode,
+          threadStartKind: input.threadStartKind,
         }),
         runtimeWorkspaceRoots: runLocation.workspaceRoots,
       };
@@ -13534,6 +13588,9 @@ export class CodexService extends EventEmitter {
         }, {
           fallbackCwd: effectiveCwd,
           managedWorktreePath: runLocation.managedWorktreePath,
+          projectlessOutputDirectory: runLocation.projectlessOutputDirectory ?? null,
+          projectlessWorkspaceBrowserRoot:
+            runLocation.projectlessWorkspaceBrowserRoot ?? null,
         });
 
         if (!link) {
@@ -13643,7 +13700,7 @@ export class CodexService extends EventEmitter {
         clientUserMessageId,
         input: firstTurnInput,
         responsesapiClientMetadata: {
-          workspace_kind: "project",
+          workspace_kind: input.projectId === null ? "projectless" : "project",
         },
         cwd: effectiveCwd,
         ...(preparedPrompt.additionalContext ? { additionalContext: preparedPrompt.additionalContext } : {}),
@@ -13713,7 +13770,7 @@ export class CodexService extends EventEmitter {
         objective: materializedGoalObjective,
         rawDraft: input.threadGoalDraft ?? null,
       });
-      if (runLocation.runInTarget === "newWorktree") {
+      if (runLocation.runInTarget === "newWorktree" && input.projectId !== null) {
         this.createHeartbeatAutomationForStartedWorktreeThread({
           projectId: input.projectId,
           sessionId: input.sessionId,
@@ -14104,6 +14161,89 @@ export class CodexService extends EventEmitter {
     return result.thread;
   }
 
+  private persistProjectlessWorkspaceForThread(
+    threadId: string,
+    workspace: CodexProjectlessWorkspace,
+  ): ThreadRef | null {
+    const existing = this.getThreadLinkSafely(threadId);
+    if (!existing || existing.projectId !== null) return this.parseThreadRef(threadId);
+
+    const workspaceChanged = existing.cwd !== workspace.cwd
+      || existing.projectlessOutputDirectory !== workspace.outputDirectory
+      || existing.projectlessWorkspaceBrowserRoot !== workspace.workspaceRoot;
+    if (!workspaceChanged) return this.parseThreadRef(threadId);
+
+    const summary = upsertCodexThread({
+      ...existing,
+      projectId: null,
+      cwd: workspace.cwd,
+      projectlessOutputDirectory: workspace.outputDirectory,
+      projectlessWorkspaceBrowserRoot: workspace.workspaceRoot,
+    });
+    const detail = this.getMaybeConversationRecord(threadId)?.detail ?? null;
+    if (detail?.projectId === null) {
+      this.setConversationRecordDetail({
+        ...detail,
+        cwd: workspace.cwd,
+        projectlessOutputDirectory: workspace.outputDirectory,
+        projectlessWorkspaceBrowserRoot: workspace.workspaceRoot,
+      }, { preserveTurnPagination: true });
+    }
+
+    this.invalidateSidebarSnapshotCache();
+    this.emitEvent({ type: "threadSummary", thread: summary });
+    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
+    return {
+      projectId: null,
+      cwd: summary.cwd,
+      managedWorktreePath: summary.managedWorktreePath ?? null,
+      projectlessOutputDirectory: summary.projectlessOutputDirectory ?? null,
+      projectlessWorkspaceBrowserRoot:
+        summary.projectlessWorkspaceBrowserRoot ?? null,
+    };
+  }
+
+  private async repairPersistedProjectlessWorkspaceForResume(input: {
+    browserRoot: string | null;
+    cwd: string | null;
+    outputDirectory: string | null;
+    prompt: string;
+    threadId: string;
+    writableRoots: readonly string[];
+  }): Promise<ThreadRef | null> {
+    const existing = this.getThreadLinkSafely(input.threadId);
+    if (!existing || existing.projectId !== null) return this.parseThreadRef(input.threadId);
+
+    const homeDirectory = this.projectlessHomeDirectory();
+    let workspace: CodexProjectlessWorkspace | null = null;
+    if (existing.cwd) {
+      try {
+        workspace = await migrateLegacyCodexProjectlessWorkspace({
+          browserRoot: input.browserRoot,
+          cwd: existing.cwd,
+          homeDirectory,
+          outputDirectory: input.outputDirectory,
+        });
+      } catch (error) {
+        this.logger.warn("Failed to migrate legacy projectless workspace", {
+          threadId: input.threadId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    workspace ??= await repairCodexProjectlessWorkspace({
+      browserRoot: input.browserRoot,
+      cwd: input.cwd,
+      homeDirectory,
+      outputDirectory: input.outputDirectory,
+      prompt: input.prompt,
+      writableRoots: input.writableRoots,
+    });
+    if (!workspace) return this.parseThreadRef(input.threadId);
+    return this.persistProjectlessWorkspaceForThread(input.threadId, workspace);
+  }
+
   private async resumeConversationRecord(
     threadId: string,
     seed?: CodexConversationResumeSeed,
@@ -14120,7 +14260,7 @@ export class CodexService extends EventEmitter {
       return this.serializeThreadDetail(threadId);
     }
     const pendingRequestsBeforeResume = [...record.serverRequests];
-    const threadRef = this.parseThreadRef(threadId);
+    let threadRef = this.parseThreadRef(threadId);
     const projectRuntimeContext = threadRef?.projectId
       ? this.maybeResolveProjectRuntimeContext(threadRef.projectId)
       : null;
@@ -14130,6 +14270,9 @@ export class CodexService extends EventEmitter {
     const projectlessSandbox = previousHydrationContext?.latestThreadSettings?.sandboxPolicy
       ?? latestParams?.sandboxPolicy
       ?? null;
+    const projectlessWritableRoots = projectlessSandbox?.type === "workspaceWrite"
+      ? projectlessSandbox.writableRoots.filter((root) => root !== "~")
+      : [];
     const projectlessWritableRoot = projectlessSandbox?.type === "workspaceWrite"
       ? projectlessSandbox.writableRoots.find((root) => root !== "~") ?? null
       : null;
@@ -14137,10 +14280,25 @@ export class CodexService extends EventEmitter {
       ?? seed?.workspaceRoots[0]
       ?? projectRuntimeContext?.workspaceRoots[0]
       ?? null;
-    const previousConversationCwd = seed?.requestedCwd
+    let previousConversationCwd = seed?.requestedCwd
       ?? record.detail?.cwd
       ?? this.getThreadLinkSafely(threadId)?.cwd
       ?? null;
+    if (projectless && !seed) {
+      const persistedThread = this.getThreadLinkSafely(threadId);
+      threadRef = await this.repairPersistedProjectlessWorkspaceForResume({
+        browserRoot: threadRef?.projectlessWorkspaceBrowserRoot ?? null,
+        cwd: previousConversationCwd,
+        outputDirectory: threadRef?.projectlessOutputDirectory ?? null,
+        prompt: persistedThread?.threadName?.trim()
+          || persistedThread?.threadPreview?.trim()
+          || "new chat",
+        threadId,
+        writableRoots: projectlessWritableRoots,
+      }) ?? threadRef;
+      previousConversationCwd = threadRef?.cwd ?? previousConversationCwd;
+    }
+    const persistedProjectlessCwd = projectless ? threadRef?.cwd ?? null : null;
     let requestedCwd = resolveCodexCanonicalProjectlessCwd({
       cwd: previousConversationCwd,
       fallbackCwd: projectlessFallbackCwd,
@@ -14155,12 +14313,14 @@ export class CodexService extends EventEmitter {
       return null;
     });
     if (metadataThread) {
-      const rebasedCwd = resolveCodexCanonicalHydratedCwd({
-        requestedCwd,
-        responseCwd: null,
-        threadCwd: metadataThread.cwd,
-        fallbackCwd: requestedCwd,
-      });
+      const rebasedCwd = requestedCwd && requestedCwd === persistedProjectlessCwd
+        ? requestedCwd
+        : resolveCodexCanonicalHydratedCwd({
+            requestedCwd,
+            responseCwd: null,
+            threadCwd: metadataThread.cwd,
+            fallbackCwd: requestedCwd,
+          });
       requestedCwd = resolveCodexCanonicalProjectlessCwd({
         cwd: rebasedCwd,
         fallbackCwd: projectlessFallbackCwd,

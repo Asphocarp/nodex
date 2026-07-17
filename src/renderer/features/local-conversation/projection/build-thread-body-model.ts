@@ -13,7 +13,7 @@ export interface ThreadBodyModelInput {
   parentTurns: readonly CodexConversationTurn[];
   isNewThreadTab: boolean;
   newThreadTarget: {
-    projectId: string;
+    projectId: string | null;
     projectName: string;
     sessionId: string;
     threadTitle?: string;

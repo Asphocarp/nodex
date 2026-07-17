@@ -10,7 +10,11 @@ import type {
   CodexPermissionMode,
   CodexReasoningEffortOption,
 } from "@/lib/types";
-import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
+import type {
+  NewChatProjectSelectorModel,
+  ThreadFooterModel,
+  ThreadStageActions,
+} from "../../thread-stage-types";
 import {
   buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
@@ -191,13 +195,15 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
             disabled: false,
             canAddProject: true,
             projects: [
-              {
-                id: newChatTarget.projectId,
-                label: newChatTarget.projectName,
-                description: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
-                primaryWorkspaceRoot: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
-                searchText: `${newChatTarget.projectId} ${newChatTarget.projectName}`,
-              },
+              ...(newChatTarget.projectId === null
+                ? []
+                : [{
+                    id: newChatTarget.projectId,
+                    label: newChatTarget.projectName,
+                    description: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
+                    primaryWorkspaceRoot: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
+                    searchText: `${newChatTarget.projectId} ${newChatTarget.projectName}`,
+                  }]),
               {
                 id: "project_devtools_codex",
                 label: "Devtools Codex",
@@ -205,7 +211,7 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
                 primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
                 searchText: "project_devtools_codex devtools codex",
               },
-            ],
+            ] satisfies NewChatProjectSelectorModel["projects"],
           },
           newThreadStartInSelector: {
             target: {

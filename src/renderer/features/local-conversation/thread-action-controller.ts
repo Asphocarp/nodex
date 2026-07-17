@@ -9,6 +9,7 @@ import type {
   ProjectSession,
 } from "@/lib/types";
 import type { useCodexAppServerControl } from "./local-conversation-store";
+import { invoke } from "@/lib/api";
 import { cleanupMaterializedThreadGoalDraft } from "./thread-goal-materialization";
 import type { ThreadStageActions } from "./thread-stage-types";
 
@@ -17,18 +18,18 @@ type CodexControl = ReturnType<typeof useCodexAppServerControl>;
 export interface ThreadActionControllerInput {
   activeThreadId: string | null;
   codexControl: CodexControl;
-  currentSessionProjectId: string;
-  projectId: string;
+  currentSessionProjectId: string | null;
+  projectId: string | null;
   selectedCollaborationMode: CodexCollaborationModeKind;
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
-  onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
+  onEnsureBlankSessionForProject: (projectId: string | null) => Promise<ProjectSession>;
   cleanupThreadGoalMaterializedDraft?: (
     materialized: CodexThreadGoalMaterializedDraft | null,
   ) => Promise<void>;
-  onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onRefreshProjectSessions: (projectId: string | null) => Promise<ProjectSession[]>;
   onOpenPendingWorktree?: (clientThreadId: string) => void;
   onForkSessionFromTurn?: (input: {
     threadId: string;
@@ -141,10 +142,17 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
           throw error;
         }
       }
+      const projectlessWorkspace = projectId === null
+        ? await invoke("codex:projectless-thread-cwd", {
+            prompt,
+            createSplitDirectories: true,
+          })
+        : undefined;
       const result = await input.codexControl.startThreadForSession({
         projectId,
         sessionId: targetSession?.id ?? sessionId,
         prompt,
+        ...(projectlessWorkspace === undefined ? {} : { projectlessWorkspace }),
         promptInput,
         threadGoalDraft,
         threadGoalMaterializedDraft,
@@ -184,7 +192,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
         threadId,
         action === "commit-or-push" ? GIT_ACTION_COMMIT_OR_PUSH_PROMPT : GIT_ACTION_CREATE_PR_PROMPT,
         {
-          projectId: input.projectId,
+          ...(input.projectId === null ? {} : { projectId: input.projectId }),
           collaborationMode: input.selectedCollaborationMode,
         },
       );
@@ -198,7 +206,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onSendPrompt: async (prompt, opts) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Sending a prompt");
       await input.codexControl.startTurn(threadId, prompt, {
-        projectId: input.projectId,
+        ...(input.projectId === null ? {} : { projectId: input.projectId }),
         collaborationMode: opts?.collaborationMode,
         promptInput: opts?.promptInput,
       });
@@ -256,7 +264,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     },
     onEnqueueQueuedFollowUp: async (threadId, prompt, opts) => {
       await input.codexControl.enqueueQueuedFollowUp(threadId, prompt, {
-        projectId: input.projectId,
+        ...(input.projectId === null ? {} : { projectId: input.projectId }),
         collaborationMode: opts?.collaborationMode,
         promptInput: opts?.promptInput,
       });

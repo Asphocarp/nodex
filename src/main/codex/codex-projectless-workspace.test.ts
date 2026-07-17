@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   createCodexProjectlessWorkspace,
   formatCodexProjectlessLocalDate,
+  parseCodexProjectlessThreadCwdInput,
+  parseCodexProjectlessWorkspace,
   resolveCodexProjectlessWorkspaceRoot,
   slugCodexProjectlessDirectoryName,
   type CodexProjectlessWorkspaceFileSystem,
@@ -41,7 +43,7 @@ describe("Codex projectless workspace", () => {
     }).length).toBe(80);
   });
 
-  test("creates a split workspace under Documents/Codex with cwd at the thread root", async () => {
+  test("creates a split workspace under Documents/Nodex with cwd at the thread root", async () => {
     const homeDirectory = await mkdtemp(path.join(tmpdir(), "nodex-projectless-home-"));
     try {
       const workspace = await createCodexProjectlessWorkspace({
@@ -50,7 +52,7 @@ describe("Codex projectless workspace", () => {
         homeDirectory,
         prompt: "Draft a concise launch report with sources",
       });
-      const workspaceRoot = path.join(homeDirectory, "Documents", "Codex");
+      const workspaceRoot = path.join(homeDirectory, "Documents", "Nodex");
       const threadDirectory = path.join(
         workspaceRoot,
         "2026-07-11",
@@ -66,6 +68,48 @@ describe("Codex projectless workspace", () => {
     } finally {
       await rm(homeDirectory, { recursive: true, force: true });
     }
+  });
+
+  test("validates the renderer host request without changing nullable values", () => {
+    expect(parseCodexProjectlessThreadCwdInput({
+      prompt: null,
+      directoryName: "Explicit directory",
+      createSplitDirectories: false,
+    })).toStrictEqual({
+      prompt: null,
+      directoryName: "Explicit directory",
+      createSplitDirectories: false,
+    });
+    expect(parseCodexProjectlessThreadCwdInput({})).toStrictEqual({
+      prompt: undefined,
+      directoryName: undefined,
+    });
+    expect(() => parseCodexProjectlessThreadCwdInput(null)).toThrow(
+      "Projectless thread cwd input must be an object",
+    );
+    expect(() => parseCodexProjectlessThreadCwdInput({ prompt: 1 })).toThrow(
+      "prompt must be a string, null, or omitted",
+    );
+    expect(() => parseCodexProjectlessThreadCwdInput({
+      createSplitDirectories: "yes",
+    })).toThrow("createSplitDirectories must be a boolean or omitted");
+  });
+
+  test("validates a renderer-returned workspace descriptor", () => {
+    expect(parseCodexProjectlessWorkspace({
+      cwd: "/tmp/Nodex/thread",
+      outputDirectory: "/tmp/Nodex/thread/outputs",
+      workspaceRoot: "/tmp/Nodex",
+    })).toStrictEqual({
+      cwd: "/tmp/Nodex/thread",
+      outputDirectory: "/tmp/Nodex/thread/outputs",
+      workspaceRoot: "/tmp/Nodex",
+    });
+    expect(() => parseCodexProjectlessWorkspace({
+      cwd: "",
+      outputDirectory: "/tmp/Nodex/thread/outputs",
+      workspaceRoot: "/tmp/Nodex",
+    })).toThrow("Projectless workspace cwd must be a non-empty string");
   });
 
   test("tries 100 numeric names followed by at most five unique names", async () => {
