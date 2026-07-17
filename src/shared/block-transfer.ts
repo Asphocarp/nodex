@@ -831,10 +831,12 @@ const assertParentChange = (
   if (
     source.kind === "database" &&
     target.kind === "database" &&
-    source.databaseBlockId === target.databaseBlockId
+    (source.dataSourceId !== undefined && target.dataSourceId !== undefined
+      ? source.dataSourceId === target.dataSourceId
+      : source.databaseBlockId === target.databaseBlockId)
   ) {
     throw new BlockTransferContractError(
-      `${label} is for parent changes; reorder within one Database uses a View position operation`,
+      `${label} is for parent changes; reorder within one Data Source uses a View position operation`,
     );
   }
 };

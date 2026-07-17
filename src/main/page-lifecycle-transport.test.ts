@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "../shared/page-lifecycle";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../shared/page-lifecycle-v2";
 import {
   registerPageLifecycleHttpRoute,
   registerPageLifecyclePreflightHttpRoute,
@@ -14,10 +14,10 @@ import {
   registerPageLifecycleIpcHandler,
   registerPageLifecyclePreflightIpcHandler,
 } from "./page-lifecycle-ipc";
-import type { PageLifecyclePreflightResult } from "../shared/page-lifecycle-runtime";
+import type { PageLifecyclePreflightResultV2 } from "../shared/page-lifecycle-v2-runtime";
 
 const request = (session: string, actorKind: string) => ({
-  version: 1,
+  version: 2,
   operationId: "page-lifecycle-transport-retry",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -32,10 +32,10 @@ const request = (session: string, actorKind: string) => ({
 
 describe("Page lifecycle IPC/HTTP transport", () => {
   test("replaces spoofed audit identity at both trusted host boundaries", async () => {
-    const received: PageLifecycleMutationRequest[] = [];
+    const received: PageLifecycleMutationRequestV2[] = [];
     const apply = async (
-      input: PageLifecycleMutationRequest,
-    ): Promise<PageLifecycleMutationCommandResult> => {
+      input: PageLifecycleMutationRequestV2,
+    ): Promise<PageLifecycleMutationCommandResultV2> => {
       received.push(input);
       return {
         ok: false,
@@ -54,7 +54,7 @@ describe("Page lifecycle IPC/HTTP transport", () => {
         event: unknown,
         projectId: string,
         rawRequest: unknown,
-      ) => Promise<PageLifecycleMutationCommandResult>
+      ) => Promise<PageLifecycleMutationCommandResultV2>
     >();
     registerPageLifecycleIpcHandler({
       registerHandle: (channel, listener) => handlers.set(channel, listener),
@@ -101,7 +101,7 @@ describe("Page lifecycle IPC/HTTP transport", () => {
         event: unknown,
         projectId: string,
         rawRequest: unknown,
-      ) => Promise<PageLifecycleMutationCommandResult>
+      ) => Promise<PageLifecycleMutationCommandResultV2>
     >();
     registerPageLifecycleIpcHandler({
       registerHandle: (channel, listener) => handlers.set(channel, listener),
@@ -138,7 +138,7 @@ describe("Page lifecycle IPC/HTTP transport", () => {
   });
 
   test("serves the same typed preflight contract over IPC and HTTP", async () => {
-    const result: PageLifecyclePreflightResult = {
+    const result: PageLifecyclePreflightResultV2 = {
       ok: false,
       error: {
         code: "page_not_found",
@@ -150,7 +150,7 @@ describe("Page lifecycle IPC/HTTP transport", () => {
     const readPreflight = async (
       projectId: string,
       pageId: string,
-    ): Promise<PageLifecyclePreflightResult> => {
+    ): Promise<PageLifecyclePreflightResultV2> => {
       reads.push(`${projectId}:${pageId}`);
       return result;
     };
@@ -160,7 +160,7 @@ describe("Page lifecycle IPC/HTTP transport", () => {
         event: unknown,
         projectId: string,
         pageId: string,
-      ) => Promise<PageLifecyclePreflightResult>
+      ) => Promise<PageLifecyclePreflightResultV2>
     >();
     registerPageLifecyclePreflightIpcHandler({
       registerHandle: (channel, listener) => handlers.set(channel, listener),
@@ -179,7 +179,7 @@ describe("Page lifecycle IPC/HTTP transport", () => {
       "/api/projects/project-1/page-lifecycle-preflight?pageId=card-1",
     );
     expect(response.status).toBe(404);
-    const http = (await response.json()) as PageLifecyclePreflightResult;
+    const http = (await response.json()) as PageLifecyclePreflightResultV2;
     expect(http.ok).toBe(false);
     expect(reads.join(",")).toBe("project-1:card-1,project-1:card-1");
   });

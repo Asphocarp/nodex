@@ -1,0 +1,393 @@
+import { describe, expect, test, vi } from "vitest";
+import {
+  parseDataSourceOptionId,
+  type DataSourceOptionId,
+} from "./database-identities";
+import {
+  canonicalizePageLifecycleMutationRequestV2,
+  parsePageLifecycleMutationCommandResultV2,
+  parsePageLifecycleMutationRequestV2,
+  parsePageLifecycleMutationReceiptV2,
+  PageLifecycleV2ContractError,
+} from "./page-lifecycle-v2";
+import {
+  compilePageLifecycleCreateRequestV2,
+  type PageLifecycleCreateDisplayIntent,
+} from "./page-lifecycle-v2-runtime";
+
+const optionId = (value: string): DataSourceOptionId =>
+  parseDataSourceOptionId({ propertyId: "tags", value });
+
+const v2Request = () => ({
+  version: 2,
+  operationId: "operation-1",
+  projectId: "project-1",
+  storeEpoch: "epoch-1",
+  clientSessionId: "session-1",
+  actor: { kind: "test", ignoredForIdentity: true },
+  operation: {
+    kind: "create_page",
+    pageId: "page-1",
+    title: "Ship v2",
+    nfm: "Body",
+    status: "draft",
+    priority: "p1-high",
+    estimate: "m",
+    dueDate: "2026-07-31",
+    scheduledStart: null,
+    scheduledEnd: null,
+    isAllDay: false,
+    recurrence: null,
+    reminders: [],
+    scheduleTimezone: null,
+    assignee: null,
+    runInTarget: "localProject",
+    runInLocalPath: null,
+    runInBaseBranch: null,
+    runInWorktreePath: null,
+    runInEnvironmentPath: null,
+    dataSourceId: "source-1",
+    tagOptionIds: ["o_BBBBBBBB", "o_AAAAAAAA"],
+    newTagOptions: [{ optionId: "o_BBBBBBBB", name: "  Cafe\u0301  " }],
+    expectedTagsPropertyRevision: 9,
+  },
+});
+
+const createDisplayIntent = (): PageLifecycleCreateDisplayIntent => ({
+  operationId: "operation-1",
+  projectId: "project-1",
+  storeEpoch: "epoch-1",
+  clientSessionId: "session-1",
+  actor: { kind: "test" },
+  operation: {
+    kind: "create_page",
+    pageId: "page-1",
+    title: "Ship v2",
+    nfm: "Body",
+    status: "draft",
+    priority: "p1-high",
+    estimate: "m",
+    tags: ["  Cafe\u0301  ", "release", "release"],
+    dueDate: "2026-07-31",
+    beforeViewPageId: "page-before",
+  },
+});
+
+describe("Page Lifecycle v2 contract", () => {
+  test("parses an authority-ready create request and preserves create fields", () => {
+    const parsed = parsePageLifecycleMutationRequestV2(v2Request());
+
+    expect(parsed).toMatchObject({
+      version: 2,
+      operationId: "operation-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      clientSessionId: "session-1",
+      actor: { kind: "test", ignoredForIdentity: true },
+      operation: {
+        kind: "create_page",
+        pageId: "page-1",
+        title: "Ship v2",
+        nfm: "Body",
+        status: "draft",
+        priority: "p1-high",
+        estimate: "m",
+        dueDate: "2026-07-31",
+        dataSourceId: "source-1",
+        tagOptionIds: ["o_AAAAAAAA", "o_BBBBBBBB"],
+        newTagOptions: [{ optionId: "o_BBBBBBBB", name: "Café" }],
+        expectedTagsPropertyRevision: 9,
+      },
+    });
+    expect("tags" in parsed.operation).toBe(false);
+  });
+
+  test("canonicalizes set-like option fields and excludes audit attribution", () => {
+    const first = v2Request();
+    const second = {
+      ...v2Request(),
+      clientSessionId: "another-session",
+      actor: { kind: "retry" },
+      operation: {
+        ...v2Request().operation,
+        tagOptionIds: ["o_AAAAAAAA", "o_BBBBBBBB"],
+      },
+    };
+
+    expect(canonicalizePageLifecycleMutationRequestV2(first)).toBe(
+      canonicalizePageLifecycleMutationRequestV2(second),
+    );
+  });
+
+  test("rejects ambiguous or non-identity tag payloads", () => {
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: { ...v2Request().operation, tags: ["release"] },
+      }),
+    ).toThrow("unsupported fields: tags");
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: {
+          ...v2Request().operation,
+          tagOptionIds: ["release"],
+          newTagOptions: [],
+        },
+      }),
+    ).toThrow("optionId is not valid");
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: {
+          ...v2Request().operation,
+          tagOptionIds: ["o_AAAAAAAA"],
+          newTagOptions: [{ optionId: "o_BBBBBBBB", name: "Café" }],
+        },
+      }),
+    ).toThrow("must also appear in tagOptionIds");
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: {
+          ...v2Request().operation,
+          tagOptionIds: ["o_AAAAAAAA", "o_BBBBBBBB"],
+          newTagOptions: [
+            { optionId: "o_AAAAAAAA", name: "Release" },
+            { optionId: "o_BBBBBBBB", name: " Release " },
+          ],
+        },
+      }),
+    ).toThrow("repeats a canonical tag name");
+  });
+
+  test("rejects unknown request fields and invalid revisions", () => {
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        unexpected: true,
+      }),
+    ).toThrow("unsupported fields: unexpected");
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: {
+          ...v2Request().operation,
+          expectedTagsPropertyRevision: -1,
+        },
+      }),
+    ).toThrow("non-negative safe integer");
+  });
+
+  test("keeps non-create operation shapes under the v2 envelope", () => {
+    const parsed = parsePageLifecycleMutationRequestV2({
+      version: 2,
+      operationId: "archive-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      actor: { kind: "test" },
+      operation: {
+        kind: "archive_page",
+        pageId: "page-1",
+        expectedMetadataRevision: 7,
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      version: 2,
+      operation: {
+        kind: "archive_page",
+        pageId: "page-1",
+        expectedMetadataRevision: 7,
+      },
+    });
+  });
+
+  test("parses v2 receipts with exact-retry tag allocation evidence", () => {
+    const receipt = {
+      version: 2,
+      operationId: "operation-1",
+      projectId: "project-1",
+      storeEpoch: "epoch-1",
+      operationKind: "create_page",
+      pageId: "page-1",
+      duplicate: false,
+      metadataRevision: 1,
+      parentRevision: 1,
+      lifecycle: "active",
+      documentId: "document-1",
+      documentGeneration: 1,
+      documentHeadSeq: 1,
+      databaseId: "database-1",
+      dataSourceId: "source-1",
+      membershipId: "membership-1",
+      viewId: "view-1",
+      libraryRankKey: null,
+      viewRankKey: "7fffffffffffffffffffffffffffffff",
+      createdBlockIds: ["page-1", "document-1"],
+      createdTagOptionIds: ["o_AAAAAAAA"],
+      changeLogSeq: 1,
+      committedAt: "2026-07-18T00:00:00.000Z",
+    };
+
+    expect(parsePageLifecycleMutationReceiptV2(receipt)).toMatchObject({
+      version: 2,
+      dataSourceId: "source-1",
+      createdTagOptionIds: ["o_AAAAAAAA"],
+    });
+    expect(
+      parsePageLifecycleMutationCommandResultV2({ ok: true, value: receipt }),
+    ).toMatchObject({ ok: true, value: { version: 2 } });
+  });
+
+  test("strictly distinguishes v2 Source and tag conflicts", () => {
+    expect(
+      parsePageLifecycleMutationCommandResultV2({
+        ok: false,
+        error: {
+          code: "tags_property_revision_conflict",
+          message: "Tags changed",
+          retryable: false,
+          operationId: "operation-1",
+          pageId: "page-1",
+          expectedRevision: 4,
+          actualRevision: 5,
+        },
+      }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "tags_property_revision_conflict" },
+    });
+    expect(() =>
+      parsePageLifecycleMutationCommandResultV2({
+        ok: false,
+        error: {
+          code: "primary_database_not_found",
+          message: "Legacy coordinate",
+          retryable: false,
+        },
+      }),
+    ).toThrow("code is invalid");
+  });
+});
+
+describe("Page Lifecycle v2 compiler", () => {
+  test("resolves one existing display name and preallocates missing options", () => {
+    const allocated = [optionId("o_AAAAAAAA"), optionId("o_BBBBBBBB")];
+    const allocateOptionId = vi.fn(() => allocated.shift()!);
+
+    const compiled = compilePageLifecycleCreateRequestV2({
+      request: createDisplayIntent(),
+      tagsProperty: {
+        propertyId: "tags",
+        dataSourceId: "source-1",
+        valueType: "multi_select",
+        lifecycle: "active",
+        revision: 12,
+        config: {
+          options: [{ id: "o_AAAAAAAA", name: "release" }],
+        },
+      },
+      allocateOptionId,
+    });
+
+    expect(allocateOptionId).toHaveBeenCalledTimes(2);
+    expect(compiled.operation).toMatchObject({
+      dataSourceId: "source-1",
+      tagOptionIds: ["o_AAAAAAAA", "o_BBBBBBBB"],
+      newTagOptions: [{ optionId: "o_BBBBBBBB", name: "Café" }],
+      expectedTagsPropertyRevision: 12,
+      priority: "p1-high",
+      estimate: "m",
+      dueDate: "2026-07-31",
+      beforeViewPageId: "page-before",
+    });
+    expect("tags" in compiled.operation).toBe(false);
+  });
+
+  test("keeps canonical tag names case-sensitive", () => {
+    const base = createDisplayIntent();
+    const request: PageLifecycleCreateDisplayIntent = {
+      ...base,
+      operation: { ...base.operation, tags: ["UI", "ui"] },
+    };
+    const compiled = compilePageLifecycleCreateRequestV2({
+      request,
+      tagsProperty: {
+        propertyId: "tags",
+        dataSourceId: "source-1",
+        valueType: "multi_select",
+        lifecycle: "active",
+        revision: 2,
+        config: { options: [{ id: "o_AAAAAAAA", name: "UI" }] },
+      },
+      allocateOptionId: () => optionId("o_BBBBBBBB"),
+    });
+
+    expect(compiled.operation).toMatchObject({
+      tagOptionIds: ["o_AAAAAAAA", "o_BBBBBBBB"],
+      newTagOptions: [{ optionId: "o_BBBBBBBB", name: "ui" }],
+    });
+  });
+
+  test("rejects an ambiguous existing canonical name", () => {
+    expect(() =>
+      compilePageLifecycleCreateRequestV2({
+        request: createDisplayIntent(),
+        tagsProperty: {
+          propertyId: "tags",
+          dataSourceId: "source-1",
+          valueType: "multi_select",
+          lifecycle: "active",
+          revision: 1,
+          config: {
+            options: [
+              { id: "o_AAAAAAAA", name: "release" },
+              { id: "o_BBBBBBBB", name: " release " },
+            ],
+          },
+        },
+      }),
+    ).toThrow('Tag name "release" is ambiguous');
+  });
+
+  test("requires the reserved active tags Property and bounded allocation", () => {
+    expect(() =>
+      compilePageLifecycleCreateRequestV2({
+        request: createDisplayIntent(),
+        tagsProperty: {
+          propertyId: "p_abcdefgh",
+          dataSourceId: "source-1",
+          valueType: "multi_select",
+          lifecycle: "active",
+          revision: 1,
+          config: { options: [] },
+        },
+      }),
+    ).toThrow("reserved tags Property");
+
+    expect(() =>
+      compilePageLifecycleCreateRequestV2({
+        request: createDisplayIntent(),
+        tagsProperty: {
+          propertyId: "tags",
+          dataSourceId: "source-1",
+          valueType: "multi_select",
+          lifecycle: "active",
+          revision: 1,
+          config: { options: [] },
+        },
+        allocateOptionId: () => optionId("o_AAAAAAAA"),
+      }),
+    ).toThrow("collided 128 consecutive times");
+  });
+
+  test("surfaces v2 contract failures through one error type", () => {
+    expect(() =>
+      parsePageLifecycleMutationRequestV2({
+        ...v2Request(),
+        operation: { ...v2Request().operation, status: "unknown" },
+      }),
+    ).toThrow(PageLifecycleV2ContractError);
+  });
+});

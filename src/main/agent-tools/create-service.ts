@@ -9,13 +9,24 @@ import {
 } from "../../shared/block-documents/portable-rich-text";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { DEFAULT_WORKFLOW_STATUS } from "../../shared/workflow-status";
-import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
 import {
-  DATABASE_MUTATION_CONTRACT_VERSION,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+  parseDatabaseViewId,
+} from "../../shared/database-identities";
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyOperationV2,
+} from "../../shared/database-module-v2";
+import {
+  PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
+  parsePageLifecycleMutationRequestV2,
+} from "../../shared/page-lifecycle-v2";
+import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../../shared/block-transfer";
+import {
   normalizeDatabasePropertyValue,
   parseDatabasePropertyConfig,
   type DatabaseJsonValue,
-  type DatabaseMutationOperation,
 } from "../../shared/database-kernel";
 import {
   CreateInputSchema,
@@ -26,24 +37,23 @@ import {
   type CreateInput,
   type CreateOutput,
   type ExecuteNodexAgentCreatePagesResult,
-  type ExecuteNodexAgentCreateResult,
   type NodexAgentCreatePageCommand,
   type NodexAgentCreatePagesCommand,
   type PrepareNodexAgentCreatePagesRequest,
   type PrepareNodexAgentCreatePagesResult,
-  type PrepareNodexAgentCreateRequest,
-  type PrepareNodexAgentCreateResult,
   type PreparedNodexAgentCreateDestination,
 } from "../../shared/nodex-agent-tools";
 import { parseInlineMarkdownTitle } from "../../shared/nfm/agent-title";
-import { applyBlockTransfer } from "../local-store/block-transfers";
-import { applyPageLifecycleMutation } from "../local-store/page-lifecycle";
-import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
-import { applyDatabaseMutation } from "../local-store/database-kernel";
+import { applyPageLifecycleMutationV2 } from "../local-store/page-lifecycle-v2-store";
 import {
-  readLegacyDatabaseViewLogicalOrder,
-  resolveLegacyDatabaseViewOrderConfig,
-} from "../local-store/legacy-database-view-logical-order";
+  applyBlockTransfer,
+  prepareBlockTransfer,
+} from "../local-store/block-transfers";
+import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
+import {
+  applyDatabaseModuleV2,
+  readDatabaseModuleV2,
+} from "../local-store/database-module-v2-runtime";
 import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
 import {
   assertCurrentNodexAgentTurnAuthorityInDatabase,
@@ -95,6 +105,24 @@ interface DatabasePropertyRow {
 
 interface CreateExecutionOptions {
   readonly faultInjector?: (point: "after_genesis" | "after_placement" | "before_receipt") => void;
+}
+
+function throwDomainFailure(input: {
+  readonly message: string;
+  readonly code: string;
+  readonly recovery: "get_block_again" | "query_database_again" | "none";
+}): never {
+  const conflict = input.code.includes("conflict")
+    || input.code.includes("mismatch")
+    || input.code.includes("changed")
+    || input.code.includes("anchor");
+  throw new NodexAgentReadError(
+    conflict ? "conflict" : "invalid_arguments",
+    input.message,
+    false,
+    input.recovery,
+    { domainCode: input.code },
+  );
 }
 
 function flattenBlocks(blocks: readonly BlockTreeNode[]): readonly BlockTreeNode[] {
@@ -277,8 +305,7 @@ function prepareDocumentDestination(
 
 function validateValueDrafts(
   database: Database.Database,
-  projectId: string,
-  databaseBlockId: string,
+  dataSourceId: string,
   values: Extract<CreateInput["destination"], { readonly kind: "database" }>["values"],
 ): void {
   const propertyIds = (values ?? []).map((value) => value.propertyId);
@@ -295,10 +322,10 @@ function validateValueDrafts(
   const rows = database.prepare(
     `
     SELECT id, value_type, config_json, schema_revision
-    FROM database_properties
-    WHERE database_block_id = ? AND project_id = ? AND lifecycle = 'active'
+    FROM data_source_properties
+    WHERE data_source_id = ? AND lifecycle = 'active'
       AND id IN (${placeholders})
-  `).all(databaseBlockId, projectId, ...propertyIds) as readonly DatabasePropertyRow[];
+  `).all(dataSourceId, ...propertyIds) as readonly DatabasePropertyRow[];
   const byId = new Map(rows.map((row) => [row.id, row]));
   for (const draft of values ?? []) {
     const property = byId.get(draft.propertyId);
@@ -334,25 +361,53 @@ function validateValueDrafts(
   }
 }
 
-function prepareDatabaseDestination(
+export function prepareNodexAgentDataSourceDestination(
   database: Database.Database,
   projectId: string,
   destination: Extract<CreateInput["destination"], { readonly kind: "database" }>,
+  preferredDataSourceId: string,
   allowForeignOwner = false,
 ): PreparedNodexAgentCreateDestination {
+  void allowForeignOwner;
   const databaseRow = database.prepare(
     `
-    SELECT capability.schema_revision, capability.project_id AS contentProjectId
-    FROM database_capabilities capability
+    SELECT source.id AS data_source_id,
+      source.schema_revision,
+      source.home_database_block_id AS database_block_id,
+      block.project_id AS contentProjectId
+    FROM data_sources source
+    INNER JOIN database_containers container
+      ON container.block_id = source.home_database_block_id
+     AND container.library_id = source.library_id
     INNER JOIN blocks block
-      ON block.id = capability.block_id
-     AND block.project_id = capability.project_id
+      ON block.id = container.block_id
      AND block.type = 'database'
      AND block.lifecycle = 'active'
-    WHERE capability.block_id = ?
-      AND (? = 1 OR capability.project_id = ?)
-  `).get(destination.databaseBlockId, allowForeignOwner ? 1 : 0, projectId) as
-    | { readonly schema_revision: number; readonly contentProjectId: string }
+    INNER JOIN projects project
+      ON project.id = ? AND project.library_id = source.library_id
+    WHERE source.home_database_block_id = ?
+      AND source.lifecycle = 'active'
+      AND (? IS NULL OR source.id = ?)
+      AND (? IS NULL OR source.id = (
+        SELECT selected.data_source_id FROM database_views selected
+        WHERE selected.id = ? AND selected.lifecycle = 'active'
+      ))
+    ORDER BY source.rank_key, source.id
+    LIMIT 1
+  `).get(
+    projectId,
+    destination.databaseBlockId,
+    preferredDataSourceId,
+    preferredDataSourceId,
+    destination.view?.viewId ?? null,
+    destination.view?.viewId ?? null,
+  ) as
+    | {
+        readonly data_source_id: string;
+        readonly schema_revision: number;
+        readonly database_block_id: string;
+        readonly contentProjectId: string;
+      }
     | undefined;
   if (!databaseRow) {
     throw new NodexAgentReadError(
@@ -366,15 +421,15 @@ function prepareDatabaseDestination(
   const schemaRevision = databaseRow.schema_revision;
   validateValueDrafts(
     database,
-    databaseRow.contentProjectId,
-    destination.databaseBlockId,
+    databaseRow.data_source_id,
     destination.values,
   );
   if (!destination.view) {
     return {
       kind: "database",
       contentProjectId: databaseRow.contentProjectId,
-      databaseBlockId: destination.databaseBlockId,
+      databaseBlockId: databaseRow.database_block_id,
+      dataSourceId: databaseRow.data_source_id,
       schemaRevision,
     };
   }
@@ -382,12 +437,12 @@ function prepareDatabaseDestination(
     `
     SELECT revision, config_json
     FROM database_views
-    WHERE id = ? AND database_block_id = ? AND project_id = ?
+    WHERE id = ? AND database_block_id = ? AND data_source_id = ?
       AND lifecycle = 'active'
   `).get(
     destination.view.viewId,
-    destination.databaseBlockId,
-    databaseRow.contentProjectId,
+    databaseRow.database_block_id,
+    databaseRow.data_source_id,
   ) as
     | { readonly revision: number; readonly config_json: string }
     | undefined;
@@ -402,26 +457,37 @@ function prepareDatabaseDestination(
   }
   const viewRevision = viewRow.revision;
   const groupKey = destination.view.groupKey ?? null;
-  const orderConfig = resolveLegacyDatabaseViewOrderConfig(
-    viewRow.config_json,
-  );
-  const logicalOrder = readLegacyDatabaseViewLogicalOrder(database, {
+  const storeEpoch = readBlockStoreEpoch(database);
+  if (!storeEpoch) throw new Error("Nodex store has no epoch");
+  const logicalRead = readDatabaseModuleV2(database, {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: databaseRow.contentProjectId,
-    databaseBlockId: destination.databaseBlockId,
-    viewId: destination.view.viewId,
-    groupPropertyId: orderConfig.groupPropertyId,
-    groupKey,
-    sort: orderConfig.sort,
+    read: {
+      target: { kind: "view", viewId: parseDatabaseViewId(destination.view.viewId) },
+      mode: "query",
+    },
   });
+  if (!logicalRead.ok || logicalRead.value.value.kind !== "query") {
+    throw new NodexAgentReadError(
+      "projection_not_ready",
+      `View ${destination.view.viewId} could not be read for placement`,
+      true,
+      "query_database_again",
+    );
+  }
+  const logicalOrder = logicalRead.value.value.value;
   const beforePageId = resolveSiblingAnchor(
-    logicalOrder.items.map((item) => item.pageId),
+    logicalOrder.rows
+      .filter((row) => row.effectiveGroupKey === groupKey)
+      .map((row) => row.page.pageId),
     destination.view.at,
     `View ${destination.view.viewId}`,
   );
   return {
     kind: "database",
     contentProjectId: databaseRow.contentProjectId,
-    databaseBlockId: destination.databaseBlockId,
+    databaseBlockId: databaseRow.database_block_id,
+    dataSourceId: databaseRow.data_source_id,
     schemaRevision,
     view: {
       viewId: destination.view.viewId,
@@ -430,6 +496,44 @@ function prepareDatabaseDestination(
       ...(beforePageId ? { beforePageId } : {}),
     },
   };
+}
+
+function prepareDatabaseDestination(
+  database: Database.Database,
+  projectId: string,
+  destination: Extract<CreateInput["destination"], { readonly kind: "database" }>,
+  allowForeignOwner = false,
+): PreparedNodexAgentCreateDestination {
+  const preferred = destination.view
+    ? (database.prepare(`
+        SELECT data_source_id AS dataSourceId
+        FROM database_views
+        WHERE id = ? AND database_block_id = ? AND lifecycle = 'active'
+      `).get(destination.view.viewId, destination.databaseBlockId) as
+        | { readonly dataSourceId: string }
+        | undefined)?.dataSourceId
+    : (database.prepare(`
+        SELECT id AS dataSourceId FROM data_sources
+        WHERE home_database_block_id = ? AND lifecycle = 'active'
+        ORDER BY rank_key, id LIMIT 1
+      `).get(destination.databaseBlockId) as
+        | { readonly dataSourceId: string }
+        | undefined)?.dataSourceId;
+  if (!preferred) {
+    throw new NodexAgentReadError(
+      "not_found",
+      `Database ${destination.databaseBlockId} has no active Data Source`,
+      false,
+      "query_database_again",
+    );
+  }
+  return prepareNodexAgentDataSourceDestination(
+    database,
+    projectId,
+    destination,
+    preferred,
+    allowForeignOwner,
+  );
 }
 
 export function prepareNodexAgentDestination(
@@ -455,420 +559,6 @@ export function prepareNodexAgentDestination(
     destination,
     allowForeignOwner,
   );
-}
-
-function replayOutput(receipt: NodexAgentCallReceiptRow): CreateOutput {
-  const metadata = parseJsonValue(
-    receipt.result_metadata_json,
-    `Agent call ${receipt.call_identity} result metadata`,
-  );
-  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
-    throw new NodexAgentReadError(
-      "internal_error",
-      "Agent create result metadata is invalid",
-      false,
-      "none",
-    );
-  }
-  return CreateOutputSchema.parse(metadata.output);
-}
-
-function prepareCreate(
-  database: Database.Database,
-  request: PrepareNodexAgentCreateRequest,
-): PrepareNodexAgentCreateResult {
-  requireProject(database, request.projectId);
-  requireNonBlankTitle(request.input);
-  const key = { ...request, tool: "create" };
-  const identity = nodexAgentCallIdentity(key);
-  const requestHash = nodexAgentFingerprint({
-    tool: "create",
-    projectId: request.projectId,
-    input: request.input,
-  });
-  const existing = readNodexAgentCallReceipt(database, identity);
-  if (existing) {
-    requireMatchingNodexAgentCallReceipt(existing, key, requestHash);
-    if (existing.status === "committed") {
-      return { ok: true, value: { kind: "completed", output: replayOutput(existing) } };
-    }
-  }
-  const allocations = existing
-    ? parseStringArray(existing.allocations_json, "Agent create allocation receipt")
-    : [];
-  let allocationIndex = 0;
-  const allocate = (): string => {
-    const value = allocations[allocationIndex] ?? createUuidV7();
-    if (allocationIndex === allocations.length) allocations.push(value);
-    allocationIndex += 1;
-    return value;
-  };
-  const pageId = allocate();
-  const nfm = request.input.resource.body?.content ?? "";
-  let genesis;
-  try {
-    genesis = createPageDocumentGenesis({
-      documentId: `document:${pageId}`,
-      ...(richTitle(request.input)
-        ? { richTitle: richTitle(request.input) as PortableRichText }
-        : { title: plainTitle(request.input) }),
-      nfm,
-      allocateBlockId: allocate,
-    });
-  } catch (error) {
-    throw new NodexAgentReadError(
-      "invalid_nfm",
-      error instanceof Error ? error.message : "Page NFM is invalid",
-      false,
-      "none",
-    );
-  }
-  let bodyBlockIds: readonly string[];
-  try {
-    const blocks = flattenBlocks(genesis.materialization.blockTree);
-    if (blocks.some((block) => block.type === "page")) {
-      throw new NodexAgentReadError(
-        "invalid_nfm",
-        "Page creation NFM cannot create an owning nested Page; use create again",
-        false,
-        "none",
-      );
-    }
-    bodyBlockIds = blocks.map((block) => block.id);
-  } finally {
-    genesis.document.destroy();
-  }
-  const primaryMembershipId = allocate();
-  const targetMembershipId = allocate();
-  const destination = prepareNodexAgentDestination(
-    database,
-    request.projectId,
-    request.input.destination,
-  );
-  const storeEpoch = readBlockStoreEpoch(database);
-  if (!storeEpoch) {
-    throw new NodexAgentReadError(
-      "internal_error",
-      "The Nodex store has no epoch",
-      false,
-      "none",
-    );
-  }
-  const mutationId = existing?.mutation_id ?? `nodex-create:${identity}`;
-  const now = new Date().toISOString();
-  if (existing) {
-    database.prepare(
-      `
-      UPDATE nodex_agent_call_receipts
-      SET allocations_json = ?, updated_at = ?
-      WHERE call_identity = ? AND status = 'prepared'
-    `).run(JSON.stringify(allocations), now, identity);
-  } else {
-    database.prepare(
-      `
-      INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
-        mutation_id, authority_fingerprint, provenance_version,
-        allocations_json, result_metadata_json, status,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'create', ?, ?, ?, ?, ?, '{}', 'prepared', ?, ?)
-    `).run(
-      identity,
-      request.threadId,
-      request.authority?.turnId ?? null,
-      request.callId,
-      request.projectId,
-      requestHash,
-      mutationId,
-      nodexAgentCallProvenance(request)[1],
-      nodexAgentCallProvenance(request)[2],
-      JSON.stringify(allocations),
-      now,
-      now,
-    );
-  }
-  const command: NodexAgentCreatePageCommand = {
-    threadId: request.threadId,
-    callId: request.callId,
-    ...(request.authority ? { authority: request.authority } : {}),
-    projectId: request.projectId,
-    requestHash,
-    mutationId,
-    storeEpoch,
-    input: request.input,
-    pageId,
-    bodyBlockIds,
-    primaryMembershipId,
-    targetMembershipId,
-    destination,
-  };
-  return {
-    ok: true,
-    value: {
-      kind: "prepared",
-      command,
-      leaseDocuments: destination.kind === "document"
-        ? [{
-            documentId: destination.documentId,
-            generation: destination.generation,
-            expectedHeadSeq: destination.expectedHeadSeq,
-          }]
-        : [],
-      createdBodyBlockIds: bodyBlockIds,
-      targetNfm: nfm,
-    },
-  };
-}
-
-function throwDomainFailure(input: {
-  readonly message: string;
-  readonly code: string;
-  readonly recovery: "get_block_again" | "query_database_again" | "none";
-}): never {
-  const conflict = input.code.includes("conflict")
-    || input.code.includes("mismatch")
-    || input.code.includes("changed")
-    || input.code.includes("anchor");
-  throw new NodexAgentReadError(
-    conflict ? "conflict" : "invalid_arguments",
-    input.message,
-    false,
-    input.recovery,
-    { domainCode: input.code },
-  );
-}
-
-function applyLifecycleGenesis(
-  database: Database.Database,
-  command: NodexAgentCreatePageCommand,
-) {
-  let bodyIndex = 0;
-  const request = parsePageLifecycleMutationRequest({
-    version: 1,
-    operationId: `${command.mutationId}:genesis`,
-    projectId: command.projectId,
-    storeEpoch: command.storeEpoch,
-    clientSessionId: `nodex-agent:${command.threadId}`,
-    actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-    operation: {
-      kind: "create_page",
-      pageId: command.pageId,
-      title: plainTitle(command.input),
-      ...(richTitle(command.input) ? { richTitle: richTitle(command.input) } : {}),
-      nfm: command.input.resource.body?.content ?? "",
-      status: DEFAULT_WORKFLOW_STATUS,
-      priority: null,
-      estimate: null,
-      tags: [],
-      dueDate: null,
-      scheduledStart: null,
-      scheduledEnd: null,
-      isAllDay: false,
-      recurrence: null,
-      reminders: [],
-      scheduleTimezone: null,
-      assignee: null,
-      runInTarget: "localProject",
-      runInLocalPath: null,
-      runInBaseBranch: null,
-      runInWorktreePath: null,
-      runInEnvironmentPath: null,
-    },
-  });
-  const result = applyPageLifecycleMutation(database, request, {
-    allocateBodyBlockId: () => {
-      const blockId = command.bodyBlockIds[bodyIndex];
-      if (!blockId) throw new Error("Prepared Page body allocation is incomplete");
-      bodyIndex += 1;
-      return blockId;
-    },
-    allocateMembershipId: () => command.primaryMembershipId,
-  });
-  if (!result.ok) {
-    throwDomainFailure({
-      message: result.error.message,
-      code: result.error.code,
-      recovery: "none",
-    });
-  }
-  if (bodyIndex !== command.bodyBlockIds.length) {
-    throw new NodexAgentReadError(
-      "idempotency_collision",
-      "Prepared Page body allocations no longer match the NFM body",
-      false,
-      "none",
-    );
-  }
-  return result.value;
-}
-
-function applySpaceOrDocumentPlacement(
-  database: Database.Database,
-  command: NodexAgentCreatePageCommand,
-  lifecycle: ReturnType<typeof applyLifecycleGenesis>,
-){
-  if (command.destination.kind === "database") return null;
-  if (!lifecycle.databaseId || !lifecycle.membershipId) {
-    throw new Error("Page genesis did not create its primary membership");
-  }
-  const target = command.destination.kind === "space"
-    ? {
-        kind: "space" as const,
-        ...(command.destination.beforeBlockId
-          ? { beforeBlockId: command.destination.beforeBlockId }
-          : {}),
-      }
-    : {
-        kind: "document" as const,
-        documentId: command.destination.documentId,
-        generation: command.destination.generation,
-        expectedHeadSeq: command.destination.expectedHeadSeq,
-        ...(command.destination.parentBlockId
-          ? { parentBlockId: command.destination.parentBlockId }
-          : {}),
-        ...(command.destination.beforeBlockId
-          ? { beforeBlockId: command.destination.beforeBlockId }
-          : {}),
-      };
-  const result = applyBlockTransfer(database, {
-    version: 1,
-    operationId: `${command.mutationId}:placement`,
-    projectId: command.projectId,
-    storeEpoch: command.storeEpoch,
-    clientSessionId: `nodex-agent:${command.threadId}`,
-    actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-    mode: "move",
-    rootBlockIds: [command.pageId],
-    expectedLocationRevisions: { [command.pageId]: lifecycle.parentRevision },
-    source: {
-      kind: "database",
-      databaseBlockId: lifecycle.databaseId,
-      memberships: {
-        [command.pageId]: {
-          membershipId: lifecycle.membershipId,
-          revision: 1,
-        },
-      },
-    },
-    target,
-  }, {
-    persistTopLevelGrant: command.authority?.scope !== "library",
-  });
-  if (result.ok) return result.value;
-  throwDomainFailure({
-    message: result.error.message,
-    code: result.error.code,
-    recovery: command.destination.kind === "document" ? "get_block_again" : "none",
-  });
-}
-
-function primaryMembership(
-  database: Database.Database,
-  pageId: string,
-): { readonly id: string; readonly database_block_id: string; readonly revision: number } {
-  const row = database.prepare(
-    `
-    SELECT id, database_block_id, revision
-    FROM database_memberships
-    WHERE page_block_id = ? AND removed_at IS NULL
-    LIMIT 1
-  `).get(pageId) as
-    | { readonly id: string; readonly database_block_id: string; readonly revision: number }
-    | undefined;
-  if (!row) throw new Error(`Page ${pageId} has no active membership`);
-  return row;
-}
-
-function databaseValueOperations(
-  database: Database.Database,
-  command: NodexAgentCreatePageCommand,
-  expectedValueRevision: number,
-): readonly DatabaseMutationOperation[] {
-  if (command.destination.kind !== "database") return [];
-  const destination = command.input.destination;
-  if (destination.kind !== "database" || !destination.values?.length) return [];
-  return [{
-    kind: "set_values",
-    databaseBlockId: command.destination.databaseBlockId,
-    entries: destination.values.map((draft) => ({
-      pageId: command.pageId,
-      propertyId: draft.propertyId,
-      expectedValueRevision,
-      value: draft.value as DatabaseJsonValue,
-    })),
-  }];
-}
-
-function applyDatabasePlacement(
-  database: Database.Database,
-  command: NodexAgentCreatePageCommand,
-){
-  if (command.destination.kind !== "database") return [];
-  const receipts = [];
-  const current = primaryMembership(database, command.pageId);
-  const sameDatabase = current.database_block_id === command.destination.databaseBlockId;
-  if (sameDatabase) {
-    const detached = applyDatabaseMutation(database, {
-      version: DATABASE_MUTATION_CONTRACT_VERSION,
-      operationId: `${command.mutationId}:detach-primary`,
-      projectId: command.projectId,
-      storeEpoch: command.storeEpoch,
-      clientSessionId: `nodex-agent:${command.threadId}`,
-      actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-      operations: [{
-        kind: "transfer_membership",
-        pageId: command.pageId,
-        expectedMembership: { membershipId: current.id, revision: current.revision },
-        target: null,
-      }],
-    });
-    if (!detached.ok) {
-      throwDomainFailure({
-        message: detached.error.message,
-        code: detached.error.code,
-        recovery: "query_database_again",
-      });
-    }
-    receipts.push(detached.value);
-  }
-  const expectedValueRevision = sameDatabase ? 1 : 0;
-  const expectedMembership = sameDatabase
-    ? null
-    : { membershipId: current.id, revision: current.revision };
-  const target = {
-    databaseBlockId: command.destination.databaseBlockId,
-    membershipId: command.targetMembershipId,
-    ...(command.destination.view ? {
-      viewId: command.destination.view.viewId,
-      groupKey: command.destination.view.groupKey,
-      ...(command.destination.view.beforePageId
-        ? { beforePageId: command.destination.view.beforePageId }
-        : {}),
-    } : {}),
-  };
-  const result = applyDatabaseMutation(database, {
-    version: DATABASE_MUTATION_CONTRACT_VERSION,
-    operationId: `${command.mutationId}:database`,
-    projectId: command.projectId,
-    storeEpoch: command.storeEpoch,
-    clientSessionId: `nodex-agent:${command.threadId}`,
-    actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-    operations: [
-      {
-        kind: "transfer_membership",
-        pageId: command.pageId,
-        expectedMembership,
-        target,
-      },
-      ...databaseValueOperations(database, command, expectedValueRevision),
-    ],
-  });
-  if (result.ok) return [...receipts, result.value];
-  throwDomainFailure({
-    message: result.error.message,
-    code: result.error.code,
-    recovery: "query_database_again",
-  });
 }
 
 function assertPreparedAuthority(
@@ -906,8 +596,9 @@ function assertPreparedAuthority(
   }
   if (command.destination.kind !== "database") return;
   const databaseRow = database.prepare(
-    "SELECT schema_revision FROM database_capabilities WHERE block_id = ? AND project_id = ?",
-  ).get(command.destination.databaseBlockId, contentProjectId) as
+    `SELECT schema_revision FROM data_sources
+     WHERE id = ? AND home_database_block_id = ? AND lifecycle = 'active'`,
+  ).get(command.destination.dataSourceId, command.destination.databaseBlockId) as
     | { readonly schema_revision: number }
     | undefined;
   if (!databaseRow || databaseRow.schema_revision !== command.destination.schemaRevision) {
@@ -920,11 +611,13 @@ function assertPreparedAuthority(
   }
   if (!command.destination.view) return;
   const view = database.prepare(
-    "SELECT revision FROM database_views WHERE id = ? AND database_block_id = ? AND project_id = ? AND lifecycle = 'active'",
+    `SELECT revision FROM database_views
+     WHERE id = ? AND database_block_id = ? AND data_source_id = ?
+       AND lifecycle = 'active'`,
   ).get(
     command.destination.view.viewId,
     command.destination.databaseBlockId,
-    contentProjectId,
+    command.destination.dataSourceId,
   ) as { readonly revision: number } | undefined;
   if (!view || view.revision !== command.destination.view.viewRevision) {
     throw new NodexAgentReadError(
@@ -959,7 +652,10 @@ function assertExecutionAuthority(
   if (command.destination.kind === "database") {
     assertNodexAgentResourceAuthorizationInDatabase(database, {
       authority: command.authority,
-      resource: { kind: "database", databaseId: command.destination.databaseBlockId },
+      resource: {
+        kind: "data_source",
+        dataSourceId: command.destination.dataSourceId,
+      },
       action: "create_child",
       ...(command.resourceAccess
         ? { resourceAccess: command.resourceAccess }
@@ -1070,92 +766,6 @@ function buildCreateOutput(
     },
   });
   return output;
-}
-
-function createOutput(
-  database: Database.Database,
-  command: NodexAgentCreatePageCommand,
-): CreateOutput {
-  const output = buildCreateOutput(database, command);
-  database.prepare(
-    `
-    UPDATE nodex_agent_call_receipts
-    SET status = 'committed', result_metadata_json = ?, updated_at = ?
-    WHERE call_identity = ? AND status = 'prepared'
-  `).run(
-    JSON.stringify({ output }),
-    new Date().toISOString(),
-    nodexAgentCallIdentity({ ...command, tool: "create" }),
-  );
-  return output;
-}
-
-function executeCreate(
-  database: Database.Database,
-  command: NodexAgentCreatePageCommand,
-  options: CreateExecutionOptions,
-): ExecuteNodexAgentCreateResult {
-  const identity = nodexAgentCallIdentity({ ...command, tool: "create" });
-  const receipt = readNodexAgentCallReceipt(database, identity);
-  if (!receipt) {
-    throw new NodexAgentReadError(
-      "idempotency_collision",
-      "No matching prepared Agent create call exists",
-      false,
-      "none",
-    );
-  }
-  requireMatchingNodexAgentCallReceipt(
-    receipt,
-    { ...command, tool: "create" },
-    command.requestHash,
-  );
-  if (receipt.mutation_id !== command.mutationId) {
-    throw new NodexAgentReadError(
-      "idempotency_collision",
-      "Prepared Agent create mutation identity changed",
-      false,
-      "none",
-    );
-  }
-  if (receipt.status === "committed") {
-    return {
-      ok: true,
-      value: {
-        output: replayOutput(receipt),
-        duplicate: true,
-        documentCommits: [],
-        affectedDatabaseBlockIds: [],
-        changeLogSeq: 0,
-      },
-    };
-  }
-  assertExecutionAuthority(database, command);
-  assertPreparedAuthority(database, command);
-  const lifecycle = applyLifecycleGenesis(database, command);
-  options.faultInjector?.("after_genesis");
-  const placement = applySpaceOrDocumentPlacement(database, command, lifecycle);
-  const databaseReceipts = applyDatabasePlacement(database, command);
-  options.faultInjector?.("after_placement");
-  options.faultInjector?.("before_receipt");
-  return {
-    ok: true,
-    value: {
-      output: createOutput(database, command),
-      duplicate: false,
-      documentCommits: placement?.documentCommits ?? [],
-      affectedDatabaseBlockIds: [...new Set([
-        ...(lifecycle.databaseId ? [lifecycle.databaseId] : []),
-        ...(placement?.affectedDatabaseBlockIds ?? []),
-        ...databaseReceipts.flatMap((result) => result.affectedDatabaseBlockIds),
-      ])].sort((left, right) => left.localeCompare(right)),
-      changeLogSeq: Math.max(
-        lifecycle.changeLogSeq,
-        placement?.changeLogSeq ?? 0,
-        ...databaseReceipts.map((result) => result.changeLogSeq),
-      ),
-    },
-  };
 }
 
 function replayCreatePagesOutput(receipt: NodexAgentCallReceiptRow) {
@@ -1394,14 +1004,26 @@ function prepareCreatePages(
     return value;
   };
   const pages = inputs.map((input) => preparedCreatePage(input, allocate));
-  const destinations = inputs.map((input) =>
-    prepareNodexAgentDestination(
+  const destinations = inputs.map((input) => {
+    if (
+      input.destination.kind === "database" &&
+      request.input.destination.kind === "data_source"
+    ) {
+      return prepareNodexAgentDataSourceDestination(
+        database,
+        request.projectId,
+        input.destination,
+        request.input.destination.dataSourceId,
+        request.authority !== undefined,
+      );
+    }
+    return prepareNodexAgentDestination(
       database,
       request.projectId,
       input.destination,
       request.authority !== undefined,
-    )
-  );
+    );
+  });
   const destination = destinations[0];
   if (!destination || destinations.some((candidate) =>
     JSON.stringify(candidate) !== JSON.stringify(destination)
@@ -1511,78 +1133,6 @@ function batchPageCommand(
   };
 }
 
-function applyBatchSpaceOrDocumentPlacement(
-  database: Database.Database,
-  command: NodexAgentCreatePagesCommand,
-  lifecycles: readonly ReturnType<typeof applyLifecycleGenesis>[],
-) {
-  if (command.destination.kind === "database") return null;
-  const memberships = lifecycles.map((lifecycle, index) => {
-    const page = command.pages[index];
-    if (!page || !lifecycle.databaseId || !lifecycle.membershipId) {
-      throw new Error("Page batch genesis did not create its primary membership");
-    }
-    return { page, lifecycle };
-  });
-  const sourceDatabaseBlockId = memberships[0]?.lifecycle.databaseId;
-  if (!sourceDatabaseBlockId || memberships.some(
-    ({ lifecycle }) => lifecycle.databaseId !== sourceDatabaseBlockId,
-  )) {
-    throw new Error("Page batch genesis did not share one primary Database");
-  }
-  const target = command.destination.kind === "space"
-    ? {
-        kind: "space" as const,
-        ...(command.destination.beforeBlockId
-          ? { beforeBlockId: command.destination.beforeBlockId }
-          : {}),
-      }
-    : {
-        kind: "document" as const,
-        documentId: command.destination.documentId,
-        generation: command.destination.generation,
-        expectedHeadSeq: command.destination.expectedHeadSeq,
-        ...(command.destination.parentBlockId
-          ? { parentBlockId: command.destination.parentBlockId }
-          : {}),
-        ...(command.destination.beforeBlockId
-          ? { beforeBlockId: command.destination.beforeBlockId }
-          : {}),
-      };
-  const result = applyBlockTransfer(database, {
-    version: 1,
-    operationId: `${command.mutationId}:placement`,
-    projectId: command.destination.contentProjectId ?? command.projectId,
-    storeEpoch: command.storeEpoch,
-    clientSessionId: `nodex-agent:${command.threadId}`,
-    actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-    mode: "move",
-    rootBlockIds: memberships.map(({ page }) => page.pageId),
-    expectedLocationRevisions: Object.fromEntries(memberships.map(({ page, lifecycle }) =>
-      [page.pageId, lifecycle.parentRevision]
-    )),
-    source: {
-      kind: "database",
-      databaseBlockId: sourceDatabaseBlockId,
-      memberships: Object.fromEntries(memberships.map(({ page, lifecycle }) => [
-        page.pageId,
-        { membershipId: lifecycle.membershipId as string, revision: 1 },
-      ])),
-    },
-    target,
-  }, {
-    persistTopLevelGrant:
-      !command.authority
-      || command.resourceAccess?.persistResultingPageGrants === true,
-  });
-  if (result.ok) return result.value;
-  throwDomainFailure({
-    message: result.error.message,
-    code: result.error.code,
-    recovery: command.destination.kind === "document" ? "get_block_again" : "none",
-  });
-}
-
 function createdPageV3Output(
   database: Database.Database,
   command: NodexAgentCreatePagesCommand,
@@ -1625,6 +1175,292 @@ function createPagesOutput(
   return output;
 }
 
+function canonicalCreateSourceId(
+  database: Database.Database,
+  command: NodexAgentCreatePagesCommand,
+): string {
+  if (command.destination.kind === "database") {
+    return command.destination.dataSourceId;
+  }
+  const row = database.prepare(`
+    SELECT source.id
+    FROM project_database_bindings binding
+    INNER JOIN data_sources source
+      ON source.home_database_block_id = binding.database_block_id
+     AND source.library_id = binding.library_id
+     AND source.lifecycle = 'active'
+    WHERE binding.project_id = ? AND binding.lifecycle = 'active'
+    ORDER BY source.rank_key, source.id
+    LIMIT 1
+  `).get(command.destination.contentProjectId ?? command.projectId) as
+    | { readonly id: string }
+    | undefined;
+  if (row) return row.id;
+  throw new NodexAgentReadError(
+    "not_found",
+    `Project ${command.projectId} has no active default Data Source`,
+    false,
+    "query_database_again",
+  );
+}
+
+const canonicalCreateProjectId = (
+  command: NodexAgentCreatePagesCommand,
+): string => command.destination.contentProjectId ?? command.projectId;
+
+function applyCanonicalCreatePage(
+  database: Database.Database,
+  command: NodexAgentCreatePagesCommand,
+  index: number,
+) {
+  const page = command.pages[index];
+  if (!page) throw new Error(`Prepared Page ${index} is unavailable`);
+  const contentProjectId = canonicalCreateProjectId(command);
+  const dataSourceId = parseDataSourceId(canonicalCreateSourceId(database, command));
+  const tags = database.prepare(`
+    SELECT schema_revision AS revision
+    FROM data_source_properties
+    WHERE data_source_id = ? AND id = 'tags' AND lifecycle = 'active'
+  `).get(dataSourceId) as { readonly revision: number } | undefined;
+  if (!tags) {
+    throw new NodexAgentReadError(
+      "projection_not_ready",
+      `Data Source ${dataSourceId} has no active tags Property`,
+      true,
+      "query_database_again",
+    );
+  }
+  let bodyIndex = 0;
+  const request = parsePageLifecycleMutationRequestV2({
+    version: PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
+    operationId: `${command.mutationId}:page:${index}:genesis:v2`,
+    projectId: contentProjectId,
+    storeEpoch: command.storeEpoch,
+    clientSessionId: `nodex-agent:${command.threadId}`,
+    actor: {
+      kind: "nodex_agent",
+      threadId: command.threadId,
+      callId: command.callId,
+    },
+    operation: {
+      kind: "create_page",
+      pageId: page.pageId,
+      title: plainTitle(page.input),
+      ...(richTitle(page.input) ? { richTitle: richTitle(page.input) } : {}),
+      nfm: page.input.resource.body?.content ?? "",
+      status: DEFAULT_WORKFLOW_STATUS,
+      priority: null,
+      estimate: null,
+      tagOptionIds: [],
+      newTagOptions: [],
+      expectedTagsPropertyRevision: tags.revision,
+      dueDate: null,
+      scheduledStart: null,
+      scheduledEnd: null,
+      isAllDay: false,
+      recurrence: null,
+      reminders: [],
+      scheduleTimezone: null,
+      assignee: null,
+      runInTarget: "localProject",
+      runInLocalPath: null,
+      runInBaseBranch: null,
+      runInWorktreePath: null,
+      runInEnvironmentPath: null,
+      dataSourceId,
+      ...(command.destination.kind === "database" &&
+          command.destination.view?.beforePageId
+        ? { beforeViewPageId: command.destination.view.beforePageId }
+        : {}),
+    },
+  });
+  const lifecycle = applyPageLifecycleMutationV2(database, request, {
+    allocateBodyBlockId: () => {
+      const blockId = page.bodyBlockIds[bodyIndex];
+      if (!blockId) throw new Error("Prepared Page body allocation is incomplete");
+      bodyIndex += 1;
+      return blockId;
+    },
+    allocateMembershipId: () => page.primaryMembershipId,
+  });
+  if (!lifecycle.ok) {
+    throwDomainFailure({
+      message: lifecycle.error.message,
+      code: lifecycle.error.code,
+      recovery: "query_database_again",
+    });
+  }
+  if (bodyIndex !== page.bodyBlockIds.length) {
+    throw new NodexAgentReadError(
+      "idempotency_collision",
+      "Prepared Page body allocations no longer match the Nested Markdown body",
+      false,
+      "none",
+    );
+  }
+  return lifecycle.value;
+}
+
+function applyCanonicalCreateFollowup(
+  database: Database.Database,
+  command: NodexAgentCreatePagesCommand,
+  index: number,
+) {
+  const page = command.pages[index];
+  if (!page) throw new Error(`Prepared Page ${index} is unavailable`);
+  const contentProjectId = canonicalCreateProjectId(command);
+  if (command.destination.kind !== "database") {
+    const source = database.prepare(`
+      SELECT parent_id AS dataSourceId
+      FROM pages
+      WHERE block_id = ? AND parent_kind = 'data_source'
+    `).get(page.pageId) as { readonly dataSourceId: string } | undefined;
+    const target = command.destination.kind === "document"
+      ? database.prepare(`
+          SELECT block_id AS pageId
+          FROM pages
+          WHERE document_id = ? AND lifecycle = 'active'
+        `).get(command.destination.documentId) as
+          | { readonly pageId: string }
+          | undefined
+      : null;
+    const project = command.destination.kind === "space"
+      ? database.prepare(`
+          SELECT library_id AS libraryId FROM projects WHERE id = ?
+        `).get(contentProjectId) as { readonly libraryId: string } | undefined
+      : null;
+    if (!source || (command.destination.kind === "document" && !target) ||
+      (command.destination.kind === "space" && !project)) {
+      throw new Error(
+        `Page ${page.pageId} cannot resolve its canonical transfer edge`,
+      );
+    }
+    const prepared = prepareBlockTransfer(database, {
+      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+      operationId: `${command.mutationId}:page:${index}:destination:v2`,
+      projectId: contentProjectId,
+      storeEpoch: command.storeEpoch,
+      clientSessionId: `nodex-agent:${command.threadId}`,
+      actor: {
+        kind: "nodex_agent",
+        threadId: command.threadId,
+        callId: command.callId,
+      },
+      mode: "move",
+      rootBlockIds: [page.pageId],
+      source: { kind: "data_source", dataSourceId: source.dataSourceId },
+      target: command.destination.kind === "document"
+        ? {
+            kind: "page",
+            pageId: (target as { readonly pageId: string }).pageId,
+            ...(command.destination.parentBlockId
+              ? { parentBlockId: command.destination.parentBlockId }
+              : {}),
+            ...(command.destination.beforeBlockId
+              ? { beforeBlockId: command.destination.beforeBlockId }
+              : {}),
+          }
+        : {
+            kind: "library",
+            libraryId: (project as { readonly libraryId: string }).libraryId,
+            ...(command.destination.beforeBlockId
+              ? { beforeBlockId: command.destination.beforeBlockId }
+              : {}),
+          },
+    });
+    if (!prepared.ok) {
+      throwDomainFailure({
+        message: prepared.error.message,
+        code: prepared.error.code,
+        recovery: prepared.error.reloadRequired ? "get_block_again" : "none",
+      });
+    }
+    const transferred = applyBlockTransfer(database, prepared.value.request, {
+      persistTopLevelGrant:
+        !command.authority ||
+        command.resourceAccess?.persistResultingPageGrants === true,
+    });
+    if (transferred.ok) return transferred.value;
+    throwDomainFailure({
+      message: transferred.error.message,
+      code: transferred.error.code,
+      recovery: transferred.error.reloadRequired ? "get_block_again" : "none",
+    });
+  }
+  const operations: DatabaseApplyOperationV2[] = [];
+  if (command.destination.kind === "database") {
+    const destination = command.destination;
+    const inputDestination = page.input.destination;
+    if (inputDestination.kind !== "database") {
+      throw new Error("Prepared Data Source Page lost its value intent");
+    }
+    if (inputDestination.values?.length) {
+      const membership = database.prepare(`
+        SELECT id FROM data_source_page_memberships
+        WHERE data_source_id = ? AND page_block_id = ? AND removed_at IS NULL
+      `).get(destination.dataSourceId, page.pageId) as
+        | { readonly id: string }
+        | undefined;
+      if (!membership) throw new Error(`Page ${page.pageId} has no active membership`);
+      const values = inputDestination.values.map((draft) => {
+        const existing = database.prepare(`
+          SELECT revision FROM data_source_property_values
+          WHERE data_source_id = ? AND membership_id = ? AND property_id = ?
+        `).get(
+          destination.dataSourceId,
+          membership.id,
+          draft.propertyId,
+        ) as { readonly revision: number } | undefined;
+        return {
+          pageId: page.pageId,
+          dataSourceId: parseDataSourceId(destination.dataSourceId),
+          propertyId: parseDataSourcePropertyId(draft.propertyId),
+          expectedValueRevision: existing?.revision ?? 0,
+          value: draft.value as DatabaseJsonValue,
+        };
+      });
+      operations.push({ kind: "set_values", values });
+    }
+    if (command.destination.view) {
+      const position = database.prepare(`
+        SELECT revision FROM database_view_page_positions
+        WHERE view_id = ? AND page_block_id = ?
+      `).get(command.destination.view.viewId, page.pageId) as
+        | { readonly revision: number }
+        | undefined;
+      operations.push({
+        kind: "position_page",
+        viewId: parseDatabaseViewId(command.destination.view.viewId),
+        pageId: page.pageId,
+        expectedPositionRevision: position?.revision ?? 0,
+        groupKey: command.destination.view.groupKey,
+        ...(command.destination.view.beforePageId
+          ? { beforePageId: command.destination.view.beforePageId }
+          : {}),
+      });
+    }
+  }
+  if (operations.length === 0) return null;
+  const result = applyDatabaseModuleV2(database, {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    operationId: `${command.mutationId}:page:${index}:destination:v2`,
+    projectId: contentProjectId,
+    storeEpoch: command.storeEpoch,
+    actor: {
+      kind: "nodex_agent",
+      threadId: command.threadId,
+      callId: command.callId,
+    },
+    operations,
+  });
+  if (result.ok) return result.value;
+  throwDomainFailure({
+    message: result.error.message,
+    code: result.error.code,
+    recovery: "query_database_again",
+  });
+}
+
 function executeCreatePages(
   database: Database.Database,
   command: NodexAgentCreatePagesCommand,
@@ -1665,15 +1501,13 @@ function executeCreatePages(
   assertExecutionAuthority(database, batchPageCommand(command, 0));
   assertPreparedAuthority(database, batchPageCommand(command, 0));
   const lifecycles = command.pages.map((_, index) =>
-    applyLifecycleGenesis(database, batchPageCommand(command, index))
+    applyCanonicalCreatePage(database, command, index)
   );
   options.faultInjector?.("after_genesis");
-  const placement = applyBatchSpaceOrDocumentPlacement(database, command, lifecycles);
-  const databaseReceipts = command.destination.kind === "database"
-    ? command.pages.flatMap((_, index) =>
-        applyDatabasePlacement(database, batchPageCommand(command, index))
-      )
-    : [];
+  const placementReceipts = command.pages.flatMap((_, index) => {
+    const receipt = applyCanonicalCreateFollowup(database, command, index);
+    return receipt ? [receipt] : [];
+  });
   options.faultInjector?.("after_placement");
   options.faultInjector?.("before_receipt");
   return {
@@ -1681,18 +1515,22 @@ function executeCreatePages(
     value: {
       output: createPagesOutput(database, command),
       duplicate: false,
-      documentCommits: placement?.documentCommits ?? [],
+      documentCommits: placementReceipts.flatMap((receipt) =>
+        "documentCommits" in receipt ? receipt.documentCommits : []
+      ),
       affectedDatabaseBlockIds: [...new Set([
         ...lifecycles.flatMap((lifecycle) =>
           lifecycle.databaseId ? [lifecycle.databaseId] : []
         ),
-        ...(placement?.affectedDatabaseBlockIds ?? []),
-        ...databaseReceipts.flatMap((result) => result.affectedDatabaseBlockIds),
+        ...placementReceipts.flatMap((result) =>
+          "affectedDatabaseIds" in result
+            ? result.affectedDatabaseIds
+            : result.affectedDatabaseBlockIds
+        ),
       ])].sort((left, right) => left.localeCompare(right)),
       changeLogSeq: Math.max(
         ...lifecycles.map((lifecycle) => lifecycle.changeLogSeq),
-        placement?.changeLogSeq ?? 0,
-        ...databaseReceipts.map((result) => result.changeLogSeq),
+        ...placementReceipts.map((result) => result.changeLogSeq),
       ),
     },
   };
@@ -1720,28 +1558,5 @@ export function executeNodexAgentCreatePages(
   } catch (error) {
     const failure = readFailure(error);
     return { ok: false, error: publicV3Failure(failure.error) };
-  }
-}
-
-export function prepareNodexAgentCreate(
-  database: Database.Database,
-  request: PrepareNodexAgentCreateRequest,
-): PrepareNodexAgentCreateResult {
-  try {
-    return database.transaction(() => prepareCreate(database, request)).immediate();
-  } catch (error) {
-    return readFailure(error);
-  }
-}
-
-export function executeNodexAgentCreate(
-  database: Database.Database,
-  command: NodexAgentCreatePageCommand,
-  options: CreateExecutionOptions = {},
-): ExecuteNodexAgentCreateResult {
-  try {
-    return database.transaction(() => executeCreate(database, command, options)).immediate();
-  } catch (error) {
-    return readFailure(error);
   }
 }

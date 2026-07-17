@@ -4,15 +4,20 @@ import {
   isWorkflowStatus,
 } from "../../shared/workflow-status";
 import type {
-  DatabaseModuleReadSnapshot,
-  DatabaseViewQueryResult,
-  DataSourcePageRow,
-  DataSourcePropertyRecord,
-} from "../../shared/database-module";
+  DatabaseModuleReadSnapshotV2,
+  DatabaseViewQueryResultV2,
+  DataSourcePageRowV2,
+  DataSourcePropertyRecordV2,
+} from "../../shared/database-module-v2";
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
 } from "../../shared/database-kernel";
+import type {
+  DatabaseId,
+  DatabaseViewId,
+  DataSourceId,
+} from "../../shared/database-identities";
 import { readDatabasePropertyOptions } from "./database-view-authoring";
 import type { Estimate, Priority } from "./types";
 
@@ -27,16 +32,16 @@ const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
 
 export interface DatabaseViewRenderModel {
   readonly projectId: string;
-  readonly databaseViewId: string;
-  readonly databaseId: string;
-  readonly dataSourceId: string;
+  readonly databaseViewId: DatabaseViewId;
+  readonly databaseId: DatabaseId;
+  readonly dataSourceId: DataSourceId;
   readonly databaseName: string;
   readonly dataSourceName: string;
   readonly viewName: string;
   readonly storeEpoch: string;
   readonly changeLogSeq: number;
   readonly columns: readonly DatabaseViewRenderColumn[];
-  readonly query: DatabaseViewQueryResult;
+  readonly query: DatabaseViewQueryResultV2;
   /** Whether the compatibility Board presentation can faithfully render it. */
   readonly primaryWriteCompatible: boolean;
   readonly readOnlyReason: string | null;
@@ -65,17 +70,18 @@ export interface DatabaseViewRenderColumn {
   readonly rows: readonly DatabaseViewRenderRow[];
 }
 
-const propertyByKey = (
-  properties: readonly DataSourcePropertyRecord[],
-  key: string,
-): DataSourcePropertyRecord | null =>
+const propertyById = (
+  properties: readonly DataSourcePropertyRecordV2[],
+  propertyId: string,
+): DataSourcePropertyRecordV2 | null =>
   properties.find(
-    (property) => property.lifecycle === "active" && property.key === key,
+    (property) =>
+      property.lifecycle === "active" && property.propertyId === propertyId,
   ) ?? null;
 
 const readValue = (
-  row: DataSourcePageRow,
-  property: DataSourcePropertyRecord | null,
+  row: DataSourcePageRowV2,
+  property: DataSourcePropertyRecordV2 | null,
   valueType?: DatabasePropertyValueType,
 ): DatabaseJsonValue | undefined => {
   if (!property) return undefined;
@@ -85,16 +91,16 @@ const readValue = (
 };
 
 const readNullableString = (
-  row: DataSourcePageRow,
-  property: DataSourcePropertyRecord | null,
+  row: DataSourcePageRowV2,
+  property: DataSourcePropertyRecordV2 | null,
 ): string | undefined => {
   const value = readValue(row, property);
   return typeof value === "string" && value.length > 0 ? value : undefined;
 };
 
 const readDate = (
-  row: DataSourcePageRow,
-  property: DataSourcePropertyRecord | null,
+  row: DataSourcePageRowV2,
+  property: DataSourcePropertyRecordV2 | null,
 ): Date | undefined => {
   const value = readNullableString(row, property);
   if (!value) return undefined;
@@ -103,8 +109,8 @@ const readDate = (
 };
 
 const readStringList = (
-  row: DataSourcePageRow,
-  property: DataSourcePropertyRecord | null,
+  row: DataSourcePageRowV2,
+  property: DataSourcePropertyRecordV2 | null,
 ): string[] => {
   const value = readValue(row, property, "multi_select");
   if (!Array.isArray(value)) return [];
@@ -112,30 +118,30 @@ const readStringList = (
 };
 
 const toRenderRow = (
-  row: DataSourcePageRow,
-  properties: readonly DataSourcePropertyRecord[],
+  row: DataSourcePageRowV2,
+  properties: readonly DataSourcePropertyRecordV2[],
 ): DatabaseViewRenderRow => {
-  const statusValue = readNullableString(row, propertyByKey(properties, "status"));
+  const statusValue = readNullableString(row, propertyById(properties, "status"));
   const priorityValue = readNullableString(
     row,
-    propertyByKey(properties, "priority"),
+    propertyById(properties, "priority"),
   );
   const estimateValue = readNullableString(
     row,
-    propertyByKey(properties, "estimate"),
+    propertyById(properties, "estimate"),
   );
-  const dueDate = readDate(row, propertyByKey(properties, "due_date"));
+  const dueDate = readDate(row, propertyById(properties, "due_date"));
   const scheduledStart = readDate(
     row,
-    propertyByKey(properties, "scheduled_start"),
+    propertyById(properties, "scheduled_start"),
   );
   const scheduledEnd = readDate(
     row,
-    propertyByKey(properties, "scheduled_end"),
+    propertyById(properties, "scheduled_end"),
   );
   const assignee = readNullableString(
     row,
-    propertyByKey(properties, "assignee"),
+    propertyById(properties, "assignee"),
   );
 
   return {
@@ -150,7 +156,7 @@ const toRenderRow = (
     ...(estimateValue && ESTIMATES.has(estimateValue as Estimate)
       ? { estimate: estimateValue as Estimate }
       : {}),
-    tags: readStringList(row, propertyByKey(properties, "tags")),
+    tags: readStringList(row, propertyById(properties, "tags")),
     ...(dueDate ? { dueDate } : {}),
     ...(scheduledStart ? { scheduledStart } : {}),
     ...(scheduledEnd ? { scheduledEnd } : {}),
@@ -161,8 +167,8 @@ const toRenderRow = (
 };
 
 const hasStatusGroupContract = (
-  query: DatabaseViewQueryResult,
-  statusProperty: DataSourcePropertyRecord | null,
+  query: DatabaseViewQueryResultV2,
+  statusProperty: DataSourcePropertyRecordV2 | null,
 ): boolean => {
   if (!statusProperty) return false;
   if (query.view.config.group?.propertyId !== statusProperty.propertyId) {
@@ -175,7 +181,7 @@ const hasStatusGroupContract = (
 };
 
 const hasDefaultBoardReadContract = (
-  query: DatabaseViewQueryResult,
+  query: DatabaseViewQueryResultV2,
 ): boolean => {
   const config = query.view.config;
   if (
@@ -192,7 +198,7 @@ const hasDefaultBoardReadContract = (
 };
 
 const buildColumns = (
-  query: DatabaseViewQueryResult,
+  query: DatabaseViewQueryResultV2,
   statusGrouped: boolean,
 ): readonly DatabaseViewRenderColumn[] => {
   const rows = query.rows.map((row) => ({
@@ -272,14 +278,14 @@ const buildColumns = (
 };
 
 const queryFromSnapshot = (
-  snapshot: DatabaseModuleReadSnapshot,
-): DatabaseViewQueryResult => {
+  snapshot: DatabaseModuleReadSnapshotV2,
+): DatabaseViewQueryResultV2 => {
   if (snapshot.value.kind === "query") return snapshot.value.value;
   throw new Error("Database View read did not return a query");
 };
 
 export const buildDatabaseViewRenderModel = (
-  snapshot: DatabaseModuleReadSnapshot,
+  snapshot: DatabaseModuleReadSnapshotV2,
 ): DatabaseViewRenderModel => {
   const query = queryFromSnapshot(snapshot);
   if (
@@ -290,7 +296,7 @@ export const buildDatabaseViewRenderModel = (
   ) {
     throw new Error("Database View query has mismatched Library resource identity");
   }
-  const statusProperty = propertyByKey(query.properties, "status");
+  const statusProperty = propertyById(query.properties, "status");
   const statusGrouped = hasStatusGroupContract(query, statusProperty);
   const primaryWriteCompatible =
     query.database.defaultViewId === query.view.viewId

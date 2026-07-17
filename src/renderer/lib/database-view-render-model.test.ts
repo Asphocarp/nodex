@@ -1,27 +1,33 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type {
-  DatabaseModuleReadSnapshot,
-  DatabaseViewQueryResult,
-} from "../../shared/database-module";
+  DatabaseModuleReadSnapshotV2,
+  DatabaseViewQueryResultV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import { buildDatabaseViewRenderModel } from "./database-view-render-model";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const projectId = "project-alpha";
 const libraryId = "library-alpha";
-const databaseId = "database-alpha";
-const dataSourceId = "source-alpha";
-const viewId = "view-alpha";
-const statusPropertyId = "property-status";
-const tagsPropertyId = "property-tags";
+const databaseId = parseDatabaseId("database-alpha");
+const dataSourceId = parseDataSourceId("source-alpha");
+const viewId = parseDatabaseViewId("view-alpha");
+const statusPropertyId = parseDataSourcePropertyId("status");
+const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const makeSnapshot = (input: {
   readonly primary?: boolean;
   readonly groupedByStatus?: boolean;
   readonly viewId?: string;
   readonly title?: string;
-} = {}): DatabaseModuleReadSnapshot => {
-  const resolvedViewId = input.viewId ?? viewId;
+} = {}): DatabaseModuleReadSnapshotV2 => {
+  const resolvedViewId = parseDatabaseViewId(input.viewId ?? viewId);
   const database = {
     databaseId,
     libraryId,
@@ -53,7 +59,7 @@ const makeSnapshot = (input: {
     kind: "kanban" as const,
     config: {
       schemaKey: "nodex.database-view" as const,
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
       sort: [{
         field: { kind: "manual" as const },
@@ -76,7 +82,6 @@ const makeSnapshot = (input: {
     {
       propertyId: statusPropertyId,
       dataSourceId,
-      key: "status",
       name: "Status",
       valueType: "select" as const,
       config: {},
@@ -89,7 +94,6 @@ const makeSnapshot = (input: {
     {
       propertyId: tagsPropertyId,
       dataSourceId,
-      key: "tags",
       name: "Tags",
       valueType: "multi_select" as const,
       config: {},
@@ -101,7 +105,7 @@ const makeSnapshot = (input: {
     },
   ];
   const title = input.title ?? "Canonical Page";
-  const query: DatabaseViewQueryResult = {
+  const query: DatabaseViewQueryResultV2 = {
     database,
     dataSource,
     properties,
@@ -149,7 +153,7 @@ const makeSnapshot = (input: {
     }],
   };
   return {
-    version: 1,
+    version: 2,
     projectId,
     libraryId,
     storeEpoch: "epoch-alpha",
@@ -193,19 +197,47 @@ describe("Database View render model", () => {
     const snapshot = makeSnapshot({ primary: false });
     if (snapshot.value.kind !== "query") throw new Error("Missing query fixture");
     const query = snapshot.value.value;
+    const workflowPropertyId = parseDataSourcePropertyId("p_AAAAAAAA");
+    const doingOptionId = "o_AAAAAAAA";
     const workflowProperty = {
       ...query.properties[0]!,
-      key: "workflow",
+      propertyId: workflowPropertyId,
       name: "Workflow",
-      config: { options: [{ id: "in_progress", name: "Doing" }] },
+      config: { options: [{ id: doingOptionId, name: "Doing" }] },
     };
     const properties = [workflowProperty, ...query.properties.slice(1)];
     const model = buildDatabaseViewRenderModel({
       ...snapshot,
-      value: { kind: "query", value: { ...query, properties } },
+      value: {
+        kind: "query",
+        value: {
+          ...query,
+          properties,
+          view: {
+            ...query.view,
+            config: {
+              ...query.view.config,
+              group: { propertyId: workflowPropertyId },
+            },
+          },
+          rows: query.rows.map((row) => ({
+            ...row,
+            values: {
+              ...row.values,
+              [workflowPropertyId]: {
+                propertyId: workflowPropertyId,
+                valueType: "select" as const,
+                value: doingOptionId,
+                revision: 1,
+              },
+            },
+            effectiveGroupKey: doingOptionId,
+          })),
+        },
+      },
     });
     expect(model.primaryWriteCompatible).toBe(false);
-    expect(model.columns[0]?.id).toBe("in_progress");
+    expect(model.columns[0]?.id).toBe(doingOptionId);
     expect(model.columns[0]?.name).toBe("Doing");
     expect(model.columns[0]?.rows[0]?.pageId).toBe("page-1");
   });
@@ -239,7 +271,7 @@ describe("Database View render model", () => {
   test("rejects resources from a different Library", () => {
     const snapshot = makeSnapshot();
     if (snapshot.value.kind !== "query") throw new Error("Missing query fixture");
-    const mismatched: DatabaseModuleReadSnapshot = {
+    const mismatched: DatabaseModuleReadSnapshotV2 = {
       ...snapshot,
       value: {
         kind: "query",

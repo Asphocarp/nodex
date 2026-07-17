@@ -17,6 +17,7 @@ import {
   initialDataSourceId,
   type LocalProfileLibrary,
 } from "../../shared/library";
+import { createInitialDatabaseIdentities } from "../../shared/database-identities";
 import { makeDefaultBrowserSidebarTabId } from "../../shared/browser-sidebar";
 import {
   insertInitialDatabaseViewSession,
@@ -31,6 +32,8 @@ import {
 import { finalizePageReferenceIdentityStorage } from "./page-reference-hint-finalization";
 import { finalizePageNfmIdentityProjection } from "./page-nfm-projection-finalization";
 import { finalizeRetiredCardAgentProperties } from "./retired-card-agent-properties-finalization";
+import { migrateDatabaseIdentityAuthorityV80ToV81 } from "./database-identity-cutover-sqlite";
+import { createInitialDatabaseAuthorityInDatabase } from "./initial-database-authority";
 import { migrateCanvasPageReferenceHashes } from "./canvas-page-reference-hash-migration";
 import {
   MAX_PAGE_HIERARCHY_DEPTH,
@@ -40,7 +43,7 @@ import {
 export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 80;
+export const CURRENT_SCHEMA_VERSION = 81;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -75,6 +78,11 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
   { fromVersion: 77, toVersion: 78, migrate: migrateSchema77To78 },
   { fromVersion: 78, toVersion: 79, migrate: migrateSchema78To79 },
   { fromVersion: 79, toVersion: 80, migrate: migrateSchema79To80 },
+  {
+    fromVersion: 80,
+    toVersion: 81,
+    migrate: migrateDatabaseIdentityAuthorityV80ToV81,
+  },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
@@ -9511,6 +9519,86 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
   migrateReleaseSchemaToCurrent(db, SHIPPED_SCHEMA_VERSION);
 }
 
+/**
+ * Build an exact historical release schema for migration tests without first
+ * creating the current schema and attempting to reverse it. Historical
+ * fixtures must start from the same shipped boundary as a real store.
+ */
+export function createHistoricalReleaseSchemaFixture(
+  db: Database.Database,
+  targetVersion: number,
+  options: { readonly seedDefaultProject?: boolean } = {},
+): void {
+  if (
+    targetVersion < SHIPPED_SCHEMA_VERSION ||
+    targetVersion >= CURRENT_SCHEMA_VERSION ||
+    !getReleaseSchemaVersions().includes(targetVersion)
+  ) {
+    throw new Error(
+      `Historical release fixture target must be a supported pre-v${CURRENT_SCHEMA_VERSION} release`,
+    );
+  }
+  if (getUserVersion(db) !== 0) {
+    throw new Error("Historical release fixtures require an empty SQLite database");
+  }
+
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.pragma("auto_vacuum = INCREMENTAL");
+    createBlockFirstPreFinalizationSchema(db);
+    dropLegacyBlockFirstTables(db);
+    db.exec("DROP TABLE IF EXISTS canvas_scene_materializations");
+    ensureDocumentEngineColumns(db);
+    createCanvasSceneAuthoritySchema(db);
+    createOwnedDocumentEngineGuards(db);
+    createExclusiveCardParentTriggers(db);
+    assertExclusiveCardParentParity(db);
+    setUserVersion(db, SHIPPED_SCHEMA_VERSION);
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+
+  let version = SHIPPED_SCHEMA_VERSION;
+  for (const step of RELEASE_SCHEMA_MIGRATION_STEPS) {
+    if (version === targetVersion) break;
+    if (step.fromVersion !== version || step.toVersion > targetVersion) {
+      throw new Error(
+        `Cannot build historical release fixture from v${version} to v${targetVersion}`,
+      );
+    }
+    step.migrate(db);
+    version = getUserVersion(db);
+  }
+  if (version !== targetVersion) {
+    throw new Error(
+      `Historical release fixture stopped at v${version}, expected v${targetVersion}`,
+    );
+  }
+
+  if (options.seedDefaultProject === false) return;
+  const now = new Date().toISOString();
+  const projectId = randomUUID();
+  const { libraryId } = ensureLocalProfileLibrary(db, now);
+  const databaseBlockId = primaryDatabaseBlockId(projectId);
+  db.prepare(`
+    INSERT INTO projects (
+      id, library_id, database_block_id, lifecycle, binding_revision,
+      name, description, icon, created, updated
+    ) VALUES (?, ?, ?, 'active', 1, 'Default', '', '', ?, ?)
+  `).run(projectId, libraryId, databaseBlockId, now, now);
+  db.prepare(
+    'INSERT INTO project_order (project_id, "order", updated) VALUES (?, 0, ?)',
+  ).run(projectId, now);
+  insertInitialDatabaseViewSession(
+    db,
+    projectId,
+    seededPrimaryDatabaseViewId(projectId),
+    now,
+    { shiftExisting: false },
+  );
+  ensureBlockFoundationForProject(db, projectId, now);
+}
+
 function seedDefaultProjectIfMissing(db: Database.Database): void {
   const projectCount = db
     .prepare("SELECT COUNT(*) as count FROM projects")
@@ -9522,29 +9610,36 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
   const now = new Date().toISOString();
   const projectId = randomUUID();
   const { libraryId } = ensureLocalProfileLibrary(db, now);
-  const databaseBlockId = primaryDatabaseBlockId(projectId);
-  db.prepare(`
-    INSERT INTO projects (
-      id, library_id, database_block_id, lifecycle, binding_revision,
-      name, description, icon, created, updated
-    ) VALUES (?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)
-  `).run(
-    projectId,
-    libraryId,
-    databaseBlockId,
-    "Default",
-    "",
-    "",
-    now,
-    now,
-  );
-  db.prepare(
-    'INSERT INTO project_order (project_id, "order", updated) VALUES (?, ?, ?)',
-  ).run(projectId, 0, now);
-  insertInitialDatabaseViewSession(db, projectId, now, {
-    shiftExisting: false,
-  });
-  ensureBlockFoundationForProject(db, projectId, now);
+  const identities = createInitialDatabaseIdentities();
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO projects (
+        id, library_id, database_block_id, lifecycle, binding_revision,
+        name, description, icon, created, updated
+      ) VALUES (?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)
+    `).run(
+      projectId,
+      libraryId,
+      identities.databaseId,
+      "Default",
+      "",
+      "",
+      now,
+      now,
+    );
+    db.prepare(
+      'INSERT INTO project_order (project_id, "order", updated) VALUES (?, ?, ?)',
+    ).run(projectId, 0, now);
+    createInitialDatabaseAuthorityInDatabase(db, {
+      projectId,
+      libraryId,
+      identities,
+      now,
+    });
+    insertInitialDatabaseViewSession(db, projectId, identities.viewId, now, {
+      shiftExisting: false,
+    });
+  }).immediate();
 }
 
 export function ensureDatabase(): void {
@@ -9589,15 +9684,6 @@ export function ensureDatabase(): void {
     createCanvasSceneAuthoritySchema(db);
     createOwnedDocumentEngineGuards(db);
     seedDefaultProjectIfMissing(db);
-    const projects = db
-      .prepare("SELECT id, created FROM projects")
-      .all() as Array<{
-      id: string;
-      created: string;
-    }>;
-    for (const project of projects) {
-      ensureBlockFoundationForProject(db, project.id, project.created);
-    }
   } finally {
     db.close();
   }

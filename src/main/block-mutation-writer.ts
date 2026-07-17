@@ -45,25 +45,25 @@ import type {
   MaintainDocumentRevisionHistoryResult,
 } from "../shared/block-documents/document-revision-maintenance";
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../shared/block-property-mutations";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../shared/block-property-mutations-v2";
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadRequest,
-  DatabaseModuleReadResult,
-} from "../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadRequestV2,
+  DatabaseModuleReadResultV2,
+} from "../shared/database-module-v2";
 import type { PageDetailResult } from "../shared/page-detail";
 import {
   DATABASE_CHANGE_EVENT_VERSION,
   type DatabaseChangeEvent,
 } from "../shared/database-events";
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "../shared/page-lifecycle";
-import type { PageLifecyclePreflightResult } from "../shared/page-lifecycle-runtime";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../shared/page-lifecycle-v2";
+import type { PageLifecyclePreflightResultV2 } from "../shared/page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "../shared/page-history";
 import type { PageHistoryCommandResult } from "../shared/page-history-transport";
 import type {
@@ -279,18 +279,18 @@ export class BlockMutationWriter {
   }
 
   async applyBlockPropertyMutation(
-    request: BlockPropertyMutationRequest,
-  ): Promise<BlockMutationEnvelope<BlockPropertyMutationCommandResult>> {
-    return await this.executeTyped<BlockPropertyMutationCommandResult>({
+    request: BlockPropertyMutationRequestV2,
+  ): Promise<BlockMutationEnvelope<BlockPropertyMutationCommandResultV2>> {
+    return await this.executeTyped<BlockPropertyMutationCommandResultV2>({
       type: "applyBlockPropertyMutation",
       payload: request,
     });
   }
 
   async applyDatabaseModule(
-    request: DatabaseApply,
-  ): Promise<BlockMutationEnvelope<DatabaseApplyResult>> {
-    const envelope = await this.executeTyped<DatabaseApplyResult>({
+    request: DatabaseApplyV2,
+  ): Promise<BlockMutationEnvelope<DatabaseApplyResultV2>> {
+    const envelope = await this.executeTyped<DatabaseApplyResultV2>({
       type: "applyDatabaseModule",
       payload: request,
     });
@@ -485,10 +485,10 @@ export class BlockMutationWriter {
   }
 
   async applyPageLifecycleMutation(
-    request: PageLifecycleMutationRequest,
-  ): Promise<BlockMutationEnvelope<PageLifecycleMutationCommandResult>> {
+    request: PageLifecycleMutationRequestV2,
+  ): Promise<BlockMutationEnvelope<PageLifecycleMutationCommandResultV2>> {
     const envelope =
-      await this.executeTyped<PageLifecycleMutationCommandResult>({
+      await this.executeTyped<PageLifecycleMutationCommandResultV2>({
         type: "applyPageLifecycleMutation",
         payload: request,
       });
@@ -513,8 +513,8 @@ export class BlockMutationWriter {
   async readPageLifecyclePreflight(
     projectId: string,
     pageId: string,
-  ): Promise<BlockMutationEnvelope<PageLifecyclePreflightResult>> {
-    return await this.executeTyped<PageLifecyclePreflightResult>({
+  ): Promise<BlockMutationEnvelope<PageLifecyclePreflightResultV2>> {
+    return await this.executeTyped<PageLifecyclePreflightResultV2>({
       type: "readPageLifecyclePreflight",
       payload: { projectId, pageId },
     });
@@ -557,9 +557,9 @@ export class BlockMutationWriter {
   }
 
   async readDatabaseModule(
-    request: DatabaseModuleReadRequest,
-  ): Promise<BlockMutationEnvelope<DatabaseModuleReadResult>> {
-    return await this.executeTyped<DatabaseModuleReadResult>({
+    request: DatabaseModuleReadRequestV2,
+  ): Promise<BlockMutationEnvelope<DatabaseModuleReadResultV2>> {
+    return await this.executeTyped<DatabaseModuleReadResultV2>({
       type: "readDatabaseModule",
       payload: request,
     });

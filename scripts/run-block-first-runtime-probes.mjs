@@ -13,9 +13,7 @@ const external = ["better-sqlite3", "electron"];
 
 const probes = [
   "block-first-scheduler-runtime-probe",
-  "block-first-property-mutation-runtime-probe",
   "block-first-property-worker-runtime-probe",
-  "block-first-page-lifecycle-runtime-probe",
   "block-first-page-lifecycle-worker-runtime-probe",
   "block-first-document-projection-runtime-probe",
   "block-first-document-operation-runtime-probe",
@@ -32,7 +30,6 @@ const probes = [
   "block-first-additional-document-command-runtime-probe",
   "block-first-additional-document-command-worker-runtime-probe",
   "block-first-page-history-runtime-probe",
-  "database-module-read-runtime-probe",
 ];
 
 const workerProbes = new Set([

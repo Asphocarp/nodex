@@ -1,13 +1,13 @@
 import { describe, expect, test } from "vitest";
-import type { PageLifecycleMutationRequest } from "../../shared/page-lifecycle";
+import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
 import { browserRendererTransport } from "./browser-renderer-transport";
 import {
   createElectronRendererTransport,
   type ElectronRendererBridge,
 } from "./electron-renderer-transport";
 
-const request: PageLifecycleMutationRequest = {
-  version: 1,
+const request: PageLifecycleMutationRequestV2 = {
+  version: 2,
   operationId: "page-lifecycle-transport",
   projectId: "project/one",
   storeEpoch: "epoch-1",
@@ -31,7 +31,7 @@ const preflightResult = {
 const mutationResult = {
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     operationId: request.operationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -51,6 +51,7 @@ const mutationResult = {
     libraryRankKey: "7fffffffffffffffffffffffffffffff",
     viewRankKey: "7fffffffffffffffffffffffffffffff",
     createdBlockIds: [],
+    createdTagOptionIds: [],
     changeLogSeq: 5,
     committedAt: "2026-07-11T00:00:00.000Z",
   },

@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { BlockMutationWriter } from "../src/main/block-mutation-writer";
-import { applyPageLifecycleMutation } from "../src/main/local-store/page-lifecycle";
+import { compilePageLifecycleCreateRequestV2InDatabase } from "../src/main/local-store/page-lifecycle-v2-compiler";
+import { applyPageLifecycleMutationV2 } from "../src/main/local-store/page-lifecycle-v2-store";
 import { readBlockStoreEpoch } from "../src/main/local-store/block-store-metadata";
 import {
   closeDatabase,
@@ -11,9 +12,10 @@ import {
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
 import {
-  parsePageLifecycleMutationRequest,
-  type PageLifecycleMutationRequest,
-} from "../src/shared/page-lifecycle";
+  parsePageLifecycleMutationRequestV2,
+  type PageLifecycleMutationRequestV2,
+} from "../src/shared/page-lifecycle-v2";
+import type { PageLifecycleCreateDisplayOperation } from "../src/shared/page-lifecycle-v2-runtime";
 import { createUuidV7 } from "../src/shared/uuid-v7";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
 import type { DatabaseChangeEvent } from "../src/shared/database-events";
@@ -35,9 +37,9 @@ const lifecycleRequest = (
   scope: Scope,
   operationId: string,
   operation: Readonly<Record<string, unknown>>,
-): PageLifecycleMutationRequest =>
-  parsePageLifecycleMutationRequest({
-    version: 1,
+): PageLifecycleMutationRequestV2 =>
+  parsePageLifecycleMutationRequestV2({
+    version: 2,
     operationId,
     projectId: scope.projectId,
     storeEpoch: scope.storeEpoch,
@@ -46,10 +48,27 @@ const lifecycleRequest = (
     operation,
   });
 
+const createLifecycleRequest = (
+  scope: Scope,
+  operationId: string,
+  operation: PageLifecycleCreateDisplayOperation,
+): PageLifecycleMutationRequestV2 =>
+  compilePageLifecycleCreateRequestV2InDatabase(
+    getDb(),
+    {
+      operationId,
+      projectId: scope.projectId,
+      storeEpoch: scope.storeEpoch,
+      clientSessionId: "trusted-lifecycle-window",
+      actor: { kind: "electron_renderer", windowId: "window:lifecycle-probe" },
+      operation,
+    },
+  );
+
 const createOperation = (
   pageId: string,
   title: string,
-): Readonly<Record<string, unknown>> => ({
+): PageLifecycleCreateDisplayOperation => ({
   kind: "create_page",
   pageId,
   title,
@@ -84,7 +103,7 @@ const main = async (): Promise<void> => {
     invariant(storeEpoch, "Store epoch is missing");
     const scope: Scope = { projectId: project.id, storeEpoch };
     const pageId = createUuidV7();
-    const create = lifecycleRequest(
+    const create = createLifecycleRequest(
       scope,
       "worker-lifecycle:create",
       createOperation(pageId, "Worker lifecycle Page"),
@@ -227,14 +246,14 @@ const main = async (): Promise<void> => {
 
     await initializeDatabase();
     const rollbackPageId = createUuidV7();
-    const rollbackRequest = lifecycleRequest(
+    const rollbackRequest = createLifecycleRequest(
       scope,
       "worker-lifecycle:precommit-fault",
       createOperation(rollbackPageId, "Pre-commit fault"),
     );
     let rolledBack = false;
     try {
-      applyPageLifecycleMutation(getDb(), rollbackRequest, {
+      applyPageLifecycleMutationV2(getDb(), rollbackRequest, {
         faultInjector: (point) => {
           if (point === "before_commit") throw new Error("pre-commit fault");
         },
@@ -285,14 +304,14 @@ const main = async (): Promise<void> => {
 
     await initializeDatabase();
     const lostResponsePageId = createUuidV7();
-    const lostResponseRequest = lifecycleRequest(
+    const lostResponseRequest = createLifecycleRequest(
       scope,
       "worker-lifecycle:lost-response",
       createOperation(lostResponsePageId, "Lost response"),
     );
     let responseLost = false;
     try {
-      applyPageLifecycleMutation(getDb(), lostResponseRequest, {
+      applyPageLifecycleMutationV2(getDb(), lostResponseRequest, {
         faultInjector: (point) => {
           if (point === "after_commit") throw new Error("response lost");
         },

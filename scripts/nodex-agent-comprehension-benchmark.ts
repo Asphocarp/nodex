@@ -1,12 +1,14 @@
 import { z } from "zod";
 import { NODEX_AGENT_TOOL_CONTRACTS } from "../src/shared/nodex-agent-tools/contracts";
 import { NODEX_AGENT_V3_TOOL_CONTRACTS } from "../src/shared/nodex-agent-tools/v3-contracts";
+import { NODEX_AGENT_V5_TOOL_CONTRACTS } from "../src/shared/nodex-agent-tools/v5-contracts";
 import {
   NODEX_APP_V2_TOOLS,
   NODEX_APP_V2_TOOLSET_REVISION,
   NODEX_APP_TOOLSET_REVISION,
   NODEX_APP_V3_TOOLS,
   NODEX_APP_V3_TOOLSET_REVISION,
+  NODEX_APP_V5_TOOLSET_REVISION,
 } from "../src/shared/nodex-agent-tools/identity";
 
 export interface NodexAgentComprehensionCase {
@@ -154,6 +156,7 @@ export function summarizeNodexAgentComprehensionRun(
   const contractsByRevision: Readonly<Record<number, BenchmarkContracts>> = {
     [NODEX_APP_V2_TOOLSET_REVISION]: NODEX_AGENT_TOOL_CONTRACTS,
     [NODEX_APP_V3_TOOLSET_REVISION]: NODEX_AGENT_V3_TOOL_CONTRACTS,
+    [NODEX_APP_V5_TOOLSET_REVISION]: NODEX_AGENT_V5_TOOL_CONTRACTS,
   };
   const contractEntries = contractsByRevision[run.revision];
   if (!contractEntries) {
@@ -176,7 +179,10 @@ export function summarizeNodexAgentComprehensionRun(
     return {
       caseId: sample.caseId,
       selectedTool: sample.selectedTool,
-      toolSelectionCorrect: benchmarkCase.expectedTool[run.revision] === sample.selectedTool,
+      toolSelectionCorrect:
+        (benchmarkCase.expectedTool[run.revision] ??
+          benchmarkCase.expectedTool[NODEX_APP_V3_TOOLSET_REVISION]) ===
+        sample.selectedTool,
       firstCallValid,
       resultValid,
       semanticSuccess: sample.semanticSuccess,
@@ -199,16 +205,19 @@ export function summarizeNodexAgentComprehensionRun(
 }
 
 export function createNodexAgentComprehensionTemplate(
-  revision: 2 | 4 = NODEX_APP_TOOLSET_REVISION,
+  revision: 2 | 4 | 5 = NODEX_APP_TOOLSET_REVISION,
 ): unknown {
-  const fallbackTool = revision === NODEX_APP_V3_TOOLSET_REVISION
+  const fallbackTool = revision !== NODEX_APP_V2_TOOLSET_REVISION
     ? NODEX_APP_V3_TOOLS[0]
     : NODEX_APP_V2_TOOLS[0];
   return {
     revision,
     samples: NODEX_AGENT_COMPREHENSION_CASES.map((entry) => ({
       caseId: entry.id,
-      selectedTool: entry.expectedTool[revision] ?? fallbackTool,
+      selectedTool:
+        entry.expectedTool[revision] ??
+        entry.expectedTool[NODEX_APP_V3_TOOLSET_REVISION] ??
+        fallbackTool,
       arguments: {},
       semanticSuccess: false,
       correctionCalls: 0,

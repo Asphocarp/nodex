@@ -2,14 +2,16 @@ import { describe, expect, test } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../../shared/block-property-mutations";
-import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DataSourcePropertyRecord,
-} from "../../shared/database-module";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../../shared/block-property-mutations-v2";
+import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import type { PageDetail } from "../../shared/page-detail";
 import {
   commitPageDetailMetadataPatch,
@@ -17,18 +19,30 @@ import {
 } from "./page-detail-metadata-runtime";
 
 const timestamp = "2026-07-16T00:00:00.000Z";
-const dataSourceId = "source-1";
+const databaseId = parseDatabaseId("019f714b-0000-7000-8000-000000000021");
+const dataSourceId = parseDataSourceId("019f714b-0000-7000-8000-000000000022");
+const viewId = parseDatabaseViewId("019f714b-0000-7000-8000-000000000023");
+const priorityPropertyId = parseDataSourcePropertyId("priority");
+const tagsPropertyId = parseDataSourcePropertyId("tags");
+const uiOptionId = "o_AAAAAAAA";
+const backendOptionId = "o_BBBBBBBB";
 
 const property = (
   key: string,
-  valueType: DataSourcePropertyRecord["valueType"],
-): DataSourcePropertyRecord => ({
-  propertyId: `property-${key}`,
+  valueType: DataSourcePropertyRecordV2["valueType"],
+): DataSourcePropertyRecordV2 => ({
+  propertyId: parseDataSourcePropertyId(key),
   dataSourceId,
-  key,
   name: key,
   valueType,
-  config: {},
+  config: valueType === "multi_select"
+    ? {
+        options: [
+          { id: uiOptionId, name: "ui" },
+          { id: backendOptionId, name: "backend" },
+        ],
+      }
+    : {},
   rankKey: key,
   lifecycle: "active",
   revision: 1,
@@ -48,7 +62,7 @@ const detail = (member = true): PageDetail => {
     property("assignee", "person"),
   ];
   return {
-    version: 1,
+    version: 2,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -95,11 +109,11 @@ const detail = (member = true): PageDetail => {
             createdAt: timestamp,
           },
           database: {
-            databaseId: "database-1",
+            databaseId,
             libraryId: "library-1",
             name: "Database",
             lifecycle: "active",
-            defaultViewId: "view-1",
+            defaultViewId: viewId,
             accessRevision: 1,
             metadataRevision: 1,
             createdAt: timestamp,
@@ -108,7 +122,7 @@ const detail = (member = true): PageDetail => {
           dataSource: {
             dataSourceId,
             libraryId: "library-1",
-            homeDatabaseId: "database-1",
+            homeDatabaseId: databaseId,
             name: "Pages",
             schemaKey: "nodex.data-source",
             schemaRevision: 1,
@@ -119,11 +133,17 @@ const detail = (member = true): PageDetail => {
           },
           properties,
           values: {
-            "property-priority": {
-              propertyId: "property-priority",
+            priority: {
+              propertyId: priorityPropertyId,
               valueType: "select",
               value: "p2-medium",
               revision: 7,
+            },
+            tags: {
+              propertyId: tagsPropertyId,
+              valueType: "multi_select",
+              value: [uiOptionId],
+              revision: 4,
             },
           },
         }
@@ -131,32 +151,12 @@ const detail = (member = true): PageDetail => {
   };
 };
 
-const databaseSuccess = (request: DatabaseApply): DatabaseApplyResult => ({
+const mutationSuccess = (
+  request: BlockPropertyMutationRequestV2,
+): BlockPropertyMutationCommandResultV2 => ({
   ok: true,
   value: {
-    version: 1,
-    operationId: request.operationId,
-    projectId: request.projectId,
-    libraryId: "library-1",
-    storeEpoch: request.storeEpoch,
-    duplicate: false,
-    operationKinds: request.operations.map((operation) => operation.kind),
-    affectedDatabaseIds: ["database-1"],
-    affectedDataSourceIds: [dataSourceId],
-    affectedPageIds: ["page-1"],
-    affectedViewIds: [],
-    committedRevisions: {},
-    changeLogSeq: 5,
-    committedAt: timestamp,
-  },
-});
-
-const intrinsicSuccess = (
-  request: BlockPropertyMutationRequest,
-): BlockPropertyMutationCommandResult => ({
-  ok: true,
-  value: {
-    version: 1,
+    version: 2,
     mutationId: request.mutationId,
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
@@ -170,19 +170,14 @@ const intrinsicSuccess = (
 
 const dependencies = (input: {
   readonly detail?: PageDetail;
-  readonly databaseRequests?: DatabaseApply[];
-  readonly intrinsicRequests?: BlockPropertyMutationRequest[];
+  readonly requests?: BlockPropertyMutationRequestV2[];
   readonly refreshes?: string[];
-  readonly databaseResult?: DatabaseApplyResult;
+  readonly results?: BlockPropertyMutationCommandResultV2[];
 } = {}): PageDetailMetadataRuntimeDependencies => ({
   readDetail: async () => input.detail ?? detail(),
-  applyDatabase: async (_projectId, request) => {
-    input.databaseRequests?.push(request);
-    return input.databaseResult ?? databaseSuccess(request);
-  },
-  mutateIntrinsic: async (_projectId, request) => {
-    input.intrinsicRequests?.push(request);
-    return intrinsicSuccess(request);
+  mutateProperties: async (_projectId, request) => {
+    input.requests?.push(request);
+    return input.results?.shift() ?? mutationSuccess(request);
   },
   refreshDetail: async (_projectId, pageId) => {
     input.refreshes?.push(pageId);
@@ -191,7 +186,7 @@ const dependencies = (input: {
 
 describe("Page Detail metadata runtime", () => {
   test("writes Data Source values with the Page Detail value revision", async () => {
-    const databaseRequests: DatabaseApply[] = [];
+    const requests: BlockPropertyMutationRequestV2[] = [];
     const refreshes: string[] = [];
 
     const result = await commitPageDetailMetadataPatch({
@@ -199,21 +194,23 @@ describe("Page Detail metadata runtime", () => {
       pageId: "page-1",
       operationId: "set-priority",
       patch: { priority: "p1-high" },
-      dependencies: dependencies({ databaseRequests, refreshes }),
+      dependencies: dependencies({ requests, refreshes }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(databaseRequests).toHaveLength(1);
-    expect(databaseRequests[0]).toMatchObject({
-      operationId: "set-priority:data-source",
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      version: 2,
+      mutationId: "set-priority",
       projectId: "project-1",
       storeEpoch: "epoch-1",
-      operations: [{
-        kind: "set_value",
+      fields: [{
+        scope: "data_source",
         pageId: "page-1",
         dataSourceId,
-        propertyId: "property-priority",
-        expectedValueRevision: 7,
+        propertyId: "priority",
+        operation: "set",
+        expectedRevision: 7,
         value: "p1-high",
       }],
     });
@@ -221,7 +218,7 @@ describe("Page Detail metadata runtime", () => {
   });
 
   test("writes Page intrinsic fields without inventing Data Source coordinates", async () => {
-    const intrinsicRequests: BlockPropertyMutationRequest[] = [];
+    const requests: BlockPropertyMutationRequestV2[] = [];
     const refreshes: string[] = [];
 
     const result = await commitPageDetailMetadataPatch({
@@ -231,15 +228,15 @@ describe("Page Detail metadata runtime", () => {
       patch: { runInBaseBranch: "main" },
       dependencies: dependencies({
         detail: detail(false),
-        intrinsicRequests,
+        requests,
         refreshes,
       }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: true });
-    expect(intrinsicRequests).toHaveLength(1);
-    expect(intrinsicRequests[0]).toMatchObject({
-      mutationId: "set-base-branch:intrinsic",
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      mutationId: "set-base-branch",
       fields: [{
         scope: "intrinsic",
         blockId: "page-1",
@@ -260,14 +257,18 @@ describe("Page Detail metadata runtime", () => {
       patch: { priority: "p1-high" },
       dependencies: dependencies({
         refreshes,
-        databaseResult: {
+        results: [{
           ok: false,
           error: {
-            code: "revision_conflict",
+            code: "property_conflict",
             message: "stale value",
             retryable: false,
+            mutationId: "stale-priority",
+            fieldPath: "data_source/source-1/page-1/priority",
+            expectedRevision: 7,
+            actualRevision: 8,
           },
-        },
+        }],
       }),
     });
 
@@ -286,18 +287,84 @@ describe("Page Detail metadata runtime", () => {
   });
 
   test("does not write an already represented value", async () => {
-    const databaseRequests: DatabaseApply[] = [];
+    const requests: BlockPropertyMutationRequestV2[] = [];
     const refreshes: string[] = [];
     const result = await commitPageDetailMetadataPatch({
       projectId: "project-1",
       pageId: "page-1",
       operationId: "same-priority",
       patch: { priority: "p2-medium" },
-      dependencies: dependencies({ databaseRequests, refreshes }),
+      dependencies: dependencies({ requests, refreshes }),
     });
 
     expect(result).toEqual({ status: "updated", didMutate: false });
-    expect(databaseRequests).toHaveLength(0);
+    expect(requests).toHaveLength(0);
     expect(refreshes).toEqual(["page-1"]);
+  });
+
+  test("commits Data Source and intrinsic fields atomically", async () => {
+    const requests: BlockPropertyMutationRequestV2[] = [];
+    const result = await commitPageDetailMetadataPatch({
+      projectId: "project-1",
+      pageId: "page-1",
+      operationId: "atomic-metadata",
+      patch: { priority: "p1-high", runInBaseBranch: "main" },
+      dependencies: dependencies({ requests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scope: "data_source", propertyId: "priority" }),
+      expect.objectContaining({ scope: "intrinsic", propertyKey: "run.baseBranch" }),
+    ]));
+  });
+
+  test("translates tag display names into source-scoped option IDs", async () => {
+    const requests: BlockPropertyMutationRequestV2[] = [];
+    const result = await commitPageDetailMetadataPatch({
+      projectId: "project-1",
+      pageId: "page-1",
+      operationId: "set-tags",
+      patch: { tags: ["backend"] },
+      dependencies: dependencies({ requests }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(requests[0]?.fields).toEqual([
+      expect.objectContaining({
+        scope: "data_source",
+        propertyId: "tags",
+        operation: "add_remove",
+        add: [backendOptionId],
+        remove: [uiOptionId],
+      }),
+    ]);
+  });
+
+  test("retries the exact v2 request once after a retryable outage", async () => {
+    const requests: BlockPropertyMutationRequestV2[] = [];
+    const result = await commitPageDetailMetadataPatch({
+      projectId: "project-1",
+      pageId: "page-1",
+      operationId: "retry-priority",
+      patch: { priority: "p1-high" },
+      dependencies: dependencies({
+        requests,
+        results: [{
+          ok: false,
+          error: {
+            code: "unknown",
+            message: "worker unavailable",
+            retryable: true,
+            mutationId: "retry-priority",
+          },
+        }],
+      }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
   });
 });

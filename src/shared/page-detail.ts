@@ -3,11 +3,17 @@ import {
   type BlockPropertyJsonValue,
 } from "./block-property-mutations";
 import type {
-  DatabaseContainerRecord,
-  DataSourcePageValue,
-  DataSourcePropertyRecord,
-  DataSourceRecord,
-} from "./database-module";
+  DatabaseContainerRecordV2,
+  DataSourcePageValueV2,
+  DataSourcePropertyRecordV2,
+  DataSourceRecordV2,
+} from "./database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "./database-identities";
 import {
   parseDatabasePropertyConfig,
   type DatabaseJsonValue,
@@ -15,7 +21,7 @@ import {
 } from "./database-kernel";
 import { parsePage, type Page } from "./page";
 
-export const PAGE_DETAIL_CONTRACT_VERSION = 1 as const;
+export const PAGE_DETAIL_CONTRACT_VERSION = 2 as const;
 
 export interface PageIntrinsicProperty {
   readonly key: string;
@@ -34,10 +40,10 @@ export type PageDataSourceContext =
         readonly revision: number;
         readonly createdAt: string;
       };
-      readonly database: DatabaseContainerRecord;
-      readonly dataSource: DataSourceRecord;
-      readonly properties: readonly DataSourcePropertyRecord[];
-      readonly values: Readonly<Record<string, DataSourcePageValue>>;
+      readonly database: DatabaseContainerRecordV2;
+      readonly dataSource: DataSourceRecordV2;
+      readonly properties: readonly DataSourcePropertyRecordV2[];
+      readonly values: Readonly<Record<string, DataSourcePageValueV2>>;
     };
 
 export interface PageDetail {
@@ -95,6 +101,18 @@ const identity = (value: unknown, label: string): string => {
     return value;
   }
   throw new PageDetailContractError(`${label} must be a canonical identity`);
+};
+
+const scopedIdentity = <T>(
+  value: unknown,
+  label: string,
+  parser: (candidate: unknown) => T,
+): T => {
+  try {
+    return parser(value);
+  } catch (error) {
+    throw new PageDetailContractError(`${label} is invalid`, { cause: error });
+  }
 };
 
 const exactKeys = (
@@ -173,7 +191,7 @@ const valueType = (
 const parseDatabase = (
   value: unknown,
   libraryId: string,
-): DatabaseContainerRecord => {
+): DatabaseContainerRecordV2 => {
   if (!isRecord(value)) {
     throw new PageDetailContractError("pageDetail.database must be an object");
   }
@@ -203,13 +221,21 @@ const parseDatabase = (
     );
   }
   return {
-    databaseId: identity(value.databaseId, "pageDetail.database.databaseId"),
+    databaseId: scopedIdentity(
+      value.databaseId,
+      "pageDetail.database.databaseId",
+      parseDatabaseId,
+    ),
     libraryId: databaseLibraryId,
     name: boundedText(value.name, "pageDetail.database.name"),
     lifecycle: value.lifecycle,
     defaultViewId: value.defaultViewId === null
       ? null
-      : identity(value.defaultViewId, "pageDetail.database.defaultViewId"),
+      : scopedIdentity(
+          value.defaultViewId,
+          "pageDetail.database.defaultViewId",
+          parseDatabaseViewId,
+        ),
     accessRevision: revision(
       value.accessRevision,
       "pageDetail.database.accessRevision",
@@ -227,7 +253,7 @@ const parseDataSource = (
   value: unknown,
   libraryId: string,
   databaseId: string,
-): DataSourceRecord => {
+): DataSourceRecordV2 => {
   if (!isRecord(value)) {
     throw new PageDetailContractError("pageDetail.dataSource must be an object");
   }
@@ -247,9 +273,10 @@ const parseDataSource = (
     value.libraryId,
     "pageDetail.dataSource.libraryId",
   );
-  const homeDatabaseId = identity(
+  const homeDatabaseId = scopedIdentity(
     value.homeDatabaseId,
     "pageDetail.dataSource.homeDatabaseId",
+    parseDatabaseId,
   );
   if (sourceLibraryId !== libraryId || homeDatabaseId !== databaseId) {
     throw new PageDetailContractError(
@@ -262,9 +289,10 @@ const parseDataSource = (
     );
   }
   return {
-    dataSourceId: identity(
+    dataSourceId: scopedIdentity(
       value.dataSourceId,
       "pageDetail.dataSource.dataSourceId",
+      parseDataSourceId,
     ),
     libraryId: sourceLibraryId,
     homeDatabaseId,
@@ -285,7 +313,7 @@ const parseProperty = (
   value: unknown,
   index: number,
   dataSourceId: string,
-): DataSourcePropertyRecord => {
+): DataSourcePropertyRecordV2 => {
   const label = `pageDetail.properties[${index}]`;
   if (!isRecord(value)) {
     throw new PageDetailContractError(`${label} must be an object`);
@@ -293,7 +321,6 @@ const parseProperty = (
   exactKeys(value, label, [
     "propertyId",
     "dataSourceId",
-    "key",
     "name",
     "valueType",
     "config",
@@ -303,9 +330,10 @@ const parseProperty = (
     "createdAt",
     "updatedAt",
   ]);
-  const propertyDataSourceId = identity(
+  const propertyDataSourceId = scopedIdentity(
     value.dataSourceId,
     `${label}.dataSourceId`,
+    parseDataSourceId,
   );
   if (propertyDataSourceId !== dataSourceId || value.lifecycle !== "active") {
     throw new PageDetailContractError(
@@ -329,9 +357,12 @@ const parseProperty = (
     });
   }
   return {
-    propertyId: identity(value.propertyId, `${label}.propertyId`),
+    propertyId: scopedIdentity(
+      value.propertyId,
+      `${label}.propertyId`,
+      parseDataSourcePropertyId,
+    ),
     dataSourceId: propertyDataSourceId,
-    key: identity(value.key, `${label}.key`),
     name: boundedText(value.name, `${label}.name`),
     valueType: propertyValueType,
     config,
@@ -345,17 +376,22 @@ const parseProperty = (
 
 const parseValues = (
   value: unknown,
-  properties: readonly DataSourcePropertyRecord[],
-): Readonly<Record<string, DataSourcePageValue>> => {
+  properties: readonly DataSourcePropertyRecordV2[],
+): Readonly<Record<string, DataSourcePageValueV2>> => {
   if (!isRecord(value)) {
     throw new PageDetailContractError("pageDetail.values must be an object");
   }
   const propertiesById = new Map(
     properties.map((property) => [property.propertyId, property]),
   );
-  const result: Record<string, DataSourcePageValue> = {};
+  const result: Record<string, DataSourcePageValueV2> = {};
   for (const [propertyId, raw] of Object.entries(value)) {
-    const property = propertiesById.get(propertyId);
+    const parsedPropertyId = scopedIdentity(
+      propertyId,
+      `pageDetail.values.${propertyId}.propertyId`,
+      parseDataSourcePropertyId,
+    );
+    const property = propertiesById.get(parsedPropertyId);
     if (!property || !isRecord(raw)) {
       throw new PageDetailContractError(
         `pageDetail.values.${propertyId} has no matching property`,
@@ -378,7 +414,7 @@ const parseValues = (
       );
     }
     result[propertyId] = {
-      propertyId,
+      propertyId: parsedPropertyId,
       valueType: property.valueType,
       value: portableJson(raw.value, `pageDetail.values.${propertyId}.value`),
       revision: revision(
@@ -454,8 +490,7 @@ const parseDataSourceContext = (
   );
   if (
     new Set(properties.map((property) => property.propertyId)).size !==
-      properties.length ||
-    new Set(properties.map((property) => property.key)).size !== properties.length
+      properties.length
   ) {
     throw new PageDetailContractError(
       "Page Detail properties must have unique identities and keys",

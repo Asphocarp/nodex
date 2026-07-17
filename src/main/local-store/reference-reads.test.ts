@@ -51,39 +51,14 @@ describe("Project-scoped canonical reference reads", () => {
       database.pragma("foreign_keys = ON");
       try {
         const databaseBlock = database.prepare(`
-          SELECT block_id
-          FROM database_capabilities
-          WHERE project_id = ? AND is_primary = 1
-        `).get(targetProject.id) as { block_id: string };
+          SELECT project.database_block_id AS block_id,
+            container.default_view_id AS view_id
+          FROM projects project
+          INNER JOIN database_containers container
+            ON container.block_id = project.database_block_id
+          WHERE project.id = ?
+        `).get(targetProject.id) as { block_id: string; view_id: string };
         const now = "2026-01-01T00:00:00.000Z";
-        const legacyConfig = JSON.stringify({
-          schemaKey: "nodex.database-view/legacy-inline",
-          schemaVersion: 1,
-          filter: { any: [] },
-          sort: [{ field: "board-order", direction: "asc" }],
-          options: { includeHostPage: false },
-        });
-        database.prepare(`
-          INSERT INTO database_views (
-            id, database_block_id, project_id, name, kind,
-            config_json, is_primary, created_at, updated_at
-          ) VALUES (?, ?, ?, 'Target view', 'list', ?, 0, ?, ?)
-        `).run(
-          "view:target",
-          databaseBlock.block_id,
-          targetProject.id,
-          legacyConfig,
-          now,
-          now,
-        );
-        const insertPosition = database.prepare(`
-          INSERT INTO database_view_positions (
-            view_id, block_id, project_id, group_key, rank_key,
-            created_at, updated_at
-          ) VALUES ('view:target', ?, ?, 'draft', ?, ?, ?)
-        `);
-        insertPosition.run(targetCard.id, targetProject.id, "a", now, now);
-        insertPosition.run(siblingCard.id, targetProject.id, "b", now, now);
 
         putProjectResourceGrantInDatabase(database, {
           projectId: hostProject.id,
@@ -101,13 +76,13 @@ describe("Project-scoped canonical reference reads", () => {
         }
         const view = readProjectScopedDatabaseViewReference({
           requestingProjectId: hostProject.id,
-          databaseViewId: "view:target",
+          databaseViewId: databaseBlock.view_id,
         }, database);
-        expect(view?.view.projectId).toBe(targetProject.id);
+        expect(view?.view.projectId).toBe(hostProject.id);
         expect(view?.rows.length).toBe(2);
         const withoutHost = readProjectScopedDatabaseViewReference({
           requestingProjectId: targetProject.id,
-          databaseViewId: "view:target",
+          databaseViewId: databaseBlock.view_id,
           hostBlockId: targetCard.id,
         }, database);
         expect(withoutHost?.rows.map((row) => row.page.id).join(",")).toBe(
@@ -119,7 +94,7 @@ describe("Project-scoped canonical reference reads", () => {
         }, database) === null).toBe(true);
         expect(readProjectScopedDatabaseViewReference({
           requestingProjectId: "missing-project",
-          databaseViewId: "view:target",
+          databaseViewId: databaseBlock.view_id,
         }, database) === null).toBe(true);
       } finally {
         database.close();

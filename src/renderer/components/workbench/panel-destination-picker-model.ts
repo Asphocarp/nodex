@@ -1,5 +1,5 @@
 import type { BoardSummary, Project } from "@/lib/types";
-import type { DatabaseContainerDescriptor } from "../../../shared/database-module";
+import type { DatabaseContainerDescriptorV2 } from "../../../shared/database-module-v2";
 import { normalizeSearchText } from "@/lib/search-text";
 import {
   createNfmMoveToSearchIndex,
@@ -58,7 +58,7 @@ export interface PanelDestinationSection {
 export interface BuildPanelDestinationSectionsInput {
   projects: readonly Project[];
   boardMap: ReadonlyMap<string, BoardSummary>;
-  databaseDescriptorMap: ReadonlyMap<string, DatabaseContainerDescriptor>;
+  databaseDescriptorMap: ReadonlyMap<string, DatabaseContainerDescriptorV2>;
   query: string;
   searchResult?: NfmMoveToSearchResult | null;
   scope?: PanelDestinationPickerScope;
@@ -70,8 +70,8 @@ const DEFAULT_PAGE_LIMIT = 60;
 
 function createDbRow(
   project: Project,
-  descriptor: DatabaseContainerDescriptor,
-  view: DatabaseContainerDescriptor["views"][number],
+  descriptor: DatabaseContainerDescriptorV2,
+  view: DatabaseContainerDescriptorV2["views"][number],
 ): PanelDestinationDbRow {
   return {
     kind: "db",

@@ -12,7 +12,7 @@ import {
   compactBlockDocument,
   loadPrimaryBlockDocument,
 } from "./block-document-store";
-import { applyPageLifecycleMutation } from "./page-lifecycle";
+import { applyPageLifecycleV2Fixture } from "./page-lifecycle-v2-test-fixture";
 import { maintainBlockRetention } from "./block-retention-maintenance";
 import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
@@ -503,8 +503,8 @@ describe("legacy Card promotion cutover", () => {
       readonly metadata_revision: number;
       readonly location_revision: number;
     };
-    const deleted = applyPageLifecycleMutation(database, {
-      version: 1,
+    const deleted = applyPageLifecycleV2Fixture(database, {
+      version: 2,
       operationId: "delete-retired-promotion-card",
       projectId: project.id,
       storeEpoch,
@@ -516,7 +516,7 @@ describe("legacy Card promotion cutover", () => {
         expectedParentRevision: coordinate.location_revision,
       },
     });
-    expect(deleted.ok).toBe(true);
+    expect(deleted.lifecycle).toBe("deleted");
 
     const retention = maintainBlockRetention(
       database,

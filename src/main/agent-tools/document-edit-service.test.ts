@@ -4,7 +4,6 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import { createUuidV7 } from "../../shared/uuid-v7";
-import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
 import type { DocumentMutationRequest } from "../../shared/block-documents";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import {
@@ -15,13 +14,13 @@ import {
   type BlockId,
   type EditDocumentInput,
 } from "../../shared/nodex-agent-tools";
-import { applyPageLifecycleMutation } from "../local-store/page-lifecycle";
 import {
   applyDocumentOperationBatch,
   replaceDocumentFromNfm,
 } from "../local-store/block-document-operations";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
+import { createPageLifecycleV2Fixture } from "../local-store/page-lifecycle-v2-test-fixture";
 import { createProject, setProjectLifecycle } from "../local-store/projects";
 import {
   assertNodexAgentResourceAuthorizationInDatabase,
@@ -89,8 +88,7 @@ function createCard(
   projectId = fixture.projectId,
 ): BlockId {
   const cardId = createUuidV7();
-  const request = parsePageLifecycleMutationRequest({
-    version: 1,
+  createPageLifecycleV2Fixture(fixture.database, {
     operationId: createUuidV7(),
     projectId,
     storeEpoch: fixture.storeEpoch,
@@ -104,8 +102,6 @@ function createCard(
       status: "draft",
     },
   });
-  const result = applyPageLifecycleMutation(fixture.database, request);
-  if (!result.ok) throw new Error(result.error.message);
   return BlockIdSchema.parse(cardId);
 }
 

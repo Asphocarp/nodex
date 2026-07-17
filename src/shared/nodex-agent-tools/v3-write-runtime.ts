@@ -133,10 +133,15 @@ export type ExecuteNodexAgentCreatePagesResult =
 
 export interface NodexAgentDuplicatePageCommand extends Omit<
   NodexAgentTransferCommand,
-  "input"
+  "input" | "transfer"
 > {
   readonly input: z.infer<typeof DuplicatePageV3InputSchema>;
   readonly normalizedInput: NodexAgentTransferCommand["input"];
+  readonly transfer?: NodexAgentTransferCommand["transfer"];
+  readonly canonical?: {
+    readonly newPageId: string;
+    readonly primaryViewRankKey?: string;
+  };
 }
 
 export interface PrepareNodexAgentDuplicatePageRequest extends NodexAgentCallIdentity {
@@ -179,6 +184,11 @@ export interface NodexAgentMovePageTransferStep {
   readonly targetProjectId?: string;
   readonly normalizedInput: NodexAgentTransferCommand["input"];
   readonly transfer: NodexAgentTransferCommand["transfer"] | null;
+  /** Frozen v81 authority coordinates for the canonical transfer path. */
+  readonly canonical?: {
+    readonly expectedParentRevision: number;
+    readonly expectedActiveMembershipRevision: number;
+  };
   readonly rehome?: {
     readonly operationId: string;
     readonly callIdentity: string;

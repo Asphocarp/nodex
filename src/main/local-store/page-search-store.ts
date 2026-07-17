@@ -72,7 +72,7 @@ const readSearchableStatuses = (
         AND page_block.lifecycle = 'active'
       INNER JOIN data_source_properties property
         ON property.data_source_id = membership.data_source_id
-        AND property.key = 'status'
+        AND property.id = 'status'
         AND property.lifecycle = 'active'
       INNER JOIN data_source_property_values value
         ON value.membership_id = membership.id

@@ -47,7 +47,7 @@ import {
   upsertLegacyInlineDatabaseView,
   type UpsertLegacyInlineDatabaseViewInput,
   type UpsertLegacyInlineDatabaseViewResult,
-} from "./database-views";
+} from "./legacy-inline-database-views";
 import { getDb } from "./database";
 import * as descriptionRevisionService from "./description-revisions";
 import { persistPageDocumentMaterialization } from "./document-materializations";

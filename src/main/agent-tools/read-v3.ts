@@ -21,11 +21,16 @@ import {
   SearchV3OutputSchema,
 } from "../../shared/nodex-agent-tools/v3-read-schemas";
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-  type DatabaseViewQueryResult,
-  type DataSourceQueryResult,
-} from "../../shared/database-module";
-import { readDatabaseModule } from "../local-store/database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseViewQueryResultV2,
+  type DataSourceQueryResultV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
+import { readDatabaseModuleV2 } from "../local-store/database-module-v2-runtime";
 import {
   authorizeNodexAgentResourceInDatabase,
   authorizeProjectResourceInDatabase,
@@ -87,8 +92,8 @@ function readContextV3(
     );
   }
   const catalog = request.input.include?.databases
-    ? readDatabaseModule(database, {
-        version: DATABASE_MODULE_CONTRACT_VERSION,
+    ? readDatabaseModuleV2(database, {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId: request.projectId,
       read: { target: { kind: "project_default" }, mode: "catalog" },
       }, request.authority ? {
@@ -438,22 +443,42 @@ function readQueryV3(
     readonly tool: "query_database_view" | "query_data_source";
   }>,
 ) {
+  const adHocInput = request.tool === "query_data_source"
+    ? request.input
+    : null;
+  const filter = adHocInput?.filter
+    ? JSON.parse(JSON.stringify(adHocInput.filter), (key, value: unknown) =>
+        key === "propertyId" ? parseDataSourcePropertyId(value) : value,
+      ) as typeof adHocInput.filter
+    : undefined;
+  const sort = adHocInput?.sort?.map((entry) => ({
+    ...entry,
+    field: entry.field.kind === "property"
+      ? {
+          kind: "property" as const,
+          propertyId: parseDataSourcePropertyId(entry.field.propertyId),
+        }
+      : entry.field,
+  }));
   const read = request.tool === "query_database_view"
     ? {
-        target: { kind: "view" as const, viewId: request.input.viewId },
+        target: {
+          kind: "view" as const,
+          viewId: parseDatabaseViewId(request.input.viewId),
+        },
         mode: "query" as const,
       }
     : {
         target: {
           kind: "data_source" as const,
-          dataSourceId: request.input.dataSourceId,
+          dataSourceId: parseDataSourceId(request.input.dataSourceId),
         },
         mode: "query" as const,
-        ...(request.input.filter ? { filter: request.input.filter } : {}),
-        ...(request.input.sort ? { sort: request.input.sort } : {}),
+        ...(filter ? { filter } : {}),
+        ...(sort ? { sort } : {}),
       };
-  const result = readDatabaseModule(database, {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+  const result = readDatabaseModuleV2(database, {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId: request.projectId,
     read,
   }, request.authority ? {
@@ -474,7 +499,7 @@ function readQueryV3(
       { domainCode: result.error.code },
     );
   }
-  const query: DatabaseViewQueryResult | DataSourceQueryResult =
+  const query: DatabaseViewQueryResultV2 | DataSourceQueryResultV2 =
     result.value.value.kind === "query"
       ? result.value.value.value
       : result.value.value.kind === "data_source_query"
@@ -487,7 +512,9 @@ function readQueryV3(
               "none",
             );
           })();
-  const selectedPropertyIds = request.input.select?.propertyIds;
+  const selectedPropertyIds = request.input.select?.propertyIds?.map(
+    parseDataSourcePropertyId,
+  );
   const activeProperties = query.properties.filter(
     (property) => property.lifecycle === "active",
   );
@@ -507,7 +534,9 @@ function readQueryV3(
         );
       })
     : activeProperties;
-  const selected = new Set(properties.map((property) => property.propertyId));
+  const selected = new Set<string>(
+    properties.map((property) => property.propertyId),
+  );
   const resourceId = request.tool === "query_database_view"
     ? request.input.viewId
     : request.input.dataSourceId;

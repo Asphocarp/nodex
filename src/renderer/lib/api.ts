@@ -18,15 +18,15 @@ import type {
   ReadDatabaseViewReferenceInput,
 } from "../../shared/database-views";
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../../shared/block-property-mutations";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../../shared/block-property-mutations-v2";
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadRequest,
-  DatabaseModuleReadResult,
-} from "../../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadRequestV2,
+  DatabaseModuleReadResultV2,
+} from "../../shared/database-module-v2";
 import type { PageDetailResult } from "../../shared/page-detail";
 import type {
   DocumentMutationRequest,
@@ -43,10 +43,10 @@ import type {
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "../../shared/page-lifecycle";
-import type { PageLifecyclePreflightResult } from "../../shared/page-lifecycle-runtime";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../../shared/page-lifecycle-v2";
+import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
@@ -206,15 +206,15 @@ export function readDatabaseViewReference(
 
 export function mutateBlockProperties(
   projectId: string,
-  request: BlockPropertyMutationRequest,
-): Promise<BlockPropertyMutationCommandResult> {
+  request: BlockPropertyMutationRequestV2,
+): Promise<BlockPropertyMutationCommandResultV2> {
   return invoke("block-properties:mutate", projectId, request);
 }
 
 export function readPageLifecyclePreflight(
   projectId: string,
   pageId: string,
-): Promise<PageLifecyclePreflightResult> {
+): Promise<PageLifecyclePreflightResultV2> {
   return resolveRendererTransport().readPageLifecyclePreflight(
     projectId,
     pageId,
@@ -223,8 +223,8 @@ export function readPageLifecyclePreflight(
 
 export function mutatePageLifecycle(
   projectId: string,
-  request: PageLifecycleMutationRequest,
-): Promise<PageLifecycleMutationCommandResult> {
+  request: PageLifecycleMutationRequestV2,
+): Promise<PageLifecycleMutationCommandResultV2> {
   return resolveRendererTransport().mutatePageLifecycle(projectId, request);
 }
 
@@ -236,15 +236,15 @@ export function listPageHistory(
 
 export function readDatabaseModule(
   projectId: string,
-  request: DatabaseModuleReadRequest,
-): Promise<DatabaseModuleReadResult> {
+  request: DatabaseModuleReadRequestV2,
+): Promise<DatabaseModuleReadResultV2> {
   return invoke("database-module:read", projectId, request);
 }
 
 export function applyDatabaseModule(
   projectId: string,
-  request: DatabaseApply,
-): Promise<DatabaseApplyResult> {
+  request: DatabaseApplyV2,
+): Promise<DatabaseApplyResultV2> {
   return invoke("database-module:apply", projectId, request);
 }
 

@@ -1,12 +1,12 @@
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-  type DatabaseApply,
-  type DatabaseApplyResult,
-  type DatabaseModuleError,
-  type DatabaseModuleReadRequest,
-  type DatabaseModuleReadResult,
-  type DatabaseModuleReadSnapshot,
-} from "../../shared/database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyResultV2,
+  type DatabaseApplyV2,
+  type DatabaseModuleErrorV2,
+  type DatabaseModuleReadRequestV2,
+  type DatabaseModuleReadResultV2,
+  type DatabaseModuleReadSnapshotV2,
+} from "../../shared/database-module-v2";
 import {
   compileDatabasePageDrag,
   compileDatabasePagesDrag,
@@ -17,16 +17,16 @@ import { applyDatabaseModule, readDatabaseModule } from "./api";
 export interface DatabasePageDragRuntimeDependencies {
   readonly read: (
     projectId: string,
-    request: DatabaseModuleReadRequest,
-  ) => Promise<DatabaseModuleReadResult>;
+    request: DatabaseModuleReadRequestV2,
+  ) => Promise<DatabaseModuleReadResultV2>;
   readonly apply: (
     projectId: string,
-    request: DatabaseApply,
-  ) => Promise<DatabaseApplyResult>;
+    request: DatabaseApplyV2,
+  ) => Promise<DatabaseApplyResultV2>;
 }
 
 export class DatabasePageDragMutationError extends Error {
-  constructor(readonly commandError: DatabaseModuleError) {
+  constructor(readonly commandError: DatabaseModuleErrorV2) {
     super(commandError.message);
     this.name = "DatabasePageDragMutationError";
   }
@@ -40,9 +40,9 @@ const defaultDependencies: DatabasePageDragRuntimeDependencies = {
 const readCurrentQuery = async (
   projectId: string,
   dependencies: DatabasePageDragRuntimeDependencies,
-): Promise<DatabaseModuleReadSnapshot> => {
+): Promise<DatabaseModuleReadSnapshotV2> => {
   const result = await dependencies.read(projectId, {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read: { target: { kind: "project_default" }, mode: "query" },
   });
@@ -55,7 +55,7 @@ const readCurrentQuery = async (
   return result.value;
 };
 
-const refreshRequired = (code: DatabaseModuleError["code"]): boolean =>
+const refreshRequired = (code: DatabaseModuleErrorV2["code"]): boolean =>
   code === "revision_conflict"
   || code === "resource_not_found"
   || code === "authorization_denied"
@@ -66,13 +66,13 @@ const commitCompiledDrag = async (input: {
   readonly clientSessionId?: string;
   readonly operationId: string;
   readonly compile: (
-    snapshot: DatabaseModuleReadSnapshot,
-  ) => DatabaseApply["operations"];
+    snapshot: DatabaseModuleReadSnapshotV2,
+  ) => DatabaseApplyV2["operations"];
   readonly dependencies: DatabasePageDragRuntimeDependencies;
 }): Promise<boolean> => {
   const snapshot = await readCurrentQuery(input.projectId, input.dependencies);
-  const request: DatabaseApply = {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+  const request: DatabaseApplyV2 = {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId,
     projectId: input.projectId,
     storeEpoch: snapshot.storeEpoch,
@@ -86,7 +86,7 @@ const commitCompiledDrag = async (input: {
   };
 
   let retried = false;
-  let result: DatabaseApplyResult;
+  let result: DatabaseApplyResultV2;
   try {
     result = await input.dependencies.apply(input.projectId, request);
   } catch {

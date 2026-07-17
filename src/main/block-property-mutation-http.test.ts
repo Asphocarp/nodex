@@ -1,14 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { Hono } from "hono";
 import type {
-  BlockPropertyMutationCommandError,
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../shared/block-property-mutations";
+  BlockPropertyMutationCommandErrorV2,
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../shared/block-property-mutations-v2";
 import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutation-http";
 
-const request: BlockPropertyMutationRequest = {
-  version: 1,
+const request: BlockPropertyMutationRequestV2 = {
+  version: 2,
   mutationId: "mutation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -27,11 +27,11 @@ const request: BlockPropertyMutationRequest = {
 };
 
 const success = (
-  bound: BlockPropertyMutationRequest,
-): BlockPropertyMutationCommandResult => ({
+  bound: BlockPropertyMutationRequestV2,
+): BlockPropertyMutationCommandResultV2 => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     mutationId: bound.mutationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,
@@ -54,8 +54,8 @@ const success = (
 });
 
 const failure = (
-  code: BlockPropertyMutationCommandError["code"],
-): BlockPropertyMutationCommandResult => ({
+  code: BlockPropertyMutationCommandErrorV2["code"],
+): BlockPropertyMutationCommandResultV2 => ({
   ok: false,
   error: {
     code,
@@ -67,8 +67,8 @@ const failure = (
 
 const createApp = (
   applyMutation: (
-    request: BlockPropertyMutationRequest,
-  ) => Promise<BlockPropertyMutationCommandResult>,
+    request: BlockPropertyMutationRequestV2,
+  ) => Promise<BlockPropertyMutationCommandResultV2>,
 ): Hono => {
   const app = new Hono();
   registerBlockPropertyMutationHttpRoute(app, { applyMutation });
@@ -88,14 +88,14 @@ const post = async (
 
 describe("Block property mutation HTTP route", () => {
   test("binds a loopback audit identity and returns the shared receipt", async () => {
-    const captured: BlockPropertyMutationRequest[] = [];
+    const captured: BlockPropertyMutationRequestV2[] = [];
     const app = createApp(async (bound) => {
       captured.push(bound);
       return success(bound);
     });
     const response = await post(app, "project-1", request);
     const result =
-      (await response.json()) as BlockPropertyMutationCommandResult;
+      (await response.json()) as BlockPropertyMutationCommandResultV2;
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
@@ -115,7 +115,7 @@ describe("Block property mutation HTTP route", () => {
     );
     expect(conflict.status).toBe(409);
     const conflictBody =
-      (await conflict.json()) as BlockPropertyMutationCommandResult;
+      (await conflict.json()) as BlockPropertyMutationCommandResultV2;
     expect(conflictBody.ok).toBe(false);
 
     const missing = await post(
@@ -137,7 +137,25 @@ describe("Block property mutation HTTP route", () => {
       request,
     );
     const result =
-      (await response.json()) as BlockPropertyMutationCommandResult;
+      (await response.json()) as BlockPropertyMutationCommandResultV2;
+    expect(response.status).toBe(400);
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(0);
+  });
+
+  test("rejects legacy v1 requests before the writer", async () => {
+    let calls = 0;
+    const response = await post(
+      createApp(async (bound) => {
+        calls += 1;
+        return success(bound);
+      }),
+      "project-1",
+      { ...request, version: 1 },
+    );
+    const result =
+      (await response.json()) as BlockPropertyMutationCommandResultV2;
+
     expect(response.status).toBe(400);
     expect(result.ok).toBe(false);
     expect(calls).toBe(0);
@@ -152,7 +170,7 @@ describe("Block property mutation HTTP route", () => {
       request,
     );
     const result =
-      (await response.json()) as BlockPropertyMutationCommandResult;
+      (await response.json()) as BlockPropertyMutationCommandResultV2;
     expect(response.status).toBe(500);
     expect(result.ok).toBe(false);
     if (result.ok) return;

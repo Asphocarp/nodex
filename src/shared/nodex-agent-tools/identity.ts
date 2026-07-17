@@ -31,6 +31,11 @@ export const NODEX_APP_V3_TOOLS = [
 
 export type NodexAgentV3ToolName = (typeof NODEX_APP_V3_TOOLS)[number];
 
-export const NODEX_APP_TOOLSET_REVISION = NODEX_APP_V3_TOOLSET_REVISION;
-export const NODEX_APP_TOOLS = NODEX_APP_V3_TOOLS;
-export type NodexAgentToolName = NodexAgentV3ToolName;
+/** Compact-identity contract published with the schema-v81 cutover. */
+export const NODEX_APP_V5_TOOLSET_REVISION = 5 as const;
+export const NODEX_APP_V5_TOOLS = NODEX_APP_V3_TOOLS;
+export type NodexAgentV5ToolName = (typeof NODEX_APP_V5_TOOLS)[number];
+
+export const NODEX_APP_TOOLSET_REVISION = NODEX_APP_V5_TOOLSET_REVISION;
+export const NODEX_APP_TOOLS = NODEX_APP_V5_TOOLS;
+export type NodexAgentToolName = NodexAgentV5ToolName;

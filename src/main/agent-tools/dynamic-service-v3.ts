@@ -353,7 +353,7 @@ function duplicatePageFootprint(
     ],
     deletions: [],
     transformations: [
-      `page.duplicate:${command.input.pageId}:${command.transfer.projectId}->${command.destination.contentProjectId ?? command.projectId}:${command.input.destination.kind}`,
+      `page.duplicate:${command.input.pageId}:${command.transfer?.projectId ?? command.projectId}->${command.destination.contentProjectId ?? command.projectId}:${command.input.destination.kind}`,
     ],
   });
 }

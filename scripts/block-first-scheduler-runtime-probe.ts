@@ -88,7 +88,7 @@ const main = async (): Promise<void> => {
     const card = await createPage(project.id, "in_progress", {
       title: "Legacy reminder title",
       description: "Legacy reminder body",
-      tags: ["legacy"],
+      tags: ["relational"],
       scheduledStart: new Date("2030-01-01T10:00:00.000Z"),
       scheduledEnd: new Date("2030-01-01T11:00:00.000Z"),
       reminders: [{ offsetMinutes: 10 }],
@@ -114,39 +114,39 @@ const main = async (): Promise<void> => {
       database
         .prepare(
           `
-          UPDATE database_property_values
-          SET value_json = '["relational"]', revision = revision + 1
+          UPDATE data_source_property_values
+          SET revision = revision + 1
           WHERE membership_id = (
-              SELECT id FROM database_memberships
-              WHERE card_block_id = ? AND removed_at IS NULL
+              SELECT id FROM data_source_page_memberships
+              WHERE page_block_id = ? AND removed_at IS NULL
             )
-            AND property_id = database_block_id || ':property:tags'
+            AND property_id = 'tags'
         `,
         )
         .run(card.id);
       database
         .prepare(
           `
-          UPDATE database_property_values
+          UPDATE data_source_property_values
           SET value_json = '"2031-02-03T10:00:00.000Z"', revision = revision + 1
           WHERE membership_id = (
-              SELECT id FROM database_memberships
-              WHERE card_block_id = ? AND removed_at IS NULL
+              SELECT id FROM data_source_page_memberships
+              WHERE page_block_id = ? AND removed_at IS NULL
             )
-            AND property_id = database_block_id || ':property:scheduled_start'
+            AND property_id = 'scheduled_start'
         `,
         )
         .run(card.id);
       database
         .prepare(
           `
-          UPDATE database_property_values
+          UPDATE data_source_property_values
           SET value_json = '"2031-02-03T11:00:00.000Z"', revision = revision + 1
           WHERE membership_id = (
-              SELECT id FROM database_memberships
-              WHERE card_block_id = ? AND removed_at IS NULL
+              SELECT id FROM data_source_page_memberships
+              WHERE page_block_id = ? AND removed_at IS NULL
             )
-            AND property_id = database_block_id || ':property:scheduled_end'
+            AND property_id = 'scheduled_end'
         `,
         )
         .run(card.id);
@@ -180,13 +180,13 @@ const main = async (): Promise<void> => {
         database
           .prepare(
             `
-            UPDATE database_property_values
+            UPDATE data_source_property_values
             SET value_json = 'null', revision = revision + 1
             WHERE membership_id = (
-                SELECT id FROM database_memberships
-                WHERE card_block_id = ? AND removed_at IS NULL
+                SELECT id FROM data_source_page_memberships
+                WHERE page_block_id = ? AND removed_at IS NULL
               )
-              AND property_id = database_block_id || ':property:scheduled_end'
+              AND property_id = 'scheduled_end'
           `,
           )
           .run(card.id);
@@ -214,17 +214,14 @@ const main = async (): Promise<void> => {
           schedule.source_metadata_revision,
           scheduled_end.value_json AS scheduled_end_json
         FROM blocks card
-        INNER JOIN scheduled_card_index schedule
-          ON schedule.card_block_id = card.id
-        INNER JOIN database_memberships membership
-          ON membership.card_block_id = card.id
+        INNER JOIN scheduled_page_index schedule
+          ON schedule.page_block_id = card.id
+        INNER JOIN data_source_page_memberships membership
+          ON membership.page_block_id = card.id
           AND membership.removed_at IS NULL
-        INNER JOIN database_properties property
-          ON property.database_block_id = membership.database_block_id
-          AND property.key = 'scheduled_end'
-        INNER JOIN database_property_values scheduled_end
+        INNER JOIN data_source_property_values scheduled_end
           ON scheduled_end.membership_id = membership.id
-          AND scheduled_end.property_id = property.id
+          AND scheduled_end.property_id = 'scheduled_end'
         WHERE card.id = ?
       `,
       )
@@ -278,7 +275,7 @@ const main = async (): Promise<void> => {
       .prepare(
         `
         INSERT INTO reminder_snoozes (
-          project_id, card_id, occurrence_start, due_at, created_at, consumed_at
+          project_id, page_id, occurrence_start, due_at, created_at, consumed_at
         ) VALUES (?, ?, ?, ?, ?, NULL)
       `,
       )
@@ -300,7 +297,7 @@ const main = async (): Promise<void> => {
 
     database
       .prepare(
-        "UPDATE scheduled_card_index SET source_metadata_revision = 8 WHERE card_block_id = ?",
+        "UPDATE scheduled_page_index SET source_metadata_revision = 8 WHERE page_block_id = ?",
       )
       .run(card.id);
     let staleRejected = false;

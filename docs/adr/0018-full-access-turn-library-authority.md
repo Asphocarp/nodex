@@ -99,7 +99,7 @@ transition boundary roll back content, projections, ledger, and Agent receipt.
   directly; read-only or missing same-Library authority enters the separate
   resource-consent policy recorded by ADR 0019.
 - A built-in Full-access Turn can use every capability already exposed by
-  `nodex_app@4` across its current Library, without adding tools or changing
+  `nodex_app@5` across its current Library, without adding tools or changing
   public schemas.
 - Switching permission mode affects only later Turns; already captured calls
   retain their exact Turn authority.

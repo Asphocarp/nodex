@@ -11,7 +11,11 @@ import {
   initializeDatabase,
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
-import type { BlockPropertyMutationRequest } from "../src/shared/block-property-mutations";
+import type { BlockPropertyMutationRequestV2 } from "../src/shared/block-property-mutations-v2";
+import {
+  parseDataSourcePropertyId,
+  type DataSourcePropertyId,
+} from "../src/shared/database-identities";
 import type { BoardChangeEvent } from "../src/shared/ipc-api";
 
 const invariant: (condition: unknown, message: string) => asserts condition = (
@@ -23,7 +27,7 @@ const invariant: (condition: unknown, message: string) => asserts condition = (
 };
 
 interface PropertyCoordinate {
-  readonly id: string;
+  readonly id: DataSourcePropertyId;
   readonly revision: number;
 }
 
@@ -49,36 +53,38 @@ const run = async (): Promise<void> => {
     const membership = database
       .prepare(
         `
-        SELECT id, database_block_id
-        FROM database_memberships
-        WHERE card_block_id = ? AND project_id = ? AND removed_at IS NULL
+        SELECT id, data_source_id
+        FROM data_source_page_memberships
+        WHERE page_block_id = ? AND removed_at IS NULL
       `,
       )
-      .get(card.id, project.id) as {
+      .get(card.id) as {
       readonly id: string;
-      readonly database_block_id: string;
+      readonly data_source_id: string;
     };
     const propertyCoordinates = Object.fromEntries(
       (
         database
           .prepare(
             `
-            SELECT property.key, property.id, value.revision
-            FROM database_properties property
-            INNER JOIN database_property_values value
+            SELECT property.id, value.revision
+            FROM data_source_properties property
+            INNER JOIN data_source_property_values value
               ON value.membership_id = ?
+              AND value.data_source_id = property.data_source_id
               AND value.property_id = property.id
-            WHERE property.database_block_id = ?
-              AND property.project_id = ?
+            WHERE property.data_source_id = ?
               AND property.lifecycle = 'active'
           `,
           )
-          .all(membership.id, membership.database_block_id, project.id) as {
-          readonly key: string;
+          .all(membership.id, membership.data_source_id) as {
           readonly id: string;
           readonly revision: number;
         }[]
-      ).map((row) => [row.key, { id: row.id, revision: row.revision }]),
+      ).map((row) => [
+        row.id,
+        { id: parseDataSourcePropertyId(row.id), revision: row.revision },
+      ]),
     ) as Readonly<Record<string, PropertyCoordinate>>;
     const baseBranchRevision = (
       database
@@ -110,8 +116,8 @@ const run = async (): Promise<void> => {
     const priority = propertyCoordinates.priority;
     const status = propertyCoordinates.status;
     invariant(priority && status, "Primary Database properties are missing");
-    const firstRequest: BlockPropertyMutationRequest = {
-      version: 1,
+    const firstRequest: BlockPropertyMutationRequestV2 = {
+      version: 2,
       mutationId: "property-worker-first",
       projectId: project.id,
       storeEpoch,
@@ -119,9 +125,9 @@ const run = async (): Promise<void> => {
       actor: { kind: "runtime_probe" },
       fields: [
         {
-          scope: "database",
+          scope: "data_source",
           pageId: card.id,
-          databaseBlockId: membership.database_block_id,
+          dataSourceId: membership.data_source_id,
           propertyId: priority.id,
           operation: "set",
           expectedRevision: priority.revision,
@@ -157,8 +163,8 @@ const run = async (): Promise<void> => {
       "Exact property retry emitted a second semantic event",
     );
 
-    const statusRequest: BlockPropertyMutationRequest = {
-      version: 1,
+    const statusRequest: BlockPropertyMutationRequestV2 = {
+      version: 2,
       mutationId: "property-worker-status",
       projectId: project.id,
       storeEpoch,
@@ -166,9 +172,9 @@ const run = async (): Promise<void> => {
       actor: { kind: "runtime_probe" },
       fields: [
         {
-          scope: "database",
+          scope: "data_source",
           pageId: card.id,
-          databaseBlockId: membership.database_block_id,
+          dataSourceId: membership.data_source_id,
           propertyId: status.id,
           operation: "set",
           expectedRevision: status.revision,
@@ -223,20 +229,15 @@ const run = async (): Promise<void> => {
             read_model.intrinsic_properties_json,
             position.group_key
           FROM blocks card
-          INNER JOIN scheduled_card_index schedule
-            ON schedule.card_block_id = card.id
+          INNER JOIN scheduled_page_index schedule
+            ON schedule.page_block_id = card.id
             AND schedule.project_id = card.project_id
-          INNER JOIN card_read_model read_model
-            ON read_model.card_block_id = card.id
+          INNER JOIN page_read_model read_model
+            ON read_model.page_block_id = card.id
             AND read_model.project_id = card.project_id
-          INNER JOIN database_view_positions position
-            ON position.block_id = card.id
-            AND position.project_id = card.project_id
-          INNER JOIN database_views view
-            ON view.id = position.view_id
-            AND view.project_id = position.project_id
-            AND view.kind = 'kanban'
-            AND view.is_primary = 1
+          INNER JOIN database_view_page_positions position
+            ON position.page_block_id = card.id
+            AND position.view_id = read_model.view_id
           WHERE card.id = ? AND card.project_id = ?
         `,
         )
@@ -262,7 +263,11 @@ const run = async (): Promise<void> => {
           databaseValues.priority === "p0-critical" &&
           databaseValues.status === "done" &&
           intrinsicValues["run.baseBranch"] === "running",
-        "Worker ACK preceded scheduler/read-model/View projection freshness",
+        `Worker ACK preceded scheduler/read-model/View projection freshness: ${JSON.stringify({
+          projection,
+          databaseValues,
+          intrinsicValues,
+        })}`,
       );
       const ledgerCount = (
         persisted

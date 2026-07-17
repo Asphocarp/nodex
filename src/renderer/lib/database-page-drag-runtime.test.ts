@@ -1,10 +1,16 @@
 import { describe, expect, test } from "vitest";
 
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadSnapshot,
-} from "../../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadSnapshotV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import {
   commitDatabasePageDrag,
   DatabasePageDragMutationError,
@@ -13,8 +19,8 @@ import {
 
 const timestamp = "2026-07-16T00:00:00.000Z";
 
-const snapshot = (): DatabaseModuleReadSnapshot => ({
-  version: 1,
+const snapshot = (): DatabaseModuleReadSnapshotV2 => ({
+  version: 2,
   projectId: "project-1",
   libraryId: "library-1",
   storeEpoch: "epoch-1",
@@ -23,20 +29,20 @@ const snapshot = (): DatabaseModuleReadSnapshot => ({
     kind: "query",
     value: {
       database: {
-        databaseId: "database-1",
+        databaseId: parseDatabaseId("database-1"),
         libraryId: "library-1",
         name: "Work",
         lifecycle: "active",
-        defaultViewId: "view-1",
+        defaultViewId: parseDatabaseViewId("view-1"),
         accessRevision: 1,
         metadataRevision: 1,
         createdAt: timestamp,
         updatedAt: timestamp,
       },
       dataSource: {
-        dataSourceId: "source-1",
+        dataSourceId: parseDataSourceId("source-1"),
         libraryId: "library-1",
-        homeDatabaseId: "database-1",
+        homeDatabaseId: parseDatabaseId("database-1"),
         name: "Pages",
         schemaKey: "nodex.pages",
         schemaRevision: 1,
@@ -46,14 +52,14 @@ const snapshot = (): DatabaseModuleReadSnapshot => ({
         updatedAt: timestamp,
       },
       view: {
-        viewId: "view-1",
-        databaseId: "database-1",
-        dataSourceId: "source-1",
+        viewId: parseDatabaseViewId("view-1"),
+        databaseId: parseDatabaseId("database-1"),
+        dataSourceId: parseDataSourceId("source-1"),
         name: "Board",
         kind: "kanban",
         config: {
           schemaKey: "nodex.database-view",
-          schemaVersion: 1,
+          schemaVersion: 2,
           filter: { kind: "group", operator: "and", children: [] },
           sort: [{
             field: { kind: "manual" },
@@ -71,9 +77,8 @@ const snapshot = (): DatabaseModuleReadSnapshot => ({
         updatedAt: timestamp,
       },
       properties: [{
-        propertyId: "status",
-        dataSourceId: "source-1",
-        key: "status",
+        propertyId: parseDataSourcePropertyId("status"),
+        dataSourceId: parseDataSourceId("source-1"),
         name: "Status",
         valueType: "select",
         config: {},
@@ -87,7 +92,7 @@ const snapshot = (): DatabaseModuleReadSnapshot => ({
         page: {
           pageId: "page-1",
           libraryId: "library-1",
-          parent: { kind: "data_source", dataSourceId: "source-1" },
+          parent: { kind: "data_source", dataSourceId: parseDataSourceId("source-1") },
           lifecycle: "active",
           parentRevision: 1,
           metadataRevision: 1,
@@ -103,13 +108,13 @@ const snapshot = (): DatabaseModuleReadSnapshot => ({
         },
         membership: {
           membershipId: "membership-1",
-          dataSourceId: "source-1",
+          dataSourceId: parseDataSourceId("source-1"),
           revision: 1,
           createdAt: timestamp,
         },
         values: {
           status: {
-            propertyId: "status",
+            propertyId: parseDataSourcePropertyId("status"),
             valueType: "select",
             value: "draft",
             revision: 2,
@@ -122,20 +127,20 @@ const snapshot = (): DatabaseModuleReadSnapshot => ({
   },
 });
 
-const committed = (request: DatabaseApply): DatabaseApplyResult => ({
+const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     operationId: request.operationId,
     projectId: request.projectId,
     libraryId: "library-1",
     storeEpoch: request.storeEpoch,
     duplicate: true,
     operationKinds: request.operations.map((operation) => operation.kind),
-    affectedDatabaseIds: ["database-1"],
-    affectedDataSourceIds: ["source-1"],
+    affectedDatabaseIds: [parseDatabaseId("database-1")],
+    affectedDataSourceIds: [parseDataSourceId("source-1")],
     affectedPageIds: ["page-1"],
-    affectedViewIds: ["view-1"],
+    affectedViewIds: [parseDatabaseViewId("view-1")],
     committedRevisions: {},
     changeLogSeq: 2,
     committedAt: timestamp,
@@ -144,7 +149,7 @@ const committed = (request: DatabaseApply): DatabaseApplyResult => ({
 
 describe("Database Page drag runtime", () => {
   test("retains the exact Page apply request across a lost response retry", async () => {
-    const requests: DatabaseApply[] = [];
+    const requests: DatabaseApplyV2[] = [];
     const dependencies: DatabasePageDragRuntimeDependencies = {
       read: async () => ({ ok: true, value: snapshot() }),
       apply: async (_projectId, request) => {

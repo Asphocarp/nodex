@@ -21,30 +21,36 @@ import { toDatabasePageSummary } from "../../shared/page-summary";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type {
-  DatabaseModuleReadResult,
-  DatabaseViewRecord,
-  DatabaseViewQueryResult,
-} from "../../shared/database-module";
+  DatabaseModuleReadResultV2,
+  DatabaseViewRecordV2,
+  DatabaseViewQueryResultV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 
 function createDatabaseViewSnapshot(
   viewId: string,
   title: string,
   isPrimary: boolean,
-): DatabaseModuleReadResult {
+): DatabaseModuleReadResultV2 {
   const projectId = "project-1";
   const libraryId = "library-1";
-  const databaseId = "database-1";
-  const dataSourceId = "source-1";
-  const statusPropertyId = "property-status";
-  const view: DatabaseViewRecord = {
-    viewId,
+  const databaseId = parseDatabaseId("database-1");
+  const dataSourceId = parseDataSourceId("source-1");
+  const statusPropertyId = parseDataSourcePropertyId("status");
+  const view: DatabaseViewRecordV2 = {
+    viewId: parseDatabaseViewId(viewId),
     databaseId,
     dataSourceId,
     name: isPrimary ? "Primary" : "Focused",
     kind: "kanban" as const,
     config: {
       schemaKey: "nodex.database-view",
-      schemaVersion: 1,
+      schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
       sort: [{
         field: { kind: "manual" },
@@ -66,7 +72,7 @@ function createDatabaseViewSnapshot(
     libraryId,
     name: "Tasks",
     lifecycle: "active" as const,
-    defaultViewId: "view-primary",
+    defaultViewId: parseDatabaseViewId("view-primary"),
     accessRevision: 1,
     metadataRevision: 1,
     createdAt: "2026-07-12T00:00:00.000Z",
@@ -87,7 +93,6 @@ function createDatabaseViewSnapshot(
   const statusProperty = {
     propertyId: statusPropertyId,
     dataSourceId,
-    key: "status",
     name: "Status",
     valueType: "select" as const,
     config: {},
@@ -97,7 +102,7 @@ function createDatabaseViewSnapshot(
     createdAt: "2026-07-12T00:00:00.000Z",
     updatedAt: "2026-07-12T00:00:00.000Z",
   };
-  const query: DatabaseViewQueryResult = {
+  const query: DatabaseViewQueryResultV2 = {
     database,
     dataSource,
     properties: [statusProperty],
@@ -141,7 +146,7 @@ function createDatabaseViewSnapshot(
   return {
     ok: true,
     value: {
-      version: 1,
+      version: 2,
       projectId,
       libraryId,
       storeEpoch: "epoch-1",

@@ -100,14 +100,14 @@ const updateDatabaseValue = (
   database
     .prepare(
       `
-    UPDATE database_property_values
+    UPDATE data_source_property_values
     SET value_json = ?, revision = revision + 1,
         updated_at = '2026-07-11T00:00:00.000Z'
     WHERE membership_id = (
-        SELECT id FROM database_memberships
+        SELECT id FROM data_source_page_memberships
         WHERE page_block_id = ? AND removed_at IS NULL
       )
-      AND property_id = database_block_id || ':property:' || ?
+      AND property_id = ?
   `,
     )
     .run(JSON.stringify(value), pageId, key);
@@ -160,9 +160,9 @@ describe("authoritative Page reads", () => {
         const database = getDb();
         database
           .prepare(
-            "DELETE FROM database_view_positions WHERE block_id = ? AND project_id = ?",
+            "DELETE FROM database_view_page_positions WHERE page_block_id = ?",
           )
-          .run(unpositioned.id, project.id);
+          .run(unpositioned.id);
 
         const byId = await getDatabaseRowPage(project.id, unpositioned.id);
         const board = await getBoard(project.id);
@@ -217,11 +217,30 @@ describe("authoritative Page reads", () => {
           "Primary body",
         );
 
+        database.prepare(`
+          UPDATE data_source_properties
+          SET config_json = ?, schema_revision = schema_revision + 1,
+              updated_at = '2026-07-11T00:00:00.000Z'
+          WHERE data_source_id = (
+            SELECT id FROM data_sources
+            WHERE home_database_block_id = ? AND lifecycle = 'active'
+            ORDER BY rank_key, id
+            LIMIT 1
+          ) AND id = 'tags'
+        `).run(
+          JSON.stringify({
+            options: [
+              { id: "o_AAAAAAAA", name: "relational" },
+              { id: "o_BBBBBBBB", name: "fresh" },
+            ],
+          }),
+          project.databaseId,
+        );
         updateDatabaseValue(database, created.id, "priority", "p0-critical");
         updateDatabaseValue(database, created.id, "estimate", "xl");
         updateDatabaseValue(database, created.id, "tags", [
-          "relational",
-          "fresh",
+          "o_AAAAAAAA",
+          "o_BBBBBBBB",
         ]);
         updateDatabaseValue(
           database,
@@ -269,7 +288,7 @@ describe("authoritative Page reads", () => {
           expect(page?.description).toBe("Primary body");
           expect(page?.priority).toBe("p0-critical");
           expect(page?.estimate).toBe("xl");
-          expect(page?.tags.join(",")).toBe("relational,fresh");
+          expect(page?.tags.join(",")).toBe("fresh,relational");
           expect(page?.assignee).toBe("Relational owner");
           expect(page?.runInBaseBranch).toBe("relational-branch");
           expect(page?.runInTarget).toBe("newWorktree");

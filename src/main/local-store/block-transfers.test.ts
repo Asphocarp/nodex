@@ -8,9 +8,12 @@ import {
   openPageDocument,
   planBlockToPageTransformation,
 } from "../../shared/block-documents";
-import type {
-  DatabaseMutationRequest,
-} from "../../shared/database-kernel";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
+import {
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import type {
   BlockTransferIntent,
   BlockTransferRequest,
@@ -24,9 +27,12 @@ import {
 } from "./block-transfers";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { applyDatabaseMutation } from "./database-kernel";
+import { applyDatabaseModuleV2 } from "./database-module-v2-runtime";
 import { createProject } from "./projects";
 import { createPage } from "./database-pages";
+import { putProjectResourceGrantInDatabase } from "./project-resource-grants";
+import { rebuildPageReadModelProjection } from "./page-read-store";
+import { refreshScheduledPageIndexProjection } from "./scheduled-page-store";
 
 const seedCard = (
   database: ReturnType<typeof getDb>,
@@ -59,6 +65,18 @@ const seedCard = (
        VALUES (?, ?, ?, ?, ?)`,
     )
     .run(input.cardId, input.projectId, input.rankKey, now, now);
+  database.prepare(`
+    INSERT INTO library_block_placements (
+      block_id, library_id, rank_key, revision, created_at, updated_at
+    )
+    SELECT ?, library_id, ?, 1, ?, ? FROM projects WHERE id = ?
+  `).run(
+    input.cardId,
+    input.rankKey,
+    now,
+    now,
+    input.projectId,
+  );
   database
     .prepare(
       `
@@ -76,6 +94,21 @@ const seedCard = (
        VALUES (?, ?, ?, ?)`,
     )
     .run(input.cardId, documentId, input.projectId, now);
+  database.prepare(`
+    INSERT INTO pages (
+      block_id, library_id, document_id, parent_kind, parent_id,
+      lifecycle, parent_revision, metadata_revision, created_at, updated_at
+    )
+    SELECT ?, library_id, ?, 'library', library_id,
+      'active', 1, 1, ?, ?
+    FROM projects WHERE id = ?
+  `).run(
+    input.cardId,
+    documentId,
+    now,
+    now,
+    input.projectId,
+  );
   database
     .prepare(
       `INSERT INTO blocks (
@@ -143,6 +176,15 @@ const seedCard = (
       now,
     );
   }
+  database.transaction(() => {
+    rebuildPageReadModelProjection(database, input.projectId, [input.cardId]);
+    refreshScheduledPageIndexProjection(
+      database,
+      input.projectId,
+      [input.cardId],
+      now,
+    );
+  })();
   return documentId;
 };
 
@@ -208,9 +250,8 @@ describe("BlockTransfer store", () => {
       );
       expect(nestDescendant.ok).toBe(true);
       if (!nestDescendant.ok) return;
-      expect(
-        applyBlockTransfer(database, nestDescendant.value.request).ok,
-      ).toBe(true);
+      const nested = applyBlockTransfer(database, nestDescendant.value.request);
+      if (!nested.ok) throw new Error(nested.error.message);
 
       expect(
         prepareBlockTransfer(
@@ -278,44 +319,72 @@ describe("BlockTransfer store", () => {
         title: "Host",
         rankKey: "50000000000000000000000000000000",
       });
+      for (const pageId of ["card-source", "card-host"]) {
+        putProjectResourceGrantInDatabase(database, {
+          projectId: project.id,
+          root: { kind: "page", pageId },
+          access: "read_write",
+        });
+      }
 
       const primary = database
         .prepare(
-          `SELECT capability.block_id AS database_block_id,
+          `SELECT container.block_id AS database_block_id,
                   view.id AS view_id, view.data_source_id
-           FROM database_capabilities capability
-           JOIN database_views view
-             ON view.database_block_id = capability.block_id
-            AND view.project_id = capability.project_id
-            AND view.is_primary = 1
-           WHERE capability.project_id = ? AND capability.is_primary = 1`,
+           FROM project_database_bindings binding
+           JOIN database_containers container
+             ON container.block_id = binding.database_block_id
+           JOIN database_views view ON view.id = container.default_view_id
+           WHERE binding.project_id = ?`,
         )
         .get(project.id) as {
         readonly database_block_id: string;
         readonly view_id: string;
         readonly data_source_id: string;
       };
-      const enterDatabase: DatabaseMutationRequest = {
-        version: 1,
+      const enterDatabase = {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         operationId: "place-source-in-database",
         projectId: project.id,
         storeEpoch: metadata.store_epoch,
         actor: { kind: "test" },
         operations: [
           {
-            kind: "transfer_membership",
+            kind: "transfer_page",
             pageId: "card-source",
-            expectedMembership: null,
+            expectedParentRevision: 1,
+            expectedActiveMembershipRevision: 0,
             target: {
-              databaseBlockId: primary.database_block_id,
-              membershipId: "membership-source-target",
-              viewId: primary.view_id,
-              groupKey: "backlog",
+              kind: "data_source",
+              dataSourceId: parseDataSourceId(primary.data_source_id),
             },
           },
+          {
+            kind: "set_value",
+            pageId: "card-source",
+            dataSourceId: parseDataSourceId(primary.data_source_id),
+            propertyId: parseDataSourcePropertyId("status"),
+            expectedValueRevision: 1,
+            value: "backlog",
+          },
+          {
+            kind: "position_page",
+            viewId: parseDatabaseViewId(primary.view_id),
+            pageId: "card-source",
+            expectedPositionRevision: 0,
+            groupKey: "backlog",
+          },
         ],
+      } as const;
+      const entered = applyDatabaseModuleV2(database, enterDatabase);
+      if (!entered.ok) throw new Error(entered.error.message);
+      const sourceMembership = database.prepare(`
+        SELECT id, revision FROM data_source_page_memberships
+        WHERE page_block_id = ? AND data_source_id = ? AND removed_at IS NULL
+      `).get("card-source", primary.data_source_id) as {
+        readonly id: string;
+        readonly revision: number;
       };
-      expect(applyDatabaseMutation(database, enterDatabase).ok).toBe(true);
 
       const toDocument: BlockTransferRequest = {
         version: 1,
@@ -333,8 +402,8 @@ describe("BlockTransfer store", () => {
           dataSourceId: primary.data_source_id,
           memberships: {
             "card-source": {
-              membershipId: "membership-source-target",
-              revision: 1,
+              membershipId: sourceMembership.id,
+              revision: sourceMembership.revision,
             },
           },
         },
@@ -441,9 +510,9 @@ describe("BlockTransfer store", () => {
       expect(
         database
           .prepare(
-            "SELECT removed_at, revision FROM database_memberships WHERE id = ?",
+            "SELECT removed_at, revision FROM data_source_page_memberships WHERE id = ?",
           )
-          .get("membership-source-target"),
+          .get(sourceMembership.id),
       ).toMatchObject({ revision: 2 });
       expect(
         database
@@ -481,6 +550,7 @@ describe("BlockTransfer store", () => {
         target: {
           kind: "database",
           databaseBlockId: primary.database_block_id,
+          dataSourceId: primary.data_source_id,
           viewId: primary.view_id,
           groupKey: "backlog",
         },
@@ -513,12 +583,12 @@ describe("BlockTransfer store", () => {
         database
           .prepare(
             `SELECT id, revision, removed_at
-             FROM database_memberships
-             WHERE page_block_id = ? AND database_block_id = ?`,
+             FROM data_source_page_memberships
+             WHERE page_block_id = ? AND data_source_id = ?`,
           )
-          .get("card-source", primary.database_block_id),
+          .get("card-source", primary.data_source_id),
       ).toEqual({
-        id: "membership-source-target",
+        id: sourceMembership.id,
         revision: 3,
         removed_at: null,
       });
@@ -607,9 +677,10 @@ describe("BlockTransfer store", () => {
         source: {
           kind: "database",
           databaseBlockId: primary.database_block_id,
+          dataSourceId: primary.data_source_id,
           memberships: {
             "card-source": {
-              membershipId: "membership-source-target",
+              membershipId: sourceMembership.id,
               revision: 3,
             },
           },
@@ -625,7 +696,7 @@ describe("BlockTransfer store", () => {
         .prepare(
           `SELECT (SELECT COUNT(*) FROM blocks) AS blocks,
                   (SELECT COUNT(*) FROM documents) AS documents,
-                  (SELECT COUNT(*) FROM database_memberships) AS memberships`,
+                  (SELECT COUNT(*) FROM data_source_page_memberships) AS memberships`,
         )
         .get();
       expect(() =>
@@ -646,7 +717,7 @@ describe("BlockTransfer store", () => {
           .prepare(
             `SELECT (SELECT COUNT(*) FROM blocks) AS blocks,
                     (SELECT COUNT(*) FROM documents) AS documents,
-                    (SELECT COUNT(*) FROM database_memberships) AS memberships`,
+                    (SELECT COUNT(*) FROM data_source_page_memberships) AS memberships`,
           )
           .get(),
       ).toEqual(copyCountsBeforeFault);
@@ -750,6 +821,7 @@ describe("BlockTransfer store", () => {
         target: {
           kind: "database",
           databaseBlockId: primary.database_block_id,
+          dataSourceId: primary.data_source_id,
           viewId: primary.view_id,
           groupKey: "done",
         },
@@ -761,8 +833,8 @@ describe("BlockTransfer store", () => {
           database
             .prepare(
               `SELECT position.group_key
-               FROM database_view_positions position
-               WHERE position.view_id = ? AND position.block_id = ?`,
+               FROM database_view_page_positions position
+               WHERE position.view_id = ? AND position.page_block_id = ?`,
             )
             .get(primary.view_id, copiedCardId),
         ).toEqual({ group_key: "done" });
@@ -770,13 +842,13 @@ describe("BlockTransfer store", () => {
           database
             .prepare(
               `SELECT value.value_json
-               FROM database_memberships membership
-               JOIN database_properties property
-                 ON property.database_block_id = membership.database_block_id
-                AND property.project_id = membership.project_id
-                AND property.key = 'status'
-               JOIN database_property_values value
-                 ON value.membership_id = membership.id
+               FROM data_source_page_memberships membership
+               JOIN data_source_properties property
+                 ON property.data_source_id = membership.data_source_id
+                AND property.id = 'status'
+               JOIN data_source_property_values value
+                 ON value.data_source_id = membership.data_source_id
+                AND value.membership_id = membership.id
                 AND value.property_id = property.id
                WHERE membership.page_block_id = ?
                  AND membership.removed_at IS NULL`,
@@ -885,6 +957,9 @@ describe("BlockTransfer store", () => {
         },
         target: { kind: "space", beforeBlockId: "card-second-host" },
       });
+      if (!documentToSpace.ok) {
+        throw new Error(JSON.stringify(documentToSpace.error));
+      }
       expect(documentToSpace.ok).toBe(true);
       if (documentToSpace.ok) {
         expect(documentToSpace.value.finalLocations["card-standalone"]?.kind).toBe(
@@ -1002,8 +1077,9 @@ describe("BlockTransfer store", () => {
         "after_page_genesis",
         "after_parent_transition",
       ] as const) {
-        expect(() =>
-          applyBlockTransfer(
+        let faultMessage = "";
+        try {
+          const result = applyBlockTransfer(
             database,
             {
               version: 1,
@@ -1034,8 +1110,12 @@ describe("BlockTransfer store", () => {
                 if (candidate === point) throw new Error(`injected ${point}`);
               },
             },
-          ),
-        ).toThrow(`injected ${point}`);
+          );
+          if (!result.ok) faultMessage = result.error.message;
+        } catch (error) {
+          faultMessage = error instanceof Error ? error.message : String(error);
+        }
+        expect(faultMessage, point).toBe(`injected ${point}`);
         expect(
           database
             .prepare(
@@ -1999,6 +2079,189 @@ describe("BlockTransfer store", () => {
           ).toEqual({ type: "page", location_kind: "database" });
         }
       }
+
+      const crossSourcePageId = "card-cross-source";
+      seedCard(database, {
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        cardId: crossSourcePageId,
+        title: "Cross Source",
+        rankKey: "f6000000000000000000000000000000",
+      });
+      putProjectResourceGrantInDatabase(database, {
+        projectId: project.id,
+        root: { kind: "page", pageId: crossSourcePageId },
+        access: "read_write",
+      });
+      const placedForCrossSource = applyDatabaseModuleV2(database, {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: "place-cross-source-page",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        operations: [
+          {
+            kind: "transfer_page",
+            pageId: crossSourcePageId,
+            expectedParentRevision: 1,
+            expectedActiveMembershipRevision: 0,
+            target: {
+              kind: "data_source",
+              dataSourceId: parseDataSourceId(primary.data_source_id),
+            },
+          },
+          {
+            kind: "set_value",
+            pageId: crossSourcePageId,
+            dataSourceId: parseDataSourceId(primary.data_source_id),
+            propertyId: parseDataSourcePropertyId("status"),
+            expectedValueRevision: 1,
+            value: "backlog",
+          },
+          {
+            kind: "position_page",
+            viewId: parseDatabaseViewId(primary.view_id),
+            pageId: crossSourcePageId,
+            expectedPositionRevision: 0,
+            groupKey: "backlog",
+          },
+        ],
+      });
+      expect(placedForCrossSource.ok).toBe(true);
+      const crossSourceMembership = database.prepare(`
+        SELECT id, revision FROM data_source_page_memberships
+        WHERE data_source_id = ? AND page_block_id = ? AND removed_at IS NULL
+      `).get(primary.data_source_id, crossSourcePageId) as {
+        readonly id: string;
+        readonly revision: number;
+      };
+      const secondaryDataSourceId = createUuidV7();
+      const secondaryViewId = createUuidV7();
+      const secondaryNow = new Date().toISOString();
+      database.prepare(`
+        INSERT INTO data_sources (
+          id, library_id, home_database_block_id, name, schema_key,
+          schema_revision, lifecycle, rank_key, created_at, updated_at
+        )
+        SELECT ?, library_id, home_database_block_id, 'Secondary Source',
+          schema_key, schema_revision, 'active', 'zzzz-source', ?, ?
+        FROM data_sources WHERE id = ?
+      `).run(
+        secondaryDataSourceId,
+        secondaryNow,
+        secondaryNow,
+        primary.data_source_id,
+      );
+      database.prepare(`
+        INSERT INTO data_source_properties (
+          data_source_id, id, name, value_type, config_json, rank_key,
+          lifecycle, schema_revision, created_at, updated_at
+        )
+        SELECT ?, id, name, value_type, config_json, rank_key,
+          lifecycle, schema_revision, ?, ?
+        FROM data_source_properties WHERE data_source_id = ?
+      `).run(
+        secondaryDataSourceId,
+        secondaryNow,
+        secondaryNow,
+        primary.data_source_id,
+      );
+      database.prepare(`
+        INSERT INTO database_views (
+          id, database_block_id, data_source_id, name, kind, config_json,
+          revision, rank_key, lifecycle, created_at, updated_at
+        )
+        SELECT ?, database_block_id, ?, 'Secondary View', kind, config_json,
+          revision, 'zzzz-view', 'active', ?, ?
+        FROM database_views WHERE id = ?
+      `).run(
+        secondaryViewId,
+        secondaryDataSourceId,
+        secondaryNow,
+        secondaryNow,
+        primary.view_id,
+      );
+      const crossSourceRequest: BlockTransferRequest = {
+        version: 1,
+        operationId: "move-page-between-data-sources",
+        projectId: project.id,
+        storeEpoch: metadata.store_epoch,
+        actor: { kind: "test" },
+        mode: "move",
+        rootBlockIds: [crossSourcePageId],
+        expectedLocationRevisions: { [crossSourcePageId]: 2 },
+        source: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          dataSourceId: primary.data_source_id,
+          memberships: {
+            [crossSourcePageId]: {
+              membershipId: crossSourceMembership.id,
+              revision: crossSourceMembership.revision,
+            },
+          },
+        },
+        target: {
+          kind: "database",
+          databaseBlockId: primary.database_block_id,
+          dataSourceId: secondaryDataSourceId,
+          viewId: secondaryViewId,
+          groupKey: "done",
+        },
+      };
+      const movedAcrossSources = applyBlockTransfer(
+        database,
+        crossSourceRequest,
+      );
+      expect(movedAcrossSources.ok).toBe(true);
+      expect(
+        applyBlockTransfer(database, crossSourceRequest),
+      ).toMatchObject({ ok: true, value: { duplicate: true } });
+      expect(
+        database.prepare(`
+          SELECT membership.data_source_id, membership.removed_at,
+            membership.revision
+          FROM data_source_page_memberships membership
+          WHERE membership.page_block_id = ?
+          ORDER BY membership.data_source_id
+        `).all(crossSourcePageId),
+      ).toEqual([
+        {
+          data_source_id: secondaryDataSourceId,
+          removed_at: null,
+          revision: 1,
+        },
+        {
+          data_source_id: primary.data_source_id,
+          removed_at: expect.any(String),
+          revision: 2,
+        },
+      ].sort((left, right) =>
+        left.data_source_id.localeCompare(right.data_source_id),
+      ));
+      expect(
+        database.prepare(`
+          SELECT page.parent_kind, page.parent_id, value.value_json,
+            position.group_key
+          FROM pages page
+          JOIN data_source_page_memberships membership
+            ON membership.page_block_id = page.block_id
+           AND membership.removed_at IS NULL
+          JOIN data_source_property_values value
+            ON value.data_source_id = membership.data_source_id
+           AND value.membership_id = membership.id
+           AND value.property_id = 'status'
+          JOIN database_view_page_positions position
+            ON position.page_block_id = page.block_id
+           AND position.view_id = ?
+          WHERE page.block_id = ?
+        `).get(secondaryViewId, crossSourcePageId),
+      ).toEqual({
+        parent_kind: "data_source",
+        parent_id: secondaryDataSourceId,
+        value_json: '"done"',
+        group_key: "done",
+      });
     } finally {
       closeDatabase();
       fs.rmSync(directory, { recursive: true, force: true });

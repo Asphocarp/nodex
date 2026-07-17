@@ -1,16 +1,16 @@
 import { describe, expect, test } from "vitest";
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../shared/block-property-mutations";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../shared/block-property-mutations-v2";
 import {
   BLOCK_PROPERTY_MUTATION_IPC_CHANNEL,
   registerBlockPropertyMutationIpcHandler,
   type BlockPropertyMutationIpcHandler,
 } from "./block-property-mutation-ipc";
 
-const request: BlockPropertyMutationRequest = {
-  version: 1,
+const request: BlockPropertyMutationRequestV2 = {
+  version: 2,
   mutationId: "mutation-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -29,11 +29,11 @@ const request: BlockPropertyMutationRequest = {
 };
 
 const committed = (
-  bound: BlockPropertyMutationRequest,
-): BlockPropertyMutationCommandResult => ({
+  bound: BlockPropertyMutationRequestV2,
+): BlockPropertyMutationCommandResultV2 => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     mutationId: bound.mutationId,
     projectId: bound.projectId,
     storeEpoch: bound.storeEpoch,
@@ -58,17 +58,17 @@ const committed = (
 const register = (options: {
   readonly trusted: boolean;
   readonly apply?: (
-    request: BlockPropertyMutationRequest,
-  ) => Promise<BlockPropertyMutationCommandResult>;
+    request: BlockPropertyMutationRequestV2,
+  ) => Promise<BlockPropertyMutationCommandResultV2>;
 }): {
   readonly invoke: (
     projectId: string,
     request: unknown,
-  ) => Promise<BlockPropertyMutationCommandResult>;
-  readonly captured: BlockPropertyMutationRequest[];
+  ) => Promise<BlockPropertyMutationCommandResultV2>;
+  readonly captured: BlockPropertyMutationRequestV2[];
 } => {
   let handler: BlockPropertyMutationIpcHandler | null = null;
-  const captured: BlockPropertyMutationRequest[] = [];
+  const captured: BlockPropertyMutationRequestV2[] = [];
   registerBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
       expect(channel).toBe(BLOCK_PROPERTY_MUTATION_IPC_CHANNEL);
@@ -93,7 +93,7 @@ const register = (options: {
       return await handler(
         { sender: "fixture" },
         projectId,
-        input as BlockPropertyMutationRequest,
+        input as BlockPropertyMutationRequestV2,
       );
     },
   };

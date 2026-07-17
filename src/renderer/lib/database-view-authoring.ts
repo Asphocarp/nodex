@@ -6,24 +6,24 @@ import {
   type DatabaseViewFilterNode,
   type DatabaseViewFilterOperator,
   type DatabaseViewSort,
-  type DatabaseViewConfig,
+  type DatabaseViewConfigV2,
 } from "../../shared/database-kernel";
 import type {
-  DatabaseViewRecord,
-  DataSourcePropertyRecord,
-} from "../../shared/database-module";
+  DatabaseViewRecordV2,
+  DataSourcePropertyRecordV2,
+} from "../../shared/database-module-v2";
 
-type DatabaseAuthoringProperty = DataSourcePropertyRecord;
-type DatabaseAuthoringView = DatabaseViewRecord;
+type DatabaseAuthoringProperty = DataSourcePropertyRecordV2;
+type DatabaseAuthoringView = DatabaseViewRecordV2;
 
 const authoringPropertyId = (property: DatabaseAuthoringProperty): string =>
   property.propertyId;
 const authoringViewId = (view: DatabaseAuthoringView): string =>
   view.viewId;
 
-export const emptyDatabaseViewConfig = (): DatabaseViewConfig => ({
+export const emptyDatabaseViewConfig = (): DatabaseViewConfigV2 => ({
   schemaKey: "nodex.database-view",
-  schemaVersion: 1,
+  schemaVersion: 2,
   filter: { kind: "group", operator: "and", children: [] },
   sort: [
     {
@@ -58,8 +58,8 @@ export const readDatabasePropertyOptions = (
 };
 
 export const databaseViewConfigsEqual = (
-  left: DatabaseViewConfig,
-  right: DatabaseViewConfig,
+  left: DatabaseViewConfigV2,
+  right: DatabaseViewConfigV2,
 ): boolean =>
   stableStringifyDatabaseJson(left) === stableStringifyDatabaseJson(right);
 

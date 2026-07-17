@@ -1,11 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type {
-  DatabaseApplyResult,
-  DatabaseViewQueryResult,
-  DataSourcePageRow,
-  DataSourcePropertyRecord,
-} from "../../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseViewQueryResultV2,
+  DataSourcePageRowV2,
+  DataSourcePropertyRecordV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 import {
   buildDatabaseViewMoveOperations,
@@ -15,14 +21,17 @@ import {
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library-1";
-const dataSourceId = "source-1";
+const databaseId = parseDatabaseId("database-1");
+const dataSourceId = parseDataSourceId("source-1");
+const viewId = parseDatabaseViewId("view-1");
+const scorePropertyId = parseDataSourcePropertyId("p_AAAAAAAA");
+const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const model = (): DatabaseViewRenderModel => {
-  const properties: readonly DataSourcePropertyRecord[] = [
+  const properties: readonly DataSourcePropertyRecordV2[] = [
     {
-      propertyId: "property-score",
+      propertyId: scorePropertyId,
       dataSourceId,
-      key: "score",
       name: "Score",
       valueType: "number",
       config: {},
@@ -33,12 +42,16 @@ const model = (): DatabaseViewRenderModel => {
       updatedAt: timestamp,
     },
     {
-      propertyId: "property-tags",
+      propertyId: tagsPropertyId,
       dataSourceId,
-      key: "tags",
       name: "Tags",
       valueType: "multi_select",
-      config: { options: [{ id: "one", name: "One" }, { id: "two", name: "Two" }] },
+      config: {
+        options: [
+          { id: "o_AAAAAAAA", name: "One" },
+          { id: "o_BBBBBBBB", name: "Two" },
+        ],
+      },
       rankKey: "b",
       lifecycle: "active",
       revision: 1,
@@ -47,18 +60,18 @@ const model = (): DatabaseViewRenderModel => {
     },
   ];
   const view = {
-    viewId: "view-1",
-    databaseId: "database-1",
+    viewId,
+    databaseId,
     dataSourceId,
     name: "All",
     kind: "list" as const,
     config: {
       schemaKey: "nodex.database-view" as const,
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
       sort: [{ field: { kind: "manual" as const }, direction: "asc" as const, nulls: "last" as const }],
       group: null,
-      display: { propertyIds: ["property-score", "property-tags"], showTitle: true },
+      display: { propertyIds: [scorePropertyId, tagsPropertyId], showTitle: true },
     },
     isDefault: false,
     revision: 1,
@@ -68,11 +81,11 @@ const model = (): DatabaseViewRenderModel => {
     updatedAt: timestamp,
   };
   const database = {
-    databaseId: "database-1",
+    databaseId,
     libraryId,
     name: "Tasks",
     lifecycle: "active" as const,
-    defaultViewId: "view-default",
+    defaultViewId: parseDatabaseViewId("view-default"),
     accessRevision: 1,
     metadataRevision: 1,
     createdAt: timestamp,
@@ -90,8 +103,8 @@ const model = (): DatabaseViewRenderModel => {
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  const rows: DatabaseViewQueryResult["rows"] = ["page-a", "page-b", "page-c"].map(
-    (pageId, index): DataSourcePageRow => ({
+  const rows: DatabaseViewQueryResultV2["rows"] = ["page-a", "page-b", "page-c"].map(
+    (pageId, index): DataSourcePageRowV2 => ({
       membership: {
         membershipId: `membership-${pageId}`,
         dataSourceId,
@@ -117,8 +130,8 @@ const model = (): DatabaseViewRenderModel => {
       },
       values: index === 0
         ? {
-            "property-score": { propertyId: "property-score", valueType: "number" as const, value: 1, revision: 3 },
-            "property-tags": { propertyId: "property-tags", valueType: "multi_select" as const, value: ["one"], revision: 2 },
+            [scorePropertyId]: { propertyId: scorePropertyId, valueType: "number" as const, value: 1, revision: 3 },
+            [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select" as const, value: ["o_AAAAAAAA"], revision: 2 },
           }
         : {},
       position: index === 2
@@ -162,14 +175,14 @@ describe("selected Database View Page mutations", () => {
     const scalar = buildDatabaseViewPropertyValueOperations({
       model: authority,
       pageId: "page-a",
-      propertyId: "property-score",
+      propertyId: scorePropertyId,
       value: 2,
     });
     const setLike = buildDatabaseViewPropertyValueOperations({
       model: authority,
       pageId: "page-a",
-      propertyId: "property-tags",
-      value: ["two"],
+      propertyId: tagsPropertyId,
+      value: ["o_BBBBBBBB"],
     });
     expect(scalar[0]).toMatchObject({
       kind: "set_value",
@@ -181,9 +194,9 @@ describe("selected Database View Page mutations", () => {
       kind: "add_remove_value",
       pageId: "page-a",
       dataSourceId,
-      propertyId: "property-tags",
-      add: ["two"],
-      remove: ["one"],
+      propertyId: tagsPropertyId,
+      add: ["o_BBBBBBBB"],
+      remove: ["o_AAAAAAAA"],
     });
   });
 
@@ -211,20 +224,20 @@ describe("selected Database View Page mutations", () => {
     const operations = buildDatabaseViewPropertyValueOperations({
       model: model(),
       pageId: "page-a",
-      propertyId: "property-score",
+      propertyId: scorePropertyId,
       value: 2,
     });
-    const result: DatabaseApplyResult = {
+    const result: DatabaseApplyResultV2 = {
       ok: true,
       value: {
-        version: 1,
+        version: 2,
         operationId: "operation-1",
         projectId: "project-1",
         libraryId,
         storeEpoch: "epoch-1",
         duplicate: false,
         operationKinds: ["set_value"],
-        affectedDatabaseIds: ["database-1"],
+        affectedDatabaseIds: [databaseId],
         affectedDataSourceIds: [dataSourceId],
         affectedPageIds: ["page-a"],
         affectedViewIds: [],
@@ -250,8 +263,6 @@ describe("selected Database View Page mutations", () => {
     });
     expect(requests).toHaveLength(2);
     expect(requests[0]).toBe(requests[1]);
-    expect(receipt?.operationId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-    );
+    expect(receipt?.operationId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

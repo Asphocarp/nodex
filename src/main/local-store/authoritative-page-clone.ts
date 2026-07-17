@@ -17,6 +17,7 @@ import type {
 import { assertUuidV7, createUuidV7 } from "../../shared/uuid-v7";
 import type { WorkflowStatus } from "../../shared/workflow-status";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
+import { databaseGroupKeyForValue } from "../../shared/database-kernel";
 import {
   initializePageDocumentGenesis,
   loadPrimaryBlockDocument,
@@ -99,6 +100,7 @@ interface SourcePageRow {
   readonly head_seq: number;
   readonly readiness: "pending_genesis" | "ready" | "failed";
   readonly authority: "legacy_shadow" | "ydoc_primary";
+  readonly data_source_id: string;
   readonly database_block_id: string;
   readonly membership_id: string;
 }
@@ -206,7 +208,8 @@ const readSource = (
         document.head_seq,
         document.readiness,
         document.authority,
-        membership.database_block_id,
+        membership.data_source_id,
+        source.home_database_block_id AS database_block_id,
         membership.id AS membership_id
       FROM blocks card
       INNER JOIN block_documents ownership
@@ -215,10 +218,12 @@ const readSource = (
       INNER JOIN documents document
         ON document.id = ownership.document_id
         AND document.project_id = ownership.project_id
-      INNER JOIN database_memberships membership
+      INNER JOIN data_source_page_memberships membership
         ON membership.page_block_id = card.id
-        AND membership.project_id = card.project_id
         AND membership.removed_at IS NULL
+      INNER JOIN data_sources source
+        ON source.id = membership.data_source_id
+        AND source.home_database_block_id = card.containing_database_id
       WHERE card.id = ? AND card.project_id = ? AND card.type = 'page'
     `,
     )
@@ -270,25 +275,22 @@ const readDatabaseValues = (
       `
       SELECT
         value.property_id,
-        property.key AS property_key,
+        property.id AS property_key,
         value.value_type,
         value.value_json
-      FROM database_property_values value
-      INNER JOIN database_properties property
+      FROM data_source_property_values value
+      INNER JOIN data_source_properties property
         ON property.id = value.property_id
-        AND property.database_block_id = value.database_block_id
-        AND property.project_id = value.project_id
+        AND property.data_source_id = value.data_source_id
         AND property.lifecycle = 'active'
       WHERE value.membership_id = ?
-        AND value.database_block_id = ?
-        AND value.project_id = ?
+        AND value.data_source_id = ?
       ORDER BY property.rank_key, property.id
     `,
     )
     .all(
       source.membership_id,
-      source.database_block_id,
-      source.project_id,
+      source.data_source_id,
     ) as readonly SourceDatabaseValueRow[];
 
 const readIntrinsicValues = (
@@ -316,22 +318,24 @@ const readViewPositions = (
   database
     .prepare(
       `
-      SELECT position.view_id, position.group_key, position.rank_key, view.is_primary
-      FROM database_view_positions position
+      SELECT position.view_id, position.group_key, position.rank_key,
+        CASE WHEN container.default_view_id = view.id THEN 1 ELSE 0 END AS is_primary
+      FROM database_view_page_positions position
       INNER JOIN database_views view
         ON view.id = position.view_id
-        AND view.project_id = position.project_id
-      WHERE position.block_id = ?
-        AND position.project_id = ?
+      INNER JOIN database_containers container
+        ON container.block_id = view.database_block_id
+      WHERE position.page_block_id = ?
         AND view.database_block_id = ?
+        AND view.data_source_id = ?
         AND view.lifecycle = 'active'
-      ORDER BY view.is_primary DESC, position.view_id
+      ORDER BY is_primary DESC, position.view_id
     `,
     )
     .all(
       source.block_id,
-      source.project_id,
       source.database_block_id,
+      source.data_source_id,
     ) as readonly SourceViewPositionRow[];
 
 const remapBlockTree = (
@@ -393,6 +397,7 @@ const persistIdentity = (
   input: CloneAuthoritativePageInput,
   documentId: DocumentId,
   databaseBlockId: BlockId,
+  dataSourceId: string,
   createdAt: string,
 ): void => {
   database
@@ -403,14 +408,13 @@ const persistIdentity = (
         containing_document_id, containing_database_id,
         location_revision, metadata_revision,
         created_at, updated_at
-      ) VALUES (?, ?, 'page', ?, 'database', NULL, ?, 1, 1, ?, ?)
+      ) VALUES (?, ?, 'page', ?, 'space', NULL, NULL, 1, 1, ?, ?)
     `,
     )
     .run(
       input.newPageId,
       input.projectId,
       input.lifecycle,
-      databaseBlockId,
       createdAt,
       createdAt,
     );
@@ -441,6 +445,38 @@ const persistIdentity = (
     `,
     )
     .run(input.newPageId, documentId, input.projectId, createdAt);
+  const parent = database.prepare(`
+    INSERT INTO pages (
+      block_id, library_id, document_id, parent_kind, parent_id,
+      lifecycle, parent_revision, metadata_revision, created_at, updated_at
+    )
+    SELECT ?, project.library_id, ?, 'data_source', ?, ?, 1, 1, ?, ?
+    FROM projects project WHERE project.id = ?
+  `).run(
+    input.newPageId,
+    documentId,
+    dataSourceId,
+    input.lifecycle,
+    createdAt,
+    createdAt,
+    input.projectId,
+  );
+  if (parent.changes !== 1) {
+    throw new AuthoritativePageCloneError(
+      `Cloned Page ${input.newPageId} could not bind to Data Source ${dataSourceId}`,
+    );
+  }
+  const location = database.prepare(`
+    UPDATE blocks
+    SET location_kind = 'database', containing_document_id = NULL,
+      containing_database_id = ?, updated_at = ?
+    WHERE id = ? AND project_id = ? AND type = 'page'
+  `).run(databaseBlockId, createdAt, input.newPageId, input.projectId);
+  if (location.changes !== 1) {
+    throw new AuthoritativePageCloneError(
+      `Cloned Page ${input.newPageId} could not enter Database ${databaseBlockId}`,
+    );
+  }
 };
 
 const persistRelationalProperties = (
@@ -477,25 +513,24 @@ const persistRelationalProperties = (
   database
     .prepare(
       `
-      INSERT INTO database_memberships (
-        id, database_block_id, page_block_id, project_id, created_at, removed_at
-      ) VALUES (?, ?, ?, ?, ?, NULL)
+      INSERT INTO data_source_page_memberships (
+        id, data_source_id, page_block_id, revision, created_at, removed_at
+      ) VALUES (?, ?, ?, 1, ?, NULL)
     `,
     )
     .run(
       membershipId,
-      source.database_block_id,
+      source.data_source_id,
       input.newPageId,
-      input.projectId,
       createdAt,
     );
 
   const insertDatabaseValue = database.prepare(
     `
-    INSERT INTO database_property_values (
-      membership_id, property_id, database_block_id, project_id,
+    INSERT INTO data_source_property_values (
+      data_source_id, membership_id, property_id,
       value_type, value_json, revision, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    ) VALUES (?, ?, ?, ?, ?, 1, ?)
   `,
   );
   for (const row of databaseValues) {
@@ -504,10 +539,9 @@ const persistRelationalProperties = (
         ? input.status
         : databaseOverrides?.[row.property_key];
     insertDatabaseValue.run(
+      source.data_source_id,
       membershipId,
       row.property_id,
-      source.database_block_id,
-      input.projectId,
       row.value_type,
       override === undefined
         ? row.value_json
@@ -548,18 +582,19 @@ const persistRelationalProperties = (
   }
   const insertPosition = database.prepare(
     `
-    INSERT INTO database_view_positions (
-      view_id, block_id, project_id, group_key, rank_key,
+    INSERT INTO database_view_page_positions (
+      view_id, page_block_id, group_key, rank_key, revision,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, 1, ?, ?)
   `,
   );
   for (const position of viewPositions) {
     insertPosition.run(
       position.view_id,
       input.newPageId,
-      input.projectId,
-      position.is_primary === 1 ? input.status : position.group_key,
+      position.is_primary === 1
+        ? databaseGroupKeyForValue(input.status)
+        : position.group_key,
       position.is_primary === 1
         ? input.primaryViewRankKey
         : position.rank_key,
@@ -691,6 +726,7 @@ export const cloneAuthoritativePageInTransaction = (
       input,
       documentId,
       source.database_block_id,
+      source.data_source_id,
       createdAt,
     );
     options.stageNestedOwnership?.({

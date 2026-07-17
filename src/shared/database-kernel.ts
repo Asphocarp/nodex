@@ -2,6 +2,7 @@ import {
   stableStringifyBlockPropertyJson,
   type BlockPropertyJsonValue,
 } from "./block-property-mutations";
+import { parseDataSourcePropertyId } from "./database-identities";
 
 export const DATABASE_MUTATION_CONTRACT_VERSION = 1 as const;
 export const MAX_DATABASE_MUTATION_OPERATIONS = 64;
@@ -45,6 +46,21 @@ export function databaseGroupValueFromKey(
   } catch {
     return groupKey;
   }
+}
+
+export function databaseGroupKeyForValue(
+  value: DatabaseJsonValue | undefined,
+): string | null {
+  if (
+    value === undefined
+    || value === null
+    || value === ""
+    || (Array.isArray(value) && value.length === 0)
+  ) {
+    return null;
+  }
+  if (typeof value === "string") return value;
+  return stableStringifyBlockPropertyJson(value);
 }
 
 export interface DatabasePropertyOption {
@@ -103,6 +119,11 @@ export interface DatabaseViewConfig {
     /** Inline references exclude their host Page unless explicitly included. */
     readonly includeHostPage: boolean;
   };
+}
+
+export interface DatabaseViewConfigV2
+  extends Omit<DatabaseViewConfig, "schemaVersion"> {
+  readonly schemaVersion: 2;
 }
 
 export interface InitialDatabaseView {
@@ -788,7 +809,8 @@ const parseViewFilterNode = (
 const parseViewConfig = (
   value: unknown,
   label: string,
-): DatabaseViewConfig => {
+  schemaVersion: 1 | 2,
+): DatabaseViewConfig | DatabaseViewConfigV2 => {
   let canonical: string;
   try {
     canonical = stableStringifyBlockPropertyJson(value);
@@ -811,10 +833,10 @@ const parseViewConfig = (
   );
   if (
     config.schemaKey !== "nodex.database-view" ||
-    config.schemaVersion !== 1
+    config.schemaVersion !== schemaVersion
   ) {
     throw new DatabaseMutationContractError(
-      `${label} must use nodex.database-view schema version 1`,
+      `${label} must use nodex.database-view schema version ${schemaVersion}`,
     );
   }
   const filter = parseViewFilterNode(config.filter, `${label}.filter`, 1, {
@@ -920,7 +942,7 @@ const parseViewConfig = (
   }
   return {
     schemaKey: "nodex.database-view",
-    schemaVersion: 1,
+    schemaVersion,
     filter,
     sort,
     group,
@@ -934,7 +956,43 @@ const parseViewConfig = (
 
 export const parseDatabaseViewConfig = (
   value: unknown,
-): DatabaseViewConfig => parseViewConfig(value, "databaseViewConfig");
+): DatabaseViewConfig =>
+  parseViewConfig(value, "databaseViewConfig", 1) as DatabaseViewConfig;
+
+const visitViewPropertyIds = (
+  config: DatabaseViewConfigV2,
+  visit: (propertyId: string) => void,
+): void => {
+  const visitFilter = (filter: DatabaseViewFilterNode): void => {
+    if (filter.kind === "clause") {
+      visit(filter.propertyId);
+      return;
+    }
+    filter.children.forEach(visitFilter);
+  };
+
+  visitFilter(config.filter);
+  for (const sort of config.sort) {
+    if (sort.field.kind !== "property") continue;
+    visit(sort.field.propertyId);
+  }
+  if (config.group) visit(config.group.propertyId);
+  config.display.propertyIds.forEach(visit);
+};
+
+export const parseDatabaseViewConfigV2 = (
+  value: unknown,
+): DatabaseViewConfigV2 => {
+  const parsed = parseViewConfig(
+    value,
+    "databaseViewConfig",
+    2,
+  ) as DatabaseViewConfigV2;
+  visitViewPropertyIds(parsed, (propertyId) => {
+    parseDataSourcePropertyId(propertyId);
+  });
+  return parsed;
+};
 
 const parseInitialView = (
   value: unknown,
@@ -954,7 +1012,11 @@ const parseInitialView = (
     viewId: readString(view, "viewId", label),
     name: readString(view, "name", label, MAX_NAME_LENGTH),
     viewKind: view.viewKind,
-    config: parseViewConfig(view.config, `${label}.config`),
+    config: parseViewConfig(
+      view.config,
+      `${label}.config`,
+      1,
+    ) as DatabaseViewConfig,
   };
 };
 
@@ -1206,7 +1268,11 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       expectedRevision: readRevision(operation, "expectedRevision", label),
       name: readString(operation, "name", label, MAX_NAME_LENGTH),
       viewKind: operation.viewKind,
-      config: parseViewConfig(operation.config, `${label}.config`),
+      config: parseViewConfig(
+        operation.config,
+        `${label}.config`,
+        1,
+      ) as DatabaseViewConfig,
       isPrimary: readBoolean(operation, "isPrimary", label),
       ...(operation.beforeViewId === undefined
         ? {}

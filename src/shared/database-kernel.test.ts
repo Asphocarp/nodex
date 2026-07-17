@@ -6,6 +6,7 @@ import {
   parseDatabaseMutationRequest,
   parseDatabasePropertyConfig,
   parseDatabaseViewConfig,
+  parseDatabaseViewConfigV2,
   type DatabaseMutationRequest,
   type DatabaseViewConfig,
 } from "./database-kernel";
@@ -52,6 +53,45 @@ const fails = (operation: () => void): boolean => {
 };
 
 describe("general Database mutation contract", () => {
+  test("validates compact local Property identities in View config v2", () => {
+    expect(
+      parseDatabaseViewConfigV2({
+        ...viewConfig(),
+        schemaVersion: 2,
+        filter: {
+          kind: "clause",
+          propertyId: "status",
+          operator: "equals",
+          value: "done",
+        },
+        sort: [
+          {
+            field: { kind: "property", propertyId: "p_0123abcd" },
+            direction: "asc",
+            nulls: "last",
+          },
+        ],
+        group: { propertyId: "status" },
+        display: {
+          propertyIds: ["status", "p_0123abcd"],
+          showTitle: true,
+        },
+      }),
+    ).toMatchObject({
+      schemaKey: "nodex.database-view",
+      schemaVersion: 2,
+      group: { propertyId: "status" },
+    });
+
+    expect(() =>
+      parseDatabaseViewConfigV2({
+        ...viewConfig(),
+        schemaVersion: 2,
+        group: { propertyId: "database:legacy:property:status" },
+      }),
+    ).toThrow("propertyId must be a reserved built-in ID");
+  });
+
   test("uses logical anchors and excludes transport attribution from retry identity", () => {
     const parsed = parseDatabaseMutationRequest(request());
     expect(parsed.operations[0]?.kind).toBe("create_database");

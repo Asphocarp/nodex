@@ -1,23 +1,23 @@
 import { bodyLimit } from "hono/body-limit";
 import type { Hono } from "hono";
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "../shared/page-lifecycle";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../shared/page-lifecycle-v2";
 import {
-  bindTrustedPageLifecycleMutation,
-  pageLifecycleMutationFailure,
-  pageLifecycleMutationHttpStatus,
-  pageLifecycleTransportFailure,
-} from "../shared/page-lifecycle-transport";
-import type { PageLifecyclePreflightResult } from "../shared/page-lifecycle-runtime";
+  bindTrustedPageLifecycleMutationV2,
+  pageLifecycleMutationFailureV2,
+  pageLifecycleMutationHttpStatusV2,
+  pageLifecycleTransportFailureV2,
+} from "../shared/page-lifecycle-v2-transport";
+import type { PageLifecyclePreflightResultV2 } from "../shared/page-lifecycle-v2-runtime";
 
 const MAX_PAGE_LIFECYCLE_HTTP_BYTES = 2_100_000;
 
 export interface PageLifecycleHttpDependencies {
   readonly applyMutation: (
-    request: PageLifecycleMutationRequest,
-  ) => Promise<PageLifecycleMutationCommandResult>;
+    request: PageLifecycleMutationRequestV2,
+  ) => Promise<PageLifecycleMutationCommandResultV2>;
 }
 
 export const registerPageLifecycleHttpRoute = (
@@ -32,11 +32,11 @@ export const registerPageLifecycleHttpRoute = (
         context.json(
           {
             ok: false,
-            error: pageLifecycleMutationFailure(
+            error: pageLifecycleMutationFailureV2(
               "invalid_page_lifecycle_request",
               "Page lifecycle mutation body is too large",
             ),
-          } satisfies PageLifecycleMutationCommandResult,
+          } satisfies PageLifecycleMutationCommandResultV2,
           400,
         ),
     }),
@@ -44,16 +44,16 @@ export const registerPageLifecycleHttpRoute = (
       context.header("Cache-Control", "no-store");
       const rawRequest = await context.req.json().catch(() => null);
       if (rawRequest === null) {
-        const result: PageLifecycleMutationCommandResult = {
+        const result: PageLifecycleMutationCommandResultV2 = {
           ok: false,
-          error: pageLifecycleMutationFailure(
+          error: pageLifecycleMutationFailureV2(
             "invalid_page_lifecycle_request",
             "Page lifecycle mutation body must be valid JSON",
           ),
         };
         return context.json(result, 400);
       }
-      const bound = bindTrustedPageLifecycleMutation(
+      const bound = bindTrustedPageLifecycleMutationV2(
         rawRequest,
         context.req.param("projectId"),
         { actor: { kind: "http_loopback" } },
@@ -61,18 +61,18 @@ export const registerPageLifecycleHttpRoute = (
       if (!bound.ok) {
         return context.json(
           bound,
-          pageLifecycleMutationHttpStatus(bound.error),
+          pageLifecycleMutationHttpStatusV2(bound.error),
         );
       }
-      let result: PageLifecycleMutationCommandResult;
+      let result: PageLifecycleMutationCommandResultV2;
       try {
         result = await dependencies.applyMutation(bound.value);
       } catch (error) {
-        result = pageLifecycleTransportFailure(bound.value, error);
+        result = pageLifecycleTransportFailureV2(bound.value, error);
       }
       return context.json(
         result,
-        result.ok ? 200 : pageLifecycleMutationHttpStatus(result.error),
+        result.ok ? 200 : pageLifecycleMutationHttpStatusV2(result.error),
       );
     },
   );
@@ -82,7 +82,7 @@ export interface PageLifecyclePreflightHttpDependencies {
   readonly readPreflight: (
     projectId: string,
     pageId: string,
-  ) => Promise<PageLifecyclePreflightResult>;
+  ) => Promise<PageLifecyclePreflightResultV2>;
 }
 
 export const registerPageLifecyclePreflightHttpRoute = (

@@ -27,21 +27,22 @@ import {
   relocateBlocksAtomically,
 } from "./local-store/block-relocations";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
-import { applyBlockPropertyMutation } from "./local-store/block-property-mutations";
+import { applySourceBlockPropertyMutationV2 } from "./local-store/block-property-mutations-v2-store";
+import { rebuildBlockPropertyMutationProjections } from "./local-store/block-property-mutation-projections";
 import {
   applyBlockTransfer,
   prepareBlockTransfer,
   readCommittedBlockTransfer,
 } from "./local-store/block-transfers";
 import {
-  applyDatabaseModule,
-  readDatabaseModule,
-} from "./local-store/database-module";
+  applyDatabaseModuleV2,
+  readDatabaseModuleV2,
+} from "./local-store/database-module-v2-runtime";
 import { readPageDetailInDatabase } from "./local-store/page-detail";
 import {
-  applyPageLifecycleMutation,
-  readPageLifecyclePreflightSnapshot,
-} from "./local-store/page-lifecycle";
+  applyPageLifecycleMutationV2,
+  readPageLifecyclePreflightSnapshotV2,
+} from "./local-store/page-lifecycle-v2-store";
 import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
 import { maintainStoreBlockRetention } from "./local-store/block-retention-maintenance-store";
 import { deleteProjectBlockFirst } from "./local-store/project-deletion";
@@ -573,7 +574,20 @@ async function runRequest(
     case "repairDocumentSecondaryProjections":
       return repairDocumentSecondaryProjections(getDb());
     case "applyBlockPropertyMutation": {
-      const result = applyBlockPropertyMutation(getDb(), request.payload);
+      const result = applySourceBlockPropertyMutationV2(
+        getDb(),
+        request.payload,
+        {
+          refreshProjections: (database, input) => {
+            rebuildBlockPropertyMutationProjections(
+              database,
+              input.projectId,
+              input.pageIds,
+              input.updatedAt,
+            );
+          },
+        },
+      );
       if (!result.ok || result.value.duplicate) return result;
 
       // The store has already committed authority plus every disposable
@@ -611,7 +625,7 @@ async function runRequest(
       return result;
     }
     case "applyDatabaseModule": {
-      const result = applyDatabaseModule(getDb(), request.payload);
+      const result = applyDatabaseModuleV2(getDb(), request.payload);
       if (!result.ok || result.value.duplicate) return result;
 
       for (const pageId of result.value.affectedPageIds) {
@@ -671,7 +685,7 @@ async function runRequest(
         }
       }
 
-      const result = applyPageLifecycleMutation(getDb(), request.payload);
+      const result = applyPageLifecycleMutationV2(getDb(), request.payload);
       if (!result.ok || result.value.duplicate) return result;
 
       try {
@@ -713,7 +727,7 @@ async function runRequest(
       return result;
     }
     case "readPageLifecyclePreflight":
-      return readPageLifecyclePreflightSnapshot(
+      return readPageLifecyclePreflightSnapshotV2(
         getDb(),
         request.payload.projectId,
         request.payload.pageId,
@@ -727,7 +741,7 @@ async function runRequest(
     case "deleteProject":
       return deleteProjectBlockFirst(getDb(), request.payload.projectId);
     case "readDatabaseModule":
-      return readDatabaseModule(getDb(), request.payload);
+      return readDatabaseModuleV2(getDb(), request.payload);
     case "readPageDetail":
       return readPageDetailInDatabase(
         getDb(),

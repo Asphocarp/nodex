@@ -9,10 +9,16 @@ import type {
   DocumentSyncApplyRequest,
   RelocateBlocks,
 } from "../shared/block-documents";
-import type { BlockPropertyMutationRequest } from "../shared/block-property-mutations";
-import type { DatabaseApply } from "../shared/database-module";
+import type { BlockPropertyMutationRequestV2 } from "../shared/block-property-mutations-v2";
+import type { DatabaseApplyV2 } from "../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../shared/database-identities";
 import type { DatabaseChangeEvent } from "../shared/database-events";
-import type { PageLifecycleMutationRequest } from "../shared/page-lifecycle";
+import type { PageLifecycleMutationRequestV2 } from "../shared/page-lifecycle-v2";
 import type { AdditionalDocumentCommandRequest } from "../shared/additional-document-commands";
 import type {
   CanvasSceneMutationRequest,
@@ -358,8 +364,8 @@ describe("BlockMutationWriter", () => {
       createWorker: () => worker,
       publishBoardEvent: () => undefined,
     });
-    const input: BlockPropertyMutationRequest = {
-      version: 1,
+    const input: BlockPropertyMutationRequestV2 = {
+      version: 2,
       mutationId: "property-mutation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -390,7 +396,7 @@ describe("BlockMutationWriter", () => {
       result: {
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           mutationId: "property-mutation-1",
           projectId: "project-1",
           storeEpoch: "epoch-1",
@@ -429,8 +435,8 @@ describe("BlockMutationWriter", () => {
       createWorker: () => worker,
       publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
-    const input: DatabaseApply = {
-      version: 1,
+    const input: DatabaseApplyV2 = {
+      version: 2,
       operationId: "database-module-operation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -438,8 +444,8 @@ describe("BlockMutationWriter", () => {
       operations: [{
         kind: "set_value",
         pageId: "page-1",
-        dataSourceId: "source-1",
-        propertyId: "property-1",
+        dataSourceId: parseDataSourceId("source-1"),
+        propertyId: parseDataSourcePropertyId("status"),
         expectedValueRevision: 1,
         value: "done",
       }],
@@ -455,18 +461,18 @@ describe("BlockMutationWriter", () => {
       result: {
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           operationId: input.operationId,
           projectId: input.projectId,
           libraryId: "library-1",
           storeEpoch: input.storeEpoch,
           duplicate: false,
           operationKinds: ["set_value"],
-          affectedDatabaseIds: ["database-1"],
-          affectedDataSourceIds: ["source-1"],
+          affectedDatabaseIds: [parseDatabaseId("database-1")],
+          affectedDataSourceIds: [parseDataSourceId("source-1")],
           affectedPageIds: ["page-1"],
-          affectedViewIds: ["view-1"],
-          committedRevisions: { "value:page-1:property-1": 2 },
+          affectedViewIds: [parseDatabaseViewId("view-1")],
+          committedRevisions: { "value:page-1:status": 2 },
           changeLogSeq: 11,
           committedAt: "2026-07-16T00:00:00.000Z",
         },
@@ -618,8 +624,8 @@ describe("BlockMutationWriter", () => {
       publishBoardEvent: () => undefined,
       publishDatabaseEvent: (event) => databaseEvents.push(event),
     });
-    const input: PageLifecycleMutationRequest = {
-      version: 1,
+    const input: PageLifecycleMutationRequestV2 = {
+      version: 2,
       operationId: "page-lifecycle-operation-1",
       projectId: "project-1",
       storeEpoch: "epoch-1",
@@ -646,7 +652,7 @@ describe("BlockMutationWriter", () => {
       result: {
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           operationId: input.operationId,
           projectId: input.projectId,
           storeEpoch: input.storeEpoch,
@@ -660,12 +666,13 @@ describe("BlockMutationWriter", () => {
           documentGeneration: 1,
           documentHeadSeq: 1,
           databaseId: "database-1",
-          dataSourceId: "database-1:initial",
+          dataSourceId: parseDataSourceId("source-1"),
           membershipId: "membership-1",
           viewId: "view-1",
           libraryRankKey: "a0",
           viewRankKey: "a0",
           createdBlockIds: [],
+          createdTagOptionIds: [],
           changeLogSeq: 10,
           committedAt: "2026-07-11T00:00:00.000Z",
         },

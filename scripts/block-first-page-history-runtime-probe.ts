@@ -7,9 +7,9 @@ import {
   MAX_PAGE_HISTORY_PAGE_SIZE,
   type PageHistoryEntry,
 } from "../src/shared/page-history";
-import { parsePageLifecycleMutationRequest } from "../src/shared/page-lifecycle";
 import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../src/shared/block-documents/document-history";
-import { applyPageLifecycleMutation } from "../src/main/local-store/page-lifecycle";
+import { compilePageLifecycleCreateRequestV2InDatabase } from "../src/main/local-store/page-lifecycle-v2-compiler";
+import { applyPageLifecycleMutationV2 } from "../src/main/local-store/page-lifecycle-v2-store";
 import {
   PageHistoryStoreError,
   listPageHistory,
@@ -52,10 +52,9 @@ const createCard = (
   cardId: string,
   committedAt = T0,
 ): CardFixture => {
-  const result = applyPageLifecycleMutation(
+  const result = applyPageLifecycleMutationV2(
     fixture.database,
-    parsePageLifecycleMutationRequest({
-      version: 1,
+    compilePageLifecycleCreateRequestV2InDatabase(fixture.database, {
       operationId: `history-probe:create:${cardId}`,
       projectId: fixture.projectId,
       storeEpoch: fixture.storeEpoch,
@@ -300,10 +299,10 @@ const main = async (): Promise<void> => {
       mergedTimeline.entries.some(
         (entry) =>
           entry.kind === "block_mutation" &&
-          entry.display.title === "Created Card" &&
+          entry.display.title === "Created Page" &&
           entry.evidence.status === "verified",
       ),
-      "Canonical Card lifecycle evidence was not decoded",
+      "Canonical Page lifecycle evidence was not decoded",
     );
 
     const beforeForeign = listPageHistory(database, {
@@ -398,27 +397,27 @@ const main = async (): Promise<void> => {
     const membership = database
       .prepare(
         `
-        SELECT id FROM database_memberships
-        WHERE project_id = ? AND card_block_id = ? AND removed_at IS NULL
+        SELECT id FROM data_source_page_memberships
+        WHERE page_block_id = ? AND removed_at IS NULL
       `,
       )
-      .get(fixture.projectId, standaloneCard.cardId) as { readonly id: string };
+      .get(standaloneCard.cardId) as { readonly id: string };
     database
       .transaction(() => {
         database
           .prepare(
-            "DELETE FROM database_view_positions WHERE project_id = ? AND block_id = ?",
+            "DELETE FROM database_view_page_positions WHERE page_block_id = ?",
           )
-          .run(fixture.projectId, standaloneCard.cardId);
+          .run(standaloneCard.cardId);
         database
           .prepare(
             `
-          UPDATE database_memberships
+          UPDATE data_source_page_memberships
           SET removed_at = ?, revision = revision + 1
-          WHERE id = ? AND project_id = ?
+          WHERE id = ?
         `,
           )
-          .run(T1, membership.id, fixture.projectId);
+          .run(T1, membership.id);
       })
       .immediate();
     checkpoint(fixture, standaloneCard, { createdAt: T2 });
@@ -430,11 +429,11 @@ const main = async (): Promise<void> => {
     const activeMemberships = database
       .prepare(
         `
-        SELECT COUNT(*) AS count FROM database_memberships
-        WHERE card_block_id = ? AND project_id = ? AND removed_at IS NULL
+        SELECT COUNT(*) AS count FROM data_source_page_memberships
+        WHERE page_block_id = ? AND removed_at IS NULL
       `,
       )
-      .get(standaloneCard.cardId, fixture.projectId) as {
+      .get(standaloneCard.cardId) as {
       readonly count: number;
     };
     const standalone =

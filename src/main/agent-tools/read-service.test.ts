@@ -4,8 +4,6 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import { createUuidV7 } from "../../shared/uuid-v7";
-import { initialDataSourceId } from "../../shared/library";
-import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
 import {
   BlockIdSchema,
   ViewIdSchema,
@@ -13,9 +11,9 @@ import {
   type NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
-import { applyPageLifecycleMutation } from "../local-store/page-lifecycle";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
+import { createPageLifecycleV2Fixture } from "../local-store/page-lifecycle-v2-test-fixture";
 import { createProject } from "../local-store/projects";
 import { putProjectResourceGrantInDatabase } from "../local-store/project-resource-grants";
 import { readNodexAgentV3Tool } from "./read-v3";
@@ -63,8 +61,7 @@ function createCard(
   projectId = fixture.projectId,
 ): BlockId {
   const cardId = createUuidV7();
-  const request = parsePageLifecycleMutationRequest({
-    version: 1,
+  createPageLifecycleV2Fixture(fixture.database, {
     operationId: createUuidV7(),
     projectId,
     storeEpoch: fixture.storeEpoch,
@@ -78,10 +75,22 @@ function createCard(
       status: "draft",
     },
   });
-  const result = applyPageLifecycleMutation(fixture.database, request);
-  if (!result.ok) throw new Error(result.error.message);
   return BlockIdSchema.parse(cardId);
 }
+
+const readDefaultDataSourceId = (
+  database: Database.Database,
+  databaseId: string,
+): BlockId => {
+  const row = database.prepare(`
+    SELECT id FROM data_sources
+    WHERE home_database_block_id = ? AND lifecycle = 'active'
+    ORDER BY rank_key, id
+    LIMIT 1
+  `).get(databaseId) as { readonly id: string } | undefined;
+  if (!row) throw new Error(`Database ${databaseId} has no active Data Source`);
+  return BlockIdSchema.parse(row.id);
+};
 
 function readV3(fixture: Fixture, request: NodexAgentV3ReadRequest) {
   return readNodexAgentV3Tool(fixture.database, request);
@@ -112,12 +121,16 @@ describe("Nodex Agent read service", () => {
         title: "Foreign Full access note",
         nfm: "Library-wide readable body",
       }, owner.id);
-      const dataSourceId = BlockIdSchema.parse(initialDataSourceId(owner.databaseId));
+      const dataSourceId = readDefaultDataSourceId(
+        fixture.database,
+        owner.databaseId,
+      );
       const view = fixture.database.prepare(`
-        SELECT id AS viewId FROM database_views
-        WHERE project_id = ? AND database_block_id = ? AND lifecycle = 'active'
-        ORDER BY is_primary DESC, rank_key, id LIMIT 1
-      `).get(owner.id, owner.databaseId) as { readonly viewId: string } | undefined;
+        SELECT view.id AS viewId
+        FROM database_containers container
+        INNER JOIN database_views view ON view.id = container.default_view_id
+        WHERE container.block_id = ? AND view.lifecycle = 'active'
+      `).get(owner.databaseId) as { readonly viewId: string } | undefined;
       if (!view) throw new Error("Foreign Database has no View");
 
       const ordinarySearch = readV3(fixture, {
@@ -240,7 +253,12 @@ describe("Nodex Agent read service", () => {
       const queried = readV3(fixture, {
         tool: "query_data_source",
         projectId: fixture.projectId,
-        input: { dataSourceId: BlockIdSchema.parse(initialDataSourceId(owner.databaseId)) },
+        input: {
+          dataSourceId: readDefaultDataSourceId(
+            fixture.database,
+            owner.databaseId,
+          ),
+        },
       });
       expect(queried.ok && queried.tool === "query_data_source"
         ? queried.output.data.rows

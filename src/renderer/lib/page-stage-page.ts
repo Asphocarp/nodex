@@ -177,8 +177,8 @@ const readCompatibilityDatabaseProperties = (
 ): PageStageDatabaseProperties | null => {
   if (detail.dataSourceContext.kind !== "member") return null;
   const context = detail.dataSourceContext;
-  const fields = new Map(
-    context.properties.map((property) => [property.key, property] as const),
+  const fields = new Map<string, (typeof context.properties)[number]>(
+    context.properties.map((property) => [property.propertyId, property] as const),
   );
   const requiredFields = [
     "status",

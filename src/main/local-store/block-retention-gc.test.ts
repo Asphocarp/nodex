@@ -453,14 +453,24 @@ describe("Block retention GC kernel", () => {
       });
       const primary = database
         .prepare(
-          `SELECT capability.block_id, view.id AS view_id
-           FROM database_capabilities capability
-           INNER JOIN database_views view
-             ON view.database_block_id = capability.block_id
-           WHERE capability.project_id = ? AND capability.is_primary = 1
-             AND view.is_primary = 1 AND view.lifecycle = 'active'`,
+          `SELECT binding.database_block_id AS block_id,
+                  source.id AS data_source_id,
+                  container.default_view_id AS view_id
+           FROM project_database_bindings binding
+           INNER JOIN database_containers container
+             ON container.block_id = binding.database_block_id
+           INNER JOIN data_sources source
+             ON source.home_database_block_id = binding.database_block_id
+            AND source.lifecycle = 'active'
+           WHERE binding.project_id = ? AND binding.lifecycle = 'active'
+           ORDER BY source.rank_key, source.id
+           LIMIT 1`,
         )
-        .get(projectId) as { readonly block_id: string; readonly view_id: string };
+        .get(projectId) as {
+          readonly block_id: string;
+          readonly data_source_id: string;
+          readonly view_id: string;
+        };
       database
         .prepare(
           `
@@ -473,20 +483,24 @@ describe("Block retention GC kernel", () => {
         .run(primary.block_id, "gc:database-card", projectId);
       database
         .prepare(
-          `INSERT INTO database_memberships (
-            id, database_block_id, page_block_id, project_id,
-            revision, created_at, removed_at
-          ) VALUES (?, ?, ?, ?, 1, ?, NULL)`,
+          `INSERT INTO data_source_page_memberships (
+            id, data_source_id, page_block_id, revision, created_at, removed_at
+          ) VALUES (?, ?, ?, 1, ?, NULL)`,
         )
-        .run("membership:gc-card", primary.block_id, "gc:database-card", projectId, now);
+        .run(
+          "membership:gc-card",
+          primary.data_source_id,
+          "gc:database-card",
+          now,
+        );
       database
         .prepare(
-          `INSERT INTO database_view_positions (
-            view_id, block_id, project_id, group_key, rank_key,
+          `INSERT INTO database_view_page_positions (
+            view_id, page_block_id, group_key, rank_key,
             revision, created_at, updated_at
-          ) VALUES (?, ?, ?, NULL, 'gc', 1, ?, ?)`,
+          ) VALUES (?, ?, NULL, 'gc', 1, ?, ?)`,
         )
-        .run(primary.view_id, "gc:database-card", projectId, now, now);
+        .run(primary.view_id, "gc:database-card", now, now);
       const session = database
         .prepare("SELECT id FROM project_sessions WHERE project_id = ? AND archived = 0 LIMIT 1")
         .get(projectId) as { readonly id: string };

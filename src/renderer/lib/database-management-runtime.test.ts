@@ -1,12 +1,18 @@
 import { describe, expect, test } from "vitest";
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseContainerDescriptor,
-  DatabaseModuleReadResult,
-  DatabaseModuleReadSnapshot,
-  DataSourceDescriptor,
-} from "../../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseContainerDescriptorV2,
+  DatabaseModuleReadResultV2,
+  DatabaseModuleReadSnapshotV2,
+  DataSourceDescriptorV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import {
   commitDatabaseManagementOperations,
   DatabaseManagementMutationError,
@@ -17,16 +23,17 @@ import {
 const timestamp = "2026-07-16T00:00:00.000Z";
 const projectId = "project-1";
 const libraryId = "library-1";
-const databaseId = "database-1";
-const dataSourceId = "source-1";
+const databaseId = parseDatabaseId("database-1");
+const dataSourceId = parseDataSourceId("source-1");
+const viewId = parseDatabaseViewId("view-1");
 
-const descriptor = (): DatabaseContainerDescriptor => ({
+const descriptor = (): DatabaseContainerDescriptorV2 => ({
   database: {
     databaseId,
     libraryId,
     name: "Tasks",
     lifecycle: "active",
-    defaultViewId: "view-1",
+    defaultViewId: viewId,
     accessRevision: 1,
     metadataRevision: 1,
     createdAt: timestamp,
@@ -45,14 +52,14 @@ const descriptor = (): DatabaseContainerDescriptor => ({
     updatedAt: timestamp,
   }],
   views: [{
-    viewId: "view-1",
+    viewId,
     databaseId,
     dataSourceId,
     name: "Board",
     kind: "kanban",
     config: {
       schemaKey: "nodex.database-view",
-      schemaVersion: 1,
+      schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
       sort: [{
         field: { kind: "manual" },
@@ -71,12 +78,11 @@ const descriptor = (): DatabaseContainerDescriptor => ({
   }],
 });
 
-const source = (): DataSourceDescriptor => ({
+const source = (): DataSourceDescriptorV2 => ({
   dataSource: descriptor().dataSources[0]!,
   properties: [{
-    propertyId: "property-status",
+    propertyId: parseDataSourcePropertyId("status"),
     dataSourceId,
-    key: "status",
     name: "Status",
     valueType: "select",
     config: {},
@@ -89,10 +95,10 @@ const source = (): DataSourceDescriptor => ({
 });
 
 const snapshot = (
-  value: DatabaseModuleReadSnapshot["value"],
+  value: DatabaseModuleReadSnapshotV2["value"],
   changeLogSeq = 4,
-): DatabaseModuleReadSnapshot => ({
-  version: 1,
+): DatabaseModuleReadSnapshotV2 => ({
+  version: 2,
   projectId,
   libraryId,
   storeEpoch: "epoch-1",
@@ -101,17 +107,17 @@ const snapshot = (
 });
 
 const readResult = (
-  value: DatabaseModuleReadSnapshot["value"],
+  value: DatabaseModuleReadSnapshotV2["value"],
   changeLogSeq?: number,
-): DatabaseModuleReadResult => ({
+): DatabaseModuleReadResultV2 => ({
   ok: true,
   value: snapshot(value, changeLogSeq),
 });
 
-const committed = (request: DatabaseApply): DatabaseApplyResult => ({
+const committed = (request: DatabaseApplyV2): DatabaseApplyResultV2 => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     operationId: request.operationId,
     projectId,
     libraryId,
@@ -148,11 +154,11 @@ describe("canonical Database management runtime", () => {
 
     expect(authority.selectedDatabase.database.databaseId).toBe(databaseId);
     expect(authority.selectedDataSource.dataSourceId).toBe(dataSourceId);
-    expect(authority.source.properties[0]?.propertyId).toBe("property-status");
+    expect(authority.source.properties[0]?.propertyId).toBe("status");
   });
 
   test("retains one exact Database Apply request across a lost response", async () => {
-    const requests: DatabaseApply[] = [];
+    const requests: DatabaseApplyV2[] = [];
     const authority = await commitDatabaseManagementOperations({
       projectId,
       operationId: "operation-1",
@@ -160,7 +166,7 @@ describe("canonical Database management runtime", () => {
       buildOperations: (current) => [{
         kind: "delete_property",
         dataSourceId: current.selectedDataSource.dataSourceId,
-        propertyId: "property-status",
+        propertyId: parseDataSourcePropertyId("status"),
         expectedDataSourceRevision: 1,
         expectedPropertyRevision: 1,
       }],
@@ -190,7 +196,7 @@ describe("canonical Database management runtime", () => {
       buildOperations: () => [{
         kind: "delete_view",
         databaseId,
-        viewId: "view-1",
+        viewId,
         expectedRevision: 1,
       }],
       dependencies: {

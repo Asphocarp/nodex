@@ -35,7 +35,7 @@ const runCli = (
 const timestamp = "2026-07-16T08:00:00.000Z";
 const viewConfig = {
   schemaKey: "nodex.database-view",
-  schemaVersion: 1,
+  schemaVersion: 2,
   filter: { kind: "group", operator: "and", children: [] },
   sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
   group: null,
@@ -85,7 +85,7 @@ const descriptor = {
 const readSnapshot = (value: unknown) => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     projectId: "default",
     libraryId: "library-default",
     storeEpoch: "epoch-1",
@@ -161,7 +161,7 @@ describe("Database Module CLI", () => {
         response.end(JSON.stringify({
           ok: true,
           value: {
-            version: 1,
+            version: 2,
             operationId: body.operationId,
             projectId: "default",
             libraryId: "library-default",

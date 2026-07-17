@@ -10,6 +10,7 @@ export * from "./write-schemas";
 export * from "./write-runtime";
 export * from "./v3-base-schemas";
 export * from "./v3-contracts";
+export * from "./v5-contracts";
 export * from "./v3-read-schemas";
 export * from "./v3-read-runtime";
 export * from "./v3-write-schemas";

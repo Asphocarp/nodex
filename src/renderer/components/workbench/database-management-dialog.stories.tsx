@@ -1,22 +1,30 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type {
-  DatabaseContainerDescriptor,
-  DataSourceDescriptor,
-} from "../../../shared/database-module";
+  DatabaseContainerDescriptorV2,
+  DataSourceDescriptorV2,
+} from "../../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../../shared/database-identities";
 import { DatabaseManagementDialog } from "./database-management-dialog";
 
 const timestamp = "2026-07-16T00:00:00.000Z";
 const libraryId = "library:story";
-const databaseId = "database:story";
-const dataSourceId = "source:story";
+const databaseId = parseDatabaseId("database:story");
+const dataSourceId = parseDataSourceId("source:story");
+const boardViewId = parseDatabaseViewId("view:board");
+const calendarViewId = parseDatabaseViewId("view:calendar");
 
-const databases: readonly DatabaseContainerDescriptor[] = [{
+const databases: readonly DatabaseContainerDescriptorV2[] = [{
   database: {
     databaseId,
     libraryId,
     name: "Product work",
     lifecycle: "active",
-    defaultViewId: "view:board",
+    defaultViewId: boardViewId,
     accessRevision: 1,
     metadataRevision: 1,
     createdAt: timestamp,
@@ -36,18 +44,18 @@ const databases: readonly DatabaseContainerDescriptor[] = [{
   }],
   views: [
     {
-      viewId: "view:board",
+      viewId: boardViewId,
       databaseId,
       dataSourceId,
       name: "Board",
       kind: "kanban",
       config: {
         schemaKey: "nodex.database-view",
-        schemaVersion: 1,
+        schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
-        group: { propertyId: "property:status" },
-        display: { propertyIds: ["property:priority", "property:tags"], showTitle: true },
+        group: { propertyId: "status" },
+        display: { propertyIds: ["priority", "tags"], showTitle: true },
       },
       isDefault: true,
       revision: 3,
@@ -57,18 +65,18 @@ const databases: readonly DatabaseContainerDescriptor[] = [{
       updatedAt: timestamp,
     },
     {
-      viewId: "view:calendar",
+      viewId: calendarViewId,
       databaseId,
       dataSourceId,
       name: "Upcoming",
       kind: "calendar",
       config: {
         schemaKey: "nodex.database-view",
-        schemaVersion: 1,
+        schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
-        display: { propertyIds: ["property:due"], showTitle: true },
+        display: { propertyIds: ["due_date"], showTitle: true },
       },
       isDefault: false,
       revision: 1,
@@ -80,13 +88,12 @@ const databases: readonly DatabaseContainerDescriptor[] = [{
   ],
 }];
 
-const source: DataSourceDescriptor = {
+const source: DataSourceDescriptorV2 = {
   dataSource: databases[0]!.dataSources[0]!,
   properties: [
     {
-      propertyId: "property:status",
+      propertyId: parseDataSourcePropertyId("status"),
       dataSourceId,
-      key: "status",
       name: "Status",
       valueType: "select",
       config: { options: [{ id: "draft", name: "Draft" }, { id: "done", name: "Done" }] },
@@ -97,9 +104,8 @@ const source: DataSourceDescriptor = {
       updatedAt: timestamp,
     },
     {
-      propertyId: "property:priority",
+      propertyId: parseDataSourcePropertyId("priority"),
       dataSourceId,
-      key: "priority",
       name: "Priority",
       valueType: "select",
       config: { options: [{ id: "high", name: "High" }] },
@@ -110,12 +116,11 @@ const source: DataSourceDescriptor = {
       updatedAt: timestamp,
     },
     {
-      propertyId: "property:tags",
+      propertyId: parseDataSourcePropertyId("tags"),
       dataSourceId,
-      key: "tags",
       name: "Tags",
       valueType: "multi_select",
-      config: { options: [{ id: "agent", name: "Agent" }] },
+      config: { options: [{ id: "o_AAAAAAAA", name: "Agent" }] },
       rankKey: "c",
       lifecycle: "active",
       revision: 1,
@@ -123,9 +128,8 @@ const source: DataSourceDescriptor = {
       updatedAt: timestamp,
     },
     {
-      propertyId: "property:due",
+      propertyId: parseDataSourcePropertyId("due_date"),
       dataSourceId,
-      key: "due_date",
       name: "Due date",
       valueType: "date",
       config: {},

@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { initialDataSourceId } from "../../shared/library";
 import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import {
@@ -22,6 +21,17 @@ import { validateBackupStore } from "./backup-store-validation";
 import { getDatabasePath } from "./config";
 
 let tempDirectory = "";
+
+const readDefaultDataSourceId = (databaseId: string): string => {
+  const row = getDb().prepare(`
+    SELECT id FROM data_sources
+    WHERE home_database_block_id = ? AND lifecycle = 'active'
+    ORDER BY rank_key, id
+    LIMIT 1
+  `).get(databaseId) as { readonly id: string } | undefined;
+  if (!row) throw new Error(`Database ${databaseId} has no active Data Source`);
+  return row.id;
+};
 
 beforeEach(async () => {
   closeDatabase();
@@ -420,7 +430,7 @@ describe("Project resource grants", () => {
       projectId: executor.id,
       resource: {
         kind: "data_source",
-        dataSourceId: initialDataSourceId(foreign.databaseId),
+        dataSourceId: readDefaultDataSourceId(foreign.databaseId),
       },
       action: "read",
     }).allowed).toBe(false);
@@ -466,7 +476,7 @@ describe("Project resource grants", () => {
       projectId: executor.id,
       resource: {
         kind: "data_source",
-        dataSourceId: initialDataSourceId(foreign.databaseId),
+        dataSourceId: readDefaultDataSourceId(foreign.databaseId),
       },
       action: "manage_schema",
     }).reason).toBe("structural_capability_required");

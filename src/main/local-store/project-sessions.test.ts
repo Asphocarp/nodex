@@ -92,13 +92,14 @@ function runValidation(fn: () => void): string | null {
 function readPrimaryDatabaseViewId(targetProjectId: string): string {
   const row = getDb().prepare(`
     SELECT view.id
-    FROM database_views view
-    INNER JOIN database_capabilities capability
-      ON capability.block_id = view.database_block_id
-      AND capability.project_id = view.project_id
-      AND capability.is_primary = 1
-    WHERE view.project_id = ?
-      AND view.is_primary = 1
+    FROM project_database_bindings binding
+    INNER JOIN database_containers container
+      ON container.block_id = binding.database_block_id
+    INNER JOIN database_views view
+      ON view.id = container.default_view_id
+      AND view.database_block_id = container.block_id
+    WHERE binding.project_id = ?
+      AND binding.lifecycle = 'active'
       AND view.lifecycle = 'active'
     LIMIT 1
   `).get(targetProjectId) as { readonly id: string } | undefined;
@@ -108,21 +109,29 @@ function readPrimaryDatabaseViewId(targetProjectId: string): string {
 
 function insertSecondaryDatabaseView(targetProjectId: string, viewId: string): void {
   const primary = getDb().prepare(`
-    SELECT database_block_id, config_json
+    SELECT database_block_id, data_source_id, config_json
     FROM database_views
-    WHERE id = ? AND project_id = ?
-  `).get(readPrimaryDatabaseViewId(targetProjectId), targetProjectId) as {
+    WHERE id = ?
+  `).get(readPrimaryDatabaseViewId(targetProjectId)) as {
     readonly database_block_id: string;
+    readonly data_source_id: string;
     readonly config_json: string;
   } | undefined;
   if (!primary) throw new Error(`Missing primary Database for Project ${targetProjectId}`);
   const now = new Date().toISOString();
   getDb().prepare(`
     INSERT INTO database_views (
-      id, database_block_id, project_id, name, kind, config_json,
-      is_primary, revision, rank_key, lifecycle, created_at, updated_at
-    ) VALUES (?, ?, ?, 'List', 'list', ?, 0, 1, 'zzzzzzzz', 'active', ?, ?)
-  `).run(viewId, primary.database_block_id, targetProjectId, primary.config_json, now, now);
+      id, database_block_id, data_source_id, name, kind, config_json,
+      revision, rank_key, lifecycle, created_at, updated_at
+    ) VALUES (?, ?, ?, 'List', 'list', ?, 1, 'zzzzzzzz', 'active', ?, ?)
+  `).run(
+    viewId,
+    primary.database_block_id,
+    primary.data_source_id,
+    primary.config_json,
+    now,
+    now,
+  );
 }
 
 describe("project session service", () => {
@@ -1061,10 +1070,14 @@ describe("project session service", () => {
       expect(afterSecondRead.updated_at).toBe(normalized.updated_at);
 
       getDb().prepare(`
-        UPDATE database_views
-        SET lifecycle = 'deleted', updated_at = ?
-        WHERE id = ?
-      `).run(new Date().toISOString(), readPrimaryDatabaseViewId(projectId));
+        UPDATE database_containers
+        SET default_view_id = NULL, updated_at = ?
+        WHERE block_id = (
+          SELECT database_block_id
+          FROM project_database_bindings
+          WHERE project_id = ? AND lifecycle = 'active'
+        )
+      `).run(new Date().toISOString(), projectId);
       const unresolvedSession = createProjectSession({
         projectId,
         noThreadFallbackTitle: "No primary mapping",

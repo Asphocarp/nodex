@@ -9,8 +9,8 @@ import type { DatabasePageSummary, Estimate, Priority } from "./types";
 
 export interface ReadDatabaseViewReferenceInput {
   /**
-   * The Project containing the reference surface. The durable View may belong
-   * to another Project and reports that canonical Project in its definition.
+   * The Project containing the reference surface. It authorizes the read and
+   * remains the execution scope for actions exposed by the returned model.
    */
   readonly requestingProjectId: string;
   readonly databaseViewId: string;
@@ -31,6 +31,7 @@ export type DatabaseViewJsonValue =
 export interface DatabaseViewDefinition {
   readonly id: string;
   readonly databaseBlockId: string;
+  /** Requesting Project scope; Database/View identity itself is Library-owned. */
   readonly projectId: string;
   readonly name: string;
   readonly kind: DatabaseViewKind;

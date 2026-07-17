@@ -1,27 +1,28 @@
 import { bodyLimit } from "hono/body-limit";
 import type { Hono } from "hono";
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../shared/block-property-mutations";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../shared/block-property-mutations-v2";
 import {
-  bindTrustedBlockPropertyMutation,
-  blockPropertyMutationFailure,
-  blockPropertyMutationHttpStatus,
-} from "../shared/block-property-mutation-transport";
+  bindTrustedBlockPropertyMutationV2,
+  blockPropertyMutationFailureV2,
+  blockPropertyMutationHttpStatusV2,
+  blockPropertyMutationTransportFailureV2,
+} from "../shared/block-property-mutation-v2-transport";
 
 const MAX_BLOCK_PROPERTY_MUTATION_HTTP_BYTES = 2_100_000;
 const HTTP_CLIENT_SESSION_ID = "http-loopback";
 
 export interface BlockPropertyMutationHttpDependencies {
   readonly applyMutation: (
-    request: BlockPropertyMutationRequest,
-  ) => Promise<BlockPropertyMutationCommandResult>;
+    request: BlockPropertyMutationRequestV2,
+  ) => Promise<BlockPropertyMutationCommandResultV2>;
 }
 
-const invalidJsonResult = (): BlockPropertyMutationCommandResult => ({
+const invalidJsonResult = (): BlockPropertyMutationCommandResultV2 => ({
   ok: false,
-  error: blockPropertyMutationFailure(
+  error: blockPropertyMutationFailureV2(
     "invalid_property_mutation_request",
     "Block property mutation body must be valid JSON",
   ),
@@ -39,11 +40,11 @@ export const registerBlockPropertyMutationHttpRoute = (
         context.json(
           {
             ok: false,
-            error: blockPropertyMutationFailure(
+            error: blockPropertyMutationFailureV2(
               "invalid_property_mutation_request",
               "Block property mutation body is too large",
             ),
-          } satisfies BlockPropertyMutationCommandResult,
+          } satisfies BlockPropertyMutationCommandResultV2,
           400,
         ),
     }),
@@ -55,7 +56,7 @@ export const registerBlockPropertyMutationHttpRoute = (
         return context.json(invalidJsonResult(), 400);
       }
 
-      const bound = bindTrustedBlockPropertyMutation(rawRequest, projectId, {
+      const bound = bindTrustedBlockPropertyMutationV2(rawRequest, projectId, {
         actor: {
           kind: "http_loopback",
           transport: "json",
@@ -66,34 +67,22 @@ export const registerBlockPropertyMutationHttpRoute = (
         context.header("Cache-Control", "no-store");
         return context.json(
           bound,
-          blockPropertyMutationHttpStatus(bound.error),
+          blockPropertyMutationHttpStatusV2(bound.error),
         );
       }
 
-      let result: BlockPropertyMutationCommandResult;
+      let result: BlockPropertyMutationCommandResultV2;
       try {
         result = await dependencies.applyMutation(bound.value);
       } catch (error) {
-        result = {
-          ok: false,
-          error: blockPropertyMutationFailure(
-            "unknown",
-            error instanceof Error
-              ? error.message
-              : "The durable Block property writer is unavailable",
-            {
-              mutationId: bound.value.mutationId,
-              retryable: true,
-            },
-          ),
-        };
+        result = blockPropertyMutationTransportFailureV2(bound.value, error);
       }
 
       context.header("Cache-Control", "no-store");
       if (result.ok) return context.json(result);
       return context.json(
         result,
-        blockPropertyMutationHttpStatus(result.error),
+        blockPropertyMutationHttpStatusV2(result.error),
       );
     },
   );

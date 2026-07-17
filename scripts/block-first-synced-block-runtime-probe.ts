@@ -411,8 +411,8 @@ const main = async (): Promise<void> => {
             WHERE placement.block_id = source.id
           ) AS has_placement,
           EXISTS (
-            SELECT 1 FROM database_memberships membership
-            WHERE membership.card_block_id = source.id
+            SELECT 1 FROM data_source_page_memberships membership
+            WHERE membership.page_block_id = source.id
               AND membership.removed_at IS NULL
           ) AS has_membership
         FROM blocks source

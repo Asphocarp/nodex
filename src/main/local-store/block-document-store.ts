@@ -929,6 +929,19 @@ const reconcileDocumentBlocks = (
     FROM blocks
     WHERE id = ?
   `);
+  const hasPageAuthority = database.prepare(`
+    SELECT 1 AS present FROM sqlite_schema
+    WHERE type = 'table' AND name = 'pages'
+  `).get() !== undefined;
+  const readLibraryPage = hasPageAuthority
+    ? database.prepare(`
+        SELECT 1 AS present
+        FROM pages page
+        INNER JOIN projects project ON project.id = ?
+        WHERE page.block_id = ? AND page.library_id = project.library_id
+          AND page.lifecycle <> 'deleted'
+      `)
+    : null;
   const insertBlock = database.prepare(`
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind, containing_document_id,
@@ -978,8 +991,12 @@ const reconcileDocumentBlocks = (
       );
       continue;
     }
+    const hasCompatibleProject =
+      registered.project_id === row.project_id ||
+      (registered.type === "page" &&
+        readLibraryPage?.get(row.project_id, registered.id) !== undefined);
     if (
-      registered.project_id !== row.project_id ||
+      !hasCompatibleProject ||
       registered.location_kind !== "document" ||
       registered.containing_document_id !== row.document_id
     ) {

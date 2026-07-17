@@ -171,10 +171,11 @@ A Database is a placeable Block and Container. It owns metadata, lifecycle,
 Data Sources, hosted Views, one default View, access revision, and Project
 bindings. It does not own a property schema or Page rows directly.
 
-Creating a Database atomically creates the Container, a deterministic initial
-Data Source, an initial View targeting that Source, and selects that View as
-default. The single-Source UI hides the Data Source noun while contracts retain
-its explicit identity.
+Creating a Database atomically creates the Container, one initial Data Source,
+one View targeting that Source, and selects that View as default. All three
+global identities are independently preallocated UUID-v7 values; none is
+derived by parsing or extending a Project or parent identity. The single-Source
+UI hides the Data Source noun while contracts retain its explicit identity.
 
 ### Data Source
 
@@ -182,6 +183,14 @@ A Data Source is a relational entity with one home Database. It is never a
 Block, has no Document, and has no independent Library placement. It owns one
 typed property schema, Data Source-parented Pages, their property values,
 schema/query revisions, and dormant membership history.
+
+Property identity is local to one Data Source. Built-in capabilities use
+reserved stable IDs such as `status`, `priority`, and `tags`; custom Properties
+use `p_` plus eight base64url characters. Option identity is local to one
+Property; custom options use the analogous `o_` form. Display names may change
+without changing identity. Any unbound Property or option reference carries
+its Source/Property owner explicitly; a View may omit the Source only because
+it already targets exactly one Source.
 
 A Data Source-parented Page is the active row identity. It has exactly one
 matching active historical-membership record. Leaving the Source tombstones
@@ -320,7 +329,11 @@ not a product content owner; ordinary access changes through binding/grants.
 When a Full-access Agent operation crosses private compatibility owners, the
 writer rehomes the complete owned Block/Document closure in one transaction and
 records actor, source owner, final owner, and every relocation member without
-changing stable content identity.
+changing stable content identity. The writer freezes that rehome plan before
+mutation, changes the logical Page parent, applies the rehome, and only then
+materializes the target Document projection. Page and Document IDs remain
+Library-global throughout; private `project_id` compatibility is an execution-
+owner invariant checked by typed authority guards, not part of either identity.
 
 A Document operation batch addresses application Block IDs and validates the
 complete result on a current-head clone before atomically committing the engine
@@ -395,7 +408,7 @@ state is rejected rather than replayed.
 16. Cross-owner relocation commits engine, registry, parent, Source, View,
     history, receipt, and change records atomically.
 17. Database creation atomically creates Container, initial Source, initial
-    View, and default View authority.
+    View, and default View authority from independently allocated identities.
 18. Data Source is never a Block under the accepted architecture.
 
 ## Operation semantics
@@ -499,6 +512,8 @@ idempotency, projections, and post-commit events behind `read` and `apply`.
 - `docs/adr/0017-library-pages-data-sources-and-project-resource-grants.md`:
   Library ownership, Page rename/exclusive parent, Database/Data Source/View,
   Project binding, resource grants, and Database Module depth.
+- `docs/adr/0020-database-identity-scopes.md`: independent opaque Database/
+  Data Source/View roots and compact owner-scoped Property/option identity.
 - `docs/adr/0001-block-identity-card-alias.md`: retained single Block identity;
   Card alias and Project-as-Space portions are superseded.
 - `docs/adr/0002-document-bearing-blocks-yjs.md`: independent owned Documents

@@ -1,13 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../../shared/database-identities";
 import { DatabaseViewSurface } from "./read-only-database-view";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library:nodex";
-const databaseId = "database:nodex:primary";
-const dataSourceId = "data-source:nodex:primary";
-const viewId = "database-view:nodex:focused";
+const databaseId = parseDatabaseId("database:nodex:primary");
+const dataSourceId = parseDataSourceId("data-source:nodex:primary");
+const viewId = parseDatabaseViewId("database-view:nodex:focused");
+const statusPropertyId = parseDataSourcePropertyId("status");
+const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const model: DatabaseViewRenderModel = {
   projectId: "nodex",
@@ -27,7 +35,7 @@ const model: DatabaseViewRenderModel = {
       libraryId,
       name: "Tasks",
       lifecycle: "active",
-      defaultViewId: "database-view:nodex:default",
+      defaultViewId: parseDatabaseViewId("database-view:nodex:default"),
       accessRevision: 1,
       metadataRevision: 1,
       createdAt: timestamp,
@@ -53,11 +61,11 @@ const model: DatabaseViewRenderModel = {
       kind: "kanban",
       config: {
         schemaKey: "nodex.database-view",
-        schemaVersion: 1,
+        schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
-        group: { propertyId: "property-status" },
-        display: { propertyIds: ["property-tags"], showTitle: true },
+        group: { propertyId: statusPropertyId },
+        display: { propertyIds: [tagsPropertyId], showTitle: true },
       },
       isDefault: false,
       revision: 1,
@@ -68,9 +76,8 @@ const model: DatabaseViewRenderModel = {
     },
     properties: [
       {
-        propertyId: "property-status",
+        propertyId: statusPropertyId,
         dataSourceId,
-        key: "status",
         name: "Status",
         valueType: "select",
         config: { options: [{ id: "in_progress", name: "In Progress" }, { id: "done", name: "Done" }] },
@@ -81,12 +88,11 @@ const model: DatabaseViewRenderModel = {
         updatedAt: timestamp,
       },
       {
-        propertyId: "property-tags",
+        propertyId: tagsPropertyId,
         dataSourceId,
-        key: "tags",
         name: "Tags",
         valueType: "multi_select",
-        config: { options: [{ id: "page-first", name: "Page first" }] },
+        config: { options: [{ id: "o_AAAAAAAA", name: "Page first" }] },
         rankKey: "b",
         lifecycle: "active",
         revision: 1,
@@ -119,8 +125,8 @@ const model: DatabaseViewRenderModel = {
         updatedAt: timestamp,
       },
       values: {
-        "property-status": { propertyId: "property-status", valueType: "select", value: "in_progress", revision: 1 },
-        "property-tags": { propertyId: "property-tags", valueType: "multi_select", value: ["page-first"], revision: 1 },
+        [statusPropertyId]: { propertyId: statusPropertyId, valueType: "select", value: "in_progress", revision: 1 },
+        [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select", value: ["o_AAAAAAAA"], revision: 1 },
       },
       position: { groupKey: "in_progress", rankKey: "a", revision: 1 },
       effectiveGroupKey: "in_progress",

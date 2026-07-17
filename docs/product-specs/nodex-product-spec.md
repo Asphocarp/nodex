@@ -217,9 +217,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 4. SQLite Database Storage
 - Single `nodex.db` file in the local store directory
-- Schema v80 stores Profile→Library, Page ownership, Database Container/Data Source/View identity, Project binding/lifecycle/grants, engine-neutral Documents, immutable mutation/history evidence, exact-Turn Nodex authority provenance, actor/source/target relocation evidence, and rebuildable Page/search/schedule/reference projections. Physical Space/Document/Database coordinates are private adapters for canonical Library/Page/Data Source parents.
+- Schema v81 stores Profile→Library, Page ownership, independently identified Database Containers/Data Sources/Views, Source-scoped compact Property/option identity, Project binding/lifecycle/grants, engine-neutral Documents, immutable mutation/history evidence, exact-Turn Nodex authority provenance, actor/source/target relocation evidence, and rebuildable Page/search/schedule/reference projections. Physical Space/Document/Database coordinates are private adapters for canonical Library/Page/Data Source parents; the previous Project-shaped Database tables are migration input only.
 - One asynchronous `BlockMutationWriter` serializes Block/Page/Database-domain `better-sqlite3` transactions outside the Electron main event loop.
-- New user/content Block identities use canonical lowercase UUID-v7 and are validated only at creation. Existing IDs remain opaque. View, property, membership, operation, mutation, and other non-Block identities default to UUID-v4 when they do not have a stronger domain-derived identity; explicit timestamps, ranks, and sequences remain the only ordering authority.
+- New user/content Blocks, Database Containers, Data Sources, and Views use independently allocated canonical lowercase UUID-v7 identities and are validated only at creation. Existing global IDs remain opaque. Built-in Data Source Properties use reserved stable IDs; custom Properties use `p_` plus eight base64url characters, and custom options use `o_` plus eight base64url characters under their owning Property. Unbound references carry `{dataSourceId, propertyId}` and, for options, `optionId`; display names never define identity. Membership, operation, and mutation identities remain opaque, while explicit timestamps, ranks, and sequences are the only ordering authority.
 
 #### 5. Page and Data Source Properties
 
@@ -231,7 +231,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | `description` | string | No | Read/export projection of `Y.XmlFragment("body")` as [Nested Markdown](../references/nested-markdown-spec.md), including image/attachment/thread/date syntax (max 1,000,000 projected chars); never a collaborative write field |
 | `priority` | enum | No | Optional priority tier: p0-critical, p1-high, p2-medium, p3-low, p4-later |
 | `estimate` | enum | No | xs, s, m, l, xl |
-| `tags` | string[] | No | Custom labels (default: [], max 64 tags, each max 64 chars) |
+| `tags` | string[] | No | User-facing canonical display names (default: [], max 64 tags, each max 64 chars); Page creation resolves or preallocates owner-scoped option IDs before enqueue, while low-level Data Source values carry those option IDs |
 | `dueDate` | date | No | Task deadline (YYYY-MM-DD format) |
 | `scheduledStart` | datetime | No | Scheduled start timestamp (ISO 8601) used by Calendar and recurrence windows |
 | `scheduledEnd` | datetime | No | Scheduled end timestamp (ISO 8601, must be after `scheduledStart` when both are set) |
@@ -488,7 +488,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Permission preset semantics:
   - `Ask for approval` resolves to `sandbox_mode=workspace-write`, `approval_policy=on-request`, `approvals_reviewer=user`.
   - `Approve for me` resolves to the same sandbox/policy pair, but with `approvals_reviewer=auto_review`.
-  - `Full access` resolves to `sandbox_mode=danger-full-access`, `approval_policy=never`, `approvals_reviewer=user`; for each exact Turn launched with this built-in preset it also allows every existing `nodex_app@4` read/write capability across the current Nodex Library without approval prompts.
+  - `Full access` resolves to `sandbox_mode=danger-full-access`, `approval_policy=never`, `approvals_reviewer=user`; for each exact Turn launched with this built-in preset it also allows every existing `nodex_app@5` read/write capability across the current Nodex Library without approval prompts.
   - `Custom (config.toml)` remains available whenever config contains explicit permission keys and the resulting raw permission state is allowed, even if those values are equivalent to a fixed preset.
 - `features.guardian_approval` disables `Auto-review` only when it is explicitly false; missing feature metadata does not disable the preset. `configRequirements/read.allowedPermissionProfiles`, `allowedApprovalsReviewers`, `allowedApprovalPolicies`, and `allowedSandboxModes` still constrain availability. `auto_review` and the legacy/internal alias `guardian_subagent` are treated as the same automatic-review reviewer when reading config or requirements, but Nodex writes the public `auto_review` literal.
 - Permission writes target the current config key origin when available; otherwise Nodex writes to the user config file instead of silently creating a project override from the thread footer.
@@ -760,8 +760,8 @@ nodex/
 | GET | `/api/projects/[projectId]/board-summary` | Fetch the bounded primary Database View summary without full Page bodies |
 | GET | `/api/projects/[projectId]/column` | Fetch a single board status group (query: `?id=<status>`) |
 | GET | `/api/projects/[projectId]/pages/[pageId]` | Read one grant-aware versioned Page Detail result, including Source context only when the exclusive parent is a Data Source |
-| POST | `/api/projects/[projectId]/database-module/read` | Read the authorized Database catalog, Container, Data Source, View, or View query projection |
-| POST | `/api/projects/[projectId]/database-module/apply` | Apply revisioned Data Source property/value, Page membership, View, or Page-position operations |
+| POST | `/api/projects/[projectId]/database-module/read` | Read the authorized v2 Database catalog, Container, Data Source, View, or View query projection with Source-scoped Property IDs |
+| POST | `/api/projects/[projectId]/database-module/apply` | Apply a v2 revisioned Data Source Property/option/value, Page membership, View, or Page-position batch |
 | GET | `/api/projects/[projectId]/database-row` | Read the compatibility wide Page projection for an active Data Source row |
 | POST | `/api/projects/[projectId]/database-rows/details` | Batch-read compatibility wide projections for selected active Database rows |
 | POST | `/api/projects/[projectId]/page-lifecycle-mutations` | Create, archive/restore, tombstone, or reparent a Page and its owned Document closure through one idempotent, grant-aware lifecycle command |
@@ -794,7 +794,7 @@ The former board-create, Page-delete, and description-write snapshot endpoints r
 | POST | `/api/projects/[projectId]/documents/[documentId]/relocation-leases/[leaseId]/responses` | ACK/NACK a surface-local relocation freeze after its pending edits are durable |
 | POST | `/api/projects/[projectId]/documents/[documentId]/mutations` | Apply a stable-ID title/insert/update/delete/move or CAS-gated NFM replacement batch |
 | GET/POST | `/api/projects/[projectId]/documents/[documentId]/versions...` | List/get/checkpoint immutable Document versions and forward-restore one version through a write fence |
-| POST | `/api/projects/[projectId]/block-property-mutations` | Apply a versioned field-level intrinsic/Database property batch with scalar CAS or set add/remove intent and an immutable typed receipt |
+| POST | `/api/projects/[projectId]/block-property-mutations` | Apply a v2 field-level intrinsic/Data Source property batch with explicit Source coordinates, scalar CAS or set add/remove intent, and an immutable typed receipt |
 | POST | `/api/projects/[projectId]/document-commands` | Create/promote/demote/instantiate/tombstone registered Synced, Template, Large, or Canvas Document owners |
 
 #### Asset Routes
@@ -807,7 +807,7 @@ The former board-create, Page-delete, and description-write snapshot endpoints r
 
 ### Database Schema
 
-Schema v80 is Library/Page/Data Source-first. One Profile owns one Library. `pages` gives every Page one `library | page | data_source` parent and one owned Document. `database_containers` own Data Sources and Views; Data Sources own schema, active/dormant Page membership history, and property values; each View explicitly targets one Data Source and positions Pages by Page ID. Projects own execution state, lifecycle, one Database binding, and recursive Page/Database grants—not content. Exact-Turn Agent authority provenance and actor/source/target relocation evidence are immutable. Active projections use Page-named tables and keys. Physical `blocks.location_kind = space | document | database` remains an internal storage coordinate compiled from canonical parents.
+Schema v81 is Library/Page/Data Source-first. One Profile owns one Library. `pages` gives every Page one `library | page | data_source` parent and one owned Document. `database_containers` own Data Sources and Views; Data Sources own compact local schema identities, active/dormant Page membership history, and property values; each View explicitly targets one Data Source and positions Pages by Page ID. `data_source_properties`, `data_source_property_values`, `data_source_page_memberships`, `database_views`, and `database_view_page_positions` are the only live Database authority. Projects own execution state, lifecycle, one Database binding, and recursive Page/Database grants—not content. Exact-Turn Agent authority provenance and actor/source/target relocation evidence are immutable. Active projections use Page-named tables and keys. Physical `blocks.location_kind = space | document | database` remains an internal storage coordinate compiled from canonical parents.
 
 The SQL excerpt below documents the historical v63 migration input and is not the current authority schema.
 
@@ -1276,7 +1276,7 @@ Detailed CI behavior, job responsibilities, secrets, artifact naming, and recove
 
 ### Project-bound dynamic tools
 
-New eligible Codex tasks that start inside a Nodex Project receive the `nodex_app@4` dynamic-tool catalog. The namespace is for Nodex content and structure; Codex host controls such as task handoff, terminal access, and automations remain under `codex_app`. A task keeps the catalog revision with which it started. Retired catalogs return `tool_catalog_stale` and direct the agent to start a new task.
+New eligible Codex tasks that start inside a Nodex Project receive the `nodex_app@5` dynamic-tool catalog. The namespace is for Nodex content and structure; Codex host controls such as task handoff, terminal access, and automations remain under `codex_app`. A task keeps the catalog revision with which it started. Retired catalogs return `tool_catalog_stale` and direct the agent to start a new task.
 
 The thread transcript presents these calls as Nodex operations, not opaque function names. Compact rows identify the search phrase and result count, fetched Page, saved View or ad-hoc Data Source query, created titles, updated content, move destination, and duplicated Page identity. Nested Markdown inserts, exact patches, and replacements include bounded inline diffs; exact patches show removed and added source lines, while operations without prior source never fabricate deletions. Every visible call has an expandable inspector for exact arguments and output plus an exact raw app-server item dialog for debugging. Historical calls remain readable even when their catalogs are no longer executable.
 
@@ -1309,7 +1309,7 @@ ETags and cursors are opaque proofs, not capabilities. An ETag is a fixed 48-cha
 
 The current Codex dynamic-tool transport returns JSON text. In Code Mode, parse each result once, retain intermediate Markdown, rows, cursors, and ETags inside one JavaScript pipeline, serialize dependent writes, and expose only a bounded final summary through `text()`. Every nested call remains individually visible and raw-inspectable in the transcript. Native structured dynamic-tool output remains an app-server protocol upgrade because the current dynamic-tool declaration, response, and Code Mode adapter do not carry an output schema or structured value.
 
-Independent value editing for an existing Data Source membership is intentionally absent from revision 4. New or relocated Data Source memberships may receive initial values, and `move_pages` can change saved-View placement. A future property-editing tool must begin from a focused user intent rather than restoring the retired generic `edit_database` union.
+Independent value editing for an existing Data Source membership is intentionally absent from revision 5. New or relocated Data Source memberships may receive initial values, and `move_pages` can change saved-View placement. A future property-editing tool must begin from a focused user intent rather than restoring the retired generic `edit_database` union.
 
 ### Design: CLI + REST API
 

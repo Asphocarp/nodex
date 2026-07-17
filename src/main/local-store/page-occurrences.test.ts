@@ -10,11 +10,10 @@ import type {
 } from "../../shared/types";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import type { PortableRichText } from "../../shared/block-documents";
-import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
-import { applyPageLifecycleMutation } from "./page-lifecycle";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { listBlockChangeHistory } from "./document-versions";
 import { readDatabasePageById } from "./page-read-store";
+import { createPageLifecycleV2Fixture } from "./page-lifecycle-v2-test-fixture";
 import { createProject } from "./projects";
 import { putProjectResourceGrantInDatabase } from "./project-resource-grants";
 import { readBlockStoreEpoch } from "./block-store-metadata";
@@ -178,8 +177,7 @@ async function createCard(targetProjectId: string, status: "in_progress", input:
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Card fixture has no Block store epoch");
   const pageId = createUuidV7();
-  const created = applyPageLifecycleMutation(database, parsePageLifecycleMutationRequest({
-    version: 1,
+  createPageLifecycleV2Fixture(database, {
     operationId: `occurrence-fixture:create:${pageId}`,
     projectId: targetProjectId,
     storeEpoch,
@@ -207,8 +205,7 @@ async function createCard(targetProjectId: string, status: "in_progress", input:
       runInWorktreePath: input.runInWorktreePath ?? null,
       runInEnvironmentPath: input.runInEnvironmentPath ?? null,
     },
-  }));
-  if (!created.ok) throw new Error(created.error.message);
+  });
   const primary = readDatabasePageById(database, targetProjectId, pageId);
   if (!primary) throw new Error("Authoritative Card disappeared after creation");
   return primary;
@@ -240,13 +237,13 @@ function authorityRows(lifecycle: "active" | "archived", status: "in_progress" |
             schedule.recurrence_json,
             schedule.reminders_json
      FROM blocks block
-     INNER JOIN database_memberships membership
+     INNER JOIN data_source_page_memberships membership
        ON membership.page_block_id = block.id
-       AND membership.project_id = block.project_id
        AND membership.removed_at IS NULL
-     INNER JOIN database_property_values status_value
+     INNER JOIN data_source_property_values status_value
        ON status_value.membership_id = membership.id
-       AND status_value.property_id = membership.database_block_id || ':property:status'
+       AND status_value.data_source_id = membership.data_source_id
+       AND status_value.property_id = 'status'
      LEFT JOIN scheduled_page_index schedule
        ON schedule.page_block_id = block.id
        AND schedule.project_id = block.project_id
@@ -555,7 +552,7 @@ describe("occurrence actions", () => {
       );
       const database = getDb();
       database
-        .prepare("DELETE FROM database_view_positions WHERE block_id = ?")
+        .prepare("DELETE FROM database_view_page_positions WHERE page_block_id = ?")
         .run(card.id);
       const createdPageId = createUuidV7();
 
@@ -578,7 +575,7 @@ describe("occurrence actions", () => {
       expect(
         database
           .prepare(
-            "SELECT COUNT(*) FROM database_view_positions WHERE block_id = ?",
+            "SELECT COUNT(*) FROM database_view_page_positions WHERE page_block_id = ?",
           )
           .pluck()
           .get(createdPageId),

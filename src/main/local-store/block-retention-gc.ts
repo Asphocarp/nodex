@@ -174,10 +174,7 @@ const KNOWN_INBOUND_AUTHORITY_TABLES = new Set([
   "canvas_scene_mutation_receipts",
   "canvas_scenes",
   "page_read_model",
-  "database_capabilities",
-  "database_memberships",
   "database_view_page_positions",
-  "database_view_positions",
   "data_source_page_memberships",
   "document_block_index",
   "document_materializations",
@@ -811,7 +808,6 @@ const analyzeDocumentProjectionRoots = (
 
 const readDatabaseViewIds = (
   database: Database.Database,
-  projectId: string,
   blockIds: ReadonlySet<string>,
 ): ReadonlySet<string> => {
   if (blockIds.size === 0) return new Set();
@@ -822,10 +818,10 @@ const readDatabaseViewIds = (
         .prepare(
           `
           SELECT id FROM database_views
-          WHERE project_id = ? AND database_block_id IN (${placeholders(ids.length)})
+          WHERE database_block_id IN (${placeholders(ids.length)})
         `,
         )
-        .all(projectId, ...ids) as readonly { readonly id: string }[]
+        .all(...ids) as readonly { readonly id: string }[]
     ).map((row) => row.id),
   );
 };
@@ -1341,9 +1337,13 @@ const analyzeRelationalRoots = (
   const activeMemberships = database
     .prepare(
       `
-      SELECT id, page_block_id FROM database_memberships
-      WHERE project_id = ? AND removed_at IS NULL
-        AND page_block_id IN (${inBlocks})
+      SELECT membership.id, membership.page_block_id
+      FROM data_source_page_memberships membership
+      INNER JOIN blocks page
+        ON page.id = membership.page_block_id
+        AND page.project_id = ?
+      WHERE membership.removed_at IS NULL
+        AND membership.page_block_id IN (${inBlocks})
     `,
     )
     .all(projectId, ...blockIds) as readonly {
@@ -1352,7 +1352,7 @@ const analyzeRelationalRoots = (
   }[];
   for (const row of activeMemberships) {
     collector.add("active_database_membership", {
-      source: "database_memberships",
+      source: "data_source_page_memberships",
       identity: row.id,
       relation: "active_card_membership",
       status: row.page_block_id,
@@ -1361,8 +1361,12 @@ const analyzeRelationalRoots = (
   const positions = database
     .prepare(
       `
-      SELECT view_id, block_id FROM database_view_positions
-      WHERE project_id = ? AND block_id IN (${inBlocks})
+      SELECT position.view_id, position.page_block_id AS block_id
+      FROM database_view_page_positions position
+      INNER JOIN blocks page
+        ON page.id = position.page_block_id
+        AND page.project_id = ?
+      WHERE position.page_block_id IN (${inBlocks})
     `,
     )
     .all(projectId, ...blockIds) as readonly {
@@ -1371,7 +1375,7 @@ const analyzeRelationalRoots = (
   }[];
   for (const row of positions) {
     collector.add("database_view_position", {
-      source: "database_view_positions",
+      source: "database_view_page_positions",
       identity: `${row.view_id}/${row.block_id}`,
       relation: "view_position",
     });
@@ -1379,37 +1383,52 @@ const analyzeRelationalRoots = (
   const databaseDependents = database
     .prepare(
       `
-      SELECT capability.block_id,
-        capability.is_primary,
-        (SELECT COUNT(*) FROM database_properties property
-          WHERE property.database_block_id = capability.block_id
-            AND property.lifecycle = 'active') AS active_properties,
+      SELECT container.block_id,
+        EXISTS (
+          SELECT 1 FROM project_database_bindings binding
+          WHERE binding.project_id = ?
+            AND binding.database_block_id = container.block_id
+            AND binding.lifecycle = 'active'
+        ) AS is_project_bound,
+        (SELECT COUNT(*)
+          FROM data_sources source
+          INNER JOIN data_source_properties property
+            ON property.data_source_id = source.id
+           AND property.lifecycle = 'active'
+          WHERE source.home_database_block_id = container.block_id
+            AND source.lifecycle = 'active') AS active_properties,
         (SELECT COUNT(*) FROM database_views view
-          WHERE view.database_block_id = capability.block_id
+          WHERE view.database_block_id = container.block_id
             AND view.lifecycle = 'active') AS active_views,
-        (SELECT COUNT(*) FROM database_memberships membership
-          WHERE membership.database_block_id = capability.block_id
-            AND membership.removed_at IS NULL) AS active_memberships
-      FROM database_capabilities capability
-      WHERE capability.project_id = ? AND capability.block_id IN (${inBlocks})
+        (SELECT COUNT(*)
+          FROM data_sources source
+          INNER JOIN data_source_page_memberships membership
+            ON membership.data_source_id = source.id
+           AND membership.removed_at IS NULL
+          WHERE source.home_database_block_id = container.block_id) AS active_memberships
+      FROM database_containers container
+      INNER JOIN blocks database_block
+        ON database_block.id = container.block_id
+        AND database_block.project_id = ?
+      WHERE container.block_id IN (${inBlocks})
     `,
     )
-    .all(projectId, ...blockIds) as readonly {
+    .all(projectId, projectId, ...blockIds) as readonly {
     readonly block_id: string;
-    readonly is_primary: number;
+    readonly is_project_bound: number;
     readonly active_properties: number;
     readonly active_views: number;
     readonly active_memberships: number;
   }[];
   for (const row of databaseDependents) {
     for (const [relation, count] of [
-      ["primary_capability", row.is_primary],
+      ["project_binding", row.is_project_bound],
       ["active_properties", row.active_properties],
       ["active_views", row.active_views],
       ["active_memberships", row.active_memberships],
     ] as const) {
       collector.addAggregate("active_database_dependent", count, {
-        source: "database_capabilities",
+        source: "database_containers",
         identity: row.block_id,
         relation,
       });
@@ -1515,9 +1534,16 @@ const analyzeSessionRoots = (
       const primaryViews = database
         .prepare(
           `
-          SELECT id FROM database_views
-          WHERE project_id = ? AND is_primary = 1 AND lifecycle = 'active'
-          ORDER BY id
+          SELECT view.id
+          FROM project_database_bindings binding
+          INNER JOIN database_containers container
+            ON container.block_id = binding.database_block_id
+          INNER JOIN database_views view
+            ON view.id = container.default_view_id
+           AND view.database_block_id = container.block_id
+           AND view.lifecycle = 'active'
+          WHERE binding.project_id = ? AND binding.lifecycle = 'active'
+          ORDER BY view.id
         `,
         )
         .all(config.projectId) as readonly { readonly id: string }[];
@@ -1816,7 +1842,6 @@ const planCandidate = (
   }
   const databaseViewIds = readDatabaseViewIds(
     database,
-    projectId,
     closure.blockIds,
   );
   analyzeStoreIntegrity(database, projectId, closure, collector);

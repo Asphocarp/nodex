@@ -39,21 +39,21 @@ import type {
   MaintainDocumentRevisionHistoryResult,
 } from "../shared/block-documents/document-revision-maintenance";
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../shared/block-property-mutations";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../shared/block-property-mutations-v2";
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadRequest,
-  DatabaseModuleReadResult,
-} from "../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadRequestV2,
+  DatabaseModuleReadResultV2,
+} from "../shared/database-module-v2";
 import type { PageDetailResult } from "../shared/page-detail";
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "../shared/page-lifecycle";
-import type { PageLifecyclePreflightResult } from "../shared/page-lifecycle-runtime";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../shared/page-lifecycle-v2";
+import type { PageLifecyclePreflightResultV2 } from "../shared/page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "../shared/page-history";
 import type { PageHistoryCommandResult } from "../shared/page-history-transport";
 import type {
@@ -190,11 +190,11 @@ export type BlockMutationWorkerRequest =
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyBlockPropertyMutation";
-      payload: BlockPropertyMutationRequest;
+      payload: BlockPropertyMutationRequestV2;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyDatabaseModule";
-      payload: DatabaseApply;
+      payload: DatabaseApplyV2;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyBlockTransfer";
@@ -210,7 +210,7 @@ export type BlockMutationWorkerRequest =
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyPageLifecycleMutation";
-      payload: PageLifecycleMutationRequest;
+      payload: PageLifecycleMutationRequestV2;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "readPageLifecyclePreflight";
@@ -234,7 +234,7 @@ export type BlockMutationWorkerRequest =
     })
   | (BlockMutationWorkerRequestBase & {
       type: "readDatabaseModule";
-      payload: DatabaseModuleReadRequest;
+      payload: DatabaseModuleReadRequestV2;
     })
   | (BlockMutationWorkerRequestBase & {
       type: "readPageDetail";
@@ -359,13 +359,13 @@ export type BlockMutationWorkerResult =
   | BlockDocumentWorkerResult
   | OwnedDocumentDescriptor
   | RepairDocumentSecondaryProjectionsResult
-  | BlockPropertyMutationCommandResult
-  | DatabaseApplyResult
-  | DatabaseModuleReadResult
+  | BlockPropertyMutationCommandResultV2
+  | DatabaseApplyResultV2
+  | DatabaseModuleReadResultV2
   | PageDetailResult
   | BlockTransferCommandResult
-  | PageLifecycleMutationCommandResult
-  | PageLifecyclePreflightResult
+  | PageLifecycleMutationCommandResultV2
+  | PageLifecyclePreflightResultV2
   | CompactEligibleBlockDocumentsResult
   | MaintainStoreBlockRetentionResult
   | MaintainDocumentRevisionHistoryResult

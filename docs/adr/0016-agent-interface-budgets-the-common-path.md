@@ -4,8 +4,9 @@
 - Date: 2026-07-16
 - Owners: Nodex maintainers
 - Extends: ADR 0015
-- Follow-up: ADR 0017's Page/Data Source cutover publishes the current
-  `nodex_app@4` catalog; `@3` below names the historical budgeted revision.
+- Follow-up: ADR 0020's Source-scoped identity cutover publishes the current
+  `nodex_app@5` catalog; `@3` below names the historical budgeted revision and
+  `@4` is the preceding Page/Data Source contract.
 
 ## Context
 

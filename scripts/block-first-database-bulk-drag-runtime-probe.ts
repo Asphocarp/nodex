@@ -4,9 +4,9 @@ import path from "node:path";
 
 import { createPage } from "../src/main/local-store/database-pages";
 import {
-  applyDatabaseModule,
-  readDatabaseModule,
-} from "../src/main/local-store/database-module";
+  applyDatabaseModuleV2,
+  readDatabaseModuleV2,
+} from "../src/main/local-store/database-module-v2-runtime";
 import {
   closeDatabase,
   getDb,
@@ -14,10 +14,10 @@ import {
 } from "../src/main/local-store/database";
 import { createProject } from "../src/main/local-store/projects";
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-  type DatabaseModuleReadSnapshot,
-  type DatabaseViewQueryResult,
-} from "../src/shared/database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseModuleReadSnapshotV2,
+  type DatabaseViewQueryResultV2,
+} from "../src/shared/database-module-v2";
 import { compileDatabasePagesDrag } from "../src/shared/database-page-drag";
 
 const invariant = (condition: boolean, message: string): void => {
@@ -25,9 +25,9 @@ const invariant = (condition: boolean, message: string): void => {
   throw new Error(message);
 };
 
-const readQuery = (projectId: string): DatabaseModuleReadSnapshot => {
-  const result = readDatabaseModule(getDb(), {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+const readQuery = (projectId: string): DatabaseModuleReadSnapshotV2 => {
+  const result = readDatabaseModuleV2(getDb(), {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read: { target: { kind: "project_default" }, mode: "query" },
   });
@@ -36,8 +36,8 @@ const readQuery = (projectId: string): DatabaseModuleReadSnapshot => {
 };
 
 const queryValue = (
-  snapshot: DatabaseModuleReadSnapshot,
-): DatabaseViewQueryResult => {
+  snapshot: DatabaseModuleReadSnapshotV2,
+): DatabaseViewQueryResultV2 => {
   if (snapshot.value.kind === "query") return snapshot.value.value;
   throw new Error("Project-default Database query unavailable");
 };
@@ -89,16 +89,19 @@ const run = async (): Promise<void> => {
     );
 
     const request = {
-      version: DATABASE_MODULE_CONTRACT_VERSION,
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       operationId: "database-page-drag-runtime",
       projectId: project.id,
       storeEpoch: beforeSnapshot.storeEpoch,
       actor: { kind: "runtime_probe" },
       operations: compiled.operations,
     } as const;
-    const committed = applyDatabaseModule(getDb(), request);
-    invariant(committed.ok && !committed.value.duplicate, "Page drag did not commit");
-    const replayed = applyDatabaseModule(getDb(), request);
+    const committed = applyDatabaseModuleV2(getDb(), request);
+    invariant(
+      committed.ok && !committed.value.duplicate,
+      `Page drag did not commit: ${JSON.stringify(committed)}`,
+    );
+    const replayed = applyDatabaseModuleV2(getDb(), request);
     invariant(replayed.ok && replayed.value.duplicate, "Exact retry was not idempotent");
 
     const after = queryValue(readQuery(project.id));
@@ -109,8 +112,12 @@ const run = async (): Promise<void> => {
       doneOrder.join(",") === [targetBefore.id, ...inputOrder, targetAfter.id].join(","),
       "Page position run did not preserve visual order at the external anchor",
     );
-    const status = after.properties.find((property) => property.key === "status");
-    const priority = after.properties.find((property) => property.key === "priority");
+    const status = after.properties.find(
+      (property) => property.propertyId === "status",
+    );
+    const priority = after.properties.find(
+      (property) => property.propertyId === "priority",
+    );
     for (const pageId of inputOrder) {
       const row = after.rows.find((candidate) => candidate.page.pageId === pageId);
       invariant(

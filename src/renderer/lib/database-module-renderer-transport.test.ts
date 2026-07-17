@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { DatabaseApply } from "../../shared/database-module";
+import type { DatabaseApplyV2 } from "../../shared/database-module-v2";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import { browserRendererTransport } from "./browser-renderer-transport";
 
 describe("Database Module renderer transport", () => {
@@ -11,7 +15,7 @@ describe("Database Module renderer transport", () => {
       {
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           projectId: "project/one",
           libraryId: "library-1",
           storeEpoch: "epoch-1",
@@ -22,7 +26,7 @@ describe("Database Module renderer transport", () => {
       {
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           operationId: "operation-1",
           projectId: "project/one",
           libraryId: "library-1",
@@ -51,15 +55,15 @@ describe("Database Module renderer transport", () => {
     }) as typeof fetch;
 
     const readRequest = {
-      version: 1 as const,
+      version: 2 as const,
       projectId: "project/one",
       read: {
         target: { kind: "project_default" as const },
         mode: "catalog" as const,
       },
     };
-    const applyRequest: DatabaseApply = {
-      version: 1,
+    const applyRequest: DatabaseApplyV2 = {
+      version: 2,
       operationId: "operation-1",
       projectId: "project/one",
       storeEpoch: "epoch-1",
@@ -68,8 +72,8 @@ describe("Database Module renderer transport", () => {
         {
           kind: "set_value",
           pageId: "page-1",
-          dataSourceId: "source-1",
-          propertyId: "property-1",
+          dataSourceId: parseDataSourceId("source-1"),
+          propertyId: parseDataSourcePropertyId("status"),
           expectedValueRevision: 1,
           value: "Done",
         },

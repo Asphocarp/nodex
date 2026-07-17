@@ -887,7 +887,9 @@ const assertCreatedIdsAreNewOrStagedOwners = (
   const readOwner = database.prepare(`
     SELECT owner.project_id, owner.type, owner.lifecycle, owner.location_kind,
       owner.containing_document_id, document.readiness, document.authority,
-      document.schema_key, document.schema_version
+      document.schema_key, document.schema_version,
+      owner_project.library_id AS owner_library_id,
+      operation_project.library_id AS operation_library_id
     FROM blocks owner
     INNER JOIN block_documents ownership
       ON ownership.block_id = owner.id
@@ -895,10 +897,12 @@ const assertCreatedIdsAreNewOrStagedOwners = (
     INNER JOIN documents document
       ON document.id = ownership.document_id
       AND document.project_id = ownership.project_id
+    INNER JOIN projects owner_project ON owner_project.id = owner.project_id
+    INNER JOIN projects operation_project ON operation_project.id = ?
     WHERE owner.id = ?
   `);
   for (const blockId of stagedOwners) {
-    const row = readOwner.get(blockId) as
+    const row = readOwner.get(request.projectId, blockId) as
       | {
           readonly project_id: string;
           readonly type: string;
@@ -909,10 +913,13 @@ const assertCreatedIdsAreNewOrStagedOwners = (
           readonly authority: string;
           readonly schema_key: string;
           readonly schema_version: number;
+          readonly owner_library_id: string;
+          readonly operation_library_id: string;
         }
       | undefined;
     if (
-      row?.project_id === request.projectId &&
+      row !== undefined &&
+      row.owner_library_id === row.operation_library_id &&
       row.lifecycle === "active" &&
       row.location_kind === "document" &&
       row.containing_document_id === request.documentId &&

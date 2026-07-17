@@ -204,7 +204,7 @@ const main = async (): Promise<void> => {
         `
         SELECT
           (SELECT COUNT(*) FROM top_level_block_placements WHERE block_id = ?) AS placements,
-          (SELECT COUNT(*) FROM database_memberships WHERE card_block_id = ? AND removed_at IS NULL) AS memberships
+          (SELECT COUNT(*) FROM data_source_page_memberships WHERE page_block_id = ? AND removed_at IS NULL) AS memberships
       `,
       )
       .get(blockIds.template, blockIds.template) as {

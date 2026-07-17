@@ -2,17 +2,27 @@ import { describe, expect, test } from "vitest";
 
 import { plainTextToPortableRichText } from "./block-documents";
 import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "./database-identities";
+import {
   PageDetailContractError,
   parsePageDetailResult,
   type PageDetailResult,
 } from "./page-detail";
 
 const timestamp = "2026-07-16T00:00:00.000Z";
+const databaseId = parseDatabaseId("019f714b-0000-7000-8000-000000000001");
+const dataSourceId = parseDataSourceId("019f714b-0000-7000-8000-000000000002");
+const viewId = parseDatabaseViewId("019f714b-0000-7000-8000-000000000003");
+const statusPropertyId = parseDataSourcePropertyId("status");
 
 const memberResult = (): PageDetailResult => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -20,7 +30,7 @@ const memberResult = (): PageDetailResult => ({
     page: {
       pageId: "page-1",
       libraryId: "library-1",
-      parent: { kind: "data_source", dataSourceId: "source-1" },
+      parent: { kind: "data_source", dataSourceId },
       lifecycle: "active",
       parentRevision: 1,
       metadataRevision: 1,
@@ -44,25 +54,25 @@ const memberResult = (): PageDetailResult => ({
       kind: "member",
       membership: {
         membershipId: "membership-1",
-        dataSourceId: "source-1",
+        dataSourceId,
         revision: 1,
         createdAt: timestamp,
       },
       database: {
-        databaseId: "database-1",
+        databaseId,
         libraryId: "library-1",
         name: "Database",
         lifecycle: "active",
-        defaultViewId: "view-1",
+        defaultViewId: viewId,
         accessRevision: 1,
         metadataRevision: 1,
         createdAt: timestamp,
         updatedAt: timestamp,
       },
       dataSource: {
-        dataSourceId: "source-1",
+        dataSourceId,
         libraryId: "library-1",
-        homeDatabaseId: "database-1",
+        homeDatabaseId: databaseId,
         name: "Pages",
         schemaKey: "nodex.data-source",
         schemaRevision: 1,
@@ -72,9 +82,8 @@ const memberResult = (): PageDetailResult => ({
         updatedAt: timestamp,
       },
       properties: [{
-        propertyId: "property-status",
-        dataSourceId: "source-1",
-        key: "status",
+        propertyId: statusPropertyId,
+        dataSourceId,
         name: "Status",
         valueType: "select",
         config: { options: [{ id: "draft", name: "Draft" }] },
@@ -85,8 +94,8 @@ const memberResult = (): PageDetailResult => ({
         updatedAt: timestamp,
       }],
       values: {
-        "property-status": {
-          propertyId: "property-status",
+        status: {
+          propertyId: statusPropertyId,
           valueType: "select",
           value: "draft",
           revision: 1,
@@ -101,7 +110,7 @@ describe("Page Detail contract", () => {
     const parsed = parsePageDetailResult(memberResult());
     expect(parsed.ok && parsed.value.page.parent).toEqual({
       kind: "data_source",
-      dataSourceId: "source-1",
+      dataSourceId,
     });
   });
 
@@ -111,7 +120,7 @@ describe("Page Detail contract", () => {
     const mutable = result.value.dataSourceContext.membership as {
       dataSourceId: string;
     };
-    mutable.dataSourceId = "source-2";
+    mutable.dataSourceId = "019f714b-0000-7000-8000-000000000004";
 
     expect(() => parsePageDetailResult(result)).toThrow(
       "Page parent and Data Source membership diverge",

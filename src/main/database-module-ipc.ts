@@ -1,15 +1,15 @@
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadRequest,
-  DatabaseModuleReadResult,
-} from "../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadRequestV2,
+  DatabaseModuleReadResultV2,
+} from "../shared/database-module-v2";
 import {
-  bindDatabaseApply,
-  bindDatabaseModuleRead,
-  databaseModuleFailure,
-  type TrustedDatabaseModuleIdentity,
-} from "../shared/database-module-transport";
+  bindDatabaseApplyV2,
+  bindDatabaseModuleReadV2,
+  databaseModuleFailureV2,
+  type TrustedDatabaseModuleIdentityV2,
+} from "../shared/database-module-v2-transport";
 
 export const DATABASE_MODULE_READ_IPC_CHANNEL =
   "database-module:read" as const;
@@ -29,20 +29,20 @@ export interface DatabaseModuleIpcDependencies {
   ) => void;
   readonly resolveTrustedIdentity: (
     event: unknown,
-  ) => TrustedDatabaseModuleIdentity | null;
-  readonly apply: (request: DatabaseApply) => Promise<DatabaseApplyResult>;
+  ) => TrustedDatabaseModuleIdentityV2 | null;
+  readonly apply: (request: DatabaseApplyV2) => Promise<DatabaseApplyResultV2>;
   readonly read: (
-    request: DatabaseModuleReadRequest,
-  ) => Promise<DatabaseModuleReadResult>;
+    request: DatabaseModuleReadRequestV2,
+  ) => Promise<DatabaseModuleReadResultV2>;
 }
 
 const failure = (
   code: "invalid_request" | "unknown",
   message: string,
   operationId?: string,
-): DatabaseApplyResult | DatabaseModuleReadResult => ({
+): DatabaseApplyResultV2 | DatabaseModuleReadResultV2 => ({
   ok: false,
-  error: databaseModuleFailure(code, message, operationId),
+  error: databaseModuleFailureV2(code, message, operationId),
 });
 
 export const registerDatabaseModuleIpcHandlers = (
@@ -57,9 +57,9 @@ export const registerDatabaseModuleIpcHandlers = (
           "Database Module reads are restricted to a trusted application window",
         );
       }
-      let request: DatabaseModuleReadRequest;
+      let request: DatabaseModuleReadRequestV2;
       try {
-        request = bindDatabaseModuleRead(rawRequest, projectId);
+        request = bindDatabaseModuleReadV2(rawRequest, projectId);
       } catch (error) {
         return failure(
           "invalid_request",
@@ -89,9 +89,9 @@ export const registerDatabaseModuleIpcHandlers = (
           "Database Module writes are restricted to a trusted application window",
         );
       }
-      let request: DatabaseApply;
+      let request: DatabaseApplyV2;
       try {
-        request = bindDatabaseApply(rawRequest, projectId, identity);
+        request = bindDatabaseApplyV2(rawRequest, projectId, identity);
       } catch (error) {
         return failure(
           "invalid_request",

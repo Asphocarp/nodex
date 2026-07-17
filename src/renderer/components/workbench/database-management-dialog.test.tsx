@@ -2,9 +2,15 @@ import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import type {
-  DatabaseContainerDescriptor,
-  DataSourceDescriptor,
-} from "../../../shared/database-module";
+  DatabaseContainerDescriptorV2,
+  DataSourceDescriptorV2,
+} from "../../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../../shared/database-identities";
 import { render } from "../../test/dom";
 import {
   DatabaseManagementSurface,
@@ -13,16 +19,18 @@ import {
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 const libraryId = "library-1";
-const databaseId = "database-primary";
-const dataSourceId = "source-primary";
+const databaseId = parseDatabaseId("database-primary");
+const dataSourceId = parseDataSourceId("source-primary");
+const primaryViewId = parseDatabaseViewId("view-primary");
+const listViewId = parseDatabaseViewId("view-list");
 
-const databases: readonly DatabaseContainerDescriptor[] = [{
+const databases: readonly DatabaseContainerDescriptorV2[] = [{
   database: {
     databaseId,
     libraryId,
     name: "Tasks",
     lifecycle: "active",
-    defaultViewId: "view-primary",
+    defaultViewId: primaryViewId,
     accessRevision: 1,
     metadataRevision: 1,
     createdAt: timestamp,
@@ -42,14 +50,14 @@ const databases: readonly DatabaseContainerDescriptor[] = [{
   }],
   views: [
     {
-      viewId: "view-primary",
+      viewId: primaryViewId,
       databaseId,
       dataSourceId,
       name: "Board",
       kind: "kanban",
       config: {
         schemaKey: "nodex.database-view",
-        schemaVersion: 1,
+        schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [{
           field: { kind: "manual" },
@@ -57,7 +65,7 @@ const databases: readonly DatabaseContainerDescriptor[] = [{
           nulls: "last",
         }],
         group: null,
-        display: { propertyIds: ["property-tags"], showTitle: true },
+        display: { propertyIds: ["tags"], showTitle: true },
       },
       isDefault: true,
       revision: 1,
@@ -67,14 +75,14 @@ const databases: readonly DatabaseContainerDescriptor[] = [{
       updatedAt: timestamp,
     },
     {
-      viewId: "view-list",
+      viewId: listViewId,
       databaseId,
       dataSourceId,
       name: "List",
       kind: "list",
       config: {
         schemaKey: "nodex.database-view",
-        schemaVersion: 1,
+        schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
@@ -90,16 +98,15 @@ const databases: readonly DatabaseContainerDescriptor[] = [{
   ],
 }];
 
-const source: DataSourceDescriptor = {
+const source: DataSourceDescriptorV2 = {
   dataSource: databases[0]!.dataSources[0]!,
   properties: [{
-    propertyId: "property-tags",
+    propertyId: parseDataSourcePropertyId("tags"),
     dataSourceId,
-    key: "tags",
     name: "Tags",
     valueType: "multi_select",
     config: {
-      options: [{ id: "option-page-first", name: "Page first" }],
+      options: [{ id: "o_AAAAAAAA", name: "Page first" }],
     },
     rankKey: "a",
     lifecycle: "active",
@@ -170,8 +177,8 @@ describe("DatabaseManagementSurface", () => {
     });
     expect(deletedOptions[0]).toEqual([
       dataSourceId,
-      "property-tags",
-      "option-page-first",
+      "tags",
+      "o_AAAAAAAA",
     ]);
   });
 

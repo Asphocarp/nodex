@@ -36,6 +36,7 @@ export function makeInitialDatabaseViewPanelStateJson(tabId: string): string {
 export function insertInitialDatabaseViewSession(
   database: Database.Database,
   projectId: string,
+  databaseViewId: string,
   now: string,
   options: { shiftExisting?: boolean } = {},
 ): { sessionId: string; tabId: string } {
@@ -73,6 +74,7 @@ export function insertInitialDatabaseViewSession(
   insertDatabaseViewTab(database, {
     sessionId,
     projectId,
+    databaseViewId,
     tabId,
     now,
   });
@@ -85,6 +87,7 @@ export function insertDatabaseViewTab(
   input: {
     sessionId: string;
     projectId: string;
+    databaseViewId: string;
     tabId: string;
     now: string;
   },
@@ -100,7 +103,7 @@ export function insertDatabaseViewTab(
     INITIAL_DATABASE_VIEW_TAB_TITLE,
     JSON.stringify({
       projectId: input.projectId,
-      databaseViewId: seededPrimaryDatabaseViewId(input.projectId),
+      databaseViewId: input.databaseViewId,
       view: "kanban",
     }),
     input.now,

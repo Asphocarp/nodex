@@ -1,20 +1,22 @@
 import type {
-  BlockPropertyFieldMutation,
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-  BlockPropertyJsonValue,
-} from "../../shared/block-property-mutations";
-import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
+  BlockPropertyFieldMutationV2,
+  BlockPropertyJsonValueV2,
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../../shared/block-property-mutations-v2";
+import { stableStringifyBlockPropertyJsonV2 } from "../../shared/block-property-mutations-v2";
+import {
+  parseDataSourceId,
+  parseDataSourceOptionId,
+  parseDataSourcePropertyId,
+  type DataSourceOptionId,
+} from "../../shared/database-identities";
 import { isWorkflowStatus } from "../../shared/workflow-status";
-import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  SetDataSourcePageValueOperation,
-} from "../../shared/database-module";
 import type {
   DatabaseJsonValue,
   DatabasePropertyValueType,
 } from "../../shared/database-kernel";
+import { parseDatabasePropertyConfig } from "../../shared/database-kernel";
 import type { PageDetail } from "../../shared/page-detail";
 import type {
   PageInput,
@@ -22,25 +24,25 @@ import type {
   Estimate,
   Priority,
 } from "../../shared/types";
-import { applyDatabaseModule, mutateBlockProperties } from "./api";
+import { mutateBlockProperties } from "./api";
 import { fetchPageDetail } from "./page-detail-store";
 import type { PageStageMetadataMutationResult } from "./page-stage-page";
 
 type MetadataPatch = Partial<PageInput>;
+type DataSourceProperty = Extract<
+  PageDetail["dataSourceContext"],
+  { readonly kind: "member" }
+>["properties"][number];
 
 export interface PageDetailMetadataRuntimeDependencies {
   readonly readDetail: (
     projectId: string,
     pageId: string,
   ) => Promise<PageDetail | null>;
-  readonly applyDatabase: (
+  readonly mutateProperties: (
     projectId: string,
-    request: DatabaseApply,
-  ) => Promise<DatabaseApplyResult>;
-  readonly mutateIntrinsic: (
-    projectId: string,
-    request: BlockPropertyMutationRequest,
-  ) => Promise<BlockPropertyMutationCommandResult>;
+    request: BlockPropertyMutationRequestV2,
+  ) => Promise<BlockPropertyMutationCommandResultV2>;
   readonly refreshDetail: (
     projectId: string,
     pageId: string,
@@ -49,8 +51,7 @@ export interface PageDetailMetadataRuntimeDependencies {
 
 const DEFAULT_DEPENDENCIES: PageDetailMetadataRuntimeDependencies = {
   readDetail: fetchPageDetail,
-  applyDatabase: applyDatabaseModule,
-  mutateIntrinsic: mutateBlockProperties,
+  mutateProperties: mutateBlockProperties,
   refreshDetail: fetchPageDetail,
 };
 
@@ -106,11 +107,11 @@ const RUN_TARGETS = new Set<PageRunInTarget>([
 const portableValue = (
   value: unknown,
   label: string,
-): BlockPropertyJsonValue => {
+): BlockPropertyJsonValueV2 => {
   try {
     return JSON.parse(
-      stableStringifyBlockPropertyJson(value),
-    ) as BlockPropertyJsonValue;
+      stableStringifyBlockPropertyJsonV2(value),
+    ) as BlockPropertyJsonValueV2;
   } catch (error) {
     throw new TypeError(`${label} must be bounded portable JSON`, {
       cause: error,
@@ -119,8 +120,8 @@ const portableValue = (
 };
 
 const stableEqual = (left: unknown, right: unknown): boolean =>
-  stableStringifyBlockPropertyJson(left) ===
-  stableStringifyBlockPropertyJson(right);
+  stableStringifyBlockPropertyJsonV2(left) ===
+  stableStringifyBlockPropertyJsonV2(right);
 
 export const isPageMetadataPatch = (patch: Partial<PageInput>): boolean => {
   const fields = Object.keys(patch);
@@ -192,7 +193,7 @@ const databaseValue = (
 const intrinsicValue = (
   field: keyof typeof INTRINSIC_FIELDS,
   value: unknown,
-): BlockPropertyJsonValue => {
+): BlockPropertyJsonValueV2 => {
   if (value === undefined) {
     throw new TypeError(`Page ${field} must be omitted instead of undefined`);
   }
@@ -220,10 +221,46 @@ const intrinsicValue = (
   throw new TypeError(`Page ${field} must be a string or null`);
 };
 
-const compileDatabaseOperations = (
+const resolveTagOptionIds = (
+  property: DataSourceProperty,
+  tagNames: readonly string[],
+): readonly DataSourceOptionId[] => {
+  const propertyId = parseDataSourcePropertyId(property.propertyId);
+  const config = parseDatabasePropertyConfig(property.valueType, property.config);
+  if (!Array.isArray(config.options)) {
+    throw new Error(`Data Source Property ${property.propertyId} has no option registry`);
+  }
+  const byName = new Map<string, string>();
+  const optionIds = new Set<string>();
+  for (const candidate of config.options) {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+      continue;
+    }
+    const option = candidate as Readonly<Record<string, DatabaseJsonValue>>;
+    if (typeof option.id !== "string" || typeof option.name !== "string") continue;
+    if (byName.has(option.name)) {
+      throw new Error(
+        `Data Source Property ${property.propertyId} has ambiguous option name ${option.name}`,
+      );
+    }
+    byName.set(option.name, option.id);
+    optionIds.add(option.id);
+  }
+  return [...new Set(tagNames.map((tagName) => {
+    const optionId = byName.get(tagName) ?? (optionIds.has(tagName) ? tagName : null);
+    if (!optionId) {
+      throw new Error(
+        `Data Source Property ${property.propertyId} has no option named ${tagName}`,
+      );
+    }
+    return parseDataSourceOptionId({ propertyId, value: optionId });
+  }))].sort();
+};
+
+const compileDataSourceFields = (
   detail: PageDetail,
   patch: MetadataPatch,
-): readonly SetDataSourcePageValueOperation[] => {
+): readonly BlockPropertyFieldMutationV2[] => {
   const entries = Object.entries(DATABASE_FIELDS) as Array<
     [
       keyof typeof DATABASE_FIELDS,
@@ -236,9 +273,12 @@ const compileDatabaseOperations = (
     throw new Error("This Page has no Data Source properties");
   }
   const context = detail.dataSourceContext;
-  return requested.flatMap(([field, definition]) => {
+  return requested.flatMap<BlockPropertyFieldMutationV2>(([
+    field,
+    definition,
+  ]) => {
     const property = context.properties.find(
-      (candidate) => candidate.key === definition.key,
+      (candidate) => candidate.propertyId === definition.key,
     );
     if (!property) {
       throw new Error(
@@ -250,18 +290,50 @@ const compileDatabaseOperations = (
         `Data Source property ${property.propertyId} has incompatible type ${property.valueType}`,
       );
     }
-    const value = databaseValue(field, patch[field]);
+    const requestedValue = databaseValue(field, patch[field]);
     const current = context.values[property.propertyId];
     const currentValue = current?.value ??
       (property.valueType === "multi_select" ? [] : null);
-    if (stableEqual(currentValue, value)) return [];
+    const propertyId = parseDataSourcePropertyId(property.propertyId);
+    const dataSourceId = parseDataSourceId(context.dataSource.dataSourceId);
+    if (property.valueType === "multi_select") {
+      if (!Array.isArray(requestedValue)) {
+        throw new Error(`Data Source Property ${property.propertyId} requires option names`);
+      }
+      const value = resolveTagOptionIds(property, requestedValue);
+      if (!Array.isArray(currentValue) || !currentValue.every((entry) => typeof entry === "string")) {
+        throw new Error(`Data Source Property ${property.propertyId} has a corrupt value`);
+      }
+      const currentIds = currentValue.map((optionId) =>
+        parseDataSourceOptionId({ propertyId, value: optionId })
+      );
+      const currentSet = new Set(currentIds);
+      const nextSet = new Set(value);
+      const add = value.filter((optionId) => !currentSet.has(optionId));
+      const remove = currentIds.filter((optionId) => !nextSet.has(optionId));
+      if (add.length === 0 && remove.length === 0) return [];
+      return [{
+        scope: "data_source" as const,
+        pageId: detail.page.pageId,
+        dataSourceId,
+        propertyId,
+        operation: "add_remove" as const,
+        add,
+        remove,
+      }];
+    }
+    if (typeof requestedValue !== "string" && requestedValue !== null) {
+      throw new Error(`Data Source Property ${property.propertyId} requires a scalar value`);
+    }
+    if (stableEqual(currentValue, requestedValue)) return [];
     return [{
-      kind: "set_value",
+      scope: "data_source" as const,
       pageId: detail.page.pageId,
-      dataSourceId: context.dataSource.dataSourceId,
-      propertyId: property.propertyId,
-      expectedValueRevision: current?.revision ?? 0,
-      value,
+      dataSourceId,
+      propertyId,
+      operation: "set" as const,
+      expectedRevision: current?.revision ?? 0,
+      value: requestedValue,
     }];
   });
 };
@@ -269,7 +341,7 @@ const compileDatabaseOperations = (
 const compileIntrinsicFields = (
   detail: PageDetail,
   patch: MetadataPatch,
-): readonly BlockPropertyFieldMutation[] => {
+): readonly BlockPropertyFieldMutationV2[] => {
   const entries = Object.entries(INTRINSIC_FIELDS) as Array<
     [keyof typeof INTRINSIC_FIELDS, string]
   >;
@@ -291,32 +363,18 @@ const compileIntrinsicFields = (
   });
 };
 
-const retryDatabaseApply = async (
+const retryPropertyMutation = async (
   projectId: string,
-  request: DatabaseApply,
+  request: BlockPropertyMutationRequestV2,
   dependencies: PageDetailMetadataRuntimeDependencies,
-): Promise<DatabaseApplyResult> => {
+): Promise<BlockPropertyMutationCommandResultV2> => {
   try {
-    const result = await dependencies.applyDatabase(projectId, request);
-    if (result.ok || !result.error.retryable) return result;
-  } catch {
-    // Durable operation identity makes one exact retry transport-safe.
-  }
-  return await dependencies.applyDatabase(projectId, request);
-};
-
-const retryIntrinsicMutation = async (
-  projectId: string,
-  request: BlockPropertyMutationRequest,
-  dependencies: PageDetailMetadataRuntimeDependencies,
-): Promise<BlockPropertyMutationCommandResult> => {
-  try {
-    const result = await dependencies.mutateIntrinsic(projectId, request);
+    const result = await dependencies.mutateProperties(projectId, request);
     if (result.ok || !result.error.retryable) return result;
   } catch {
     // Durable mutation identity makes one exact retry transport-safe.
   }
-  return await dependencies.mutateIntrinsic(projectId, request);
+  return await dependencies.mutateProperties(projectId, request);
 };
 
 export const commitPageDetailMetadataPatch = async (input: {
@@ -333,47 +391,24 @@ export const commitPageDetailMetadataPatch = async (input: {
   }
   const detail = await dependencies.readDetail(input.projectId, input.pageId);
   if (!detail) return { status: "not_found" };
-  const databaseOperations = compileDatabaseOperations(detail, input.patch);
+  const dataSourceFields = compileDataSourceFields(detail, input.patch);
   const intrinsicFields = compileIntrinsicFields(detail, input.patch);
-  if (databaseOperations.length === 0 && intrinsicFields.length === 0) {
+  const fields = [...dataSourceFields, ...intrinsicFields];
+  if (fields.length === 0) {
     await dependencies.refreshDetail(input.projectId, input.pageId);
     return { status: "updated", didMutate: false };
   }
 
-  if (databaseOperations.length > 0) {
-    const result = await retryDatabaseApply(
+  const result = await retryPropertyMutation(
       input.projectId,
       {
-        version: 1,
-        operationId: `${input.operationId}:data-source`,
-        projectId: input.projectId,
-        storeEpoch: detail.storeEpoch,
-        actor: { kind: "page_stage" },
-        operations: databaseOperations,
-      },
-      dependencies,
-    );
-    if (!result.ok) {
-      if (result.error.code === "revision_conflict") {
-        await dependencies.refreshDetail(input.projectId, input.pageId);
-        return { status: "conflict" };
-      }
-      if (result.error.code === "resource_not_found") return { status: "not_found" };
-      return { status: "error", error: result.error.message };
-    }
-  }
-
-  if (intrinsicFields.length > 0) {
-    const result = await retryIntrinsicMutation(
-      input.projectId,
-      {
-        version: 1,
-        mutationId: `${input.operationId}:intrinsic`,
+        version: 2,
+        mutationId: input.operationId,
         projectId: input.projectId,
         storeEpoch: detail.storeEpoch,
         ...(input.clientSessionId ? { clientSessionId: input.clientSessionId } : {}),
         actor: { kind: "page_stage" },
-        fields: intrinsicFields,
+        fields,
       },
       dependencies,
     );
@@ -382,10 +417,17 @@ export const commitPageDetailMetadataPatch = async (input: {
         await dependencies.refreshDetail(input.projectId, input.pageId);
         return { status: "conflict" };
       }
-      if (result.error.code === "block_not_found") return { status: "not_found" };
+      if (
+        result.error.code === "block_not_found" ||
+        result.error.code === "data_source_not_found" ||
+        result.error.code === "membership_not_found" ||
+        result.error.code === "property_not_found" ||
+        result.error.code === "project_not_found"
+      ) {
+        return { status: "not_found" };
+      }
       return { status: "error", error: result.error.message };
     }
-  }
 
   await dependencies.refreshDetail(input.projectId, input.pageId);
   return { status: "updated", didMutate: true };

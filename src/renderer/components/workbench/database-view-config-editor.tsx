@@ -12,9 +12,9 @@ import type {
   DatabaseViewFilterNode,
   DatabaseViewFilterOperator,
   DatabaseViewSort,
-  DatabaseViewConfig,
+  DatabaseViewConfigV2,
 } from "../../../shared/database-kernel";
-import type { DataSourcePropertyRecord } from "../../../shared/database-module";
+import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import {
   appendDatabaseViewFilterChild,
@@ -32,10 +32,10 @@ import {
 import { cn } from "@/lib/utils";
 
 interface DatabaseViewConfigEditorProps {
-  readonly config: DatabaseViewConfig;
-  readonly properties: readonly DataSourcePropertyRecord[];
+  readonly config: DatabaseViewConfigV2;
+  readonly properties: readonly DataSourcePropertyRecordV2[];
   readonly disabled?: boolean;
-  readonly onChange: (config: DatabaseViewConfig) => void;
+  readonly onChange: (config: DatabaseViewConfigV2) => void;
 }
 
 const selectClass = cn(
@@ -58,14 +58,14 @@ const FILTER_OPERATOR_LABELS: Readonly<Record<DatabaseViewFilterOperator, string
 };
 
 const activeProperties = (
-  properties: readonly DataSourcePropertyRecord[],
-): readonly DataSourcePropertyRecord[] =>
+  properties: readonly DataSourcePropertyRecordV2[],
+): readonly DataSourcePropertyRecordV2[] =>
   properties.filter((property) => property.lifecycle === "active");
 
 const propertyForClause = (
-  properties: readonly DataSourcePropertyRecord[],
+  properties: readonly DataSourcePropertyRecordV2[],
   clause: DatabaseViewFilterClause,
-): DataSourcePropertyRecord | null =>
+): DataSourcePropertyRecordV2 | null =>
   properties.find(
     (property) => property.propertyId === clause.propertyId,
   ) ?? null;
@@ -88,7 +88,7 @@ function FilterValueField({
   onChange,
 }: {
   readonly clause: DatabaseViewFilterClause;
-  readonly property: DataSourcePropertyRecord;
+  readonly property: DataSourcePropertyRecordV2;
   readonly disabled: boolean;
   readonly onChange: (value: DatabaseJsonValue) => void;
 }) {
@@ -184,7 +184,7 @@ function FilterNodeEditor({
   readonly node: DatabaseViewFilterNode;
   readonly path: DatabaseViewFilterPath;
   readonly depth: number;
-  readonly properties: readonly DataSourcePropertyRecord[];
+  readonly properties: readonly DataSourcePropertyRecordV2[];
   readonly disabled: boolean;
   readonly onUpdate: (path: DatabaseViewFilterPath, node: DatabaseViewFilterNode) => void;
   readonly onRemove: (path: DatabaseViewFilterPath) => void;
@@ -365,7 +365,7 @@ function SortEditor({
   onChange,
 }: {
   readonly sorts: readonly DatabaseViewSort[];
-  readonly properties: readonly DataSourcePropertyRecord[];
+  readonly properties: readonly DataSourcePropertyRecordV2[];
   readonly disabled: boolean;
   readonly onChange: (sorts: readonly DatabaseViewSort[]) => void;
 }) {

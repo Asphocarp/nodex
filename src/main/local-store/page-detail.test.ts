@@ -48,7 +48,7 @@ describe("Page Detail", () => {
     expect(result.value.dataSourceContext.kind).toBe("member");
     if (result.value.dataSourceContext.kind !== "member") return;
     const status = result.value.dataSourceContext.properties.find(
-      (property) => property.key === "status",
+      (property) => property.propertyId === "status",
     );
     expect(status?.dataSourceId).toBe(
       result.value.dataSourceContext.dataSource.dataSourceId,

@@ -99,6 +99,7 @@ interface PropertyValueRow {
   readonly page_block_id: string;
   readonly property_key: string;
   readonly value_type: string;
+  readonly config_json: string;
   readonly value_json: string | null;
   readonly revision: number | null;
 }
@@ -133,6 +134,96 @@ interface AssembledPage {
 }
 
 const PAGE_AUTHORITY_SELECT = `
+  WITH ranked_primary_positions AS (
+    SELECT
+      view.database_block_id,
+      view.data_source_id,
+      view.id AS view_id,
+      position.page_block_id,
+      position.group_key,
+      position.rank_key,
+      CAST(
+        ROW_NUMBER() OVER (
+          PARTITION BY view.id, position.group_key
+          ORDER BY position.rank_key, position.page_block_id
+        ) - 1 AS INTEGER
+      ) AS view_order
+    FROM database_views view
+    INNER JOIN database_containers container
+      ON container.default_view_id = view.id
+      AND container.block_id = view.database_block_id
+    INNER JOIN database_view_page_positions position
+      ON position.view_id = view.id
+    WHERE view.kind = 'kanban'
+      AND view.lifecycle = 'active'
+  ), active_source_memberships AS (
+    SELECT
+      membership.id,
+      membership.data_source_id,
+      membership.page_block_id,
+      source.home_database_block_id AS database_block_id
+    FROM data_source_page_memberships membership
+    INNER JOIN data_sources source ON source.id = membership.data_source_id
+    WHERE membership.removed_at IS NULL
+  )
+  SELECT
+    page.id AS page_block_id,
+    page.project_id,
+    page.lifecycle,
+    page.location_kind,
+    page.containing_document_id,
+    page.containing_database_id,
+    page.location_revision,
+    page.metadata_revision,
+    page.created_at AS block_created_at,
+    placement.rank_key AS top_level_rank_key,
+    document.id AS document_id,
+    document.generation AS document_generation,
+    document.head_seq AS document_head_seq,
+    document.schema_version AS document_schema_version,
+    document.readiness AS document_readiness,
+    document.authority AS document_authority,
+    materialization.generation AS materialization_generation,
+    materialization.projected_seq AS materialization_projected_seq,
+    materialization.schema_version AS materialization_schema_version,
+    materialization.title AS materialized_title,
+    materialization.title_rich_json AS materialized_title_rich_json,
+    materialization.nfm AS materialized_nfm,
+    materialization.preview AS materialized_preview,
+    materialization.updated_at AS materialization_updated_at,
+    membership.id AS membership_id,
+    membership.database_block_id,
+    position.view_id,
+    position.group_key AS view_group_key,
+    position.rank_key AS view_rank_key,
+    position.view_order
+  FROM blocks page
+  LEFT JOIN top_level_block_placements placement
+    ON placement.block_id = page.id
+    AND placement.project_id = page.project_id
+  LEFT JOIN block_documents ownership
+    ON ownership.block_id = page.id
+    AND ownership.project_id = page.project_id
+  LEFT JOIN documents document
+    ON document.id = ownership.document_id
+    AND document.project_id = ownership.project_id
+  LEFT JOIN document_materializations materialization
+    ON materialization.document_id = document.id
+  LEFT JOIN active_source_memberships membership
+    ON membership.page_block_id = page.id
+    AND page.location_kind = 'database'
+    AND page.containing_database_id = membership.database_block_id
+  LEFT JOIN ranked_primary_positions position
+    ON position.database_block_id = membership.database_block_id
+    AND position.data_source_id = membership.data_source_id
+    AND position.page_block_id = page.id
+  WHERE page.type = 'page'
+`;
+
+// Release migrations before v69 rebuild the Page projection before canonical
+// Data Source tables exist. Keep that historical reader isolated here; schema
+// v81 runtime always selects PAGE_AUTHORITY_SELECT.
+const LEGACY_PAGE_AUTHORITY_SELECT = `
   WITH ranked_primary_positions AS (
     SELECT
       view.database_block_id,
@@ -208,6 +299,38 @@ const PAGE_AUTHORITY_SELECT = `
   WHERE page.type = 'page'
 `;
 
+const tableExists = (
+  database: Database.Database,
+  tableName: string,
+): boolean =>
+  database.prepare(`
+    SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?
+  `).get(tableName) !== undefined;
+
+const hasCanonicalDataSourceAuthority = (
+  database: Database.Database,
+): boolean =>
+  Number(database.pragma("user_version", { simple: true })) >= 81 &&
+  tableExists(database, "data_source_page_memberships");
+
+const pageAuthoritySelect = (database: Database.Database): string =>
+  hasCanonicalDataSourceAuthority(database)
+    ? PAGE_AUTHORITY_SELECT
+    : LEGACY_PAGE_AUTHORITY_SELECT;
+
+const projectDatabaseAuthoritySubquery = (
+  database: Database.Database,
+): string =>
+  hasCanonicalDataSourceAuthority(database)
+    ? `SELECT binding.database_block_id
+       FROM project_database_bindings binding
+       WHERE binding.project_id = ? AND binding.lifecycle = 'active'
+       LIMIT 1`
+    : `SELECT capability.block_id
+       FROM database_capabilities capability
+       WHERE capability.project_id = ? AND capability.is_primary = 1
+       LIMIT 1`;
+
 const UNPOSITIONED_PAGE_ORDER = Number.MAX_SAFE_INTEGER;
 
 const DATABASE_PROPERTY_PLACEHOLDERS = DATABASE_PROPERTY_KEYS.map(
@@ -225,6 +348,66 @@ const throwReadError = (
   throw new PageReadStoreError(code, `Page ${pageId} ${detail}`);
 };
 
+const resolveCompatibilityTagNames = (
+  row: PropertyValueRow,
+  value: unknown,
+): readonly string[] => {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    return throwReadError(
+      "page_property_invalid",
+      row.page_block_id,
+      "property tags must be an array of registered option identities",
+    );
+  }
+  let config: unknown;
+  try {
+    config = JSON.parse(row.config_json) as unknown;
+  } catch (error) {
+    throw new PageReadStoreError(
+      "page_property_invalid",
+      `Page ${row.page_block_id} tags Property has invalid configuration JSON`,
+      { cause: error },
+    );
+  }
+  const options =
+    typeof config === "object" && config !== null && !Array.isArray(config)
+      ? (config as Readonly<Record<string, unknown>>).options
+      : undefined;
+  if (!Array.isArray(options)) {
+    return throwReadError(
+      "page_property_invalid",
+      row.page_block_id,
+      "tags Property has no option registry",
+    );
+  }
+  const namesById = new Map<string, string>();
+  for (const candidate of options) {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+      return throwReadError(
+        "page_property_invalid",
+        row.page_block_id,
+        "tags Property contains an invalid option",
+      );
+    }
+    const option = candidate as Readonly<Record<string, unknown>>;
+    if (typeof option.id !== "string" || typeof option.name !== "string") {
+      return throwReadError(
+        "page_property_invalid",
+        row.page_block_id,
+        "tags Property contains an invalid option",
+      );
+    }
+    namesById.set(option.id, option.name);
+  }
+  return (value as readonly string[]).map((optionId) => {
+    const name = namesById.get(optionId);
+    if (name !== undefined) return name;
+    // v80 can contain literal labels from the historical Page creation path.
+    // Schema v81 closes that write path before this fallback is removed.
+    return optionId;
+  }).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+};
+
 const parseJsonValue = (row: PropertyValueRow): ParsedPropertyValue => {
   if (row.value_json === null || row.revision === null) {
     return throwReadError(
@@ -236,11 +419,9 @@ const parseJsonValue = (row: PropertyValueRow): ParsedPropertyValue => {
     );
   }
 
+  let parsed: unknown;
   try {
-    return {
-      value: JSON.parse(row.value_json) as unknown,
-      revision: row.revision,
-    };
+    parsed = JSON.parse(row.value_json) as unknown;
   } catch (error) {
     throw new PageReadStoreError(
       "page_property_invalid",
@@ -248,6 +429,13 @@ const parseJsonValue = (row: PropertyValueRow): ParsedPropertyValue => {
       { cause: error },
     );
   }
+  return {
+    value:
+      row.property_key === "tags"
+        ? resolveCompatibilityTagNames(row, parsed)
+        : parsed,
+    revision: row.revision,
+  };
 };
 
 const readDatabasePropertyRows = (
@@ -256,26 +444,53 @@ const readDatabasePropertyRows = (
 ): PropertyValueRow[] => {
   if (pageIds.length === 0) return [];
   const pagePlaceholders = pageIds.map(() => "?").join(", ");
+  if (!hasCanonicalDataSourceAuthority(database)) {
+    return database
+      .prepare(
+        `
+      SELECT
+        membership.page_block_id,
+        property.key AS property_key,
+        property.value_type,
+        property.config_json,
+        value.value_json,
+        value.revision
+      FROM database_memberships membership
+      INNER JOIN database_properties property
+        ON property.database_block_id = membership.database_block_id
+        AND property.project_id = membership.project_id
+        AND property.lifecycle = 'active'
+        AND property.key IN (${DATABASE_PROPERTY_PLACEHOLDERS})
+      LEFT JOIN database_property_values value
+        ON value.membership_id = membership.id
+        AND value.property_id = property.id
+        AND value.database_block_id = membership.database_block_id
+        AND value.project_id = membership.project_id
+      WHERE membership.removed_at IS NULL
+        AND membership.page_block_id IN (${pagePlaceholders})
+    `,
+      )
+      .all(...DATABASE_PROPERTY_KEYS, ...pageIds) as PropertyValueRow[];
+  }
   return database
     .prepare(
       `
     SELECT
       membership.page_block_id,
-      property.key AS property_key,
+      property.id AS property_key,
       property.value_type,
+      property.config_json,
       value.value_json,
       value.revision
-    FROM database_memberships membership
-    INNER JOIN database_properties property
-      ON property.database_block_id = membership.database_block_id
-      AND property.project_id = membership.project_id
+    FROM data_source_page_memberships membership
+    INNER JOIN data_source_properties property
+      ON property.data_source_id = membership.data_source_id
       AND property.lifecycle = 'active'
-      AND property.key IN (${DATABASE_PROPERTY_PLACEHOLDERS})
-    LEFT JOIN database_property_values value
+      AND property.id IN (${DATABASE_PROPERTY_PLACEHOLDERS})
+    LEFT JOIN data_source_property_values value
       ON value.membership_id = membership.id
       AND value.property_id = property.id
-      AND value.database_block_id = membership.database_block_id
-      AND value.project_id = membership.project_id
+      AND value.data_source_id = membership.data_source_id
     WHERE membership.removed_at IS NULL
       AND membership.page_block_id IN (${pagePlaceholders})
   `,
@@ -296,6 +511,7 @@ const readIntrinsicPropertyRows = (
       block_id AS page_block_id,
       property_key,
       value_type,
+      '{}' AS config_json,
       value_json,
       revision
     FROM block_properties
@@ -887,7 +1103,7 @@ const readRowsByIds = (
   return database
     .prepare(
       `
-    ${PAGE_AUTHORITY_SELECT}
+    ${pageAuthoritySelect(database)}
       AND page.project_id = ?
       AND page.lifecycle <> 'deleted'
       AND page.id IN (${placeholders})
@@ -905,7 +1121,7 @@ const readRowsByGlobalIds = (
   return database
     .prepare(
       `
-    ${PAGE_AUTHORITY_SELECT}
+    ${pageAuthoritySelect(database)}
       AND page.lifecycle <> 'deleted'
       AND page.id IN (${placeholders})
   `,
@@ -957,14 +1173,11 @@ export function readProjectDatabasePages(
     const rows = database
       .prepare(
         `
-      ${PAGE_AUTHORITY_SELECT}
+      ${pageAuthoritySelect(database)}
         AND page.project_id = ?
         AND page.lifecycle = 'active'
         AND membership.database_block_id = (
-          SELECT capability.block_id
-          FROM database_capabilities capability
-          WHERE capability.project_id = ? AND capability.is_primary = 1
-          LIMIT 1
+          ${projectDatabaseAuthoritySubquery(database)}
         )
     `,
       )
@@ -1044,14 +1257,11 @@ export function readProjectDatabasePageSummaries(
     const rows = database
       .prepare(
         `
-      ${PAGE_AUTHORITY_SELECT}
+      ${pageAuthoritySelect(database)}
         AND page.project_id = ?
         AND page.lifecycle = 'active'
         AND membership.database_block_id = (
-          SELECT capability.block_id
-          FROM database_capabilities capability
-          WHERE capability.project_id = ? AND capability.is_primary = 1
-          LIMIT 1
+          ${projectDatabaseAuthoritySubquery(database)}
         )
     `,
       )
@@ -1092,7 +1302,7 @@ export function readDatabasePageSummaryByDocumentId(
     const row = database
       .prepare(
         `
-      ${PAGE_AUTHORITY_SELECT}
+      ${pageAuthoritySelect(database)}
         AND document.id = ?
         AND document.readiness = 'ready'
         AND document.authority = 'ydoc_primary'

@@ -1,14 +1,14 @@
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "../shared/page-lifecycle";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../shared/page-lifecycle-v2";
 import {
-  bindTrustedPageLifecycleMutation,
-  pageLifecycleMutationFailure,
-  pageLifecycleTransportFailure,
-  type TrustedPageLifecycleMutationIdentity,
-} from "../shared/page-lifecycle-transport";
-import type { PageLifecyclePreflightResult } from "../shared/page-lifecycle-runtime";
+  bindTrustedPageLifecycleMutationV2,
+  pageLifecycleMutationFailureV2,
+  pageLifecycleTransportFailureV2,
+  type TrustedPageLifecycleMutationIdentityV2,
+} from "../shared/page-lifecycle-v2-transport";
+import type { PageLifecyclePreflightResultV2 } from "../shared/page-lifecycle-v2-runtime";
 
 export const PAGE_LIFECYCLE_MUTATION_IPC_CHANNEL =
   "pages:lifecycle:apply" as const;
@@ -22,14 +22,14 @@ export interface PageLifecycleIpcDependencies {
       event: unknown,
       projectId: string,
       rawRequest: unknown,
-    ) => Promise<PageLifecycleMutationCommandResult>,
+    ) => Promise<PageLifecycleMutationCommandResultV2>,
   ) => void;
   readonly getTrustedIdentity: (
     event: unknown,
-  ) => TrustedPageLifecycleMutationIdentity | null;
+  ) => TrustedPageLifecycleMutationIdentityV2 | null;
   readonly applyMutation: (
-    request: PageLifecycleMutationRequest,
-  ) => Promise<PageLifecycleMutationCommandResult>;
+    request: PageLifecycleMutationRequestV2,
+  ) => Promise<PageLifecycleMutationCommandResultV2>;
 }
 
 export const registerPageLifecycleIpcHandler = (
@@ -42,14 +42,14 @@ export const registerPageLifecycleIpcHandler = (
       if (!identity) {
         return {
           ok: false,
-          error: pageLifecycleMutationFailure(
+          error: pageLifecycleMutationFailureV2(
             "invalid_page_lifecycle_request",
             "Page lifecycle mutations are restricted to a trusted application window",
             rawRequest,
           ),
         };
       }
-      const bound = bindTrustedPageLifecycleMutation(
+      const bound = bindTrustedPageLifecycleMutationV2(
         rawRequest,
         projectId,
         identity,
@@ -58,7 +58,7 @@ export const registerPageLifecycleIpcHandler = (
       try {
         return await dependencies.applyMutation(bound.value);
       } catch (error) {
-        return pageLifecycleTransportFailure(bound.value, error);
+        return pageLifecycleTransportFailureV2(bound.value, error);
       }
     },
   );
@@ -71,12 +71,12 @@ export interface PageLifecyclePreflightIpcDependencies {
       event: unknown,
       projectId: string,
       pageId: string,
-    ) => Promise<PageLifecyclePreflightResult>,
+    ) => Promise<PageLifecyclePreflightResultV2>,
   ) => void;
   readonly readPreflight: (
     projectId: string,
     pageId: string,
-  ) => Promise<PageLifecyclePreflightResult>;
+  ) => Promise<PageLifecyclePreflightResultV2>;
 }
 
 export const registerPageLifecyclePreflightIpcHandler = (

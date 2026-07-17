@@ -400,30 +400,25 @@ const readScheduledProjectionSources = (
         reminders.value_json AS reminders_json,
         schedule_timezone.value_json AS schedule_timezone_json
       FROM blocks page
-      LEFT JOIN database_memberships membership
+      LEFT JOIN data_source_page_memberships membership
         ON membership.page_block_id = page.id
-        AND membership.project_id = page.project_id
         AND membership.removed_at IS NULL
-      LEFT JOIN database_properties scheduled_start_property
-        ON scheduled_start_property.database_block_id = membership.database_block_id
-        AND scheduled_start_property.project_id = membership.project_id
-        AND scheduled_start_property.key = 'scheduled_start'
+      LEFT JOIN data_source_properties scheduled_start_property
+        ON scheduled_start_property.data_source_id = membership.data_source_id
+        AND scheduled_start_property.id = 'scheduled_start'
         AND scheduled_start_property.lifecycle = 'active'
-      LEFT JOIN database_property_values scheduled_start
+      LEFT JOIN data_source_property_values scheduled_start
         ON scheduled_start.membership_id = membership.id
         AND scheduled_start.property_id = scheduled_start_property.id
-        AND scheduled_start.database_block_id = membership.database_block_id
-        AND scheduled_start.project_id = membership.project_id
-      LEFT JOIN database_properties scheduled_end_property
-        ON scheduled_end_property.database_block_id = membership.database_block_id
-        AND scheduled_end_property.project_id = membership.project_id
-        AND scheduled_end_property.key = 'scheduled_end'
+        AND scheduled_start.data_source_id = membership.data_source_id
+      LEFT JOIN data_source_properties scheduled_end_property
+        ON scheduled_end_property.data_source_id = membership.data_source_id
+        AND scheduled_end_property.id = 'scheduled_end'
         AND scheduled_end_property.lifecycle = 'active'
-      LEFT JOIN database_property_values scheduled_end
+      LEFT JOIN data_source_property_values scheduled_end
         ON scheduled_end.membership_id = membership.id
         AND scheduled_end.property_id = scheduled_end_property.id
-        AND scheduled_end.database_block_id = membership.database_block_id
-        AND scheduled_end.project_id = membership.project_id
+        AND scheduled_end.data_source_id = membership.data_source_id
       LEFT JOIN block_properties is_all_day
         ON is_all_day.block_id = page.id
         AND is_all_day.project_id = page.project_id

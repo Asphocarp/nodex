@@ -1,9 +1,9 @@
 import {
-  executePageLifecycleIntent,
-  type PageLifecycleExecutionResult,
-  type PageLifecycleIntent,
-  type PageLifecycleRuntimeDependencies,
-} from "../../shared/page-lifecycle-runtime";
+  executePageLifecycleIntentV2,
+  type PageLifecycleExecutionResultV2,
+  type PageLifecycleIntentV2,
+  type PageLifecycleRuntimeDependenciesV2,
+} from "../../shared/page-lifecycle-v2-runtime";
 import {
   invoke,
   mutatePageLifecycle,
@@ -11,7 +11,7 @@ import {
 } from "./api";
 import type { DatabasePage } from "./types";
 
-const defaultDependencies: PageLifecycleRuntimeDependencies = {
+const defaultDependencies: PageLifecycleRuntimeDependenciesV2 = {
   readPreflight: readPageLifecyclePreflight,
   mutate: mutatePageLifecycle,
   readBoardProjection: async (projectId, pageId) =>
@@ -22,7 +22,7 @@ const defaultDependencies: PageLifecycleRuntimeDependencies = {
 };
 
 export const commitPageLifecycleIntent = async (
-  intent: PageLifecycleIntent,
-  dependencies: PageLifecycleRuntimeDependencies = defaultDependencies,
-): Promise<PageLifecycleExecutionResult> =>
-  await executePageLifecycleIntent(intent, dependencies);
+  intent: PageLifecycleIntentV2,
+  dependencies: PageLifecycleRuntimeDependenciesV2 = defaultDependencies,
+): Promise<PageLifecycleExecutionResultV2> =>
+  await executePageLifecycleIntentV2(intent, dependencies);

@@ -1,9 +1,15 @@
 import { describe, expect, test } from "vitest";
 
 import type {
-  DatabaseModuleReadSnapshot,
-  DatabaseViewQueryResult,
-} from "./database-module";
+  DatabaseModuleReadSnapshotV2,
+  DatabaseViewQueryResultV2,
+} from "./database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "./database-identities";
 import {
   compileDatabasePageDrag,
   compileDatabasePagesDrag,
@@ -15,20 +21,20 @@ const timestamp = "2026-07-16T00:00:00.000Z";
 const querySnapshot = (input: {
   readonly status?: string;
   readonly manual?: boolean;
-} = {}): DatabaseModuleReadSnapshot => {
+} = {}): DatabaseModuleReadSnapshotV2 => {
   const database = {
-    databaseId: "database-1",
+    databaseId: parseDatabaseId("database-1"),
     libraryId: "library-1",
     name: "Work",
     lifecycle: "active" as const,
-    defaultViewId: "view-1",
+    defaultViewId: parseDatabaseViewId("view-1"),
     accessRevision: 1,
     metadataRevision: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
   };
   const dataSource = {
-    dataSourceId: "source-1",
+    dataSourceId: parseDataSourceId("source-1"),
     libraryId: "library-1",
     homeDatabaseId: database.databaseId,
     name: "Pages",
@@ -41,9 +47,8 @@ const querySnapshot = (input: {
   };
   const properties = [
     {
-      propertyId: "property-status",
+      propertyId: parseDataSourcePropertyId("status"),
       dataSourceId: dataSource.dataSourceId,
-      key: "status",
       name: "Status",
       valueType: "select" as const,
       config: {},
@@ -54,9 +59,8 @@ const querySnapshot = (input: {
       updatedAt: timestamp,
     },
     {
-      propertyId: "property-priority",
+      propertyId: parseDataSourcePropertyId("priority"),
       dataSourceId: dataSource.dataSourceId,
-      key: "priority",
       name: "Priority",
       valueType: "select" as const,
       config: {},
@@ -68,18 +72,18 @@ const querySnapshot = (input: {
     },
   ];
   const view = {
-    viewId: "view-1",
+    viewId: parseDatabaseViewId("view-1"),
     databaseId: database.databaseId,
     dataSourceId: dataSource.dataSourceId,
     name: "Board",
     kind: "kanban" as const,
     config: {
       schemaKey: "nodex.database-view" as const,
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
       sort: input.manual === false
         ? [{
-            field: { kind: "property" as const, propertyId: "property-priority" },
+            field: { kind: "property" as const, propertyId: "priority" },
             direction: "asc" as const,
             nulls: "last" as const,
           }]
@@ -88,7 +92,7 @@ const querySnapshot = (input: {
             direction: "asc" as const,
             nulls: "last" as const,
           }],
-      group: { propertyId: "property-status" },
+      group: { propertyId: "status" },
       display: { propertyIds: [], showTitle: true },
     },
     isDefault: true,
@@ -104,7 +108,7 @@ const querySnapshot = (input: {
     priority: string,
     rankKey: string,
     revision: number,
-  ): DatabaseViewQueryResult["rows"][number] => ({
+  ): DatabaseViewQueryResultV2["rows"][number] => ({
     page: {
       pageId,
       libraryId: "library-1",
@@ -129,14 +133,14 @@ const querySnapshot = (input: {
       createdAt: timestamp,
     },
     values: {
-      "property-status": {
-        propertyId: "property-status",
+      status: {
+        propertyId: parseDataSourcePropertyId("status"),
         valueType: "select",
         value: status,
         revision,
       },
-      "property-priority": {
-        propertyId: "property-priority",
+      priority: {
+        propertyId: parseDataSourcePropertyId("priority"),
         valueType: "select",
         value: priority,
         revision: revision + 10,
@@ -145,7 +149,7 @@ const querySnapshot = (input: {
     position: { groupKey: status, rankKey, revision: revision + 20 },
     effectiveGroupKey: status,
   });
-  const query: DatabaseViewQueryResult = {
+  const query: DatabaseViewQueryResultV2 = {
     database,
     dataSource,
     view,
@@ -157,7 +161,7 @@ const querySnapshot = (input: {
     ],
   };
   return {
-    version: 1,
+    version: 2,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -219,14 +223,19 @@ describe("Database Page drag compiler", () => {
       {
         pageId: "page-a",
         dataSourceId: "source-1",
-        propertyId: "property-status",
+        propertyId: "status",
       },
       {
         pageId: "page-a",
         dataSourceId: "source-1",
-        propertyId: "property-priority",
+        propertyId: "priority",
       },
     ]);
+    expect(compiled.operations[1]).toMatchObject({
+      kind: "position_page",
+      pageId: "page-a",
+      expectedPositionRevision: 23,
+    });
   });
 
   test("keeps a multi-Page run ordered behind one external anchor", () => {
@@ -247,6 +256,10 @@ describe("Database Page drag compiler", () => {
     expect(position.pages.map((page) => page.pageId)).toEqual([
       "page-b",
       "page-a",
+    ]);
+    expect(position.pages.map((page) => page.expectedPositionRevision)).toEqual([
+      24,
+      23,
     ]);
     expect(position.beforePageId).toBe("page-target");
   });

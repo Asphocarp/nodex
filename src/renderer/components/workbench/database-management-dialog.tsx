@@ -19,13 +19,14 @@ import {
 import type {
   DatabasePropertyOption,
   DatabasePropertyValueType,
-  DatabaseViewConfig,
+  DatabaseViewConfigV2,
   DatabaseViewKind,
 } from "../../../shared/database-kernel";
 import type {
-  DatabaseContainerDescriptor,
-  DataSourceDescriptor,
-} from "../../../shared/database-module";
+  DatabaseContainerDescriptorV2,
+  DataSourceDescriptorV2,
+} from "../../../shared/database-module-v2";
+import { createCustomOptionId } from "../../../shared/database-identities";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import {
   NodexDialog,
@@ -58,7 +59,7 @@ export interface CreateDatabaseViewDraft {
 export interface UpdateDatabaseViewDraft extends CreateDatabaseViewDraft {
   readonly viewId: string;
   readonly expectedRevision: number;
-  readonly config: DatabaseViewConfig;
+  readonly config: DatabaseViewConfigV2;
   /** Undefined preserves placement; null appends. */
   readonly beforeViewId?: string | null;
 }
@@ -70,8 +71,8 @@ export interface PutDatabasePropertyOptionDraft {
 }
 
 export interface DatabaseManagementSurfaceProps {
-  readonly databases: readonly DatabaseContainerDescriptor[];
-  readonly source: DataSourceDescriptor | null;
+  readonly databases: readonly DatabaseContainerDescriptorV2[];
+  readonly source: DataSourceDescriptorV2 | null;
   readonly selectedDatabaseId: string | null;
   readonly busy?: boolean;
   readonly error?: string | null;
@@ -218,7 +219,7 @@ export function DatabaseManagementSurface({
       readonly baseRevision: number;
       readonly name: string;
       readonly kind: DatabaseViewKind;
-      readonly config: DatabaseViewConfig;
+      readonly config: DatabaseViewConfigV2;
     }
   >>>({});
   const [expandedViewId, setExpandedViewId] = useState<string | null>(null);
@@ -378,7 +379,7 @@ export function DatabaseManagementSurface({
                                 void onPutPropertyOption({
                                   dataSourceId: source.dataSource.dataSourceId,
                                   propertyId: property.propertyId,
-                                  option: { id: crypto.randomUUID(), name },
+                                  option: { id: createCustomOptionId(), name },
                                 });
                                 setOptionDrafts((current) => ({
                                   ...current,

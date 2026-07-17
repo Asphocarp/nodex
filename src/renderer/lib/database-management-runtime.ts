@@ -1,35 +1,35 @@
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-  type DatabaseApply,
-  type DatabaseApplyOperation,
-  type DatabaseApplyResult,
-  type DatabaseContainerDescriptor,
-  type DatabaseModuleError,
-  type DatabaseModuleReadRequest,
-  type DatabaseModuleReadResult,
-  type DatabaseModuleReadSnapshot,
-  type DataSourceDescriptor,
-  type DataSourceRecord,
-} from "../../shared/database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyOperationV2,
+  type DatabaseApplyResultV2,
+  type DatabaseApplyV2,
+  type DatabaseContainerDescriptorV2,
+  type DatabaseModuleErrorV2,
+  type DatabaseModuleReadRequestV2,
+  type DatabaseModuleReadResultV2,
+  type DatabaseModuleReadSnapshotV2,
+  type DataSourceDescriptorV2,
+  type DataSourceRecordV2,
+} from "../../shared/database-module-v2";
 import { applyDatabaseModule, readDatabaseModule } from "./api";
 
 export interface DatabaseManagementAuthority {
-  readonly snapshot: DatabaseModuleReadSnapshot;
-  readonly databases: readonly DatabaseContainerDescriptor[];
-  readonly selectedDatabase: DatabaseContainerDescriptor;
-  readonly selectedDataSource: DataSourceRecord;
-  readonly source: DataSourceDescriptor;
+  readonly snapshot: DatabaseModuleReadSnapshotV2;
+  readonly databases: readonly DatabaseContainerDescriptorV2[];
+  readonly selectedDatabase: DatabaseContainerDescriptorV2;
+  readonly selectedDataSource: DataSourceRecordV2;
+  readonly source: DataSourceDescriptorV2;
 }
 
 export interface DatabaseManagementRuntimeDependencies {
   readonly read: (
     projectId: string,
-    request: DatabaseModuleReadRequest,
-  ) => Promise<DatabaseModuleReadResult>;
+    request: DatabaseModuleReadRequestV2,
+  ) => Promise<DatabaseModuleReadResultV2>;
   readonly apply: (
     projectId: string,
-    request: DatabaseApply,
-  ) => Promise<DatabaseApplyResult>;
+    request: DatabaseApplyV2,
+  ) => Promise<DatabaseApplyResultV2>;
 }
 
 export class DatabaseManagementReadError extends Error {
@@ -40,7 +40,7 @@ export class DatabaseManagementReadError extends Error {
 }
 
 export class DatabaseManagementMutationError extends Error {
-  constructor(readonly commandError: DatabaseModuleError) {
+  constructor(readonly commandError: DatabaseModuleErrorV2) {
     super(commandError.message);
     this.name = "DatabaseManagementMutationError";
   }
@@ -53,11 +53,11 @@ const defaultDependencies: DatabaseManagementRuntimeDependencies = {
 
 const readSnapshot = async (
   projectId: string,
-  read: DatabaseModuleReadRequest["read"],
+  read: DatabaseModuleReadRequestV2["read"],
   dependencies: DatabaseManagementRuntimeDependencies,
-): Promise<DatabaseModuleReadSnapshot> => {
+): Promise<DatabaseModuleReadSnapshotV2> => {
   const result = await dependencies.read(projectId, {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read,
   });
@@ -75,8 +75,8 @@ const readSnapshot = async (
 };
 
 const activeSource = (
-  descriptor: DatabaseContainerDescriptor,
-): DataSourceRecord | null =>
+  descriptor: DatabaseContainerDescriptorV2,
+): DataSourceRecordV2 | null =>
   descriptor.dataSources.find((source) => source.lifecycle === "active") ?? null;
 
 export const readDatabaseManagementAuthority = async (
@@ -145,10 +145,10 @@ export const readDatabaseManagementAuthority = async (
 
 const applyExactRequest = async (
   projectId: string,
-  request: DatabaseApply,
+  request: DatabaseApplyV2,
   dependencies: DatabaseManagementRuntimeDependencies,
-): Promise<DatabaseApplyResult> => {
-  let result: DatabaseApplyResult;
+): Promise<DatabaseApplyResultV2> => {
+  let result: DatabaseApplyResultV2;
   let retried = false;
   try {
     result = await dependencies.apply(projectId, request);
@@ -169,7 +169,7 @@ export const commitDatabaseManagementOperations = async (input: {
   readonly clientSessionId?: string;
   readonly buildOperations: (
     authority: DatabaseManagementAuthority,
-  ) => readonly DatabaseApplyOperation[];
+  ) => readonly DatabaseApplyOperationV2[];
   readonly dependencies?: DatabaseManagementRuntimeDependencies;
 }): Promise<DatabaseManagementAuthority> => {
   const dependencies = input.dependencies ?? defaultDependencies;
@@ -180,8 +180,8 @@ export const commitDatabaseManagementOperations = async (input: {
   );
   const operations = input.buildOperations(authority);
   if (operations.length === 0) return authority;
-  const request: DatabaseApply = {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+  const request: DatabaseApplyV2 = {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId,
     projectId: input.projectId,
     storeEpoch: authority.snapshot.storeEpoch,

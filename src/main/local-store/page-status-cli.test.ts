@@ -5,6 +5,35 @@ import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 
+const lifecyclePreflight = (
+  page: Readonly<Record<string, unknown>> | null = null,
+): Readonly<Record<string, unknown>> => ({
+  ok: true,
+  value: {
+    version: 2,
+    projectId: "default",
+    libraryId: "library-default",
+    storeEpoch: "epoch-1",
+    changeLogSeq: 3,
+    value: {
+      version: 2,
+      reservedBlockType: null,
+      page,
+      defaultView: {
+        dataSource: { dataSourceId: "data-source-primary" },
+      },
+      tagsProperty: {
+        propertyId: "tags",
+        dataSourceId: "data-source-primary",
+        valueType: "multi_select",
+        lifecycle: "active",
+        revision: 7,
+        config: { options: [{ id: "o_AAAAAAAA", name: "Release" }] },
+      },
+    },
+  },
+});
+
 function runCli(
   args: string[],
   homeDir: string,
@@ -154,20 +183,7 @@ describe("Page status CLI arguments", () => {
           url.pathname === "/api/projects/default/page-lifecycle-preflight"
         ) {
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            ok: true,
-            value: {
-              version: 1,
-              projectId: "default",
-              storeEpoch: "epoch-1",
-              changeLogSeq: 1,
-              value: {
-                version: 1,
-                reservedBlockType: null,
-                page: null,
-              },
-            },
-          }));
+          res.end(JSON.stringify(lifecyclePreflight()));
           return;
         }
 
@@ -182,7 +198,7 @@ describe("Page status CLI arguments", () => {
           res.end(JSON.stringify({
             ok: true,
             value: {
-              version: 1,
+              version: 2,
               operationId: body?.operationId,
               projectId: "default",
               storeEpoch: "epoch-1",
@@ -239,7 +255,7 @@ describe("Page status CLI arguments", () => {
           res.end(JSON.stringify({
             ok: true,
             value: {
-              version: 1,
+              version: 2,
               projectId: "default",
               libraryId: "library-default",
               storeEpoch: "epoch-1",
@@ -256,8 +272,7 @@ describe("Page status CLI arguments", () => {
                   },
                   properties: [
                   {
-                    propertyId: "property-status",
-                    key: "status",
+                    propertyId: "status",
                     lifecycle: "active",
                   },
                   ],
@@ -265,7 +280,7 @@ describe("Page status CLI arguments", () => {
                   {
                     page: { pageId: "page-1" },
                     values: {
-                      "property-status": {
+                      status: {
                         value: "in_progress",
                         revision: 3,
                       },
@@ -315,7 +330,7 @@ describe("Page status CLI arguments", () => {
       const lsResult = await runCli(["ls", "in-progress", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(lsResult.exitCode).toBe(0);
 
-      const addResult = await runCli(["add", "in-review", "Ship it", "--project", "default", "--url", baseUrl, "--json"], homeDir);
+      const addResult = await runCli(["add", "in-review", "Ship it", "--tags", "Release, 新标签", "--project", "default", "--url", baseUrl, "--json"], homeDir);
       expect(addResult.exitCode).toBe(0);
 
       const moveResult = await runCli(["mv", "page-1", "in-progress", "done", "--project", "default", "--url", baseUrl, "--json"], homeDir);
@@ -342,6 +357,27 @@ describe("Page status CLI arguments", () => {
         (createRequest?.body?.operation as Record<string, unknown> | undefined)
           ?.status,
       ).toBe("in_review");
+      expect(createRequest?.body?.version).toBe(2);
+      expect(
+        (createRequest?.body?.operation as Record<string, unknown> | undefined)
+          ?.dataSourceId,
+      ).toBe("data-source-primary");
+      expect(
+        (createRequest?.body?.operation as Record<string, unknown> | undefined)
+          ?.tagOptionIds,
+      ).toEqual(expect.arrayContaining(["o_AAAAAAAA"]));
+      const createdOptions = (
+        createRequest?.body?.operation as Record<string, unknown> | undefined
+      )?.newTagOptions as
+        | ReadonlyArray<Readonly<Record<string, unknown>>>
+        | undefined;
+      expect(createdOptions).toHaveLength(1);
+      expect(createdOptions?.[0]?.name).toBe("新标签");
+      expect(createdOptions?.[0]?.optionId).toMatch(/^o_[A-Za-z0-9_-]{8}$/u);
+      expect(
+        (createRequest?.body?.operation as Record<string, unknown> | undefined)
+          ?.expectedTagsPropertyRevision,
+      ).toBe(7);
 
       const moveRequest = requests.find(
         (request) =>
@@ -355,7 +391,7 @@ describe("Page status CLI arguments", () => {
       expect(moveOperations?.[0]?.kind).toBe("set_value");
       expect(moveOperations?.[0]?.pageId).toBe("page-1");
       expect(moveOperations?.[0]?.dataSourceId).toBe("data-source-primary");
-      expect(moveOperations?.[0]?.propertyId).toBe("property-status");
+      expect(moveOperations?.[0]?.propertyId).toBe("status");
       expect(moveOperations?.[0]?.expectedValueRevision).toBe(3);
       expect(moveOperations?.[0]?.value).toBe("done");
       expect(moveOperations?.[1]?.kind).toBe("position_page");
@@ -406,20 +442,7 @@ describe("Page status CLI arguments", () => {
               }
             : null;
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({
-            ok: true,
-            value: {
-              version: 1,
-              projectId: "default",
-              storeEpoch: "epoch-1",
-              changeLogSeq: 3,
-              value: {
-                version: 1,
-                reservedBlockType: null,
-                page: existingCard,
-              },
-            },
-          }));
+          res.end(JSON.stringify(lifecyclePreflight(existingCard)));
           return;
         }
 
@@ -474,7 +497,7 @@ describe("Page status CLI arguments", () => {
           res.end(JSON.stringify({
             ok: true,
             value: {
-              version: 1,
+              version: 2,
               operationId: body.operationId,
               projectId: "default",
               storeEpoch: "epoch-1",
@@ -579,6 +602,11 @@ describe("Page status CLI arguments", () => {
         (createMutationsBeforeCollision[0]?.operation as Record<string, unknown>)
           .pageId,
       ).toBe("page-create-stable");
+      expect(createMutationsBeforeCollision[0]?.version).toBe(2);
+      expect(
+        (createMutationsBeforeCollision[0]?.operation as Record<string, unknown>)
+          .tagOptionIds,
+      ).toEqual([]);
 
       const collision = await runCli(
         [

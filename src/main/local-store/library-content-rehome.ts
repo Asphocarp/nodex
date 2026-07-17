@@ -132,27 +132,34 @@ const readOwnershipClosure = (
     const closureBlockIds = closure.blocks.map((block) => block.blockId);
     if (closureBlockIds.length === 0) continue;
     const databases = database.prepare(`
-      SELECT block_id AS databaseBlockId, is_primary AS isPrimary
-      FROM database_capabilities
-      WHERE project_id = ?
-        AND block_id IN (${placeholders(closureBlockIds)})
+      SELECT container.block_id AS databaseBlockId,
+        EXISTS (
+          SELECT 1 FROM project_database_bindings binding
+          WHERE binding.database_block_id = container.block_id
+            AND binding.lifecycle = 'active'
+        ) AS isProjectBound
+      FROM database_containers container
+      INNER JOIN blocks block ON block.id = container.block_id
+      WHERE block.project_id = ?
+        AND container.block_id IN (${placeholders(closureBlockIds)})
     `).all(sourceProjectId, ...closureBlockIds) as readonly {
       readonly databaseBlockId: string;
-      readonly isPrimary: number;
+      readonly isProjectBound: number;
     }[];
-    if (databases.some((row) => row.isPrimary === 1)) {
-      throw new Error("A Project primary Database cannot be rehomed");
+    if (databases.some((row) => row.isProjectBound === 1)) {
+      throw new Error("A Project-bound Database cannot be rehomed");
     }
     databases.forEach((row) => databaseBlockIds.add(row.databaseBlockId));
     const nextDatabases = databases.map((row) => row.databaseBlockId);
     if (nextDatabases.length === 0) continue;
     const memberPages = database.prepare(`
-      SELECT membership.card_block_id AS pageId
-      FROM database_memberships membership
-      WHERE membership.project_id = ?
-        AND membership.removed_at IS NULL
-        AND membership.database_block_id IN (${placeholders(nextDatabases)})
-      ORDER BY membership.card_block_id
+      SELECT membership.page_block_id AS pageId
+      FROM data_source_page_memberships membership
+      INNER JOIN data_sources source ON source.id = membership.data_source_id
+      INNER JOIN blocks page ON page.id = membership.page_block_id
+      WHERE page.project_id = ? AND membership.removed_at IS NULL
+        AND source.home_database_block_id IN (${placeholders(nextDatabases)})
+      ORDER BY membership.page_block_id
     `).all(sourceProjectId, ...nextDatabases) as readonly { readonly pageId: string }[];
     for (const member of memberPages) {
       if (!visitedRoots.has(member.pageId)) queuedRoots.push(member.pageId);
@@ -227,13 +234,6 @@ const readOwnershipClosure = (
                 AND membership.data_source_id = page.parent_id
                 AND membership.removed_at IS NULL
             )
-            OR NOT EXISTS (
-              SELECT 1 FROM database_memberships membership
-              WHERE membership.page_block_id = page.block_id
-                AND membership.database_block_id = source.home_database_block_id
-                AND membership.project_id = block.project_id
-                AND membership.removed_at IS NULL
-            )
           )
         )
       )
@@ -249,10 +249,9 @@ const readOwnershipClosure = (
     ? []
     : (database.prepare(`
         SELECT id FROM database_views
-        WHERE project_id = ?
-          AND database_block_id IN (${placeholders(nextDatabaseBlockIds)})
+        WHERE database_block_id IN (${placeholders(nextDatabaseBlockIds)})
         ORDER BY id
-      `).all(sourceProjectId, ...nextDatabaseBlockIds) as readonly { readonly id: string }[])
+      `).all(...nextDatabaseBlockIds) as readonly { readonly id: string }[])
       .map((row) => row.id);
   return {
     blockIds: nextBlockIds,
@@ -431,48 +430,6 @@ export const applyLibraryContentRehomeInTransaction = (
     current.targetProjectId,
   );
 
-  if (current.databaseBlockIds.length > 0) {
-    updateProjectId(
-      database,
-      "database_properties",
-      "database_block_id",
-      current.databaseBlockIds,
-      current.sourceProjectId,
-      current.targetProjectId,
-    );
-    updateProjectId(
-      database,
-      "database_memberships",
-      "database_block_id",
-      current.databaseBlockIds,
-      current.sourceProjectId,
-      current.targetProjectId,
-    );
-    updateProjectId(
-      database,
-      "database_views",
-      "database_block_id",
-      current.databaseBlockIds,
-      current.sourceProjectId,
-      current.targetProjectId,
-    );
-    updateProjectId(
-      database,
-      "database_capabilities",
-      "block_id",
-      current.databaseBlockIds,
-      current.sourceProjectId,
-      current.targetProjectId,
-    );
-    updateProjectId(
-      database,
-      "database_view_positions",
-      "view_id",
-      current.databaseViewIds,
-      current.sourceProjectId,
-      current.targetProjectId,
-    );
-  }
   for (const documentId of current.documentIds) {
     replaceDocumentSecondaryProjections(database, { documentId });
   }

@@ -4,16 +4,15 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import { createUuidV7 } from "../../shared/uuid-v7";
-import { parsePageLifecycleMutationRequest } from "../../shared/page-lifecycle";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
 import {
   BlockIdSchema,
   CreatePagesV3InputSchema,
   type BlockId,
 } from "../../shared/nodex-agent-tools";
-import { applyPageLifecycleMutation } from "../local-store/page-lifecycle";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
+import { createPageLifecycleV2Fixture } from "../local-store/page-lifecycle-v2-test-fixture";
 import { createProject } from "../local-store/projects";
 import {
   executeNodexAgentCreatePages,
@@ -65,24 +64,19 @@ function createExistingCard(
   input: { readonly title: string; readonly nfm: string },
 ): BlockId {
   const pageId = createUuidV7();
-  const result = applyPageLifecycleMutation(
-    fixture.database,
-    parsePageLifecycleMutationRequest({
-      version: 1,
-      operationId: createUuidV7(),
-      projectId: fixture.projectId,
-      storeEpoch: fixture.storeEpoch,
-      actor: { kind: "test" },
-      operation: {
-        kind: "create_page",
-        pageId: pageId,
-        title: input.title,
-        nfm: input.nfm,
-        status: "draft",
-      },
-    }),
-  );
-  if (!result.ok) throw new Error(result.error.message);
+  createPageLifecycleV2Fixture(fixture.database, {
+    operationId: createUuidV7(),
+    projectId: fixture.projectId,
+    storeEpoch: fixture.storeEpoch,
+    actor: { kind: "test" },
+    operation: {
+      kind: "create_page",
+      pageId,
+      title: input.title,
+      nfm: input.nfm,
+      status: "draft",
+    },
+  });
   return BlockIdSchema.parse(pageId);
 }
 
@@ -110,14 +104,16 @@ describe("Nodex Agent create service", () => {
       const destination = fixture.database.prepare(`
         SELECT source.id AS dataSourceId, view.id AS viewId
         FROM data_sources source
+        INNER JOIN database_containers container
+          ON container.block_id = source.home_database_block_id
         INNER JOIN database_views view
-          ON view.data_source_id = source.id
-          AND view.project_id = ?
+          ON view.id = container.default_view_id
+          AND view.data_source_id = source.id
           AND view.lifecycle = 'active'
         WHERE source.home_database_block_id = ? AND source.lifecycle = 'active'
-        ORDER BY view.is_primary DESC, view.rank_key, view.id
+        ORDER BY view.rank_key, view.id
         LIMIT 1
-      `).get(owner.id, owner.databaseId) as {
+      `).get(owner.databaseId) as {
         readonly dataSourceId: string;
         readonly viewId: string;
       } | undefined;
@@ -278,23 +274,22 @@ describe("Nodex Agent create service", () => {
       });
       const destination = fixture.database.prepare(`
         SELECT view.id AS view_id, view.data_source_id
-        FROM database_memberships membership
+        FROM data_source_page_memberships membership
         INNER JOIN database_views view
-          ON view.database_block_id = membership.database_block_id
-          AND view.project_id = membership.project_id
-          AND view.is_primary = 1
+          ON view.data_source_id = membership.data_source_id
           AND view.lifecycle = 'active'
         WHERE membership.page_block_id = ?
-          AND membership.project_id = ?
           AND membership.removed_at IS NULL
-      `).get(anchorId, fixture.projectId) as {
+        ORDER BY view.rank_key, view.id
+        LIMIT 1
+      `).get(anchorId) as {
         readonly view_id: string;
         readonly data_source_id: string;
       };
       fixture.database.prepare(`
-        DELETE FROM database_view_positions
-        WHERE view_id = ? AND block_id = ? AND project_id = ?
-      `).run(destination.view_id, anchorId, fixture.projectId);
+        DELETE FROM database_view_page_positions
+        WHERE view_id = ? AND page_block_id = ?
+      `).run(destination.view_id, anchorId);
 
       const prepared = prepareNodexAgentCreatePages(fixture.database, {
         threadId: "thread-v3",

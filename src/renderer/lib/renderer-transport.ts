@@ -14,13 +14,13 @@ export interface RendererTransport {
     projectId: string,
     pageId: string,
   ) => Promise<
-    import("../../shared/page-lifecycle-runtime").PageLifecyclePreflightResult
+    import("../../shared/page-lifecycle-v2-runtime").PageLifecyclePreflightResultV2
   >;
   mutatePageLifecycle: (
     projectId: string,
-    request: import("../../shared/page-lifecycle").PageLifecycleMutationRequest,
+    request: import("../../shared/page-lifecycle-v2").PageLifecycleMutationRequestV2,
   ) => Promise<
-    import("../../shared/page-lifecycle").PageLifecycleMutationCommandResult
+    import("../../shared/page-lifecycle-v2").PageLifecycleMutationCommandResultV2
   >;
   listPageHistory: (
     request: import("../../shared/page-history").ListPageHistoryRequest,

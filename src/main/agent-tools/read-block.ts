@@ -216,26 +216,28 @@ function readDatabaseValues(
     SELECT
       membership.id AS membership_id,
       membership.revision AS membership_revision,
-      membership.database_block_id,
+      source.home_database_block_id AS database_block_id,
       property.id AS property_id,
       property.schema_revision AS property_schema_revision,
       COALESCE(value.value_json, 'null') AS value_json,
       COALESCE(value.revision, 0) AS value_revision
-    FROM database_memberships membership
-    INNER JOIN database_properties property
-      ON property.database_block_id = membership.database_block_id
-     AND property.project_id = membership.project_id
+    FROM data_source_page_memberships membership
+    INNER JOIN data_sources source
+      ON source.id = membership.data_source_id
+    INNER JOIN blocks page
+      ON page.id = membership.page_block_id
+     AND page.project_id = ?
+    INNER JOIN data_source_properties property
+      ON property.data_source_id = membership.data_source_id
      AND property.lifecycle = 'active'
-    LEFT JOIN database_property_values value
+    LEFT JOIN data_source_property_values value
       ON value.membership_id = membership.id
      AND value.property_id = property.id
-     AND value.database_block_id = membership.database_block_id
-     AND value.project_id = membership.project_id
+     AND value.data_source_id = membership.data_source_id
     WHERE membership.page_block_id = ?
-      AND membership.project_id = ?
       AND membership.removed_at IS NULL
     ORDER BY property.rank_key, property.id
-  `).all(blockId, projectId) as readonly DatabaseValueRow[];
+  `).all(projectId, blockId) as readonly DatabaseValueRow[];
   if (!propertyIds) return rows;
   const byPropertyId = new Map(rows.map((row) => [row.property_id, row] as const));
   const missing = propertyIds.find((propertyId) => !byPropertyId.has(propertyId));
@@ -253,21 +255,19 @@ function readDatabaseValues(
 
 function hasDatabaseCapability(
   database: Database.Database,
-  projectId: string,
   blockId: string,
 ): boolean {
   const row = database.prepare(
     `
     SELECT 1
-    FROM database_capabilities capability
+    FROM database_containers container
     INNER JOIN blocks block
-      ON block.id = capability.block_id
-     AND block.project_id = capability.project_id
+      ON block.id = container.block_id
      AND block.type = 'database'
      AND block.lifecycle <> 'deleted'
-    WHERE capability.block_id = ? AND capability.project_id = ?
+    WHERE container.block_id = ?
     LIMIT 1
-  `).get(blockId, projectId);
+  `).get(blockId);
   return row !== undefined;
 }
 
@@ -550,7 +550,7 @@ export function readNodexAgentBlock(
     ? readDatabaseValues(database, projectId, block.id, propertySelection)
     : [];
   const includeDatabase = (request.include?.database || request.include === undefined)
-    && hasDatabaseCapability(database, projectId, block.id);
+    && hasDatabaseCapability(database, block.id);
   const richTitle = document?.owner_block_id === block.id && document.title_rich_json !== null
     ? canonicalizePortableRichText(
       parseJsonValue(document.title_rich_json, `Document ${document.id} rich title`),

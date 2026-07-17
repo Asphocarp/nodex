@@ -5,9 +5,15 @@ import type {
   DatabasePropertyValueType,
 } from "../../../../shared/database-kernel";
 import type {
-  DataSourcePageValue,
-  DataSourcePropertyRecord,
-} from "../../../../shared/database-module";
+  DataSourcePageValueV2,
+  DataSourcePropertyRecordV2,
+} from "../../../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../../../shared/database-identities";
 import type {
   PageDetailResult,
   PageIntrinsicProperty,
@@ -30,8 +36,9 @@ export const buildPageDetailStoryResult = (
     };
   }
   const libraryId = "library:storybook";
-  const databaseId = `database:${projectId}:story`;
-  const dataSourceId = `${databaseId}:data-source:initial`;
+  const databaseId = parseDatabaseId("019f714b-0000-7000-8000-000000000011");
+  const dataSourceId = parseDataSourceId("019f714b-0000-7000-8000-000000000012");
+  const viewId = parseDatabaseViewId("019f714b-0000-7000-8000-000000000013");
   const intrinsic = (
     key: string,
     value: unknown,
@@ -46,10 +53,9 @@ export const buildPageDetailStoryResult = (
     key: string,
     valueType: DatabasePropertyValueType,
     config: Readonly<Record<string, DatabaseJsonValue>> = {},
-  ): DataSourcePropertyRecord => ({
-    propertyId: `${dataSourceId}:property:${key}`,
+  ): DataSourcePropertyRecordV2 => ({
+    propertyId: parseDataSourcePropertyId(key),
     dataSourceId,
-    key,
     name: key,
     valueType,
     config,
@@ -69,9 +75,11 @@ export const buildPageDetailStoryResult = (
     property("scheduled_end", "datetime"),
     property("assignee", "person"),
   ];
-  const values: Record<string, DataSourcePageValue> = {};
+  const values: Record<string, DataSourcePageValueV2> = {};
   const putValue = (key: string, value: DatabaseJsonValue): void => {
-    const definition = properties.find((candidate) => candidate.key === key);
+    const definition = properties.find(
+      (candidate) => candidate.propertyId === key,
+    );
     if (!definition) return;
     values[definition.propertyId] = {
       propertyId: definition.propertyId,
@@ -92,7 +100,7 @@ export const buildPageDetailStoryResult = (
   return {
     ok: true,
     value: {
-      version: 1,
+      version: 2,
       projectId,
       libraryId,
       storeEpoch: "store-epoch:storybook",
@@ -143,7 +151,7 @@ export const buildPageDetailStoryResult = (
           libraryId,
           name: "Story Database",
           lifecycle: "active",
-          defaultViewId: `${databaseId}:view:default`,
+          defaultViewId: viewId,
           accessRevision: 1,
           metadataRevision: 1,
           createdAt: timestamp,

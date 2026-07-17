@@ -20,11 +20,24 @@ import {
   type BlockTransferTransformationEvidence,
 } from "../../shared/block-transfer";
 import {
-  DATABASE_MUTATION_CONTRACT_VERSION,
+  parseDatabaseViewConfigV2,
   stableStringifyDatabaseJson,
-  type DatabaseMutationRequest,
-  type TransferDatabaseMembershipOperation,
 } from "../../shared/database-kernel";
+import {
+  isBuiltInDataSourcePropertyId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+  type DatabaseViewId,
+  type DataSourceId,
+  type DataSourcePropertyId,
+} from "../../shared/database-identities";
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyOperationV2,
+  type DatabaseApplyV2,
+  type TransferDataSourcePageOperationV2,
+} from "../../shared/database-module-v2";
 import {
   DOCUMENT_OPERATION_CONTRACT_VERSION,
   type DocumentBlockOperation,
@@ -85,10 +98,9 @@ import {
 } from "./block-relocations";
 import { rebuildPageReadModelProjection } from "./page-read-store";
 import {
-  applyDatabaseMutation,
-  transitionPageDatabaseParent,
-  type PageOffDatabaseParent,
-} from "./database-kernel";
+  applyDatabaseModuleV2,
+  transitionPageParentForBlockTransferV2,
+} from "./database-module-v2-runtime";
 import { refreshScheduledPageIndexProjection } from "./scheduled-page-store";
 import { createDocumentVersionCheckpoint } from "./document-versions";
 import { markDocumentRevisionSessionCheckpoint } from "./document-revision-session-store";
@@ -116,6 +128,11 @@ export interface ApplyBlockTransferOptions {
   readonly now?: () => string;
   readonly faultInjector?: (point: BlockTransferFaultPoint) => void;
   readonly persistTopLevelGrant?: boolean;
+  /**
+   * Trusted Library ownership handoff after relational parent transition and
+   * before the target Document materialization observes the Page roots.
+   */
+  readonly beforeTargetDocument?: (rootPageIds: readonly string[]) => void;
 }
 
 interface BlockRow {
@@ -370,22 +387,32 @@ const assertSourceParent = (
   }
   if (request.source.kind !== "database") return;
   const readMembership = database.prepare(`
-    SELECT id, revision
-    FROM database_memberships
-    WHERE page_block_id = ? AND database_block_id = ?
-      AND project_id = ? AND removed_at IS NULL
+    SELECT membership.id, membership.revision, membership.data_source_id
+    FROM data_source_page_memberships membership
+    INNER JOIN data_sources source
+      ON source.id = membership.data_source_id
+    WHERE membership.page_block_id = ?
+      AND source.home_database_block_id = ?
+      AND membership.removed_at IS NULL
   `);
   for (const row of rows) {
     const expected = request.source.memberships[row.id];
     const actual = readMembership.get(
       row.id,
       request.source.databaseBlockId,
-      request.projectId,
-    ) as { readonly id: string; readonly revision: number } | undefined;
+    ) as
+      | {
+          readonly id: string;
+          readonly revision: number;
+          readonly data_source_id: string;
+        }
+      | undefined;
     if (
       expected &&
       actual?.id === expected.membershipId &&
-      actual.revision === expected.revision
+      actual.revision === expected.revision &&
+      (request.source.dataSourceId === undefined ||
+        actual.data_source_id === request.source.dataSourceId)
     ) {
       continue;
     }
@@ -632,6 +659,29 @@ const stagePromotedPageOwnership = (
        VALUES (?, ?, ?, ?)`,
     )
     .run(pageId, documentId, request.projectId, input.now);
+  const pageAuthority = database.prepare(`
+    INSERT INTO pages (
+      block_id, library_id, document_id, parent_kind, parent_id,
+      lifecycle, parent_revision, metadata_revision, created_at, updated_at
+    )
+    SELECT block.id, project.library_id, ?,
+      CASE WHEN parent.block_id IS NULL THEN 'library' ELSE 'page' END,
+      COALESCE(parent.block_id, project.library_id),
+      block.lifecycle, block.location_revision, block.metadata_revision, ?, ?
+    FROM blocks block
+    INNER JOIN projects project ON project.id = block.project_id
+    LEFT JOIN pages parent ON parent.document_id = block.containing_document_id
+    WHERE block.id = ? AND block.project_id = ? AND block.type = 'page'
+  `).run(
+    documentId,
+    input.now,
+    input.now,
+    pageId,
+    request.projectId,
+  );
+  if (pageAuthority.changes !== 1) {
+    throw new Error(`Promoted Page ${pageId} has no canonical parent authority`);
+  }
   insertDefaultIntrinsicPageProperties(database, {
     pageId,
     projectId: request.projectId,
@@ -734,6 +784,24 @@ const stageWrapperPageDocument = (
        VALUES (?, ?, ?, ?)`,
     )
     .run(input.pageId, documentId, request.projectId, input.now);
+  const pageAuthority = database.prepare(`
+    INSERT INTO pages (
+      block_id, library_id, document_id, parent_kind, parent_id,
+      lifecycle, parent_revision, metadata_revision, created_at, updated_at
+    )
+    SELECT ?, project.library_id, ?, 'library', project.library_id,
+      'active', 1, 1, ?, ?
+    FROM projects project WHERE project.id = ?
+  `).run(
+    input.pageId,
+    documentId,
+    input.now,
+    input.now,
+    request.projectId,
+  );
+  if (pageAuthority.changes !== 1) {
+    throw new Error(`Wrapper Page ${input.pageId} has no Library authority`);
+  }
   const genesis = createPageDocument({
     documentId,
     initialTitle: "",
@@ -849,12 +917,22 @@ const runDocumentBatch = (
     readonly preserveRemovedOwnerIds?: readonly string[];
   },
 ): RelocationDocumentCommit => {
+  const document = database.prepare(`
+    SELECT project_id AS projectId FROM documents WHERE id = ?
+  `).get(input.documentId) as { readonly projectId: string } | undefined;
+  if (!document) {
+    return reject(
+      request,
+      "target_not_found",
+      `Document does not exist: ${input.documentId}`,
+    );
+  }
   const result = applyDocumentOperationBatch(
     database,
     {
       version: DOCUMENT_OPERATION_CONTRACT_VERSION,
       mutationId: deterministicSubOperationId(requestHash, input.role),
-      projectId: request.projectId,
+      projectId: document.projectId,
       storeEpoch: request.storeEpoch,
       clientSessionId: request.clientSessionId,
       actor: request.actor,
@@ -1386,6 +1464,17 @@ const stageNestedOwnershipClosure = (
     INSERT INTO block_documents (block_id, document_id, project_id, created_at)
     VALUES (?, ?, ?, ?)
   `);
+  const insertNestedPage = database.prepare(`
+    INSERT INTO pages (
+      block_id, library_id, document_id, parent_kind, parent_id,
+      lifecycle, parent_revision, metadata_revision, created_at, updated_at
+    )
+    SELECT ?, project.library_id, ?, 'page', parent.block_id,
+      'active', 1, 1, ?, ?
+    FROM projects project
+    INNER JOIN pages parent ON parent.document_id = ?
+    WHERE project.id = ? AND parent.library_id = project.library_id
+  `);
   const copyProperty = database.prepare(`
     INSERT INTO block_properties (
       block_id, project_id, property_key, value_type,
@@ -1471,6 +1560,21 @@ const stageNestedOwnershipClosure = (
       request.projectId,
       createdAt,
     );
+    if (sourceOwner.type === "page") {
+      const nestedPage = insertNestedPage.run(
+        targetOwnerId,
+        targetDocumentId,
+        createdAt,
+        createdAt,
+        targetContainingDocumentId,
+        request.projectId,
+      );
+      if (nestedPage.changes !== 1) {
+        throw new Error(
+          `Nested Page ${targetOwnerId} has no canonical parent authority`,
+        );
+      }
+    }
     copyProperty.run(
       targetOwnerId,
       createdAt,
@@ -2031,6 +2135,7 @@ const copyNonDatabasePage = (
   request: BlockTransferRequest,
   requestHash: string,
   now: string,
+  beforeTargetDocument?: (rootPageIds: readonly string[]) => void,
 ): {
   readonly documentCommits: readonly RelocationDocumentCommit[];
   readonly affectedDatabaseBlockIds: readonly string[];
@@ -2189,6 +2294,7 @@ const copyNonDatabasePage = (
     ...nestedCommits,
   ];
   if (request.target.kind === "document") {
+    beforeTargetDocument?.([newPageId]);
     documentCommits.push(
       runDocumentBatch(database, placementRequest, requestHash, {
         role: "copy-page-target-document",
@@ -2225,7 +2331,184 @@ const copyNonDatabasePage = (
   };
 };
 
-const positionCopiedPageInSameDatabase = (
+interface DatabaseTransferTargetAuthority {
+  readonly databaseBlockId: string;
+  readonly dataSourceId: DataSourceId;
+  readonly viewId: DatabaseViewId;
+  readonly groupPropertyId: DataSourcePropertyId | null;
+}
+
+const resolveDatabaseTransferTarget = (
+  database: Database.Database,
+  request: BlockTransferRequest & {
+    readonly target: Extract<
+      BlockTransferRequest["target"],
+      { readonly kind: "database" }
+    >;
+  },
+): DatabaseTransferTargetAuthority => {
+  const view = database
+    .prepare(
+      `SELECT view.config_json, view.data_source_id,
+              source.home_database_block_id
+       FROM database_views view
+       INNER JOIN data_sources source ON source.id = view.data_source_id
+       WHERE view.id = ? AND view.database_block_id = ?
+         AND view.lifecycle = 'active' AND source.lifecycle = 'active'`,
+    )
+    .get(
+      request.target.viewId,
+      request.target.databaseBlockId,
+    ) as
+      | {
+          readonly config_json: string;
+          readonly data_source_id: string;
+          readonly home_database_block_id: string;
+        }
+      | undefined;
+  if (
+    !view ||
+    view.home_database_block_id !== request.target.databaseBlockId ||
+    (request.target.dataSourceId !== undefined &&
+      request.target.dataSourceId !== view.data_source_id)
+  ) {
+    return reject(
+      request,
+      "target_not_found",
+      `Target Database View is not active for the requested Data Source: ${request.target.viewId}`,
+    );
+  }
+  let config;
+  try {
+    config = parseDatabaseViewConfigV2(JSON.parse(view.config_json));
+  } catch {
+    return reject(
+      request,
+      "recovery_required",
+      `Target Database View config is invalid: ${request.target.viewId}`,
+      { retryable: false, reloadRequired: true },
+    );
+  }
+  return {
+    databaseBlockId: request.target.databaseBlockId,
+    dataSourceId: parseDataSourceId(view.data_source_id),
+    viewId: parseDatabaseViewId(request.target.viewId),
+    groupPropertyId: config.group
+      ? parseDataSourcePropertyId(config.group.propertyId)
+      : null,
+  };
+};
+
+const applyDatabaseTransferOperations = (
+  database: Database.Database,
+  request: BlockTransferRequest,
+  requestHash: string,
+  role: string,
+  operations: readonly DatabaseApplyOperationV2[],
+): readonly string[] => {
+  const result = applyDatabaseModuleV2(database, {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+    operationId: deterministicSubOperationId(
+      requestHash,
+      role,
+    ),
+    projectId: request.projectId,
+    storeEpoch: request.storeEpoch,
+    actor: request.actor,
+    operations,
+  });
+  if (result.ok) return result.value.affectedDatabaseIds;
+  return reject(request, "invalid_target", result.error.message, {
+    retryable: result.error.retryable,
+    reloadRequired: result.error.code.endsWith("conflict"),
+  });
+};
+
+const compileDatabaseTargetPlacement = (
+  database: Database.Database,
+  request: BlockTransferRequest & {
+    readonly target: Extract<
+      BlockTransferRequest["target"],
+      { readonly kind: "database" }
+    >;
+  },
+  authority: DatabaseTransferTargetAuthority,
+  pageId: string,
+  afterParentTransfer: boolean,
+): readonly DatabaseApplyOperationV2[] => {
+  const operations: DatabaseApplyOperationV2[] = [];
+  let groupedValueChanged = false;
+  if (authority.groupPropertyId) {
+    const property = database.prepare(`
+      SELECT 1 AS present FROM data_source_properties
+      WHERE data_source_id = ? AND id = ? AND lifecycle = 'active'
+    `).get(authority.dataSourceId, authority.groupPropertyId);
+    if (!property) {
+      return reject(
+        request,
+        "invalid_target",
+        `Target View grouping property is unavailable: ${authority.groupPropertyId}`,
+      );
+    }
+    const stored = database.prepare(`
+      SELECT value.revision, value.value_json
+      FROM data_source_page_memberships membership
+      LEFT JOIN data_source_property_values value
+        ON value.data_source_id = membership.data_source_id
+        AND value.membership_id = membership.id
+        AND value.property_id = ?
+      WHERE membership.data_source_id = ? AND membership.page_block_id = ?
+    `).get(
+      authority.groupPropertyId,
+      authority.dataSourceId,
+      pageId,
+    ) as
+      | { readonly revision: number | null; readonly value_json: string | null }
+      | undefined;
+    groupedValueChanged =
+      stored?.value_json === null ||
+      stored?.value_json === undefined ||
+      stored.value_json !== stableStringifyDatabaseJson(request.target.groupKey);
+    if (afterParentTransfer || groupedValueChanged) {
+      operations.push({
+        kind: "set_value",
+        pageId,
+        dataSourceId: authority.dataSourceId,
+        propertyId: authority.groupPropertyId,
+        expectedValueRevision:
+          stored?.revision ??
+          (afterParentTransfer &&
+          isBuiltInDataSourcePropertyId(authority.groupPropertyId)
+            ? 1
+            : 0),
+        value: request.target.groupKey,
+      });
+    }
+  }
+  const currentPosition = afterParentTransfer
+    ? undefined
+    : (database.prepare(`
+        SELECT revision FROM database_view_page_positions
+        WHERE view_id = ? AND page_block_id = ?
+      `).get(authority.viewId, pageId) as
+        | { readonly revision: number }
+        | undefined);
+  operations.push({
+    kind: "position_page",
+    viewId: authority.viewId,
+    pageId,
+    expectedPositionRevision:
+      (currentPosition?.revision ?? 0) +
+      (currentPosition && groupedValueChanged ? 1 : 0),
+    groupKey: request.target.groupKey,
+    ...(request.target.beforePageId
+      ? { beforePageId: request.target.beforePageId }
+      : {}),
+  });
+  return operations;
+};
+
+const positionCopiedPageInSameSource = (
   database: Database.Database,
   request: BlockTransferRequest & {
     readonly target: Extract<
@@ -2235,110 +2518,21 @@ const positionCopiedPageInSameDatabase = (
   },
   requestHash: string,
   pageId: string,
+  authority: DatabaseTransferTargetAuthority,
 ): void => {
-  const view = database
-    .prepare(
-      `SELECT config_json FROM database_views
-       WHERE id = ? AND database_block_id = ? AND project_id = ?
-         AND lifecycle = 'active'`,
-    )
-    .get(
-      request.target.viewId,
-      request.target.databaseBlockId,
-      request.projectId,
-    ) as { readonly config_json: string } | undefined;
-  if (!view) {
-    return reject(
+  applyDatabaseTransferOperations(
+    database,
+    request,
+    requestHash,
+    "same-source-copy-position",
+    compileDatabaseTargetPlacement(
+      database,
       request,
-      "target_not_found",
-      `Target Database View is not active: ${request.target.viewId}`,
-    );
-  }
-  const config = JSON.parse(view.config_json) as {
-    readonly group?: { readonly propertyId?: string } | null;
-  };
-  const currentPosition = database
-    .prepare(
-      `SELECT revision FROM database_view_positions
-       WHERE view_id = ? AND block_id = ? AND project_id = ?`,
-    )
-    .get(request.target.viewId, pageId, request.projectId) as
-    | { readonly revision: number }
-    | undefined;
-  const operations: DatabaseMutationRequest["operations"] = [
-    ...(config.group?.propertyId
-      ? [
-          (() => {
-            const value = database
-              .prepare(
-                `SELECT property.id AS property_id,
-                        COALESCE(value.revision, 0) AS revision
-                 FROM database_properties property
-                 JOIN database_memberships membership
-                   ON membership.page_block_id = ?
-                  AND membership.database_block_id = property.database_block_id
-                  AND membership.project_id = property.project_id
-                  AND membership.removed_at IS NULL
-                 LEFT JOIN database_property_values value
-                   ON value.membership_id = membership.id
-                  AND value.property_id = property.id
-                 WHERE property.id = ? AND property.database_block_id = ?
-                   AND property.project_id = ? AND property.lifecycle = 'active'`,
-              )
-              .get(
-                pageId,
-                config.group.propertyId,
-                request.target.databaseBlockId,
-                request.projectId,
-              ) as
-              | { readonly property_id: string; readonly revision: number }
-              | undefined;
-            if (!value) {
-              return reject(
-                request,
-                "invalid_target",
-                `Target View grouping property is unavailable: ${config.group?.propertyId ?? "missing"}`,
-              );
-            }
-            return {
-              kind: "set_value" as const,
-              pageId,
-              databaseBlockId: request.target.databaseBlockId,
-              propertyId: value.property_id,
-              expectedValueRevision: value.revision,
-              value: request.target.groupKey,
-            };
-          })(),
-        ]
-      : []),
-    {
-      kind: "position_page",
-      viewId: request.target.viewId,
+      authority,
       pageId,
-      expectedPositionRevision: currentPosition?.revision ?? 0,
-      groupKey: request.target.groupKey,
-      ...(request.target.beforePageId
-        ? { beforePageId: request.target.beforePageId }
-        : {}),
-    },
-  ];
-  const result = applyDatabaseMutation(database, {
-    version: DATABASE_MUTATION_CONTRACT_VERSION,
-    operationId: deterministicSubOperationId(
-      requestHash,
-      "same-database-copy-position",
+      false,
     ),
-    projectId: request.projectId,
-    storeEpoch: request.storeEpoch,
-    clientSessionId: request.clientSessionId,
-    actor: request.actor,
-    operations,
-  });
-  if (result.ok) return;
-  return reject(request, "invalid_target", result.error.message, {
-    retryable: result.error.retryable,
-    reloadRequired: result.error.code.endsWith("conflict"),
-  });
+  );
 };
 
 const copyDatabasePage = (
@@ -2346,6 +2540,7 @@ const copyDatabasePage = (
   request: BlockTransferRequest,
   requestHash: string,
   now: string,
+  beforeTargetDocument?: (rootPageIds: readonly string[]) => void,
 ): {
   readonly documentCommits: readonly RelocationDocumentCommit[];
   readonly affectedDatabaseBlockIds: readonly string[];
@@ -2395,30 +2590,34 @@ const copyDatabasePage = (
   };
   const source = database
     .prepare(
-      `SELECT membership.database_block_id, membership.id AS membership_id,
+      `SELECT source.home_database_block_id AS database_block_id,
+              membership.data_source_id, membership.id AS membership_id,
               position.rank_key,
               status_value.value_json AS status_json
-       FROM database_memberships membership
+       FROM data_source_page_memberships membership
+       JOIN data_sources source ON source.id = membership.data_source_id
+       JOIN database_containers container
+         ON container.block_id = source.home_database_block_id
        JOIN database_views view
-         ON view.database_block_id = membership.database_block_id
-        AND view.project_id = membership.project_id
-        AND view.is_primary = 1
-       LEFT JOIN database_view_positions position
+         ON view.id = container.default_view_id
+        AND view.data_source_id = membership.data_source_id
+        AND view.lifecycle = 'active'
+       LEFT JOIN database_view_page_positions position
          ON position.view_id = view.id
-        AND position.block_id = membership.page_block_id
-       JOIN database_properties status_property
-         ON status_property.database_block_id = membership.database_block_id
-        AND status_property.project_id = membership.project_id
-        AND status_property.key = 'status'
+        AND position.page_block_id = membership.page_block_id
+       JOIN data_source_properties status_property
+         ON status_property.data_source_id = membership.data_source_id
+        AND status_property.id = 'status'
         AND status_property.lifecycle = 'active'
-       JOIN database_property_values status_value
-         ON status_value.membership_id = membership.id
+       JOIN data_source_property_values status_value
+         ON status_value.data_source_id = membership.data_source_id
+        AND status_value.membership_id = membership.id
         AND status_value.property_id = status_property.id
-       WHERE membership.page_block_id = ? AND membership.project_id = ?
-         AND membership.removed_at IS NULL`,
+       WHERE membership.page_block_id = ? AND membership.removed_at IS NULL`,
     )
-    .get(sourcePageId, request.projectId) as {
+    .get(sourcePageId) as {
     readonly database_block_id: string;
+    readonly data_source_id: string;
     readonly membership_id: string;
     readonly rank_key: string | null;
     readonly status_json: string;
@@ -2501,9 +2700,20 @@ const copyDatabasePage = (
   let affectedDatabaseBlockIds: readonly string[] = [
     source.database_block_id,
   ];
-  const sameDatabaseTarget =
-    request.target.kind === "database" &&
-    request.target.databaseBlockId === source.database_block_id;
+  const targetAuthority =
+    request.target.kind === "database"
+      ? resolveDatabaseTransferTarget(
+          database,
+          request as BlockTransferRequest & {
+            readonly target: Extract<
+              BlockTransferRequest["target"],
+              { readonly kind: "database" }
+            >;
+          },
+        )
+      : null;
+  const sameSourceTarget =
+    targetAuthority?.dataSourceId === source.data_source_id;
   const copyPlacementRequest: BlockTransferRequest = {
     ...request,
     rootBlockIds: [newPageId],
@@ -2511,12 +2721,13 @@ const copyDatabasePage = (
     source: {
       kind: "database",
       databaseBlockId: source.database_block_id,
+      dataSourceId: source.data_source_id,
       memberships: {
         [newPageId]: { membershipId: cloned.membershipId, revision: 1 },
       },
     },
   };
-  if (!sameDatabaseTarget) {
+  if (!sameSourceTarget) {
     affectedDatabaseBlockIds = uniqueSorted([
       ...affectedDatabaseBlockIds,
       ...transitionPageParents(
@@ -2527,8 +2738,8 @@ const copyDatabasePage = (
         now,
       ),
     ]);
-  } else if (request.target.kind === "database") {
-    positionCopiedPageInSameDatabase(
+  } else if (request.target.kind === "database" && targetAuthority) {
+    positionCopiedPageInSameSource(
       database,
       request as BlockTransferRequest & {
         readonly target: Extract<
@@ -2538,6 +2749,7 @@ const copyDatabasePage = (
       },
       requestHash,
       newPageId,
+      targetAuthority,
     );
   }
   const documentCommits: RelocationDocumentCommit[] = [
@@ -2545,6 +2757,7 @@ const copyDatabasePage = (
     ...nestedDocumentCommits,
   ];
   if (request.target.kind === "document") {
+    beforeTargetDocument?.([newPageId]);
     documentCommits.push(
       runDocumentBatch(database, copyPlacementRequest, requestHash, {
         role: "copy-target-document",
@@ -2586,6 +2799,7 @@ const copyPageRoots = (
   request: BlockTransferRequest,
   requestHash: string,
   now: string,
+  beforeTargetDocument?: (rootPageIds: readonly string[]) => void,
 ): BlockCopyCompilation => {
   let sourceHeadSeq =
     request.source.kind === "document"
@@ -2631,8 +2845,20 @@ const copyPageRoots = (
     };
     const result =
       source.kind === "database"
-        ? copyDatabasePage(database, singleRequest, rootRequestHash, now)
-        : copyNonDatabasePage(database, singleRequest, rootRequestHash, now);
+        ? copyDatabasePage(
+            database,
+            singleRequest,
+            rootRequestHash,
+            now,
+            beforeTargetDocument,
+          )
+        : copyNonDatabasePage(
+            database,
+            singleRequest,
+            rootRequestHash,
+            now,
+            beforeTargetDocument,
+          );
     commits.push(...result.documentCommits);
     result.affectedDatabaseBlockIds.forEach((id) => affectedDatabases.add(id));
     resultBlockIds.push(...result.resultBlockIds);
@@ -2813,107 +3039,188 @@ const allocateSpacePlacement = (
     .run(blockId, request.projectId, plan.rankKey, now, now);
 };
 
-const updatePageParentWithoutDatabase = (
+const readProjectLibraryForTransfer = (
   database: Database.Database,
   request: BlockTransferRequest,
-  row: BlockRow,
-  now: string,
-): void => {
-  database
-    .prepare(
-      "DELETE FROM top_level_block_placements WHERE block_id = ? AND project_id = ?",
-    )
-    .run(row.id, request.projectId);
-  const target = request.target;
-  if (target.kind === "database") {
-    throw new Error("Database target must use the membership transition");
-  }
-  const updated = database
-    .prepare(
-      `
-      UPDATE blocks
-      SET location_kind = ?, containing_document_id = ?,
-          containing_database_id = NULL,
-          location_revision = location_revision + 1,
-          metadata_revision = metadata_revision + 1,
-          updated_at = ?
-      WHERE id = ? AND project_id = ? AND type = 'page'
-        AND lifecycle = 'active' AND location_revision = ?
-    `,
-    )
-    .run(
-      target.kind,
-      target.kind === "document" ? target.documentId : null,
-      now,
-      row.id,
-      request.projectId,
-      row.location_revision,
-    );
-  if (updated.changes !== 1) {
-    reject(
-      request,
-      "location_revision_mismatch",
-      `Page ${row.id} moved while committing its parent transition`,
-      { retryable: true, reloadRequired: true },
-    );
-  }
-  if (target.kind === "space") {
-    allocateSpacePlacement(
-      database,
-      request,
-      row.id,
-      target.beforeBlockId,
-      now,
-    );
-  }
+): string => {
+  const project = database.prepare(`
+    SELECT library_id FROM projects WHERE id = ?
+  `).get(request.projectId) as { readonly library_id: string } | undefined;
+  if (project) return project.library_id;
+  return reject(
+    request,
+    "project_not_found",
+    `Project does not exist: ${request.projectId}`,
+  );
 };
 
-const databaseTransitionRequest = (
+const readDocumentOwnerPageId = (
+  database: Database.Database,
+  documentId: string,
+): string | null =>
+  (
+    database.prepare(`
+      SELECT page.block_id
+      FROM pages page
+      WHERE page.document_id = ? AND page.lifecycle <> 'deleted'
+    `).get(documentId) as { readonly block_id: string } | undefined
+  )?.block_id ?? null;
+
+const applyCanonicalPageParentTransition = (
+  database: Database.Database,
   request: BlockTransferRequest,
   requestHash: string,
   row: BlockRow,
-): DatabaseMutationRequest & {
-  readonly operation: TransferDatabaseMembershipOperation;
-} => {
+  now: string,
+): readonly string[] => {
   const sourceMembership =
     request.source.kind === "database"
       ? request.source.memberships[row.id]
       : undefined;
-  const target = request.target.kind === "database" ? request.target : null;
-  const operation: TransferDatabaseMembershipOperation = {
-    kind: "transfer_membership",
+  const targetAuthority =
+    request.target.kind === "database"
+      ? resolveDatabaseTransferTarget(
+          database,
+          request as BlockTransferRequest & {
+            readonly target: Extract<
+              BlockTransferRequest["target"],
+              { readonly kind: "database" }
+            >;
+          },
+        )
+      : null;
+  const targetDocumentOwnerId =
+    request.target.kind === "document"
+      ? readDocumentOwnerPageId(database, request.target.documentId)
+      : null;
+  const libraryId = readProjectLibraryForTransfer(database, request);
+  const transfer: TransferDataSourcePageOperationV2 = {
+    kind: "transfer_page",
     pageId: row.id,
-    expectedMembership: sourceMembership
-      ? {
-          membershipId: sourceMembership.membershipId,
-          revision: sourceMembership.revision,
-        }
-      : null,
-    target: target
-      ? {
-          databaseBlockId: target.databaseBlockId,
-          membershipId: `membership:transfer:${sha256(`${requestHash}\0${row.id}\0${target.databaseBlockId}`)}`,
-          viewId: target.viewId,
-          groupKey: target.groupKey,
-          ...(target.beforePageId
-            ? { beforePageId: target.beforePageId }
-            : {}),
-        }
-      : null,
+    expectedParentRevision: row.location_revision,
+    expectedActiveMembershipRevision: sourceMembership?.revision ?? 0,
+    target: targetAuthority
+      ? { kind: "data_source", dataSourceId: targetAuthority.dataSourceId }
+      : targetDocumentOwnerId
+        ? { kind: "page", pageId: targetDocumentOwnerId }
+        : { kind: "library", libraryId },
   };
-  return {
-    version: DATABASE_MUTATION_CONTRACT_VERSION,
+  const placementOperations: DatabaseApplyOperationV2[] = [];
+  if (request.target.kind === "database" && targetAuthority) {
+    placementOperations.push(
+      ...compileDatabaseTargetPlacement(
+        database,
+        request as BlockTransferRequest & {
+          readonly target: Extract<
+            BlockTransferRequest["target"],
+            { readonly kind: "database" }
+          >;
+        },
+        targetAuthority,
+        row.id,
+        true,
+      ),
+    );
+  }
+  const currentParent = database.prepare(`
+    SELECT parent_kind FROM pages WHERE block_id = ?
+  `).get(row.id) as { readonly parent_kind: string } | undefined;
+  if (!currentParent) {
+    return reject(
+      request,
+      "recovery_required",
+      `Page ${row.id} has no canonical parent authority`,
+      { retryable: false, reloadRequired: true },
+    );
+  }
+  const compatibilityProjection = database.prepare(`
+    SELECT 1 AS present FROM page_read_model WHERE page_block_id = ?
+  `).get(row.id);
+  if (!compatibilityProjection) {
+    rebuildPageReadModelProjection(database, request.projectId, [row.id]);
+    refreshScheduledPageIndexProjection(
+      database,
+      request.projectId,
+      [row.id],
+      now,
+    );
+  }
+  const moduleRequest: DatabaseApplyV2 = {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: deterministicSubOperationId(
       requestHash,
       `database-parent:${sha256(row.id)}`,
     ),
     projectId: request.projectId,
     storeEpoch: request.storeEpoch,
-    clientSessionId: request.clientSessionId,
     actor: request.actor,
-    operations: [operation],
-    operation,
+    operations: [transfer],
   };
+  const result = transitionPageParentForBlockTransferV2(
+    database,
+    moduleRequest,
+    transfer,
+    now,
+  );
+  if (!result.ok) {
+    return reject(request, "invalid_target", result.error.message, {
+      retryable: result.error.retryable,
+      reloadRequired: result.error.code.endsWith("conflict"),
+    });
+  }
+  let affectedDatabaseBlockIds: readonly string[] =
+    result.value.affectedDatabaseIds;
+  if (placementOperations.length > 0) {
+    affectedDatabaseBlockIds = uniqueSorted([
+      ...affectedDatabaseBlockIds,
+      ...applyDatabaseTransferOperations(
+        database,
+        request,
+        requestHash,
+        `database-position:${sha256(row.id)}`,
+        placementOperations,
+      ),
+    ]);
+  }
+
+  if (request.target.kind === "space" && request.target.beforeBlockId) {
+    database.prepare(`
+      DELETE FROM top_level_block_placements WHERE block_id = ?
+    `).run(row.id);
+    allocateSpacePlacement(
+      database,
+      request,
+      row.id,
+      request.target.beforeBlockId,
+      now,
+    );
+  }
+  if (request.target.kind !== "document" || targetDocumentOwnerId) {
+    return affectedDatabaseBlockIds;
+  }
+  database.prepare(`
+    DELETE FROM top_level_block_placements WHERE block_id = ?
+  `).run(row.id);
+  const adapted = database.prepare(`
+    UPDATE blocks
+    SET location_kind = 'document', containing_document_id = ?,
+      containing_database_id = NULL, updated_at = ?
+    WHERE id = ? AND project_id = ? AND type = 'page'
+      AND location_revision = ?
+  `).run(
+    request.target.documentId,
+    now,
+    row.id,
+    request.projectId,
+    row.location_revision + 1,
+  );
+  if (adapted.changes === 1) return affectedDatabaseBlockIds;
+  return reject(
+    request,
+    "location_revision_mismatch",
+    `Page ${row.id} moved while adapting its Document parent`,
+    { retryable: true, reloadRequired: true },
+  );
 };
 
 const transitionPageParents = (
@@ -2925,31 +3232,16 @@ const transitionPageParents = (
 ): readonly string[] => {
   const affectedDatabases = new Set<string>();
   for (const row of rows) {
-    const touchesDatabase =
-      request.source.kind === "database" || request.target.kind === "database";
-    if (touchesDatabase) {
-      const offDatabaseParent: PageOffDatabaseParent =
-        request.target.kind === "document"
-          ? { kind: "document", documentId: request.target.documentId }
-          : {
-              kind: "space",
-              ...(request.target.kind === "space" &&
-              request.target.beforeBlockId
-                ? { beforeBlockId: request.target.beforeBlockId }
-                : {}),
-            };
-      const result = transitionPageDatabaseParent(
-        database,
-        databaseTransitionRequest(request, requestHash, row),
-        now,
-        offDatabaseParent,
-      );
-      result.affectedDatabaseBlockIds.forEach((id) =>
-        affectedDatabases.add(id),
-      );
-      continue;
-    }
-    updatePageParentWithoutDatabase(database, request, row, now);
+    const databaseBlockIds = applyCanonicalPageParentTransition(
+      database,
+      request,
+      requestHash,
+      row,
+      now,
+    );
+    databaseBlockIds.forEach((id) =>
+      affectedDatabases.add(id),
+    );
   }
   return uniqueSorted([...affectedDatabases]);
 };
@@ -3132,7 +3424,7 @@ const captureTransferDocumentRevisions = (
     }
   }
   const readAuthority = database.prepare(
-    `SELECT document.generation, document.head_seq, document.readiness,
+    `SELECT document.project_id, document.generation, document.head_seq, document.readiness,
        owner.lifecycle AS owner_lifecycle
      FROM documents document
      INNER JOIN block_documents ownership
@@ -3141,14 +3433,12 @@ const captureTransferDocumentRevisions = (
      INNER JOIN blocks owner
        ON owner.id = ownership.block_id
        AND owner.project_id = ownership.project_id
-     WHERE document.id = ? AND document.project_id = ?`,
+     WHERE document.id = ?`,
   );
   for (const commit of finalCommits.values()) {
-    const authority = readAuthority.get(
-      commit.documentId,
-      request.projectId,
-    ) as
+    const authority = readAuthority.get(commit.documentId) as
       | {
+          readonly project_id: string;
           readonly generation: number;
           readonly head_seq: number;
           readonly readiness: string;
@@ -3172,7 +3462,7 @@ const captureTransferDocumentRevisions = (
     }
     const revision = createDocumentVersionCheckpoint(database, {
       version: DOCUMENT_OPERATION_CONTRACT_VERSION,
-      projectId: request.projectId,
+      projectId: authority.project_id,
       storeEpoch: request.storeEpoch,
       documentId: commit.documentId,
       expectedGeneration: commit.generation,
@@ -3588,12 +3878,36 @@ const readDocumentHeadForTransfer = (
         readonly authority: string;
       }
     | undefined;
-  if (!row || row.project_id !== intent.projectId) {
+  if (!row) {
     return reject(
       intent,
       role === "target" ? "target_not_found" : "block_not_found",
       `${role === "target" ? "Target" : "Source"} Document does not exist in this Project: ${documentId}`,
     );
+  }
+  if (row.project_id !== intent.projectId) {
+    const libraries = database.prepare(`
+      SELECT source.library_id AS sourceLibraryId,
+        target.library_id AS targetLibraryId
+      FROM projects source
+      INNER JOIN projects target ON target.id = ?
+      WHERE source.id = ?
+    `).get(row.project_id, intent.projectId) as
+      | {
+          readonly sourceLibraryId: string;
+          readonly targetLibraryId: string;
+        }
+      | undefined;
+    if (
+      role !== "target" ||
+      libraries?.sourceLibraryId !== libraries?.targetLibraryId
+    ) {
+      return reject(
+        intent,
+        role === "target" ? "target_not_found" : "block_not_found",
+        `${role === "target" ? "Target" : "Source"} Document does not exist in this Project: ${documentId}`,
+      );
+    }
   }
   if (row.readiness !== "ready" || row.authority !== "ydoc_primary") {
     reject(
@@ -4038,7 +4352,13 @@ export const applyBlockTransfer = (
                 now,
                 inject,
               )
-            : copyPageRoots(database, request, requestHash, now);
+            : copyPageRoots(
+                database,
+                request,
+                requestHash,
+                now,
+                options.beforeTargetDocument,
+              );
         documentCommits = copy.documentCommits;
         affectedDatabaseBlockIds = copy.affectedDatabaseBlockIds;
         resultBlockIds = copy.resultBlockIds;
@@ -4047,7 +4367,8 @@ export const applyBlockTransfer = (
         transferTransformationEvidence = copy.transformationEvidence ?? [];
       } else if (
         request.source.kind === "document" &&
-        request.target.kind === "document"
+        request.target.kind === "document" &&
+        rows.some((row) => row.type !== "page")
       ) {
         const relocation = relocateBlocksAtomically(database, {
           relocationId: deterministicSubOperationId(requestHash, "relocation"),
@@ -4123,6 +4444,7 @@ export const applyBlockTransfer = (
         );
         inject("after_parent_transition");
         if (request.target.kind === "document") {
+          options.beforeTargetDocument?.(request.rootBlockIds);
           const target = request.target;
           const targetCommit = runDocumentBatch(
             database,

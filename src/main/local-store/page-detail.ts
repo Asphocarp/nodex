@@ -5,9 +5,13 @@ import {
   type BlockPropertyJsonValue,
 } from "../../shared/block-property-mutations";
 import type {
-  DataSourcePageValue,
-  DataSourcePropertyRecord,
-} from "../../shared/database-module";
+  DataSourcePageValueV2,
+  DataSourcePropertyRecordV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import type {
   PageDataSourceContext,
   PageDetail,
@@ -15,11 +19,12 @@ import type {
   PageDetailResult,
   PageIntrinsicProperty,
 } from "../../shared/page-detail";
+import { PAGE_DETAIL_CONTRACT_VERSION } from "../../shared/page-detail";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
 import {
-  readDatabaseContainerDescriptorInDatabase,
-  readDataSourceDescriptorInDatabase,
-} from "./database-module";
+  readDatabaseContainerDescriptorV2InDatabase,
+  readDataSourceDescriptorV2InDatabase,
+} from "./database-module-v2-runtime";
 import { PageStoreStateError, readPageInDatabase } from "./pages";
 
 interface ProjectRow {
@@ -49,7 +54,7 @@ interface MembershipRow {
 
 interface ValueRow {
   readonly property_id: string;
-  readonly value_type: DataSourcePageValue["valueType"];
+  readonly value_type: DataSourcePageValueV2["valueType"];
   readonly value_json: string;
   readonly revision: number;
 }
@@ -98,8 +103,8 @@ const readIntrinsicProperties = (
 const readValues = (
   database: Database.Database,
   membershipId: string,
-  properties: readonly DataSourcePropertyRecord[],
-): Readonly<Record<string, DataSourcePageValue>> => {
+  properties: readonly DataSourcePropertyRecordV2[],
+): Readonly<Record<string, DataSourcePageValueV2>> => {
   const propertyById = new Map(properties.map((property) => [property.propertyId, property]));
   const rows = database.prepare(`
     SELECT property_id, value_type, value_json, revision
@@ -107,9 +112,11 @@ const readValues = (
     WHERE membership_id = ?
     ORDER BY property_id
   `).all(membershipId) as readonly ValueRow[];
-  const values: Record<string, DataSourcePageValue> = {};
+  const values: Record<string, DataSourcePageValueV2> = {};
   for (const row of rows) {
-    const property = propertyById.get(row.property_id);
+    const property = propertyById.get(
+      parseDataSourcePropertyId(row.property_id),
+    );
     if (!property || property.lifecycle !== "active") continue;
     if (property.valueType !== row.value_type) {
       throw new PageDetailStateError(
@@ -117,7 +124,7 @@ const readValues = (
       );
     }
     values[row.property_id] = {
-      propertyId: row.property_id,
+      propertyId: parseDataSourcePropertyId(row.property_id),
       valueType: row.value_type,
       value: parseJson(
         row.value_json,
@@ -147,13 +154,16 @@ const readDataSourceContext = (
     );
   }
   const membership = memberships[0];
-  const source = readDataSourceDescriptorInDatabase(database, dataSourceId);
+  const source = readDataSourceDescriptorV2InDatabase(
+    database,
+    parseDataSourceId(dataSourceId),
+  );
   if (!source || source.dataSource.lifecycle === "deleted") {
     throw new PageDetailStateError(
       `Page ${pageId} points to missing Data Source ${dataSourceId}`,
     );
   }
-  const container = readDatabaseContainerDescriptorInDatabase(
+  const container = readDatabaseContainerDescriptorV2InDatabase(
     database,
     source.dataSource.homeDatabaseId,
   );
@@ -246,7 +256,7 @@ export const readPageDetailInDatabase = (
         SELECT COALESCE(MAX(seq), 0) AS seq FROM change_log
       `).get() as { readonly seq: number };
       const detail: PageDetail = {
-        version: 1,
+        version: PAGE_DETAIL_CONTRACT_VERSION,
         projectId,
         libraryId: project.library_id,
         storeEpoch: store.storeEpoch,

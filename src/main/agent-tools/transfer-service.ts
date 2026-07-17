@@ -2,7 +2,10 @@ import type Database from "better-sqlite3";
 import type {
   BlockTreeNode,
 } from "../../shared/block-documents/block-document-codec";
-import type { PortableRichText } from "../../shared/block-documents/portable-rich-text";
+import {
+  portableRichTextPlainText,
+  type PortableRichText,
+} from "../../shared/block-documents/portable-rich-text";
 import {
   assessBlockSemanticContentForPage,
   BlockSemanticContentError,
@@ -11,7 +14,7 @@ import { prepareBlockTransfer } from "../local-store/block-transfers";
 import { applyBlockTransfer } from "../local-store/block-transfers";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { mintNodexAgentEtag } from "../local-store/nodex-agent-etag";
-import { applyDatabaseMutation } from "../local-store/database-kernel";
+import { applyDatabaseModuleV2 } from "../local-store/database-module-v2-runtime";
 import {
   assertCurrentNodexAgentTurnAuthorityInDatabase,
   assertNodexAgentResourceAuthorizationInDatabase,
@@ -20,43 +23,48 @@ import {
   authorizeProjectResourceInDatabase,
 } from "../local-store/project-resource-grants";
 import {
+  databaseGroupValueFromKey,
+  type DatabaseJsonValue,
+  parseDatabaseViewConfigV2,
+  type DatabasePropertyValueType,
+} from "../../shared/database-kernel";
+import {
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseApplyReceiptV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+  parseDatabaseViewId,
+} from "../../shared/database-identities";
+import { createUuidV7 } from "../../shared/uuid-v7";
+import {
+  PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
+  parsePageLifecycleMutationRequestV2,
+} from "../../shared/page-lifecycle-v2";
+import { applyPageLifecycleMutationV2 } from "../local-store/page-lifecycle-v2-store";
+import {
   applyLibraryContentRehomeInTransaction,
   prepareLibraryContentRehome,
 } from "../local-store/library-content-rehome";
-import {
-  DATABASE_MUTATION_CONTRACT_VERSION,
-  databaseGroupValueFromKey,
-  normalizeDatabasePropertyValue,
-  parseDatabasePropertyConfig,
-  type DatabaseJsonValue,
-  type DatabaseMutationRequest,
-  type DatabasePropertyValueType,
-} from "../../shared/database-kernel";
-import { resolveLegacyDatabaseViewOrderConfig } from "../local-store/legacy-database-view-logical-order";
+import { DEFAULT_WORKFLOW_STATUS } from "../../shared/workflow-status";
 import {
   DuplicatePageV3OutputSchema,
   MovePagesV3OutputSchema,
   BlockIdSchema,
-  BlockLocationSchema,
   TransferBlocksInputSchema,
-  TransferBlocksOutputSchema,
   type CreateInput,
-  type ExecuteNodexAgentTransferResult,
   type ExecuteNodexAgentDuplicatePageResult,
   type ExecuteNodexAgentMovePagesResult,
   type NodexAgentDuplicatePageCommand,
   type NodexAgentMovePagesCommand,
-  type NodexAgentTransferCommand,
   type NodexAgentTransferAuthorizationEvidence,
-  type PrepareNodexAgentTransferRequest,
-  type PrepareNodexAgentTransferResult,
   type PrepareNodexAgentDuplicatePageRequest,
   type PrepareNodexAgentDuplicatePageResult,
   type PrepareNodexAgentMovePagesRequest,
   type PrepareNodexAgentMovePagesResult,
   type PreparedNodexAgentCreateDestination,
   type TransferBlocksInput,
-  type TransferBlocksOutput,
 } from "../../shared/nodex-agent-tools";
 import type {
   BlockTransferIntentSource,
@@ -72,7 +80,10 @@ import {
   requireMatchingNodexAgentCallReceipt,
   type NodexAgentCallReceiptRow,
 } from "./call-receipts";
-import { prepareNodexAgentDestination } from "./create-service";
+import {
+  prepareNodexAgentDataSourceDestination,
+  prepareNodexAgentDestination,
+} from "./create-service";
 import {
   NodexAgentReadError,
   nodexAgentFingerprint,
@@ -188,22 +199,6 @@ function readBlock(
   return row;
 }
 
-function sourceKey(block: BlockLocationRow): string {
-  if (block.location_kind === "space") return "space";
-  if (block.location_kind === "document" && block.containing_document_id) {
-    return `document:${block.containing_document_id}`;
-  }
-  if (block.location_kind === "database" && block.containing_database_id) {
-    return `database:${block.containing_database_id}`;
-  }
-  throw new NodexAgentReadError(
-    "internal_error",
-    `Block ${block.id} has inconsistent location authority`,
-    false,
-    "none",
-  );
-}
-
 function sourceIntent(
   database: Database.Database,
   projectId: string,
@@ -234,20 +229,6 @@ function sourceIntent(
     return { kind: "data_source", dataSourceId: source.dataSourceId };
   }
   throw new Error(`Block ${block.id} location is inconsistent`);
-}
-
-function sourceMatches(
-  block: BlockLocationRow,
-  expected: Extract<TransferBlocksInput, { readonly mode: "move" }>["from"],
-): boolean {
-  if (expected.kind !== block.location_kind) return false;
-  if (expected.kind === "space") return true;
-  if (expected.kind === "database") {
-    return block.containing_database_id === expected.databaseBlockId;
-  }
-  return block.containing_document_id === expected.documentId
-    && (expected.parentBlockId === undefined
-      || block.parent_block_id === expected.parentBlockId);
 }
 
 function findDocumentBlock(
@@ -360,7 +341,6 @@ function transferAuthorizationEvidence(
 
 function fallbackDatabaseView(
   database: Database.Database,
-  projectId: string,
   databaseBlockId: string,
 ): {
   readonly viewId: string;
@@ -369,12 +349,12 @@ function fallbackDatabaseView(
 } {
   const row = database.prepare(
     `
-    SELECT id, data_source_id AS dataSourceId
-    FROM database_views
-    WHERE database_block_id = ? AND project_id = ? AND lifecycle = 'active'
-    ORDER BY is_primary DESC, rank_key, id
+    SELECT view.id, view.data_source_id AS dataSourceId
+    FROM database_containers container
+    INNER JOIN database_views view ON view.id = container.default_view_id
+    WHERE container.block_id = ? AND view.lifecycle = 'active'
     LIMIT 1
-  `).get(databaseBlockId, projectId) as
+  `).get(databaseBlockId) as
     | { readonly id: string; readonly dataSourceId: string }
     | undefined;
   if (!row) {
@@ -432,7 +412,6 @@ function transferTarget(
   }
   const view = destination.view ?? fallbackDatabaseView(
     database,
-    projectId,
     destination.databaseBlockId,
   );
   const dataSourceId = "dataSourceId" in view
@@ -460,429 +439,6 @@ function transferTarget(
     ...(destination.view?.beforePageId
       ? { beforePageId: destination.view.beforePageId }
       : {}),
-  };
-}
-
-function replayOutput(receipt: NodexAgentCallReceiptRow): TransferBlocksOutput {
-  const metadata = parseJsonValue(
-    receipt.result_metadata_json,
-    `Agent call ${receipt.call_identity} result metadata`,
-  );
-  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
-    throw new NodexAgentReadError(
-      "internal_error",
-      "Agent transfer result metadata is invalid",
-      false,
-      "none",
-    );
-  }
-  return TransferBlocksOutputSchema.parse(metadata.output);
-}
-
-function prepareTransfer(
-  database: Database.Database,
-  request: PrepareNodexAgentTransferRequest,
-): PrepareNodexAgentTransferResult {
-  requireProject(database, request.projectId);
-  const key = { ...request, tool: "transfer_blocks" };
-  const identity = nodexAgentCallIdentity(key);
-  const requestHash = nodexAgentFingerprint({
-    tool: "transfer_blocks",
-    projectId: request.projectId,
-    input: request.input,
-  });
-  const existing = readNodexAgentCallReceipt(database, identity);
-  if (existing) {
-    requireMatchingNodexAgentCallReceipt(existing, key, requestHash);
-    if (existing.status === "committed") {
-      return { ok: true, value: { kind: "completed", output: replayOutput(existing) } };
-    }
-  }
-  if (new Set(request.input.blockIds).size !== request.input.blockIds.length) {
-    throw new NodexAgentReadError(
-      "invalid_arguments",
-      "A transfer root may appear only once",
-      false,
-      "none",
-    );
-  }
-  const blocks = request.input.blockIds.map((blockId) =>
-    readBlock(database, request.projectId, blockId));
-  const sources = new Set(blocks.map(sourceKey));
-  if (sources.size !== 1) {
-    throw new NodexAgentReadError(
-      "mixed_transfer_sources",
-      "Every transferred root must share one source container",
-      false,
-      "get_block_again",
-    );
-  }
-  if (request.input.mode === "move") {
-    const expectedSource = request.input.from;
-    if (blocks.some((block) => !sourceMatches(block, expectedSource))) {
-      throw new NodexAgentReadError(
-        "conflict",
-        "One or more Blocks no longer belong to the declared source",
-        false,
-        "get_block_again",
-        { domainCode: "transfer_source_mismatch" },
-      );
-    }
-  }
-  const destination = prepareNodexAgentDestination(
-    database,
-    request.projectId,
-    request.input.destination as CreateInput["destination"],
-  );
-  const source = sourceIntent(
-    database,
-    request.projectId,
-    blocks[0] as BlockLocationRow,
-  );
-  const target = transferTarget(database, request.projectId, destination);
-  if (
-    request.input.mode === "move"
-    && ((source.kind === "page"
-      && target.kind === "page"
-      && source.pageId === target.pageId)
-      || (source.kind === "document"
-        && target.kind === "document"
-        && source.documentId === target.documentId))
-  ) {
-    throw new NodexAgentReadError(
-      "invalid_arguments",
-      "Move within one Document belongs to edit_document; copy may use transfer_blocks",
-      false,
-      "none",
-    );
-  }
-  if (
-    request.input.mode === "move"
-    && source.kind === "data_source"
-    && target.kind === "data_source"
-    && source.dataSourceId === target.dataSourceId
-  ) {
-    throw new NodexAgentReadError(
-      "invalid_arguments",
-      "Move within one Database belongs to edit_database; copy may use transfer_blocks",
-      false,
-      "none",
-    );
-  }
-  const storeEpoch = readBlockStoreEpoch(database);
-  if (!storeEpoch) throw new Error("Nodex store has no epoch");
-  const mutationId = existing?.mutation_id ?? `nodex-transfer:${identity}`;
-  const preparation = prepareBlockTransfer(database, {
-    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-    operationId: mutationId,
-    projectId: request.projectId,
-    storeEpoch,
-    clientSessionId: `nodex-agent:${request.threadId}`,
-    actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
-    mode: request.input.mode,
-    rootBlockIds: request.input.blockIds,
-    source,
-    target,
-  });
-  if (!preparation.ok) {
-    throw new NodexAgentReadError(
-      preparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-      preparation.error.message,
-      preparation.error.retryable,
-      preparation.error.reloadRequired ? "get_block_again" : "none",
-      { domainCode: preparation.error.code },
-    );
-  }
-  const now = new Date().toISOString();
-  if (!existing) {
-    database.prepare(
-      `
-      INSERT INTO nodex_agent_call_receipts (
-        call_identity, thread_id, turn_id, call_id, project_id, tool, request_hash,
-        mutation_id, authority_fingerprint, provenance_version,
-        allocations_json, result_metadata_json, status,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'transfer_blocks', ?, ?, ?, ?, '[]', '{}', 'prepared', ?, ?)
-    `).run(
-      identity,
-      request.threadId,
-      request.authority?.turnId ?? null,
-      request.callId,
-      request.projectId,
-      requestHash,
-      mutationId,
-      nodexAgentCallProvenance(request)[1],
-      nodexAgentCallProvenance(request)[2],
-      now,
-      now,
-    );
-  }
-  return {
-    ok: true,
-    value: {
-      kind: "prepared",
-      command: {
-        threadId: request.threadId,
-        callId: request.callId,
-        ...(request.authority ? { authority: request.authority } : {}),
-        projectId: request.projectId,
-        requestHash,
-        mutationId,
-        storeEpoch,
-        input: request.input,
-        transfer: preparation.value.request,
-        destination,
-        leaseDocuments: preparation.value.leaseDocuments,
-      },
-      leaseDocuments: preparation.value.leaseDocuments,
-      authorization: transferAuthorizationEvidence(database, {
-        blocks,
-        transfer: preparation.value.request,
-        documentIds: preparation.value.leaseDocuments.map((lease) => lease.documentId),
-      }),
-    },
-  };
-}
-
-function activeMembership(
-  database: Database.Database,
-  pageId: string,
-  databaseBlockId: string,
-) {
-  const row = database.prepare(
-    `
-    SELECT id, revision
-    FROM database_memberships
-    WHERE page_block_id = ? AND database_block_id = ? AND removed_at IS NULL
-  `).get(pageId, databaseBlockId) as
-    | { readonly id: string; readonly revision: number }
-    | undefined;
-  if (!row) throw new Error(`Transferred Page ${pageId} has no target membership`);
-  return row;
-}
-
-function currentValueRevision(
-  database: Database.Database,
-  membershipId: string,
-  propertyId: string,
-): number {
-  const row = database.prepare(
-    "SELECT revision FROM database_property_values WHERE membership_id = ? AND property_id = ?",
-  ).get(membershipId, propertyId) as { readonly revision: number } | undefined;
-  return row?.revision ?? 0;
-}
-
-function applyDestinationValues(
-  database: Database.Database,
-  command: NodexAgentTransferCommand,
-  receipt: BlockTransferReceipt,
-) {
-  if (command.destination.kind !== "database") return [];
-  const inputDestination = command.input.destination;
-  if (inputDestination.kind !== "database") return [];
-  const results = receipt.resultRootBlockIds;
-  const databaseReceipts = [];
-  for (const pageId of results) {
-    let membership = activeMembership(
-      database,
-      pageId,
-      command.destination.databaseBlockId,
-    );
-    if (!command.destination.view) {
-      const detach = applyDatabaseMutation(database, {
-        version: DATABASE_MUTATION_CONTRACT_VERSION,
-        operationId: `${command.mutationId}:detach:${pageId}`,
-        projectId: command.projectId,
-        storeEpoch: command.storeEpoch,
-        actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-        operations: [{
-          kind: "transfer_membership",
-          pageId,
-          expectedMembership: {
-            membershipId: membership.id,
-            revision: membership.revision,
-          },
-          target: null,
-        }],
-      });
-      if (!detach.ok) throw new Error(detach.error.message);
-      databaseReceipts.push(detach.value);
-      const readd = applyDatabaseMutation(database, {
-        version: DATABASE_MUTATION_CONTRACT_VERSION,
-        operationId: `${command.mutationId}:membership:${pageId}`,
-        projectId: command.projectId,
-        storeEpoch: command.storeEpoch,
-        actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-        operations: [{
-          kind: "transfer_membership",
-          pageId,
-          expectedMembership: null,
-          target: {
-            databaseBlockId: command.destination.databaseBlockId,
-            membershipId: `membership:${command.mutationId}:${pageId}`,
-          },
-        }],
-      });
-      if (!readd.ok) throw new Error(readd.error.message);
-      databaseReceipts.push(readd.value);
-      membership = activeMembership(
-        database,
-        pageId,
-        command.destination.databaseBlockId,
-      );
-    }
-    if (!inputDestination.values?.length) continue;
-    const values = applyDatabaseMutation(database, {
-      version: DATABASE_MUTATION_CONTRACT_VERSION,
-      operationId: `${command.mutationId}:values:${pageId}`,
-      projectId: command.projectId,
-      storeEpoch: command.storeEpoch,
-      actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-      operations: [{
-        kind: "set_values",
-        databaseBlockId: command.destination.databaseBlockId,
-        entries: inputDestination.values.map((draft) => ({
-          pageId,
-          propertyId: draft.propertyId,
-          expectedValueRevision: currentValueRevision(
-            database,
-            membership.id,
-            draft.propertyId,
-          ),
-          value: draft.value as DatabaseJsonValue,
-        })),
-      }],
-    });
-    if (!values.ok) throw new Error(values.error.message);
-    databaseReceipts.push(values.value);
-  }
-  return databaseReceipts;
-}
-
-function resultLocation(
-  database: Database.Database,
-  projectId: string,
-  blockId: string,
-) {
-  const row = readBlock(database, projectId, blockId);
-  const location = row.location_kind === "space"
-    ? { kind: "space" as const }
-    : row.location_kind === "document" && row.containing_document_id
-      ? { kind: "document" as const, documentId: row.containing_document_id }
-      : row.location_kind === "database" && row.containing_database_id
-        ? { kind: "database" as const, databaseBlockId: row.containing_database_id }
-        : null;
-  if (!location) throw new Error(`Result Block ${blockId} has invalid location`);
-  return BlockLocationSchema.parse(location);
-}
-
-function transferOutput(
-  database: Database.Database,
-  command: NodexAgentTransferCommand,
-  receipt: BlockTransferReceipt,
-): TransferBlocksOutput {
-  const evidenceBySource = new Map(
-    receipt.transformationEvidence.map((evidence) => [evidence.sourceBlockId, evidence]),
-  );
-  const results = command.input.blockIds.map((blockId) => {
-    const evidence = evidenceBySource.get(blockId);
-    const resultBlockId = evidence?.resultPageId
-      ?? receipt.copiedBlockIds[blockId]
-      ?? blockId;
-    return {
-      sourceBlockId: blockId,
-      resultBlockId,
-      location: resultLocation(database, command.projectId, resultBlockId),
-      transformation: evidence?.kind === "wrap"
-        ? "wrapped" as const
-        : evidence?.kind === "promote"
-          ? "promoted" as const
-          : "preserved" as const,
-    };
-  });
-  return TransferBlocksOutputSchema.parse({
-    data: {
-      mode: command.input.mode,
-      results,
-      ...(command.input.return?.blockMap === true
-        ? { copiedBlockIds: receipt.copiedBlockIds }
-        : {}),
-    },
-  });
-}
-
-function executeTransfer(
-  database: Database.Database,
-  command: NodexAgentTransferCommand,
-): ExecuteNodexAgentTransferResult {
-  const identity = nodexAgentCallIdentity({ ...command, tool: "transfer_blocks" });
-  const callReceipt = readNodexAgentCallReceipt(database, identity);
-  if (!callReceipt) {
-    throw new NodexAgentReadError(
-      "idempotency_collision",
-      "No matching prepared Agent transfer call exists",
-      false,
-      "none",
-    );
-  }
-  requireMatchingNodexAgentCallReceipt(
-    callReceipt,
-    { ...command, tool: "transfer_blocks" },
-    command.requestHash,
-  );
-  if (callReceipt.status === "committed") {
-    return {
-      ok: true,
-      value: {
-        output: replayOutput(callReceipt),
-        duplicate: true,
-        documentCommits: [],
-        affectedDatabaseBlockIds: [],
-        changeLogSeq: 0,
-      },
-    };
-  }
-  if (readBlockStoreEpoch(database) !== command.storeEpoch) {
-    throw new NodexAgentReadError(
-      "conflict",
-      "The Nodex store changed after Block transfer was prepared",
-      false,
-      "get_block_again",
-    );
-  }
-  const transferred = applyBlockTransfer(database, command.transfer);
-  if (!transferred.ok) {
-    throw new NodexAgentReadError(
-      transferred.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-      transferred.error.message,
-      transferred.error.retryable,
-      transferred.error.reloadRequired ? "get_block_again" : "none",
-      { domainCode: transferred.error.code },
-    );
-  }
-  const databaseReceipts = applyDestinationValues(database, command, transferred.value);
-  const output = transferOutput(database, command, transferred.value);
-  database.prepare(
-    `
-    UPDATE nodex_agent_call_receipts
-    SET status = 'committed', result_metadata_json = ?, updated_at = ?
-    WHERE call_identity = ? AND status = 'prepared'
-  `).run(JSON.stringify({ output }), new Date().toISOString(), identity);
-  return {
-    ok: true,
-    value: {
-      output,
-      duplicate: false,
-      documentCommits: transferred.value.documentCommits,
-      affectedDatabaseBlockIds: [...new Set([
-        ...transferred.value.affectedDatabaseBlockIds,
-        ...databaseReceipts.flatMap((receipt) => receipt.affectedDatabaseBlockIds),
-      ])].sort((left, right) => left.localeCompare(right)),
-      changeLogSeq: Math.max(
-        transferred.value.changeLogSeq,
-        ...databaseReceipts.map((receipt) => receipt.changeLogSeq),
-      ),
-    },
   };
 }
 
@@ -1002,6 +558,33 @@ function normalizedDuplicateInput(
   });
 }
 
+function prepareV5PageDestination(
+  database: Database.Database,
+  projectId: string,
+  normalized: CreateInput["destination"],
+  destination: PrepareNodexAgentDuplicatePageRequest["input"]["destination"],
+  allowForeignOwner: boolean,
+): PreparedNodexAgentCreateDestination {
+  if (destination.kind !== "data_source") {
+    return prepareNodexAgentDestination(
+      database,
+      projectId,
+      normalized,
+      allowForeignOwner,
+    );
+  }
+  if (normalized.kind !== "database") {
+    throw new Error("Data Source destination normalization is inconsistent");
+  }
+  return prepareNodexAgentDataSourceDestination(
+    database,
+    projectId,
+    normalized,
+    destination.dataSourceId,
+    allowForeignOwner,
+  );
+}
+
 function prepareDuplicatePage(
   database: Database.Database,
   request: PrepareNodexAgentDuplicatePageRequest,
@@ -1057,56 +640,79 @@ function prepareDuplicatePage(
     "prepare",
   );
   const normalizedInput = normalizedDuplicateInput(database, request);
-  const destination = prepareNodexAgentDestination(
+  const destination = prepareV5PageDestination(
     database,
     request.projectId,
     normalizedInput.destination as CreateInput["destination"],
+    request.input.destination,
     request.authority !== undefined,
   );
-  const targetProjectId = destination.contentProjectId ?? request.projectId;
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Nodex store has no epoch");
   const mutationId = existing?.mutation_id ?? `nodex-duplicate-page:${identity}`;
-  const preparation = prepareBlockTransfer(database, {
-    version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-    operationId: mutationId,
-    projectId: sourceProjectId,
-    storeEpoch,
-    clientSessionId: `nodex-agent:${request.threadId}`,
-    actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
-    mode: "copy",
-    rootBlockIds: [request.input.pageId],
-    source: sourceIntent(database, sourceProjectId, sourceBlock),
-    target: sourceProjectId === targetProjectId
-      ? transferTarget(database, sourceProjectId, destination)
-      : transferTarget(database, sourceProjectId, {
-          kind: "space",
-          contentProjectId: sourceProjectId,
-        }),
-  });
-  if (!preparation.ok) {
+  const pageTransfer = destination.kind === "document"
+    ? prepareBlockTransfer(database, {
+        version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+        operationId: `${mutationId}:page-target`,
+        projectId: sourceProjectId,
+        storeEpoch,
+        clientSessionId: `nodex-agent:${request.threadId}`,
+        actor: {
+          kind: "nodex_agent",
+          threadId: request.threadId,
+          callId: request.callId,
+        },
+        mode: "copy",
+        rootBlockIds: [request.input.pageId],
+        source: sourceIntent(database, sourceProjectId, sourceBlock),
+        target: transferTarget(database, sourceProjectId, destination),
+      })
+    : null;
+  if (pageTransfer && !pageTransfer.ok) {
     throw new NodexAgentReadError(
-      preparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-      preparation.error.message,
-      preparation.error.retryable,
-      preparation.error.reloadRequired ? "get_block_again" : "none",
-      { domainCode: preparation.error.code },
+      pageTransfer.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
+      pageTransfer.error.message,
+      pageTransfer.error.retryable,
+      pageTransfer.error.reloadRequired ? "get_block_again" : "none",
+      { domainCode: pageTransfer.error.code },
     );
   }
-  const authorization = transferAuthorizationEvidence(database, {
-    blocks: [sourceBlock],
-    transfer: preparation.value.request,
-    documentIds: preparation.value.leaseDocuments.map((lease) => lease.documentId),
-  });
-  if (authorization.roots[request.input.pageId]?.transformation !== "preserved") {
-    throw new NodexAgentReadError(
-      "unsupported_resource",
-      "duplicate_page accepts only a complete Page root",
-      false,
-      "none",
-      { resourceId: request.input.pageId, domainCode: "page_root_required" },
-    );
+  const allocations = existing
+    ? parseJsonValue(
+        existing.allocations_json,
+        "Agent duplicate allocation receipt",
+      )
+    : [];
+  if (!Array.isArray(allocations) || !allocations.every((id) => typeof id === "string")) {
+    throw new Error("Agent duplicate allocation receipt is invalid");
   }
+  const newPageId = (allocations[0] as string | undefined) ?? createUuidV7();
+  const sourceDocument = database.prepare(`
+    SELECT document.id AS documentId, document.generation,
+      document.head_seq AS expectedHeadSeq
+    FROM pages page
+    INNER JOIN documents document ON document.id = page.document_id
+    WHERE page.block_id = ?
+  `).get(request.input.pageId) as {
+    readonly documentId: string;
+    readonly generation: number;
+    readonly expectedHeadSeq: number;
+  } | undefined;
+  if (!sourceDocument) throw new Error(`Page ${request.input.pageId} has no Document`);
+  const authorization: NodexAgentTransferAuthorizationEvidence = pageTransfer?.ok
+    ? transferAuthorizationEvidence(database, {
+        blocks: [sourceBlock],
+        transfer: pageTransfer.value.request,
+        documentIds: pageTransfer.value.leaseDocuments.map(
+          (lease) => lease.documentId,
+        ),
+      })
+    : {
+        roots: {
+          [request.input.pageId]: { type: "page", transformation: "preserved" },
+        },
+        documentIds: [sourceDocument.documentId],
+      };
   const now = new Date().toISOString();
   if (!existing) {
     database.prepare(
@@ -1116,7 +722,7 @@ function prepareDuplicatePage(
         mutation_id, authority_fingerprint, provenance_version,
         allocations_json, result_metadata_json, status,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'duplicate_page', ?, ?, ?, ?, '[]', '{}', 'prepared', ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'duplicate_page', ?, ?, ?, ?, ?, '{}', 'prepared', ?, ?)
     `).run(
       identity,
       request.threadId,
@@ -1127,6 +733,7 @@ function prepareDuplicatePage(
       mutationId,
       nodexAgentCallProvenance(request)[1],
       nodexAgentCallProvenance(request)[2],
+      JSON.stringify([newPageId]),
       now,
       now,
     );
@@ -1146,9 +753,14 @@ function prepareDuplicatePage(
         storeEpoch,
         input: request.input,
         normalizedInput,
-        transfer: preparation.value.request,
+        ...(pageTransfer?.ok ? { transfer: pageTransfer.value.request } : {}),
         destination,
-        leaseDocuments: preparation.value.leaseDocuments,
+        leaseDocuments: pageTransfer?.ok
+          ? pageTransfer.value.leaseDocuments
+          : [sourceDocument],
+        canonical: {
+          newPageId,
+        },
       },
       authorization,
     },
@@ -1158,7 +770,10 @@ function prepareDuplicatePage(
 function duplicatePageOutput(
   database: Database.Database,
   command: NodexAgentDuplicatePageCommand,
-  receipt: BlockTransferReceipt,
+  receipt: Pick<
+    BlockTransferReceipt,
+    "copiedBlockIds" | "resultRootBlockIds"
+  >,
 ) {
   const contentProjectId = command.destination.contentProjectId
     ?? command.projectId;
@@ -1275,38 +890,116 @@ function executeDuplicatePage(
       "get_block_again",
     );
   }
-  const sourceProjectId = command.transfer.projectId;
-  const targetProjectId = command.destination.contentProjectId
-    ?? command.projectId;
-  const staged = applyBlockTransfer(database, command.transfer, {
-    persistTopLevelGrant: sourceProjectId === targetProjectId
-      && (
-        !command.authority
-        || command.resourceAccess?.persistResultingPageGrants === true
-      ),
-  });
-  const transferred = (() => {
-    if (!staged.ok || sourceProjectId === targetProjectId) return staged;
-    const copiedPageId = staged.value.copiedBlockIds[command.input.pageId]
-      ?? staged.value.resultRootBlockIds[0];
-    if (!copiedPageId) {
-      throw new Error("Staged Page copy did not produce a root identity");
-    }
-    const rehome = prepareLibraryContentRehome(database, {
-      operationId: `${command.mutationId}:rehome`,
-      callIdentity: identity,
-      actorProjectId: command.projectId,
-      sourceProjectId,
-      targetProjectId,
-      rootPageIds: [copiedPageId],
-      storeEpoch: command.storeEpoch,
+  if (command.transfer) {
+    const targetProjectId = command.destination.contentProjectId ?? command.projectId;
+    const transferred = applyBlockTransfer(database, command.transfer, {
+      persistTopLevelGrant:
+        !command.authority ||
+        command.resourceAccess?.persistResultingPageGrants === true,
+      beforeTargetDocument: (rootPageIds) => {
+        const copiedPageId = rootPageIds[0];
+        if (!copiedPageId) {
+          throw new Error("Duplicated Page ownership handoff has no root");
+        }
+        const copiedOwner = database.prepare(`
+          SELECT project_id AS projectId FROM blocks WHERE id = ? AND type = 'page'
+        `).get(copiedPageId) as { readonly projectId: string } | undefined;
+        if (!copiedOwner) {
+          throw new Error(`Duplicated Page ${copiedPageId} has no compatibility owner`);
+        }
+        if (copiedOwner.projectId === targetProjectId) return;
+        const rehome = prepareLibraryContentRehome(database, {
+          operationId: `${command.mutationId}:result:rehome`,
+          callIdentity: identity,
+          actorProjectId: command.projectId,
+          sourceProjectId: copiedOwner.projectId,
+          targetProjectId,
+          rootPageIds: [copiedPageId],
+          storeEpoch: command.storeEpoch,
+        });
+        applyLibraryContentRehomeInTransaction(database, rehome);
+      },
     });
-    applyLibraryContentRehomeInTransaction(database, rehome);
-    const copiedBlock = readBlock(database, targetProjectId, copiedPageId);
-    const targetPreparation = prepareBlockTransfer(database, {
-      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-      operationId: `${command.mutationId}:target`,
-      projectId: targetProjectId,
+    if (!transferred.ok) {
+      throw new NodexAgentReadError(
+        transferred.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
+        transferred.error.message,
+        transferred.error.retryable,
+        transferred.error.reloadRequired ? "get_block_again" : "none",
+        { domainCode: transferred.error.code },
+      );
+    }
+    const output = duplicatePageOutput(database, command, transferred.value);
+    database.prepare(`
+      UPDATE nodex_agent_call_receipts
+      SET status = 'committed', result_metadata_json = ?, updated_at = ?
+      WHERE call_identity = ? AND status = 'prepared'
+    `).run(JSON.stringify({ output }), new Date().toISOString(), identity);
+    return {
+      ok: true,
+      value: {
+        output,
+        duplicate: false,
+        documentCommits: transferred.value.documentCommits,
+        affectedDatabaseBlockIds: transferred.value.affectedDatabaseBlockIds,
+        changeLogSeq: transferred.value.changeLogSeq,
+      },
+    };
+  }
+  if (!command.canonical) {
+    throw new Error("Prepared duplicate has no v81 clone authority");
+  }
+  const source = database.prepare(`
+    SELECT block.project_id AS projectId, materialization.title_rich_json AS titleJson,
+      materialization.nfm, materialization.block_tree_json AS blockTreeJson,
+      status.value_json AS statusJson
+    FROM blocks block
+    INNER JOIN pages page ON page.block_id = block.id
+    INNER JOIN document_materializations materialization
+      ON materialization.document_id = page.document_id
+    LEFT JOIN data_source_page_memberships membership
+      ON membership.page_block_id = block.id AND membership.removed_at IS NULL
+    LEFT JOIN data_source_property_values status
+      ON status.data_source_id = membership.data_source_id
+     AND status.membership_id = membership.id AND status.property_id = 'status'
+    WHERE block.id = ? AND block.type = 'page'
+  `).get(command.input.pageId) as {
+    readonly projectId: string;
+    readonly titleJson: string;
+    readonly nfm: string;
+    readonly blockTreeJson: string;
+    readonly statusJson: string | null;
+  } | undefined;
+  if (!source) throw new Error(`Page ${command.input.pageId} has no clone authority`);
+  const stagingDataSourceId = command.destination.kind === "database"
+    ? command.destination.dataSourceId
+    : (database.prepare(`
+        SELECT source.id
+        FROM project_database_bindings binding
+        INNER JOIN data_sources source
+          ON source.home_database_block_id = binding.database_block_id
+         AND source.library_id = binding.library_id
+         AND source.lifecycle = 'active'
+        WHERE binding.project_id = ? AND binding.lifecycle = 'active'
+        ORDER BY source.rank_key, source.id LIMIT 1
+      `).get(command.destination.contentProjectId ?? source.projectId) as
+        | { readonly id: string }
+        | undefined)?.id;
+  if (!stagingDataSourceId) throw new Error("Duplicate staging Data Source is unavailable");
+  const tags = database.prepare(`
+    SELECT schema_revision AS revision FROM data_source_properties
+    WHERE data_source_id = ? AND id = 'tags' AND lifecycle = 'active'
+  `).get(stagingDataSourceId) as { readonly revision: number } | undefined;
+  if (!tags) throw new Error("Duplicate staging tags Property is unavailable");
+  const sourceRichTitle = parseJsonValue(
+    source.titleJson,
+    "Source Page title",
+  ) as unknown as PortableRichText;
+  const lifecycle = applyPageLifecycleMutationV2(database,
+    parsePageLifecycleMutationRequestV2({
+      version: PAGE_LIFECYCLE_V2_CONTRACT_VERSION,
+      operationId: `${command.mutationId}:clone:v2`,
+      projectId: command.destination.contentProjectId ?? source.projectId,
       storeEpoch: command.storeEpoch,
       clientSessionId: `nodex-agent:${command.threadId}`,
       actor: {
@@ -1314,67 +1007,219 @@ function executeDuplicatePage(
         threadId: command.threadId,
         callId: command.callId,
       },
-      mode: "move",
-      rootBlockIds: [copiedPageId],
-      source: sourceIntent(database, targetProjectId, copiedBlock),
-      target: transferTarget(database, targetProjectId, command.destination),
-    });
-    if (!targetPreparation.ok) {
-      throw new NodexAgentReadError(
-        targetPreparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-        targetPreparation.error.message,
-        targetPreparation.error.retryable,
-        targetPreparation.error.reloadRequired ? "get_block_again" : "none",
-      );
-    }
-    const placed = applyBlockTransfer(database, targetPreparation.value.request, {
-      persistTopLevelGrant:
-        !command.authority
-        || command.resourceAccess?.persistResultingPageGrants === true,
-    });
-    if (!placed.ok) return placed;
-    return {
-      ok: true as const,
-      value: {
-        ...placed.value,
-        mode: "copy" as const,
-        sourceRootBlockIds: command.transfer.rootBlockIds,
-        copiedBlockIds: staged.value.copiedBlockIds,
-        documentCommits: [
-          ...staged.value.documentCommits,
-          ...placed.value.documentCommits,
-        ],
-        affectedDatabaseBlockIds: [...new Set([
-          ...staged.value.affectedDatabaseBlockIds,
-          ...placed.value.affectedDatabaseBlockIds,
-        ])].sort((left, right) => left.localeCompare(right)),
-        changeLogSeq: Math.max(
-          staged.value.changeLogSeq,
-          placed.value.changeLogSeq,
-        ),
+      operation: {
+        kind: "create_page",
+        pageId: command.canonical.newPageId,
+        title: portableRichTextPlainText(sourceRichTitle),
+        richTitle: sourceRichTitle,
+        nfm: source.nfm,
+        status: source.statusJson
+          ? JSON.parse(source.statusJson)
+          : DEFAULT_WORKFLOW_STATUS,
+        priority: null,
+        estimate: null,
+        tagOptionIds: [],
+        newTagOptions: [],
+        expectedTagsPropertyRevision: tags.revision,
+        dueDate: null,
+        scheduledStart: null,
+        scheduledEnd: null,
+        isAllDay: false,
+        recurrence: null,
+        reminders: [],
+        scheduleTimezone: null,
+        assignee: null,
+        runInTarget: "localProject",
+        runInLocalPath: null,
+        runInBaseBranch: null,
+        runInWorktreePath: null,
+        runInEnvironmentPath: null,
+        dataSourceId: stagingDataSourceId,
       },
-    };
-  })();
-  if (!transferred.ok) {
+    }), {
+      allocateMembershipId: createUuidV7,
+    });
+  if (!lifecycle.ok) {
     throw new NodexAgentReadError(
-      transferred.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-      transferred.error.message,
-      transferred.error.retryable,
-      transferred.error.reloadRequired ? "get_block_again" : "none",
-      { domainCode: transferred.error.code },
+      lifecycle.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
+      lifecycle.error.message,
+      lifecycle.error.retryable,
+      "query_database_again",
+      { domainCode: lifecycle.error.code },
     );
   }
-  const normalizedCommand: NodexAgentTransferCommand = {
-    ...command,
-    projectId: targetProjectId,
-    input: command.normalizedInput,
+  const sourceBlocks = parseJsonValue(source.blockTreeJson, "Source Page Block tree");
+  if (!Array.isArray(sourceBlocks)) throw new Error("Source Page Block tree is invalid");
+  const sourceBlockIds = flattenBlocks(
+    sourceBlocks as unknown as readonly BlockTreeNode[],
+  ).map((block) => block.id);
+  const blockIdMap = {
+    [command.input.pageId]: lifecycle.value.pageId,
+    ...Object.fromEntries(sourceBlockIds.map((id, index) => [
+      id,
+      lifecycle.value.createdBlockIds[index] as string,
+    ])),
   };
-  const databaseReceipts = applyDestinationValues(
-    database,
-    normalizedCommand,
-    transferred.value,
-  );
-  const output = duplicatePageOutput(database, command, transferred.value);
+  const cloned = {
+    pageId: lifecycle.value.pageId,
+    blockIdMap,
+    databaseBlockId: lifecycle.value.databaseId as string,
+    changeLogSeq: lifecycle.value.changeLogSeq,
+  };
+  const databaseReceipts: DatabaseApplyReceiptV2[] = [];
+  const target = command.destination.kind === "database"
+    ? { kind: "data_source" as const, dataSourceId: parseDataSourceId(command.destination.dataSourceId) }
+    : command.destination.kind === "space"
+      ? {
+          kind: "library" as const,
+          libraryId: (database.prepare(
+            "SELECT library_id AS libraryId FROM pages WHERE block_id = ?",
+          ).get(cloned.pageId) as { readonly libraryId: string }).libraryId,
+        }
+      : {
+          kind: "page" as const,
+          pageId: (database.prepare(
+            "SELECT block_id AS pageId FROM pages WHERE document_id = ?",
+          ).get(command.destination.documentId) as { readonly pageId: string }).pageId,
+        };
+  const clonedParent = database.prepare(`
+    SELECT page.parent_kind AS parentKind, page.parent_id AS parentId,
+      page.parent_revision AS parentRevision, membership.revision AS membershipRevision
+    FROM pages page
+    INNER JOIN data_source_page_memberships membership
+      ON membership.page_block_id = page.block_id AND membership.removed_at IS NULL
+    WHERE page.block_id = ?
+  `).get(cloned.pageId) as {
+    readonly parentKind: string;
+    readonly parentId: string;
+    readonly parentRevision: number;
+    readonly membershipRevision: number;
+  };
+  const alreadyAtTarget = target.kind === "data_source"
+    && clonedParent.parentKind === "data_source"
+    && clonedParent.parentId === target.dataSourceId;
+  if (!alreadyAtTarget) {
+    const moved = applyDatabaseModuleV2(database, {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: `${command.mutationId}:destination:v2`,
+      projectId: command.destination.contentProjectId ?? command.projectId,
+      storeEpoch: command.storeEpoch,
+      actor: {
+        kind: "nodex_agent",
+        threadId: command.threadId,
+        callId: command.callId,
+      },
+      operations: [{
+        kind: "transfer_page",
+        pageId: cloned.pageId,
+        expectedParentRevision: clonedParent.parentRevision,
+        expectedActiveMembershipRevision: clonedParent.membershipRevision,
+        target,
+      }],
+    });
+    if (!moved.ok) {
+      throw new NodexAgentReadError(
+        moved.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
+        moved.error.message,
+        moved.error.retryable,
+        "query_database_again",
+        { domainCode: moved.error.code },
+      );
+    }
+    databaseReceipts.push(moved.value);
+  }
+  if (
+    command.destination.kind === "database" &&
+    command.input.destination.kind === "data_source" &&
+    command.input.destination.values?.length
+  ) {
+    const destination = command.destination;
+    const membership = database.prepare(`
+      SELECT id FROM data_source_page_memberships
+      WHERE data_source_id = ? AND page_block_id = ? AND removed_at IS NULL
+    `).get(destination.dataSourceId, cloned.pageId) as { readonly id: string };
+    const values = command.input.destination.values.map((draft) => {
+      const current = database.prepare(`
+        SELECT revision FROM data_source_property_values
+        WHERE data_source_id = ? AND membership_id = ? AND property_id = ?
+      `).get(destination.dataSourceId, membership.id, draft.propertyId) as
+        | { readonly revision: number }
+        | undefined;
+      return {
+        pageId: cloned.pageId,
+        dataSourceId: parseDataSourceId(destination.dataSourceId),
+        propertyId: parseDataSourcePropertyId(draft.propertyId),
+        expectedValueRevision: current?.revision ?? 0,
+        value: draft.value as DatabaseJsonValue,
+      };
+    });
+    const setValues = applyDatabaseModuleV2(database, {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: `${command.mutationId}:values:v2`,
+      projectId: command.destination.contentProjectId ?? command.projectId,
+      storeEpoch: command.storeEpoch,
+      actor: {
+        kind: "nodex_agent",
+        threadId: command.threadId,
+        callId: command.callId,
+      },
+      operations: [{ kind: "set_values", values }],
+    });
+    if (!setValues.ok) {
+      throw new NodexAgentReadError(
+        setValues.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
+        setValues.error.message,
+        setValues.error.retryable,
+        "query_database_again",
+        { domainCode: setValues.error.code },
+      );
+    }
+    databaseReceipts.push(setValues.value);
+  }
+  if (command.destination.kind === "database" && command.destination.view) {
+    const position = database.prepare(`
+      SELECT revision FROM database_view_page_positions
+      WHERE view_id = ? AND page_block_id = ?
+    `).get(command.destination.view.viewId, cloned.pageId) as
+      | { readonly revision: number }
+      | undefined;
+    const placed = applyDatabaseModuleV2(database, {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: `${command.mutationId}:view:v2`,
+      projectId: command.destination.contentProjectId ?? command.projectId,
+      storeEpoch: command.storeEpoch,
+      actor: {
+        kind: "nodex_agent",
+        threadId: command.threadId,
+        callId: command.callId,
+      },
+      operations: [{
+        kind: "position_page",
+        viewId: parseDatabaseViewId(command.destination.view.viewId),
+        pageId: cloned.pageId,
+        expectedPositionRevision: position?.revision ?? 0,
+        groupKey: command.destination.view.groupKey,
+        ...(command.destination.view.beforePageId
+          ? { beforePageId: command.destination.view.beforePageId }
+          : {}),
+      }],
+    });
+    if (!placed.ok) {
+      throw new NodexAgentReadError(
+        placed.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
+        placed.error.message,
+        placed.error.retryable,
+        "query_database_again",
+        { domainCode: placed.error.code },
+      );
+    }
+    databaseReceipts.push(placed.value);
+  }
+  const syntheticReceipt = {
+    copiedBlockIds: cloned.blockIdMap,
+    resultRootBlockIds: [cloned.pageId],
+  };
+  const output = duplicatePageOutput(database, command, syntheticReceipt);
   database.prepare(
     `
     UPDATE nodex_agent_call_receipts
@@ -1386,13 +1231,13 @@ function executeDuplicatePage(
     value: {
       output,
       duplicate: false,
-      documentCommits: transferred.value.documentCommits,
+      documentCommits: [],
       affectedDatabaseBlockIds: [...new Set([
-        ...transferred.value.affectedDatabaseBlockIds,
-        ...databaseReceipts.flatMap((receipt) => receipt.affectedDatabaseBlockIds),
+        cloned.databaseBlockId,
+        ...databaseReceipts.flatMap((receipt) => receipt.affectedDatabaseIds),
       ])].sort((left, right) => left.localeCompare(right)),
       changeLogSeq: Math.max(
-        transferred.value.changeLogSeq,
+        cloned.changeLogSeq,
         ...databaseReceipts.map((receipt) => receipt.changeLogSeq),
       ),
     },
@@ -1456,7 +1301,24 @@ function normalizedMoveInput(
   return TransferBlocksInputSchema.parse({
     mode: "move",
     blockIds: [pageId],
-    from: resultLocation(database, source.project_id, source.id),
+    from: source.location_kind === "space"
+      ? { kind: "space" }
+      : source.location_kind === "document" && source.containing_document_id
+        ? {
+            kind: "document",
+            documentId: source.containing_document_id,
+            ...(source.parent_block_id
+              ? { parentBlockId: source.parent_block_id }
+              : {}),
+          }
+        : source.location_kind === "database" && source.containing_database_id
+          ? {
+              kind: "database",
+              databaseBlockId: source.containing_database_id,
+            }
+          : (() => {
+              throw new Error(`Page ${source.id} has inconsistent location authority`);
+            })(),
     destination,
   });
 }
@@ -1568,142 +1430,145 @@ function prepareMovePages(
   const normalizedInputs = blocks.map((block) =>
     normalizedMoveInput(database, request, block.id, block)
   );
-  const destination = prepareNodexAgentDestination(
+  const destination = prepareV5PageDestination(
     database,
     request.projectId,
     normalizedInputs[0]?.destination as CreateInput["destination"],
+    request.input.destination,
     request.authority !== undefined,
   );
-  const targetProjectId = destination.contentProjectId ?? request.projectId;
-  const hasSameDatabasePage = destination.kind === "database"
-    && blocks.some((block) =>
-      block.project_id === targetProjectId
-      &&
-      block.location_kind === "database"
-      && block.containing_database_id === destination.databaseBlockId
-    );
-  if (hasSameDatabasePage) {
-    if (request.input.destination.kind !== "data_source" || !request.input.destination.view) {
-      throw new NodexAgentReadError(
-        "invalid_arguments",
-        "Moving within one Data Source requires a destination View placement",
-        false,
-        "none",
-      );
-    }
-    if (request.input.destination.values?.length) {
-      throw new NodexAgentReadError(
-        "invalid_arguments",
-        "Moving within one Data Source cannot change independent property values",
-        false,
-        "none",
-      );
-    }
-  }
   const storeEpoch = readBlockStoreEpoch(database);
   if (!storeEpoch) throw new Error("Nodex store has no epoch");
   const mutationId = existing?.mutation_id ?? `nodex-move-pages:${identity}`;
   const transfers = [];
   const leases = [];
+  const rehomeClosureOwners = new Map<string, string>();
   for (const [index, block] of blocks.entries()) {
     const normalizedInput = normalizedInputs[index] as TransferBlocksInput;
-    const sourceProjectId = block.project_id;
-    const sameDatabase = block.location_kind === "database"
-      && sourceProjectId === targetProjectId
-      && destination.kind === "database"
-      && block.containing_database_id === destination.databaseBlockId;
-    if (sameDatabase) continue;
-    const rehome = sourceProjectId === targetProjectId
+    const targetProjectId = destination.contentProjectId ?? block.project_id;
+    const rehome = targetProjectId === block.project_id
       ? undefined
       : prepareLibraryContentRehome(database, {
           operationId: `${mutationId}:page:${index}:rehome`,
           callIdentity: identity,
           actorProjectId: request.projectId,
-          sourceProjectId,
+          sourceProjectId: block.project_id,
           targetProjectId,
           rootPageIds: [block.id],
           storeEpoch,
         });
-    const intendedTarget = rehome
-      ? {
-          kind: "space" as const,
-          contentProjectId: sourceProjectId,
-        }
-      : destination;
-    const preparation = block.location_kind === "space" && rehome
-      ? null
-      : prepareBlockTransfer(database, {
-      version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-      operationId: `${mutationId}:page:${index}`,
-      projectId: sourceProjectId,
-      storeEpoch,
-      clientSessionId: `nodex-agent:${request.threadId}`,
-      actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
-      mode: "move",
-      rootBlockIds: [block.id],
-      source: sourceIntent(database, sourceProjectId, block),
-      target: transferTarget(database, sourceProjectId, intendedTarget),
-    });
-    if (preparation && !preparation.ok) {
-      throw new NodexAgentReadError(
-        preparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-        preparation.error.message,
-        preparation.error.retryable,
-        preparation.error.reloadRequired ? "get_block_again" : "none",
-        { domainCode: preparation.error.code },
-      );
-    }
-    transfers.push({
-      pageId: block.id,
-      sourceProjectId,
-      targetProjectId,
-      normalizedInput,
-      transfer: preparation?.value.request ?? null,
-      ...(rehome ? { rehome } : {}),
-    });
-    if (preparation?.ok) leases.push(...preparation.value.leaseDocuments);
-    if (rehome) {
-      const documentPlaceholders = rehome.documentIds.map(() => "?").join(", ");
-      leases.push(...(database.prepare(`
-        SELECT id AS documentId, generation, head_seq AS expectedHeadSeq
-        FROM documents
-        WHERE project_id = ? AND id IN (${documentPlaceholders})
-      `).all(sourceProjectId, ...rehome.documentIds) as readonly {
-        readonly documentId: string;
-        readonly generation: number;
-        readonly expectedHeadSeq: number;
-      }[]));
-    }
-  }
-  const claimedRehomeBlockIds = new Map<string, string>();
-  for (const transfer of transfers) {
-    if (!transfer.rehome) continue;
-    for (const blockId of transfer.rehome.blockIds) {
-      const claimedByPageId = claimedRehomeBlockIds.get(blockId);
-      if (claimedByPageId && claimedByPageId !== transfer.pageId) {
+    for (const blockId of rehome?.blockIds ?? []) {
+      const priorRoot = rehomeClosureOwners.get(blockId);
+      if (priorRoot && priorRoot !== block.id) {
         throw new NodexAgentReadError(
           "invalid_arguments",
           "Cross-owner Page moves cannot select both an ownership ancestor and its descendant",
           false,
           "none",
-          {
-            resourceId: transfer.pageId,
-            domainCode: "overlapping_ownership_closures",
-          },
         );
       }
-      claimedRehomeBlockIds.set(blockId, transfer.pageId);
+      rehomeClosureOwners.set(blockId, block.id);
     }
-  }
-  if (hasSameDatabasePage) {
-    if (request.input.destination.kind !== "data_source" || !request.input.destination.view) {
+    if (destination.kind === "document") {
+      const preparation = prepareBlockTransfer(database, {
+        version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
+        operationId: `${mutationId}:page:${index}`,
+        projectId: block.project_id,
+        storeEpoch,
+        clientSessionId: `nodex-agent:${request.threadId}`,
+        actor: {
+          kind: "nodex_agent",
+          threadId: request.threadId,
+          callId: request.callId,
+        },
+        mode: "move",
+        rootBlockIds: [block.id],
+        source: sourceIntent(database, block.project_id, block),
+        target: transferTarget(database, block.project_id, destination),
+      });
+      if (!preparation.ok) {
+        throw new NodexAgentReadError(
+          preparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
+          preparation.error.message,
+          preparation.error.retryable,
+          preparation.error.reloadRequired ? "get_block_again" : "none",
+          { domainCode: preparation.error.code },
+        );
+      }
+      transfers.push({
+        pageId: block.id,
+        sourceProjectId: block.project_id,
+        targetProjectId,
+        normalizedInput,
+        transfer: preparation.value.request,
+        ...(rehome ? { rehome } : {}),
+      });
+      leases.push(...preparation.value.leaseDocuments);
+      continue;
+    }
+    const authority = database.prepare(`
+      SELECT page.parent_revision AS parentRevision,
+        page.parent_kind AS parentKind, page.parent_id AS parentId,
+        COALESCE(membership.revision, 0) AS membershipRevision,
+        document.id AS documentId, document.generation,
+        document.head_seq AS expectedHeadSeq
+      FROM pages page
+      INNER JOIN documents document ON document.id = page.document_id
+      LEFT JOIN data_source_page_memberships membership
+        ON membership.page_block_id = page.block_id AND membership.removed_at IS NULL
+      WHERE page.block_id = ?
+    `).get(block.id) as {
+      readonly parentRevision: number;
+      readonly parentKind: string;
+      readonly parentId: string;
+      readonly membershipRevision: number;
+      readonly documentId: string;
+      readonly generation: number;
+      readonly expectedHeadSeq: number;
+    } | undefined;
+    if (!authority) {
       throw new NodexAgentReadError(
-        "invalid_arguments",
-        "Moving within one Database requires a destination View placement",
-        false,
-        "none",
+        "projection_not_ready",
+        `Page ${block.id} has no canonical move authority`,
+        true,
+        "get_block_again",
       );
     }
+    if (
+      destination.kind === "database" &&
+      authority.parentKind === "data_source" &&
+      authority.parentId === destination.dataSourceId
+    ) {
+      if (
+        request.input.destination.kind === "data_source" &&
+        request.input.destination.values?.length
+      ) {
+        throw new NodexAgentReadError(
+          "invalid_arguments",
+          "Moving within one Data Source cannot change independent property values",
+          false,
+          "none",
+        );
+      }
+      continue;
+    }
+    transfers.push({
+      pageId: block.id,
+      sourceProjectId: block.project_id,
+      targetProjectId,
+      normalizedInput,
+      transfer: null,
+      ...(rehome ? { rehome } : {}),
+      canonical: {
+        expectedParentRevision: authority.parentRevision,
+        expectedActiveMembershipRevision: authority.membershipRevision,
+      },
+    });
+    leases.push({
+      documentId: authority.documentId,
+      generation: authority.generation,
+      expectedHeadSeq: authority.expectedHeadSeq,
+    });
   }
   const leaseDocuments = uniqueLeaseDocuments(leases);
   const authorization: NodexAgentTransferAuthorizationEvidence = {
@@ -1760,166 +1625,6 @@ function prepareMovePages(
   };
 }
 
-function rebaseTransferRequest(
-  request: BlockTransferRequest,
-  heads: ReadonlyMap<string, { readonly generation: number; readonly headSeq: number }>,
-): BlockTransferRequest {
-  const source = request.source.kind === "document" && heads.has(request.source.documentId)
-    ? {
-        ...request.source,
-        generation: heads.get(request.source.documentId)?.generation as number,
-        expectedHeadSeq: heads.get(request.source.documentId)?.headSeq as number,
-      }
-    : request.source;
-  const target = request.target.kind === "document" && heads.has(request.target.documentId)
-    ? {
-        ...request.target,
-        generation: heads.get(request.target.documentId)?.generation as number,
-        expectedHeadSeq: heads.get(request.target.documentId)?.headSeq as number,
-      }
-    : request.target;
-  return { ...request, source, target };
-}
-
-function compileFinalViewPlacement(
-  database: Database.Database,
-  command: NodexAgentMovePagesCommand,
-): DatabaseMutationRequest | null {
-  if (command.destination.kind !== "database" || !command.destination.view) return null;
-  const destination = command.destination;
-  const contentProjectId = destination.contentProjectId ?? command.projectId;
-  const view = database.prepare(
-    `
-    SELECT revision, config_json
-    FROM database_views
-    WHERE id = ? AND database_block_id = ? AND project_id = ? AND lifecycle = 'active'
-  `).get(
-    command.destination.view.viewId,
-    command.destination.databaseBlockId,
-    contentProjectId,
-  ) as { readonly revision: number; readonly config_json: string } | undefined;
-  if (!view || view.revision !== command.destination.view.viewRevision) {
-    throw new NodexAgentReadError(
-      "conflict",
-      `View ${command.destination.view.viewId} changed before Page movement`,
-      false,
-      "query_database_again",
-    );
-  }
-  const orderConfig = resolveLegacyDatabaseViewOrderConfig(view.config_json);
-  const groupPropertyId = orderConfig.groupPropertyId;
-  const groupKey = command.destination.view.groupKey;
-  if (!orderConfig.usesExplicitGroups && !groupPropertyId && groupKey !== null) {
-    throw new NodexAgentReadError(
-      "invalid_arguments",
-      `Ungrouped View ${command.destination.view.viewId} requires a null groupKey`,
-      false,
-      "query_database_again",
-    );
-  }
-  const placements = command.input.pageIds.map((pageId) => {
-    const row = database.prepare(
-      `
-      SELECT membership.id AS membership_id,
-        COALESCE(position.revision, 0) AS position_revision,
-        COALESCE(group_value.revision, 0) AS group_value_revision
-      FROM database_memberships membership
-      LEFT JOIN database_view_positions position
-        ON position.view_id = ? AND position.block_id = membership.page_block_id
-       AND position.project_id = membership.project_id
-      LEFT JOIN database_property_values group_value
-        ON group_value.membership_id = membership.id AND group_value.property_id = ?
-      WHERE membership.page_block_id = ? AND membership.database_block_id = ?
-        AND membership.project_id = ? AND membership.removed_at IS NULL
-    `).get(
-      destination.view?.viewId,
-      groupPropertyId,
-      pageId,
-      destination.databaseBlockId,
-      contentProjectId,
-    ) as {
-      readonly membership_id: string;
-      readonly position_revision: number;
-      readonly group_value_revision: number;
-    } | undefined;
-    if (row) return { pageId, ...row };
-    throw new NodexAgentReadError(
-      "conflict",
-      `Page ${pageId} has no active destination Database membership`,
-      false,
-      "query_database_again",
-    );
-  });
-  const operations = groupPropertyId
-    ? (() => {
-        const property = database.prepare(
-          `
-          SELECT value_type, config_json
-          FROM database_properties
-          WHERE id = ? AND database_block_id = ? AND project_id = ? AND lifecycle = 'active'
-        `).get(
-          groupPropertyId,
-          command.destination.databaseBlockId,
-          contentProjectId,
-        ) as {
-          readonly value_type: DatabasePropertyValueType;
-          readonly config_json: string;
-        } | undefined;
-        if (!property) {
-          throw new NodexAgentReadError(
-            "projection_not_ready",
-            `View ${command.destination.view?.viewId} grouping property is unavailable`,
-            true,
-            "query_database_again",
-          );
-        }
-        const value = normalizeDatabasePropertyValue(
-          {
-            valueType: property.value_type,
-            config: parseDatabasePropertyConfig(
-              property.value_type,
-              JSON.parse(property.config_json) as unknown,
-            ),
-          },
-          databaseGroupValueFromKey(property.value_type, groupKey),
-        );
-        return [{
-          kind: "set_values" as const,
-          databaseBlockId: command.destination.databaseBlockId,
-          entries: placements.map((placement) => ({
-            pageId: placement.pageId,
-            propertyId: groupPropertyId,
-            expectedValueRevision: placement.group_value_revision,
-            value,
-          })),
-        }];
-      })()
-    : [];
-  return {
-    version: DATABASE_MUTATION_CONTRACT_VERSION,
-    operationId: `${command.mutationId}:final-view-placement`,
-    projectId: contentProjectId,
-    storeEpoch: command.storeEpoch,
-    clientSessionId: `nodex-agent:${command.threadId}`,
-    actor: { kind: "nodex_agent", threadId: command.threadId, callId: command.callId },
-    operations: [
-      ...operations,
-      {
-        kind: "position_pages",
-        viewId: command.destination.view.viewId,
-        pages: placements.map((placement) => ({
-          pageId: placement.pageId,
-          expectedPositionRevision: placement.position_revision,
-        })),
-        groupKey,
-        ...(command.destination.view.beforePageId
-          ? { beforePageId: command.destination.view.beforePageId }
-          : {}),
-      },
-    ],
-  };
-}
-
 function executeMovePages(
   database: Database.Database,
   command: NodexAgentMovePagesCommand,
@@ -1968,131 +1673,284 @@ function executeMovePages(
       "get_block_again",
     );
   }
-  const heads = new Map<string, { readonly generation: number; readonly headSeq: number }>();
+  const databaseReceipts: DatabaseApplyReceiptV2[] = [];
   const transferReceipts: BlockTransferReceipt[] = [];
-  const databaseReceipts = [];
+  const documentHeads = new Map<
+    string,
+    { readonly generation: number; readonly headSeq: number }
+  >();
+  const project = database.prepare(
+    "SELECT library_id AS libraryId FROM projects WHERE id = ?",
+  ).get(command.projectId) as { readonly libraryId: string } | undefined;
+  if (!project) throw new Error(`Project ${command.projectId} has no Library`);
+  const targetPageId = command.destination.kind === "document"
+    ? (database.prepare(
+        "SELECT block_id AS pageId FROM pages WHERE document_id = ?",
+      ).get(command.destination.documentId) as { readonly pageId: string } | undefined)
+      ?.pageId
+    : undefined;
+  if (command.destination.kind === "document" && !targetPageId) {
+    throw new NodexAgentReadError(
+      "not_found",
+      "Destination Page is unavailable",
+      false,
+      "get_block_again",
+    );
+  }
   for (const [index, step] of command.transfers.entries()) {
-    const targetProjectId = step.targetProjectId ?? command.projectId;
-    const stagingRequest = step.transfer
-      ? rebaseTransferRequest(step.transfer, heads)
-      : null;
-    let completedRequest = stagingRequest;
-    const staged = stagingRequest
-      ? applyBlockTransfer(database, stagingRequest, {
-          persistTopLevelGrant: !step.rehome
-            && (
-              !command.authority
-              || command.resourceAccess?.persistResultingPageGrants === true
-            ),
-        })
-      : null;
-    if (staged && !staged.ok) {
-      throw new NodexAgentReadError(
-        staged.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-        staged.error.message,
-        staged.error.retryable,
-        staged.error.reloadRequired ? "get_block_again" : "none",
-        { resourceId: step.pageId, domainCode: staged.error.code },
-      );
-    }
-    if (staged?.ok) {
-      transferReceipts.push(staged.value);
-      for (const commit of staged.value.documentCommits) {
-        heads.set(commit.documentId, { generation: commit.generation, headSeq: commit.headSeq });
+    if (step.transfer) {
+      const rehome = step.rehome;
+      const target = step.transfer.target.kind === "document"
+        && documentHeads.has(step.transfer.target.documentId)
+        ? {
+            ...step.transfer.target,
+            generation: documentHeads.get(step.transfer.target.documentId)
+              ?.generation as number,
+            expectedHeadSeq: documentHeads.get(step.transfer.target.documentId)
+              ?.headSeq as number,
+          }
+        : step.transfer.target;
+      const transferred = applyBlockTransfer(database, {
+        ...step.transfer,
+        target,
+      }, {
+        persistTopLevelGrant:
+          !command.authority ||
+          command.resourceAccess?.persistResultingPageGrants === true,
+        ...(rehome
+          ? {
+              beforeTargetDocument: (rootPageIds: readonly string[]) => {
+                if (
+                  rootPageIds.length !== 1 ||
+                  rootPageIds[0] !== step.pageId
+                ) {
+                  throw new Error(
+                    `Page ${step.pageId} ownership handoff received divergent roots`,
+                  );
+                }
+                applyLibraryContentRehomeInTransaction(database, rehome);
+              },
+            }
+          : {}),
+      });
+      if (!transferred.ok) {
+        throw new NodexAgentReadError(
+          transferred.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
+          transferred.error.message,
+          transferred.error.retryable,
+          transferred.error.reloadRequired ? "get_block_again" : "none",
+          { resourceId: step.pageId, domainCode: transferred.error.code },
+        );
       }
-    }
-
-    const transferred = (() => {
-      if (!step.rehome) {
-        if (!staged?.ok || !stagingRequest) {
-          throw new NodexAgentReadError(
-            "internal_error",
-            `Page ${step.pageId} has no prepared transfer`,
-            false,
-            "none",
-          );
-        }
-        return staged;
+      transferReceipts.push(transferred.value);
+      for (const commit of transferred.value.documentCommits) {
+        documentHeads.set(commit.documentId, {
+          generation: commit.generation,
+          headSeq: commit.headSeq,
+        });
       }
-      applyLibraryContentRehomeInTransaction(database, step.rehome);
-      const rehomedBlock = readBlock(database, targetProjectId, step.pageId);
-      const finalPreparation = prepareBlockTransfer(database, {
-        version: BLOCK_TRANSFER_INTENT_CONTRACT_VERSION,
-        operationId: `${command.mutationId}:page:${index}:target`,
-        projectId: targetProjectId,
+      continue;
+    }
+    if (!step.canonical) {
+      throw new Error(`Page ${step.pageId} has no frozen v81 transfer authority`);
+    }
+    const current = database.prepare(`
+      SELECT parent_kind AS parentKind, parent_id AS parentId
+      FROM pages WHERE block_id = ?
+    `).get(step.pageId) as { readonly parentKind: string; readonly parentId: string };
+    const alreadyAtTarget = command.destination.kind === "database"
+      ? current.parentKind === "data_source"
+        && current.parentId === command.destination.dataSourceId
+      : command.destination.kind === "space"
+        ? current.parentKind === "library" && current.parentId === project.libraryId
+        : current.parentKind === "page" && current.parentId === targetPageId;
+    if (!alreadyAtTarget) {
+      const transfer = applyDatabaseModuleV2(database, {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: `${command.mutationId}:page:${index}:transfer:v2`,
+        projectId: command.projectId,
         storeEpoch: command.storeEpoch,
-        clientSessionId: `nodex-agent:${command.threadId}`,
         actor: {
           kind: "nodex_agent",
           threadId: command.threadId,
           callId: command.callId,
         },
-        mode: "move",
-        rootBlockIds: [step.pageId],
-        source: sourceIntent(database, targetProjectId, rehomedBlock),
-        target: transferTarget(database, targetProjectId, command.destination),
+        operations: [{
+          kind: "transfer_page",
+          pageId: step.pageId,
+          expectedParentRevision: step.canonical.expectedParentRevision,
+          expectedActiveMembershipRevision:
+            step.canonical.expectedActiveMembershipRevision,
+          target: command.destination.kind === "database"
+            ? {
+                kind: "data_source",
+                dataSourceId: parseDataSourceId(command.destination.dataSourceId),
+              }
+            : command.destination.kind === "space"
+              ? { kind: "library", libraryId: project.libraryId }
+              : { kind: "page", pageId: targetPageId as string },
+        }],
       });
-      if (!finalPreparation.ok) {
+      if (!transfer.ok) {
         throw new NodexAgentReadError(
-          finalPreparation.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-          finalPreparation.error.message,
-          finalPreparation.error.retryable,
-          finalPreparation.error.reloadRequired ? "get_block_again" : "none",
-          { resourceId: step.pageId, domainCode: finalPreparation.error.code },
+          transfer.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
+          transfer.error.message,
+          transfer.error.retryable,
+          "query_database_again",
+          { resourceId: step.pageId, domainCode: transfer.error.code },
         );
       }
-      completedRequest = finalPreparation.value.request;
-      const placed = applyBlockTransfer(database, finalPreparation.value.request, {
-        persistTopLevelGrant:
-          !command.authority
-          || command.resourceAccess?.persistResultingPageGrants === true,
+      databaseReceipts.push(transfer.value);
+    }
+    if (step.rehome) {
+      applyLibraryContentRehomeInTransaction(database, step.rehome);
+    }
+    if (
+      command.destination.kind === "database" &&
+      command.input.destination.kind === "data_source" &&
+      command.input.destination.values?.length
+    ) {
+      const destination = command.destination;
+      const membership = database.prepare(`
+        SELECT id FROM data_source_page_memberships
+        WHERE data_source_id = ? AND page_block_id = ? AND removed_at IS NULL
+      `).get(destination.dataSourceId, step.pageId) as { readonly id: string };
+      const values = command.input.destination.values.map((draft) => {
+        const value = database.prepare(`
+          SELECT revision FROM data_source_property_values
+          WHERE data_source_id = ? AND membership_id = ? AND property_id = ?
+        `).get(destination.dataSourceId, membership.id, draft.propertyId) as
+          | { readonly revision: number }
+          | undefined;
+        return {
+          pageId: step.pageId,
+          dataSourceId: parseDataSourceId(destination.dataSourceId),
+          propertyId: parseDataSourcePropertyId(draft.propertyId),
+          expectedValueRevision: value?.revision ?? 0,
+          value: draft.value as DatabaseJsonValue,
+        };
       });
-      if (!placed.ok) return placed;
-      transferReceipts.push(placed.value);
-      for (const commit of placed.value.documentCommits) {
-        heads.set(commit.documentId, { generation: commit.generation, headSeq: commit.headSeq });
+      const setValues = applyDatabaseModuleV2(database, {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: `${command.mutationId}:page:${index}:values:v2`,
+        projectId: command.projectId,
+        storeEpoch: command.storeEpoch,
+        actor: {
+          kind: "nodex_agent",
+          threadId: command.threadId,
+          callId: command.callId,
+        },
+        operations: [{ kind: "set_values", values }],
+      });
+      if (!setValues.ok) {
+        throw new NodexAgentReadError(
+          setValues.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
+          setValues.error.message,
+          setValues.error.retryable,
+          "query_database_again",
+          { resourceId: step.pageId, domainCode: setValues.error.code },
+        );
       }
-      return placed;
-    })();
-    if (!transferred.ok) {
-      throw new NodexAgentReadError(
-        transferred.error.code.includes("mismatch") ? "conflict" : "invalid_arguments",
-        transferred.error.message,
-        transferred.error.retryable,
-        transferred.error.reloadRequired ? "get_block_again" : "none",
-        { resourceId: step.pageId, domainCode: transferred.error.code },
-      );
+      databaseReceipts.push(setValues.value);
     }
-    if (!completedRequest) {
-      throw new NodexAgentReadError(
-        "internal_error",
-        `Page ${step.pageId} has no completed transfer request`,
-        false,
-        "none",
-      );
-    }
-    const normalizedCommand: NodexAgentTransferCommand = {
-      threadId: command.threadId,
-      callId: command.callId,
-      ...(command.authority ? { authority: command.authority } : {}),
-      projectId: targetProjectId,
-      requestHash: command.requestHash,
-      mutationId: `${command.mutationId}:page:${index}`,
-      storeEpoch: command.storeEpoch,
-      input: step.normalizedInput,
-      transfer: completedRequest,
-      destination: command.destination,
-      leaseDocuments: command.leaseDocuments,
-    };
-    databaseReceipts.push(...applyDestinationValues(
-      database,
-      normalizedCommand,
-      transferred.value,
-    ));
   }
-  const finalPlacement = compileFinalViewPlacement(database, command);
-  if (finalPlacement) {
-    const result = applyDatabaseMutation(database, finalPlacement);
+  if (command.destination.kind === "database" && command.destination.view) {
+    const destination = command.destination;
+    const destinationView = command.destination.view;
+    const view = database.prepare(`
+      SELECT config_json AS configJson FROM database_views
+      WHERE id = ? AND data_source_id = ? AND lifecycle = 'active'
+    `).get(destinationView.viewId, destination.dataSourceId) as
+      | { readonly configJson: string }
+      | undefined;
+    if (!view) throw new Error(`View ${destinationView.viewId} is unavailable`);
+    const groupPropertyId = parseDatabaseViewConfigV2(
+      JSON.parse(view.configJson) as unknown,
+    ).group?.propertyId;
+    if (groupPropertyId) {
+      const property = database.prepare(`
+        SELECT value_type AS valueType FROM data_source_properties
+        WHERE data_source_id = ? AND id = ? AND lifecycle = 'active'
+      `).get(destination.dataSourceId, groupPropertyId) as
+        | { readonly valueType: DatabasePropertyValueType }
+        | undefined;
+      if (!property) throw new Error(`Grouped Property ${groupPropertyId} is unavailable`);
+      const values = command.input.pageIds.map((pageId) => {
+        const row = database.prepare(`
+          SELECT value.revision
+          FROM data_source_page_memberships membership
+          LEFT JOIN data_source_property_values value
+            ON value.data_source_id = membership.data_source_id
+           AND value.membership_id = membership.id AND value.property_id = ?
+          WHERE membership.data_source_id = ? AND membership.page_block_id = ?
+            AND membership.removed_at IS NULL
+        `).get(groupPropertyId, destination.dataSourceId, pageId) as
+          | { readonly revision: number | null }
+          | undefined;
+        if (!row) throw new Error(`Page ${pageId} has no destination membership`);
+        return {
+          pageId,
+          dataSourceId: parseDataSourceId(destination.dataSourceId),
+          propertyId: parseDataSourcePropertyId(groupPropertyId),
+          expectedValueRevision: row.revision ?? 0,
+          value: databaseGroupValueFromKey(
+            property.valueType,
+            destinationView.groupKey,
+          ),
+        };
+      });
+      const grouped = applyDatabaseModuleV2(database, {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: `${command.mutationId}:final-view-group:v2`,
+        projectId: command.projectId,
+        storeEpoch: command.storeEpoch,
+        actor: {
+          kind: "nodex_agent",
+          threadId: command.threadId,
+          callId: command.callId,
+        },
+        operations: [{ kind: "set_values", values }],
+      });
+      if (!grouped.ok) {
+        throw new NodexAgentReadError(
+          grouped.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
+          grouped.error.message,
+          grouped.error.retryable,
+          "query_database_again",
+          { domainCode: grouped.error.code },
+        );
+      }
+      databaseReceipts.push(grouped.value);
+    }
+    const pages = command.input.pageIds.map((pageId) => {
+      const position = database.prepare(`
+        SELECT revision FROM database_view_page_positions
+        WHERE view_id = ? AND page_block_id = ?
+      `).get(destinationView.viewId, pageId) as
+        | { readonly revision: number }
+        | undefined;
+      return { pageId, expectedPositionRevision: position?.revision ?? 0 };
+    });
+    const result = applyDatabaseModuleV2(database, {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: `${command.mutationId}:final-view-placement:v2`,
+      projectId: command.projectId,
+      storeEpoch: command.storeEpoch,
+      actor: {
+        kind: "nodex_agent",
+        threadId: command.threadId,
+        callId: command.callId,
+      },
+      operations: [{
+        kind: "position_pages",
+        viewId: parseDatabaseViewId(destinationView.viewId),
+        pages,
+        groupKey: destinationView.groupKey,
+        ...(destinationView.beforePageId
+          ? { beforePageId: destinationView.beforePageId }
+          : {}),
+      }],
+    });
     if (!result.ok) {
       throw new NodexAgentReadError(
         result.error.code.includes("conflict") ? "conflict" : "invalid_arguments",
@@ -2119,18 +1977,20 @@ function executeMovePages(
     SET status = 'committed', result_metadata_json = ?, updated_at = ?
     WHERE call_identity = ? AND status = 'prepared'
   `).run(JSON.stringify({ output }), new Date().toISOString(), identity);
-  const documentCommits = transferReceipts.flatMap((receipt) => receipt.documentCommits);
   return {
     ok: true,
     value: {
       output,
       duplicate: false,
-      documentCommits,
+      documentCommits: transferReceipts.flatMap(
+        (receipt) => receipt.documentCommits,
+      ),
       affectedDatabaseBlockIds: [...new Set([
         ...transferReceipts.flatMap((receipt) => receipt.affectedDatabaseBlockIds),
-        ...databaseReceipts.flatMap((receipt) => receipt.affectedDatabaseBlockIds),
+        ...databaseReceipts.flatMap((receipt) => receipt.affectedDatabaseIds),
       ])].sort((left, right) => left.localeCompare(right)),
       changeLogSeq: Math.max(
+        0,
         ...transferReceipts.map((receipt) => receipt.changeLogSeq),
         ...databaseReceipts.map((receipt) => receipt.changeLogSeq),
       ),
@@ -2159,27 +2019,5 @@ export function executeNodexAgentMovePages(
   } catch (error) {
     const failure = readFailure(error);
     return { ok: false, error: publicV3Failure(failure.error) };
-  }
-}
-
-export function prepareNodexAgentTransfer(
-  database: Database.Database,
-  request: PrepareNodexAgentTransferRequest,
-): PrepareNodexAgentTransferResult {
-  try {
-    return database.transaction(() => prepareTransfer(database, request)).immediate();
-  } catch (error) {
-    return readFailure(error);
-  }
-}
-
-export function executeNodexAgentTransfer(
-  database: Database.Database,
-  command: NodexAgentTransferCommand,
-): ExecuteNodexAgentTransferResult {
-  try {
-    return database.transaction(() => executeTransfer(database, command)).immediate();
-  } catch (error) {
-    return readFailure(error);
   }
 }

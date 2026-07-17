@@ -6,7 +6,6 @@ import type { RelocationDocumentCommit } from "../block-documents/contracts";
 import type {
   BlockTransferRequest,
 } from "../block-transfer";
-import type { DatabaseMutationRequest } from "../database-kernel";
 import type { ToolFailure } from "./base-schemas";
 import type { AgentDocumentEditEffects } from "./document-edit-compiler";
 import type {
@@ -14,8 +13,6 @@ import type {
   CreateOutput,
   EditDocumentInput,
   EditDocumentOutput,
-  EditDatabaseInput,
-  EditDatabaseOutput,
   TransferBlocksInput,
   TransferBlocksOutput,
 } from "./write-schemas";
@@ -89,6 +86,8 @@ export type PreparedNodexAgentCreateDestination =
       readonly kind: "database";
       readonly contentProjectId?: string;
       readonly databaseBlockId: string;
+      /** Canonical owner coordinate. Database identity alone is ambiguous. */
+      readonly dataSourceId: string;
       readonly schemaRevision: number;
       readonly view?: {
         readonly viewId: string;
@@ -193,44 +192,6 @@ export type ExecuteNodexAgentTransferResult =
         readonly output: TransferBlocksOutput;
         readonly duplicate: boolean;
         readonly documentCommits: readonly RelocationDocumentCommit[];
-        readonly affectedDatabaseBlockIds: readonly string[];
-        readonly changeLogSeq: number;
-      };
-    }
-  | { readonly ok: false; readonly error: ToolFailure["error"] };
-
-export interface NodexAgentDatabaseEditCommand extends NodexAgentCallIdentity {
-  readonly projectId: string;
-  readonly requestHash: string;
-  readonly mutationId: string;
-  readonly storeEpoch: string;
-  readonly input: EditDatabaseInput;
-  readonly mutation: DatabaseMutationRequest;
-}
-
-export interface PrepareNodexAgentDatabaseEditRequest extends NodexAgentCallIdentity {
-  readonly projectId: string;
-  readonly input: EditDatabaseInput;
-}
-
-export type PrepareNodexAgentDatabaseEditResult =
-  | {
-      readonly ok: true;
-      readonly value:
-        | { readonly kind: "completed"; readonly output: EditDatabaseOutput }
-        | {
-            readonly kind: "prepared";
-            readonly command: NodexAgentDatabaseEditCommand;
-          };
-    }
-  | { readonly ok: false; readonly error: ToolFailure["error"] };
-
-export type ExecuteNodexAgentDatabaseEditResult =
-  | {
-      readonly ok: true;
-      readonly value: {
-        readonly output: EditDatabaseOutput;
-        readonly duplicate: boolean;
         readonly affectedDatabaseBlockIds: readonly string[];
         readonly changeLogSeq: number;
       };

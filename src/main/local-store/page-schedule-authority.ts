@@ -1,13 +1,18 @@
 import type Database from "better-sqlite3";
-import type {
-  BlockPropertyFieldMutation,
-  BlockPropertyJsonValue,
-  BlockPropertyMutationResult,
-} from "../../shared/block-property-mutations";
+import type { BlockPropertyJsonValue } from "../../shared/block-property-mutations";
 import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
+import type {
+  BlockPropertyFieldMutationV2,
+  BlockPropertyMutationResultV2,
+} from "../../shared/block-property-mutations-v2";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import type { WorkflowStatus } from "../../shared/workflow-status";
 import type { RecurrenceConfig, ReminderConfig } from "../../shared/types";
-import { applyBlockPropertyMutation } from "./block-property-mutations";
+import { applySourceBlockPropertyMutationV2 } from "./block-property-mutations-v2-store";
+import { rebuildBlockPropertyMutationProjections } from "./block-property-mutation-projections";
 
 export interface AuthoritativePageSchedulePatch {
   readonly status?: WorkflowStatus;
@@ -28,7 +33,7 @@ export interface ApplyAuthoritativePageSchedulePatchInput {
 }
 
 interface DatabasePropertyRow {
-  readonly database_block_id: string;
+  readonly data_source_id: string;
   readonly property_id: string;
   readonly property_key: string;
   readonly revision: number;
@@ -79,31 +84,36 @@ const readDatabaseProperties = (
     .prepare(
       `
       SELECT
-        membership.database_block_id,
+        membership.data_source_id,
         property.id AS property_id,
-        property.key AS property_key,
+        property.id AS property_key,
         value.revision,
         value.value_json
-      FROM database_memberships membership
-      INNER JOIN database_properties property
-        ON property.database_block_id = membership.database_block_id
-        AND property.project_id = membership.project_id
+      FROM data_source_page_memberships membership
+      INNER JOIN data_sources source
+        ON source.id = membership.data_source_id
+      INNER JOIN blocks page
+        ON page.id = membership.page_block_id
+        AND page.project_id = ?
+        AND page.type = 'page'
+        AND page.location_kind = 'database'
+        AND page.containing_database_id = source.home_database_block_id
+      INNER JOIN data_source_properties property
+        ON property.data_source_id = membership.data_source_id
         AND property.lifecycle = 'active'
-        AND property.key IN (${placeholders})
-      INNER JOIN database_property_values value
+        AND property.id IN (${placeholders})
+      INNER JOIN data_source_property_values value
         ON value.membership_id = membership.id
         AND value.property_id = property.id
-        AND value.database_block_id = property.database_block_id
-        AND value.project_id = property.project_id
+        AND value.data_source_id = membership.data_source_id
       WHERE membership.page_block_id = ?
-        AND membership.project_id = ?
         AND membership.removed_at IS NULL
     `,
     )
     .all(
+      projectId,
       ...DATABASE_PATCH_KEYS,
       pageId,
-      projectId,
     ) as readonly DatabasePropertyRow[];
   return new Map(rows.map((row) => [row.property_key, row] as const));
 };
@@ -167,11 +177,11 @@ const makeDatabaseField = (
   row: DatabasePropertyRow,
   pageId: string,
   value: string | null,
-): BlockPropertyFieldMutation => ({
-  scope: "database",
+): BlockPropertyFieldMutationV2 => ({
+  scope: "data_source",
   pageId,
-  databaseBlockId: row.database_block_id,
-  propertyId: row.property_id,
+  dataSourceId: parseDataSourceId(row.data_source_id),
+  propertyId: parseDataSourcePropertyId(row.property_id),
   operation: "set",
   expectedRevision: row.revision,
   value,
@@ -181,7 +191,7 @@ const makeIntrinsicField = (
   row: IntrinsicPropertyRow,
   pageId: string,
   value: BlockPropertyJsonValue,
-): BlockPropertyFieldMutation => ({
+): BlockPropertyFieldMutationV2 => ({
   scope: "intrinsic",
   blockId: pageId,
   propertyKey: row.property_key,
@@ -198,7 +208,7 @@ const makeIntrinsicField = (
 export const applyAuthoritativePageSchedulePatchInTransaction = (
   database: Database.Database,
   input: ApplyAuthoritativePageSchedulePatchInput,
-): BlockPropertyMutationResult | null => {
+): BlockPropertyMutationResultV2 | null => {
   if (!database.inTransaction) {
     throw new PageScheduleAuthorityError(
       "applyAuthoritativePageSchedulePatchInTransaction requires an active writer transaction",
@@ -214,7 +224,7 @@ export const applyAuthoritativePageSchedulePatchInTransaction = (
     input.projectId,
     input.pageId,
   );
-  const fields: BlockPropertyFieldMutation[] = [];
+  const fields: BlockPropertyFieldMutationV2[] = [];
 
   const addDatabase = (key: string, value: string | null): void => {
     const row = requireDatabaseProperty(databaseProperties, key, input.pageId);
@@ -263,17 +273,30 @@ export const applyAuthoritativePageSchedulePatchInTransaction = (
   }
   if (fields.length === 0) return null;
 
-  const result = applyBlockPropertyMutation(database, {
-    version: 1,
-    mutationId: input.operationId,
-    projectId: input.projectId,
-    storeEpoch: readStoreEpoch(database),
-    ...(input.clientSessionId
-      ? { clientSessionId: input.clientSessionId }
-      : {}),
-    actor: { kind: "page-occurrence" },
-    fields,
-  });
+  const result = applySourceBlockPropertyMutationV2(
+    database,
+    {
+      version: 2,
+      mutationId: input.operationId,
+      projectId: input.projectId,
+      storeEpoch: readStoreEpoch(database),
+      ...(input.clientSessionId
+        ? { clientSessionId: input.clientSessionId }
+        : {}),
+      actor: { kind: "page-occurrence" },
+      fields,
+    },
+    {
+      refreshProjections: (projectionDatabase, projection) => {
+        rebuildBlockPropertyMutationProjections(
+          projectionDatabase,
+          projection.projectId,
+          projection.pageIds,
+          projection.updatedAt,
+        );
+      },
+    },
+  );
   if (result.ok) return result.value;
   throw new PageScheduleAuthorityError(
     `Schedule mutation ${input.operationId} failed: ${result.error.code}: ${result.error.message}`,

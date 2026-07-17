@@ -5,12 +5,16 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  DatabaseJsonValue,
-  DatabasePropertyOption,
-  DatabasePropertyValueType,
-} from "../../../shared/database-kernel";
-import type { DatabaseApplyOperation } from "../../../shared/database-module";
+import type { DatabaseApplyOperationV2 } from "../../../shared/database-module-v2";
+import {
+  createCustomPropertyId,
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourceOptionId,
+  parseDataSourcePropertyId,
+} from "../../../shared/database-identities";
+import { createUuidV7 } from "../../../shared/uuid-v7";
 import {
   commitDatabaseManagementOperations,
   readDatabaseManagementAuthority,
@@ -37,30 +41,8 @@ interface DatabaseManagementDialogControllerProps {
   readonly onOpenChange: (open: boolean) => void;
 }
 
-const propertyConfig = (
-  valueType: DatabasePropertyValueType,
-): Readonly<Record<string, DatabaseJsonValue>> =>
-  valueType === "select" || valueType === "multi_select"
-    ? { options: [] }
-    : {};
-
-const propertyKey = (propertyId: string): string =>
-  `custom_${propertyId.replaceAll("-", "_")}`;
-
 const messageForError = (error: unknown): string =>
   error instanceof Error ? error.message : "Database management failed";
-
-const replacePropertyOptions = (
-  property: DatabaseManagementAuthority["source"]["properties"][number],
-  options: readonly DatabasePropertyOption[],
-): Readonly<Record<string, DatabaseJsonValue>> => ({
-  ...property.config,
-  options: options.map((option): DatabaseJsonValue => ({
-    id: option.id,
-    name: option.name,
-    ...(option.color === undefined ? {} : { color: option.color }),
-  })),
-});
 
 export function DatabaseManagementDialogController({
   projectId,
@@ -126,7 +108,7 @@ export function DatabaseManagementDialogController({
   const mutate = async (
     buildOperations: (
       current: DatabaseManagementAuthority,
-    ) => readonly DatabaseApplyOperation[],
+    ) => readonly DatabaseApplyOperationV2[],
   ): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -148,21 +130,20 @@ export function DatabaseManagementDialogController({
   };
 
   const createProperty = async (draft: CreateDatabasePropertyDraft) => {
-    const propertyId = crypto.randomUUID();
+    const propertyId = createCustomPropertyId();
     await mutate((current) => {
       if (current.selectedDataSource.dataSourceId !== draft.dataSourceId) {
         throw new Error("Selected Data Source changed before property creation");
       }
       return [{
         kind: "put_property",
-        dataSourceId: draft.dataSourceId,
+        dataSourceId: parseDataSourceId(draft.dataSourceId),
         propertyId,
         expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
         expectedPropertyRevision: 0,
-        key: propertyKey(propertyId),
         name: draft.name,
         valueType: draft.valueType,
-        config: propertyConfig(draft.valueType),
+        config: {},
       }];
     });
   };
@@ -180,8 +161,8 @@ export function DatabaseManagementDialogController({
       }
       return [{
         kind: "delete_property",
-        dataSourceId,
-        propertyId,
+        dataSourceId: parseDataSourceId(dataSourceId),
+        propertyId: parseDataSourcePropertyId(propertyId),
         expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
         expectedPropertyRevision: property.revision,
       }];
@@ -189,7 +170,7 @@ export function DatabaseManagementDialogController({
   };
 
   const createView = async (draft: CreateDatabaseViewDraft) => {
-    const viewId = crypto.randomUUID();
+    const viewId = parseDatabaseViewId(createUuidV7());
     await mutate((current) => {
       if (
         current.selectedDatabase.database.databaseId !== draft.databaseId
@@ -199,8 +180,8 @@ export function DatabaseManagementDialogController({
       }
       return [{
         kind: "put_view",
-        databaseId: draft.databaseId,
-        dataSourceId: draft.dataSourceId,
+        databaseId: parseDatabaseId(draft.databaseId),
+        dataSourceId: parseDataSourceId(draft.dataSourceId),
         viewId,
         expectedRevision: 0,
         name: draft.name,
@@ -221,9 +202,9 @@ export function DatabaseManagementDialogController({
       }
       return [{
         kind: "put_view",
-        databaseId: draft.databaseId,
-        dataSourceId: draft.dataSourceId,
-        viewId: draft.viewId,
+        databaseId: parseDatabaseId(draft.databaseId),
+        dataSourceId: parseDataSourceId(draft.dataSourceId),
+        viewId: parseDatabaseViewId(draft.viewId),
         expectedRevision: draft.expectedRevision,
         name: draft.name,
         viewKind: draft.kind,
@@ -231,7 +212,11 @@ export function DatabaseManagementDialogController({
         isDefault: view.isDefault,
         ...(draft.beforeViewId === undefined
           ? {}
-          : { beforeViewId: draft.beforeViewId }),
+          : {
+              beforeViewId: draft.beforeViewId === null
+                ? null
+                : parseDatabaseViewId(draft.beforeViewId),
+            }),
       }];
     });
   };
@@ -246,8 +231,8 @@ export function DatabaseManagementDialogController({
       }
       return [{
         kind: "delete_view",
-        databaseId,
-        viewId,
+        databaseId: parseDatabaseId(databaseId),
+        viewId: parseDatabaseViewId(viewId),
         expectedRevision: view.revision,
       }];
     });
@@ -268,15 +253,18 @@ export function DatabaseManagementDialogController({
         throw new Error(`Property option already exists: ${draft.option.id}`);
       }
       return [{
-        kind: "put_property",
-        dataSourceId: draft.dataSourceId,
+        kind: "put_option",
+        dataSourceId: parseDataSourceId(draft.dataSourceId),
         propertyId: property.propertyId,
-        expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
+        optionId: parseDataSourceOptionId({
+          propertyId: property.propertyId,
+          value: draft.option.id,
+        }),
+        name: draft.option.name,
+        ...(draft.option.color === undefined
+          ? {}
+          : { color: draft.option.color }),
         expectedPropertyRevision: property.revision,
-        key: property.key,
-        name: property.name,
-        valueType: property.valueType,
-        config: replacePropertyOptions(property, [...options, draft.option]),
       }];
     });
   };
@@ -298,18 +286,14 @@ export function DatabaseManagementDialogController({
         throw new Error(`Property option is unavailable: ${optionId}`);
       }
       return [{
-        kind: "put_property",
-        dataSourceId,
-        propertyId,
-        expectedDataSourceRevision: current.selectedDataSource.schemaRevision,
+        kind: "delete_option",
+        dataSourceId: parseDataSourceId(dataSourceId),
+        propertyId: parseDataSourcePropertyId(propertyId),
+        optionId: parseDataSourceOptionId({
+          propertyId,
+          value: optionId,
+        }),
         expectedPropertyRevision: property.revision,
-        key: property.key,
-        name: property.name,
-        valueType: property.valueType,
-        config: replacePropertyOptions(
-          property,
-          options.filter((option) => option.id !== optionId),
-        ),
       }];
     });
   };

@@ -126,7 +126,7 @@ function context(fixture: Fixture) {
   return { database, view };
 }
 
-function initialDataSourceId(fixture: Fixture, databaseId: string): string {
+function defaultDataSourceId(fixture: Fixture, databaseId: string): string {
   const source = fixture.database.prepare(`
     SELECT id FROM data_sources
     WHERE home_database_block_id = ? AND lifecycle = 'active'
@@ -456,6 +456,10 @@ describe("Nodex Agent transfer service", () => {
     await withFixture((fixture) => {
       const parent = createPage(fixture, "duplicate-parent", "Parent");
       const source = createPage(fixture, "duplicate-source", "Source");
+      const parentDocumentId = requirePageDocumentIdForTest(fixture, parent);
+      const parentHeadBefore = fixture.database.prepare(
+        "SELECT head_seq FROM documents WHERE id = ?",
+      ).get(parentDocumentId) as { readonly head_seq: number };
       const request = {
         threadId: "thread-v3",
         callId: "duplicate-card",
@@ -500,6 +504,28 @@ describe("Nodex Agent transfer service", () => {
         WHERE ownership.block_id = ?
       `).get(copiedPageId);
       expect(copied).toEqual({ title: "Source", nfm: "Source body" });
+      const parentDocument = fixture.database.prepare(
+        `
+        SELECT document.head_seq, materialization.block_tree_json
+        FROM documents document
+        INNER JOIN document_materializations materialization
+          ON materialization.document_id = document.id
+        WHERE document.id = ?
+      `).get(parentDocumentId) as {
+        readonly head_seq: number;
+        readonly block_tree_json: string;
+      };
+      expect(parentDocument.head_seq).toBe(parentHeadBefore.head_seq + 1);
+      const parentTree = JSON.parse(parentDocument.block_tree_json) as readonly {
+        readonly id: string;
+      }[];
+      expect(parentTree.some((block) => block.id === copiedPageId)).toBe(true);
+      expect(fixture.database.prepare(
+        `
+        SELECT block_type
+        FROM document_block_index
+        WHERE document_id = ? AND block_id = ?
+      `).get(parentDocumentId, copiedPageId)).toEqual({ block_type: "page" });
       const replay = prepareNodexAgentDuplicatePage(fixture.database, request);
       expect(replay.ok && replay.value.kind === "completed"
         ? replay.value.output
@@ -514,9 +540,13 @@ describe("Nodex Agent transfer service", () => {
   sqliteTest("moves mixed-source Pages into one Page atomically in input order", async () => {
     await withFixture((fixture) => {
       const parent = createPage(fixture, "move-parent", "Parent");
+      const parentDocumentId = requirePageDocumentIdForTest(fixture, parent);
+      const parentHeadBefore = fixture.database.prepare(
+        "SELECT head_seq FROM documents WHERE id = ?",
+      ).get(parentDocumentId) as { readonly head_seq: number };
       const libraryPage = createPage(fixture, "move-library", "From Library");
       const { database, view } = context(fixture);
-      const dataSourceId = initialDataSourceId(fixture, database.databaseId);
+      const dataSourceId = defaultDataSourceId(fixture, database.databaseId);
       const dataSourcePage = createPage(fixture, "move-data-source", "From Data Source", {
         kind: "data_source",
         dataSourceId,
@@ -564,11 +594,30 @@ describe("Nodex Agent transfer service", () => {
         WHERE document_id = ? AND block_id IN (?, ?)
         ORDER BY ordinal, block_id
       `).all(
-        requirePageDocumentIdForTest(fixture, parent),
+        parentDocumentId,
         dataSourcePage,
         libraryPage,
       ) as readonly { readonly block_id: string }[];
       expect(nestedOrder.map((row) => row.block_id)).toEqual([dataSourcePage, libraryPage]);
+      const parentDocument = fixture.database.prepare(
+        `
+        SELECT document.head_seq, materialization.block_tree_json
+        FROM documents document
+        INNER JOIN document_materializations materialization
+          ON materialization.document_id = document.id
+        WHERE document.id = ?
+      `).get(parentDocumentId) as {
+        readonly head_seq: number;
+        readonly block_tree_json: string;
+      };
+      expect(parentDocument.head_seq).toBe(parentHeadBefore.head_seq + 2);
+      const parentTree = JSON.parse(parentDocument.block_tree_json) as readonly {
+        readonly id: string;
+      }[];
+      expect(parentTree
+        .map((block) => block.id)
+        .filter((id) => id === dataSourcePage || id === libraryPage))
+        .toEqual([dataSourcePage, libraryPage]);
 
       const replay = prepareNodexAgentMovePages(fixture.database, request);
       expect(replay.ok && replay.value.kind === "completed"
@@ -670,7 +719,7 @@ describe("Nodex Agent transfer service", () => {
   sqliteTest("repositions Pages in one Data Source without exposing property edits", async () => {
     await withFixture((fixture) => {
       const { database, view } = context(fixture);
-      const dataSourceId = initialDataSourceId(fixture, database.databaseId);
+      const dataSourceId = defaultDataSourceId(fixture, database.databaseId);
       const first = createPage(fixture, "same-db-first", "First", {
         kind: "data_source",
         dataSourceId,
@@ -706,8 +755,8 @@ describe("Nodex Agent transfer service", () => {
       if (!executed.ok) throw new Error(executed.error.message);
       const positions = fixture.database.prepare(
         `
-        SELECT block_id, group_key
-        FROM database_view_positions
+        SELECT page_block_id AS block_id, group_key
+        FROM database_view_page_positions
         WHERE view_id = ? AND block_id IN (?, ?)
         ORDER BY rank_key, block_id
       `).all(view.viewId, first, second) as readonly {

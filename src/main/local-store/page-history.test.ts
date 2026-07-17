@@ -136,10 +136,9 @@ const createSchema = (database: Database.Database): void => {
       change_log_seq INTEGER NOT NULL,
       committed_at TEXT NOT NULL
     );
-    CREATE TABLE database_memberships (
+    CREATE TABLE data_source_page_memberships (
       id TEXT PRIMARY KEY,
       page_block_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
       removed_at TEXT
     );
   `);
@@ -684,11 +683,11 @@ describe("canonical Page history", () => {
       const memberships = fixture.database
         .prepare(
           `
-          SELECT COUNT(*) AS count FROM database_memberships
-          WHERE page_block_id = ? AND project_id = ? AND removed_at IS NULL
+          SELECT COUNT(*) AS count FROM data_source_page_memberships
+          WHERE page_block_id = ? AND removed_at IS NULL
         `,
         )
-        .get(card.cardId, fixture.projectId) as { readonly count: number };
+        .get(card.cardId) as { readonly count: number };
       expect(memberships.count).toBe(0);
       const page = listPageHistory(
         fixture.database,

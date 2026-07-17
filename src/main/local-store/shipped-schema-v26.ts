@@ -5,7 +5,10 @@ import path from "node:path";
 import { summarizePageDescription } from "../../shared/page-summary";
 import { makeProjectSessionPanelLayout } from "../../shared/project-session-panel-layout";
 import { ProjectSessionPanelsSchema } from "../../shared/schemas/project-sessions";
-import { insertInitialDatabaseViewSession } from "./project-session-defaults";
+import {
+  insertInitialDatabaseViewSession,
+  seededPrimaryDatabaseViewId,
+} from "./project-session-defaults";
 import { createBlockFirstPreFinalizationSchema } from "./schema";
 
 interface LegacyProjectRow {
@@ -289,7 +292,12 @@ const seedDatabaseViewSessions = (database: Database.Database): void => {
     readonly created: string;
   }[];
   for (const project of projects) {
-    insertInitialDatabaseViewSession(database, project.id, project.created);
+    insertInitialDatabaseViewSession(
+      database,
+      project.id,
+      seededPrimaryDatabaseViewId(project.id),
+      project.created,
+    );
   }
 };
 

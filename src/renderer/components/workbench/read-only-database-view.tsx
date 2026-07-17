@@ -11,9 +11,9 @@ import {
   type DatabaseJsonValue,
 } from "../../../shared/database-kernel";
 import type {
-  DataSourcePageRow,
-  DataSourcePropertyRecord,
-} from "../../../shared/database-module";
+  DataSourcePageRowV2,
+  DataSourcePropertyRecordV2,
+} from "../../../shared/database-module-v2";
 import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import { NodexIconButton } from "@/components/ui/button";
 import { matchesSearchTokens, tokenizeSearchQuery } from "@/lib/page-search";
@@ -55,7 +55,7 @@ const valueInputClass = cn(
 const rowByPageId = (
   model: DatabaseViewRenderModel,
   pageId: string,
-): DataSourcePageRow | null =>
+): DataSourcePageRowV2 | null =>
   model.query.rows.find((row) => row.page.pageId === pageId) ?? null;
 
 const searchablePropertyValues = (
@@ -87,7 +87,7 @@ function DatabasePropertyValueEditor({
   disabled,
   onChange,
 }: {
-  readonly property: DataSourcePropertyRecord;
+  readonly property: DataSourcePropertyRecordV2;
   readonly value: DatabaseJsonValue | undefined;
   readonly revision: number;
   readonly disabled: boolean;
@@ -209,7 +209,7 @@ function DatabasePropertyValueEditor({
 
 const displayedProperties = (
   model: DatabaseViewRenderModel,
-): readonly DataSourcePropertyRecord[] => {
+): readonly DataSourcePropertyRecordV2[] => {
   const visible = new Set(model.query.view.config.display.propertyIds);
   return model.query.properties.filter(
     (property) =>
@@ -312,7 +312,7 @@ function DurablePageSurface({
 
 const calendarProperty = (
   model: DatabaseViewRenderModel,
-): DataSourcePropertyRecord | null => {
+): DataSourcePropertyRecordV2 | null => {
   const visible = displayedProperties(model).find(
     (property) => property.valueType === "date" || property.valueType === "datetime",
   );
@@ -327,7 +327,7 @@ const calendarProperty = (
 const calendarDateKey = (
   model: DatabaseViewRenderModel,
   row: DatabaseViewRenderRow,
-  property: DataSourcePropertyRecord | null,
+  property: DataSourcePropertyRecordV2 | null,
 ): string | null => {
   if (!property) return null;
   const value = rowByPageId(model, row.pageId)

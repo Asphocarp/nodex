@@ -55,14 +55,20 @@ describe("Page target read model", () => {
         const now = new Date().toISOString();
         database.transaction(() => {
           database.prepare(`
-            DELETE FROM database_view_positions
-            WHERE project_id = ? AND block_id = ?
-          `).run(project.id, target.id);
+            DELETE FROM database_view_page_positions
+            WHERE page_block_id = ?
+          `).run(target.id);
           database.prepare(`
-            UPDATE database_memberships
+            UPDATE data_source_page_memberships
             SET removed_at = ?, revision = revision + 1
-            WHERE project_id = ? AND page_block_id = ? AND removed_at IS NULL
-          `).run(now, project.id, target.id);
+            WHERE page_block_id = ? AND removed_at IS NULL
+          `).run(now, target.id);
+          database.prepare(`
+            UPDATE pages
+            SET parent_kind = 'page', parent_id = ?,
+                parent_revision = parent_revision + 1, updated_at = ?
+            WHERE block_id = ? AND library_id = ?
+          `).run(host.id, now, target.id, project.libraryId);
           database.prepare(`
             UPDATE blocks
             SET location_kind = 'document', containing_document_id = ?,
@@ -109,8 +115,8 @@ describe("Page target read model", () => {
         const missing = resolvePageTarget("missing-page-id", database);
         expect(missing.status).toBe("missing");
         const databaseBlock = database.prepare(`
-          SELECT block_id FROM database_capabilities
-          WHERE project_id = ? AND is_primary = 1
+          SELECT database_block_id AS block_id FROM project_database_bindings
+          WHERE project_id = ? AND lifecycle = 'active'
         `).get(project.id) as { readonly block_id: string };
         const invalid = resolvePageTarget(databaseBlock.block_id, database);
         expect(invalid.status).toBe("invalid_target");

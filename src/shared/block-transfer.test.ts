@@ -105,7 +105,22 @@ describe("BlockTransfer contract", () => {
           groupKey: null,
         },
       }),
-    ).toThrow(/reorder within one Database/);
+    ).toThrow(/reorder within one Data Source/);
+  });
+
+  test("allows a parent move between Data Sources in one Database", () => {
+    expect(
+      parseBlockTransferRequest({
+        ...request(),
+        target: {
+          kind: "database",
+          databaseBlockId: "database-a",
+          dataSourceId: "source-b",
+          viewId: "view-b",
+          groupKey: "backlog",
+        },
+      }).target,
+    ).toMatchObject({ dataSourceId: "source-b" });
   });
 
   test("rejects transferred roots as target anchors", () => {

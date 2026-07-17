@@ -76,9 +76,10 @@ import type {
   ProjectSessionUpdateInput,
 } from "../../shared/types";
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-} from "../../shared/database-module";
-import { readDatabaseModule } from "./database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+} from "../../shared/database-module-v2";
+import { parseDatabaseViewId } from "../../shared/database-identities";
+import { readDatabaseModuleV2 } from "./database-module-v2-runtime";
 import {
   getCodexThread,
   upsertCodexThread,
@@ -286,8 +287,8 @@ function resolveActiveDatabaseViewConfig(
 ): ResolvedProjectSessionDbViewTabConfig {
   const projectId = requireProjectId(config.projectId);
   if (!config.databaseViewId) {
-    const result = readDatabaseModule(database, {
-      version: DATABASE_MODULE_CONTRACT_VERSION,
+    const result = readDatabaseModuleV2(database, {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
       projectId,
       read: { target: { kind: "project_default" }, mode: "database" },
     });
@@ -311,11 +312,14 @@ function resolveActiveDatabaseViewConfig(
     };
   }
 
-  const result = readDatabaseModule(database, {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+  const result = readDatabaseModuleV2(database, {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     projectId,
     read: {
-      target: { kind: "view", viewId: config.databaseViewId },
+      target: {
+        kind: "view",
+        viewId: parseDatabaseViewId(config.databaseViewId),
+      },
       mode: "view",
     },
   });

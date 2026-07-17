@@ -104,7 +104,7 @@ describe("scheduled Page authority reads", () => {
       const card = await createPage(project.id, "in_progress", {
         title: "Legacy schedule title",
         description: "Legacy schedule body",
-        tags: ["legacy-tag"],
+        tags: ["relational-tag"],
         scheduledStart: new Date("2030-01-01T10:00:00.000Z"),
         scheduledEnd: new Date("2030-01-01T11:00:00.000Z"),
         reminders: [{ offsetMinutes: 10 }],
@@ -126,39 +126,39 @@ describe("scheduled Page authority reads", () => {
         database
           .prepare(
             `
-            UPDATE database_property_values
-            SET value_json = '["relational-tag"]', revision = revision + 1
+            UPDATE data_source_property_values
+            SET revision = revision + 1
             WHERE membership_id = (
-                SELECT id FROM database_memberships
+                SELECT id FROM data_source_page_memberships
                 WHERE page_block_id = ? AND removed_at IS NULL
               )
-              AND property_id = database_block_id || ':property:tags'
+              AND property_id = 'tags'
           `,
           )
           .run(card.id);
         database
           .prepare(
             `
-            UPDATE database_property_values
+            UPDATE data_source_property_values
             SET value_json = '"2031-02-03T10:00:00.000Z"', revision = revision + 1
             WHERE membership_id = (
-                SELECT id FROM database_memberships
+                SELECT id FROM data_source_page_memberships
                 WHERE page_block_id = ? AND removed_at IS NULL
               )
-              AND property_id = database_block_id || ':property:scheduled_start'
+              AND property_id = 'scheduled_start'
           `,
           )
           .run(card.id);
         database
           .prepare(
             `
-            UPDATE database_property_values
+            UPDATE data_source_property_values
             SET value_json = '"2031-02-03T11:00:00.000Z"', revision = revision + 1
             WHERE membership_id = (
-                SELECT id FROM database_memberships
+                SELECT id FROM data_source_page_memberships
                 WHERE page_block_id = ? AND removed_at IS NULL
               )
-              AND property_id = database_block_id || ':property:scheduled_end'
+              AND property_id = 'scheduled_end'
           `,
           )
           .run(card.id);

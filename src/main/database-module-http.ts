@@ -1,38 +1,38 @@
 import { bodyLimit } from "hono/body-limit";
 import type { Hono } from "hono";
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadRequest,
-  DatabaseModuleReadResult,
-} from "../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadRequestV2,
+  DatabaseModuleReadResultV2,
+} from "../shared/database-module-v2";
 import {
-  bindDatabaseApply,
-  bindDatabaseModuleRead,
-  databaseModuleFailure,
-  databaseModuleHttpStatus,
-} from "../shared/database-module-transport";
+  bindDatabaseApplyV2,
+  bindDatabaseModuleReadV2,
+  databaseModuleFailureV2,
+  databaseModuleHttpStatusV2,
+} from "../shared/database-module-v2-transport";
 
 const MAX_DATABASE_MODULE_HTTP_BYTES = 2_100_000;
 
 export interface DatabaseModuleHttpDependencies {
-  readonly apply: (request: DatabaseApply) => Promise<DatabaseApplyResult>;
+  readonly apply: (request: DatabaseApplyV2) => Promise<DatabaseApplyResultV2>;
   readonly read: (
-    request: DatabaseModuleReadRequest,
-  ) => Promise<DatabaseModuleReadResult>;
+    request: DatabaseModuleReadRequestV2,
+  ) => Promise<DatabaseModuleReadResultV2>;
 }
 
-const invalidRequest = (message: string): DatabaseModuleReadResult => ({
+const invalidRequest = (message: string): DatabaseModuleReadResultV2 => ({
   ok: false,
-  error: databaseModuleFailure("invalid_request", message),
+  error: databaseModuleFailureV2("invalid_request", message),
 });
 
 const transportFailure = (
   error: unknown,
   operationId?: string,
-): DatabaseModuleReadResult | DatabaseApplyResult => ({
+): DatabaseModuleReadResultV2 | DatabaseApplyResultV2 => ({
   ok: false,
-  error: databaseModuleFailure(
+  error: databaseModuleFailureV2(
     "unknown",
     error instanceof Error
       ? error.message
@@ -65,9 +65,9 @@ export const registerDatabaseModuleHttpRoutes = (
           400,
         );
       }
-      let request: DatabaseModuleReadRequest;
+      let request: DatabaseModuleReadRequestV2;
       try {
-        request = bindDatabaseModuleRead(
+        request = bindDatabaseModuleReadV2(
           body,
           context.req.param("projectId"),
         );
@@ -77,15 +77,15 @@ export const registerDatabaseModuleHttpRoutes = (
         );
         return context.json(result, 400);
       }
-      let result: DatabaseModuleReadResult;
+      let result: DatabaseModuleReadResultV2;
       try {
         result = await dependencies.read(request);
       } catch (error) {
-        result = transportFailure(error) as DatabaseModuleReadResult;
+        result = transportFailure(error) as DatabaseModuleReadResultV2;
       }
       return context.json(
         result,
-        result.ok ? 200 : databaseModuleHttpStatus(result.error),
+        result.ok ? 200 : databaseModuleHttpStatusV2(result.error),
       );
     },
   );
@@ -102,17 +102,17 @@ export const registerDatabaseModuleHttpRoutes = (
           400,
         );
       }
-      let request: DatabaseApply;
+      let request: DatabaseApplyV2;
       try {
-        request = bindDatabaseApply(
+        request = bindDatabaseApplyV2(
           body,
           context.req.param("projectId"),
           { actor: { kind: "http_loopback", transport: "json" } },
         );
       } catch (error) {
-        const result: DatabaseApplyResult = {
+        const result: DatabaseApplyResultV2 = {
           ok: false,
-          error: databaseModuleFailure(
+          error: databaseModuleFailureV2(
             "invalid_request",
             error instanceof Error
               ? error.message
@@ -121,18 +121,18 @@ export const registerDatabaseModuleHttpRoutes = (
         };
         return context.json(result, 400);
       }
-      let result: DatabaseApplyResult;
+      let result: DatabaseApplyResultV2;
       try {
         result = await dependencies.apply(request);
       } catch (error) {
         result = transportFailure(
           error,
           request.operationId,
-        ) as DatabaseApplyResult;
+        ) as DatabaseApplyResultV2;
       }
       return context.json(
         result,
-        result.ok ? 200 : databaseModuleHttpStatus(result.error),
+        result.ok ? 200 : databaseModuleHttpStatusV2(result.error),
       );
     },
   );

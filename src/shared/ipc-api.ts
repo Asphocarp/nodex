@@ -41,21 +41,21 @@ import type {
 } from "./block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "./block-documents/document-history-transport";
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "./block-property-mutations";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "./block-property-mutations-v2";
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadRequest,
-  DatabaseModuleReadResult,
-} from "./database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadRequestV2,
+  DatabaseModuleReadResultV2,
+} from "./database-module-v2";
 import type { DatabaseChangeEvent } from "./database-events";
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "./page-lifecycle";
-import type { PageLifecyclePreflightResult } from "./page-lifecycle-runtime";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "./page-lifecycle-v2";
+import type { PageLifecyclePreflightResultV2 } from "./page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "./page-history";
 import type { PageHistoryCommandResult } from "./page-history-transport";
 import type { PageDetailResult } from "./page-detail";
@@ -509,24 +509,24 @@ export interface IpcApi {
     result: DocumentOperationCommandResult;
   };
   "block-properties:mutate": {
-    args: [projectId: string, request: BlockPropertyMutationRequest];
-    result: BlockPropertyMutationCommandResult;
+    args: [projectId: string, request: BlockPropertyMutationRequestV2];
+    result: BlockPropertyMutationCommandResultV2;
   };
   "pages:lifecycle:preflight": {
     args: [projectId: string, pageId: string];
-    result: PageLifecyclePreflightResult;
+    result: PageLifecyclePreflightResultV2;
   };
   "pages:lifecycle:apply": {
-    args: [projectId: string, request: PageLifecycleMutationRequest];
-    result: PageLifecycleMutationCommandResult;
+    args: [projectId: string, request: PageLifecycleMutationRequestV2];
+    result: PageLifecycleMutationCommandResultV2;
   };
   "database-module:read": {
-    args: [projectId: string, request: DatabaseModuleReadRequest];
-    result: DatabaseModuleReadResult;
+    args: [projectId: string, request: DatabaseModuleReadRequestV2];
+    result: DatabaseModuleReadResultV2;
   };
   "database-module:apply": {
-    args: [projectId: string, request: DatabaseApply];
-    result: DatabaseApplyResult;
+    args: [projectId: string, request: DatabaseApplyV2];
+    result: DatabaseApplyResultV2;
   };
   "page-target:resolve": {
     args: [input: ResolvePageTargetInput];

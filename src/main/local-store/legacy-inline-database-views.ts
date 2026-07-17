@@ -14,6 +14,8 @@ import {
 import { readDatabasePageSummariesByIds } from "./database-pages";
 import { getDb } from "./database";
 
+/** Historical inline-View importer for shipped stores; never current authority. */
+
 const MAX_ID_LENGTH = 512;
 const MAX_NAME_LENGTH = 256;
 const MAX_RULES_LENGTH = 65_536;

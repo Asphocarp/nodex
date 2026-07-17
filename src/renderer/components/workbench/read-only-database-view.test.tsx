@@ -3,16 +3,25 @@ import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../../shared/database-identities";
 import { render } from "../../test/dom";
 import { DatabaseViewSurface } from "./read-only-database-view";
 
 const timestamp = "2026-07-12T00:00:00.000Z";
-const dataSourceId = "source-1";
+const dataSourceId = parseDataSourceId("source-1");
+const databaseId = parseDatabaseId("database-1");
+const viewId = parseDatabaseViewId("view-focused");
+const tagsPropertyId = parseDataSourcePropertyId("tags");
 
 const model: DatabaseViewRenderModel = {
   projectId: "project-1",
-  databaseViewId: "view-focused",
-  databaseId: "database-1",
+  databaseViewId: viewId,
+  databaseId,
   dataSourceId,
   databaseName: "Tasks",
   dataSourceName: "Pages",
@@ -23,11 +32,11 @@ const model: DatabaseViewRenderModel = {
   readOnlyReason: null,
   query: {
     database: {
-      databaseId: "database-1",
+      databaseId,
       libraryId: "library-1",
       name: "Tasks",
       lifecycle: "active",
-      defaultViewId: "view-default",
+      defaultViewId: parseDatabaseViewId("view-default"),
       accessRevision: 1,
       metadataRevision: 1,
       createdAt: timestamp,
@@ -36,7 +45,7 @@ const model: DatabaseViewRenderModel = {
     dataSource: {
       dataSourceId,
       libraryId: "library-1",
-      homeDatabaseId: "database-1",
+      homeDatabaseId: databaseId,
       name: "Pages",
       schemaKey: "nodex.pages",
       schemaRevision: 1,
@@ -46,18 +55,18 @@ const model: DatabaseViewRenderModel = {
       updatedAt: timestamp,
     },
     view: {
-      viewId: "view-focused",
-      databaseId: "database-1",
+      viewId,
+      databaseId,
       dataSourceId,
       name: "Focused",
       kind: "list",
       config: {
         schemaKey: "nodex.database-view",
-        schemaVersion: 1,
+        schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
         group: null,
-        display: { propertyIds: ["property-tags"], showTitle: true },
+        display: { propertyIds: [tagsPropertyId], showTitle: true },
       },
       isDefault: false,
       revision: 1,
@@ -67,12 +76,16 @@ const model: DatabaseViewRenderModel = {
       updatedAt: timestamp,
     },
     properties: [{
-      propertyId: "property-tags",
+      propertyId: tagsPropertyId,
       dataSourceId,
-      key: "tags",
       name: "Tags",
       valueType: "multi_select",
-      config: { options: [{ id: "selected-view", name: "Selected View" }, { id: "next", name: "Next" }] },
+      config: {
+        options: [
+          { id: "o_AAAAAAAA", name: "Selected View" },
+          { id: "o_BBBBBBBB", name: "Next" },
+        ],
+      },
       rankKey: "a",
       lifecycle: "active",
       revision: 1,
@@ -104,10 +117,10 @@ const model: DatabaseViewRenderModel = {
         updatedAt: timestamp,
       },
       values: {
-        "property-tags": {
-          propertyId: "property-tags",
+        [tagsPropertyId]: {
+          propertyId: tagsPropertyId,
           valueType: "multi_select",
-          value: ["selected-view"],
+          value: ["o_AAAAAAAA"],
           revision: 1,
         },
       },
@@ -173,8 +186,8 @@ describe("DatabaseViewSurface", () => {
       kind: "add_remove_value",
       pageId: "page-focused",
       dataSourceId,
-      propertyId: "property-tags",
-      add: ["next"],
+      propertyId: tagsPropertyId,
+      add: ["o_BBBBBBBB"],
       remove: [],
     });
   });

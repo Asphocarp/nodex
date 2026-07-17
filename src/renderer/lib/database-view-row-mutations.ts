@@ -1,14 +1,15 @@
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-  MAX_DATABASE_MODULE_BULK_ENTRIES,
-  type DatabaseApply,
-  type DatabaseApplyOperation,
-  type DatabaseApplyReceipt,
-  type DatabaseApplyResult,
-  type DatabaseModuleError,
-  type DataSourcePageRow,
-  type DataSourcePropertyRecord,
-} from "../../shared/database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
+  type DatabaseApplyOperationV2,
+  type DatabaseApplyReceiptV2,
+  type DatabaseApplyResultV2,
+  type DatabaseApplyV2,
+  type DatabaseModuleErrorV2,
+  type DataSourcePageRowV2,
+  type DataSourcePropertyRecordV2,
+} from "../../shared/database-module-v2";
+import { parseDataSourceOptionId } from "../../shared/database-identities";
 import {
   stableStringifyDatabaseJson,
   type DatabaseJsonValue,
@@ -17,7 +18,7 @@ import { applyDatabaseModule } from "./api";
 import type { DatabaseViewRenderModel } from "./database-view-render-model";
 
 export class DatabaseViewMutationError extends Error {
-  constructor(readonly commandError: DatabaseModuleError) {
+  constructor(readonly commandError: DatabaseModuleErrorV2) {
     super(commandError.message);
     this.name = "DatabaseViewMutationError";
   }
@@ -33,7 +34,7 @@ const localError = (message: string): DatabaseViewMutationError =>
 const findRow = (
   model: DatabaseViewRenderModel,
   pageId: string,
-): DataSourcePageRow => {
+): DataSourcePageRowV2 => {
   const row = model.query.rows.find(
     (candidate) => candidate.page.pageId === pageId,
   );
@@ -44,7 +45,7 @@ const findRow = (
 const findProperty = (
   model: DatabaseViewRenderModel,
   propertyId: string,
-): DataSourcePropertyRecord => {
+): DataSourcePropertyRecordV2 => {
   const property = model.query.properties.find(
     (candidate) =>
       candidate.propertyId === propertyId
@@ -68,7 +69,7 @@ export const buildDatabaseViewPropertyValueOperations = (input: {
   readonly pageId: string;
   readonly propertyId: string;
   readonly value: DatabaseJsonValue;
-}): readonly DatabaseApplyOperation[] => {
+}): readonly DatabaseApplyOperationV2[] => {
   const row = findRow(input.model, input.pageId);
   const property = findProperty(input.model, input.propertyId);
   const current = row.values[property.propertyId];
@@ -82,8 +83,20 @@ export const buildDatabaseViewPropertyValueOperations = (input: {
   if (property.valueType === "multi_select") {
     const before = stringSet(current?.value);
     const after = stringSet(input.value);
-    const add = [...after].filter((entry) => !before.has(entry)).sort();
-    const remove = [...before].filter((entry) => !after.has(entry)).sort();
+    const add = [...after]
+      .filter((entry) => !before.has(entry))
+      .sort()
+      .map((value) => parseDataSourceOptionId({
+        propertyId: property.propertyId,
+        value,
+      }));
+    const remove = [...before]
+      .filter((entry) => !after.has(entry))
+      .sort()
+      .map((value) => parseDataSourceOptionId({
+        propertyId: property.propertyId,
+        value,
+      }));
     if (add.length === 0 && remove.length === 0) return [];
     return [{
       kind: "add_remove_value",
@@ -118,7 +131,7 @@ export const buildDatabaseViewMoveOperations = (input: {
   readonly model: DatabaseViewRenderModel;
   readonly pageId: string;
   readonly direction: "up" | "down";
-}): readonly DatabaseApplyOperation[] => {
+}): readonly DatabaseApplyOperationV2[] => {
   if (!databaseViewSupportsManualReorder(input.model)) return [];
   const row = findRow(input.model, input.pageId);
   const visibleGroup = input.model.query.rows.filter(
@@ -148,7 +161,7 @@ export const buildDatabaseViewMoveOperations = (input: {
       : desired;
 
   if (hasEmptyAndFilter(input.model)) {
-    if (visibleGroup.length > MAX_DATABASE_MODULE_BULK_ENTRIES) {
+    if (visibleGroup.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
       throw localError(
         "This View group is too large for one atomic manual-order mutation",
       );
@@ -194,8 +207,8 @@ export const canMoveDatabaseViewPage = (input: {
 export interface DatabaseViewMutationDependencies {
   readonly apply: (
     projectId: string,
-    request: DatabaseApply,
-  ) => Promise<DatabaseApplyResult>;
+    request: DatabaseApplyV2,
+  ) => Promise<DatabaseApplyResultV2>;
 }
 
 const defaultDependencies: DatabaseViewMutationDependencies = {
@@ -204,14 +217,14 @@ const defaultDependencies: DatabaseViewMutationDependencies = {
 
 export const commitDatabaseViewOperations = async (input: {
   readonly model: DatabaseViewRenderModel;
-  readonly operations: readonly DatabaseApplyOperation[];
+  readonly operations: readonly DatabaseApplyOperationV2[];
   readonly clientSessionId?: string;
   readonly operationId?: string;
   readonly dependencies?: DatabaseViewMutationDependencies;
-}): Promise<DatabaseApplyReceipt | null> => {
+}): Promise<DatabaseApplyReceiptV2 | null> => {
   if (input.operations.length === 0) return null;
-  const request: DatabaseApply = {
-    version: DATABASE_MODULE_CONTRACT_VERSION,
+  const request: DatabaseApplyV2 = {
+    version: DATABASE_MODULE_V2_CONTRACT_VERSION,
     operationId: input.operationId ?? crypto.randomUUID(),
     projectId: input.model.projectId,
     storeEpoch: input.model.storeEpoch,
@@ -224,7 +237,7 @@ export const commitDatabaseViewOperations = async (input: {
     operations: input.operations,
   };
   const dependencies = input.dependencies ?? defaultDependencies;
-  let result: DatabaseApplyResult;
+  let result: DatabaseApplyResultV2;
   let retried = false;
   try {
     result = await dependencies.apply(input.model.projectId, request);

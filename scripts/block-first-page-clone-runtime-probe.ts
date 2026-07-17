@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import * as Y from "yjs";
 import { createUuidV7 } from "../src/shared/uuid-v7";
-import { parsePageLifecycleMutationRequest } from "../src/shared/page-lifecycle";
 import type { PageInput } from "../src/shared/types";
 import {
   materializePageDocument,
@@ -24,7 +23,8 @@ import {
   skipPageOccurrence,
   updatePageOccurrence,
 } from "../src/main/local-store/page-occurrences";
-import { applyPageLifecycleMutation } from "../src/main/local-store/page-lifecycle";
+import { compilePageLifecycleCreateRequestV2InDatabase } from "../src/main/local-store/page-lifecycle-v2-compiler";
+import { applyPageLifecycleMutationV2 } from "../src/main/local-store/page-lifecycle-v2-store";
 import { readDatabasePageById } from "../src/main/local-store/page-read-store";
 import {
   closeDatabase,
@@ -87,7 +87,7 @@ const countIdentity = (pageId: string): number => {
       SELECT
         (SELECT COUNT(*) FROM blocks WHERE id = ?) +
         (SELECT COUNT(*) FROM documents WHERE id = 'document:' || ?) +
-        (SELECT COUNT(*) FROM database_memberships WHERE card_block_id = ?) +
+        (SELECT COUNT(*) FROM data_source_page_memberships WHERE page_block_id = ?) +
         (SELECT COUNT(*) FROM change_log
           WHERE kind = 'block_mutation'
             AND EXISTS (
@@ -118,10 +118,9 @@ const createPage = (
   const storeEpoch = readBlockStoreEpoch(database);
   assert(storeEpoch, "Block store epoch is missing");
   const pageId = createUuidV7();
-  const result = applyPageLifecycleMutation(
+  const result = applyPageLifecycleMutationV2(
     database,
-    parsePageLifecycleMutationRequest({
-      version: 1,
+    compilePageLifecycleCreateRequestV2InDatabase(database, {
       operationId: `page-clone-probe:create:${pageId}`,
       projectId,
       storeEpoch,
@@ -662,8 +661,8 @@ const main = async (): Promise<void> => {
         `
         SELECT block.id
         FROM blocks block
-        INNER JOIN scheduled_card_index schedule
-          ON schedule.card_block_id = block.id
+        INNER JOIN scheduled_page_index schedule
+          ON schedule.page_block_id = block.id
           AND schedule.project_id = block.project_id
         WHERE block.project_id = ? AND block.type = 'page'
           AND block.lifecycle = 'active'
@@ -735,7 +734,7 @@ const main = async (): Promise<void> => {
     assert(
       !database
         .prepare(
-          "SELECT 1 FROM recurrence_exceptions WHERE project_id = ? AND card_id = ?",
+          "SELECT 1 FROM recurrence_exceptions WHERE project_id = ? AND page_id = ?",
         )
         .get(project.id, splitRow.id),
       "Occurrence fault leaked its recurrence exception",
@@ -802,7 +801,7 @@ const main = async (): Promise<void> => {
             `
             SELECT 1
             FROM recurrence_exceptions
-            WHERE project_id = ? AND card_id = ?
+            WHERE project_id = ? AND page_id = ?
               AND occurrence_start = '2026-07-15T12:00:00.000Z'
           `,
           )

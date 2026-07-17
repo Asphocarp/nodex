@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,10 +10,10 @@ import { getDatabasePath } from "./config";
 import { resetAssetPathCacheForTests } from "./assets";
 import { LEGACY_BLOCK_FIRST_TABLES_IN_DROP_ORDER } from "./block-first-legacy-schema";
 import { makeDefaultBrowserSidebarTabId } from "../../shared/browser-sidebar";
-import { initialDataSourceId } from "../../shared/library";
 import {
   CURRENT_SCHEMA_VERSION,
   SHIPPED_SCHEMA_VERSION,
+  createHistoricalReleaseSchemaFixture,
   getReleaseSchemaVersions,
   getSchemaMigrationTargets,
   migrateSchema58To59,
@@ -25,8 +25,6 @@ import {
   migrateSchema64To65,
   migrateSchema65To66,
   migrateSchema66To67,
-  migrateSchema67To68,
-  migrateSchema68To69,
   migrateSchema69To70,
   migrateSchema70To71,
   migrateSchema72To73,
@@ -37,11 +35,12 @@ import {
   migrateSchema77To78,
   migrateSchema78To79,
   migrateSchema79To80,
+  ensureBlockFoundationForProject,
+  primaryDatabaseBlockId,
 } from "./schema";
 import {
   createProjectSession,
   createProjectSessionTab,
-  upsertProjectSessionThreadLink,
 } from "./project-sessions";
 import { createProject } from "./projects";
 import { createPage } from "./database-pages";
@@ -52,6 +51,7 @@ import {
   primaryCanvasDocumentId,
 } from "../../shared/block-documents";
 import { syncCanvasScene } from "./canvas-scene-store";
+import { createUuidV7 } from "../../shared/uuid-v7";
 
 const tempDirectories: string[] = [];
 
@@ -83,55 +83,6 @@ const hasColumn = (
   database.pragma(`table_info(${tableName})`) as readonly { readonly name: string }[]
 ).some((column) => column.name === columnName);
 
-const renameSchemaObjectForV76Fixture = (
-  database: Database.Database,
-  type: "index" | "trigger",
-  currentName: string,
-  v76Name: string,
-): void => {
-  const row = database.prepare(`
-    SELECT sql FROM sqlite_schema WHERE type = ? AND name = ?
-  `).get(type, currentName) as { readonly sql: string | null } | undefined;
-  if (!row?.sql) return;
-  database.exec(`DROP ${type.toUpperCase()} "${currentName}"`);
-  database.exec(row.sql.replace(currentName, v76Name));
-};
-
-/** Reconstruct the physical naming boundary that existed immediately before v77. */
-const useSchema76PhysicalNames = (database: Database.Database): void => {
-  if (tableNames(database).has("page_read_model")) {
-    database.exec(`
-      ALTER TABLE page_read_model RENAME COLUMN page_block_id TO card_block_id;
-      ALTER TABLE page_read_model RENAME TO card_read_model;
-      ALTER TABLE scheduled_page_index RENAME COLUMN page_block_id TO card_block_id;
-      ALTER TABLE scheduled_page_index RENAME TO scheduled_card_index;
-      ALTER TABLE canvas_page_references RENAME TO canvas_card_references;
-      ALTER TABLE database_memberships RENAME COLUMN page_block_id TO card_block_id;
-      ALTER TABLE recurrence_exceptions RENAME COLUMN page_id TO card_id;
-      ALTER TABLE reminder_receipts RENAME COLUMN page_id TO card_id;
-      ALTER TABLE reminder_snoozes RENAME COLUMN page_id TO card_id;
-    `);
-  }
-
-  for (const [type, currentName, v76Name] of [
-    ["trigger", "page_read_model_validate_insert", "card_read_model_validate_insert"],
-    ["trigger", "page_read_model_validate_update", "card_read_model_validate_update"],
-    ["trigger", "database_memberships_require_page_block", "database_memberships_require_card_block"],
-    ["trigger", "database_memberships_updates_require_page_block", "database_memberships_updates_require_card_block"],
-    ["trigger", "page_behavior_records_guard_block_retype", "card_behavior_records_guard_block_retype"],
-    ["index", "idx_page_read_model_project_lifecycle", "idx_card_read_model_project_lifecycle"],
-    ["index", "idx_page_read_model_view_order", "idx_card_read_model_view_order"],
-    ["index", "idx_page_read_model_document_freshness", "idx_card_read_model_document_freshness"],
-    ["index", "idx_scheduled_page_index_due", "idx_scheduled_card_index_due"],
-    ["index", "idx_canvas_page_references_target", "idx_canvas_card_references_target"],
-    ["index", "idx_database_memberships_active_page", "idx_database_memberships_active_card"],
-  ] as const) {
-    renameSchemaObjectForV76Fixture(database, type, currentName, v76Name);
-  }
-
-  expect(hasColumn(database, "database_memberships", "card_block_id")).toBe(true);
-};
-
 const dropTriggersContainingPageLiteral = (
   database: Database.Database,
 ): void => {
@@ -143,6 +94,297 @@ const dropTriggersContainingPageLiteral = (
     const quotedName = `"${trigger.name.replaceAll('"', '""')}"`;
     database.exec(`DROP TRIGGER ${quotedName}`);
   }
+};
+
+const createHistoricalProject = (
+  database: Database.Database,
+  name: string,
+): { readonly id: string; readonly libraryId: string; readonly databaseId: string } => {
+  const library = database.prepare(
+    "SELECT id FROM libraries ORDER BY created_at, id LIMIT 1",
+  ).get() as { readonly id: string } | undefined;
+  if (!library) throw new Error("Historical Project fixture requires a Library");
+  const id = randomUUID();
+  const databaseId = primaryDatabaseBlockId(id);
+  const now = new Date().toISOString();
+  database.prepare(`
+    INSERT INTO projects (
+      id, library_id, database_block_id, lifecycle, binding_revision,
+      name, description, icon, created, updated
+    ) VALUES (?, ?, ?, 'active', 1, ?, '', '', ?, ?)
+  `).run(id, library.id, databaseId, name, now, now);
+  database.prepare(
+    'INSERT INTO project_order (project_id, "order", updated) VALUES (?, 0, ?)',
+  ).run(id, now);
+  ensureBlockFoundationForProject(database, id, now);
+  return { id, libraryId: library.id, databaseId };
+};
+
+const createPreLibraryHistoricalProject = (
+  database: Database.Database,
+  name: string,
+): { readonly id: string; readonly databaseId: string } => {
+  const id = randomUUID();
+  const databaseId = primaryDatabaseBlockId(id);
+  const now = "2026-07-15T00:00:00.000Z";
+  database.prepare(`
+    INSERT INTO projects (id, name, description, icon, created, updated)
+    VALUES (?, ?, '', '', ?, ?)
+  `).run(id, name, now, now);
+  database.prepare(
+    'INSERT INTO project_order (project_id, "order", updated) VALUES (?, 0, ?)',
+  ).run(id, now);
+  ensureBlockFoundationForProject(database, id, now);
+  return { id, databaseId };
+};
+
+const createHistoricalPage = (
+  database: Database.Database,
+  projectId: string,
+  title: string,
+): {
+  readonly id: string;
+  readonly documentId: string;
+  readonly membershipId: string;
+  readonly databaseId: string;
+} => {
+  const primary = database.prepare(`
+    SELECT capability.block_id AS databaseId, view.id AS viewId
+    FROM database_capabilities capability
+    INNER JOIN database_views view
+      ON view.database_block_id = capability.block_id
+      AND view.project_id = capability.project_id
+      AND view.is_primary = 1
+      AND view.lifecycle = 'active'
+    WHERE capability.project_id = ? AND capability.is_primary = 1
+  `).get(projectId) as {
+    readonly databaseId: string;
+    readonly viewId: string;
+  } | undefined;
+  if (!primary) throw new Error("Historical Page fixture requires a primary Database");
+
+  const pageId = createUuidV7();
+  const documentId = `document:${pageId}`;
+  const membershipId = randomUUID();
+  const now = "2026-07-15T00:00:00.000Z";
+  const richTitleJson = JSON.stringify(
+    title.length === 0 ? [] : [{ type: "text", text: title, styles: {} }],
+  );
+
+  database.transaction(() => {
+    database.prepare(`
+      INSERT INTO blocks (
+        id, project_id, type, lifecycle, location_kind,
+        containing_document_id, containing_database_id,
+        location_revision, metadata_revision, created_at, updated_at
+      ) VALUES (?, ?, 'page', 'active', 'database', NULL, ?, 1, 1, ?, ?)
+    `).run(pageId, projectId, primary.databaseId, now, now);
+    database.prepare(`
+      INSERT INTO documents (
+        id, project_id, generation, head_seq, schema_key, schema_version,
+        state_vector, state_hash, readiness, authority,
+        genesis_source_revision, created_at, updated_at
+      ) VALUES (?, ?, 1, 0, 'nodex.page', 1, X'', ?, 'ready',
+        'ydoc_primary', 1, ?, ?)
+    `).run(documentId, projectId, "0".repeat(64), now, now);
+    database.prepare(`
+      INSERT INTO block_documents (block_id, document_id, project_id, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(pageId, documentId, projectId, now);
+    database.prepare(`
+      INSERT INTO document_materializations (
+        document_id, generation, projected_seq, schema_version,
+      title, title_rich_json, title_rich_hash, nfm, plain_text, preview,
+        block_tree_json, references_json, asset_refs_json, updated_at
+      ) VALUES (?, 1, 0, 1, ?, ?, ?, '', '', '', '[]', '[]', '[]', ?)
+    `).run(
+      documentId,
+      title,
+      richTitleJson,
+      createHash("sha256").update(richTitleJson).digest("hex"),
+      now,
+    );
+    database.prepare(`
+      INSERT INTO database_memberships (
+        id, database_block_id, card_block_id, project_id,
+        revision, created_at, removed_at
+      ) VALUES (?, ?, ?, ?, 1, ?, NULL)
+    `).run(membershipId, primary.databaseId, pageId, projectId, now);
+    const databaseValues = {
+      status: "draft",
+      priority: null,
+      estimate: null,
+      tags: [],
+      due_date: null,
+      scheduled_start: null,
+      scheduled_end: null,
+      assignee: null,
+    } as const;
+    const insertDatabaseValue = database.prepare(`
+      INSERT INTO database_property_values (
+        membership_id, property_id, database_block_id, project_id,
+        value_type, value_json, revision, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    `);
+    const historicalProperties = database.prepare(`
+      SELECT id, key, value_type AS valueType
+      FROM database_properties
+      WHERE database_block_id = ? AND project_id = ? AND lifecycle = 'active'
+    `).all(primary.databaseId, projectId) as readonly {
+      readonly id: string;
+      readonly key: keyof typeof databaseValues;
+      readonly valueType: string;
+    }[];
+    for (const property of historicalProperties) {
+      insertDatabaseValue.run(
+        membershipId,
+        property.id,
+        primary.databaseId,
+        projectId,
+        property.valueType,
+        JSON.stringify(databaseValues[property.key]),
+        now,
+      );
+    }
+    const intrinsicValues = {
+      "run.target": "localProject",
+      "run.localPath": null,
+      "run.baseBranch": null,
+      "run.worktreePath": null,
+      "run.environmentPath": null,
+      "schedule.isAllDay": false,
+      "schedule.timezone": null,
+      "recurrence.config": null,
+      "reminders.config": [],
+    } as const;
+    const insertIntrinsicValue = database.prepare(`
+      INSERT INTO block_properties (
+        block_id, project_id, property_key, value_type, value_json,
+        revision, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 1, ?)
+    `);
+    for (const [key, value] of Object.entries(intrinsicValues)) {
+      const valueType = key === "schedule.isAllDay"
+        ? "boolean"
+        : key === "recurrence.config" || key === "reminders.config"
+          ? "json"
+          : "string";
+      insertIntrinsicValue.run(
+        pageId,
+        projectId,
+        key,
+        valueType,
+        JSON.stringify(value),
+        now,
+      );
+    }
+    database.prepare(`
+      INSERT INTO database_view_positions (
+        view_id, block_id, project_id, group_key, rank_key,
+        revision, created_at, updated_at
+      ) VALUES (?, ?, ?, 'draft', '80000000000000000000000000000000', 1, ?, ?)
+    `).run(primary.viewId, pageId, projectId, now, now);
+    database.prepare(`
+      INSERT INTO card_read_model (
+        card_block_id, project_id, lifecycle, location_kind,
+        containing_document_id, containing_database_id, top_level_rank_key,
+        location_revision, metadata_revision, document_id,
+        document_generation, document_projected_seq, document_schema_version,
+        document_authority, membership_id, database_block_id,
+        view_id, view_group_key, view_rank_key,
+        title, description_preview, description_length, has_description,
+        database_values_json, intrinsic_properties_json,
+        property_revisions_json, projection_version, created_at, updated_at
+      ) VALUES (
+        ?, ?, 'active', 'database', NULL, ?, NULL,
+        1, 1, ?, 1, 0, 1, 'ydoc_primary', ?, ?, ?, 'draft',
+        '80000000000000000000000000000000', ?, '', 0, 0,
+        ?, ?, ?, 1, ?, ?
+      )
+    `).run(
+      pageId,
+      projectId,
+      primary.databaseId,
+      documentId,
+      membershipId,
+      primary.databaseId,
+      primary.viewId,
+      title,
+      JSON.stringify(databaseValues),
+      JSON.stringify(intrinsicValues),
+      JSON.stringify({
+        database: Object.fromEntries(
+          Object.keys(databaseValues).map((key) => [key, 1]),
+        ),
+        intrinsic: Object.fromEntries(
+          Object.keys(intrinsicValues).map((key) => [key, 1]),
+        ),
+      }),
+      now,
+      now,
+    );
+  })();
+
+  return {
+    id: pageId,
+    documentId,
+    membershipId,
+    databaseId: primary.databaseId,
+  };
+};
+
+const seedHistoricalMutationEvidence = (
+  database: Database.Database,
+  projectId: string,
+  page: ReturnType<typeof createHistoricalPage>,
+): void => {
+  const storeEpoch = database.prepare(
+    "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+  ).pluck().get() as string;
+  const mutationId = `historical-page:${page.id}`;
+  const now = "2026-07-15T00:00:01.000Z";
+  const change = database.prepare(`
+    INSERT INTO change_log (
+      project_id, store_epoch, kind, operation_id,
+      block_ids_json, document_ids_json, database_block_ids_json,
+      payload_json, committed_at
+    ) VALUES (?, ?, 'page_lifecycle', ?, ?, ?, ?, '{}', ?)
+  `).run(
+    projectId,
+    storeEpoch,
+    mutationId,
+    JSON.stringify([page.id]),
+    JSON.stringify([page.documentId]),
+    JSON.stringify([page.databaseId]),
+    now,
+  );
+  const requestJson = JSON.stringify({ kind: "create_page", pageId: page.id });
+  database.prepare(`
+    INSERT INTO block_mutations (
+      mutation_id, project_id, store_epoch, mutation_kind, actor_json,
+      client_session_id, request_hash, request_json,
+      target_block_ids_json, affected_document_ids_json,
+      affected_database_block_ids_json, field_intents_json,
+      expected_revisions_json, outcome, result_json,
+      committed_revisions_json, document_heads_json,
+      change_log_seq, recorded_at
+    ) VALUES (
+      ?, ?, ?, 'page_lifecycle', '{}', NULL, ?, ?, ?, ?, ?, ?, '{}',
+      'committed', '{}', '{}', '{}', ?, ?
+    )
+  `).run(
+    mutationId,
+    projectId,
+    storeEpoch,
+    createHash("sha256").update(requestJson).digest("hex"),
+    requestJson,
+    JSON.stringify([page.id]),
+    JSON.stringify([page.documentId]),
+    JSON.stringify([page.databaseId]),
+    JSON.stringify([{ path: `blocks.${page.id}`, operation: "create" }]),
+    Number(change.lastInsertRowid),
+    now,
+  );
 };
 
 afterEach(() => {
@@ -241,11 +483,11 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v80 release boundary", () => {
+describe("schema v81 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
     expect(releaseVersions).toEqual([
-      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80,
+      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81,
     ]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
@@ -277,13 +519,11 @@ describe("schema v80 release boundary", () => {
       "canvas_scene_elements",
       "canvas_scene_files",
       "canvas_scene_mutation_receipts",
-      "database_capabilities",
       "database_containers",
       "data_sources",
       "data_source_properties",
       "data_source_page_memberships",
       "data_source_property_values",
-      "database_memberships",
       "database_views",
       "database_view_page_positions",
       "profiles",
@@ -529,7 +769,7 @@ describe("schema v80 release boundary", () => {
     expect(database.pragma("user_version", { simple: true })).toBe(78);
   });
 
-  test("creates one Profile Library and deterministic initial Data Source per Database", async () => {
+  test("creates one Profile Library and independently identified Database authority", async () => {
     useTempStore();
     await initializeDatabase();
     const database = getDb();
@@ -577,7 +817,9 @@ describe("schema v80 release boundary", () => {
     expect(row?.libraryId).toBe(profileLibraries[0]?.libraryId);
     expect(row?.projectLifecycle).toBe("active");
     expect(row?.boundDatabaseId).toBe(row?.databaseId);
-    expect(row?.dataSourceId).toBe(initialDataSourceId(row?.databaseId ?? ""));
+    expect(row?.dataSourceId).not.toBe(row?.databaseId);
+    expect(row?.dataSourceId).not.toContain(row?.databaseId ?? "");
+    expect(row?.defaultViewId).not.toContain(row?.databaseId ?? "");
     expect(row?.viewDataSourceId).toBe(row?.dataSourceId);
 
     const page = await createPage(row?.projectId ?? "", "draft", {
@@ -596,7 +838,7 @@ describe("schema v80 release boundary", () => {
         ON value.membership_id = membership.id
       INNER JOIN data_source_properties property
         ON property.id = value.property_id
-        AND property.key = 'status'
+        AND property.id = 'status'
       WHERE membership.page_block_id = ?
         AND membership.removed_at IS NULL
     `).get(row?.defaultViewId, page.id)).toEqual({
@@ -605,14 +847,6 @@ describe("schema v80 release boundary", () => {
       statusValue: '"draft"',
     });
 
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 67");
-    migrateSchema67To68(database);
-    expect(database.pragma("user_version", { simple: true })).toBe(68);
-    expect(database.prepare("SELECT COUNT(*) AS count FROM profiles").get())
-      .toEqual({ count: 1 });
-    expect(database.prepare("SELECT COUNT(*) AS count FROM libraries").get())
-      .toEqual({ count: 1 });
     expect(database.pragma("foreign_key_check")).toEqual([]);
   });
 
@@ -643,47 +877,17 @@ describe("schema v80 release boundary", () => {
       libraryId: project.libraryId,
       documentId: `document:${created.id}`,
       parentKind: "data_source",
-      parentId: initialDataSourceId(project.databaseId),
-      membershipSourceId: initialDataSourceId(project.databaseId),
+      parentId: expect.any(String),
+      membershipSourceId: expect.any(String),
     });
 
-    dropTriggersContainingPageLiteral(database);
-    database.exec("DROP TRIGGER IF EXISTS blocks_type_updates_preserve_document_ownership");
-    database.prepare("UPDATE blocks SET type = 'card' WHERE id = ?").run(created.id);
-    database.prepare("DELETE FROM pages WHERE block_id = ?").run(created.id);
-    expect(database.prepare(`
-      SELECT block.type, page.block_id AS pageId
-      FROM blocks block
-      LEFT JOIN pages page ON page.block_id = block.id
-      WHERE block.id = ?
-    `).get(created.id)).toEqual({ type: "card", pageId: null });
-
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 68");
-    migrateSchema68To69(database);
-    expect(database.pragma("user_version", { simple: true })).toBe(69);
-    expect(database.prepare(`
-      SELECT page.block_id AS pageId, page.library_id AS libraryId,
-        page.document_id AS documentId, page.parent_kind AS parentKind,
-        page.parent_id AS parentId
-      FROM pages page
-      WHERE page.block_id = ?
-    `).get(created.id)).toEqual({
-      pageId: created.id,
-      libraryId: project.libraryId,
-      documentId: `document:${created.id}`,
-      parentKind: "data_source",
-      parentId: initialDataSourceId(project.databaseId),
-    });
     expect(database.pragma("foreign_key_check")).toEqual([]);
   });
 
   test("creates immutable Database Module receipt storage", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 69");
+    createHistoricalReleaseSchemaFixture(database, 69, { seedDefaultProject: false });
     migrateSchema69To70(database);
     expect(database.pragma("user_version", { simple: true })).toBe(70);
     expect(tableNames(database).has("database_module_receipts")).toBe(true);
@@ -691,38 +895,28 @@ describe("schema v80 release boundary", () => {
 
   test("migrates persisted Card Block and Document literals to Page", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    const project = createProject({ name: "Page noun migration" });
-    const page = await createPage(project.id, "draft", {
-      title: "Migrated Page",
-    });
-    const document = database.prepare(`
-      SELECT document.id, document.generation, document.head_seq AS headSeq
-      FROM documents document
-      INNER JOIN block_documents ownership ON ownership.document_id = document.id
-      WHERE ownership.block_id = ?
-    `).get(page.id) as {
-      readonly id: string;
-      readonly generation: number;
-      readonly headSeq: number;
-    };
-    const storeEpoch = (
-      database
-        .prepare("SELECT store_epoch FROM block_store_metadata WHERE id = 1")
-        .get() as { readonly store_epoch: string }
-    ).store_epoch;
-    createDocumentVersionCheckpoint(database, {
-      version: DOCUMENT_VERSION_CONTRACT_VERSION,
-      projectId: project.id,
-      storeEpoch,
-      documentId: document.id,
-      expectedGeneration: document.generation,
-      expectedHeadSeq: document.headSeq,
-      cause: "manual",
-      revisionKind: "manual",
-      actor: { kind: "schema-migration-test" },
-    });
+    createHistoricalReleaseSchemaFixture(database, 70);
+    const project = createHistoricalProject(database, "Page noun migration");
+    const page = createHistoricalPage(database, project.id, "Migrated Page");
+    database.prepare(`
+      INSERT INTO document_versions (
+        version_id, document_id, project_id, generation, base_head_seq,
+        schema_key, schema_version, cause, label, actor_json,
+        revision_kind, source_mutation_id, source_change_seq, pinned,
+        checkpoint_format, full_update_blob, state_vector, checkpoint_hash,
+        byte_length, created_at
+      ) VALUES (
+        'version:page-noun-migration', ?, ?, 1, 0,
+        'nodex.page', 1, 'manual', NULL, '{}',
+        'manual', NULL, NULL, 1,
+        'yjs_update_v1', X'01', X'', ?, 1, '2026-07-15T00:00:01.000Z'
+      )
+    `).run(
+      page.documentId,
+      project.id,
+      createHash("sha256").update(Buffer.from([1])).digest("hex"),
+    );
 
     dropTriggersContainingPageLiteral(database);
     const immutableVersionTrigger = database.prepare(`
@@ -747,9 +941,6 @@ describe("schema v80 release boundary", () => {
         END;
     `);
     database.exec(immutableVersionTrigger.sql);
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 70");
-
     migrateSchema70To71(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(71);
@@ -784,9 +975,9 @@ describe("schema v80 release boundary", () => {
     "runs the ordered release chain from schema v%i",
     async (sourceVersion) => {
       useTempStore();
-      await initializeDatabase();
-      useSchema76PhysicalNames(getDb());
-      getDb().pragma(`user_version = ${sourceVersion}`);
+      createHistoricalReleaseSchemaFixture(getDb(), sourceVersion, {
+        seedDefaultProject: false,
+      });
       closeDatabase();
 
       await initializeDatabase();
@@ -799,15 +990,15 @@ describe("schema v80 release boundary", () => {
 
   test("migrates reminder snoozes from Project-owned Cards to Library Page targets", async () => {
     useTempStore();
-    await initializeDatabase();
-    const owner = createProject({ name: "Reminder owner" });
-    const actor = createProject({ name: "Reminder actor" });
-    const page = await createPage(owner.id, "draft", {
-      title: "Granted reminder target",
-    });
     const database = getDb();
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 72");
+    createHistoricalReleaseSchemaFixture(database, 72);
+    const owner = createHistoricalProject(database, "Reminder owner");
+    const actor = createHistoricalProject(database, "Reminder actor");
+    const page = createHistoricalPage(
+      database,
+      owner.id,
+      "Granted reminder target",
+    );
 
     migrateSchema72To73(database);
 
@@ -833,10 +1024,8 @@ describe("schema v80 release boundary", () => {
 
   test("reinstalls Page parent projection with stable Data Source identity", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 73");
+    createHistoricalReleaseSchemaFixture(database, 73, { seedDefaultProject: false });
 
     migrateSchema73To74(database);
 
@@ -851,8 +1040,8 @@ describe("schema v80 release boundary", () => {
 
   test("publishes the canonical Page-reference document boundary", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
+    createHistoricalReleaseSchemaFixture(database, 74);
     database.prepare(`
       UPDATE database_views
       SET config_json = json_set(
@@ -862,9 +1051,6 @@ describe("schema v80 release boundary", () => {
       )
       WHERE is_primary = 1
     `).run();
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 74");
-
     migrateSchema74To75(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(75);
@@ -883,9 +1069,11 @@ describe("schema v80 release boundary", () => {
 
   test("migrates durable Page Stage tab identities and ancestor trails", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    const project = createProject({ name: "Page Stage migration" });
+    createHistoricalReleaseSchemaFixture(database, 75);
+    const project = database.prepare(
+      "SELECT id FROM projects ORDER BY created, id LIMIT 1",
+    ).get() as { readonly id: string };
     const session = createProjectSession({
       projectId: project.id,
       noThreadFallbackTitle: "Page Stage migration",
@@ -913,9 +1101,6 @@ describe("schema v80 release boundary", () => {
       ancestors: [{ cardId: "page:root" }],
     }), tab.id);
     database.pragma("ignore_check_constraints = OFF");
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 75");
-
     migrateSchema75To76(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(76);
@@ -935,11 +1120,8 @@ describe("schema v80 release boundary", () => {
 
   test("publishes Page-named relational projections and coordinates", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 76");
+    createHistoricalReleaseSchemaFixture(database, 76, { seedDefaultProject: false });
 
     migrateSchema76To77(database);
 
@@ -1075,11 +1257,8 @@ describe("schema v80 release boundary", () => {
 
   test("migrates v63 stores with a durable per-thread dynamic-tool catalog", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    database.exec("DROP TABLE codex_thread_dynamic_tool_catalogs");
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 63");
+    createHistoricalReleaseSchemaFixture(database, 63, { seedDefaultProject: false });
 
     migrateSchema63To64(database);
 
@@ -1090,11 +1269,8 @@ describe("schema v80 release boundary", () => {
 
   test("migrates v64 stores with one durable Agent token signing key", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    database.exec("DROP TABLE nodex_agent_token_keys");
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 64");
+    createHistoricalReleaseSchemaFixture(database, 64, { seedDefaultProject: false });
 
     migrateSchema64To65(database);
 
@@ -1107,11 +1283,8 @@ describe("schema v80 release boundary", () => {
 
   test("migrates v65 stores with bounded Agent call preparation receipts", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    database.exec("DROP TABLE nodex_agent_call_receipts");
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 65");
+    createHistoricalReleaseSchemaFixture(database, 65, { seedDefaultProject: false });
 
     migrateSchema65To66(database);
 
@@ -1122,11 +1295,8 @@ describe("schema v80 release boundary", () => {
 
   test("publishes v66 stores with Document revision sessions", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    database.exec("DROP TABLE document_revision_sessions");
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 66");
+    createHistoricalReleaseSchemaFixture(database, 66, { seedDefaultProject: false });
 
     migrateSchema66To67(database);
 
@@ -1150,12 +1320,10 @@ describe("schema v80 release boundary", () => {
 
   test("rebuilds the shipped v66 checkpoint table without changing bytes", async () => {
     useTempStore();
-    await initializeDatabase();
-    const project = createProject({ name: "Revision migration" });
-    const card = await createPage(project.id, "draft", {
-      title: "Migrated Card",
-    });
     const database = getDb();
+    createHistoricalReleaseSchemaFixture(database, 66, { seedDefaultProject: false });
+    const project = createPreLibraryHistoricalProject(database, "Revision migration");
+    const card = createHistoricalPage(database, project.id, "Migrated Card");
     const document = database.prepare(
       `SELECT document.id, document.generation, document.head_seq,
          document.schema_key, document.schema_version
@@ -1170,10 +1338,10 @@ describe("schema v80 release boundary", () => {
       readonly schema_version: number;
     };
     database.exec(`
-      DROP TABLE document_revision_sessions;
-      DROP TRIGGER document_versions_validate_insert;
-      DROP TRIGGER document_versions_are_immutable;
-      DROP TRIGGER document_versions_validate_checkpoint_format;
+      DROP TABLE IF EXISTS document_revision_sessions;
+      DROP TRIGGER IF EXISTS document_versions_validate_insert;
+      DROP TRIGGER IF EXISTS document_versions_are_immutable;
+      DROP TRIGGER IF EXISTS document_versions_validate_checkpoint_format;
       DROP TABLE document_versions;
 
       CREATE TABLE document_versions (
@@ -1215,8 +1383,6 @@ describe("schema v80 release boundary", () => {
       document.schema_version,
       "a".repeat(64),
     );
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 66");
 
     migrateSchema66To67(database);
 
@@ -1302,10 +1468,8 @@ describe("schema v80 release boundary", () => {
 
   test("publishes a clean v59 store as v60", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 59");
+    createHistoricalReleaseSchemaFixture(database, 59, { seedDefaultProject: false });
 
     migrateSchema59To60(database);
 
@@ -1314,10 +1478,8 @@ describe("schema v80 release boundary", () => {
 
   test("publishes a clean v60 store as v61", async () => {
     useTempStore();
-    await initializeDatabase();
     const database = getDb();
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 60");
+    createHistoricalReleaseSchemaFixture(database, 60, { seedDefaultProject: false });
 
     migrateSchema60To61(database);
 
@@ -1326,45 +1488,67 @@ describe("schema v80 release boundary", () => {
 
   test("repairs duplicate thread owners before enforcing one session owner per thread", async () => {
     useTempStore();
-    await initializeDatabase();
-
     const database = getDb();
-    const project = database
-      .prepare("SELECT id FROM projects ORDER BY created ASC, id ASC LIMIT 1")
-      .get() as { id: string };
-    const canonicalSession = createProjectSession({
-      projectId: project.id,
-      noThreadFallbackTitle: "Original session",
-    });
-    upsertProjectSessionThreadLink({
-      sessionId: canonicalSession.id,
-      projectId: project.id,
-      threadId: "thread:duplicate-owner",
-      threadName: "Duplicate owner thread",
-    });
-    createProjectSessionTab({
-      sessionId: canonicalSession.id,
-      projectId: project.id,
-      panelId: "right",
-      kind: "terminal",
-      title: "Terminal",
-      config: {
-        projectId: project.id,
-        terminalSessionId: "terminal:canonical-owner",
-      },
-    });
-    const redundantSession = createProjectSession({
-      projectId: project.id,
-      noThreadFallbackTitle: "Materialized shell",
-    });
-
-    database.exec("DROP INDEX idx_project_session_threads_thread");
+    createHistoricalReleaseSchemaFixture(database, 61, { seedDefaultProject: false });
+    const project = createPreLibraryHistoricalProject(database, "Session ownership repair");
+    const canonicalSession = { id: randomUUID() };
+    const redundantSession = { id: randomUUID() };
+    const now = "2026-01-01T00:00:00.000Z";
+    database.prepare(`
+      INSERT INTO codex_threads (
+        thread_id, project_id, thread_name, created_at, updated_at, linked_at
+      ) VALUES ('thread:duplicate-owner', ?, 'Duplicate owner thread', 1, 1, ?)
+    `).run(project.id, now);
+    database.prepare(`
+      INSERT INTO project_sessions (
+        id, project_id, no_thread_fallback_title, "order", panel_state_json,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, '{}', ?, ?)
+    `).run(
+      canonicalSession.id,
+      project.id,
+      "Original session",
+      0,
+      now,
+      now,
+    );
+    database.prepare(`
+      INSERT INTO project_sessions (
+        id, project_id, no_thread_fallback_title, "order", panel_state_json,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, '{}', ?, ?)
+    `).run(
+      redundantSession.id,
+      project.id,
+      "Materialized shell",
+      1,
+      now,
+      now,
+    );
+    database.prepare(`
+      INSERT INTO project_session_threads (session_id, thread_id, linked_at)
+      VALUES (?, 'thread:duplicate-owner', ?)
+    `).run(canonicalSession.id, now);
     database.prepare(`
       INSERT INTO project_session_threads (session_id, thread_id, linked_at)
       VALUES (?, 'thread:duplicate-owner', '2026-01-01T00:00:00.000Z')
     `).run(redundantSession.id);
-    useSchema76PhysicalNames(database);
-    database.pragma("user_version = 61");
+    database.prepare(`
+      INSERT INTO project_session_tabs (
+        id, session_id, project_id, browser_tab_id, panel_id, kind, title,
+        config_json, state_key, state_json, "order", created_at, updated_at
+      ) VALUES (?, ?, ?, NULL, 'right', 'terminal', 'Terminal', ?, 0, '{}', 0, ?, ?)
+    `).run(
+      randomUUID(),
+      canonicalSession.id,
+      project.id,
+      JSON.stringify({
+        projectId: project.id,
+        terminalSessionId: "terminal:canonical-owner",
+      }),
+      now,
+      now,
+    );
 
     migrateSchema61To62(database);
 
@@ -1398,11 +1582,14 @@ describe("schema v80 release boundary", () => {
 
   test("retires Card Agent properties atomically while preserving Card revisions and immutable evidence", async () => {
     useTempStore();
-    await initializeDatabase();
-    const project = createProject({ name: "Retired Agent properties" });
-    const card = await createPage(project.id, "draft", { title: "Legacy Card" });
     const database = getDb();
-    useSchema76PhysicalNames(database);
+    createHistoricalReleaseSchemaFixture(database, 62, { seedDefaultProject: false });
+    const project = createPreLibraryHistoricalProject(
+      database,
+      "Retired Agent properties",
+    );
+    const card = createHistoricalPage(database, project.id, "Legacy Card");
+    seedHistoricalMutationEvidence(database, project.id, card);
     const metadataBefore = (
       database
         .prepare("SELECT metadata_revision FROM blocks WHERE id = ?")
@@ -1462,8 +1649,6 @@ describe("schema v80 release boundary", () => {
       JSON.stringify(propertyRevisions),
       card.id,
     );
-    database.pragma("user_version = 62");
-
     expect(() =>
       migrateSchema62To63(database, {
         faultInjector: (point) => {
@@ -1536,18 +1721,14 @@ describe("schema v80 release boundary", () => {
 
   test("replaces the v62 Card projection trigger before rebuilding UTF-16 summaries", async () => {
     useTempStore();
-    await initializeDatabase();
-    const project = createProject({ name: "UTF-16 Card projection" });
-    const card = await createPage(project.id, "draft", {
-      title: "Emoji Card",
-    });
     const database = getDb();
-    useSchema76PhysicalNames(database);
-    const documentId = (
-      database
-        .prepare("SELECT document_id FROM block_documents WHERE block_id = ?")
-        .get(card.id) as { readonly document_id: string }
-    ).document_id;
+    createHistoricalReleaseSchemaFixture(database, 62, { seedDefaultProject: false });
+    const project = createPreLibraryHistoricalProject(
+      database,
+      "UTF-16 Card projection",
+    );
+    const card = createHistoricalPage(database, project.id, "Emoji Card");
+    const documentId = card.documentId;
 
     database.prepare(`
       UPDATE document_materializations
@@ -1567,8 +1748,6 @@ describe("schema v80 release boundary", () => {
           SELECT RAISE(ABORT, 'Card read model source coordinates are invalid or stale');
         END;
     `);
-    database.pragma("user_version = 62");
-
     expect(() =>
       migrateSchema62To63(database, {
         faultInjector: (point) => {

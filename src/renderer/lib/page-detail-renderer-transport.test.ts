@@ -10,7 +10,7 @@ describe("Page Detail renderer transport", () => {
       return new Response(JSON.stringify({
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           projectId: "project/one",
           libraryId: "library-1",
           storeEpoch: "epoch-1",

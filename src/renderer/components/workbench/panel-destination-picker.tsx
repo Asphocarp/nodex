@@ -28,9 +28,9 @@ import { useBoardsForProjects } from "@/lib/use-all-boards";
 import { readDatabaseModule } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-  type DatabaseContainerDescriptor,
-} from "../../../shared/database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseContainerDescriptorV2,
+} from "../../../shared/database-module-v2";
 import {
   buildPanelDestinationSections,
   flattenPanelDestinationRows,
@@ -54,7 +54,7 @@ interface PanelDestinationPickerProps {
 
 export interface PanelDestinationPickerSurfaceProps extends PanelDestinationPickerProps {
   boardMap: ReadonlyMap<string, BoardSummary>;
-  databaseDescriptorMap: ReadonlyMap<string, DatabaseContainerDescriptor>;
+  databaseDescriptorMap: ReadonlyMap<string, DatabaseContainerDescriptorV2>;
   loading: boolean;
   loadError?: string | null;
   initialQuery?: string;
@@ -124,13 +124,13 @@ function useProjectDatabaseDescriptors(
   projects: readonly Project[],
   enabled: boolean,
 ): {
-  readonly descriptors: ReadonlyMap<string, DatabaseContainerDescriptor>;
+  readonly descriptors: ReadonlyMap<string, DatabaseContainerDescriptorV2>;
   readonly loading: boolean;
   readonly error: string | null;
 } {
   const projectKey = projects.map((project) => project.id).join("\u0000");
   const [state, setState] = useState<{
-    descriptors: ReadonlyMap<string, DatabaseContainerDescriptor>;
+    descriptors: ReadonlyMap<string, DatabaseContainerDescriptorV2>;
     loading: boolean;
     error: string | null;
   }>(() => ({ descriptors: new Map(), loading: enabled, error: null }));
@@ -145,7 +145,7 @@ function useProjectDatabaseDescriptors(
     const projectIds = projectKey ? projectKey.split("\u0000") : [];
     void Promise.all(projectIds.map(async (projectId) => {
       const result = await readDatabaseModule(projectId, {
-        version: DATABASE_MODULE_CONTRACT_VERSION,
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
         projectId,
         read: { target: { kind: "project_default" }, mode: "database" },
       });

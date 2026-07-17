@@ -117,13 +117,12 @@ describe("Page Document CLI", () => {
                   kind: "member",
                   dataSource: { dataSourceId: "data-source-primary" },
                   properties: [{
-                    propertyId: "property-priority",
-                    key: "priority",
+                    propertyId: "priority",
                     valueType: "select",
                   }],
                   values: {
-                    "property-priority": {
-                      propertyId: "property-priority",
+                    priority: {
+                      propertyId: "priority",
                       valueType: "select",
                       revision: 2,
                       value: "p2-medium",
@@ -246,7 +245,7 @@ describe("Page Document CLI", () => {
       expect(metadataOperations?.[0]?.kind).toBe("set_value");
       expect(metadataOperations?.[0]?.pageId).toBe("card-1");
       expect(metadataOperations?.[0]?.dataSourceId).toBe("data-source-primary");
-      expect(metadataOperations?.[0]?.propertyId).toBe("property-priority");
+      expect(metadataOperations?.[0]?.propertyId).toBe("priority");
       expect(metadataOperations?.[0]?.expectedValueRevision).toBe(2);
       expect(metadataOperations?.[0]?.value).toBe("p1-high");
 

@@ -100,18 +100,20 @@ describe("authoritative Page search", () => {
         database
           .prepare(
             `
-        UPDATE database_property_values
+        UPDATE data_source_property_values
         SET value_json = '"done"', revision = revision + 1
         WHERE membership_id = (
-            SELECT id FROM database_memberships
+            SELECT id FROM data_source_page_memberships
             WHERE page_block_id = ? AND removed_at IS NULL
           )
-          AND property_id = database_block_id || ':property:status'
+          AND property_id = 'status'
       `,
           )
           .run(card.id);
         database
-          .prepare("DELETE FROM database_view_positions WHERE block_id = ?")
+          .prepare(
+            "DELETE FROM database_view_page_positions WHERE page_block_id = ?",
+          )
           .run(card.id);
 
         const oldResults = await searchPages({

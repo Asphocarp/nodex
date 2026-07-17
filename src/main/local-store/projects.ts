@@ -22,14 +22,14 @@ import {
   normalizeProjectIconUpdate,
 } from "../../shared/project-icon";
 import { getDb } from "./database";
+import { createInitialDatabaseIdentities } from "../../shared/database-identities";
 import { dbNotifier } from "./notifier";
 import { insertInitialDatabaseViewSession } from "./project-session-defaults";
 import {
-  ensureBlockFoundationForProject,
   ensureLocalProfileLibrary,
-  primaryDatabaseBlockId,
 } from "./schema";
 import { ensurePrimaryCanvasDocument } from "./primary-canvas-document";
+import { createInitialDatabaseAuthorityInDatabase } from "./initial-database-authority";
 
 interface DbProjectRow {
   id: string;
@@ -249,7 +249,7 @@ export function createProject(input: ProjectCreateInput): Project {
   const now = new Date().toISOString();
   const projectId = randomUUID();
   const { libraryId } = ensureLocalProfileLibrary(database, now);
-  const databaseBlockId = primaryDatabaseBlockId(projectId);
+  const identities = createInitialDatabaseIdentities();
   const sources = normalizeProjectSources(input.sources);
   const name = resolveProjectName(input, sources);
   const description = input.description ?? "";
@@ -265,7 +265,7 @@ export function createProject(input: ProjectCreateInput): Project {
     `).run(
       projectId,
       libraryId,
-      databaseBlockId,
+      identities.databaseId,
       name,
       description,
       icon,
@@ -277,8 +277,15 @@ export function createProject(input: ProjectCreateInput): Project {
       VALUES (?, 0, ?)
     `).run(projectId, now);
     insertProjectSources(database, projectId, sources, now);
-    insertInitialDatabaseViewSession(database, projectId, now, { shiftExisting: false });
-    ensureBlockFoundationForProject(database, projectId, now);
+    createInitialDatabaseAuthorityInDatabase(database, {
+      projectId,
+      libraryId,
+      identities,
+      now,
+    });
+    insertInitialDatabaseViewSession(database, projectId, identities.viewId, now, {
+      shiftExisting: false,
+    });
     ensurePrimaryCanvasDocument(database, projectId);
   });
   txn();

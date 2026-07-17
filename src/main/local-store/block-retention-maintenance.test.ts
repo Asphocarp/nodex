@@ -5,18 +5,21 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import {
-  parsePageLifecycleMutationRequest,
-  type PageLifecycleMutationRequest,
-} from "../../shared/page-lifecycle";
+  parsePageLifecycleMutationRequestV2,
+  type PageLifecycleMutationRequestV2,
+} from "../../shared/page-lifecycle-v2";
 import { createUuidV7 } from "../../shared/uuid-v7";
 import { readBlockStoreEpoch } from "./block-store-metadata";
-import { applyPageLifecycleMutation } from "./page-lifecycle";
 import {
   maintainBlockRetention,
   type BlockRetentionMaintenanceFaultPoint,
 } from "./block-retention-maintenance";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createDocumentVersionCheckpoint } from "./document-versions";
+import {
+  applyPageLifecycleV2Fixture,
+  createPageLifecycleV2Fixture,
+} from "./page-lifecycle-v2-test-fixture";
 import { createProject } from "./projects";
 
 interface Fixture {
@@ -73,9 +76,9 @@ const lifecycleRequest = (
   fixture: Fixture,
   operationId: string,
   operation: Readonly<Record<string, unknown>>,
-): PageLifecycleMutationRequest =>
-  parsePageLifecycleMutationRequest({
-    version: 1,
+): PageLifecycleMutationRequestV2 =>
+  parsePageLifecycleMutationRequestV2({
+    version: 2,
     operationId,
     projectId: fixture.projectId,
     storeEpoch: fixture.storeEpoch,
@@ -86,12 +89,28 @@ const lifecycleRequest = (
 
 const commitLifecycle = (
   fixture: Fixture,
-  request: PageLifecycleMutationRequest,
-) => {
-  const result = applyPageLifecycleMutation(fixture.database, request);
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-};
+  request: PageLifecycleMutationRequestV2,
+) => applyPageLifecycleV2Fixture(fixture.database, request);
+
+const createLifecycle = (
+  fixture: Fixture,
+  operationId: string,
+  operation: Readonly<{
+    kind: "create_page";
+    pageId: string;
+    title: string;
+    nfm: string;
+    status: "draft";
+  }>,
+) =>
+  createPageLifecycleV2Fixture(fixture.database, {
+    operationId,
+    projectId: fixture.projectId,
+    storeEpoch: fixture.storeEpoch,
+    clientSessionId: "retention-maintenance-test",
+    actor: { kind: "test" },
+    operation,
+  });
 
 const seedDeletedBlock = (
   database: Database.Database,
@@ -183,15 +202,16 @@ describe("Block retention count maintenance", () => {
     async () => {
       await withFixture((fixture) => {
         const cardId = createUuidV7();
-        const created = commitLifecycle(
+        const created = createLifecycle(
           fixture,
-          lifecycleRequest(fixture, "create:atomic", {
+          "create:atomic",
+          {
             kind: "create_page",
             pageId: cardId,
             title: "Retention atomic",
             nfm: "Retained body",
             status: "draft",
-          }),
+          },
         );
         const checkpoint = createDocumentVersionCheckpoint(
           fixture.database,
@@ -381,14 +401,12 @@ describe("Block retention count maintenance", () => {
           ),
         ).toBe(true);
 
-        const retry = applyPageLifecycleMutation(
+        const retry = applyPageLifecycleV2Fixture(
           fixture.database,
           card.deleteRequest,
         );
-        expect(retry.ok).toBe(true);
-        if (!retry.ok) throw new Error(retry.error.message);
-        expect(retry.value.duplicate).toBe(true);
-        expect(retry.value.changeLogSeq).toBe(card.deleted.changeLogSeq);
+        expect(retry.duplicate).toBe(true);
+        expect(retry.changeLogSeq).toBe(card.deleted.changeLogSeq);
 
         let reused = false;
         try {
@@ -418,15 +436,16 @@ describe("Block retention count maintenance", () => {
     async () => {
       await withFixture((fixture) => {
         const cardId = createUuidV7();
-        const created = commitLifecycle(
+        const created = createLifecycle(
           fixture,
-          lifecycleRequest(fixture, "create:pinned-revision", {
+          "create:pinned-revision",
+          {
             kind: "create_page",
             pageId: cardId,
             title: "Pinned revision",
             nfm: "Keep this recovery point",
             status: "draft",
-          }),
+          },
         );
         const checkpoint = createDocumentVersionCheckpoint(fixture.database, {
           version: 1,
@@ -774,15 +793,16 @@ describe("Block retention count maintenance", () => {
         projectId: fixture.projectId,
         updatedAt: "2026-01-01T00:00:00.000Z",
       });
-      commitLifecycle(
+      createLifecycle(
         fixture,
-        lifecycleRequest(fixture, "create:retention-reference-host", {
+        "create:retention-reference-host",
+        {
           kind: "create_page",
           pageId: createUuidV7(),
           title: "Reference host",
           nfm: `<page-ref url="nodex://pages/${targetBlockId}" />`,
           status: "draft",
-        }),
+        },
       );
 
       const result = maintainBlockRetention(fixture.database, {

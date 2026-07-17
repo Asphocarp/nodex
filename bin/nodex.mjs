@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { homedir } from "os";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import TOML from "smol-toml";
 import { v7 as uuidV7 } from "uuid";
 
@@ -469,7 +469,7 @@ function compileCliPageMetadataOperations(detail, patch) {
     throw new Error("Page metadata requires an active Data Source parent");
   }
   const properties = new Map(
-    context.properties.map((property) => [property.key, property]),
+    context.properties.map((property) => [property.propertyId, property]),
   );
   const operations = [];
   for (const [field, rawValue] of Object.entries(patch)) {
@@ -502,7 +502,7 @@ async function mutatePageMetadata(config, pageId, patch, mutationId) {
   const operations = compileCliPageMetadataOperations(detail, patch);
   if (operations.length === 0) return null;
   const request = {
-    version: 1,
+    version: 2,
     operationId: mutationId,
     projectId: config.project,
     storeEpoch: detail.storeEpoch,
@@ -534,7 +534,8 @@ async function movePageInDefaultDatabase(config, input, operationId) {
   const query = snapshot.value.value;
   const view = query.view;
   const statusProperty = query.properties.find(
-    (property) => property.lifecycle === "active" && property.key === "status",
+    (property) =>
+      property.lifecycle === "active" && property.propertyId === "status",
   );
   const row = query.rows.find((candidate) => candidate.page.pageId === input.pageId);
   if (!statusProperty || !row || view.kind !== "kanban") {
@@ -588,11 +589,14 @@ async function readPageLifecyclePreflight(config, pageId) {
   const snapshot = result?.value;
   if (
     result?.ok !== true ||
-    snapshot?.version !== 1 ||
+    snapshot?.version !== 2 ||
     snapshot?.projectId !== config.project ||
     typeof snapshot?.storeEpoch !== "string" ||
     !Number.isSafeInteger(snapshot?.changeLogSeq) ||
-    snapshot?.value?.version !== 1
+    snapshot?.value?.version !== 2 ||
+    snapshot?.value?.tagsProperty?.propertyId !== "tags" ||
+    snapshot?.value?.tagsProperty?.valueType !== "multi_select" ||
+    snapshot?.value?.tagsProperty?.lifecycle !== "active"
   ) {
     throw new Error(
       result?.error?.message ||
@@ -675,14 +679,83 @@ async function readCanonicalPageAfterLifecycle(config, receipt) {
 }
 
 function pageLifecycleEnvelope(config, snapshot, operationId, operation) {
+  const compiledOperation = operation.kind === "create_page"
+    ? compileCreatePageOperationV2(snapshot, operation)
+    : operation;
   return {
-    version: 1,
+    version: 2,
     operationId,
     projectId: config.project,
     storeEpoch: snapshot.storeEpoch,
     ...(config.sessionId ? { clientSessionId: config.sessionId } : {}),
     actor: { kind: "nodex_cli" },
-    operation,
+    operation: compiledOperation,
+  };
+}
+
+function compileCreatePageOperationV2(snapshot, operation) {
+  const property = snapshot.value.tagsProperty;
+  const dataSourceId = snapshot.value.defaultView?.dataSource?.dataSourceId;
+  if (
+    typeof dataSourceId !== "string" ||
+    property.dataSourceId !== dataSourceId ||
+    !Number.isSafeInteger(property.revision) ||
+    property.revision < 1 ||
+    !Array.isArray(property.config?.options)
+  ) {
+    throw new Error("Page lifecycle preflight has an invalid tags Property authority");
+  }
+  const byName = new Map();
+  const unavailable = new Set();
+  for (const option of property.config.options) {
+    if (
+      typeof option?.id !== "string" ||
+      !/^o_[A-Za-z0-9_-]{8}$/.test(option.id) ||
+      typeof option?.name !== "string"
+    ) {
+      throw new Error("Page lifecycle preflight has an invalid tag option registry");
+    }
+    const name = option.name.normalize("NFC").trim();
+    if (!name) throw new Error("Page lifecycle preflight has an empty tag option name");
+    unavailable.add(option.id);
+    const matches = byName.get(name) || [];
+    matches.push(option.id);
+    byName.set(name, matches);
+  }
+  const names = [...new Set((operation.tags || []).map((name) => {
+    if (typeof name !== "string") throw new Error("Page tag names must be strings");
+    const canonical = name.normalize("NFC").trim();
+    if (!canonical) throw new Error("Page tag names must not be empty");
+    return canonical;
+  }))].sort((left, right) => left.localeCompare(right));
+  const tagOptionIds = [];
+  const newTagOptions = [];
+  for (const name of names) {
+    const existing = byName.get(name) || [];
+    if (existing.length > 1) {
+      throw new Error(`Tag name ${JSON.stringify(name)} is ambiguous in the tags Property`);
+    }
+    if (existing.length === 1) {
+      tagOptionIds.push(existing[0]);
+      continue;
+    }
+    let optionId;
+    do {
+      optionId = `o_${randomBytes(6).toString("base64url")}`;
+    } while (unavailable.has(optionId));
+    unavailable.add(optionId);
+    tagOptionIds.push(optionId);
+    newTagOptions.push({ optionId, name });
+  }
+  const { tags: _displayNames, ...createFields } = operation;
+  void _displayNames;
+  return {
+    ...createFields,
+    dataSourceId,
+    tagOptionIds: tagOptionIds.sort(),
+    newTagOptions: newTagOptions.sort((left, right) =>
+      left.optionId.localeCompare(right.optionId)),
+    expectedTagsPropertyRevision: property.revision,
   };
 }
 
@@ -1512,7 +1585,7 @@ async function cmdBlock(positional, flags, config) {
 
 async function readDatabaseModuleSnapshot(config, read) {
   const request = {
-    version: 1,
+    version: 2,
     projectId: config.project,
     read,
   };
@@ -1534,7 +1607,7 @@ async function readDatabaseModuleSnapshot(config, read) {
 
 async function applyDatabaseOperations(config, snapshot, operationId, operations) {
   const request = {
-    version: 1,
+    version: 2,
     operationId,
     projectId: config.project,
     storeEpoch: snapshot.storeEpoch,
@@ -1831,7 +1904,7 @@ async function cmdDatabase(positional, flags, config) {
   });
   const request = Array.isArray(parsed)
     ? {
-        version: 1,
+        version: 2,
         operationId: requireCanonicalMutationId(flags.mutationId),
         projectId: config.project,
         storeEpoch: snapshot.storeEpoch,

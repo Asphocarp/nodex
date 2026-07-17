@@ -15,7 +15,7 @@ silently rewrite durable authority.
 
 ## Decision
 
-Main evaluates canonical resource intents before every `nodex_app@4` read or
+Main evaluates canonical resource intents before every `nodex_app@5` read or
 write. The primary Database ownership closure and recursive `read_write` grants
 are direct read/write authority, including destructive writes. Recursive `read`
 grants are direct for reads and consent-eligible for writes. Known ungranted

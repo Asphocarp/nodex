@@ -1,12 +1,18 @@
 import { describe, expect, test } from "vitest";
 import type {
   DatabaseViewFilterNode,
-  DatabaseViewConfig,
+  DatabaseViewConfigV2,
 } from "../../shared/database-kernel";
 import type {
-  DatabaseViewRecord,
-  DataSourcePropertyRecord,
-} from "../../shared/database-module";
+  DatabaseViewRecordV2,
+  DataSourcePropertyRecordV2,
+} from "../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import {
   appendDatabaseViewFilterChild,
   createDatabaseViewFilterClause,
@@ -21,14 +27,15 @@ import {
 
 const timestamp = "2026-07-12T00:00:00.000Z";
 
-const property = (valueType: DataSourcePropertyRecord["valueType"]): DataSourcePropertyRecord => ({
-  propertyId: `property-${valueType}`,
-  dataSourceId: "source-1",
-  key: valueType,
+const property = (
+  valueType: DataSourcePropertyRecordV2["valueType"],
+): DataSourcePropertyRecordV2 => ({
+  propertyId: parseDataSourcePropertyId("p_AAAAAAAA"),
+  dataSourceId: parseDataSourceId("source-1"),
   name: valueType,
   valueType,
   config: valueType === "select" || valueType === "multi_select"
-    ? { options: [{ id: "one", name: "One" }] }
+    ? { options: [{ id: "o_AAAAAAAA", name: "One" }] }
     : {},
   rankKey: "a",
   lifecycle: "active",
@@ -37,15 +44,15 @@ const property = (valueType: DataSourcePropertyRecord["valueType"]): DataSourceP
   updatedAt: timestamp,
 });
 
-const view = (id: string): DatabaseViewRecord => ({
-  viewId: id,
-  databaseId: "database-1",
-  dataSourceId: "source-1",
+const view = (id: string): DatabaseViewRecordV2 => ({
+  viewId: parseDatabaseViewId(id),
+  databaseId: parseDatabaseId("database-1"),
+  dataSourceId: parseDataSourceId("source-1"),
   name: id,
   kind: "list",
   config: {
     schemaKey: "nodex.database-view",
-    schemaVersion: 1,
+    schemaVersion: 2,
     filter: { kind: "group", operator: "and", children: [] },
     sort: [],
     group: null,
@@ -101,14 +108,14 @@ describe("durable Database View authoring", () => {
       kind: "clause",
       propertyId: multiSelect.propertyId,
       operator: "not_contains",
-      value: "one",
+      value: "o_AAAAAAAA",
     });
   });
 
   test("compares canonical configs and reorders sort precedence", () => {
-    const base: DatabaseViewConfig = {
+    const base: DatabaseViewConfigV2 = {
       schemaKey: "nodex.database-view",
-      schemaVersion: 1,
+      schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
       sort: [
         { field: { kind: "title" }, direction: "asc", nulls: "last" },

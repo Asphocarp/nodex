@@ -1,13 +1,14 @@
 import {
-  MAX_DATABASE_MODULE_BULK_ENTRIES,
-  type DatabaseApplyOperation,
-  type DatabaseModuleReadSnapshot,
-  type DatabaseViewQueryResult,
-  type DataSourcePageRow,
-  type DataSourcePropertyRecord,
-  type SetDataSourcePageValueOperation,
-} from "./database-module";
+  MAX_DATABASE_MODULE_V2_BULK_ENTRIES,
+  type DatabaseApplyOperationV2,
+  type DatabaseModuleReadSnapshotV2,
+  type DatabaseViewQueryResultV2,
+  type DataSourcePageRowV2,
+  type DataSourcePropertyRecordV2,
+  type SetDataSourcePageValueOperationV2,
+} from "./database-module-v2";
 import type { DatabaseJsonValue } from "./database-kernel";
+import type { DataSourceId } from "./database-identities";
 import type { MovePageInput, MovePagesInput } from "./types";
 
 export type DatabasePageDragErrorCode =
@@ -36,9 +37,9 @@ export class DatabasePageDragError extends Error {
 
 export interface CompiledDatabasePageDrag {
   readonly databaseId: string;
-  readonly dataSourceId: string;
+  readonly dataSourceId: DataSourceId;
   readonly viewId: string;
-  readonly operations: readonly DatabaseApplyOperation[];
+  readonly operations: readonly DatabaseApplyOperationV2[];
 }
 
 const fail = (code: DatabasePageDragErrorCode, message: string): never => {
@@ -46,18 +47,19 @@ const fail = (code: DatabasePageDragErrorCode, message: string): never => {
 };
 
 const queryFromSnapshot = (
-  snapshot: DatabaseModuleReadSnapshot,
-): DatabaseViewQueryResult => {
+  snapshot: DatabaseModuleReadSnapshotV2,
+): DatabaseViewQueryResultV2 => {
   if (snapshot.value.kind === "query") return snapshot.value.value;
   return fail("view_not_available", "Database drag requires one current View query");
 };
 
-const activePropertyByKey = (
-  query: DatabaseViewQueryResult,
-  key: string,
-): DataSourcePropertyRecord | null =>
+const activePropertyById = (
+  query: DatabaseViewQueryResultV2,
+  propertyId: string,
+): DataSourcePropertyRecordV2 | null =>
   query.properties.find(
-    (property) => property.lifecycle === "active" && property.key === key,
+    (property) =>
+      property.lifecycle === "active" && property.propertyId === propertyId,
   ) ?? null;
 
 const sameJsonValue = (
@@ -92,11 +94,11 @@ const resolveTargetIndex = (
 
 const compileValue = (input: {
   readonly pageId: string;
-  readonly dataSourceId: string;
-  readonly property: DataSourcePropertyRecord;
-  readonly current: DataSourcePageRow["values"][string] | undefined;
+  readonly dataSourceId: DataSourceId;
+  readonly property: DataSourcePropertyRecordV2;
+  readonly current: DataSourcePageRowV2["values"][string] | undefined;
   readonly value: DatabaseJsonValue;
-}): Omit<SetDataSourcePageValueOperation, "kind"> | null => {
+}): Omit<SetDataSourcePageValueOperationV2, "kind"> | null => {
   if (sameJsonValue(input.current?.value, input.value)) return null;
   return {
     pageId: input.pageId,
@@ -109,7 +111,7 @@ const compileValue = (input: {
 
 const compilePageRun = (input: {
   readonly move: MovePagesInput;
-  readonly snapshot: DatabaseModuleReadSnapshot;
+  readonly snapshot: DatabaseModuleReadSnapshotV2;
 }): CompiledDatabasePageDrag => {
   const pageIds = input.move.pageIds;
   if (pageIds.length < 1 || new Set(pageIds).size !== pageIds.length) {
@@ -118,10 +120,10 @@ const compilePageRun = (input: {
       "A Database drag requires unique Page IDs in visual order",
     );
   }
-  if (pageIds.length > MAX_DATABASE_MODULE_BULK_ENTRIES) {
+  if (pageIds.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
     return fail(
       "bulk_limit_exceeded",
-      `A Database drag supports at most ${MAX_DATABASE_MODULE_BULK_ENTRIES} Pages`,
+      `A Database drag supports at most ${MAX_DATABASE_MODULE_V2_BULK_ENTRIES} Pages`,
     );
   }
 
@@ -152,7 +154,7 @@ const compilePageRun = (input: {
     );
   });
 
-  const statusProperty = activePropertyByKey(query, "status");
+  const statusProperty = activePropertyById(query, "status");
   if (
     !statusProperty
     || query.view.config.group?.propertyId !== statusProperty.propertyId
@@ -190,7 +192,7 @@ const compilePageRun = (input: {
       if (!input.move.fieldPatch || !Object.hasOwn(input.move.fieldPatch, key)) {
         return [];
       }
-      const property = activePropertyByKey(query, key);
+      const property = activePropertyById(query, key);
       if (property) return [{ key, property }] as const;
       return fail(
         "property_not_found",
@@ -199,7 +201,7 @@ const compilePageRun = (input: {
     },
   );
 
-  const values: Omit<SetDataSourcePageValueOperation, "kind">[] = [];
+  const values: Omit<SetDataSourcePageValueOperationV2, "kind">[] = [];
   rows.forEach((row) => {
     const statusValue = compileValue({
       pageId: row.page.pageId,
@@ -222,10 +224,10 @@ const compilePageRun = (input: {
       if (patchedValue) values.push(patchedValue);
     }
   });
-  if (values.length > MAX_DATABASE_MODULE_BULK_ENTRIES) {
+  if (values.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
     return fail(
       "bulk_limit_exceeded",
-      `A Database drag supports at most ${MAX_DATABASE_MODULE_BULK_ENTRIES} value writes`,
+      `A Database drag supports at most ${MAX_DATABASE_MODULE_V2_BULK_ENTRIES} value writes`,
     );
   }
 
@@ -258,7 +260,16 @@ const compilePageRun = (input: {
     );
   }
 
-  const operations: DatabaseApplyOperation[] = [];
+  const expectedPositionRevision = (
+    row: DataSourcePageRowV2,
+    currentStatus: string,
+  ): number => {
+    const revision = row.position?.revision ?? 0;
+    if (!row.position || currentStatus === input.move.toStatus) return revision;
+    return revision + 1;
+  };
+
+  const operations: DatabaseApplyOperationV2[] = [];
   if (values.length === 1 && values[0]) {
     operations.push({ kind: "set_value", ...values[0] });
   } else if (values.length > 1) {
@@ -271,7 +282,10 @@ const compilePageRun = (input: {
         kind: "position_page",
         viewId: query.view.viewId,
         pageId: rows[0].page.pageId,
-        expectedPositionRevision: rows[0].position?.revision ?? 0,
+        expectedPositionRevision: expectedPositionRevision(
+          rows[0],
+          currentStatuses[0] ?? input.move.toStatus,
+        ),
         groupKey: input.move.toStatus,
         ...(beforePageId === undefined ? {} : { beforePageId }),
       });
@@ -279,9 +293,12 @@ const compilePageRun = (input: {
       operations.push({
         kind: "position_pages",
         viewId: query.view.viewId,
-        pages: rows.map((row) => ({
+        pages: rows.map((row, index) => ({
           pageId: row.page.pageId,
-          expectedPositionRevision: row.position?.revision ?? 0,
+          expectedPositionRevision: expectedPositionRevision(
+            row,
+            currentStatuses[index] ?? input.move.toStatus,
+          ),
         })),
         groupKey: input.move.toStatus,
         ...(beforePageId === undefined ? {} : { beforePageId }),
@@ -304,7 +321,7 @@ const compilePageRun = (input: {
 
 export const compileDatabasePageDrag = (input: {
   readonly move: MovePageInput;
-  readonly snapshot: DatabaseModuleReadSnapshot;
+  readonly snapshot: DatabaseModuleReadSnapshotV2;
 }): CompiledDatabasePageDrag =>
   compilePageRun({
     move: {

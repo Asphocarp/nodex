@@ -44,10 +44,10 @@ import type {
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 import type {
-  PageLifecycleMutationCommandResult,
-  PageLifecycleMutationRequest,
-} from "../../shared/page-lifecycle";
-import type { PageLifecyclePreflightResult } from "../../shared/page-lifecycle-runtime";
+  PageLifecycleMutationCommandResultV2,
+  PageLifecycleMutationRequestV2,
+} from "../../shared/page-lifecycle-v2";
+import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 
@@ -63,17 +63,17 @@ export function createElectronRendererTransport(
         "pages:lifecycle:preflight",
         projectId,
         pageId,
-      ) as Promise<PageLifecyclePreflightResult>;
+      ) as Promise<PageLifecyclePreflightResultV2>;
     },
     mutatePageLifecycle(
       projectId: string,
-      request: PageLifecycleMutationRequest,
+      request: PageLifecycleMutationRequestV2,
     ) {
       return bridge.invoke(
         "pages:lifecycle:apply",
         projectId,
         request,
-      ) as Promise<PageLifecycleMutationCommandResult>;
+      ) as Promise<PageLifecycleMutationCommandResultV2>;
     },
     listPageHistory(request: ListPageHistoryRequest) {
       return bridge.invoke(

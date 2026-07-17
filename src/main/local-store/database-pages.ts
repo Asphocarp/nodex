@@ -15,7 +15,10 @@ import {
   type Column,
 } from "../../shared/types";
 import { type WorkflowStatus } from "../../shared/workflow-status";
-import { applyPageLifecycleMutation } from "./page-lifecycle";
+import type { PageLifecycleCreateDisplayIntent } from "../../shared/page-lifecycle-v2-runtime";
+import { databaseGroupKeyForValue } from "../../shared/database-kernel";
+import { applyPageLifecycleMutationV2 } from "./page-lifecycle-v2-store";
+import { compilePageLifecycleCreateRequestV2InDatabase } from "./page-lifecycle-v2-compiler";
 import { assertValidPageInput } from "./page-input-validation";
 import {
   readDatabasePageById,
@@ -186,24 +189,6 @@ export const createPage = async (
   if (!metadata) throw new Error("Block store epoch is unavailable");
 
   const status = input.status ?? columnId;
-  const topAnchor = placement === "top"
-    ? database
-        .prepare(
-          `
-          SELECT placement.block_id
-          FROM top_level_block_placements placement
-          INNER JOIN blocks block
-            ON block.id = placement.block_id
-           AND block.project_id = placement.project_id
-          WHERE placement.project_id = ? AND block.lifecycle <> 'deleted'
-          ORDER BY placement.rank_key, placement.block_id
-          LIMIT 1
-        `,
-        )
-        .get(canonicalProjectId) as
-          | { readonly block_id: string }
-          | undefined
-    : undefined;
   const explicitViewAnchor = typeof placement === "object"
     ? placement.beforePageId
     : undefined;
@@ -211,26 +196,30 @@ export const createPage = async (
     ? database
         .prepare(
           `
-          SELECT position.block_id
-          FROM database_view_positions position
+          SELECT position.page_block_id
+          FROM database_view_page_positions position
           INNER JOIN database_views view
             ON view.id = position.view_id
-           AND view.project_id = position.project_id
-          WHERE position.project_id = ? AND view.is_primary = 1
-            AND view.lifecycle = 'active' AND position.group_key = ?
-          ORDER BY position.rank_key, position.block_id
+          INNER JOIN database_containers container
+            ON container.default_view_id = view.id
+           AND container.block_id = view.database_block_id
+          INNER JOIN project_database_bindings binding
+            ON binding.database_block_id = container.block_id
+           AND binding.lifecycle = 'active'
+          WHERE binding.project_id = ? AND view.lifecycle = 'active'
+            AND position.group_key = ?
+          ORDER BY position.rank_key, position.page_block_id
           LIMIT 1
         `,
         )
-        .get(canonicalProjectId, status) as
-          | { readonly block_id: string }
+        .get(canonicalProjectId, databaseGroupKeyForValue(status)) as
+          | { readonly page_block_id: string }
           | undefined
     : explicitViewAnchor
-      ? { block_id: explicitViewAnchor }
+      ? { page_block_id: explicitViewAnchor }
       : undefined;
 
-  const result = applyPageLifecycleMutation(database, {
-    version: 1,
+  const intent: PageLifecycleCreateDisplayIntent = {
     operationId: randomUUID(),
     projectId: canonicalProjectId,
     storeEpoch: metadata.store_epoch,
@@ -258,10 +247,15 @@ export const createPage = async (
       runInBaseBranch: input.runInBaseBranch?.trim() || null,
       runInWorktreePath: input.runInWorktreePath?.trim() || null,
       runInEnvironmentPath: input.runInEnvironmentPath?.trim() || null,
-      ...(topAnchor ? { beforeBlockId: topAnchor.block_id } : {}),
-      ...(viewAnchor ? { beforeViewPageId: viewAnchor.block_id } : {}),
+      ...(viewAnchor
+        ? { beforeViewPageId: viewAnchor.page_block_id }
+        : {}),
     },
-  });
+  };
+  const result = applyPageLifecycleMutationV2(
+    database,
+    compilePageLifecycleCreateRequestV2InDatabase(database, intent),
+  );
   if (!result.ok) throw new Error(result.error.message);
 
   const page = readDatabasePageById(

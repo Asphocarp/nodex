@@ -16,10 +16,11 @@ import { applyBoardChangeEventToBoard, upsertCardSummaryInBoard } from "./board-
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import {
-  DATABASE_MODULE_CONTRACT_VERSION,
-  type DatabaseModuleReadRequest,
-  type DatabaseModuleReadResult,
-} from "../../shared/database-module";
+  DATABASE_MODULE_V2_CONTRACT_VERSION,
+  type DatabaseModuleReadRequestV2,
+  type DatabaseModuleReadResultV2,
+} from "../../shared/database-module-v2";
+import { parseDatabaseViewId } from "../../shared/database-identities";
 import {
   buildDatabaseViewRenderModel,
   type DatabaseViewRenderModel,
@@ -57,8 +58,8 @@ type StoreListener = () => void;
 type InvokeFn = (channel: string, ...args: unknown[]) => Promise<unknown>;
 type ReadDatabaseModuleFn = (
   projectId: string,
-  request: DatabaseModuleReadRequest,
-) => Promise<DatabaseModuleReadResult>;
+  request: DatabaseModuleReadRequestV2,
+) => Promise<DatabaseModuleReadResultV2>;
 type SubscribeBoardChangesFn = (projectId: string, callback: (event: BoardChangeEvent) => void) => () => void;
 type SubscribeDatabaseChangesFn = (projectId: string, callback: (event: DatabaseChangeEvent) => void) => () => void;
 type NowFn = () => number;
@@ -221,10 +222,13 @@ class KanbanProjectStore {
       try {
         const result = this.databaseViewId
           ? await this.dependencies.readDatabaseModule(this.projectId, {
-              version: DATABASE_MODULE_CONTRACT_VERSION,
+              version: DATABASE_MODULE_V2_CONTRACT_VERSION,
               projectId: this.projectId,
               read: {
-                target: { kind: "view", viewId: this.databaseViewId },
+                target: {
+                  kind: "view",
+                  viewId: parseDatabaseViewId(this.databaseViewId),
+                },
                 mode: "query",
               },
             })

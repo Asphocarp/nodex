@@ -35,12 +35,12 @@ import {
   decodePageTargetReadModelHttp,
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
-import { parseBlockPropertyMutationCommandResult } from "../../shared/block-property-mutations";
+import { parseBlockPropertyMutationCommandResultV2 } from "../../shared/block-property-mutations-v2";
 import { parsePageDetailResult } from "../../shared/page-detail";
 import {
-  parseDatabaseApplyResult,
-  parseDatabaseModuleReadResult,
-} from "../../shared/database-module-transport";
+  parseDatabaseApplyResultV2,
+  parseDatabaseModuleReadResultV2,
+} from "../../shared/database-module-v2-transport";
 import {
   parseDocumentOperationCommandResult,
   type DocumentMutationRequest,
@@ -67,12 +67,12 @@ import type {
 } from "../../shared/block-documents/document-history";
 import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 import {
-  parsePageLifecycleMutationCommandResult,
-  type PageLifecycleMutationCommandResult,
-  type PageLifecycleMutationRequest,
-} from "../../shared/page-lifecycle";
-import type { PageLifecyclePreflightResult } from "../../shared/page-lifecycle-runtime";
-import { parsePageLifecyclePreflightResult } from "../../shared/page-lifecycle-transport";
+  parsePageLifecycleMutationCommandResultV2,
+  type PageLifecycleMutationCommandResultV2,
+  type PageLifecycleMutationRequestV2,
+} from "../../shared/page-lifecycle-v2";
+import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
+import { parsePageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-transport";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import {
   parsePageHistoryCommandResult,
@@ -882,7 +882,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           body: JSON.stringify(request),
         },
       );
-      return parseBlockPropertyMutationCommandResult(await response.json());
+      return parseBlockPropertyMutationCommandResultV2(await response.json());
     }
     case "pages:detail:get": {
       const [projectId, pageId] = args as [string, string];
@@ -902,12 +902,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         ),
         { headers: { Accept: "application/json" } },
       );
-      return parsePageLifecyclePreflightResult(await response.json());
+      return parsePageLifecyclePreflightResultV2(await response.json());
     }
     case "pages:lifecycle:apply": {
       const [projectId, request] = args as [
         string,
-        PageLifecycleMutationRequest,
+        PageLifecycleMutationRequestV2,
       ];
       const response = await fetch(
         toApiUrl(
@@ -922,7 +922,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           body: JSON.stringify(request),
         },
       );
-      return parsePageLifecycleMutationCommandResult(await response.json());
+      return parsePageLifecycleMutationCommandResultV2(await response.json());
     }
     case "database-module:read": {
       const [projectId, request] = args as [string, unknown];
@@ -939,7 +939,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           body: JSON.stringify(request),
         },
       );
-      return parseDatabaseModuleReadResult(await response.json());
+      return parseDatabaseModuleReadResultV2(await response.json());
     }
     case "database-module:apply": {
       const [projectId, request] = args as [string, unknown];
@@ -956,7 +956,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           body: JSON.stringify(request),
         },
       );
-      return parseDatabaseApplyResult(await response.json());
+      return parseDatabaseApplyResultV2(await response.json());
     }
     case "page-target:resolve": {
       const [input] = args as [
@@ -2453,22 +2453,22 @@ export const browserRendererTransport = {
   readPageLifecyclePreflight(
     projectId: string,
     pageId: string,
-  ): Promise<PageLifecyclePreflightResult> {
+  ): Promise<PageLifecyclePreflightResultV2> {
     return invoke(
       "pages:lifecycle:preflight",
       projectId,
       pageId,
-    ) as Promise<PageLifecyclePreflightResult>;
+    ) as Promise<PageLifecyclePreflightResultV2>;
   },
   mutatePageLifecycle(
     projectId: string,
-    request: PageLifecycleMutationRequest,
-  ): Promise<PageLifecycleMutationCommandResult> {
+    request: PageLifecycleMutationRequestV2,
+  ): Promise<PageLifecycleMutationCommandResultV2> {
     return invoke(
       "pages:lifecycle:apply",
       projectId,
       request,
-    ) as Promise<PageLifecycleMutationCommandResult>;
+    ) as Promise<PageLifecycleMutationCommandResultV2>;
   },
   async listPageHistory(
     request: ListPageHistoryRequest,

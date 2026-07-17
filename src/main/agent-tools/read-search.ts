@@ -90,8 +90,12 @@ function validateScope(
   if (!scope || scope.kind === "project") return;
   if (scope.kind === "database") {
     const row = database.prepare(
-      `SELECT 1 AS present FROM database_capabilities
-       WHERE block_id = ? AND project_id = ? LIMIT 1`,
+      `SELECT 1 AS present
+       FROM database_containers container
+       INNER JOIN projects project ON project.library_id = container.library_id
+       WHERE container.block_id = ? AND project.id = ?
+         AND container.lifecycle <> 'deleted'
+       LIMIT 1`,
     ).get(scope.databaseBlockId, projectId);
     if (row) return;
   } else {
@@ -182,18 +186,18 @@ function readPropertyRows(
       property.value_type,
       property.config_json,
       value.value_json
-    FROM database_memberships membership
-    INNER JOIN database_properties property
-      ON property.database_block_id = membership.database_block_id
-     AND property.project_id = membership.project_id
+    FROM data_source_page_memberships membership
+    INNER JOIN blocks page
+      ON page.id = membership.page_block_id
+     AND page.project_id = ?
+    INNER JOIN data_source_properties property
+      ON property.data_source_id = membership.data_source_id
      AND property.lifecycle = 'active'
-    INNER JOIN database_property_values value
+    INNER JOIN data_source_property_values value
       ON value.membership_id = membership.id
      AND value.property_id = property.id
-     AND value.database_block_id = membership.database_block_id
-     AND value.project_id = membership.project_id
-    WHERE membership.project_id = ?
-      AND membership.removed_at IS NULL
+     AND value.data_source_id = membership.data_source_id
+    WHERE membership.removed_at IS NULL
       AND membership.page_block_id IN (${placeholders})
     ORDER BY membership.page_block_id, property.rank_key, property.id
   `).all(projectId, ...pageIds) as readonly PropertySearchRow[];

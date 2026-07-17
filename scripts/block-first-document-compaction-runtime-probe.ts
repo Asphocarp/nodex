@@ -11,7 +11,8 @@ import {
   BlockDocumentStoreError,
   loadPrimaryBlockDocument,
 } from "../src/main/local-store/block-document-store";
-import { applyPageLifecycleMutation } from "../src/main/local-store/page-lifecycle";
+import { compilePageLifecycleCreateRequestV2InDatabase } from "../src/main/local-store/page-lifecycle-v2-compiler";
+import { applyPageLifecycleMutationV2 } from "../src/main/local-store/page-lifecycle-v2-store";
 import {
   closeDatabase,
   getDb,
@@ -20,7 +21,6 @@ import {
 import { createDocumentVersionCheckpoint } from "../src/main/local-store/document-versions";
 import { createProject } from "../src/main/local-store/projects";
 import { openPageDocument } from "../src/shared/block-documents";
-import { parsePageLifecycleMutationRequest } from "../src/shared/page-lifecycle";
 import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../src/shared/block-documents/document-history";
 import { createUuidV7FromTimestamp } from "../src/shared/uuid-v7";
 
@@ -45,10 +45,9 @@ const createCard = (
   storeEpoch: string,
   cardId: string,
 ): { readonly documentId: string; readonly generation: number; readonly headSeq: number } => {
-  const result = applyPageLifecycleMutation(
+  const result = applyPageLifecycleMutationV2(
     getDb(),
-    parsePageLifecycleMutationRequest({
-      version: 1,
+    compilePageLifecycleCreateRequestV2InDatabase(getDb(), {
       operationId: `create:${cardId}`,
       projectId,
       storeEpoch,

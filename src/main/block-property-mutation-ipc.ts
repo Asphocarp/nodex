@@ -1,12 +1,13 @@
 import type {
-  BlockPropertyMutationCommandResult,
-  BlockPropertyMutationRequest,
-} from "../shared/block-property-mutations";
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+} from "../shared/block-property-mutations-v2";
 import {
-  bindTrustedBlockPropertyMutation,
-  blockPropertyMutationFailure,
-  type TrustedBlockPropertyMutationIdentity,
-} from "../shared/block-property-mutation-transport";
+  bindTrustedBlockPropertyMutationV2,
+  blockPropertyMutationFailureV2,
+  blockPropertyMutationTransportFailureV2,
+  type TrustedBlockPropertyMutationIdentityV2,
+} from "../shared/block-property-mutation-v2-transport";
 
 export const BLOCK_PROPERTY_MUTATION_IPC_CHANNEL =
   "block-properties:mutate" as const;
@@ -17,8 +18,8 @@ export type BlockPropertyMutationIpcEvent =
 export type BlockPropertyMutationIpcHandler = (
   event: unknown,
   projectId: string,
-  request: BlockPropertyMutationRequest,
-) => Promise<BlockPropertyMutationCommandResult>;
+  request: BlockPropertyMutationRequestV2,
+) => Promise<BlockPropertyMutationCommandResultV2>;
 
 export interface BlockPropertyMutationIpcDependencies {
   readonly registerHandle: (
@@ -27,25 +28,11 @@ export interface BlockPropertyMutationIpcDependencies {
   ) => void;
   readonly resolveTrustedIdentity: (
     event: unknown,
-  ) => TrustedBlockPropertyMutationIdentity | null;
+  ) => TrustedBlockPropertyMutationIdentityV2 | null;
   readonly applyMutation: (
-    request: BlockPropertyMutationRequest,
-  ) => Promise<BlockPropertyMutationCommandResult>;
+    request: BlockPropertyMutationRequestV2,
+  ) => Promise<BlockPropertyMutationCommandResultV2>;
 }
-
-const transportFailure = (
-  request: BlockPropertyMutationRequest,
-  error: unknown,
-): BlockPropertyMutationCommandResult => ({
-  ok: false,
-  error: blockPropertyMutationFailure(
-    "unknown",
-    error instanceof Error
-      ? error.message
-      : "The durable Block property writer is unavailable",
-    { mutationId: request.mutationId, retryable: true },
-  ),
-});
 
 export const registerBlockPropertyMutationIpcHandler = (
   dependencies: BlockPropertyMutationIpcDependencies,
@@ -57,14 +44,14 @@ export const registerBlockPropertyMutationIpcHandler = (
       if (!identity) {
         return {
           ok: false,
-          error: blockPropertyMutationFailure(
+          error: blockPropertyMutationFailureV2(
             "invalid_property_mutation_request",
             "Block property mutations are restricted to a trusted application window",
           ),
         };
       }
 
-      const bound = bindTrustedBlockPropertyMutation(
+      const bound = bindTrustedBlockPropertyMutationV2(
         rawRequest,
         projectId,
         identity,
@@ -74,7 +61,7 @@ export const registerBlockPropertyMutationIpcHandler = (
       try {
         return await dependencies.applyMutation(bound.value);
       } catch (error) {
-        return transportFailure(bound.value, error);
+        return blockPropertyMutationTransportFailureV2(bound.value, error);
       }
     },
   );

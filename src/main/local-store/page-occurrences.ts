@@ -339,15 +339,15 @@ const readOccurrenceAuthorityScope = (
   pageId: string,
 ): OccurrenceAuthorityScope => {
   const row = database.prepare(`
-    SELECT ownership.document_id, membership.database_block_id
+    SELECT ownership.document_id, source.home_database_block_id AS database_block_id
     FROM blocks page
     INNER JOIN block_documents ownership
       ON ownership.block_id = page.id
       AND ownership.project_id = page.project_id
-    LEFT JOIN database_memberships membership
+    LEFT JOIN data_source_page_memberships membership
       ON membership.page_block_id = page.id
-      AND membership.project_id = page.project_id
       AND membership.removed_at IS NULL
+    LEFT JOIN data_sources source ON source.id = membership.data_source_id
     WHERE page.id = ? AND page.type = 'page'
   `).get(pageId) as {
     readonly document_id: string;
@@ -411,22 +411,24 @@ const readOccurrenceClonePlacement = (
   const row = database.prepare(`
     SELECT position.rank_key AS primary_rank_key
     FROM blocks page
-    INNER JOIN database_memberships membership
+    INNER JOIN data_source_page_memberships membership
       ON membership.page_block_id = page.id
-      AND membership.project_id = page.project_id
       AND membership.removed_at IS NULL
+    INNER JOIN data_sources source
+      ON source.id = membership.data_source_id
       AND page.location_kind = 'database'
-      AND page.containing_database_id = membership.database_block_id
+      AND page.containing_database_id = source.home_database_block_id
     INNER JOIN database_views view
-      ON view.database_block_id = membership.database_block_id
-      AND view.project_id = membership.project_id
-      AND view.is_primary = 1
+      ON view.database_block_id = source.home_database_block_id
+      AND view.data_source_id = membership.data_source_id
       AND view.kind = 'kanban'
       AND view.lifecycle = 'active'
-    LEFT JOIN database_view_positions position
+    INNER JOIN database_containers container
+      ON container.block_id = view.database_block_id
+      AND container.default_view_id = view.id
+    LEFT JOIN database_view_page_positions position
       ON position.view_id = view.id
-      AND position.block_id = page.id
-      AND position.project_id = page.project_id
+      AND position.page_block_id = page.id
     WHERE page.id = ? AND page.project_id = ? AND page.type = 'page'
   `).get(pageId, projectId) as {
     readonly primary_rank_key: string | null;

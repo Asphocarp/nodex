@@ -1,10 +1,14 @@
 import { Hono } from "hono";
 import { describe, expect, test } from "vitest";
 import type {
-  DatabaseApply,
-  DatabaseApplyResult,
-  DatabaseModuleReadResult,
-} from "../shared/database-module";
+  DatabaseApplyResultV2,
+  DatabaseApplyV2,
+  DatabaseModuleReadResultV2,
+} from "../shared/database-module-v2";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../shared/database-identities";
 import { registerDatabaseModuleHttpRoutes } from "./database-module-http";
 import {
   DATABASE_MODULE_APPLY_IPC_CHANNEL,
@@ -12,8 +16,8 @@ import {
   registerDatabaseModuleIpcHandlers,
 } from "./database-module-ipc";
 
-const applyRequest = (): DatabaseApply => ({
-  version: 1,
+const applyRequest = (): DatabaseApplyV2 => ({
+  version: 2,
   operationId: "database-module-retry-1",
   projectId: "project-1",
   storeEpoch: "epoch-1",
@@ -22,8 +26,8 @@ const applyRequest = (): DatabaseApply => ({
     {
       kind: "set_value",
       pageId: "page-1",
-      dataSourceId: "source-1",
-      propertyId: "property-1",
+      dataSourceId: parseDataSourceId("source-1"),
+      propertyId: parseDataSourcePropertyId("status"),
       expectedValueRevision: 1,
       value: "Done",
     },
@@ -31,7 +35,7 @@ const applyRequest = (): DatabaseApply => ({
 });
 
 const readRequest = () => ({
-  version: 1 as const,
+  version: 2 as const,
   projectId: "project-1",
   read: {
     target: { kind: "project_default" as const },
@@ -39,10 +43,10 @@ const readRequest = () => ({
   },
 });
 
-const readResult = (): DatabaseModuleReadResult => ({
+const readResult = (): DatabaseModuleReadResultV2 => ({
   ok: true,
   value: {
-    version: 1,
+    version: 2,
     projectId: "project-1",
     libraryId: "library-1",
     storeEpoch: "epoch-1",
@@ -53,13 +57,13 @@ const readResult = (): DatabaseModuleReadResult => ({
 
 describe("Database Module IPC/HTTP transport", () => {
   test("shares retry identity while replacing transport actor attribution", async () => {
-    const received: DatabaseApply[] = [];
-    const apply = async (request: DatabaseApply): Promise<DatabaseApplyResult> => {
+    const received: DatabaseApplyV2[] = [];
+    const apply = async (request: DatabaseApplyV2): Promise<DatabaseApplyResultV2> => {
       received.push(request);
       return {
         ok: true,
         value: {
-          version: 1,
+          version: 2,
           operationId: request.operationId,
           projectId: request.projectId,
           libraryId: "library-1",
@@ -67,10 +71,10 @@ describe("Database Module IPC/HTTP transport", () => {
           duplicate: received.length > 1,
           operationKinds: request.operations.map((operation) => operation.kind),
           affectedDatabaseIds: [],
-          affectedDataSourceIds: ["source-1"],
+          affectedDataSourceIds: [parseDataSourceId("source-1")],
           affectedPageIds: ["page-1"],
           affectedViewIds: [],
-          committedRevisions: { "value:page-1:property-1": 2 },
+          committedRevisions: { "value:page-1:status": 2 },
           changeLogSeq: 8,
           committedAt: "2026-07-16T00:00:00.000Z",
         },
@@ -94,13 +98,13 @@ describe("Database Module IPC/HTTP transport", () => {
       "trusted",
       "project-1",
       applyRequest(),
-    )) as DatabaseApplyResult;
+    )) as DatabaseApplyResultV2;
     expect(ipc.ok && ipc.value.duplicate).toBe(false);
     const untrusted = (await handlers.get(DATABASE_MODULE_APPLY_IPC_CHANNEL)?.(
       "subframe",
       "project-1",
       applyRequest(),
-    )) as DatabaseApplyResult;
+    )) as DatabaseApplyResultV2;
     expect(!untrusted.ok && untrusted.error.code).toBe("invalid_request");
 
     const app = new Hono();
@@ -116,7 +120,7 @@ describe("Database Module IPC/HTTP transport", () => {
         body: JSON.stringify(applyRequest()),
       },
     );
-    const http = (await response.json()) as DatabaseApplyResult;
+    const http = (await response.json()) as DatabaseApplyResultV2;
     expect(response.status).toBe(200);
     expect(http.ok && http.value.duplicate).toBe(true);
     expect(received[0]?.actor.kind).toBe("electron_renderer");

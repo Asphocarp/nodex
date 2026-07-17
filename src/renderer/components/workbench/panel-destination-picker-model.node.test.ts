@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { BoardSummary, DatabasePageSummary, Project } from "@/lib/types";
-import type { DatabaseContainerDescriptor } from "../../../shared/database-module";
+import type { DatabaseContainerDescriptorV2 } from "../../../shared/database-module-v2";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+} from "../../../shared/database-identities";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 import {
   buildPanelDestinationSections,
@@ -90,16 +95,18 @@ const BOARD_MAP = new Map<string, BoardSummary>([
 function makeDescriptor(
   projectId: string,
   views: ReadonlyArray<{ id: string; name: string; primary: boolean }>,
-): DatabaseContainerDescriptor {
-  const databaseId = `database:${projectId}`;
-  const dataSourceId = `data-source:${projectId}`;
+): DatabaseContainerDescriptorV2 {
+  const databaseId = parseDatabaseId(`database:${projectId}`);
+  const dataSourceId = parseDataSourceId(`data-source:${projectId}`);
   return {
     database: {
       databaseId,
       libraryId: "library:test",
       name: `${projectId} tasks`,
       lifecycle: "active",
-      defaultViewId: views.find((view) => view.primary)?.id ?? null,
+      defaultViewId: views.find((view) => view.primary)
+        ? parseDatabaseViewId(views.find((view) => view.primary)!.id)
+        : null,
       accessRevision: 1,
       metadataRevision: 1,
       createdAt: TEST_DATE.toISOString(),
@@ -118,14 +125,14 @@ function makeDescriptor(
       updatedAt: TEST_DATE.toISOString(),
     }],
     views: views.map((view, index) => ({
-      viewId: view.id,
+      viewId: parseDatabaseViewId(view.id),
       databaseId,
       dataSourceId,
       name: view.name,
       kind: "kanban",
       config: {
         schemaKey: "nodex.database-view",
-        schemaVersion: 1,
+        schemaVersion: 2,
         filter: { kind: "group", operator: "and", children: [] },
         sort: [],
         group: null,
@@ -141,7 +148,7 @@ function makeDescriptor(
   };
 }
 
-const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptor>([
+const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptorV2>([
   ["alpha", makeDescriptor("alpha", [
     { id: "view-alpha-primary", name: "Alpha DB", primary: true },
     { id: "view-alpha-focused", name: "Focused", primary: false },
