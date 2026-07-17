@@ -30,8 +30,6 @@ export interface WorkbenchLayoutFilesStageTab {
 export interface WorkbenchLayoutSidebarSnapshot {
   collapsed: boolean;
   width: number;
-  topLevelSectionOrder: string[];
-  topLevelSections: Record<string, unknown>;
   collapsibleSections: Record<string, unknown>;
 }
 
@@ -95,8 +93,6 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
     sidebar: {
       collapsed: false,
       width: 300,
-      topLevelSectionOrder: [],
-      topLevelSections: {},
       collapsibleSections: {},
     },
     dock: {

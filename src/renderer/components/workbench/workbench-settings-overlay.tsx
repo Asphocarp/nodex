@@ -101,11 +101,6 @@ import {
   normalizeFileLinkOpenerId,
 } from "../../../shared/file-link-openers";
 import {
-  SIDEBAR_TOP_LEVEL_SECTION_LABELS,
-  type SidebarTopLevelSectionId,
-  type SidebarTopLevelSectionsPrefs,
-} from "../../lib/sidebar-section-prefs";
-import {
   BACKUP_SCHEDULE_FORM_DEFAULTS,
   BackupScheduleFormSchema,
   HISTORY_RETENTION_FORM_DEFAULTS,
@@ -812,27 +807,6 @@ function TelemetrySettingControl({ open }: { open: boolean }) {
         </span>
       ) : null}
     </div>
-  );
-}
-
-function SidebarSectionVisibilitySettingControl({
-  order,
-  sections,
-  onVisibleChange,
-}: {
-  order: readonly SidebarTopLevelSectionId[];
-  sections: SidebarTopLevelSectionsPrefs;
-  onVisibleChange: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
-}) {
-  return (
-    <ToggleGroup
-      selectedValues={order.filter((sectionId) => sections[sectionId].visible)}
-      onToggle={(sectionId) => onVisibleChange(sectionId, !sections[sectionId].visible)}
-      options={order.map((sectionId) => ({
-        value: sectionId,
-        label: SIDEBAR_TOP_LEVEL_SECTION_LABELS[sectionId],
-      }))}
-    />
   );
 }
 
@@ -1961,9 +1935,6 @@ export interface SettingsRouteShellProps {
   initialLocalEnvironmentConfigPath?: string | null;
   initialSettingsSearchQuery?: string;
   initialSettingsSearchHighlightIndex?: number;
-  sidebarTopLevelSectionOrder: SidebarTopLevelSectionId[];
-  sidebarTopLevelSections: SidebarTopLevelSectionsPrefs;
-  onSidebarTopLevelSectionVisibleChange: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
   threadQueueFollowUpsEnabled: boolean;
   onThreadQueueFollowUpsEnabledChange: (value: boolean) => void;
   composerEnterBehavior: ComposerEnterBehavior;
@@ -1986,15 +1957,12 @@ interface SettingsSectionPageProps extends Pick<
   | "initialLocalEnvironmentProjectId"
   | "onRequestProjectPickerOpen"
   | "onComposerEnterBehaviorChange"
-  | "onSidebarTopLevelSectionVisibleChange"
   | "onSmartPrefixParsingEnabledChange"
   | "onStripSmartPrefixFromTitleEnabledChange"
   | "onThreadQueueFollowUpsEnabledChange"
   | "onWorktreeAutoBranchPrefixChange"
   | "onWorktreeStartModeChange"
   | "projects"
-  | "sidebarTopLevelSectionOrder"
-  | "sidebarTopLevelSections"
   | "smartPrefixParsingEnabled"
   | "stripSmartPrefixFromTitleEnabled"
   | "threadQueueFollowUpsEnabled"
@@ -2007,12 +1975,7 @@ interface SettingsSectionPageProps extends Pick<
   onPathChange: (path: string) => void;
 }
 
-function GeneralSettingsPage({
-  onSidebarTopLevelSectionVisibleChange,
-  open,
-  sidebarTopLevelSectionOrder,
-  sidebarTopLevelSections,
-}: SettingsSectionPageProps) {
+function GeneralSettingsPage({ open }: SettingsSectionPageProps) {
   return (
     <SettingsPageSurface
       title="General"
@@ -2054,16 +2017,6 @@ function GeneralSettingsPage({
           description="Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent."
         >
           <TelemetrySettingControl open={open} />
-        </SettingRow>
-        <SettingRow
-          label="Sidebar sections"
-          description="Choose which top-level sidebar sections stay visible. Hidden sections can be restored here."
-        >
-          <SidebarSectionVisibilitySettingControl
-            order={sidebarTopLevelSectionOrder}
-            sections={sidebarTopLevelSections}
-            onVisibleChange={onSidebarTopLevelSectionVisibleChange}
-          />
         </SettingRow>
       </SectionBlock>
     </SettingsPageSurface>
@@ -2769,9 +2722,6 @@ export function SettingsRouteShell({
   initialLocalEnvironmentConfigPath,
   initialSettingsSearchQuery,
   initialSettingsSearchHighlightIndex,
-  sidebarTopLevelSectionOrder,
-  sidebarTopLevelSections,
-  onSidebarTopLevelSectionVisibleChange,
   threadQueueFollowUpsEnabled,
   onThreadQueueFollowUpsEnabledChange,
   composerEnterBehavior,
@@ -2885,9 +2835,6 @@ export function SettingsRouteShell({
               initialLocalEnvironmentProjectId={initialLocalEnvironmentProjectId}
               initialLocalEnvironmentConfigPath={initialLocalEnvironmentConfigPath}
               onRequestProjectPickerOpen={onRequestProjectPickerOpen}
-              sidebarTopLevelSectionOrder={sidebarTopLevelSectionOrder}
-              sidebarTopLevelSections={sidebarTopLevelSections}
-              onSidebarTopLevelSectionVisibleChange={onSidebarTopLevelSectionVisibleChange}
               threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
               onThreadQueueFollowUpsEnabledChange={onThreadQueueFollowUpsEnabledChange}
               composerEnterBehavior={composerEnterBehavior}

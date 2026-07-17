@@ -14,14 +14,8 @@ import {
 } from "./stage-panel-resize";
 import {
   normalizeSidebarCollapsibleSectionsState,
-  moveSidebarTopLevelSection,
-  normalizeSidebarTopLevelSectionOrder,
-  normalizeSidebarTopLevelSectionsPrefs,
   type SidebarCollapsibleSectionId,
   type SidebarCollapsibleSectionsState,
-  type SidebarSectionItemLimit,
-  type SidebarTopLevelSectionId,
-  type SidebarTopLevelSectionsPrefs,
 } from "./sidebar-section-prefs";
 import {
   CODEX_SIDEBAR_WIDTH_STORAGE_KEY,
@@ -58,9 +52,6 @@ export type SidebarGroupId = StageId | "recents";
 export type {
   SidebarCollapsibleSectionId,
   SidebarCollapsibleSectionsState,
-  SidebarSectionItemLimit,
-  SidebarTopLevelSectionId,
-  SidebarTopLevelSectionsPrefs,
 } from "./sidebar-section-prefs";
 
 export const STAGE_ORDER: StageId[] = ["db", "pages", "threads", "files"];
@@ -113,8 +104,6 @@ const NEW_THREAD_STAGE_TAB_TITLE = "New thread";
 interface SidebarPrefs {
   collapsed: boolean;
   width: number;
-  topLevelSectionOrder: SidebarTopLevelSectionId[];
-  topLevelSections: SidebarTopLevelSectionsPrefs;
   collapsibleSections: SidebarCollapsibleSectionsState;
 }
 
@@ -560,12 +549,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
           ? persistedSidebar.width
           : null,
       }),
-      topLevelSectionOrder: normalizeSidebarTopLevelSectionOrder(
-        layoutSnapshot?.sidebar?.topLevelSectionOrder ?? persistedSidebar?.topLevelSectionOrder,
-      ),
-      topLevelSections: normalizeSidebarTopLevelSectionsPrefs(
-        layoutSnapshot?.sidebar?.topLevelSections ?? persistedSidebar?.topLevelSections,
-      ),
       collapsibleSections: normalizeSidebarCollapsibleSectionsState(
         layoutSnapshot?.sidebar?.collapsibleSections ?? persistedSidebar?.collapsibleSections,
       ),
@@ -1223,49 +1206,6 @@ export function useWorkbenchState(
     });
   }, []);
 
-  const setSidebarTopLevelSectionVisible = useCallback((sectionId: SidebarTopLevelSectionId, visible: boolean) => {
-    setState((prev) => {
-      const currentSection = prev.sidebar.topLevelSections[sectionId];
-      if (currentSection.visible === visible) return prev;
-      return {
-        ...prev,
-        sidebar: {
-          ...prev.sidebar,
-          topLevelSections: {
-            ...prev.sidebar.topLevelSections,
-            [sectionId]: {
-              ...currentSection,
-              visible,
-            },
-          },
-        },
-      };
-    });
-  }, []);
-
-  const setSidebarTopLevelSectionItemLimit = useCallback((
-    sectionId: SidebarTopLevelSectionId,
-    itemLimit: SidebarSectionItemLimit,
-  ) => {
-    setState((prev) => {
-      const currentSection = prev.sidebar.topLevelSections[sectionId];
-      if (currentSection.itemLimit === itemLimit) return prev;
-      return {
-        ...prev,
-        sidebar: {
-          ...prev.sidebar,
-          topLevelSections: {
-            ...prev.sidebar.topLevelSections,
-            [sectionId]: {
-              ...currentSection,
-              itemLimit,
-            },
-          },
-        },
-      };
-    });
-  }, []);
-
   const setSidebarCollapsibleSectionCollapsed = useCallback((
     sectionId: SidebarCollapsibleSectionId,
     collapsed: boolean,
@@ -1280,25 +1220,6 @@ export function useWorkbenchState(
             ...prev.sidebar.collapsibleSections,
             [sectionId]: collapsed,
           },
-        },
-      };
-    });
-  }, []);
-
-  const moveSidebarTopLevelSectionBy = useCallback((sectionId: SidebarTopLevelSectionId, direction: -1 | 1) => {
-    setState((prev) => {
-      const nextOrder = moveSidebarTopLevelSection(
-        prev.sidebar.topLevelSectionOrder,
-        prev.sidebar.topLevelSections,
-        sectionId,
-        direction,
-      );
-      if (JSON.stringify(nextOrder) === JSON.stringify(prev.sidebar.topLevelSectionOrder)) return prev;
-      return {
-        ...prev,
-        sidebar: {
-          ...prev.sidebar,
-          topLevelSectionOrder: nextOrder,
         },
       };
     });
@@ -1744,10 +1665,7 @@ export function useWorkbenchState(
     setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarWidth,
-    setSidebarTopLevelSectionVisible,
-    setSidebarTopLevelSectionItemLimit,
     setSidebarCollapsibleSectionCollapsed,
-    moveSidebarTopLevelSectionBy,
     setDockWidth,
     setDockTree,
     setFocusedStage,
@@ -1802,9 +1720,6 @@ export const workbenchTestHelpers = {
   clampSlidingWindowPaneCount,
   normalizeSlidingWindowPaneCount,
   resolvePersistedSlidingWindowPaneCount,
-  normalizeSidebarTopLevelSectionOrder,
-  normalizeSidebarTopLevelSectionsPrefs,
-  moveSidebarTopLevelSection,
   reconcileProjectOrder,
   ensureActiveProject,
   loadInitialState,

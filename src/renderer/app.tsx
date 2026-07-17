@@ -146,10 +146,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     setDbViewPrefs,
     setSidebarCollapsed,
     setSidebarWidth,
-    setSidebarTopLevelSectionVisible,
-    setSidebarTopLevelSectionItemLimit,
     setSidebarCollapsibleSectionCollapsed,
-    moveSidebarTopLevelSectionBy,
     setFocusedStage: setFocusedStageState,
     setSidebarStageExpanded,
     isSidebarStageExpanded,
@@ -1209,10 +1206,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       setDbViewPrefs={setDbViewPrefs}
       setSidebarCollapsed={setSidebarCollapsed}
       setSidebarWidth={setSidebarWidth}
-      setSidebarTopLevelSectionVisible={setSidebarTopLevelSectionVisible}
-      setSidebarTopLevelSectionItemLimit={setSidebarTopLevelSectionItemLimit}
       setSidebarCollapsibleSectionCollapsed={setSidebarCollapsibleSectionCollapsed}
-      moveSidebarTopLevelSectionBy={moveSidebarTopLevelSectionBy}
       setSidebarStageExpanded={setSidebarStageExpanded}
       isSidebarStageExpanded={isSidebarStageExpanded}
       setSidebarSectionExpanded={setSidebarSectionExpanded}

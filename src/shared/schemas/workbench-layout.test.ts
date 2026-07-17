@@ -66,4 +66,21 @@ describe("WorkbenchLayoutSnapshotSchema", () => {
     expect(parsed.projectOrder).toEqual(["ops", "default"]);
     expect("spaceOrder" in parsed).toBe(false);
   });
+
+  test("drops retired top-level sidebar section preferences", () => {
+    const current = createDefaultWorkbenchLayoutSnapshot();
+    const parsed = WorkbenchLayoutSnapshotSchema.parse({
+      ...current,
+      sidebar: {
+        ...current.sidebar,
+        topLevelSectionOrder: ["recents", "pages", "threads", "files"],
+        topLevelSections: {
+          recents: { visible: false, itemLimit: 5 },
+        },
+      },
+    });
+
+    expect("topLevelSectionOrder" in parsed.sidebar).toBe(false);
+    expect("topLevelSections" in parsed.sidebar).toBe(false);
+  });
 });

@@ -162,13 +162,8 @@ import { cn } from "@/lib/utils";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
   makeDefaultSidebarCollapsibleSectionsState,
-  makeDefaultSidebarTopLevelSectionsPrefs,
-  normalizeSidebarTopLevelSectionOrder,
   type SidebarCollapsibleSectionId,
   type SidebarCollapsibleSectionsState,
-  type SidebarSectionItemLimit,
-  type SidebarTopLevelSectionId,
-  type SidebarTopLevelSectionsPrefs,
 } from "@/lib/sidebar-section-prefs";
 import { buildNewChatProjectSelectorOptions } from "@/lib/new-chat-project-selector";
 import {
@@ -913,8 +908,6 @@ interface WorkbenchShellProps {
   sidebar?: {
     collapsed: boolean;
     width: number;
-    topLevelSectionOrder?: SidebarTopLevelSectionId[];
-    topLevelSections?: SidebarTopLevelSectionsPrefs;
     collapsibleSections?: SidebarCollapsibleSectionsState;
   };
   pageStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
@@ -969,10 +962,7 @@ interface WorkbenchShellProps {
   onRequestContentSearchOpen?: (preferredDomain: ContentSearchDomain | undefined, source: ContentSearchOpenSource) => void;
   setSidebarCollapsed?: (collapsed: boolean) => void;
   setSidebarWidth?: (width: number) => void;
-  setSidebarTopLevelSectionVisible?: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
-  setSidebarTopLevelSectionItemLimit?: (sectionId: SidebarTopLevelSectionId, itemLimit: SidebarSectionItemLimit) => void;
   setSidebarCollapsibleSectionCollapsed?: (sectionId: SidebarCollapsibleSectionId, collapsed: boolean) => void;
-  moveSidebarTopLevelSectionBy?: (sectionId: SidebarTopLevelSectionId, direction: -1 | 1) => void;
   setSidebarStageExpanded?: unknown;
   isSidebarStageExpanded?: unknown;
   setSidebarSectionExpanded?: unknown;
@@ -2404,7 +2394,6 @@ export function WorkbenchShell({
   commandPaletteInitialQuery = "",
   setSidebarCollapsed,
   setSidebarWidth,
-  setSidebarTopLevelSectionVisible,
   setSidebarCollapsibleSectionCollapsed,
   settingsToggleTick,
   keyboardShortcutsSettingsOpenTick,
@@ -3045,10 +3034,6 @@ export function WorkbenchShell({
     resolveCodexShellWidthClass,
   );
   const shellWidthClass = useMotionValueState(shellWidthClassValue);
-  const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(
-    sidebar?.topLevelSectionOrder,
-  );
-  const settingsSidebarTopLevelSections = sidebar?.topLevelSections ?? makeDefaultSidebarTopLevelSectionsPrefs();
   useEffect(() => {
     currentShellNavigationSnapshotRef.current = currentShellNavigationSnapshot;
   }, [currentShellNavigationSnapshot]);
@@ -9017,9 +9002,6 @@ export function WorkbenchShell({
       activeProjectId={activeProject?.id ?? activeProjectId}
       initialLocalEnvironmentProjectId={localEnvironmentSettingsInitial?.projectId ?? null}
       initialLocalEnvironmentConfigPath={localEnvironmentSettingsInitial?.configPath ?? null}
-      sidebarTopLevelSectionOrder={settingsSidebarTopLevelSectionOrder}
-      sidebarTopLevelSections={settingsSidebarTopLevelSections}
-      onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible ?? (() => undefined)}
       threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
       onThreadQueueFollowUpsEnabledChange={handleThreadQueueFollowUpsEnabledChange}
       composerEnterBehavior={composerEnterBehavior}

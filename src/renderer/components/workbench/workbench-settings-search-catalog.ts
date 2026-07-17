@@ -3,7 +3,6 @@ import {
   PAGE_STAGE_COLLAPSIBLE_PROPERTIES,
   PAGE_STAGE_COLLAPSIBLE_PROPERTY_LABELS,
 } from "../../lib/page-stage-collapsed-properties";
-import { SIDEBAR_TOP_LEVEL_SECTION_LABELS } from "../../lib/sidebar-section-prefs";
 import { DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX } from "../../lib/worktree-branch-prefix";
 import { FILE_LINK_OPENER_OPTIONS } from "../../../shared/file-link-openers";
 
@@ -138,11 +137,6 @@ const SETTINGS_SEARCH_PANELS = {
             "Telemetry",
             "Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent.",
             ["anonymous product events", "technical web analytics", "Statsig"],
-          ),
-          entry(
-            "Sidebar sections",
-            "Choose which top-level sidebar sections stay visible. Hidden sections can be restored here.",
-            Object.values(SIDEBAR_TOP_LEVEL_SECTION_LABELS),
           ),
         ],
       },

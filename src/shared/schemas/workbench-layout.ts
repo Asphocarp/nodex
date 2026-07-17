@@ -56,8 +56,6 @@ const ViewRecordSchema = UnknownRecordSchema.transform((value) =>
 export const WorkbenchLayoutSidebarSnapshotSchema = z.object({
   collapsed: z.boolean().catch(false),
   width: z.number().finite().catch(280),
-  topLevelSectionOrder: z.array(z.string()).catch([]),
-  topLevelSections: UnknownRecordSchema.catch({}),
   collapsibleSections: UnknownRecordSchema.catch({}),
 }) satisfies z.ZodType<WorkbenchLayoutSidebarSnapshot>;
 

@@ -53,4 +53,8 @@ describe("workbench settings search catalog", () => {
     expect(results[0]?.sectionId).toBe("local-environments");
     expect(results[0]?.label).toBe("Local environments");
   });
+
+  test("does not index the retired sidebar section preferences", () => {
+    expect(searchCatalog("Sidebar sections")).toEqual([]);
+  });
 });

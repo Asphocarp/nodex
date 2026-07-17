@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
-import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
 import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-settings";
@@ -120,9 +119,6 @@ function renderOverlay({
         onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
         activeProjectId="default"
-        sidebarTopLevelSectionOrder={["recents", "pages", "threads", "files"]}
-        sidebarTopLevelSections={makeDefaultSidebarTopLevelSectionsPrefs()}
-        onSidebarTopLevelSectionVisibleChange={() => {}}
         threadQueueFollowUpsEnabled={false}
         onThreadQueueFollowUpsEnabledChange={() => {}}
         composerEnterBehavior="enter"

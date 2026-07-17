@@ -1,7 +1,6 @@
 import { describe, expect, vi, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
-import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
 import { render, settleAsyncRender } from "@/test/dom";
 import type {
   BackupRecord,
@@ -90,9 +89,6 @@ async function renderOverlay(path = buildSettingsPath("backups")) {
         onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
         activeProjectId="default"
-        sidebarTopLevelSectionOrder={["recents", "pages", "threads", "files"]}
-        sidebarTopLevelSections={makeDefaultSidebarTopLevelSectionsPrefs()}
-        onSidebarTopLevelSectionVisibleChange={() => {}}
         threadQueueFollowUpsEnabled={false}
         onThreadQueueFollowUpsEnabledChange={() => {}}
         composerEnterBehavior="enter"

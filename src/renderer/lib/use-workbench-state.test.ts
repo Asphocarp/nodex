@@ -851,8 +851,6 @@ describe("use-workbench-state helpers", () => {
       sidebar: {
         collapsed: false,
         width: 300,
-        topLevelSectionOrder: [],
-        topLevelSections: {},
         collapsibleSections: { projects: true, chats: true },
       },
       dock: {
@@ -893,12 +891,16 @@ describe("use-workbench-state helpers", () => {
     expect(nextState.sidebar.collapsibleSections.pinned).toBe(false);
   });
 
-  test("discards the removed pinned organization preference from sidebar prefs", async () => {
+  test("discards removed sidebar organization preferences from persisted state", async () => {
     resetStorage();
     localStorageRef.setItem(workbenchStorageKeys.sidebar, JSON.stringify({
       collapsed: false,
       width: 320,
       pinnedOrganizationMode: "manualOrder",
+      topLevelSectionOrder: ["recents", "pages", "threads", "files"],
+      topLevelSections: {
+        recents: { visible: false, itemLimit: 5 },
+      },
     }));
     const capturedRef: { current: ReturnType<typeof useWorkbenchState> | null } = { current: null };
 
@@ -913,10 +915,14 @@ describe("use-workbench-state helpers", () => {
     if (!capturedRef.current) throw new Error("missing workbench state");
     expect(capturedRef.current.sidebar.width).toBe(320);
     expect(Object.hasOwn(capturedRef.current.sidebar, "pinnedOrganizationMode")).toBe(false);
+    expect(Object.hasOwn(capturedRef.current.sidebar, "topLevelSectionOrder")).toBe(false);
+    expect(Object.hasOwn(capturedRef.current.sidebar, "topLevelSections")).toBe(false);
 
     const rawSidebarPrefs = localStorageRef.getItem(workbenchStorageKeys.sidebar);
     const sidebarPrefs = JSON.parse(rawSidebarPrefs ?? "{}") as Record<string, unknown>;
     expect(Object.hasOwn(sidebarPrefs, "pinnedOrganizationMode")).toBe(false);
+    expect(Object.hasOwn(sidebarPrefs, "topLevelSectionOrder")).toBe(false);
+    expect(Object.hasOwn(sidebarPrefs, "topLevelSections")).toBe(false);
   });
 
   test("persists sidebar organizer section collapse state in sidebar prefs", async () => {

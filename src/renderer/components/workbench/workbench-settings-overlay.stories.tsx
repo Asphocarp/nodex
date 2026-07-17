@@ -469,14 +469,6 @@ function SettingsRouteShellStory({
         activeProjectId="default"
         initialLocalEnvironmentProjectId={null}
         initialLocalEnvironmentConfigPath={null}
-        sidebarTopLevelSectionOrder={["files", "threads", "recents", "pages"]}
-        sidebarTopLevelSections={{
-          files: { visible: true, itemLimit: 10 },
-          threads: { visible: true, itemLimit: 10 },
-          recents: { visible: true, itemLimit: 10 },
-          pages: { visible: true, itemLimit: 10 },
-        }}
-        onSidebarTopLevelSectionVisibleChange={() => {}}
         threadQueueFollowUpsEnabled={true}
         onThreadQueueFollowUpsEnabledChange={() => {}}
         composerEnterBehavior="cmdIfMultiline"
