@@ -1,0 +1,77 @@
+{
+  "emptyPage": {
+    "schemaVersion": 2,
+    "title": "",
+    "blockTree": [
+      {
+        "id": "empty-page-paragraph",
+        "type": "paragraph",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [],
+        "children": []
+      }
+    ],
+    "nfm": "",
+    "plainText": "",
+    "preview": "",
+    "references": [],
+    "assetRefs": [],
+    "richTitle": []
+  },
+  "emptySyncedBlock": {
+    "schemaVersion": 1,
+    "title": "",
+    "richTitle": [],
+    "blockTree": [],
+    "nfm": "",
+    "plainText": "",
+    "preview": "",
+    "references": [],
+    "assetRefs": []
+  },
+  "reusableTemplate": {
+    "schemaVersion": 1,
+    "title": "",
+    "richTitle": [],
+    "blockTree": [
+      {
+        "id": "template-block-1",
+        "type": "paragraph",
+        "props": {
+          "backgroundColor": "default",
+          "textColor": "default",
+          "textAlignment": "left"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Template ",
+            "styles": {}
+          },
+          {
+            "type": "text",
+            "text": "body",
+            "styles": {
+              "bold": true
+            }
+          },
+          {
+            "type": "text",
+            "text": " 😀",
+            "styles": {}
+          }
+        ],
+        "children": []
+      }
+    ],
+    "nfm": "Template **body** 😀",
+    "plainText": "Template body 😀",
+    "preview": "Template body 😀",
+    "references": [],
+    "assetRefs": []
+  }
+}

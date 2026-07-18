@@ -14,8 +14,14 @@ import {
   populateBlockDocumentBodyFromNfm,
 } from "./block-document-codec";
 import { assertValidBlockDocument } from "./block-structure";
+import { createBodyOnlyBlockDocument } from "./body-only-block-document";
+import {
+  inspectRegisteredOwnedBlockDocument,
+  toPersistedBlockDocumentMaterialization,
+} from "./document-schema-adapters";
 import { createPageDocument } from "./page-document";
 import { replaceYTextWithPortableRichText } from "./portable-rich-text";
+import { createSyncedBlockDocument } from "./synced-block-document";
 import {
   headlessBlockDocumentSchema,
   type HeadlessBlockDocumentPartialBlock,
@@ -254,6 +260,22 @@ const createSchemaMatrix = (): {
     { type: "dateMention", start: "2026-07-18", format: "ll" },
   ]);
   blocksToYXmlFragment(editor, editor.document, document.getXmlFragment("body"));
+  const root = document.getXmlFragment("body").get(0);
+  if (!(root instanceof Y.XmlElement)) {
+    throw new TypeError("schema matrix requires a canonical blockGroup root");
+  }
+  root.setAttribute(
+    "portableProbe",
+    {
+      undefinedValue: undefined,
+      nullValue: null,
+      booleanValue: true,
+      numberValue: 42.5,
+      stringValue: "portable 😀",
+      binaryValue: new Uint8Array([0, 1, 127, 255]),
+      arrayValue: [undefined, null, { nested: ["值", 7] }],
+    } as unknown as string,
+  );
   return {
     document,
     blockTypes: editor.document.map((block) => block.type),
@@ -350,6 +372,53 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     matrixStateVector,
   );
 
+  const emptyPage = createPageDocument({
+    documentId: "nodex-yjs-yrs-empty-page",
+    initializeBody: false,
+  });
+  emptyPage.document.clientID = 1_301;
+  populateBlockDocumentBodyFromNfm(
+    emptyPage.body,
+    "",
+    () => "empty-page-paragraph",
+  );
+  const emptyPageMaterialization = materializePageDocument(
+    emptyPage.document,
+  );
+
+  const syncedBlock = createSyncedBlockDocument({
+    documentId: "nodex-yjs-yrs-empty-synced-block",
+  });
+  syncedBlock.document.clientID = 1_302;
+  const syncedBlockMaterialization = toPersistedBlockDocumentMaterialization(
+    inspectRegisteredOwnedBlockDocument(syncedBlock.document, {
+      ownerType: "synced_block_source",
+      schemaKey: "nodex.synced-block",
+      schemaVersion: 1,
+    }).materialization,
+  );
+
+  const reusableTemplate = createBodyOnlyBlockDocument({
+    documentId: "nodex-yjs-yrs-reusable-template",
+    initializeBody: false,
+    label: "Reusable Template",
+  });
+  reusableTemplate.document.clientID = 1_303;
+  let templateIndex = 0;
+  populateBlockDocumentBodyFromNfm(
+    reusableTemplate.body,
+    "Template **body** 😀",
+    () => `template-block-${++templateIndex}`,
+  );
+  const reusableTemplateMaterialization =
+    toPersistedBlockDocumentMaterialization(
+      inspectRegisteredOwnedBlockDocument(reusableTemplate.document, {
+        ownerType: "reusable_template_source",
+        schemaKey: "nodex.reusable-template",
+        schemaVersion: 1,
+      }).materialization,
+    );
+
   const awarenessDocument = new Y.Doc({ guid: "nodex-awareness-fixture" });
   awarenessDocument.clientID = 1_201;
   const awareness = new Awareness(awarenessDocument);
@@ -379,6 +448,30 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     writeFile(path.join(outputRoot, "matrix-base.bin"), matrixBase),
     writeFile(path.join(outputRoot, "matrix-state-vector.bin"), matrixStateVector),
     writeFile(path.join(outputRoot, "matrix-after.bin"), matrixAfterUpdate),
+    writeFile(
+      path.join(outputRoot, "empty-page.bin"),
+      Y.encodeStateAsUpdate(emptyPage.document),
+    ),
+    writeFile(
+      path.join(outputRoot, "empty-synced-block.bin"),
+      Y.encodeStateAsUpdate(syncedBlock.document),
+    ),
+    writeFile(
+      path.join(outputRoot, "reusable-template.bin"),
+      Y.encodeStateAsUpdate(reusableTemplate.document),
+    ),
+    writeFile(
+      path.join(outputRoot, "root-materializations.json"),
+      `${JSON.stringify(
+        {
+          emptyPage: emptyPageMaterialization,
+          emptySyncedBlock: syncedBlockMaterialization,
+          reusableTemplate: reusableTemplateMaterialization,
+        },
+        null,
+        2,
+      )}\n`,
+    ),
     writeFile(
       path.join(outputRoot, "matrix-materialization.json"),
       `${JSON.stringify(matrixMaterialization, null, 2)}\n`,
