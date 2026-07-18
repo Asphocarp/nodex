@@ -136,6 +136,8 @@ pub struct OwnedDocumentCommitValue {
     pub generation: i64,
     pub head_seq: i64,
     pub outcome: DocumentCommitOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canvas: Option<Value>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -162,6 +164,13 @@ pub enum OwnedDocumentEvent {
         generation: i64,
         head_seq: i64,
         update: Vec<u8>,
+    },
+    CanvasUpdated {
+        document_id: String,
+        generation: i64,
+        head_seq: i64,
+        scene_hash: String,
+        mutation: Value,
     },
     DocumentInvalidated {
         document_id: String,

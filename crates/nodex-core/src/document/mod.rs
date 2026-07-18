@@ -1,4 +1,6 @@
 mod block_document;
+mod canvas;
+mod canvas_scene;
 mod compaction;
 mod genesis;
 mod history;

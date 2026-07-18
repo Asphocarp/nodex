@@ -8,6 +8,7 @@ use crate::domain::block_materialization::dematerialize_block_tree;
 use crate::domain::rich_text::{RichTextItem, rich_text_to_delta};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
+use super::canvas_scene::{CanvasScene, parse_canvas_scene};
 use super::persistence::{DocumentAuthorityRow, sha256};
 use super::{
     BlockDocumentKind, BlockDocumentSchema, DocumentMaterialization,
@@ -16,6 +17,7 @@ use super::{
 };
 
 const CHECKPOINT_FORMAT: &str = "block_tree_snapshot_v2";
+const CANVAS_CHECKPOINT_FORMAT: &str = "canvas_scene_json_v1";
 const DEFAULT_HISTORY_LIMIT: u32 = 50;
 const MAX_HISTORY_LIMIT: u32 = 200;
 
@@ -34,7 +36,9 @@ pub(crate) struct NewDocumentCheckpoint<'a> {
 pub(crate) struct StoredDocumentVersion {
     pub(crate) version_id: String,
     pub(crate) summary: Value,
-    pub(crate) materialization: DocumentMaterialization,
+    pub(crate) materialization: Value,
+    pub(crate) block_materialization: Option<DocumentMaterialization>,
+    pub(crate) canvas_scene: Option<CanvasScene>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +181,101 @@ pub(crate) fn insert_document_checkpoint(
     Ok(version)
 }
 
+pub(crate) fn insert_canvas_checkpoint(
+    connection: &Connection,
+    authority: &DocumentAuthorityRow,
+    scene: &CanvasScene,
+    input: NewDocumentCheckpoint<'_>,
+) -> Result<StoredDocumentVersion, StoreError> {
+    validate_checkpoint_input(&input)?;
+    let checkpoint_bytes = canonical_json_bytes(scene.canonical_value())?;
+    let checkpoint_hash = sha256(&checkpoint_bytes);
+    let actor = json!({
+        "adapter": input.context.adapter,
+        "connectionId": input.context.connection_id,
+    });
+    let actor_json = String::from_utf8(canonical_json_bytes(actor)?)
+        .map_err(|_| internal("Checkpoint actor encoding is invalid"))?;
+    let links_mutation = matches!(input.revision_kind, "operation" | "restore");
+    let source_mutation_id = links_mutation.then_some(input.operation_id);
+    let source_change_seq = links_mutation.then_some(input.source_change_seq).flatten();
+    let pinned = i64::from(matches!(input.revision_kind, "manual" | "restore"));
+    let identity = json!({
+        "documentId": authority.head.id,
+        "projectId": authority.head.project_id,
+        "generation": authority.head.generation,
+        "baseHeadSeq": authority.head.head_seq,
+        "schemaKey": authority.head.schema_key,
+        "schemaVersion": authority.head.schema_version,
+        "cause": input.cause,
+        "label": input.label,
+        "revisionKind": input.revision_kind,
+        "sourceMutationId": source_mutation_id,
+        "sourceChangeSeq": source_change_seq,
+        "checkpointHash": checkpoint_hash,
+    });
+    let version_id = format!(
+        "document-version:{}",
+        sha256(&canonical_json_bytes(identity)?)
+    );
+    let byte_length = i64::try_from(checkpoint_bytes.len())
+        .map_err(|_| internal("Checkpoint byte length overflowed"))?;
+    connection.execute(
+        "INSERT INTO document_versions (\
+           version_id, document_id, project_id, generation, base_head_seq, schema_key, \
+           schema_version, cause, label, actor_json, revision_kind, source_mutation_id, \
+           source_change_seq, pinned, checkpoint_format, full_update_blob, state_vector, \
+           checkpoint_hash, byte_length, created_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, \
+                   ?15, ?16, X'', ?17, ?18, ?19) \
+         ON CONFLICT(version_id) DO NOTHING",
+        params![
+            version_id,
+            authority.head.id,
+            authority.head.project_id,
+            authority.head.generation,
+            authority.head.head_seq,
+            authority.head.schema_key,
+            authority.head.schema_version,
+            input.cause,
+            input.label,
+            actor_json,
+            input.revision_kind,
+            source_mutation_id,
+            source_change_seq,
+            pinned,
+            CANVAS_CHECKPOINT_FORMAT,
+            checkpoint_bytes,
+            checkpoint_hash,
+            byte_length,
+            input.now,
+        ],
+    )?;
+    let stored = read_document_version(
+        connection,
+        &authority.head.project_id,
+        &authority.head.id,
+        &version_id,
+    )?
+    .ok_or_else(|| corrupt("Inserted Canvas checkpoint could not be read"))?;
+    if stored.generation != authority.head.generation
+        || stored.base_head_seq != authority.head.head_seq
+        || stored.checkpoint_hash != checkpoint_hash
+        || stored.checkpoint_format != CANVAS_CHECKPOINT_FORMAT
+        || stored.cause != input.cause
+        || stored.label.as_deref() != input.label
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::IdempotencyKeyReused,
+            "Canvas checkpoint identity collides with different immutable content",
+            false,
+        ));
+    }
+    let version = decode_document_version(stored)?;
+    prune_document_history(connection, &authority.head.id, input.now)?;
+    Ok(version)
+}
+
 pub(crate) fn get_document_version(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
@@ -268,8 +367,15 @@ pub(crate) fn prepare_version_restore(
 ) -> Result<Option<PreparedDocumentOperationUpdate>, StoreError> {
     let version = get_document_version(connection, authority, version_id)?
         .ok_or_else(|| not_found("Document version was not found"))?;
-    if version.materialization.schema.schema_key != authority.head.schema_key
-        || i64::from(version.materialization.schema.schema_version) != authority.head.schema_version
+    let materialization = version.block_materialization.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "Canvas version cannot restore into a Yjs Document",
+            false,
+        )
+    })?;
+    if materialization.schema.schema_key != authority.head.schema_key
+        || i64::from(materialization.schema.schema_version) != authority.head.schema_version
     {
         return Err(StoreError::new(
             StoreErrorCode::UnsupportedSchema,
@@ -293,10 +399,10 @@ pub(crate) fn prepare_version_restore(
         schema,
         &engine.full_state_v1(),
         &engine.state_vector_v1(),
-        &version.materialization.block_tree,
+        &materialization.block_tree,
         schema
             .has_title()
-            .then_some(version.materialization.rich_title.as_slice()),
+            .then_some(materialization.rich_title.as_slice()),
     );
     match prepared {
         Ok(prepared) => Ok(Some(prepared)),
@@ -309,6 +415,44 @@ pub(crate) fn prepare_document_revision(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
     materialization: &DocumentMaterialization,
+    context: &BoundModuleContext,
+    now: &str,
+) -> Result<(), StoreError> {
+    prepare_revision(
+        connection,
+        authority,
+        RevisionContent::Block(materialization),
+        context,
+        now,
+    )
+}
+
+pub(crate) fn prepare_canvas_revision(
+    connection: &Connection,
+    authority: &DocumentAuthorityRow,
+    scene: &CanvasScene,
+    context: &BoundModuleContext,
+    now: &str,
+) -> Result<(), StoreError> {
+    prepare_revision(
+        connection,
+        authority,
+        RevisionContent::Canvas(scene),
+        context,
+        now,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum RevisionContent<'a> {
+    Block(&'a DocumentMaterialization),
+    Canvas(&'a CanvasScene),
+}
+
+fn prepare_revision(
+    connection: &Connection,
+    authority: &DocumentAuthorityRow,
+    content: RevisionContent<'_>,
     context: &BoundModuleContext,
     now: &str,
 ) -> Result<(), StoreError> {
@@ -341,10 +485,10 @@ pub(crate) fn prepare_document_revision(
                 "revision-idle:{}:{}:{}",
                 authority.head.id, authority.head.generation, authority.head.head_seq
             );
-            insert_document_checkpoint(
+            insert_revision_checkpoint(
                 connection,
                 authority,
-                materialization,
+                content,
                 NewDocumentCheckpoint {
                     operation_id: &operation_id,
                     cause: "idle_edit",
@@ -382,10 +526,10 @@ pub(crate) fn prepare_document_revision(
         "revision-safety:{}:{}:{}",
         authority.head.id, authority.head.generation, authority.head.head_seq
     );
-    insert_document_checkpoint(
+    insert_revision_checkpoint(
         connection,
         authority,
-        materialization,
+        content,
         NewDocumentCheckpoint {
             operation_id: &operation_id,
             cause: "before_edit_burst",
@@ -396,6 +540,23 @@ pub(crate) fn prepare_document_revision(
             now,
         },
     )?;
+    Ok(())
+}
+
+fn insert_revision_checkpoint(
+    connection: &Connection,
+    authority: &DocumentAuthorityRow,
+    content: RevisionContent<'_>,
+    input: NewDocumentCheckpoint<'_>,
+) -> Result<(), StoreError> {
+    match content {
+        RevisionContent::Block(materialization) => {
+            insert_document_checkpoint(connection, authority, materialization, input)?;
+        }
+        RevisionContent::Canvas(scene) => {
+            insert_canvas_checkpoint(connection, authority, scene, input)?;
+        }
+    }
     Ok(())
 }
 
@@ -515,30 +676,57 @@ fn decode_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredVersionRow> {
 
 fn decode_document_version(row: StoredVersionRow) -> Result<StoredDocumentVersion, StoreError> {
     validate_stored_version(&row)?;
-    let schema = BlockDocumentSchema::from_identity(&row.schema_key, row.schema_version)
-        .ok_or_else(|| corrupt("Document version uses an unsupported schema"))?;
-    let materialization = match row.checkpoint_format.as_str() {
-        CHECKPOINT_FORMAT => decode_block_tree_checkpoint(&row, schema)?,
-        "yjs_update_v1" => decode_yjs_checkpoint(&row, schema)?,
-        "canvas_scene_json_v1" => {
-            return Err(StoreError::new(
-                StoreErrorCode::UnsupportedSchema,
-                "Canvas Document history is not available until the Canvas engine is active",
-                false,
-            ));
-        }
-        _ => return Err(corrupt("Document version checkpoint format is invalid")),
-    };
+    let (materialization, block_materialization, canvas_scene, kind, title, preview, block_count) =
+        if row.checkpoint_format == CANVAS_CHECKPOINT_FORMAT {
+            if row.schema_key != super::canvas_scene::CANVAS_SCHEMA_KEY
+                || row.schema_version != super::canvas_scene::CANVAS_SCHEMA_VERSION
+                || !row.state_vector.is_empty()
+            {
+                return Err(corrupt("Canvas Document checkpoint schema diverges"));
+            }
+            let value = serde_json::from_slice::<Value>(&row.checkpoint_bytes)
+                .map_err(|_| corrupt("Canvas Document checkpoint JSON is invalid"))?;
+            if canonical_json_bytes(value.clone())? != row.checkpoint_bytes {
+                return Err(corrupt("Canvas Document checkpoint JSON is not canonical"));
+            }
+            let scene = parse_canvas_scene(&value)?;
+            let preview = scene.preview.clone();
+            let block_count = scene.elements.len();
+            (
+                value,
+                None,
+                Some(scene),
+                json!("canvas_scene"),
+                Value::Null,
+                preview,
+                block_count,
+            )
+        } else {
+            let schema = BlockDocumentSchema::from_identity(&row.schema_key, row.schema_version)
+                .ok_or_else(|| corrupt("Document version uses an unsupported schema"))?;
+            let block = match row.checkpoint_format.as_str() {
+                CHECKPOINT_FORMAT => decode_block_tree_checkpoint(&row, schema)?,
+                "yjs_update_v1" => decode_yjs_checkpoint(&row, schema)?,
+                _ => return Err(corrupt("Document version checkpoint format is invalid")),
+            };
+            let value = serde_json::to_value(&block)
+                .map_err(|_| internal("Version materialization could not be encoded"))?;
+            let kind = serde_json::to_value(block.kind)
+                .map_err(|_| internal("Version kind could not be encoded"))?;
+            let title = if schema.has_title() {
+                Value::String(block.title.clone())
+            } else {
+                Value::Null
+            };
+            let preview = block.preview.clone();
+            let block_count = count_blocks(&block.block_tree);
+            (value, Some(block), None, kind, title, preview, block_count)
+        };
     let actor = serde_json::from_str::<Value>(&row.actor_json)
         .ok()
         .filter(Value::is_object)
         .ok_or_else(|| corrupt("Document version actor JSON is invalid"))?;
-    let materialization_hash = sha256(&canonical_json_bytes(
-        serde_json::to_value(&materialization)
-            .map_err(|_| internal("Version materialization hash could not be encoded"))?,
-    )?);
-    let kind = serde_json::to_value(materialization.kind)
-        .map_err(|_| internal("Version kind could not be encoded"))?;
+    let materialization_hash = sha256(&canonical_json_bytes(materialization.clone())?);
     let summary = json!({
         "versionId": row.version_id,
         "documentId": row.document_id,
@@ -559,15 +747,17 @@ fn decode_document_version(row: StoredVersionRow) -> Result<StoredDocumentVersio
         "materializationHash": materialization_hash,
         "byteLength": row.byte_length,
         "materializationKind": kind,
-        "title": schema.has_title().then_some(materialization.title.clone()),
-        "preview": materialization.preview,
-        "blockCount": count_blocks(&materialization.block_tree),
+        "title": title,
+        "preview": preview,
+        "blockCount": block_count,
         "createdAt": row.created_at,
     });
     Ok(StoredDocumentVersion {
         version_id: summary["versionId"].as_str().unwrap_or_default().to_owned(),
         summary,
         materialization,
+        block_materialization,
+        canvas_scene,
     })
 }
 

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,12 +28,18 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+use super::canvas::{
+    ensure_canvas_scene, load_canvas_scene, persist_canvas_mutation, validate_canvas_authority,
+};
+use super::canvas_scene::{
+    apply_canvas_mutation as apply_canvas_candidate, parse_canvas_mutation, prepare_canvas_restore,
+};
 use super::compaction::{DocumentCompactionResult, compact_yjs_document};
 use super::genesis::{prepare_editable_root, prepare_yjs_genesis};
 use super::history::{
-    NewDocumentCheckpoint, get_document_version, insert_document_checkpoint,
-    list_document_versions, prepare_document_revision, prepare_version_restore,
-    record_document_revision_edit,
+    NewDocumentCheckpoint, get_document_version, insert_canvas_checkpoint,
+    insert_document_checkpoint, list_document_versions, prepare_canvas_revision,
+    prepare_document_revision, prepare_version_restore, record_document_revision_edit,
 };
 use super::persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
@@ -103,6 +110,7 @@ pub struct OwnedDocumentModule {
     readers: StoreReaders,
     cache: Arc<Mutex<DocumentRuntimeCache>>,
     fail_after_commit: Arc<AtomicBool>,
+    assets_root: PathBuf,
 }
 
 impl OwnedDocumentModule {
@@ -118,6 +126,11 @@ impl OwnedDocumentModule {
             readers: kernel.readers(),
             cache: Arc::new(Mutex::new(DocumentRuntimeCache::new())),
             fail_after_commit: Arc::new(AtomicBool::new(false)),
+            assets_root: kernel
+                .database_path()
+                .parent()
+                .expect("Profile database has a parent")
+                .join("assets"),
         }
     }
 
@@ -194,7 +207,7 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_yjs(context, &authority)?;
+                    authorize_owned_document(context, &authority)?;
                     let (items, next_version_id) = list_document_versions(
                         connection,
                         &authority,
@@ -220,7 +233,7 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_yjs(context, &authority)?;
+                    authorize_owned_document(context, &authority)?;
                     let version = get_document_version(connection, &authority, &version_id)?
                         .ok_or_else(|| not_found("Document version was not found"))?;
                     Ok(ModuleReadSnapshot {
@@ -236,9 +249,26 @@ impl OwnedDocumentModule {
                     })
                 })
                 .map_err(core_error),
-            OwnedDocumentRead::SyncCanvas { .. } => {
-                Err(invalid("Canvas Document read is not implemented yet"))
-            }
+            OwnedDocumentRead::SyncCanvas { document_id } => self
+                .readers
+                .read_default(|connection| {
+                    let authority = read_document_authority(connection, &document_id)?
+                        .ok_or_else(|| not_found("Owned Document was not found"))?;
+                    authorize_canvas(context, &authority)?;
+                    let loaded = load_canvas_scene(connection, &authority)?;
+                    let store_epoch = read_store_epoch(connection)?;
+                    Ok(ModuleReadSnapshot {
+                        version: CORE_CONTRACT_VERSION,
+                        store_epoch: StoreEpoch(store_epoch.clone()),
+                        event_head: read_event_head(connection)?,
+                        value: OwnedDocumentReadValue::CanvasSync {
+                            descriptor: authority_descriptor(&authority, &store_epoch),
+                            scene_json: loaded.scene.canonical_json()?.into_bytes(),
+                            scene_hash: loaded.scene_hash,
+                        },
+                    })
+                })
+                .map_err(core_error),
         }
     }
 
@@ -289,6 +319,20 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 commands,
+            ),
+            OwnedDocumentIntent::ApplyCanvasMutation {
+                document_id,
+                generation,
+                expected_head_seq,
+                mutation,
+            } => self.apply_canvas_scene_mutation(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                document_id,
+                generation,
+                expected_head_seq,
+                mutation,
             ),
             OwnedDocumentIntent::CreateCheckpoint {
                 document_id,
@@ -397,6 +441,7 @@ impl OwnedDocumentModule {
         let context = context.clone();
         let cache = Arc::clone(&self.cache);
         let fail_after_commit = Arc::clone(&self.fail_after_commit);
+        let assets_root = self.assets_root.clone();
         self.writer
             .call(move |connection| {
                 let transaction =
@@ -449,12 +494,44 @@ impl OwnedDocumentModule {
                         false,
                     ));
                 }
-                if authority.head.sync_engine != DocumentSyncEngine::Yjs {
-                    return Err(StoreError::new(
-                        StoreErrorCode::UnsupportedSchema,
-                        "Canvas owner preparation requires the Canvas engine",
-                        false,
-                    ));
+                if authority.head.sync_engine == DocumentSyncEngine::CanvasScene {
+                    authorize_canvas(&context, &authority)?;
+                    let (_, created) = ensure_canvas_scene(&transaction, &authority, &assets_root)?;
+                    let event_head = read_event_head(&transaction)?;
+                    let committed = committed_value(
+                        &operation_id,
+                        &store_epoch,
+                        &authority,
+                        authority.head.head_seq,
+                        if created {
+                            DocumentCommitOutcome::Committed
+                        } else {
+                            DocumentCommitOutcome::NoChange
+                        },
+                        event_head,
+                    );
+                    insert_typed_receipt(
+                        &transaction,
+                        &context,
+                        &operation_id,
+                        &request_hash,
+                        &store_epoch,
+                        "prepare_owner",
+                        &committed,
+                        None,
+                    )?;
+                    transaction.commit()?;
+                    if fail_after_commit.swap(false, Ordering::AcqRel) {
+                        return Err(StoreError::new(
+                            StoreErrorCode::Internal,
+                            "Injected failure after durable Canvas preparation",
+                            true,
+                        ));
+                    }
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        event: None,
+                    });
                 }
                 let schema = registered_yjs_schema(&authority)?;
                 let root_block_id = allocate_document_block_id(&operation_id, 1);
@@ -655,6 +732,170 @@ impl OwnedDocumentModule {
                     .lock()
                     .map_err(|_| internal("Document cache lock failed"))?
                     .install(&next_head, next_engine);
+                Ok(OwnedDocumentApplyOutcome { committed, event })
+            })
+            .map_err(core_error)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn apply_canvas_scene_mutation(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        generation: i64,
+        base_head_seq: i64,
+        mutation_value: Value,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let mutation = parse_canvas_mutation(&mutation_value).map_err(core_error)?;
+        let fingerprint = serde_json::to_vec(&(
+            context,
+            expected_store_epoch.clone(),
+            &document_id,
+            generation,
+            base_head_seq,
+            &mutation.canonical_value,
+        ))
+        .map_err(|_| invalid("Canvas mutation cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let context = context.clone();
+        let fail_after_commit = Arc::clone(&self.fail_after_commit);
+        let assets_root = self.assets_root.clone();
+        self.writer
+            .call(move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Conflict,
+                        "Canvas mutation targets a stale store epoch",
+                        true,
+                    ));
+                }
+                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                {
+                    if stored.request_hash != request_hash {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to another Owned Document intent",
+                            false,
+                        ));
+                    }
+                    let mut committed = serde_json::from_value::<
+                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                    >(stored.result)
+                    .map_err(|_| corrupt_receipt())?;
+                    committed.receipt.mutation.duplicate = true;
+                    if let Some(canvas) = committed.value.canvas.as_mut()
+                        && let Some(object) = canvas.as_object_mut()
+                    {
+                        object.insert("duplicate".to_owned(), Value::Bool(true));
+                    }
+                    transaction.commit()?;
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        event: None,
+                    });
+                }
+                let authority = read_document_authority(&transaction, &document_id)?
+                    .ok_or_else(|| not_found("Canvas Document was not found"))?;
+                authorize_canvas(&context, &authority)?;
+                if authority.head.generation != generation {
+                    return Err(StoreError::new(
+                        StoreErrorCode::GenerationConflict,
+                        "Canvas Document generation does not match",
+                        false,
+                    ));
+                }
+                let loaded = load_canvas_scene(&transaction, &authority)?;
+                let applied = apply_canvas_candidate(&loaded.scene, &mutation)?;
+                if applied.changed() {
+                    let revision_now = sqlite_now(&transaction)?;
+                    prepare_canvas_revision(
+                        &transaction,
+                        &authority,
+                        &loaded.scene,
+                        &context,
+                        &revision_now,
+                    )?;
+                }
+                let persisted = persist_canvas_mutation(
+                    &transaction,
+                    &authority,
+                    &context,
+                    &store_epoch,
+                    &operation_id,
+                    base_head_seq,
+                    &mutation,
+                    &applied,
+                    &assets_root,
+                    "canvas_scene_updated",
+                )?;
+                if persisted.event_delta.is_some() {
+                    record_document_revision_edit(
+                        &transaction,
+                        &authority.head.id,
+                        authority.head.generation,
+                        persisted.head_seq,
+                        &context.connection_id,
+                        &persisted.committed_at,
+                    )?;
+                }
+                let outcome = if persisted.event_delta.is_some() {
+                    DocumentCommitOutcome::Committed
+                } else {
+                    DocumentCommitOutcome::NoChange
+                };
+                let committed = committed_canvas_value(
+                    &operation_id,
+                    &store_epoch,
+                    &authority,
+                    persisted.head_seq,
+                    outcome,
+                    persisted.event_sequence,
+                    persisted.result.clone(),
+                );
+                insert_typed_receipt(
+                    &transaction,
+                    &context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "apply_canvas_mutation",
+                    &committed,
+                    persisted
+                        .event_delta
+                        .as_ref()
+                        .map(|_| persisted.event_sequence),
+                )?;
+                transaction.commit()?;
+                if fail_after_commit.swap(false, Ordering::AcqRel) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Injected failure after durable Canvas commit",
+                        true,
+                    ));
+                }
+                let event = persisted
+                    .event_delta
+                    .map(|mutation| CommittedCoreModuleEvent {
+                        version: CORE_CONTRACT_VERSION,
+                        sequence: persisted.event_sequence,
+                        store_epoch: StoreEpoch(store_epoch),
+                        operation_id: Some(operation_id),
+                        committed_at: persisted.committed_at,
+                        payload: CoreModuleEventPayload::OwnedDocument(
+                            OwnedDocumentEvent::CanvasUpdated {
+                                document_id,
+                                generation,
+                                head_seq: persisted.head_seq,
+                                scene_hash: persisted.scene_hash,
+                                mutation,
+                            },
+                        ),
+                    });
                 Ok(OwnedDocumentApplyOutcome { committed, event })
             })
             .map_err(core_error)
@@ -920,39 +1161,46 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_yjs(&context, &authority)?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
-                let engine = cache
-                    .lock()
-                    .map_err(|_| internal("Document cache lock failed"))?
-                    .clone_engine(&transaction, &authority.head)?;
-                let schema = BlockDocumentSchema::from_identity(
-                    &authority.head.schema_key,
-                    authority.head.schema_version,
-                )
-                .ok_or_else(|| {
-                    StoreError::new(
-                        StoreErrorCode::UnsupportedSchema,
-                        "Owned Document schema is unsupported",
-                        false,
-                    )
-                })?;
-                let materialization = materialize_engine(&engine, schema)?;
                 let now = sqlite_now(&transaction)?;
-                insert_document_checkpoint(
-                    &transaction,
-                    &authority,
-                    &materialization,
-                    NewDocumentCheckpoint {
-                        operation_id: &operation_id,
-                        cause: &cause,
-                        label: label.as_deref(),
-                        revision_kind: "manual",
-                        source_change_seq: None,
-                        context: &context,
-                        now: &now,
-                    },
-                )?;
+                let checkpoint = NewDocumentCheckpoint {
+                    operation_id: &operation_id,
+                    cause: &cause,
+                    label: label.as_deref(),
+                    revision_kind: "manual",
+                    source_change_seq: None,
+                    context: &context,
+                    now: &now,
+                };
+                let yjs_engine = match authority.head.sync_engine {
+                    DocumentSyncEngine::Yjs => {
+                        authorize_yjs(&context, &authority)?;
+                        let engine = cache
+                            .lock()
+                            .map_err(|_| internal("Document cache lock failed"))?
+                            .clone_engine(&transaction, &authority.head)?;
+                        let schema = registered_yjs_schema(&authority)?;
+                        let materialization = materialize_engine(&engine, schema)?;
+                        insert_document_checkpoint(
+                            &transaction,
+                            &authority,
+                            &materialization,
+                            checkpoint,
+                        )?;
+                        Some(engine)
+                    }
+                    DocumentSyncEngine::CanvasScene => {
+                        authorize_canvas(&context, &authority)?;
+                        let loaded = load_canvas_scene(&transaction, &authority)?;
+                        insert_canvas_checkpoint(
+                            &transaction,
+                            &authority,
+                            &loaded.scene,
+                            checkpoint,
+                        )?;
+                        None
+                    }
+                };
                 let event_head = read_event_head(&transaction)?;
                 let committed = committed_value(
                     &operation_id,
@@ -973,10 +1221,12 @@ impl OwnedDocumentModule {
                     None,
                 )?;
                 transaction.commit()?;
-                cache
-                    .lock()
-                    .map_err(|_| internal("Document cache lock failed"))?
-                    .install(&authority.head, engine);
+                if let Some(engine) = yjs_engine {
+                    cache
+                        .lock()
+                        .map_err(|_| internal("Document cache lock failed"))?
+                        .install(&authority.head, engine);
+                }
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
                     event: None,
@@ -987,6 +1237,47 @@ impl OwnedDocumentModule {
 
     #[allow(clippy::too_many_arguments)]
     fn restore_version(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        version_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let sync_engine = self
+            .readers
+            .read_default(|connection| {
+                read_document_authority(connection, &document_id)?
+                    .map(|authority| authority.head.sync_engine)
+                    .ok_or_else(|| not_found("Owned Document was not found"))
+            })
+            .map_err(core_error)?;
+        match sync_engine {
+            DocumentSyncEngine::Yjs => self.restore_yjs_version(
+                context,
+                operation_id,
+                expected_store_epoch,
+                document_id,
+                version_id,
+                generation,
+                expected_head_seq,
+            ),
+            DocumentSyncEngine::CanvasScene => self.restore_canvas_version(
+                context,
+                operation_id,
+                expected_store_epoch,
+                document_id,
+                version_id,
+                generation,
+                expected_head_seq,
+            ),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn restore_yjs_version(
         &self,
         context: &BoundModuleContext,
         operation_id: String,
@@ -1052,6 +1343,206 @@ impl OwnedDocumentModule {
                 })
             },
         )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn restore_canvas_version(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        version_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let fingerprint = serde_json::to_vec(&(
+            context,
+            expected_store_epoch.clone(),
+            &document_id,
+            &version_id,
+            generation,
+            expected_head_seq,
+        ))
+        .map_err(|_| invalid("Canvas restore request cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let context = context.clone();
+        let fail_after_commit = Arc::clone(&self.fail_after_commit);
+        let assets_root = self.assets_root.clone();
+        self.writer
+            .call(move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Conflict,
+                        "Canvas restore targets a stale store epoch",
+                        true,
+                    ));
+                }
+                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                {
+                    if stored.request_hash != request_hash {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to another Owned Document intent",
+                            false,
+                        ));
+                    }
+                    let mut committed = serde_json::from_value::<
+                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                    >(stored.result)
+                    .map_err(|_| corrupt_receipt())?;
+                    committed.receipt.mutation.duplicate = true;
+                    if let Some(canvas) = committed.value.canvas.as_mut()
+                        && let Some(object) = canvas.as_object_mut()
+                    {
+                        object.insert("duplicate".to_owned(), Value::Bool(true));
+                    }
+                    transaction.commit()?;
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        event: None,
+                    });
+                }
+                let authority = read_document_authority(&transaction, &document_id)?
+                    .ok_or_else(|| not_found("Canvas Document was not found"))?;
+                authorize_canvas(&context, &authority)?;
+                assert_document_head(&authority, generation, expected_head_seq)?;
+                let loaded = load_canvas_scene(&transaction, &authority)?;
+                let version = get_document_version(&transaction, &authority, &version_id)?
+                    .ok_or_else(|| not_found("Canvas Document version was not found"))?;
+                let target = version.canvas_scene.ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::UnsupportedSchema,
+                        "Canvas restore requires a scene-native checkpoint",
+                        false,
+                    )
+                })?;
+                let Some(mutation) = prepare_canvas_restore(&loaded.scene, &target, &operation_id)?
+                else {
+                    let event_head = read_event_head(&transaction)?;
+                    let committed = committed_value(
+                        &operation_id,
+                        &store_epoch,
+                        &authority,
+                        authority.head.head_seq,
+                        DocumentCommitOutcome::NoChange,
+                        event_head,
+                    );
+                    insert_typed_receipt(
+                        &transaction,
+                        &context,
+                        &operation_id,
+                        &request_hash,
+                        &store_epoch,
+                        "restore_version",
+                        &committed,
+                        None,
+                    )?;
+                    transaction.commit()?;
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        event: None,
+                    });
+                };
+                let now = sqlite_now(&transaction)?;
+                let event_head = read_event_head(&transaction)?;
+                let safety_label = format!("Before restoring {version_id}");
+                insert_canvas_checkpoint(
+                    &transaction,
+                    &authority,
+                    &loaded.scene,
+                    NewDocumentCheckpoint {
+                        operation_id: &operation_id,
+                        cause: "before_restore",
+                        label: Some(&safety_label),
+                        revision_kind: "safety",
+                        source_change_seq: (event_head > 0).then_some(event_head),
+                        context: &context,
+                        now: &now,
+                    },
+                )?;
+                let applied = apply_canvas_candidate(&loaded.scene, &mutation)?;
+                let persisted = persist_canvas_mutation(
+                    &transaction,
+                    &authority,
+                    &context,
+                    &store_epoch,
+                    &operation_id,
+                    authority.head.head_seq,
+                    &mutation,
+                    &applied,
+                    &assets_root,
+                    "document_restored",
+                )?;
+                let mut restored_authority = authority.clone();
+                restored_authority.head.head_seq = persisted.head_seq;
+                restored_authority.head.state_hash = persisted.scene_hash.clone();
+                insert_canvas_checkpoint(
+                    &transaction,
+                    &restored_authority,
+                    &applied.scene,
+                    NewDocumentCheckpoint {
+                        operation_id: &operation_id,
+                        cause: "after_restore",
+                        label: Some("Restored Document state"),
+                        revision_kind: "restore",
+                        source_change_seq: Some(persisted.event_sequence),
+                        context: &context,
+                        now: &persisted.committed_at,
+                    },
+                )?;
+                transaction.execute(
+                    "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                    [&authority.head.id],
+                )?;
+                let committed = committed_canvas_value(
+                    &operation_id,
+                    &store_epoch,
+                    &authority,
+                    persisted.head_seq,
+                    DocumentCommitOutcome::Committed,
+                    persisted.event_sequence,
+                    persisted.result,
+                );
+                insert_typed_receipt(
+                    &transaction,
+                    &context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "restore_version",
+                    &committed,
+                    Some(persisted.event_sequence),
+                )?;
+                transaction.commit()?;
+                if fail_after_commit.swap(false, Ordering::AcqRel) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Injected failure after durable Canvas restore",
+                        true,
+                    ));
+                }
+                Ok(OwnedDocumentApplyOutcome {
+                    committed,
+                    event: Some(CommittedCoreModuleEvent {
+                        version: CORE_CONTRACT_VERSION,
+                        sequence: persisted.event_sequence,
+                        store_epoch: StoreEpoch(store_epoch),
+                        operation_id: Some(operation_id),
+                        committed_at: persisted.committed_at,
+                        payload: CoreModuleEventPayload::OwnedDocument(
+                            OwnedDocumentEvent::DocumentInvalidated {
+                                document_id,
+                                reason: DocumentInvalidationReason::Restored,
+                            },
+                        ),
+                    }),
+                })
+            })
+            .map_err(core_error)
     }
 
     fn apply_document_update<F>(
@@ -1422,6 +1913,7 @@ fn committed_value(
             generation: authority.head.generation,
             head_seq,
             outcome,
+            canvas: None,
         },
         receipt: OwnedDocumentReceipt {
             mutation: ModuleMutationReceipt {
@@ -1435,6 +1927,28 @@ fn committed_value(
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn committed_canvas_value(
+    operation_id: &str,
+    store_epoch: &str,
+    authority: &DocumentAuthorityRow,
+    head_seq: i64,
+    outcome: DocumentCommitOutcome,
+    event_sequence: i64,
+    canvas: Value,
+) -> CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt> {
+    let mut committed = committed_value(
+        operation_id,
+        store_epoch,
+        authority,
+        head_seq,
+        outcome,
+        event_sequence,
+    );
+    committed.value.canvas = Some(canvas);
+    committed
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1530,6 +2044,31 @@ fn authorize_yjs(
     }
     registered_yjs_schema(authority)?;
     Ok(())
+}
+
+fn authorize_canvas(
+    context: &BoundModuleContext,
+    authority: &DocumentAuthorityRow,
+) -> Result<(), StoreError> {
+    authorize_project(context, authority)?;
+    if authority.owner_lifecycle == "deleted" {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Canvas Document owner is deleted",
+            false,
+        ));
+    }
+    validate_canvas_authority(authority)
+}
+
+fn authorize_owned_document(
+    context: &BoundModuleContext,
+    authority: &DocumentAuthorityRow,
+) -> Result<(), StoreError> {
+    match authority.head.sync_engine {
+        DocumentSyncEngine::Yjs => authorize_yjs(context, authority),
+        DocumentSyncEngine::CanvasScene => authorize_canvas(context, authority),
+    }
 }
 
 fn registered_yjs_schema(
@@ -1742,6 +2281,7 @@ mod tests {
     const PROJECT_ID: &str = "project:test";
     const DOCUMENT_ID: &str = "document:test-page";
     const OWNER_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000001";
+    const TARGET_PAGE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000002";
     const STORE_EPOCH: &str = "epoch:test";
     const NOW: &str = "2026-07-18T00:00:00.000Z";
 
@@ -1994,6 +2534,472 @@ mod tests {
             full_state: Vec::new(),
             state_vector: Vec::new(),
         }
+    }
+
+    fn canvas_module() -> SeededModule {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        fs::create_dir(home.join("assets")).expect("assets root");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh v83");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Canvas test', ?3, ?3)",
+                        params![PROJECT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, ?1, ?2, ?2)",
+                        params![STORE_EPOCH, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO blocks(\
+                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
+                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'canvas', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
+                        params![OWNER_BLOCK_ID, PROJECT_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO blocks(\
+                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
+                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, 'page', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
+                        params![TARGET_PAGE_BLOCK_ID, PROJECT_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO documents(\
+                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
+                         ) VALUES (?1, ?2, 1, 0, 'nodex.canvas', 1, X'', ?3, \
+                           'ready', 'ydoc_primary', ?4, ?4, 'canvas_scene')",
+                        params![DOCUMENT_ID, PROJECT_ID, "0".repeat(64), NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Canvas");
+        let module = OwnedDocumentModule::new(PROFILE_ID, LIBRARY_ID, &kernel);
+        SeededModule {
+            _directory: directory,
+            kernel,
+            module,
+            full_state: Vec::new(),
+            state_vector: Vec::new(),
+        }
+    }
+
+    fn canvas_mutation_request(
+        operation_id: &str,
+        base_head_seq: i64,
+        version: i64,
+        text: &str,
+    ) -> ModuleApplyRequest<OwnedDocumentIntent> {
+        ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: base_head_seq,
+                mutation: json!({
+                    "elementCandidates": [{
+                        "id": "element:page-ref",
+                        "type": "rectangle",
+                        "version": version,
+                        "versionNonce": 7,
+                        "index": "a0",
+                        "isDeleted": false,
+                        "text": text,
+                        "customData": {
+                            "type": "nodex-card",
+                            "cardId": TARGET_PAGE_BLOCK_ID,
+                            "titleHint": "Target"
+                        }
+                    }],
+                    "appStateIntents": {
+                        "gridSize": {
+                            "expected": { "kind": "absent" },
+                            "value": { "kind": "value", "value": 20 }
+                        }
+                    },
+                    "fileAdditions": {}
+                }),
+            },
+        }
+    }
+
+    #[test]
+    fn canvas_prepare_sync_merge_and_exact_retry_share_scene_authority() {
+        let seeded = canvas_module();
+        let prepared = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "canvas:prepare".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::PrepareOwner {
+                        owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("prepare Canvas");
+        assert_eq!(prepared.committed.value.head_seq, 0);
+        assert_eq!(
+            prepared.committed.value.outcome,
+            DocumentCommitOutcome::Committed
+        );
+        assert!(prepared.event.is_none());
+
+        let initial = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::SyncCanvas {
+                        document_id: DOCUMENT_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("initial Canvas sync");
+        let OwnedDocumentReadValue::CanvasSync {
+            scene_json,
+            scene_hash,
+            ..
+        } = initial.value
+        else {
+            panic!("expected Canvas sync")
+        };
+        let initial_scene: Value = serde_json::from_slice(&scene_json).expect("scene JSON");
+        assert_eq!(initial_scene["elements"], json!([]));
+        assert_eq!(scene_hash.len(), 64);
+
+        let request = canvas_mutation_request("canvas:edit:1", 0, 1, "Native Canvas");
+        let applied = seeded
+            .module
+            .apply(&context(), request.clone())
+            .expect("Canvas edit");
+        assert_eq!(applied.committed.value.head_seq, 1);
+        assert_eq!(
+            applied.committed.value.outcome,
+            DocumentCommitOutcome::Committed
+        );
+        assert!(applied.committed.value.canvas.is_some());
+        assert!(matches!(
+            applied.event.as_ref().map(|event| &event.payload),
+            Some(CoreModuleEventPayload::OwnedDocument(
+                OwnedDocumentEvent::CanvasUpdated { .. }
+            ))
+        ));
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "canvas:checkpoint".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::CreateCheckpoint {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        cause: "manual".to_owned(),
+                        label: Some("Canvas checkpoint".to_owned()),
+                    },
+                },
+            )
+            .expect("Canvas checkpoint");
+        let versions = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::ListVersions {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        before_version_id: None,
+                        limit: None,
+                    },
+                },
+            )
+            .expect("Canvas versions");
+        let OwnedDocumentReadValue::Versions { items, .. } = versions.value else {
+            panic!("expected Canvas versions")
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["materializationKind"], "canvas_scene");
+        let canvas_version_id = items[0]["versionId"]
+            .as_str()
+            .expect("Canvas version ID")
+            .to_owned();
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT document.head_seq, document.state_hash, scene.head_seq, scene.scene_hash, \
+                            json_extract(element.element_json, '$.customData.type'), \
+                            (SELECT count(*) FROM canvas_page_references WHERE document_id = ?1), \
+                            (SELECT count(*) FROM canvas_scene_mutation_receipts WHERE document_id = ?1), \
+                            (SELECT count(*) FROM change_log WHERE operation_id = 'canvas:edit:1') \
+                     FROM documents document JOIN canvas_scenes scene ON scene.document_id = document.id \
+                     JOIN canvas_scene_elements element ON element.document_id = document.id \
+                     WHERE document.id = ?1",
+                    [DOCUMENT_ID],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, i64>(6)?,
+                            row.get::<_, i64>(7)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence.0, 1);
+                assert_eq!(evidence.1, evidence.3);
+                assert_eq!(evidence.2, 1);
+                assert_eq!(evidence.4, "nodex-card-reference");
+                assert_eq!((evidence.5, evidence.6, evidence.7), (1, 1, 1));
+                Ok::<_, StoreError>(())
+            })
+            .expect("Canvas durable evidence");
+
+        let duplicate = seeded
+            .module
+            .apply(&context(), request)
+            .expect("Canvas exact retry");
+        assert!(duplicate.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            duplicate.committed.value.canvas.as_ref().unwrap()["duplicate"],
+            true
+        );
+        assert!(duplicate.event.is_none());
+
+        let stale_merge = seeded
+            .module
+            .apply(
+                &context(),
+                canvas_mutation_request("canvas:edit:2", 0, 2, "Merged Canvas"),
+            )
+            .expect("stale element-clock merge");
+        assert_eq!(stale_merge.committed.value.head_seq, 2);
+        assert_eq!(
+            stale_merge.committed.value.canvas.as_ref().unwrap()["skippedAppStateKeys"],
+            json!(["gridSize"])
+        );
+
+        seeded.module.inject_failure_after_next_commit();
+        let interrupted = seeded
+            .module
+            .apply(
+                &context(),
+                canvas_mutation_request("canvas:edit:3", 2, 3, "Recovered Canvas"),
+            )
+            .expect_err("failure after Canvas commit");
+        assert_eq!(interrupted.code, CoreErrorCode::CoreUnavailable);
+        let recovered = seeded
+            .module
+            .apply(
+                &context(),
+                canvas_mutation_request("canvas:edit:3", 2, 3, "Recovered Canvas"),
+            )
+            .expect("recover Canvas receipt");
+        assert_eq!(recovered.committed.value.head_seq, 3);
+        assert!(recovered.committed.receipt.mutation.duplicate);
+        assert!(recovered.event.is_none());
+
+        fs::write(
+            seeded._directory.path().join("assets/canvas-image.png"),
+            b"managed-canvas-asset",
+        )
+        .expect("managed Canvas asset");
+        let image = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "canvas:image:add".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 3,
+                        mutation: json!({
+                            "elementCandidates": [{
+                                "id": "element:image",
+                                "type": "image",
+                                "version": 1,
+                                "versionNonce": 0,
+                                "isDeleted": false,
+                                "fileId": "file:image"
+                            }],
+                            "appStateIntents": {},
+                            "fileAdditions": {
+                                "file:image": {
+                                    "id": "file:image",
+                                    "mimeType": "image/png",
+                                    "source": "nodex://assets/canvas-image.png",
+                                    "created": 1
+                                }
+                            }
+                        }),
+                    },
+                },
+            )
+            .expect("add Canvas image");
+        assert_eq!(image.committed.value.head_seq, 4);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT (SELECT count(*) FROM canvas_scene_files WHERE document_id = ?1), \
+                            (SELECT count(*) FROM canvas_scene_file_refs WHERE document_id = ?1), \
+                            (SELECT asset_hash FROM canvas_scene_file_refs WHERE document_id = ?1), \
+                            (SELECT byte_length FROM canvas_scene_file_refs WHERE document_id = ?1)",
+                    [DOCUMENT_ID],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )?;
+                assert_eq!((evidence.0, evidence.1), (1, 1));
+                assert_eq!(evidence.2, sha256(b"managed-canvas-asset"));
+                assert_eq!(evidence.3, 20);
+                Ok::<_, StoreError>(())
+            })
+            .expect("Canvas asset evidence");
+
+        let removed = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "canvas:image:remove".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyCanvasMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 4,
+                        mutation: json!({
+                            "elementCandidates": [{
+                                "id": "element:image",
+                                "type": "image",
+                                "version": 2,
+                                "versionNonce": 0,
+                                "isDeleted": true,
+                                "fileId": "file:image"
+                            }],
+                            "appStateIntents": {},
+                            "fileAdditions": {}
+                        }),
+                    },
+                },
+            )
+            .expect("remove Canvas image");
+        assert_eq!(removed.committed.value.head_seq, 5);
+        assert_eq!(
+            removed.committed.value.canvas.as_ref().unwrap()["removedFileIds"],
+            json!(["file:image"])
+        );
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let count: i64 = connection.query_row(
+                    "SELECT (SELECT count(*) FROM canvas_scene_files WHERE document_id = ?1) + \
+                            (SELECT count(*) FROM canvas_scene_file_refs WHERE document_id = ?1)",
+                    [DOCUMENT_ID],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(count, 0);
+                Ok::<_, StoreError>(())
+            })
+            .expect("Canvas asset removed");
+
+        let restored = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "canvas:restore".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::RestoreVersion {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        version_id: canvas_version_id.clone(),
+                        generation: 1,
+                        expected_head_seq: 5,
+                    },
+                },
+            )
+            .expect("restore Canvas version");
+        assert_eq!(restored.committed.value.head_seq, 6);
+        assert!(matches!(
+            restored.event.as_ref().map(|event| &event.payload),
+            Some(CoreModuleEventPayload::OwnedDocument(
+                OwnedDocumentEvent::DocumentInvalidated {
+                    reason: DocumentInvalidationReason::Restored,
+                    ..
+                }
+            ))
+        ));
+        let restored_scene = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::SyncCanvas {
+                        document_id: DOCUMENT_ID.to_owned(),
+                    },
+                },
+            )
+            .expect("restored Canvas sync");
+        let OwnedDocumentReadValue::CanvasSync { scene_json, .. } = restored_scene.value else {
+            panic!("expected restored Canvas")
+        };
+        let restored_scene: Value = serde_json::from_slice(&scene_json).expect("restored scene");
+        assert_eq!(restored_scene["elements"][0]["text"], "Native Canvas");
+        let version = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::GetVersion {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        version_id: canvas_version_id,
+                    },
+                },
+            )
+            .expect("Canvas version detail");
+        let OwnedDocumentReadValue::Version { value } = version.value else {
+            panic!("expected Canvas version detail")
+        };
+        assert_eq!(value["materialization"]["kind"], "canvas_scene");
     }
 
     #[test]
