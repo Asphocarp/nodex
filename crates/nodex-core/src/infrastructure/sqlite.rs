@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use std::{os::unix::ffi::OsStrExt, path::Path};
 
 use rusqlite::limits::Limit;
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
@@ -119,6 +120,33 @@ pub fn open_writer(path: &std::path::Path) -> Result<Connection, StoreError> {
 pub fn open_reader(path: &std::path::Path) -> Result<Connection, StoreError> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = Connection::open_with_flags(path, flags)?;
+    configure_reader(&connection)?;
+    Ok(connection)
+}
+
+pub fn open_immutable_reader(path: &Path) -> Result<Connection, StoreError> {
+    let canonical = path.canonicalize().map_err(|error| {
+        StoreError::new(
+            StoreErrorCode::InvalidProfile,
+            format!("Immutable SQLite path is unavailable: {error}"),
+            false,
+        )
+    })?;
+    let encoded = canonical
+        .as_os_str()
+        .as_bytes()
+        .iter()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-' => {
+                char::from(*byte).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect::<String>();
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        | OpenFlags::SQLITE_OPEN_URI;
+    let connection = Connection::open_with_flags(format!("file:{encoded}?immutable=1"), flags)?;
     configure_reader(&connection)?;
     Ok(connection)
 }

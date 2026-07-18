@@ -9,6 +9,19 @@ pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 82;
 pub const CORE_SCHEMA_VERSION: i64 = 83;
 pub const V82_SCHEMA_SQL: &str = include_str!("../../schema/v82.sql");
 
+pub fn v82_schema_objects_sql() -> &'static str {
+    let start_marker = "BEGIN IMMEDIATE;\n\n";
+    let end_marker = "\nPRAGMA user_version = 82;";
+    let start = V82_SCHEMA_SQL
+        .find(start_marker)
+        .expect("v82 schema artifact start marker")
+        + start_marker.len();
+    let end = V82_SCHEMA_SQL
+        .rfind(end_marker)
+        .expect("v82 schema artifact end marker");
+    &V82_SCHEMA_SQL[start..end]
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaObjectKey {

@@ -1420,6 +1420,20 @@ describe("schema v83 release boundary", () => {
     unchanged.close();
   });
 
+  test("rejects the Rust Core v83 ownership schema without mutating it", async () => {
+    useTempStore();
+    const database = new Database(getDatabasePath());
+    database.pragma("user_version = 83");
+    database.close();
+
+    await expect(initializeDatabase()).rejects.toThrow(
+      "Unsupported Nodex database schema version 83",
+    );
+    const unchanged = new Database(getDatabasePath(), { readonly: true });
+    expect(unchanged.pragma("user_version", { simple: true })).toBe(83);
+    unchanged.close();
+  });
+
   test("migrates v58 state to v59 without losing thread or panel identity", () => {
     const database = new Database(":memory:");
     database.pragma("foreign_keys = ON");

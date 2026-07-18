@@ -1,9 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
 
 use nodex_core::document::{create_compatible_document, has_pending_dependencies};
 use nodex_core::infrastructure::schema::{install_v82_schema, read_schema_inventory};
+use nodex_core::infrastructure::sqlite::StoreError;
+use nodex_core::infrastructure::store::SqliteStoreKernel;
+use rusqlite::types::ValueRef;
 use rusqlite::{Connection, MAIN_DB, OpenFlags, OptionalExtension, params};
+use sha2::{Digest, Sha256};
 use tempfile::tempdir;
 use yrs::updates::decoder::Decode;
 use yrs::{ReadTxn, StateVector, Transact, Update};
@@ -24,6 +30,17 @@ struct Snapshot {
     seq: i64,
     state_vector: Vec<u8>,
     update: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreservationEvidence {
+    store_metadata: String,
+    documents: String,
+    updates: String,
+    receipts: String,
+    snapshots: String,
+    materializations: String,
+    change_log: String,
 }
 
 fn fixture_home() -> PathBuf {
@@ -104,6 +121,67 @@ fn assert_search_and_json_projections(connection: &Connection) {
         )
         .expect("search trigger inventory is readable");
     assert_eq!(trigger_count, 3);
+}
+
+fn query_digest(connection: &Connection, sql: &str) -> String {
+    let mut statement = connection.prepare(sql).expect("evidence query prepares");
+    let column_count = statement.column_count();
+    let mut rows = statement.query([]).expect("evidence query runs");
+    let mut digest = Sha256::new();
+    let mut row_count = 0_u64;
+    while let Some(row) = rows.next().expect("evidence row reads") {
+        row_count += 1;
+        digest.update(b"row\0");
+        for column in 0..column_count {
+            match row.get_ref(column).expect("evidence value reads") {
+                ValueRef::Null => digest.update([0]),
+                ValueRef::Integer(value) => {
+                    digest.update([1]);
+                    digest.update(value.to_le_bytes());
+                }
+                ValueRef::Real(value) => {
+                    digest.update([2]);
+                    digest.update(value.to_bits().to_le_bytes());
+                }
+                ValueRef::Text(value) => {
+                    digest.update([3]);
+                    digest.update((value.len() as u64).to_le_bytes());
+                    digest.update(value);
+                }
+                ValueRef::Blob(value) => {
+                    digest.update([4]);
+                    digest.update((value.len() as u64).to_le_bytes());
+                    digest.update(value);
+                }
+            }
+        }
+    }
+    digest.update(row_count.to_le_bytes());
+    format!("{:x}", digest.finalize())
+}
+
+fn preservation_evidence(connection: &Connection) -> PreservationEvidence {
+    PreservationEvidence {
+        store_metadata: query_digest(connection, "SELECT * FROM block_store_metadata ORDER BY id"),
+        documents: query_digest(connection, "SELECT * FROM documents ORDER BY id"),
+        updates: query_digest(
+            connection,
+            "SELECT * FROM document_updates ORDER BY document_id, generation, seq",
+        ),
+        receipts: query_digest(
+            connection,
+            "SELECT * FROM document_update_receipts ORDER BY document_id, generation, seq",
+        ),
+        snapshots: query_digest(
+            connection,
+            "SELECT * FROM document_snapshots ORDER BY document_id, generation, snapshot_seq",
+        ),
+        materializations: query_digest(
+            connection,
+            "SELECT * FROM document_materializations ORDER BY document_id",
+        ),
+        change_log: query_digest(connection, "SELECT * FROM change_log ORDER BY seq"),
+    }
 }
 
 fn load_document_heads(connection: &Connection) -> Vec<DocumentHead> {
@@ -265,6 +343,17 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
         tail_count > 0,
         "fixture must exercise an incremental update tail"
     );
+    let live_yjs_documents: usize = source
+        .query_row(
+            "SELECT count(*) FROM documents WHERE readiness = 'ready' \
+             AND authority = 'ydoc_primary' AND sync_engine = 'yjs'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("live Yjs count")
+        .try_into()
+        .expect("non-negative Yjs count");
+    let source_evidence = preservation_evidence(&source);
 
     source
         .backup(MAIN_DB, &backup_path, None)
@@ -285,4 +374,101 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
     let restored = Connection::open(&restored_path).expect("restored database opens");
     assert_store_is_valid(&restored);
     assert_search_and_json_projections(&restored);
+
+    let migrated_home = temporary.path().join("migrated-profile");
+    fs::create_dir(&migrated_home).expect("migrated Profile directory");
+    copy_fixture_database(&fixture, &migrated_home.join("nodex.db"));
+    let kernel = SqliteStoreKernel::open(&migrated_home).expect("v82 migrates to v83");
+    assert_eq!(kernel.preparation().schema_version, 83);
+    assert_eq!(kernel.preparation().migrated_from_version, Some(82));
+    assert_eq!(
+        kernel.preparation().validated_yjs_documents,
+        live_yjs_documents
+    );
+    assert!(
+        kernel
+            .preparation()
+            .migration_backup_path
+            .as_ref()
+            .is_some_and(|path| path.is_file())
+    );
+    let migrated_evidence = kernel
+        .readers()
+        .read_default(|connection| Ok::<_, StoreError>(preservation_evidence(connection)))
+        .expect("migration preservation evidence");
+    assert_eq!(
+        migrated_evidence, source_evidence,
+        "v83 ownership publication must not rewrite authoritative rows, updates, receipts, snapshots, projections, or event history"
+    );
+    kernel
+        .readers()
+        .read_default(|connection| {
+            assert_store_is_valid(connection);
+            assert_search_and_json_projections(connection);
+            let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+            assert_eq!(version, 83);
+            Ok::<_, StoreError>(())
+        })
+        .expect("migrated store remains queryable");
+
+    let v83_backup_path = temporary.path().join("v83-online-backup.db");
+    let readers = kernel.readers();
+    let (reader_ready_tx, reader_ready_rx) = mpsc::sync_channel(1);
+    let (reader_release_tx, reader_release_rx) = mpsc::sync_channel(1);
+    let reader = thread::spawn(move || {
+        readers.read_default(|connection| {
+            connection.execute_batch("BEGIN")?;
+            let _: i64 =
+                connection.query_row("SELECT count(*) FROM documents", [], |row| row.get(0))?;
+            reader_ready_tx.send(()).expect("reader announces snapshot");
+            reader_release_rx.recv().expect("reader snapshot releases");
+            connection.execute_batch("COMMIT")?;
+            Ok::<_, StoreError>(())
+        })
+    });
+    reader_ready_rx.recv().expect("read traffic is active");
+    kernel
+        .writer()
+        .call({
+            let v83_backup_path = v83_backup_path.clone();
+            move |connection| {
+                connection.backup(MAIN_DB, &v83_backup_path, None)?;
+                Ok(())
+            }
+        })
+        .expect("v83 online backup succeeds while a reader holds a snapshot");
+    reader_release_tx.send(()).expect("release read traffic");
+    reader
+        .join()
+        .expect("reader thread joins")
+        .expect("concurrent read succeeds");
+
+    let v83_backup = Connection::open_with_flags(
+        &v83_backup_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("v83 backup reopens read-only");
+    assert_store_is_valid(&v83_backup);
+    assert_search_and_json_projections(&v83_backup);
+    assert_eq!(preservation_evidence(&v83_backup), source_evidence);
+    drop(v83_backup);
+
+    let restored_v83_home = temporary.path().join("restored-v83-profile");
+    fs::create_dir(&restored_v83_home).expect("restored v83 Profile directory");
+    let v83_backup_source = Connection::open(&v83_backup_path).expect("v83 backup opens");
+    v83_backup_source
+        .backup(MAIN_DB, restored_v83_home.join("nodex.db"), None)
+        .expect("v83 backup restores through SQLite");
+    drop(v83_backup_source);
+    let restored_v83 =
+        SqliteStoreKernel::open(&restored_v83_home).expect("restored v83 store opens in Core");
+    restored_v83
+        .readers()
+        .read_default(|connection| {
+            assert_store_is_valid(connection);
+            assert_search_and_json_projections(connection);
+            assert_eq!(preservation_evidence(connection), source_evidence);
+            Ok::<_, StoreError>(())
+        })
+        .expect("restored v83 store remains exact and queryable");
 }
