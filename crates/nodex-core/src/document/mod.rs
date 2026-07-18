@@ -1,4 +1,5 @@
 mod block_document;
+mod history;
 mod materialization;
 mod module;
 mod operations;

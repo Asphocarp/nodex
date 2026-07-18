@@ -3,8 +3,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::document::{
-    DocumentCommitOutcome, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
-    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentCommitOutcome, DocumentInvalidationReason, OwnedDocumentCommitValue,
+    OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
+    OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -26,6 +27,10 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+use super::history::{
+    NewDocumentCheckpoint, get_document_version, insert_document_checkpoint,
+    list_document_versions, prepare_version_restore,
+};
 use super::persistence::{
     DocumentAuthorityRow, PersistYjsCommit, persist_yjs_commit, read_document_authority,
     read_event_head, read_store_epoch, sha256,
@@ -48,6 +53,13 @@ struct DocumentUpdateJob {
     generation: i64,
     operation_kind: &'static str,
     request_hash: String,
+    publication: UpdatePublication,
+}
+
+#[derive(Clone, Copy)]
+enum UpdatePublication {
+    Updated,
+    Invalidated(DocumentInvalidationReason),
 }
 
 enum PreparedUpdate {
@@ -164,10 +176,59 @@ impl OwnedDocumentModule {
                     })
                     .map_err(core_error)
             }
-            OwnedDocumentRead::SyncCanvas { .. }
-            | OwnedDocumentRead::ListVersions { .. }
-            | OwnedDocumentRead::GetVersion { .. } => {
-                Err(invalid("Owned Document read is not implemented yet"))
+            OwnedDocumentRead::ListVersions {
+                document_id,
+                before_version_id,
+                limit,
+            } => self
+                .readers
+                .read_default(|connection| {
+                    let authority = read_document_authority(connection, &document_id)?
+                        .ok_or_else(|| not_found("Owned Document was not found"))?;
+                    authorize_yjs(context, &authority)?;
+                    let (items, next_version_id) = list_document_versions(
+                        connection,
+                        &authority,
+                        before_version_id.as_deref(),
+                        limit,
+                    )?;
+                    Ok(ModuleReadSnapshot {
+                        version: CORE_CONTRACT_VERSION,
+                        store_epoch: StoreEpoch(read_store_epoch(connection)?),
+                        event_head: read_event_head(connection)?,
+                        value: OwnedDocumentReadValue::Versions {
+                            items,
+                            next_version_id,
+                        },
+                    })
+                })
+                .map_err(core_error),
+            OwnedDocumentRead::GetVersion {
+                document_id,
+                version_id,
+            } => self
+                .readers
+                .read_default(|connection| {
+                    let authority = read_document_authority(connection, &document_id)?
+                        .ok_or_else(|| not_found("Owned Document was not found"))?;
+                    authorize_yjs(context, &authority)?;
+                    let version = get_document_version(connection, &authority, &version_id)?
+                        .ok_or_else(|| not_found("Document version was not found"))?;
+                    Ok(ModuleReadSnapshot {
+                        version: CORE_CONTRACT_VERSION,
+                        store_epoch: StoreEpoch(read_store_epoch(connection)?),
+                        event_head: read_event_head(connection)?,
+                        value: OwnedDocumentReadValue::Version {
+                            value: json!({
+                                "summary": version.summary,
+                                "materialization": version.materialization,
+                            }),
+                        },
+                    })
+                })
+                .map_err(core_error),
+            OwnedDocumentRead::SyncCanvas { .. } => {
+                Err(invalid("Canvas Document read is not implemented yet"))
             }
         }
     }
@@ -213,6 +274,36 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 commands,
+            ),
+            OwnedDocumentIntent::CreateCheckpoint {
+                document_id,
+                generation,
+                expected_head_seq,
+                cause,
+                label,
+            } => self.create_checkpoint(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                document_id,
+                generation,
+                expected_head_seq,
+                cause,
+                label,
+            ),
+            OwnedDocumentIntent::RestoreVersion {
+                document_id,
+                version_id,
+                generation,
+                expected_head_seq,
+            } => self.restore_version(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                document_id,
+                version_id,
+                generation,
+                expected_head_seq,
             ),
             _ => Err(invalid("Owned Document intent is not implemented yet")),
         }
@@ -279,6 +370,7 @@ impl OwnedDocumentModule {
                 generation,
                 operation_kind: "apply_yjs_update",
                 request_hash,
+                publication: UpdatePublication::Updated,
             },
             move |connection, authority, _engine, _materialization, _store_epoch| {
                 if base_head_seq > authority.head.head_seq {
@@ -349,6 +441,7 @@ impl OwnedDocumentModule {
                 generation,
                 operation_kind: "apply_semantic_mutation",
                 request_hash: sha256(&fingerprint),
+                publication: UpdatePublication::Updated,
             },
             move |connection, authority, engine, materialization, store_epoch| {
                 let requires_structural_barrier =
@@ -412,6 +505,197 @@ impl OwnedDocumentModule {
                     Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
                     Err(error) => Err(semantic_error(error)),
                 }
+            },
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_checkpoint(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        cause: String,
+        label: Option<String>,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let fingerprint = serde_json::to_vec(&(
+            context,
+            expected_store_epoch.clone(),
+            &document_id,
+            generation,
+            expected_head_seq,
+            &cause,
+            &label,
+        ))
+        .map_err(|_| invalid("Document checkpoint request cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let context = context.clone();
+        let cache = Arc::clone(&self.cache);
+        self.writer
+            .call(move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Conflict,
+                        "Document checkpoint targets a stale store epoch",
+                        true,
+                    ));
+                }
+                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                {
+                    if stored.request_hash != request_hash {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to another Owned Document intent",
+                            false,
+                        ));
+                    }
+                    let mut committed = serde_json::from_value::<
+                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                    >(stored.result)
+                    .map_err(|_| corrupt_receipt())?;
+                    committed.receipt.mutation.duplicate = true;
+                    transaction.commit()?;
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        event: None,
+                    });
+                }
+                let authority = read_document_authority(&transaction, &document_id)?
+                    .ok_or_else(|| not_found("Owned Document was not found"))?;
+                authorize_yjs(&context, &authority)?;
+                assert_document_head(&authority, generation, expected_head_seq)?;
+                let engine = cache
+                    .lock()
+                    .map_err(|_| internal("Document cache lock failed"))?
+                    .clone_engine(&transaction, &authority.head)?;
+                let schema = BlockDocumentSchema::from_identity(
+                    &authority.head.schema_key,
+                    authority.head.schema_version,
+                )
+                .ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::UnsupportedSchema,
+                        "Owned Document schema is unsupported",
+                        false,
+                    )
+                })?;
+                let materialization = materialize_engine(&engine, schema)?;
+                let now = sqlite_now(&transaction)?;
+                insert_document_checkpoint(
+                    &transaction,
+                    &authority,
+                    &materialization,
+                    NewDocumentCheckpoint {
+                        operation_id: &operation_id,
+                        cause: &cause,
+                        label: label.as_deref(),
+                        revision_kind: "manual",
+                        source_change_seq: None,
+                        context: &context,
+                        now: &now,
+                    },
+                )?;
+                let event_head = read_event_head(&transaction)?;
+                let committed = committed_value(
+                    &operation_id,
+                    &store_epoch,
+                    &authority,
+                    authority.head.head_seq,
+                    DocumentCommitOutcome::Committed,
+                    event_head,
+                );
+                insert_typed_receipt(
+                    &transaction,
+                    &context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "create_checkpoint",
+                    &committed,
+                    None,
+                )?;
+                transaction.commit()?;
+                cache
+                    .lock()
+                    .map_err(|_| internal("Document cache lock failed"))?
+                    .install(&authority.head, engine);
+                Ok(OwnedDocumentApplyOutcome {
+                    committed,
+                    event: None,
+                })
+            })
+            .map_err(core_error)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn restore_version(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        version_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let fingerprint = serde_json::to_vec(&(
+            context,
+            expected_store_epoch.clone(),
+            &document_id,
+            &version_id,
+            generation,
+            expected_head_seq,
+        ))
+        .map_err(|_| invalid("Document restore request cannot be fingerprinted"))?;
+        let checkpoint_operation_id = operation_id.clone();
+        let checkpoint_context = context.clone();
+        self.apply_document_update(
+            DocumentUpdateJob {
+                context: context.clone(),
+                operation_id: operation_id.clone(),
+                expected_store_epoch,
+                document_id,
+                generation,
+                operation_kind: "restore_version",
+                request_hash: sha256(&fingerprint),
+                publication: UpdatePublication::Invalidated(DocumentInvalidationReason::Restored),
+            },
+            move |connection, authority, engine, materialization, _store_epoch| {
+                assert_document_head(authority, generation, expected_head_seq)?;
+                let Some(prepared) =
+                    prepare_version_restore(connection, authority, engine, &version_id)?
+                else {
+                    return Ok(PreparedUpdate::NoChange);
+                };
+                let now = sqlite_now(connection)?;
+                let event_head = read_event_head(connection)?;
+                let safety_label = format!("Before restoring {version_id}");
+                insert_document_checkpoint(
+                    connection,
+                    authority,
+                    materialization,
+                    NewDocumentCheckpoint {
+                        operation_id: &checkpoint_operation_id,
+                        cause: "before_restore",
+                        label: Some(&safety_label),
+                        revision_kind: "safety",
+                        source_change_seq: (event_head > 0).then_some(event_head),
+                        context: &checkpoint_context,
+                        now: &now,
+                    },
+                )?;
+                Ok(PreparedUpdate::Apply {
+                    base_head_seq: authority.head.head_seq,
+                    update_id: operation_id,
+                    touched_block_ids: Vec::new(),
+                    update: prepared.update_v1,
+                })
             },
         )
     }
@@ -596,6 +880,13 @@ impl OwnedDocumentModule {
                         full_state: &full_state,
                         store_epoch: &store_epoch,
                         operation_id: &job.operation_id,
+                        event_kind: match job.publication {
+                            UpdatePublication::Updated => "document_updated",
+                            UpdatePublication::Invalidated(
+                                DocumentInvalidationReason::Restored,
+                            ) => "document_restored",
+                            UpdatePublication::Invalidated(_) => "document_invalidated",
+                        },
                     },
                 )?;
                 let committed = committed_value(
@@ -637,20 +928,31 @@ impl OwnedDocumentModule {
                     .lock()
                     .map_err(|_| internal("Document cache lock failed"))?
                     .install(&next_head, engine);
+                let payload = match job.publication {
+                    UpdatePublication::Updated => {
+                        CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentUpdated {
+                            document_id: job.document_id.clone(),
+                            generation: job.generation,
+                            head_seq: persisted.head_seq,
+                            update,
+                        })
+                    }
+                    UpdatePublication::Invalidated(reason) => {
+                        CoreModuleEventPayload::OwnedDocument(
+                            OwnedDocumentEvent::DocumentInvalidated {
+                                document_id: job.document_id.clone(),
+                                reason,
+                            },
+                        )
+                    }
+                };
                 let event = CommittedCoreModuleEvent {
                     version: CORE_CONTRACT_VERSION,
                     sequence: persisted.event_sequence,
                     store_epoch: StoreEpoch(store_epoch.clone()),
                     operation_id: Some(job.operation_id),
                     committed_at: persisted.committed_at,
-                    payload: CoreModuleEventPayload::OwnedDocument(
-                        OwnedDocumentEvent::DocumentUpdated {
-                            document_id: job.document_id,
-                            generation: job.generation,
-                            head_seq: persisted.head_seq,
-                            update,
-                        },
-                    ),
+                    payload,
                 };
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
@@ -865,6 +1167,36 @@ fn semantic_error(error: SemanticMutationError) -> StoreError {
             StoreError::new(code, error.to_string(), false)
         }
     }
+}
+
+fn assert_document_head(
+    authority: &DocumentAuthorityRow,
+    generation: i64,
+    expected_head_seq: i64,
+) -> Result<(), StoreError> {
+    if authority.head.generation != generation {
+        return Err(StoreError::new(
+            StoreErrorCode::GenerationConflict,
+            "Owned Document generation does not match",
+            false,
+        ));
+    }
+    if authority.head.head_seq == expected_head_seq {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::HeadConflict,
+        "Owned Document head does not match the required history barrier",
+        true,
+    ))
+}
+
+fn corrupt_receipt() -> StoreError {
+    StoreError::new(
+        StoreErrorCode::StoreCorrupt,
+        "Stored Owned Document receipt result is invalid",
+        false,
+    )
 }
 
 fn allocate_document_block_id(seed: &str, index: u64) -> String {
@@ -1313,6 +1645,156 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .expect("committed authority survives missed publication");
+    }
+
+    #[test]
+    fn checkpoints_list_get_and_restore_immutable_document_history() {
+        let seeded = seeded_module();
+        let checkpoint_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "checkpoint:initial".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::CreateCheckpoint {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: 1,
+                cause: "manual".to_owned(),
+                label: Some("Initial Page".to_owned()),
+            },
+        };
+        let checkpoint = seeded
+            .module
+            .apply(&context(), checkpoint_request.clone())
+            .expect("checkpoint");
+        assert_eq!(checkpoint.committed.value.head_seq, 1);
+        assert!(checkpoint.event.is_none());
+        assert!(
+            seeded
+                .module
+                .apply(&context(), checkpoint_request)
+                .unwrap()
+                .committed
+                .receipt
+                .mutation
+                .duplicate
+        );
+        let versions = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::ListVersions {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        before_version_id: None,
+                        limit: Some(50),
+                    },
+                },
+            )
+            .expect("history list");
+        let OwnedDocumentReadValue::Versions {
+            items,
+            next_version_id,
+        } = versions.value
+        else {
+            panic!("expected history list")
+        };
+        assert_eq!(items.len(), 1);
+        assert!(next_version_id.is_none());
+        let version_id = items[0]["versionId"].as_str().unwrap().to_owned();
+        let version = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::GetVersion {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        version_id: version_id.clone(),
+                    },
+                },
+            )
+            .expect("history detail");
+        let OwnedDocumentReadValue::Version { value } = version.value else {
+            panic!("expected history detail")
+        };
+        assert_eq!(
+            value["summary"]["checkpointMetadata"]["format"],
+            "block_tree_snapshot_v2"
+        );
+
+        let update = title_update(
+            &seeded.full_state,
+            &seeded.state_vector,
+            "Changed after checkpoint",
+        );
+        seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:after-checkpoint", 1, update),
+            )
+            .unwrap();
+        let restore_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "restore:initial".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::RestoreVersion {
+                document_id: DOCUMENT_ID.to_owned(),
+                version_id,
+                generation: 1,
+                expected_head_seq: 2,
+            },
+        };
+        let restored = seeded
+            .module
+            .apply(&context(), restore_request.clone())
+            .expect("restore checkpoint");
+        assert_eq!(restored.committed.value.head_seq, 3);
+        assert!(matches!(
+            restored.event.unwrap().payload,
+            CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
+                reason: DocumentInvalidationReason::Restored,
+                ..
+            })
+        ));
+        assert!(
+            seeded
+                .module
+                .apply(&context(), restore_request)
+                .unwrap()
+                .committed
+                .receipt
+                .mutation
+                .duplicate
+        );
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let title: String = connection.query_row(
+                    "SELECT title FROM document_materializations WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| row.get(0),
+                )?;
+                let versions: i64 = connection.query_row(
+                    "SELECT count(*) FROM document_versions WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| row.get(0),
+                )?;
+                let restored_events: i64 = connection.query_row(
+                    "SELECT count(*) FROM change_log \
+                     WHERE operation_id = 'restore:initial' \
+                       AND kind = 'owned_document.document_restored'",
+                    [],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(title, "");
+                assert_eq!(versions, 2);
+                assert_eq!(restored_events, 1);
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
     }
 
     #[test]

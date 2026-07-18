@@ -50,6 +50,7 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub full_state: &'a [u8],
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
+    pub event_kind: &'a str,
 }
 
 pub(crate) fn read_document_authority(
@@ -252,7 +253,7 @@ pub(crate) fn persist_yjs_commit(
     )?;
     let payload = json!({
         "module": "owned_document",
-        "kind": "document_updated",
+        "kind": input.event_kind,
         "documentId": input.authority.head.id,
         "generation": input.authority.head.generation,
         "headSeq": next_head_seq,
@@ -264,10 +265,11 @@ pub(crate) fn persist_yjs_commit(
         "INSERT INTO change_log (\
            project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
            database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'owned_document.document_updated', ?3, ?4, ?5, '[]', ?6, ?7)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '[]', ?7, ?8)",
         params![
             input.authority.head.project_id,
             input.store_epoch,
+            format!("owned_document.{}", input.event_kind),
             input.operation_id,
             derived_touched_json,
             serde_json::to_string(&[&input.authority.head.id])

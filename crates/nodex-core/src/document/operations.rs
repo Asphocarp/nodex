@@ -448,6 +448,28 @@ pub fn prepare_nfm_replacement_update(
         &target_blocks,
         &target_tree,
         rich_title,
+        false,
+    )
+}
+
+pub(crate) fn prepare_document_snapshot_restore_update(
+    document_id: &str,
+    schema: BlockDocumentSchema,
+    full_state_v1: &[u8],
+    expected_state_vector_v1: &[u8],
+    target_blocks: &[MaterializedBlockNode],
+    rich_title: Option<&[RichTextItem]>,
+) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
+    let target_tree = dematerialize_block_tree(target_blocks)?;
+    prepare_document_body_replacement_update(
+        document_id,
+        schema,
+        full_state_v1,
+        expected_state_vector_v1,
+        target_blocks,
+        &target_tree,
+        rich_title,
+        true,
     )
 }
 
@@ -813,6 +835,7 @@ fn prepare_document_body_replacement_update(
     target_blocks: &[MaterializedBlockNode],
     target_tree: &BlockTree,
     rich_title: Option<&[RichTextItem]>,
+    allow_reused_block_ids: bool,
 ) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
     let source = load_document(document_id, full_state_v1)?;
     let expected = decode_state_vector_v1(expected_state_vector_v1)
@@ -831,8 +854,10 @@ fn prepare_document_body_replacement_update(
     let old_ids: BTreeSet<_> = current_ids(&source_decoded.block_tree.blocks)
         .into_iter()
         .collect();
-    if let Some(reused) = flatten_materialized_ids(target_blocks)
+    if let Some(reused) = (!allow_reused_block_ids)
+        .then(|| flatten_materialized_ids(target_blocks))
         .into_iter()
+        .flatten()
         .find(|id| old_ids.contains(id))
     {
         return Err(operation_error(
