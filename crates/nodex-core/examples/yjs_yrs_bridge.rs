@@ -3,8 +3,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use yrs::sync::{Awareness, AwarenessUpdate};
+use yrs::types::Attrs;
 use yrs::types::text::YChange;
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
@@ -12,7 +13,7 @@ use yrs::{Any, GetString, Out, ReadTxn, Text, Transact, Update, Xml, XmlFragment
 
 use nodex_core::document::{
     BlockDocumentSchema, create_compatible_document, decode_block_document, encode_block_document,
-    has_pending_dependencies,
+    has_pending_dependencies, materialize_decoded_document,
 };
 
 #[derive(Serialize)]
@@ -267,6 +268,188 @@ fn generate_awareness(
     })
 }
 
+#[derive(Debug, Deserialize)]
+struct RandomizedCorpus {
+    cases: Vec<RandomizedCase>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RandomizedCase {
+    seed: u64,
+    operations: Vec<RandomizedEdit>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RandomizedTarget {
+    Title,
+    Body,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum RandomizedEdit {
+    Insert {
+        target: RandomizedTarget,
+        index: u32,
+        text: String,
+    },
+    Delete {
+        target: RandomizedTarget,
+        index: u32,
+        length: u32,
+    },
+    Format {
+        target: RandomizedTarget,
+        index: u32,
+        length: u32,
+        mark: String,
+        enabled: bool,
+    },
+}
+
+#[derive(Serialize)]
+struct RandomizedProductSummary {
+    body_semantic: Vec<XmlSemantic>,
+    materialization: serde_json::Value,
+}
+
+#[derive(Serialize)]
+struct RandomizedCaseSummary {
+    seed: u64,
+    rust_local: RandomizedProductSummary,
+    yjs_update: RandomizedProductSummary,
+}
+
+fn load_randomized_fixture(root: &Path) -> Result<yrs::Doc, Box<dyn std::error::Error>> {
+    let document = create_compatible_document("nodex-yjs-yrs-randomized");
+    apply_update(&document, &fixture_path(root, "base.bin"))?;
+    Ok(document)
+}
+
+fn apply_randomized_edits(
+    document: &yrs::Doc,
+    edits: &[RandomizedEdit],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let title = document.get_or_insert_text("title");
+    let body = document.get_or_insert_xml_fragment("body");
+    let read = document.transact();
+    let body_text = body
+        .successors(&read)
+        .find_map(|node| match node {
+            XmlOut::Text(text) => Some(text),
+            _ => None,
+        })
+        .ok_or("randomized fixture has no body XML text")?;
+    drop(read);
+
+    for edit in edits {
+        let mut transaction = document.transact_mut();
+        let target = match edit {
+            RandomizedEdit::Insert { target, .. }
+            | RandomizedEdit::Delete { target, .. }
+            | RandomizedEdit::Format { target, .. } => target,
+        };
+        match target {
+            RandomizedTarget::Title => apply_randomized_edit(&title, &mut transaction, edit),
+            RandomizedTarget::Body => apply_randomized_edit(&body_text, &mut transaction, edit),
+        }
+    }
+    Ok(())
+}
+
+fn apply_randomized_edit<T: Text>(
+    text: &T,
+    transaction: &mut yrs::TransactionMut<'_>,
+    edit: &RandomizedEdit,
+) {
+    match edit {
+        RandomizedEdit::Insert {
+            index, text: value, ..
+        } => text.insert(transaction, *index, value),
+        RandomizedEdit::Delete { index, length, .. } => {
+            text.remove_range(transaction, *index, *length);
+        }
+        RandomizedEdit::Format {
+            index,
+            length,
+            mark,
+            enabled,
+            ..
+        } => {
+            let value = if *enabled { Any::Bool(true) } else { Any::Null };
+            text.format(
+                transaction,
+                *index,
+                *length,
+                Attrs::from([(mark.clone().into(), value)]),
+            );
+        }
+    }
+}
+
+fn randomized_product_summary(
+    document: &yrs::Doc,
+) -> Result<RandomizedProductSummary, Box<dyn std::error::Error>> {
+    let decoded = decode_block_document(document, BlockDocumentSchema::PageV2)?;
+    let materialization = serde_json::to_value(materialize_decoded_document(&decoded)?)?;
+    let materialization = serde_json::json!({
+        "schemaVersion": materialization["schemaVersion"],
+        "title": materialization["title"],
+        "richTitle": materialization["richTitle"],
+        "blockTree": materialization["blockTree"],
+        "nfm": materialization["nfm"],
+        "plainText": materialization["plainText"],
+        "preview": materialization["preview"],
+        "references": materialization["references"],
+        "assetRefs": materialization["assetRefs"],
+        "searchUnits": materialization["searchUnits"],
+    });
+    let body = document.get_or_insert_xml_fragment("body");
+    let transaction = document.transact();
+    Ok(RandomizedProductSummary {
+        body_semantic: body
+            .children(&transaction)
+            .map(|node| semantic_node(node, &transaction))
+            .collect(),
+        materialization,
+    })
+}
+
+fn run_randomized_corpus(
+    fixture_root: &Path,
+    corpus_path: &Path,
+    yjs_update_root: &Path,
+    rust_update_root: &Path,
+) -> Result<Vec<RandomizedCaseSummary>, Box<dyn std::error::Error>> {
+    let corpus: RandomizedCorpus = serde_json::from_slice(&fs::read(corpus_path)?)?;
+    let mut summaries = Vec::with_capacity(corpus.cases.len());
+    for case in corpus.cases {
+        let rust_document = load_randomized_fixture(fixture_root)?;
+        let base_vector = rust_document.transact().state_vector();
+        apply_randomized_edits(&rust_document, &case.operations)?;
+        let rust_update = rust_document
+            .transact()
+            .encode_state_as_update_v1(&base_vector);
+        fs::write(
+            rust_update_root.join(format!("{}.bin", case.seed)),
+            rust_update,
+        )?;
+
+        let yjs_document = load_randomized_fixture(fixture_root)?;
+        apply_update(
+            &yjs_document,
+            &yjs_update_root.join(format!("{}.bin", case.seed)),
+        )?;
+        summaries.push(RandomizedCaseSummary {
+            seed: case.seed,
+            rust_local: randomized_product_summary(&rust_document)?,
+            yjs_update: randomized_product_summary(&yjs_document)?,
+        });
+    }
+    Ok(summaries)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     if let [_, mode, input_update, output_update] = args.as_slice()
@@ -278,6 +461,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let summary = match args.as_slice() {
+        [_, mode, fixture_root, corpus, yjs_updates, rust_updates] if mode == "randomized" => {
+            let summaries = run_randomized_corpus(
+                Path::new(fixture_root),
+                Path::new(corpus),
+                Path::new(yjs_updates),
+                Path::new(rust_updates),
+            )?;
+            println!("{}", serde_json::to_string(&summaries)?);
+            return Ok(());
+        }
         [_, mode, fixture_root, output_update] if mode == "generate" => {
             generate(Path::new(fixture_root), Path::new(output_update))?
         }
@@ -301,7 +494,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update>"
+                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update> | randomized <fixture-root> <corpus-json> <yjs-update-root> <rust-update-root>"
                     .into(),
             );
         }
