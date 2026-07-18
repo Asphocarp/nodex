@@ -12,8 +12,9 @@ use yrs::updates::encoder::Encode;
 use yrs::{Any, GetString, Out, ReadTxn, Text, Transact, Update, Xml, XmlFragment, XmlOut};
 
 use nodex_core::document::{
-    BlockDocumentSchema, create_compatible_document, decode_block_document, encode_block_document,
-    has_pending_dependencies, materialize_decoded_document,
+    BlockDocumentSchema, DocumentBlockOperation, create_compatible_document, decode_block_document,
+    encode_block_document, has_pending_dependencies, materialize_decoded_document,
+    prepare_document_operation_update,
 };
 
 #[derive(Serialize)]
@@ -450,6 +451,61 @@ fn run_randomized_corpus(
     Ok(summaries)
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SemanticOperationCorpus {
+    operations: Vec<DocumentBlockOperation>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SemanticOperationSummary {
+    materialization: serde_json::Value,
+    state_vector_v1: Vec<u8>,
+    write_fence_block_ids: Vec<String>,
+    title_write_fence_required: bool,
+}
+
+fn run_semantic_operations(
+    fixture_root: &Path,
+    corpus_path: &Path,
+    output_update: &Path,
+) -> Result<SemanticOperationSummary, Box<dyn std::error::Error>> {
+    let document = load_matrix_fixture(fixture_root)?;
+    let transaction = document.transact();
+    let full_state = transaction.encode_state_as_update_v1(&yrs::StateVector::default());
+    let state_vector = transaction.state_vector().encode_v1();
+    drop(transaction);
+    let corpus: SemanticOperationCorpus = serde_json::from_slice(&fs::read(corpus_path)?)?;
+    let prepared = prepare_document_operation_update(
+        "nodex-yjs-yrs-schema-matrix",
+        BlockDocumentSchema::PageV2,
+        &full_state,
+        &state_vector,
+        &corpus.operations,
+        false,
+    )?;
+    fs::write(output_update, &prepared.update_v1)?;
+    let materialization = serde_json::to_value(prepared.materialization)?;
+    Ok(SemanticOperationSummary {
+        materialization: serde_json::json!({
+            "schemaVersion": materialization["schemaVersion"],
+            "title": materialization["title"],
+            "richTitle": materialization["richTitle"],
+            "blockTree": materialization["blockTree"],
+            "nfm": materialization["nfm"],
+            "plainText": materialization["plainText"],
+            "preview": materialization["preview"],
+            "references": materialization["references"],
+            "assetRefs": materialization["assetRefs"],
+            "searchUnits": materialization["searchUnits"],
+        }),
+        state_vector_v1: prepared.state_vector_v1,
+        write_fence_block_ids: prepared.write_fence_block_ids,
+        title_write_fence_required: prepared.title_write_fence_required,
+    })
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     if let [_, mode, input_update, output_update] = args.as_slice()
@@ -469,6 +525,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Path::new(rust_updates),
             )?;
             println!("{}", serde_json::to_string(&summaries)?);
+            return Ok(());
+        }
+        [_, mode, fixture_root, corpus, output_update] if mode == "semantic-operations" => {
+            let summary = run_semantic_operations(
+                Path::new(fixture_root),
+                Path::new(corpus),
+                Path::new(output_update),
+            )?;
+            println!("{}", serde_json::to_string(&summary)?);
             return Ok(());
         }
         [_, mode, fixture_root, output_update] if mode == "generate" => {
@@ -494,7 +559,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update> | randomized <fixture-root> <corpus-json> <yjs-update-root> <rust-update-root>"
+                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update> | randomized <fixture-root> <corpus-json> <yjs-update-root> <rust-update-root> | semantic-operations <fixture-root> <corpus-json> <output-update>"
                     .into(),
             );
         }

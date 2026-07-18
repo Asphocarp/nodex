@@ -72,6 +72,13 @@ interface RandomizedCaseSummary {
   readonly yjs_update: RandomizedProductSummary;
 }
 
+interface SemanticOperationSummary {
+  readonly materialization: unknown;
+  readonly stateVectorV1: readonly number[];
+  readonly writeFenceBlockIds: readonly string[];
+  readonly titleWriteFenceRequired: boolean;
+}
+
 const fixtureRoot = path.resolve(
   "crates/nodex-core/tests/fixtures/yjs-yrs",
 );
@@ -347,6 +354,89 @@ describe("Yjs/Yrs compatibility", () => {
       expect(
         normalizedStateVector(Uint8Array.from(rustAfterThird.state_vector)),
       ).toEqual(normalizedStateVector(Y.encodeStateVector(yjsDocument)));
+    },
+    60_000,
+  );
+
+  test(
+    "consumes Rust semantic title and stable Block operations as one relative update",
+    () => {
+      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-semantic-operations-"));
+      temporaryRoots.push(temporaryRoot);
+      const corpusPath = path.join(temporaryRoot, "operations.json");
+      const updatePath = path.join(temporaryRoot, "operations.bin");
+      writeFileSync(corpusPath, JSON.stringify({
+        operations: [
+          {
+            kind: "set_rich_title",
+            richTitle: [
+              { type: "text", text: "Rust ", styles: { bold: true } },
+              {
+                type: "link",
+                text: "authority",
+                href: "https://nodex.local/core",
+                styles: {},
+              },
+            ],
+          },
+          {
+            kind: "insert_block",
+            block: {
+              id: "rust-semantic-insert",
+              type: "paragraph",
+              props: {
+                backgroundColor: "default",
+                textColor: "default",
+                textAlignment: "left",
+              },
+              content: [{ type: "text", text: "Inserted by Rust", styles: {} }],
+              children: [],
+            },
+            beforeBlockId: "matrix-heading",
+          },
+          {
+            kind: "update_block",
+            blockId: "matrix-heading",
+            patch: {
+              content: [{
+                type: "text",
+                text: "Updated heading",
+                styles: { bold: true },
+              }],
+            },
+          },
+          {
+            kind: "move_block",
+            blockId: "matrix-quote",
+            parentBlockId: "matrix-toggle",
+          },
+          { kind: "delete_block", blockId: "matrix-divider" },
+        ],
+      }));
+
+      const summary = runBridge<SemanticOperationSummary>([
+        "semantic-operations",
+        fixtureRoot,
+        corpusPath,
+        updatePath,
+      ]);
+      const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
+      Y.applyUpdate(
+        consumer,
+        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
+      );
+      Y.applyUpdate(consumer, readFileSync(updatePath));
+
+      expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
+      expect(summary.writeFenceBlockIds).toEqual([
+        "matrix-divider",
+        "matrix-heading",
+        "matrix-quote",
+      ]);
+      expect(summary.titleWriteFenceRequired).toBe(true);
+      expect(
+        normalizedStateVector(Uint8Array.from(summary.stateVectorV1)),
+      ).toEqual(normalizedStateVector(Y.encodeStateVector(consumer)));
     },
     60_000,
   );

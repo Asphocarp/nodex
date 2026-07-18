@@ -209,6 +209,44 @@ pub fn replace_text_delta(
     text.apply_delta(transaction, encode_delta(delta));
 }
 
+pub fn insert_block_nodes(
+    group: &yrs::XmlElementRef,
+    transaction: &mut TransactionMut<'_>,
+    index: u32,
+    blocks: &[BlockNode],
+) {
+    for (offset, block) in blocks.iter().enumerate() {
+        encode_block(group, transaction, index + offset as u32, block);
+    }
+}
+
+pub fn replace_block_content_element(
+    container: &yrs::XmlElementRef,
+    transaction: &mut TransactionMut<'_>,
+    content: &XmlElementNode,
+) -> Result<(), BlockTreeError> {
+    let content_indices: Vec<_> = container
+        .children(transaction)
+        .enumerate()
+        .filter_map(|(index, child)| match child {
+            XmlOut::Element(element) if element.tag().as_ref() != BLOCK_GROUP_NODE_NAME => {
+                Some(index as u32)
+            }
+            _ => None,
+        })
+        .collect();
+    if content_indices.len() != 1 {
+        return Err(invalid_xml(
+            Vec::new(),
+            "expected exactly one Block content element",
+        ));
+    }
+    let index = content_indices[0];
+    container.remove(transaction, index);
+    encode_element(container, transaction, index, content);
+    Ok(())
+}
+
 pub fn validate_block_tree(tree: &BlockTree) -> Vec<BlockTreeIssue> {
     let mut issues = Vec::new();
     let mut seen_ids = BTreeSet::new();
@@ -449,30 +487,48 @@ fn encode_blocks(
 ) {
     for block in blocks {
         let index = group.len(transaction);
-        let container = group.insert(
-            transaction,
-            index,
-            XmlElementPrelim::empty(BLOCK_CONTAINER_NODE_NAME),
-        );
-        encode_attributes(&container, transaction, &block.container_attributes);
-        let content = container.insert(
-            transaction,
-            0,
-            XmlElementPrelim::empty(block.content.name.clone()),
-        );
-        encode_attributes(&content, transaction, &block.content.attributes);
-        encode_xml_children(&content, transaction, &block.content.children);
-
-        if block.children.is_empty() {
-            continue;
-        }
-        let child_group = container.insert(
-            transaction,
-            1,
-            XmlElementPrelim::empty(BLOCK_GROUP_NODE_NAME),
-        );
-        encode_blocks(&child_group, transaction, &block.children);
+        encode_block(group, transaction, index, block);
     }
+}
+
+fn encode_block(
+    group: &yrs::XmlElementRef,
+    transaction: &mut TransactionMut<'_>,
+    index: u32,
+    block: &BlockNode,
+) {
+    let container = group.insert(
+        transaction,
+        index,
+        XmlElementPrelim::empty(BLOCK_CONTAINER_NODE_NAME),
+    );
+    encode_attributes(&container, transaction, &block.container_attributes);
+    encode_element(&container, transaction, 0, &block.content);
+
+    if block.children.is_empty() {
+        return;
+    }
+    let child_group = container.insert(
+        transaction,
+        1,
+        XmlElementPrelim::empty(BLOCK_GROUP_NODE_NAME),
+    );
+    encode_blocks(&child_group, transaction, &block.children);
+}
+
+fn encode_element(
+    parent: &yrs::XmlElementRef,
+    transaction: &mut TransactionMut<'_>,
+    index: u32,
+    element: &XmlElementNode,
+) {
+    let encoded = parent.insert(
+        transaction,
+        index,
+        XmlElementPrelim::empty(element.name.clone()),
+    );
+    encode_attributes(&encoded, transaction, &element.attributes);
+    encode_xml_children(&encoded, transaction, &element.children);
 }
 
 fn encode_xml_children(
