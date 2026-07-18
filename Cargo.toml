@@ -17,7 +17,10 @@ license = "MIT"
 [workspace.dependencies]
 nodex-core-contracts = { path = "crates/nodex-core-contracts" }
 nodex-core-protocol = { path = "crates/nodex-core-protocol" }
+async-stream = "0.3.6"
+axum = "=0.8.4"
 fs2 = "0.4.3"
+futures-core = "0.3.31"
 getrandom = "0.3.4"
 hex = "0.4.3"
 http-body-util = "0.1.3"

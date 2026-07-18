@@ -146,6 +146,12 @@ const surfaceRules = [
 
 const capabilityRules: readonly CapabilityRule[] = [
   {
+    pattern: /^src\/shared\/core-modules\/(?:common|events|index)\.ts$/,
+    module: "Adapter",
+    intent: "define transport-neutral shared Module envelopes and committed event aggregation",
+    callerNeed: "all Adapters need one generated contract vocabulary without acquiring domain authority",
+  },
+  {
     pattern: /^(?:bin\/nodex\.mjs|src\/main\/(?:bootstrap|main-runtime|http-server|ipc-handlers|document-sync-http|browser-sidebar-service|clipboard-image-writer)\.ts|src\/main\/[^/]+-(?:http|ipc-handlers)\.ts$|src\/main\/local-store\/config\.ts$|src\/main\/logging\/logger\.ts$)/,
     module: "Adapter",
     intent: "bind host identity and proxy accepted Module read/apply operations",

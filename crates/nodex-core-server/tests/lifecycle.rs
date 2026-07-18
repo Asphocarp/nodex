@@ -31,6 +31,11 @@ fn request(socket: &str, auth: &str, method: &str, path: &str, body: &str) -> St
     response
 }
 
+fn response_json(response: &str) -> serde_json::Value {
+    let (_, body) = response.split_once("\r\n\r\n").expect("HTTP response body");
+    serde_json::from_str(body).expect("JSON response")
+}
+
 #[test]
 fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     let directory = tempdir().expect("disposable Core home");
@@ -105,6 +110,56 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
     assert!(response.starts_with("HTTP/1.1 200"));
     assert!(response.contains(&expected.start_nonce));
+
+    let read = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/library/read",
+        r#"{"version":1,"read":{"kind":"metadata"}}"#,
+    );
+    assert!(read.starts_with("HTTP/1.1 200"));
+    let read_json = response_json(&read);
+    assert_eq!(read_json["status"], "ok");
+    assert_eq!(read_json["payload"]["event_head"], 0);
+    assert_eq!(read_json["payload"]["value"]["library_id"], "probe-library");
+
+    let apply_body = serde_json::json!({
+        "version": 1,
+        "operation_id": "lifecycle-operation-1",
+        "store_epoch": expected.store_epoch,
+        "intent": {
+            "kind": "grant_project_access",
+            "project_id": "project-1",
+            "target": { "kind": "page", "page_id": "page-1" },
+            "access": "read"
+        }
+    })
+    .to_string();
+    let apply = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/library/apply",
+        &apply_body,
+    );
+    assert!(apply.starts_with("HTTP/1.1 200"));
+    let apply_json = response_json(&apply);
+    assert_eq!(apply_json["status"], "ok");
+    assert_eq!(apply_json["payload"]["event_sequence"], 1);
+    assert_eq!(apply_json["payload"]["receipt"]["duplicate"], false);
+
+    let replay = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/library/apply",
+        &apply_body,
+    );
+    assert_eq!(
+        response_json(&replay)["payload"]["receipt"]["duplicate"],
+        true
+    );
 
     let oversized = request(
         &expected.socket_path,
