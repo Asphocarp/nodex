@@ -5,7 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "nodex"
+path = "src/main.rs"
+
 [dependencies]
 nodex-core-contracts.workspace = true
 nodex-core-protocol.workspace = true
-
