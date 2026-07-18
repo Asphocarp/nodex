@@ -1,4 +1,13 @@
 import type { components } from "@nodex/core-protocol";
+import type {
+  DocumentAwarenessPublishAck,
+  DocumentAwarenessPublishRequest,
+  DocumentSyncApplyAck,
+  DocumentSyncApplyRequest,
+  DocumentSyncRealtimeEvent,
+  DocumentSyncRequest,
+  DocumentSyncResponse,
+} from "../../shared/block-documents/document-sync";
 
 export type CoreRuntimeDescriptor = components["schemas"]["RuntimeDescriptor"];
 export type CoreHandshakeResponse = components["schemas"]["HandshakeResponse"];
@@ -22,9 +31,32 @@ type SuccessfulPayload<Response> = Response extends {
 export type LibraryReadSnapshot = SuccessfulPayload<LibraryReadResponse>;
 export type LibraryCommittedValue = SuccessfulPayload<LibraryApplyResponse>;
 
+export type OwnedDocumentReadRequest = components["schemas"]["OwnedDocumentReadRequest"];
+export type OwnedDocumentRead = OwnedDocumentReadRequest["read"];
+export type OwnedDocumentReadResponse = components["schemas"]["OwnedDocumentReadResponse"];
+export type OwnedDocumentApplyRequest = components["schemas"]["OwnedDocumentApplyRequest"];
+export type OwnedDocumentIntent = OwnedDocumentApplyRequest["intent"];
+export type OwnedDocumentApplyResponse = components["schemas"]["OwnedDocumentApplyResponse"];
+export type OwnedDocumentReadSnapshot = SuccessfulPayload<OwnedDocumentReadResponse>;
+export type OwnedDocumentCommittedValue = SuccessfulPayload<OwnedDocumentApplyResponse>;
+
 export interface LibraryApplyInput {
   readonly operationId: string;
   readonly intent: LibraryIntent;
+}
+
+export interface OwnedDocumentApplyInput {
+  readonly operationId: string;
+  readonly clientSessionId: string;
+  readonly intent: OwnedDocumentIntent;
+}
+
+export interface DocumentResyncRequired {
+  readonly document_id: string;
+  readonly store_epoch: string;
+  readonly generation: number;
+  readonly head_seq: number;
+  readonly event_head: number;
 }
 
 export interface CoreEventSubscription {
@@ -35,6 +67,26 @@ export interface CoreEventSubscription {
 export interface CoreClientPort {
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue>;
+  documentRead(
+    clientSessionId: string,
+    read: OwnedDocumentRead,
+  ): Promise<OwnedDocumentReadSnapshot>;
+  documentApply(input: OwnedDocumentApplyInput): Promise<OwnedDocumentCommittedValue>;
+  documentSync(input: DocumentSyncRequest): Promise<DocumentSyncResponse>;
+  documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck>;
+  documentPublishAwareness(
+    input: DocumentAwarenessPublishRequest,
+  ): Promise<DocumentAwarenessPublishAck>;
+  openDocumentEventStream(
+    input: {
+      readonly documentId: string;
+      readonly clientSessionId: string;
+      readonly after: number;
+    },
+    onEvent: (event: CoreEventEnvelope) => void,
+    onResyncRequired: (event: DocumentResyncRequired) => void,
+    onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
+  ): Promise<CoreEventSubscription>;
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,

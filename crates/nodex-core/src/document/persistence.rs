@@ -854,7 +854,7 @@ fn validate_document_references(
     Ok(())
 }
 
-fn derive_touched_block_ids(
+pub(crate) fn derive_touched_block_ids(
     owner_block_id: &str,
     before: &DocumentMaterialization,
     after: &DocumentMaterialization,

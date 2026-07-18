@@ -17,8 +17,8 @@ import {
   type BlockDocumentSchemaAdapter,
 } from "../../shared/block-documents";
 import type {
-  DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
+  DocumentSyncAdapter,
   DocumentRelocationLeaseNackReason,
   DocumentRelocationLeaseResponseAck,
   DocumentRelocationLeaseResponseRequest,
@@ -28,10 +28,9 @@ import type {
   DocumentSyncCommandError,
   DocumentSyncCommandResult,
   DocumentSyncRealtimeEvent,
-  DocumentSyncRequest,
   DocumentSyncResponse,
-  DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
+export type { DocumentSyncAdapter } from "../../shared/block-documents/document-sync";
 import {
   captureDocumentLocalCheckpoint,
   createDefaultDocumentLocalCheckpointStore,
@@ -39,25 +38,6 @@ import {
   restoreDocumentLocalCheckpoint,
   type DocumentLocalCheckpointStore,
 } from "./document-local-checkpoint";
-
-export interface DocumentSyncAdapter {
-  sync: (
-    request: DocumentSyncRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentSyncResponse>>;
-  applyUpdate: (
-    request: DocumentSyncApplyRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
-  subscribe: (
-    request: DocumentSyncSubscribeRequest,
-    listener: (event: DocumentSyncRealtimeEvent) => void,
-  ) => () => void;
-  publishAwareness: (
-    request: DocumentAwarenessPublishRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
-  respondToRelocationLease: (
-    request: DocumentRelocationLeaseResponseRequest,
-  ) => Promise<DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>>;
-}
 
 export type NodexYProviderPhase =
   | "idle"

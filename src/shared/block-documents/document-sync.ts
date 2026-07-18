@@ -356,3 +356,27 @@ export type DocumentSyncRealtimeEvent =
       readonly headSeq: number;
       readonly reason: string;
     };
+
+/**
+ * Transport boundary consumed by renderer-side collaborative document
+ * providers. Implementations may use IPC, UDS, or an in-memory test harness,
+ * but all durable and ephemeral behavior must preserve this one contract.
+ */
+export interface DocumentSyncAdapter {
+  sync: (
+    request: DocumentSyncRequest,
+  ) => Promise<DocumentSyncCommandResult<DocumentSyncResponse>>;
+  applyUpdate: (
+    request: DocumentSyncApplyRequest,
+  ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
+  subscribe: (
+    request: DocumentSyncSubscribeRequest,
+    listener: (event: DocumentSyncRealtimeEvent) => void,
+  ) => () => void;
+  publishAwareness: (
+    request: DocumentAwarenessPublishRequest,
+  ) => Promise<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
+  respondToRelocationLease: (
+    request: DocumentRelocationLeaseResponseRequest,
+  ) => Promise<DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>>;
+}

@@ -15,6 +15,7 @@ nodex-core-contracts.workspace = true
 nodex-core-protocol.workspace = true
 async-stream.workspace = true
 axum.workspace = true
+base64.workspace = true
 fs2.workspace = true
 futures-core.workspace = true
 getrandom.workspace = true

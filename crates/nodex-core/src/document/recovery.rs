@@ -14,6 +14,7 @@ pub(crate) struct StaleYjsUpdate<'a> {
     pub(crate) base_head_seq: i64,
     pub(crate) update_id: &'a str,
     pub(crate) touched_block_ids: &'a [String],
+    pub(crate) derived_touched_block_ids: Option<&'a [String]>,
     pub(crate) update: &'a [u8],
 }
 
@@ -64,16 +65,23 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
         fenced.extend(block_ids);
         title_fence |= title == 1;
     }
-    let unsafe_update = input.touched_block_ids.is_empty()
-        || input
-            .touched_block_ids
-            .iter()
-            .any(|block_id| fenced.contains(block_id))
+    let declared_conflict = input
+        .touched_block_ids
+        .iter()
+        .any(|block_id| fenced.contains(block_id))
         || (title_fence
             && input
                 .touched_block_ids
                 .iter()
                 .any(|block_id| block_id == &authority.owner_block_id));
+    let derived = input.derived_touched_block_ids.unwrap_or_default();
+    let derived_conflict = derived.is_empty()
+        || derived.iter().any(|block_id| fenced.contains(block_id))
+        || (title_fence
+            && derived
+                .iter()
+                .any(|block_id| block_id == &authority.owner_block_id));
+    let unsafe_update = declared_conflict || derived_conflict;
     if !unsafe_update {
         return Ok(None);
     }
@@ -90,6 +98,11 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
     let update_hash = sha256(input.update);
     let touched_json = serde_json::to_string(input.touched_block_ids)
         .map_err(|_| internal("Recovery artifact touched Block IDs"))?;
+    let derived_touched_json = input
+        .derived_touched_block_ids
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|_| internal("Recovery artifact derived touched Block IDs"))?;
     let update_length = i64::try_from(input.update.len())
         .map_err(|_| internal("Recovery artifact update length overflowed"))?;
     let (created_at, expires_at) = connection.query_row(
@@ -104,8 +117,8 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
            client_session_id, base_head_seq, touched_block_ids_json, \
            derived_touched_block_ids_json, update_blob, update_hash, update_byte_length, \
            reason, relocation_ids_json, status, created_at, expires_at, resolved_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11, ?12, \
-                   'unsafe_stale_update', '[]', 'pending', ?13, ?14, NULL)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, \
+                   'unsafe_stale_update', '[]', 'pending', ?14, ?15, NULL)",
         params![
             artifact_id,
             authority.head.project_id,
@@ -116,6 +129,7 @@ pub(crate) fn persist_recovery_if_barrier_crossed(
             input.context.connection_id,
             input.base_head_seq,
             touched_json,
+            derived_touched_json,
             input.update,
             update_hash,
             update_length,

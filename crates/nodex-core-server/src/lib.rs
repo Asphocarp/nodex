@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod document_wire;
+
 use std::convert::Infallible;
 use std::fs::{self, File, OpenOptions};
 use std::io;
@@ -8,32 +10,50 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use axum::body::to_bytes;
 use axum::extract::{DefaultBodyLimit, Query, Request, State};
-use axum::http::StatusCode;
-use axum::http::header::AUTHORIZATION;
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fs2::FileExt;
+use nodex_core::document::{
+    AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
+};
+use nodex_core::infrastructure::sqlite::with_immediate_transaction;
+use nodex_core::infrastructure::store::SqliteStoreKernel;
 use nodex_core::library::LibraryModule;
-use nodex_core_contracts::{AdapterKind, BoundModuleContext, LibraryId, ProfileId, StoreEpoch};
+use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
+use nodex_core_contracts::{
+    AdapterKind, BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery,
+    CoreModuleEventPayload, LibraryId, ProfileId, ProjectId, StoreEpoch,
+};
 use nodex_core_protocol::{
     EventEnvelope, HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest,
-    LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, PROTOCOL_MAX, PROTOCOL_MIN,
-    ResponseEnvelope, RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
+    LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
+    OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
+    PROTOCOL_MIN, ResponseEnvelope, RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::UnixListener;
 use tokio::sync::{Notify, broadcast};
 
+use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
+
 const RUNTIME_DIRECTORY_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
-const MAX_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_JSON_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_DOCUMENT_REQUEST_BYTES: usize = document_wire::MAX_DOCUMENT_FRAME_BYTES;
 const STARTUP_WAIT: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 64;
+const PROJECT_HEADER: &str = "x-nodex-project-id";
+const CONNECTION_HEADER: &str = "x-nodex-connection-id";
+const DOCUMENT_HEADER: &str = "x-nodex-document-id";
+const CLIENT_SESSION_HEADER: &str = "x-nodex-client-session-id";
 
 struct RuntimePaths {
     directory: PathBuf,
@@ -59,10 +79,21 @@ impl RuntimePaths {
 struct ServerState {
     auth_header: String,
     descriptor: RuntimeDescriptor,
+    schema_version: u32,
     library: LibraryModule,
+    document: OwnedDocumentModule,
+    document_realtime: OwnedDocumentRealtimeAdapter,
+    _store: SqliteStoreKernel,
     events: Mutex<Vec<EventEnvelope>>,
     event_sender: broadcast::Sender<EventEnvelope>,
+    document_sender: broadcast::Sender<DocumentTransportPublication>,
     shutdown: Notify,
+}
+
+#[derive(Clone)]
+struct DocumentTransportPublication {
+    event: DocumentRealtimeEvent,
+    recipient_connections: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -155,7 +186,7 @@ async fn handshake(
         profile_id: state.descriptor.profile_id.clone(),
         library_id: "probe-library".to_owned(),
         store_epoch: state.descriptor.store_epoch.clone(),
-        schema_version: 0,
+        schema_version: state.schema_version,
         event_head: state
             .events
             .lock()
@@ -192,32 +223,374 @@ async fn library_apply(
     Json(LibraryApplyResponse(response))
 }
 
+async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
+    let (parts, body) = request.into_parts();
+    let headers = parts.headers;
+    let bytes = match to_bytes(body, MAX_DOCUMENT_REQUEST_BYTES).await {
+        Ok(bytes) => bytes,
+        Err(_) => return json_document_read_error(invalid("Document read body exceeds its bound")),
+    };
+    if is_document_binary(&headers) {
+        return binary_document_read(&state, &headers, &bytes);
+    }
+    let OwnedDocumentReadRequest(request) = match serde_json::from_slice(&bytes) {
+        Ok(request) => request,
+        Err(_) => return json_document_read_error(invalid("Document read request is invalid")),
+    };
+    let response = match document_context(&state, &headers) {
+        Ok(context) => {
+            let result = match &request.read {
+                OwnedDocumentRead::SyncYjs { .. } => {
+                    required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
+                        .and_then(|client_session_id| {
+                            let OwnedDocumentRead::SyncYjs {
+                                document_id,
+                                state_vector,
+                            } = request.read
+                            else {
+                                unreachable!();
+                            };
+                            state.document_realtime.sync_yjs(
+                                &context,
+                                &client_session_id,
+                                document_id,
+                                state_vector,
+                            )
+                        })
+                }
+                OwnedDocumentRead::SyncCanvas { document_id } => {
+                    required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
+                        .and_then(|client_session_id| {
+                            state.document_realtime.sync_canvas(
+                                &context,
+                                &client_session_id,
+                                document_id.clone(),
+                            )
+                        })
+                }
+                _ => state.document.read(&context, request),
+            };
+            match result {
+                Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
+                Err(error) => ResponseEnvelope::Error(error),
+            }
+        }
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(OwnedDocumentReadResponse(response)).into_response()
+}
+
+async fn document_apply(State(state): State<Arc<ServerState>>, request: Request) -> Response {
+    let (parts, body) = request.into_parts();
+    let headers = parts.headers;
+    let bytes = match to_bytes(body, MAX_DOCUMENT_REQUEST_BYTES).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return json_document_apply_error(invalid("Document apply body exceeds its bound"));
+        }
+    };
+    if is_document_binary(&headers) {
+        return binary_document_apply(&state, &headers, &bytes);
+    }
+    let OwnedDocumentApplyRequest(request) = match serde_json::from_slice(&bytes) {
+        Ok(request) => request,
+        Err(_) => return json_document_apply_error(invalid("Document apply request is invalid")),
+    };
+    let response = match document_context(&state, &headers) {
+        Ok(context) => {
+            let realtime_bound = matches!(
+                &request.intent,
+                OwnedDocumentIntent::ApplyYjsUpdate { .. }
+                    | OwnedDocumentIntent::ApplyCanvasMutation { .. }
+            );
+            let result = if realtime_bound {
+                required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
+                    .and_then(|client_session_id| {
+                        state
+                            .document_realtime
+                            .apply(&context, &client_session_id, request)
+                    })
+            } else {
+                state.document.apply(&context, request)
+            };
+            match result {
+                Ok(outcome) => {
+                    for event in outcome.events {
+                        publish_event(&state, event);
+                    }
+                    ResponseEnvelope::Ok(outcome.committed)
+                }
+                Err(error) => ResponseEnvelope::Error(error),
+            }
+        }
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(OwnedDocumentApplyResponse(response)).into_response()
+}
+
+fn binary_document_read(state: &ServerState, headers: &HeaderMap, bytes: &[u8]) -> Response {
+    let result = (|| {
+        if bytes.len() > document_wire::MAX_SYNC_FRAME_BYTES {
+            return Err(invalid("Document sync frame exceeds its bound"));
+        }
+        let context = document_context(state, headers)?;
+        let document_id = required_header(headers, DOCUMENT_HEADER, "Document")?;
+        let header_session =
+            required_header(headers, CLIENT_SESSION_HEADER, "Document client session")?;
+        let (metadata, state_vector) = document_wire::decode_sync(bytes)?;
+        require_wire_version(metadata.version)?;
+        require_same_identity(
+            &header_session,
+            &metadata.client_session_id,
+            "client session",
+        )?;
+        let snapshot = state.document_realtime.sync_yjs(
+            &context,
+            &metadata.client_session_id,
+            document_id,
+            state_vector,
+        )?;
+        document_wire::parse_yjs_sync(snapshot).and_then(|sync| document_wire::encode_sync(&sync))
+    })();
+    match result {
+        Ok(frame) => binary_response(frame),
+        Err(error) => json_document_read_error(error),
+    }
+}
+
+fn binary_document_apply(state: &ServerState, headers: &HeaderMap, bytes: &[u8]) -> Response {
+    let result = (|| {
+        let context = document_context(state, headers)?;
+        let document_id = required_header(headers, DOCUMENT_HEADER, "Document")?;
+        let header_session =
+            required_header(headers, CLIENT_SESSION_HEADER, "Document client session")?;
+        match document_wire::decode_apply(bytes)? {
+            ApplyFrame::Update(metadata, update) => {
+                if bytes.len() > document_wire::MAX_APPLY_FRAME_BYTES {
+                    return Err(invalid("Document update frame exceeds its bound"));
+                }
+                require_wire_version(metadata.version)?;
+                require_same_identity(
+                    &header_session,
+                    &metadata.client_session_id,
+                    "client session",
+                )?;
+                require_same_identity(
+                    &state.descriptor.store_epoch,
+                    &metadata.store_epoch,
+                    "store epoch",
+                )?;
+                let update_id = metadata.update_id.clone();
+                let outcome = state.document_realtime.apply(
+                    &context,
+                    &metadata.client_session_id,
+                    nodex_core_contracts::ModuleApplyRequest {
+                        version: PROTOCOL_MAX,
+                        operation_id: metadata.update_id.clone(),
+                        store_epoch: StoreEpoch(metadata.store_epoch),
+                        intent: OwnedDocumentIntent::ApplyYjsUpdate {
+                            document_id: document_id.clone(),
+                            generation: metadata.generation,
+                            base_head_seq: metadata.base_head_seq,
+                            update_id: metadata.update_id,
+                            touched_block_ids: metadata.touched_block_ids,
+                            update,
+                        },
+                    },
+                )?;
+                for event in outcome.events.iter().cloned() {
+                    publish_event(state, event);
+                }
+                let snapshot = state.document_realtime.sync_yjs(
+                    &context,
+                    &metadata.client_session_id,
+                    document_id,
+                    Vec::new(),
+                )?;
+                let sync = document_wire::parse_yjs_sync(snapshot)?;
+                document_wire::encode_apply_ack(&outcome.committed, &update_id, &sync)
+            }
+            ApplyFrame::Awareness(metadata, update) => {
+                if bytes.len() > document_wire::MAX_AWARENESS_FRAME_BYTES {
+                    return Err(invalid("Document Awareness frame exceeds its bound"));
+                }
+                require_wire_version(metadata.version)?;
+                require_same_identity(
+                    &header_session,
+                    &metadata.client_session_id,
+                    "client session",
+                )?;
+                require_same_identity(
+                    &state.descriptor.store_epoch,
+                    &metadata.store_epoch,
+                    "store epoch",
+                )?;
+                if let Some(publication) = state.document_realtime.publish_awareness(
+                    &context.connection_id,
+                    &metadata.client_session_id,
+                    &StoreEpoch(metadata.store_epoch),
+                    metadata.generation,
+                    &update,
+                )? {
+                    publish_document_transport(state, publication);
+                }
+                Ok(serde_json::to_vec(&serde_json::json!({ "accepted": true }))
+                    .map_err(|_| invalid("Awareness acknowledgement cannot be encoded"))?)
+            }
+        }
+    })();
+    match result {
+        Ok(frame)
+            if matches!(
+                document_wire::decode_apply(bytes),
+                Ok(ApplyFrame::Awareness(..))
+            ) =>
+        {
+            ([(CONTENT_TYPE, "application/json")], frame).into_response()
+        }
+        Ok(frame) => binary_response(frame),
+        Err(error) => json_document_apply_error(error),
+    }
+}
+
 async fn events(
     State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
     Query(query): Query<EventQuery>,
-) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
-    let (replay, mut receiver) = {
-        let events = state.events.lock().expect("event mutex poisoned");
-        let replay = events
-            .iter()
-            .filter(|event| event.event.sequence > query.after)
-            .cloned()
-            .collect::<Vec<_>>();
-        (replay, state.event_sender.subscribe())
-    };
+) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let mut receiver = state.event_sender.subscribe();
+    let mut document_receiver = state.document_sender.subscribe();
+    let requested_document_id =
+        optional_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
+    let (replay, replay_head, resync, initial_awareness, connection_id, disconnect) =
+        if let Some(document_id) = requested_document_id.as_ref() {
+            let context = document_context(&state, &headers).map_err(api_core_error)?;
+            let client_session_id =
+                required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
+                    .map_err(api_core_error)?;
+            let subscription = state
+                .document_realtime
+                .subscribe(&context, document_id.clone(), client_session_id.clone())
+                .map_err(api_core_error)?;
+            let replay = state
+                .document_realtime
+                .replay(
+                    &context.connection_id,
+                    &client_session_id,
+                    query.after,
+                    None,
+                )
+                .map_err(api_core_error)?;
+            let mut committed = Vec::new();
+            let mut resync = None;
+            for event in replay.events {
+                match event {
+                    DocumentRealtimeEvent::Committed(event) => committed.push(EventEnvelope {
+                        protocol_version: PROTOCOL_MAX,
+                        event,
+                    }),
+                    DocumentRealtimeEvent::ResyncRequired {
+                        document_id,
+                        store_epoch,
+                        generation,
+                        head_seq,
+                        event_head,
+                    } => {
+                        resync = Some(serde_json::json!({
+                            "document_id": document_id,
+                            "store_epoch": store_epoch,
+                            "generation": generation,
+                            "head_seq": head_seq,
+                            "event_head": event_head,
+                        }));
+                    }
+                    DocumentRealtimeEvent::Awareness { .. } => {}
+                }
+            }
+            (
+                committed,
+                replay.event_head,
+                resync,
+                subscription
+                    .awareness_update
+                    .map(|update| DocumentRealtimeEvent::Awareness {
+                        document_id: subscription.document_id,
+                        store_epoch: subscription.store_epoch,
+                        generation: subscription.generation,
+                        client_session_id: "core:awareness-snapshot".to_owned(),
+                        update,
+                    }),
+                Some(context.connection_id.clone()),
+                Some(DisconnectGuard {
+                    adapter: state.document_realtime.clone(),
+                    connection_id: context.connection_id,
+                    sender: state.document_sender.clone(),
+                }),
+            )
+        } else {
+            let events = state.events.lock().expect("event mutex poisoned");
+            let replay = events
+                .iter()
+                .filter(|event| event.event.sequence > query.after)
+                .cloned()
+                .collect::<Vec<_>>();
+            let replay_head = replay
+                .last()
+                .map_or(query.after, |event| event.event.sequence);
+            (replay, replay_head, None, None, None, None)
+        };
     let stream = async_stream::stream! {
+        let _disconnect = disconnect;
         for envelope in replay {
             yield Ok(sse_event(&envelope));
         }
+        if let Some(resync) = resync {
+            yield Ok(Event::default()
+                .event("document-resync-required")
+                .data(serde_json::to_string(&resync).expect("resync event serializes")));
+        }
+        if let Some(awareness) = initial_awareness {
+            yield Ok(sse_document_realtime_event(&awareness));
+        }
         loop {
-            match receiver.recv().await {
-                Ok(envelope) => yield Ok(sse_event(&envelope)),
-                Err(broadcast::error::RecvError::Lagged(_)) => break,
-                Err(broadcast::error::RecvError::Closed) => break,
+            tokio::select! {
+                received = receiver.recv() => match received {
+                    Ok(envelope) => {
+                        if envelope.event.sequence <= replay_head {
+                            continue;
+                        }
+                        if let Some(document_id) = requested_document_id.as_deref()
+                            && event_document_id(&envelope) != Some(document_id)
+                        {
+                            continue;
+                        }
+                        yield Ok(sse_event(&envelope));
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => break,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                },
+                received = document_receiver.recv() => match received {
+                    Ok(publication) => {
+                        let Some(connection_id) = connection_id.as_deref() else {
+                            continue;
+                        };
+                        if !publication.recipient_connections.iter().any(|recipient| recipient == connection_id) {
+                            continue;
+                        }
+                        if let Some(document_id) = requested_document_id.as_deref()
+                            && realtime_event_document_id(&publication.event) != document_id
+                        {
+                            continue;
+                        }
+                        yield Ok(sse_document_realtime_event(&publication.event));
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
             }
         }
     };
-    Sse::new(stream)
+    Ok(Sse::new(stream))
 }
 
 async fn shutdown(State(state): State<Arc<ServerState>>) -> Json<ShutdownResponse> {
@@ -235,7 +608,7 @@ async fn unavailable_module() -> impl IntoResponse {
 }
 
 fn router(state: Arc<ServerState>) -> Router {
-    Router::new()
+    let regular_routes = Router::new()
         .route("/core/v1/health", get(health))
         .route("/core/v1/handshake", post(handshake))
         .route("/core/v1/events", get(events))
@@ -244,8 +617,6 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/modules/library/apply", post(library_apply))
         .route("/core/v1/modules/database/read", post(unavailable_module))
         .route("/core/v1/modules/database/apply", post(unavailable_module))
-        .route("/core/v1/modules/document/read", post(unavailable_module))
-        .route("/core/v1/modules/document/apply", post(unavailable_module))
         .route("/core/v1/modules/workspace/read", post(unavailable_module))
         .route("/core/v1/modules/workspace/apply", post(unavailable_module))
         .route("/core/v1/modules/automation/read", post(unavailable_module))
@@ -261,7 +632,13 @@ fn router(state: Arc<ServerState>) -> Router {
             "/core/v1/modules/administration/apply",
             post(unavailable_module),
         )
-        .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
+        .layer(DefaultBodyLimit::max(MAX_JSON_REQUEST_BYTES));
+    let document_routes = Router::new()
+        .route("/core/v1/modules/document/read", post(document_read))
+        .route("/core/v1/modules/document/apply", post(document_apply))
+        .layer(DefaultBodyLimit::max(MAX_DOCUMENT_REQUEST_BYTES));
+    regular_routes
+        .merge(document_routes)
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             authenticate,
@@ -277,6 +654,190 @@ fn bound_context(state: &ServerState) -> BoundModuleContext {
         connection_id: state.descriptor.start_nonce.clone(),
         adapter: AdapterKind::Test,
     }
+}
+
+fn is_document_binary(headers: &HeaderMap) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        == Some(DOCUMENT_CONTENT_TYPE)
+}
+
+fn binary_response(frame: Vec<u8>) -> Response {
+    ([(CONTENT_TYPE, DOCUMENT_CONTENT_TYPE)], frame).into_response()
+}
+
+fn json_document_read_error(error: CoreError) -> Response {
+    Json(OwnedDocumentReadResponse(ResponseEnvelope::Error(error))).into_response()
+}
+
+fn json_document_apply_error(error: CoreError) -> Response {
+    Json(OwnedDocumentApplyResponse(ResponseEnvelope::Error(error))).into_response()
+}
+
+fn require_wire_version(version: u32) -> Result<(), CoreError> {
+    if version == PROTOCOL_MAX {
+        return Ok(());
+    }
+    Err(invalid("Document binary frame version is unsupported"))
+}
+
+fn require_same_identity(expected: &str, actual: &str, label: &str) -> Result<(), CoreError> {
+    if expected == actual {
+        return Ok(());
+    }
+    Err(CoreError {
+        code: CoreErrorCode::Unauthorized,
+        message: format!("Document binary {label} does not match its bound header"),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    })
+}
+
+fn invalid(message: &str) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::InvalidInput,
+        message: message.to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
+struct DisconnectGuard {
+    adapter: OwnedDocumentRealtimeAdapter,
+    connection_id: String,
+    sender: broadcast::Sender<DocumentTransportPublication>,
+}
+
+impl Drop for DisconnectGuard {
+    fn drop(&mut self) {
+        let Ok(publications) = self.adapter.disconnect(&self.connection_id) else {
+            return;
+        };
+        for publication in publications {
+            let _ = self.sender.send(DocumentTransportPublication {
+                event: publication.event,
+                recipient_connections: publication.recipient_connections,
+            });
+        }
+    }
+}
+
+fn document_context(
+    state: &ServerState,
+    headers: &HeaderMap,
+) -> Result<BoundModuleContext, CoreError> {
+    Ok(BoundModuleContext {
+        profile_id: ProfileId(state.descriptor.profile_id.clone()),
+        library_id: LibraryId("probe-library".to_owned()),
+        project_id: Some(ProjectId(required_header(
+            headers,
+            PROJECT_HEADER,
+            "Project",
+        )?)),
+        connection_id: required_header(headers, CONNECTION_HEADER, "Connection")?,
+        adapter: AdapterKind::ElectronHost,
+    })
+}
+
+fn required_header(
+    headers: &HeaderMap,
+    name: &'static str,
+    label: &str,
+) -> Result<String, CoreError> {
+    optional_header(headers, name, label)?.ok_or_else(|| CoreError {
+        code: CoreErrorCode::Unauthorized,
+        message: format!("{label} binding is required"),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    })
+}
+
+fn optional_header(
+    headers: &HeaderMap,
+    name: &'static str,
+    label: &str,
+) -> Result<Option<String>, CoreError> {
+    let Some(value) = headers.get(name) else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_| CoreError {
+        code: CoreErrorCode::Unauthorized,
+        message: format!("{label} binding is not valid UTF-8"),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    })?;
+    if value.is_empty() || value.len() > 512 || value.trim() != value {
+        return Err(CoreError {
+            code: CoreErrorCode::Unauthorized,
+            message: format!("{label} binding is invalid"),
+            retryable: false,
+            recovery: CoreErrorRecovery::None,
+        });
+    }
+    Ok(Some(value.to_owned()))
+}
+
+fn api_core_error(error: CoreError) -> ApiError {
+    let status = match error.code {
+        CoreErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
+        CoreErrorCode::NotFound => StatusCode::NOT_FOUND,
+        CoreErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
+        _ => StatusCode::CONFLICT,
+    };
+    ApiError::new(status, error.message)
+}
+
+fn event_document_id(envelope: &EventEnvelope) -> Option<&str> {
+    match &envelope.event.payload {
+        CoreModuleEventPayload::OwnedDocument(event) => match event {
+            nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
+                document_id,
+                ..
+            }
+            | nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
+                document_id,
+                ..
+            }
+            | nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
+                document_id,
+                ..
+            } => Some(document_id),
+        },
+        _ => None,
+    }
+}
+
+fn realtime_event_document_id(event: &DocumentRealtimeEvent) -> &str {
+    match event {
+        DocumentRealtimeEvent::Committed(event) => match &event.payload {
+            CoreModuleEventPayload::OwnedDocument(event) => match event {
+                nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
+                    document_id,
+                    ..
+                }
+                | nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
+                    document_id,
+                    ..
+                }
+                | nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
+                    document_id,
+                    ..
+                } => document_id,
+            },
+            _ => "",
+        },
+        DocumentRealtimeEvent::Awareness { document_id, .. }
+        | DocumentRealtimeEvent::ResyncRequired { document_id, .. } => document_id,
+    }
+}
+
+fn publish_document_transport(state: &ServerState, publication: AwarenessPublication) {
+    let _ = state.document_sender.send(DocumentTransportPublication {
+        event: publication.event,
+        recipient_connections: publication.recipient_connections,
+    });
 }
 
 fn publish_event(state: &ServerState, event: nodex_core_contracts::CommittedCoreModuleEvent) {
@@ -297,6 +858,12 @@ fn sse_event(envelope: &EventEnvelope) -> Event {
         .event("module")
         .id(envelope.event.sequence.to_string())
         .data(serde_json::to_string(envelope).expect("event envelope serializes"))
+}
+
+fn sse_document_realtime_event(event: &DocumentRealtimeEvent) -> Event {
+    Event::default()
+        .event("document-realtime")
+        .data(document_wire::encode_realtime_event(event).expect("Document event serializes"))
 }
 
 fn validate_home(home: &Path) -> io::Result<()> {
@@ -411,6 +978,31 @@ fn cleanup(paths: &RuntimePaths, start_nonce: &str) {
     }
 }
 
+fn ensure_store_epoch(
+    store: &SqliteStoreKernel,
+    proposed_epoch: String,
+) -> Result<String, nodex_core::infrastructure::sqlite::StoreError> {
+    store.writer().call(move |connection| {
+        with_immediate_transaction(connection, |transaction| {
+            transaction.execute(
+                "INSERT OR IGNORE INTO block_store_metadata(\
+                   id, store_epoch, created_at, updated_at\
+                 ) VALUES (1, ?1, \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [&proposed_epoch],
+            )?;
+            transaction
+                .query_row(
+                    "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(Into::into)
+        })
+    })
+}
+
 pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     validate_home(&home)?;
     let paths = RuntimePaths::new(&home);
@@ -432,7 +1024,10 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
 
     let auth = random_hex(32)?;
     let start_nonce = random_hex(16)?;
-    let store_epoch = random_hex(16)?;
+    let core_profile_id = profile_id(&home);
+    let store = SqliteStoreKernel::open(&home)?;
+    let schema_version = u32::try_from(store.preparation().schema_version)?;
+    let store_epoch = ensure_store_epoch(&store, random_hex(16)?)?;
     atomic_write(&paths.auth, format!("{auth}\n").as_bytes())?;
     let listener = UnixListener::bind(&paths.socket)?;
     fs::set_permissions(&paths.socket, fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
@@ -443,7 +1038,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         pid: std::process::id(),
         start_nonce: start_nonce.clone(),
         socket_path: paths.socket.to_string_lossy().into_owned(),
-        profile_id: profile_id(&home),
+        profile_id: core_profile_id,
         store_epoch: store_epoch.clone(),
         readiness_generation: 1,
     };
@@ -454,6 +1049,8 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", serde_json::to_string(&descriptor)?);
 
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+    let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+    let document = OwnedDocumentModule::new(descriptor.profile_id.clone(), "probe-library", &store);
     let state = Arc::new(ServerState {
         auth_header: format!("Bearer {auth}"),
         library: LibraryModule::tracer(
@@ -461,9 +1058,14 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             "probe-library".to_owned(),
             StoreEpoch(store_epoch),
         ),
+        document_realtime: OwnedDocumentRealtimeAdapter::new(document.clone()),
+        document,
+        _store: store,
+        schema_version,
         descriptor,
         events: Mutex::new(Vec::new()),
         event_sender,
+        document_sender,
         shutdown: Notify::new(),
     });
     let shutdown_state = Arc::clone(&state);

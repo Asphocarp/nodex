@@ -44,8 +44,9 @@ use super::history::{
 };
 use super::owners::execute_owner_command;
 use super::persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
-    persist_yjs_genesis, read_document_authority, read_event_head, read_store_epoch, sha256,
+    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, derive_touched_block_ids,
+    persist_yjs_commit, persist_yjs_genesis, read_document_authority, read_event_head,
+    read_store_epoch, sha256,
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::DocumentRuntimeCache;
@@ -1117,7 +1118,7 @@ impl OwnedDocumentModule {
                 request_hash,
                 publication: UpdatePublication::Updated,
             },
-            move |connection, authority, _engine, _materialization, store_epoch| {
+            move |connection, authority, engine, materialization, store_epoch| {
                 if base_head_seq > authority.head.head_seq {
                     return Err(StoreError::new(
                         StoreErrorCode::HeadConflict,
@@ -1146,6 +1147,32 @@ impl OwnedDocumentModule {
                         false,
                     ));
                 }
+                let derived_touched_block_ids = if base_head_seq < authority.head.head_seq {
+                    let schema = BlockDocumentSchema::from_identity(
+                        &authority.head.schema_key,
+                        authority.head.schema_version,
+                    )
+                    .ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::UnsupportedSchema,
+                            "Owned Document schema is unsupported",
+                            false,
+                        )
+                    })?;
+                    engine
+                        .prepare_update_v1(&update)
+                        .ok()
+                        .and_then(|candidate| materialize_candidate(&candidate, schema).ok())
+                        .map(|after| {
+                            derive_touched_block_ids(
+                                &authority.owner_block_id,
+                                materialization,
+                                &after,
+                            )
+                        })
+                } else {
+                    None
+                };
                 if let Some(artifact_id) = persist_recovery_if_barrier_crossed(
                     connection,
                     authority,
@@ -1156,6 +1183,7 @@ impl OwnedDocumentModule {
                         base_head_seq,
                         update_id: &receipt_update_id,
                         touched_block_ids: &touched_block_ids,
+                        derived_touched_block_ids: derived_touched_block_ids.as_deref(),
                         update: &update,
                     },
                 )? {
