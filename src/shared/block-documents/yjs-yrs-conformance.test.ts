@@ -485,6 +485,37 @@ describe("Yjs/Yrs compatibility", () => {
   );
 
   test(
+    "consumes a Rust portable subtree copy with remapped nested identities",
+    () => {
+      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-subtree-copy-"));
+      temporaryRoots.push(temporaryRoot);
+      const updatePath = path.join(temporaryRoot, "subtree-copy.bin");
+      const summary = runBridge<SemanticOperationSummary>([
+        "subtree-copy",
+        fixtureRoot,
+        updatePath,
+      ]);
+      const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
+      Y.applyUpdate(
+        consumer,
+        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
+      );
+      Y.applyUpdate(consumer, readFileSync(updatePath));
+
+      expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
+      expect(summary.writeFenceBlockIds).toEqual([
+        "bridge-copy-matrix-toggle",
+        "bridge-copy-matrix-toggle-child",
+      ]);
+      expect(summary.titleWriteFenceRequired).toBe(false);
+      expect(
+        normalizedStateVector(Uint8Array.from(summary.stateVectorV1)),
+      ).toEqual(normalizedStateVector(Y.encodeStateVector(consumer)));
+    },
+    60_000,
+  );
+
+  test(
     "round-trips every registered Block and inline shape with exact XML tags",
     () => {
       const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-matrix-"));

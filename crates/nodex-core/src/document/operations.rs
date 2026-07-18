@@ -22,6 +22,11 @@ use crate::domain::nfm_parser::{NfmParseError, parse_nfm_with_ids};
 use crate::domain::rich_text::{
     RichTextError, RichTextItem, RichTextStyles, canonicalize_rich_text, rich_text_to_delta,
 };
+use crate::domain::subtree::{
+    BlockSubtreeError, BlockSubtreeErrorCode, BlockSubtreeInsertionTarget,
+    PortableBlockSubtreeForest, capture_block_subtree_forest, insert_block_subtree_forest,
+    move_block_subtree_forest, remap_block_subtree_forest, remove_block_subtree_forest,
+};
 
 use super::{
     BlockDocumentError, BlockDocumentSchema, DocumentMaterialization, DocumentMaterializationError,
@@ -98,6 +103,43 @@ pub struct ExactNfmPatch {
     pub new_nfm: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_matches: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PortableSubtreeTransferKind {
+    Move,
+    Copy,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PortableSubtreeDocumentHead {
+    pub document_id: String,
+    pub schema: BlockDocumentSchema,
+    pub full_state_v1: Vec<u8>,
+    pub expected_state_vector_v1: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PortableSubtreeTransferRequest {
+    pub kind: PortableSubtreeTransferKind,
+    pub source: PortableSubtreeDocumentHead,
+    pub target: PortableSubtreeDocumentHead,
+    pub root_block_ids: Vec<String>,
+    pub insertion: BlockSubtreeInsertionTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedPortableSubtreeTransfer {
+    pub same_document: bool,
+    pub source_forest: PortableBlockSubtreeForest,
+    pub inserted_forest: PortableBlockSubtreeForest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<PreparedDocumentOperationUpdate>,
+    pub target: PreparedDocumentOperationUpdate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -476,6 +518,290 @@ pub fn prepare_reference_hint_finalization_update(
         write_fence_block_ids: changed.into_iter().collect(),
         title_write_fence_required: false,
     })
+}
+
+/// Prepare a portable Block subtree move or copy without mutating either
+/// authoritative head. Cross-Document callers must persist the optional source
+/// and required target update in one transaction before publishing either.
+pub fn prepare_portable_subtree_transfer_updates(
+    request: &PortableSubtreeTransferRequest,
+    allocate_block_id: &mut impl FnMut(&str) -> String,
+) -> Result<PreparedPortableSubtreeTransfer, DocumentOperationError> {
+    let same_document = request.source.document_id == request.target.document_id;
+    if same_document
+        && (request.source.schema != request.target.schema
+            || request.source.full_state_v1 != request.target.full_state_v1
+            || request.source.expected_state_vector_v1 != request.target.expected_state_vector_v1)
+    {
+        return Err(operation_error(
+            DocumentOperationErrorCode::InvalidOperation,
+            "A same-Document subtree transfer must use one exact structural head",
+            None,
+            None,
+        ));
+    }
+
+    let source = load_document(&request.source.document_id, &request.source.full_state_v1)?;
+    let source_vector = assert_exact_state_vector(
+        &source,
+        &request.source.expected_state_vector_v1,
+        "Subtree source",
+    )?;
+    let source_decoded = decode_block_document(&source, request.source.schema)?;
+    let source_forest =
+        capture_block_subtree_forest(&source_decoded.block_tree, &request.root_block_ids)
+            .map_err(map_subtree_error)?;
+    let inserted_forest = match request.kind {
+        PortableSubtreeTransferKind::Move => source_forest.clone(),
+        PortableSubtreeTransferKind::Copy => {
+            remap_block_subtree_forest(&source_forest, allocate_block_id)
+                .map_err(map_subtree_error)?
+        }
+    };
+
+    if same_document {
+        let expected = match request.kind {
+            PortableSubtreeTransferKind::Move => {
+                move_block_subtree_forest(
+                    &source_decoded.block_tree,
+                    &request.root_block_ids,
+                    &request.insertion,
+                )
+                .map_err(map_subtree_error)?
+                .0
+            }
+            PortableSubtreeTransferKind::Copy => insert_block_subtree_forest(
+                &source_decoded.block_tree,
+                &inserted_forest,
+                &request.insertion,
+            )
+            .map_err(map_subtree_error)?,
+        };
+        let working = load_document(&request.source.document_id, &request.source.full_state_v1)?;
+        let body = working.get_or_insert_xml_fragment("body");
+        {
+            let mut transaction = working.transact_mut();
+            if request.kind == PortableSubtreeTransferKind::Move {
+                remove_xml_subtree_forest(&body, &mut transaction, &source_forest)?;
+            }
+            insert_xml_subtree_forest(
+                &body,
+                &mut transaction,
+                &inserted_forest,
+                &request.insertion,
+            )?;
+        }
+        let prepared = prepare_subtree_document_result(
+            &working,
+            request.source.schema,
+            &source_vector,
+            &expected,
+            &inserted_forest.block_ids,
+        )?;
+        return Ok(PreparedPortableSubtreeTransfer {
+            same_document: true,
+            source_forest,
+            inserted_forest,
+            source: None,
+            target: prepared,
+        });
+    }
+
+    let target = load_document(&request.target.document_id, &request.target.full_state_v1)?;
+    let target_vector = assert_exact_state_vector(
+        &target,
+        &request.target.expected_state_vector_v1,
+        "Subtree target",
+    )?;
+    let target_decoded = decode_block_document(&target, request.target.schema)?;
+    let source_ids: BTreeSet<_> = current_ids(&source_decoded.block_tree.blocks)
+        .into_iter()
+        .collect();
+    if let Some(conflict) = current_ids(&target_decoded.block_tree.blocks)
+        .into_iter()
+        .find(|id| source_ids.contains(id))
+    {
+        return Err(operation_error(
+            DocumentOperationErrorCode::DuplicateBlockId,
+            format!("Source and target Documents already share Block identity {conflict}"),
+            None,
+            Some(&conflict),
+        ));
+    }
+    let expected_target = insert_block_subtree_forest(
+        &target_decoded.block_tree,
+        &inserted_forest,
+        &request.insertion,
+    )
+    .map_err(map_subtree_error)?;
+    let target_working = load_document(&request.target.document_id, &request.target.full_state_v1)?;
+    let target_body = target_working.get_or_insert_xml_fragment("body");
+    {
+        let mut transaction = target_working.transact_mut();
+        insert_xml_subtree_forest(
+            &target_body,
+            &mut transaction,
+            &inserted_forest,
+            &request.insertion,
+        )?;
+    }
+    let prepared_target = prepare_subtree_document_result(
+        &target_working,
+        request.target.schema,
+        &target_vector,
+        &expected_target,
+        &inserted_forest.block_ids,
+    )?;
+
+    let prepared_source = if request.kind == PortableSubtreeTransferKind::Move {
+        let expected_source =
+            remove_block_subtree_forest(&source_decoded.block_tree, &request.root_block_ids)
+                .map_err(map_subtree_error)?
+                .0;
+        let source_working =
+            load_document(&request.source.document_id, &request.source.full_state_v1)?;
+        let source_body = source_working.get_or_insert_xml_fragment("body");
+        {
+            let mut transaction = source_working.transact_mut();
+            remove_xml_subtree_forest(&source_body, &mut transaction, &source_forest)?;
+        }
+        Some(prepare_subtree_document_result(
+            &source_working,
+            request.source.schema,
+            &source_vector,
+            &expected_source,
+            &source_forest.block_ids,
+        )?)
+    } else {
+        None
+    };
+
+    Ok(PreparedPortableSubtreeTransfer {
+        same_document: false,
+        source_forest,
+        inserted_forest,
+        source: prepared_source,
+        target: prepared_target,
+    })
+}
+
+fn assert_exact_state_vector(
+    document: &Doc,
+    expected_state_vector_v1: &[u8],
+    label: &str,
+) -> Result<yrs::StateVector, DocumentOperationError> {
+    let expected = decode_state_vector_v1(expected_state_vector_v1)
+        .map_err(|error| DocumentOperationError::Yrs(error.to_string()))?;
+    let actual = document.transact().state_vector();
+    if actual == expected {
+        return Ok(actual);
+    }
+    Err(operation_error(
+        DocumentOperationErrorCode::StaleStateVector,
+        format!("{label} was prepared from a stale structural state"),
+        None,
+        None,
+    ))
+}
+
+fn remove_xml_subtree_forest(
+    body: &XmlFragmentRef,
+    transaction: &mut yrs::TransactionMut<'_>,
+    forest: &PortableBlockSubtreeForest,
+) -> Result<(), DocumentOperationError> {
+    for root_id in forest.root_block_ids.iter().rev() {
+        let location = locate_xml_block(body, transaction, root_id).ok_or_else(|| {
+            operation_error(
+                DocumentOperationErrorCode::DocumentStateCorrupt,
+                format!("Captured subtree root {root_id} disappeared before preparation"),
+                None,
+                Some(root_id),
+            )
+        })?;
+        location
+            .parent_group
+            .remove(transaction, location.sibling_index);
+    }
+    Ok(())
+}
+
+fn insert_xml_subtree_forest(
+    body: &XmlFragmentRef,
+    transaction: &mut yrs::TransactionMut<'_>,
+    forest: &PortableBlockSubtreeForest,
+    target: &BlockSubtreeInsertionTarget,
+) -> Result<(), DocumentOperationError> {
+    let (group, index) = resolve_insertion_group(
+        body,
+        transaction,
+        target.parent_block_id.as_deref(),
+        target.before_block_id.as_deref(),
+        0,
+    )?;
+    let blocks: Vec<_> = forest.roots.iter().map(|root| root.block.clone()).collect();
+    insert_block_nodes(&group, transaction, index, &blocks);
+    Ok(())
+}
+
+fn prepare_subtree_document_result(
+    working: &Doc,
+    schema: BlockDocumentSchema,
+    source_vector: &yrs::StateVector,
+    expected_tree: &BlockTree,
+    write_fence_block_ids: &[String],
+) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
+    let decoded = decode_block_document(working, schema)?;
+    if &decoded.block_tree != expected_tree {
+        return Err(operation_error(
+            DocumentOperationErrorCode::DocumentStateCorrupt,
+            "Portable subtree mutation diverged from its validated canonical result",
+            None,
+            None,
+        ));
+    }
+    let materialization = materialize_decoded_document(&decoded)?;
+    let transaction = working.transact();
+    let update_v1 = transaction.encode_state_as_update_v1(source_vector);
+    if update_v1.is_empty() {
+        return Err(operation_error(
+            DocumentOperationErrorCode::NoChange,
+            "Portable subtree mutation produced no relative update",
+            None,
+            None,
+        ));
+    }
+    Ok(PreparedDocumentOperationUpdate {
+        update_v1,
+        state_vector_v1: transaction.state_vector().encode_v1(),
+        materialization,
+        write_fence_block_ids: write_fence_block_ids.to_vec(),
+        title_write_fence_required: false,
+    })
+}
+
+fn map_subtree_error(error: BlockSubtreeError) -> DocumentOperationError {
+    let code = match error.code {
+        BlockSubtreeErrorCode::SourceBlockNotFound => DocumentOperationErrorCode::BlockNotFound,
+        BlockSubtreeErrorCode::TargetParentNotFound
+        | BlockSubtreeErrorCode::TargetParentChildless
+        | BlockSubtreeErrorCode::TargetAnchorNotFound
+        | BlockSubtreeErrorCode::TargetAnchorWrongParent
+        | BlockSubtreeErrorCode::TargetAnchorInMovedSubtree => {
+            DocumentOperationErrorCode::InvalidAnchor
+        }
+        BlockSubtreeErrorCode::AncestorCycle => DocumentOperationErrorCode::AncestorCycle,
+        BlockSubtreeErrorCode::TargetIdentityConflict
+        | BlockSubtreeErrorCode::IdentityRemapConflict
+        | BlockSubtreeErrorCode::DuplicateRoot => DocumentOperationErrorCode::DuplicateBlockId,
+        BlockSubtreeErrorCode::NoChange => DocumentOperationErrorCode::NoChange,
+        BlockSubtreeErrorCode::InvalidDocument | BlockSubtreeErrorCode::PostconditionFailed => {
+            DocumentOperationErrorCode::DocumentStateCorrupt
+        }
+        BlockSubtreeErrorCode::InvalidRootIdentity
+        | BlockSubtreeErrorCode::EmptyRootSelection
+        | BlockSubtreeErrorCode::OverlappingRoots => DocumentOperationErrorCode::InvalidOperation,
+    };
+    operation_error(code, error.message, None, error.block_id.as_deref())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1248,6 +1574,23 @@ mod tests {
         .expect("paragraph")
     }
 
+    fn fixture_head(
+        file_name: &str,
+        document_id: &str,
+        schema: BlockDocumentSchema,
+    ) -> PortableSubtreeDocumentHead {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yjs-yrs");
+        let state = std::fs::read(root.join(file_name)).expect("fixture state");
+        let document = load_document(document_id, &state).expect("fixture document");
+        let vector = document.transact().state_vector().encode_v1();
+        PortableSubtreeDocumentHead {
+            document_id: document_id.to_owned(),
+            schema,
+            full_state_v1: state,
+            expected_state_vector_v1: vector,
+        }
+    }
+
     #[test]
     fn prepares_one_incremental_update_for_stable_block_and_title_operations() {
         let (state, vector) = matrix_state();
@@ -1569,5 +1912,166 @@ mod tests {
         )
         .expect("consumer materialization");
         assert_eq!(actual, prepared.materialization);
+    }
+
+    #[test]
+    fn prepares_same_document_portable_copy_and_multi_root_move_updates() {
+        let head = fixture_head(
+            "matrix-base.bin",
+            "subtree-page",
+            BlockDocumentSchema::PageV2,
+        );
+        let copied = prepare_portable_subtree_transfer_updates(
+            &PortableSubtreeTransferRequest {
+                kind: PortableSubtreeTransferKind::Copy,
+                source: head.clone(),
+                target: head.clone(),
+                root_block_ids: vec!["matrix-toggle".to_owned()],
+                insertion: BlockSubtreeInsertionTarget {
+                    parent_block_id: None,
+                    before_block_id: Some("matrix-heading".to_owned()),
+                },
+            },
+            &mut |source| format!("copied-{source}"),
+        )
+        .expect("portable copy update");
+        assert!(copied.same_document);
+        assert!(copied.source.is_none());
+        assert_eq!(
+            copied.inserted_forest.block_ids,
+            vec![
+                "copied-matrix-toggle".to_owned(),
+                "copied-matrix-toggle-child".to_owned(),
+            ]
+        );
+        let copy_consumer =
+            load_document("subtree-copy-consumer", &head.full_state_v1).expect("copy consumer");
+        copy_consumer
+            .transact_mut()
+            .apply_update(Update::decode_v1(&copied.target.update_v1).expect("copy update"))
+            .expect("copy update applies");
+        let copy_actual = materialize_decoded_document(
+            &decode_block_document(&copy_consumer, BlockDocumentSchema::PageV2)
+                .expect("copy consumer document"),
+        )
+        .expect("copy materialization");
+        assert_eq!(copy_actual, copied.target.materialization);
+
+        let moved = prepare_portable_subtree_transfer_updates(
+            &PortableSubtreeTransferRequest {
+                kind: PortableSubtreeTransferKind::Move,
+                source: head.clone(),
+                target: head.clone(),
+                root_block_ids: vec!["matrix-quote".to_owned(), "matrix-divider".to_owned()],
+                insertion: BlockSubtreeInsertionTarget {
+                    parent_block_id: Some("matrix-toggle".to_owned()),
+                    before_block_id: Some("matrix-toggle-child".to_owned()),
+                },
+            },
+            &mut |_| unreachable!("move preserves identities"),
+        )
+        .expect("portable move update");
+        let toggle = find_semantic_block(&moved.target.materialization.block_tree, "matrix-toggle")
+            .expect("target toggle");
+        assert_eq!(
+            toggle
+                .children
+                .iter()
+                .map(|block| block.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["matrix-quote", "matrix-divider", "matrix-toggle-child"]
+        );
+        let move_consumer =
+            load_document("subtree-move-consumer", &head.full_state_v1).expect("move consumer");
+        move_consumer
+            .transact_mut()
+            .apply_update(Update::decode_v1(&moved.target.update_v1).expect("move update"))
+            .expect("move update applies");
+        let move_actual = materialize_decoded_document(
+            &decode_block_document(&move_consumer, BlockDocumentSchema::PageV2)
+                .expect("move consumer document"),
+        )
+        .expect("move materialization");
+        assert_eq!(move_actual, moved.target.materialization);
+    }
+
+    #[test]
+    fn prepares_atomic_cross_document_template_to_synced_move_candidates() {
+        let source = fixture_head(
+            "reusable-template.bin",
+            "template-source-document",
+            BlockDocumentSchema::ReusableTemplateV1,
+        );
+        let target = fixture_head(
+            "empty-synced-block.bin",
+            "synced-target-document",
+            BlockDocumentSchema::SyncedBlockV1,
+        );
+        let prepared = prepare_portable_subtree_transfer_updates(
+            &PortableSubtreeTransferRequest {
+                kind: PortableSubtreeTransferKind::Move,
+                source: source.clone(),
+                target: target.clone(),
+                root_block_ids: vec!["template-block-1".to_owned()],
+                insertion: BlockSubtreeInsertionTarget::default(),
+            },
+            &mut |_| unreachable!("move preserves identities"),
+        )
+        .expect("cross-Document move candidates");
+        assert!(!prepared.same_document);
+        let source_update = prepared.source.as_ref().expect("source removal update");
+        assert!(source_update.materialization.block_tree.is_empty());
+        assert_eq!(
+            prepared
+                .target
+                .materialization
+                .block_tree
+                .iter()
+                .map(|block| block.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["template-block-1"]
+        );
+        assert!(source_update.materialization.rich_title.is_empty());
+        assert!(prepared.target.materialization.rich_title.is_empty());
+
+        let source_consumer =
+            load_document("template-source-consumer", &source.full_state_v1).expect("source");
+        source_consumer
+            .transact_mut()
+            .apply_update(Update::decode_v1(&source_update.update_v1).expect("source update"))
+            .expect("source update applies");
+        let source_actual = materialize_decoded_document(
+            &decode_block_document(&source_consumer, BlockDocumentSchema::ReusableTemplateV1)
+                .expect("source document"),
+        )
+        .expect("source materialization");
+        assert_eq!(source_actual, source_update.materialization);
+
+        let target_consumer =
+            load_document("synced-target-consumer", &target.full_state_v1).expect("target");
+        target_consumer
+            .transact_mut()
+            .apply_update(Update::decode_v1(&prepared.target.update_v1).expect("target update"))
+            .expect("target update applies");
+        let target_actual = materialize_decoded_document(
+            &decode_block_document(&target_consumer, BlockDocumentSchema::SyncedBlockV1)
+                .expect("target document"),
+        )
+        .expect("target materialization");
+        assert_eq!(target_actual, prepared.target.materialization);
+
+        let mut stale = PortableSubtreeTransferRequest {
+            kind: PortableSubtreeTransferKind::Move,
+            source,
+            target,
+            root_block_ids: vec!["template-block-1".to_owned()],
+            insertion: BlockSubtreeInsertionTarget::default(),
+        };
+        stale.target.expected_state_vector_v1 = StateVector::default().encode_v1();
+        let error = prepare_portable_subtree_transfer_updates(&stale, &mut |_| {
+            unreachable!("move preserves identities")
+        })
+        .expect_err("target structural barrier");
+        assert_eq!(error.code(), DocumentOperationErrorCode::StaleStateVector);
     }
 }

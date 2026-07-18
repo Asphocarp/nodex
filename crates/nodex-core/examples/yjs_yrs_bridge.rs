@@ -12,12 +12,14 @@ use yrs::updates::encoder::Encode;
 use yrs::{Any, GetString, Out, ReadTxn, Text, Transact, Update, Xml, XmlFragment, XmlOut};
 
 use nodex_core::document::{
-    BlockDocumentSchema, DocumentBlockOperation, ExactNfmPatch, create_compatible_document,
+    BlockDocumentSchema, DocumentBlockOperation, ExactNfmPatch, PortableSubtreeDocumentHead,
+    PortableSubtreeTransferKind, PortableSubtreeTransferRequest, create_compatible_document,
     decode_block_document, encode_block_document, has_pending_dependencies,
     materialize_decoded_document, prepare_document_operation_update,
-    prepare_exact_nfm_patch_update,
+    prepare_exact_nfm_patch_update, prepare_portable_subtree_transfer_updates,
 };
 use nodex_core::domain::rich_text::RichTextItem;
+use nodex_core::domain::subtree::BlockSubtreeInsertionTarget;
 
 #[derive(Serialize)]
 struct DocumentSummary {
@@ -528,6 +530,44 @@ fn run_nfm_patch(
     })
 }
 
+fn run_subtree_copy(
+    fixture_root: &Path,
+    output_update: &Path,
+) -> Result<SemanticOperationSummary, Box<dyn std::error::Error>> {
+    let document = load_matrix_fixture(fixture_root)?;
+    let transaction = document.transact();
+    let full_state = transaction.encode_state_as_update_v1(&yrs::StateVector::default());
+    let state_vector = transaction.state_vector().encode_v1();
+    drop(transaction);
+    let head = PortableSubtreeDocumentHead {
+        document_id: "nodex-yjs-yrs-schema-matrix".to_owned(),
+        schema: BlockDocumentSchema::PageV2,
+        full_state_v1: full_state,
+        expected_state_vector_v1: state_vector,
+    };
+    let prepared = prepare_portable_subtree_transfer_updates(
+        &PortableSubtreeTransferRequest {
+            kind: PortableSubtreeTransferKind::Copy,
+            source: head.clone(),
+            target: head,
+            root_block_ids: vec!["matrix-toggle".to_owned()],
+            insertion: BlockSubtreeInsertionTarget {
+                parent_block_id: None,
+                before_block_id: Some("matrix-heading".to_owned()),
+            },
+        },
+        &mut |source| format!("bridge-copy-{source}"),
+    )?;
+    fs::write(output_update, &prepared.target.update_v1)?;
+    let materialization = serde_json::to_value(prepared.target.materialization)?;
+    Ok(SemanticOperationSummary {
+        materialization: project_materialization(&materialization),
+        state_vector_v1: prepared.target.state_vector_v1,
+        write_fence_block_ids: prepared.target.write_fence_block_ids,
+        title_write_fence_required: prepared.target.title_write_fence_required,
+    })
+}
+
 fn project_materialization(materialization: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "schemaVersion": materialization["schemaVersion"],
@@ -582,6 +622,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&summary)?);
             return Ok(());
         }
+        [_, mode, fixture_root, output_update] if mode == "subtree-copy" => {
+            let summary = run_subtree_copy(Path::new(fixture_root), Path::new(output_update))?;
+            println!("{}", serde_json::to_string(&summary)?);
+            return Ok(());
+        }
         [_, mode, fixture_root, output_update] if mode == "generate" => {
             generate(Path::new(fixture_root), Path::new(output_update))?
         }
@@ -605,7 +650,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update> | randomized <fixture-root> <corpus-json> <yjs-update-root> <rust-update-root> | semantic-operations|nfm-patch <fixture-root> <corpus-json> <output-update>"
+                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip|subtree-copy <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update> | randomized <fixture-root> <corpus-json> <yjs-update-root> <rust-update-root> | semantic-operations|nfm-patch <fixture-root> <corpus-json> <output-update>"
                     .into(),
             );
         }

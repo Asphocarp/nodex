@@ -17,8 +17,10 @@ pub use materialization::{
 pub use operations::{
     DocumentBlockOperation, DocumentBlockUpdatePatch, DocumentOperationError,
     DocumentOperationErrorCode, ExactNfmPatch, MAX_DOCUMENT_OPERATION_BATCH_SIZE,
-    PreparedDocumentOperationUpdate, apply_exact_nfm_patches, prepare_document_operation_update,
-    prepare_exact_nfm_patch_update, prepare_nfm_replacement_update,
+    PortableSubtreeDocumentHead, PortableSubtreeTransferKind, PortableSubtreeTransferRequest,
+    PreparedDocumentOperationUpdate, PreparedPortableSubtreeTransfer, apply_exact_nfm_patches,
+    prepare_document_operation_update, prepare_exact_nfm_patch_update,
+    prepare_nfm_replacement_update, prepare_portable_subtree_transfer_updates,
     prepare_reference_hint_finalization_update,
 };
 pub use yrs_engine::{
