@@ -323,6 +323,7 @@ pub(crate) fn persist_canvas_mutation(
             "skippedAppStateKeys": applied.skipped_app_state_keys,
             "addedFileIds": applied.added_file_ids,
             "removedFileIds": applied.removed_file_ids,
+            "eventDelta": applied.event_delta,
         });
         connection.execute(
             "INSERT INTO change_log (\

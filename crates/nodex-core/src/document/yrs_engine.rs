@@ -287,6 +287,44 @@ impl DocumentAwareness {
             .map_err(|error| YrsEngineError::Awareness(error.to_string()))
     }
 
+    pub fn live_client_ids(&self) -> Vec<u64> {
+        self.awareness
+            .iter()
+            .filter_map(|(client_id, state)| state.data.is_some().then_some(client_id.get()))
+            .collect()
+    }
+
+    pub fn inspect_update_v1(update_v1: &[u8]) -> Result<Vec<(u64, bool)>, YrsEngineError> {
+        if update_v1.len() > MAX_AWARENESS_UPDATE_BYTES {
+            return Err(YrsEngineError::AwarenessUpdateTooLarge {
+                actual: update_v1.len(),
+                maximum: MAX_AWARENESS_UPDATE_BYTES,
+            });
+        }
+        let update = AwarenessUpdate::decode_v1(update_v1)
+            .map_err(|error| YrsEngineError::InvalidAwarenessUpdate(error.to_string()))?;
+        Ok(update
+            .clients
+            .into_iter()
+            .map(|(client_id, entry)| (client_id.get(), entry.json.as_ref() != "null"))
+            .collect())
+    }
+
+    pub fn remove_clients_v1(&mut self, client_ids: &[u64]) -> Result<Vec<u8>, YrsEngineError> {
+        let client_ids = client_ids
+            .iter()
+            .copied()
+            .map(ClientID::new)
+            .collect::<Vec<_>>();
+        for client_id in &client_ids {
+            self.awareness.remove_state(*client_id);
+        }
+        self.awareness
+            .update_with_clients(client_ids)
+            .map(|update| update.encode_v1())
+            .map_err(|error| YrsEngineError::Awareness(error.to_string()))
+    }
+
     pub fn apply_update_v1(
         &mut self,
         update_v1: &[u8],

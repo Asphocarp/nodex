@@ -35,6 +35,7 @@ use super::canvas_scene::{
     apply_canvas_mutation as apply_canvas_candidate, parse_canvas_mutation, prepare_canvas_restore,
 };
 use super::compaction::{DocumentCompactionResult, compact_yjs_document};
+use super::event_log::{DocumentEventReplay, replay_document_events};
 use super::genesis::{prepare_editable_root, prepare_yjs_genesis};
 use super::history::{
     NewDocumentCheckpoint, get_document_version, insert_canvas_checkpoint,
@@ -100,6 +101,15 @@ pub struct DocumentCacheMetrics {
 pub struct OwnedDocumentApplyOutcome {
     pub committed: CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RealtimeDocumentBoundary {
+    pub(crate) store_epoch: StoreEpoch,
+    pub(crate) generation: i64,
+    pub(crate) head_seq: i64,
+    pub(crate) event_head: i64,
+    pub(crate) engine: DocumentSyncEngine,
 }
 
 #[derive(Clone)]
@@ -366,6 +376,46 @@ impl OwnedDocumentModule {
             ),
             _ => Err(invalid("Owned Document intent is not implemented yet")),
         }
+    }
+
+    pub(crate) fn authorize_realtime_subscription(
+        &self,
+        context: &BoundModuleContext,
+        document_id: &str,
+    ) -> Result<RealtimeDocumentBoundary, CoreError> {
+        self.validate_context(context)?;
+        self.readers
+            .read_default(|connection| {
+                let authority = read_document_authority(connection, document_id)?
+                    .ok_or_else(|| not_found("Owned Document was not found"))?;
+                authorize_owned_document(context, &authority)?;
+                Ok(RealtimeDocumentBoundary {
+                    store_epoch: StoreEpoch(read_store_epoch(connection)?),
+                    generation: authority.head.generation,
+                    head_seq: authority.head.head_seq,
+                    event_head: read_event_head(connection)?,
+                    engine: authority.head.sync_engine,
+                })
+            })
+            .map_err(core_error)
+    }
+
+    pub(crate) fn replay_document_events(
+        &self,
+        context: &BoundModuleContext,
+        after: i64,
+        limit: Option<u32>,
+    ) -> Result<DocumentEventReplay, CoreError> {
+        self.validate_context(context)?;
+        let project_id = context
+            .project_id
+            .as_ref()
+            .ok_or_else(|| unauthorized_core("Document event replay requires a bound Project"))?;
+        self.readers
+            .read_default(|connection| {
+                replay_document_events(connection, &project_id.0, after, limit)
+            })
+            .map_err(core_error)
     }
 
     pub fn cache_metrics(&self) -> Result<DocumentCacheMetrics, CoreError> {
@@ -2235,6 +2285,15 @@ fn invalid(message: &str) -> CoreError {
     }
 }
 
+fn unauthorized_core(message: &str) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::Unauthorized,
+        message: message.to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
 fn invalid_store(message: String) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
@@ -2269,8 +2328,8 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::document::{
-        BlockDocumentSchema, DocumentBlockOperation, YrsDocumentEngine,
-        prepare_document_operation_update,
+        BlockDocumentSchema, DocumentAwareness, DocumentBlockOperation, DocumentRealtimeEvent,
+        OwnedDocumentRealtimeAdapter, YrsDocumentEngine, prepare_document_operation_update,
     };
     use crate::infrastructure::sqlite::{StoreError, with_immediate_transaction};
 
@@ -2294,11 +2353,15 @@ mod tests {
     }
 
     fn context() -> BoundModuleContext {
+        context_for("renderer-session:test")
+    }
+
+    fn context_for(connection_id: &str) -> BoundModuleContext {
         BoundModuleContext {
             profile_id: ProfileId(PROFILE_ID.to_owned()),
             library_id: LibraryId(LIBRARY_ID.to_owned()),
             project_id: Some(ProjectId(PROJECT_ID.to_owned())),
-            connection_id: "renderer-session:test".to_owned(),
+            connection_id: connection_id.to_owned(),
             adapter: AdapterKind::Test,
         }
     }
@@ -2702,6 +2765,15 @@ mod tests {
                 OwnedDocumentEvent::CanvasUpdated { .. }
             ))
         ));
+        let replayed = seeded
+            .module
+            .replay_document_events(&context(), 0, None)
+            .expect("Canvas event replay");
+        let DocumentEventReplay::Events { events, .. } = replayed else {
+            panic!("Canvas mutation receipt should replay exactly")
+        };
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload, applied.event.as_ref().unwrap().payload);
         seeded
             .module
             .apply(
@@ -3188,6 +3260,176 @@ mod tests {
             applied.committed.event_sequence
         );
         assert!(seeded.module.cache_metrics().expect("cache metrics").hits > 0);
+    }
+
+    #[test]
+    fn realtime_requires_subscription_replays_durable_events_and_clears_awareness() {
+        let seeded = seeded_module();
+        let adapter = OwnedDocumentRealtimeAdapter::new(seeded.module.clone());
+        let first_context = context_for("renderer:first");
+        let second_context = context_for("renderer:second");
+        let request = apply_request(
+            "update:realtime",
+            1,
+            title_update(
+                &seeded.full_state,
+                &seeded.state_vector,
+                "Realtime authority",
+            ),
+        );
+
+        let unauthorized = adapter
+            .apply(&first_context, "client:first", request.clone())
+            .expect_err("subscribe-before-sync is mandatory");
+        assert_eq!(unauthorized.code, CoreErrorCode::Unauthorized);
+        let unauthorized_sync = adapter
+            .sync_yjs(
+                &first_context,
+                "client:first",
+                DOCUMENT_ID.to_owned(),
+                Vec::new(),
+            )
+            .expect_err("sync also requires a subscription");
+        assert_eq!(unauthorized_sync.code, CoreErrorCode::Unauthorized);
+
+        let first = adapter
+            .subscribe(
+                &first_context,
+                DOCUMENT_ID.to_owned(),
+                "client:first".to_owned(),
+            )
+            .expect("first subscription");
+        let second = adapter
+            .subscribe(
+                &second_context,
+                DOCUMENT_ID.to_owned(),
+                "client:second".to_owned(),
+            )
+            .expect("second subscription");
+        assert_eq!(first.head_seq, 1);
+        assert_eq!(second.head_seq, 1);
+        assert!(first.awareness_update.is_some());
+        let synced = adapter
+            .sync_yjs(
+                &first_context,
+                "client:first",
+                DOCUMENT_ID.to_owned(),
+                Vec::new(),
+            )
+            .expect("subscribed sync");
+        assert!(matches!(
+            synced.value,
+            OwnedDocumentReadValue::YjsSync { .. }
+        ));
+
+        let applied = adapter
+            .apply(&first_context, "client:first", request)
+            .expect("subscribed mutation");
+        assert_eq!(applied.committed.value.head_seq, 2);
+        let replay = adapter
+            .replay("renderer:second", "client:second", 0, None)
+            .expect("durable replay");
+        assert_eq!(replay.events.len(), 1);
+        let DocumentRealtimeEvent::Committed(replayed) = &replay.events[0] else {
+            panic!("expected committed event")
+        };
+        assert_eq!(replayed.sequence, applied.committed.event_sequence);
+        assert_eq!(replayed.payload, applied.event.expect("live event").payload);
+
+        let mut remote_awareness = DocumentAwareness::new("awareness:remote");
+        remote_awareness
+            .set_local_state(&json!({ "user": "first" }))
+            .expect("local awareness");
+        let awareness_client_id = remote_awareness.client_id();
+        let awareness_update = remote_awareness.local_update_v1().expect("join update");
+        let publication = adapter
+            .publish_awareness(
+                "renderer:first",
+                "client:first",
+                &StoreEpoch(STORE_EPOCH.to_owned()),
+                1,
+                &awareness_update,
+            )
+            .expect("publish awareness")
+            .expect("awareness changed");
+        assert_eq!(publication.recipient_connections, ["renderer:second"]);
+
+        let mut observer = DocumentAwareness::new("awareness:observer");
+        observer
+            .apply_update_v1(&awareness_update)
+            .expect("observe join");
+        assert!(observer.state(awareness_client_id).is_some());
+        let disconnected = adapter
+            .disconnect("renderer:first")
+            .expect("disconnect clears presence");
+        assert_eq!(disconnected.len(), 1);
+        let DocumentRealtimeEvent::Awareness { update, .. } = &disconnected[0].event else {
+            panic!("expected Awareness leave")
+        };
+        observer.apply_update_v1(update).expect("observe leave");
+        assert!(observer.state(awareness_client_id).is_none());
+
+        seeded
+            .module
+            .compact(
+                &second_context,
+                StoreEpoch(STORE_EPOCH.to_owned()),
+                DOCUMENT_ID.to_owned(),
+                1,
+                2,
+            )
+            .expect("compact event update tail");
+        let compacted = adapter
+            .replay("renderer:second", "client:second", 0, None)
+            .expect("compacted replay returns resync");
+        assert!(matches!(
+            compacted.events.as_slice(),
+            [DocumentRealtimeEvent::ResyncRequired {
+                document_id,
+                head_seq: 2,
+                ..
+            }] if document_id == DOCUMENT_ID
+        ));
+    }
+
+    #[test]
+    fn realtime_replays_a_commit_lost_before_publication() {
+        let seeded = seeded_module();
+        let adapter = OwnedDocumentRealtimeAdapter::new(seeded.module.clone());
+        let first_context = context_for("renderer:faulted");
+        adapter
+            .subscribe(
+                &first_context,
+                DOCUMENT_ID.to_owned(),
+                "client:faulted".to_owned(),
+            )
+            .expect("subscription");
+        let request = apply_request(
+            "update:lost-publication",
+            1,
+            title_update(
+                &seeded.full_state,
+                &seeded.state_vector,
+                "Durable before publication",
+            ),
+        );
+        seeded.module.inject_failure_after_next_commit();
+        adapter
+            .apply(&first_context, "client:faulted", request.clone())
+            .expect_err("injected post-commit publication failure");
+
+        let retry = adapter
+            .apply(&first_context, "client:faulted", request)
+            .expect("exact retry recovers receipt");
+        assert!(retry.committed.receipt.mutation.duplicate);
+        let replay = adapter
+            .replay("renderer:faulted", "client:faulted", 0, None)
+            .expect("reconnect replay");
+        assert!(matches!(
+            replay.events.as_slice(),
+            [DocumentRealtimeEvent::Committed(event)]
+                if event.sequence == retry.committed.event_sequence
+        ));
     }
 
     #[test]

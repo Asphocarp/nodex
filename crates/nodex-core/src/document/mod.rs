@@ -2,12 +2,14 @@ mod block_document;
 mod canvas;
 mod canvas_scene;
 mod compaction;
+mod event_log;
 mod genesis;
 mod history;
 mod materialization;
 mod module;
 mod operations;
 mod persistence;
+mod realtime;
 mod recovery;
 mod runtime;
 mod semantic;
@@ -34,6 +36,10 @@ pub use operations::{
     prepare_document_operation_update, prepare_exact_nfm_patch_update,
     prepare_nfm_replacement_update, prepare_portable_subtree_transfer_updates,
     prepare_reference_hint_finalization_update,
+};
+pub use realtime::{
+    AwarenessPublication, DocumentRealtimeEvent, DocumentRealtimeReplay, DocumentSubscriptionAck,
+    DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter,
 };
 pub use yrs_engine::{
     AwarenessChange, CandidateCommit, DocumentAwareness, MAX_AWARENESS_UPDATE_BYTES,
