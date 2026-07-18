@@ -107,6 +107,9 @@ importers:
       '@nodex/codex-app-server-protocol':
         specifier: workspace:*
         version: link:packages/codex-app-server-protocol
+      '@nodex/core-protocol':
+        specifier: workspace:*
+        version: link:packages/core-protocol
       '@openai/codex':
         specifier: 0.144.6
         version: 0.144.6

@@ -39,7 +39,12 @@ describe("deep Core Module contract", () => {
         return { receipt: "module-owned", eventSequence: 7 };
       },
     };
-    const adapters = (["electron_host", "native_cli", "agent"] as const).map(
+    const adapters = ([
+      "electron_host",
+      "loopback_http",
+      "native_cli",
+      "agent",
+    ] as const).map(
       (adapter, index) =>
         bindInProcessModule(module, () => ({
           profileId: "profile-1",
@@ -63,17 +68,21 @@ describe("deep Core Module contract", () => {
     expect(await adapters[0]?.read(readRequest)).toEqual({
       snapshot: "module-owned",
     });
-    expect(await adapters[1]?.apply(applyRequest)).toEqual({
+    expect(await adapters[1]?.read(readRequest)).toEqual({
+      snapshot: "module-owned",
+    });
+    expect(await adapters[2]?.apply(applyRequest)).toEqual({
       receipt: "module-owned",
       eventSequence: 7,
     });
-    await adapters[2]?.read(readRequest);
+    await adapters[3]?.read(readRequest);
 
     expect(observed.map(({ adapter, connectionId }) => ({ adapter, connectionId })))
       .toEqual([
         { adapter: "electron_host", connectionId: "connection-1" },
-        { adapter: "native_cli", connectionId: "connection-2" },
-        { adapter: "agent", connectionId: "connection-3" },
+        { adapter: "loopback_http", connectionId: "connection-2" },
+        { adapter: "native_cli", connectionId: "connection-3" },
+        { adapter: "agent", connectionId: "connection-4" },
       ]);
     expect(readRequest).not.toHaveProperty("profileId");
     expect(applyRequest).not.toHaveProperty("libraryId");

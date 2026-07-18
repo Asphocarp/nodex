@@ -61,6 +61,25 @@ Modules.
 
 ## Codemap
 
+### Native Core migration boundary (not active authority)
+
+The repository includes an additive native-Core boundary that is deliberately
+not wired into normal Electron startup yet. `nodex-core-contracts` owns six
+transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
+fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;
+`nodex-core` contains vertical Module implementations; and `nodex-core-server`
+hosts authenticated HTTP/1.1 over a Profile-private Unix socket. The thin
+`src/main/core-client/` Adapter validates runtime ownership and permissions,
+performs the version/nonce/Profile handshake, uses bounded codecs, and parses
+committed SSE events incrementally.
+
+This boundary currently runs only in migration probes. The TypeScript main
+process remains the sole production SQLite/Yjs authority until the explicit
+Profile cutover milestone; neither normal startup nor renderer behavior depends
+on the native daemon. Generated protocol artifacts are byte-verified, and
+dependency audits prevent UDS routes from importing SQLite, deep Modules from
+importing transport code, or the Electron client from reaching the local store.
+
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical product read models (`Page` detail payloads, internal full-board shapes, `PageSummary`/`BoardSummary` lightweight View projections, `Project`, and project session/tab/thread-link payloads). Page is a document-bearing Block and has no second storage identity; `Card` is reserved for visual components.
 - `codex-conversation-state/codex-conversation-state.ts`: protocol-backed Codex conversation core. Generated `ThreadItem` and `ServerRequest` envelopes remain the single raw-field authority; request-caused synthetic rows are an explicit non-protocol union, and turn timing/diff/context lives in a separate sidecar. Its constructor requires complete caller-supplied app-side params and a fully loaded `itemsView: "full"` envelope for every hydrated turn, fails closed rather than inventing unavailable model/permission/attachment context, and preserves protocol item/request identity. `codex-prompt-preparation.ts` compiles renderer-owned prompt text and app sidecars once into exact app-server input so optimistic start/steer state and transport share one client identity and payload.

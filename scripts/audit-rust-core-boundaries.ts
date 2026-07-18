@@ -18,14 +18,17 @@ const assertAbsent = (
   }
 };
 
-const sourceFiles = (directory: string): readonly string[] => {
+const sourceFiles = (
+  directory: string,
+  extensionPattern: RegExp = /\.rs$/,
+): readonly string[] => {
   const entries = readdirSync(path.join(repositoryRoot, directory), {
     withFileTypes: true,
   });
   return entries.flatMap((entry) => {
     const relative = path.join(directory, entry.name);
-    if (entry.isDirectory()) return sourceFiles(relative);
-    return entry.isFile() && entry.name.endsWith(".rs") ? [relative] : [];
+    if (entry.isDirectory()) return sourceFiles(relative, extensionPattern);
+    return entry.isFile() && extensionPattern.test(entry.name) ? [relative] : [];
   });
 };
 
@@ -73,6 +76,14 @@ for (const file of sourceFiles("crates/nodex-core-server/src")) {
     file,
     [/\brusqlite\b/],
     "UDS routes must not import the SQLite implementation",
+  );
+}
+
+for (const file of sourceFiles("src/main/core-client", /\.ts$/)) {
+  assertAbsent(
+    file,
+    [/\bbetter-sqlite3\b/, /\bgetDb\s*\(/, /local-store\//, /\bfetch\s*\(/],
+    "Electron Core client must remain a generated-protocol UDS Adapter",
   );
 }
 

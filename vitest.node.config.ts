@@ -10,6 +10,7 @@ export default defineConfig({
       "config/**/*.test.ts",
       "scripts/**/*.test.ts",
       "src/shared/**/*.test.ts",
+      "src/main/core-client/**/*.node.test.ts",
       "src/renderer/**/*.node.test.{ts,tsx}",
       "packages/landing/src/**/*.test.ts",
     ],
