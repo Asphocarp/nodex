@@ -5,6 +5,7 @@ use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, Transact};
 
 use crate::domain::block_materialization::{MaterializedBlockNode, dematerialize_block_tree};
+use crate::domain::block_tree::TextDelta;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::operations::{DocumentBlockOperation, PreparedDocumentOperationUpdate};
@@ -55,6 +56,29 @@ pub(crate) fn prepare_yjs_genesis(
     })
 }
 
+pub(crate) fn prepare_page_yjs_genesis(
+    document_id: &str,
+    title: &str,
+    root_block_id: &str,
+) -> Result<PreparedYjsGenesis, StoreError> {
+    let tree = dematerialize_block_tree(&[empty_paragraph(root_block_id)])
+        .map_err(|error| invalid(format!("Page genesis Block is invalid: {error}")))?;
+    let title = (!title.is_empty()).then(|| {
+        vec![TextDelta {
+            insert: title.to_owned(),
+            attributes: BTreeMap::new(),
+        }]
+    });
+    let document = encode_block_document(
+        document_id,
+        BlockDocumentSchema::PageV2,
+        title.as_deref(),
+        &tree,
+    )
+    .map_err(|error| invalid(format!("Page genesis is invalid: {error}")))?;
+    prepare_encoded_genesis(document_id, "page", BlockDocumentSchema::PageV2, document)
+}
+
 pub(crate) fn prepare_yjs_genesis_with_blocks(
     document_id: &str,
     owner_type: &str,
@@ -65,6 +89,15 @@ pub(crate) fn prepare_yjs_genesis_with_blocks(
         .map_err(|error| invalid(format!("Document genesis Blocks are invalid: {error}")))?;
     let document = encode_block_document(document_id, schema, None, &tree)
         .map_err(|error| invalid(format!("Document genesis is invalid: {error}")))?;
+    prepare_encoded_genesis(document_id, owner_type, schema, document)
+}
+
+fn prepare_encoded_genesis(
+    document_id: &str,
+    owner_type: &str,
+    schema: BlockDocumentSchema,
+    document: yrs::Doc,
+) -> Result<PreparedYjsGenesis, StoreError> {
     let decoded = decode_block_document(&document, schema)
         .map_err(|error| invalid(format!("Document genesis schema is invalid: {error}")))?;
     let materialization = materialize_decoded_document(&decoded)

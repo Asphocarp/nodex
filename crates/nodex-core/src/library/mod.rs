@@ -15,7 +15,7 @@ use rusqlite::OptionalExtension;
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
-use crate::infrastructure::writer::StoreReaders;
+use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 #[derive(Clone, Debug)]
 pub struct LibraryApplyOutcome {
@@ -42,6 +42,7 @@ pub struct LibraryModule {
     store_epoch: StoreEpoch,
     state: Mutex<LibraryState>,
     readers: Option<StoreReaders>,
+    writer: Option<StoreWriter>,
 }
 
 impl LibraryModule {
@@ -52,6 +53,7 @@ impl LibraryModule {
             store_epoch,
             state: Mutex::new(LibraryState::default()),
             readers: None,
+            writer: None,
         }
     }
 
@@ -66,6 +68,7 @@ impl LibraryModule {
             store_epoch: StoreEpoch(String::new()),
             state: Mutex::new(LibraryState::default()),
             readers: Some(kernel.readers()),
+            writer: Some(kernel.writer()),
         }
     }
 
@@ -147,6 +150,10 @@ impl LibraryModule {
         self.validate_context(context)?;
         if request.version != CORE_CONTRACT_VERSION {
             return Err(invalid_input("unsupported Library contract version"));
+        }
+        if let Some(writer) = &self.writer {
+            return mutation::apply(writer, &self.profile_id, &self.library_id, context, request)
+                .map_err(core_error);
         }
         if request.store_epoch != self.store_epoch {
             return Err(CoreError {
@@ -686,4 +693,5 @@ mod tests {
     }
 }
 mod cursor;
+mod mutation;
 mod navigation;

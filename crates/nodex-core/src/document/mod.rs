@@ -48,3 +48,8 @@ pub use yrs_engine::{
     YrsEngineError, YrsUpdateCandidate, create_compatible_document, decode_state_vector_v1,
     has_pending_dependencies,
 };
+
+pub(crate) use genesis::prepare_page_yjs_genesis;
+pub(crate) use persistence::{
+    PersistYjsGenesis, persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,
+};
