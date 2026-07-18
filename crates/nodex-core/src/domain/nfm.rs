@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use super::block_materialization::MaterializedBlockNode;
 
-const NFM_COLORS: &[&str] = &[
+pub(crate) const NFM_COLORS: &[&str] = &[
     "gray",
     "brown",
     "orange",
@@ -1116,6 +1116,10 @@ fn serialize_inline_content(items: &[NfmInlineContent]) -> String {
     items.iter().map(serialize_inline_item).collect()
 }
 
+pub(crate) fn serialize_inline_content_for_adapter(items: &[NfmInlineContent]) -> String {
+    serialize_inline_content(items)
+}
+
 fn serialize_inline_item(item: &NfmInlineContent) -> String {
     match item {
         NfmInlineContent::LineBreak => "<br>".to_owned(),
@@ -1774,7 +1778,7 @@ fn format_time_part(value: &str, format: Option<&str>) -> String {
     format!("{display_hour}:{minute} {suffix}")
 }
 
-fn parse_inline_content(input: &str) -> Vec<NfmInlineContent> {
+pub(crate) fn parse_inline_content(input: &str) -> Vec<NfmInlineContent> {
     InlineParser::new(input).parse_run(NfmStyleSet::default(), &[])
 }
 
@@ -1936,7 +1940,7 @@ impl<'a> InlineParser<'a> {
                     .get("reasoning")
                     .filter(|value| !value.is_empty())
                     .cloned(),
-                raw_attributes: (!raw.trim().is_empty()).then(|| raw.trim().to_owned()),
+                raw_attributes: (!raw.trim().is_empty()).then(|| raw.trim_start().to_owned()),
             },
             "<mention-thread" => {
                 let uuid = attrs.get("uuid")?.trim();
@@ -2078,7 +2082,7 @@ fn merge_styles(target: &mut NfmStyleSet, source: &NfmStyleSet) {
     }
 }
 
-fn parse_xml_attrs(input: &str) -> std::collections::BTreeMap<String, String> {
+pub(crate) fn parse_xml_attrs(input: &str) -> std::collections::BTreeMap<String, String> {
     let mut attrs = std::collections::BTreeMap::new();
     let bytes = input.as_bytes();
     let mut cursor = 0usize;

@@ -371,6 +371,19 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     matrixAfter,
     matrixStateVector,
   );
+  const nfmParserOracle = createPageDocument({
+    documentId: "nodex-yjs-yrs-nfm-parser-oracle",
+    initializeBody: false,
+  });
+  let nfmParserBlockIndex = 0;
+  populateBlockDocumentBodyFromNfm(
+    nfmParserOracle.body,
+    matrixMaterialization.nfm,
+    () => `oracle-nfm-${++nfmParserBlockIndex}`,
+  );
+  const nfmParserMaterialization = materializePageDocument(
+    nfmParserOracle.document,
+  );
 
   const emptyPage = createPageDocument({
     documentId: "nodex-yjs-yrs-empty-page",
@@ -388,8 +401,10 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
 
   const syncedBlock = createSyncedBlockDocument({
     documentId: "nodex-yjs-yrs-empty-synced-block",
+    initializeBody: false,
   });
   syncedBlock.document.clientID = 1_302;
+  syncedBlock.body.insert(0, [new Y.XmlElement("blockGroup")]);
   const syncedBlockMaterialization = toPersistedBlockDocumentMaterialization(
     inspectRegisteredOwnedBlockDocument(syncedBlock.document, {
       ownerType: "synced_block_source",
@@ -475,6 +490,18 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     writeFile(
       path.join(outputRoot, "matrix-materialization.json"),
       `${JSON.stringify(matrixMaterialization, null, 2)}\n`,
+    ),
+    writeFile(
+      path.join(outputRoot, "nfm-parser-oracle.json"),
+      `${JSON.stringify(
+        {
+          input: matrixMaterialization.nfm,
+          blockTree: nfmParserMaterialization.blockTree,
+          nfm: nfmParserMaterialization.nfm,
+        },
+        null,
+        2,
+      )}\n`,
     ),
     writeFile(path.join(outputRoot, "awareness-added.bin"), awarenessAdded),
     writeFile(path.join(outputRoot, "awareness-removed.bin"), awarenessRemoved),
