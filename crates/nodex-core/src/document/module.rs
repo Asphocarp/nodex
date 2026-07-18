@@ -28,14 +28,15 @@ use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
 use super::compaction::{DocumentCompactionResult, compact_yjs_document};
+use super::genesis::{prepare_editable_root, prepare_yjs_genesis};
 use super::history::{
     NewDocumentCheckpoint, get_document_version, insert_document_checkpoint,
     list_document_versions, prepare_document_revision, prepare_version_restore,
     record_document_revision_edit,
 };
 use super::persistence::{
-    DocumentAuthorityRow, PersistYjsCommit, persist_yjs_commit, read_document_authority,
-    read_event_head, read_store_epoch, sha256,
+    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
+    persist_yjs_genesis, read_document_authority, read_event_head, read_store_epoch, sha256,
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::DocumentRuntimeCache;
@@ -251,6 +252,12 @@ impl OwnedDocumentModule {
             return Err(invalid("Unsupported Owned Document contract version"));
         }
         match request.intent {
+            OwnedDocumentIntent::PrepareOwner { owner_block_id } => self.prepare_owner(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                owner_block_id,
+            ),
             OwnedDocumentIntent::ApplyYjsUpdate {
                 document_id,
                 generation,
@@ -372,6 +379,283 @@ impl OwnedDocumentModule {
                     .map_err(|_| internal("Document cache lock failed"))?
                     .install(&authority.head, engine);
                 Ok(result)
+            })
+            .map_err(core_error)
+    }
+
+    fn prepare_owner(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        owner_block_id: String,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let fingerprint =
+            serde_json::to_vec(&(context, expected_store_epoch.clone(), &owner_block_id))
+                .map_err(|_| invalid("Owned Document preparation cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let context = context.clone();
+        let cache = Arc::clone(&self.cache);
+        let fail_after_commit = Arc::clone(&self.fail_after_commit);
+        self.writer
+            .call(move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Conflict,
+                        "Owned Document preparation targets a stale store epoch",
+                        true,
+                    ));
+                }
+                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                {
+                    if stored.request_hash != request_hash {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to another Owned Document intent",
+                            false,
+                        ));
+                    }
+                    let mut committed = serde_json::from_value::<
+                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                    >(stored.result)
+                    .map_err(|_| corrupt_receipt())?;
+                    committed.receipt.mutation.duplicate = true;
+                    transaction.commit()?;
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        event: None,
+                    });
+                }
+                let document_id = transaction
+                    .query_row(
+                        "SELECT document_id FROM block_documents WHERE block_id = ?1",
+                        [&owner_block_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .ok_or_else(|| not_found("Owned Document owner was not found"))?;
+                let authority = read_document_authority(&transaction, &document_id)?
+                    .ok_or_else(|| not_found("Owned Document was not found"))?;
+                authorize_project(&context, &authority)?;
+                if authority.owner_block_id != owner_block_id
+                    || authority.owner_lifecycle != "active"
+                {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Unauthorized,
+                        "Owned Document owner is not active",
+                        false,
+                    ));
+                }
+                if authority.head.sync_engine != DocumentSyncEngine::Yjs {
+                    return Err(StoreError::new(
+                        StoreErrorCode::UnsupportedSchema,
+                        "Canvas owner preparation requires the Canvas engine",
+                        false,
+                    ));
+                }
+                let schema = registered_yjs_schema(&authority)?;
+                let root_block_id = allocate_document_block_id(&operation_id, 1);
+                let (committed, event, next_head, next_engine) =
+                    match (authority.head.readiness, authority.head.authority) {
+                        (DocumentReadiness::PendingGenesis, DocumentAuthority::LegacyShadow) => {
+                            if authority.head.head_seq != 0 {
+                                return Err(StoreError::new(
+                                    StoreErrorCode::StoreCorrupt,
+                                    "Pending Document genesis has a nonzero head",
+                                    false,
+                                ));
+                            }
+                            let prepared = prepare_yjs_genesis(
+                                &authority.head.id,
+                                &authority.owner_type,
+                                schema,
+                                &root_block_id,
+                            )?;
+                            let persisted = persist_yjs_genesis(
+                                &transaction,
+                                PersistYjsGenesis {
+                                    authority: &authority,
+                                    materialization: &prepared.materialization,
+                                    update_id: &operation_id,
+                                    client_session_id: &context.connection_id,
+                                    update: &prepared.update_v1,
+                                    state_vector: &prepared.state_vector_v1,
+                                    full_state: &prepared.update_v1,
+                                    store_epoch: &store_epoch,
+                                    operation_id: &operation_id,
+                                },
+                            )?;
+                            let committed = committed_value(
+                                &operation_id,
+                                &store_epoch,
+                                &authority,
+                                persisted.head_seq,
+                                DocumentCommitOutcome::Committed,
+                                persisted.event_sequence,
+                            );
+                            let event = CommittedCoreModuleEvent {
+                                version: CORE_CONTRACT_VERSION,
+                                sequence: persisted.event_sequence,
+                                store_epoch: StoreEpoch(store_epoch.clone()),
+                                operation_id: Some(operation_id.clone()),
+                                committed_at: persisted.committed_at.clone(),
+                                payload: CoreModuleEventPayload::OwnedDocument(
+                                    OwnedDocumentEvent::DocumentUpdated {
+                                        document_id: authority.head.id.clone(),
+                                        generation: authority.head.generation,
+                                        head_seq: persisted.head_seq,
+                                        update: prepared.update_v1.clone(),
+                                    },
+                                ),
+                            };
+                            let mut next_head = authority.head.clone();
+                            next_head.head_seq = persisted.head_seq;
+                            next_head.state_vector = persisted.state_vector;
+                            next_head.state_hash = persisted.state_hash;
+                            next_head.readiness = DocumentReadiness::Ready;
+                            next_head.authority = DocumentAuthority::YdocPrimary;
+                            (committed, Some(event), next_head, prepared.engine)
+                        }
+                        (DocumentReadiness::Ready, DocumentAuthority::YdocPrimary) => {
+                            authorize_yjs(&context, &authority)?;
+                            let mut engine = cache
+                                .lock()
+                                .map_err(|_| internal("Document cache lock failed"))?
+                                .clone_engine(&transaction, &authority.head)?;
+                            let base_materialization = materialize_engine(&engine, schema)?;
+                            let Some(prepared) = prepare_editable_root(
+                                &authority.head.id,
+                                schema,
+                                &engine,
+                                &root_block_id,
+                            )?
+                            else {
+                                let event_head = read_event_head(&transaction)?;
+                                let committed = committed_value(
+                                    &operation_id,
+                                    &store_epoch,
+                                    &authority,
+                                    authority.head.head_seq,
+                                    DocumentCommitOutcome::NoChange,
+                                    event_head,
+                                );
+                                insert_typed_receipt(
+                                    &transaction,
+                                    &context,
+                                    &operation_id,
+                                    &request_hash,
+                                    &store_epoch,
+                                    "prepare_owner",
+                                    &committed,
+                                    None,
+                                )?;
+                                transaction.commit()?;
+                                cache
+                                    .lock()
+                                    .map_err(|_| internal("Document cache lock failed"))?
+                                    .install(&authority.head, engine);
+                                return Ok(OwnedDocumentApplyOutcome {
+                                    committed,
+                                    event: None,
+                                });
+                            };
+                            let candidate = engine
+                                .prepare_update_v1(&prepared.update_v1)
+                                .map_err(engine_error)?;
+                            let materialization = materialize_candidate(&candidate, schema)?;
+                            let candidate_transaction = candidate.document().transact();
+                            let state_vector = candidate_transaction.state_vector().encode_v1();
+                            let full_state = candidate_transaction
+                                .encode_state_as_update_v1(&yrs::StateVector::default());
+                            drop(candidate_transaction);
+                            let persisted = persist_yjs_commit(
+                                &transaction,
+                                PersistYjsCommit {
+                                    authority: &authority,
+                                    base_materialization: &base_materialization,
+                                    materialization: &materialization,
+                                    update_id: &operation_id,
+                                    client_session_id: &context.connection_id,
+                                    base_head_seq: authority.head.head_seq,
+                                    client_touched_block_ids: &[],
+                                    update: &prepared.update_v1,
+                                    state_vector: &state_vector,
+                                    full_state: &full_state,
+                                    store_epoch: &store_epoch,
+                                    operation_id: &operation_id,
+                                    event_kind: "document_updated",
+                                    write_fence_block_ids: &prepared.write_fence_block_ids,
+                                    title_write_fence_required: prepared.title_write_fence_required,
+                                },
+                            )?;
+                            let committed = committed_value(
+                                &operation_id,
+                                &store_epoch,
+                                &authority,
+                                persisted.head_seq,
+                                DocumentCommitOutcome::Committed,
+                                persisted.event_sequence,
+                            );
+                            let event = CommittedCoreModuleEvent {
+                                version: CORE_CONTRACT_VERSION,
+                                sequence: persisted.event_sequence,
+                                store_epoch: StoreEpoch(store_epoch.clone()),
+                                operation_id: Some(operation_id.clone()),
+                                committed_at: persisted.committed_at.clone(),
+                                payload: CoreModuleEventPayload::OwnedDocument(
+                                    OwnedDocumentEvent::DocumentUpdated {
+                                        document_id: authority.head.id.clone(),
+                                        generation: authority.head.generation,
+                                        head_seq: persisted.head_seq,
+                                        update: prepared.update_v1,
+                                    },
+                                ),
+                            };
+                            engine.commit_candidate(candidate).map_err(engine_error)?;
+                            let mut next_head = authority.head.clone();
+                            next_head.head_seq = persisted.head_seq;
+                            next_head.state_vector = persisted.state_vector;
+                            next_head.state_hash = persisted.state_hash;
+                            (committed, Some(event), next_head, engine)
+                        }
+                        _ => {
+                            return Err(StoreError::new(
+                                StoreErrorCode::StoreCorrupt,
+                                "Owned Document readiness and authority diverge",
+                                false,
+                            ));
+                        }
+                    };
+                insert_typed_receipt(
+                    &transaction,
+                    &context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "prepare_owner",
+                    &committed,
+                    event.as_ref().map(|event| event.sequence),
+                )?;
+                transaction.commit()?;
+                if fail_after_commit.swap(false, Ordering::AcqRel) {
+                    cache
+                        .lock()
+                        .map_err(|_| internal("Document cache lock failed"))?
+                        .invalidate(&document_id);
+                    return Err(StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Injected failure after durable Document preparation",
+                        true,
+                    ));
+                }
+                cache
+                    .lock()
+                    .map_err(|_| internal("Document cache lock failed"))?
+                    .install(&next_head, next_engine);
+                Ok(OwnedDocumentApplyOutcome { committed, event })
             })
             .map_err(core_error)
     }
@@ -1244,7 +1528,32 @@ fn authorize_yjs(
             false,
         ));
     }
+    registered_yjs_schema(authority)?;
     Ok(())
+}
+
+fn registered_yjs_schema(
+    authority: &DocumentAuthorityRow,
+) -> Result<BlockDocumentSchema, StoreError> {
+    let schema = BlockDocumentSchema::from_identity(
+        &authority.head.schema_key,
+        authority.head.schema_version,
+    )
+    .ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "Owned Document schema is unsupported",
+            false,
+        )
+    })?;
+    if super::materialization::schema_metadata(schema).owner_type == authority.owner_type {
+        return Ok(schema);
+    }
+    Err(StoreError::new(
+        StoreErrorCode::UnsupportedSchema,
+        "Owned Document owner type does not match its registered schema",
+        false,
+    ))
 }
 
 fn validate_touched_block_ids(ids: &[String]) -> Result<(), CoreError> {
@@ -1630,6 +1939,163 @@ mod tests {
                 touched_block_ids: vec![OWNER_BLOCK_ID.to_owned()],
                 update,
             },
+        }
+    }
+
+    fn pending_module(owner_type: &str, schema_key: &str, schema_version: i64) -> SeededModule {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh v83");
+        let owner_type = owner_type.to_owned();
+        let schema_key = schema_key.to_owned();
+        kernel
+            .writer()
+            .call(move |connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Pending Document test', ?3, ?3)",
+                        params![PROJECT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, ?1, ?2, ?2)",
+                        params![STORE_EPOCH, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO blocks(\
+                           id, project_id, type, lifecycle, location_kind, containing_document_id, \
+                           containing_database_id, location_revision, metadata_revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'active', 'space', NULL, NULL, 1, 1, ?4, ?4)",
+                        params![OWNER_BLOCK_ID, PROJECT_ID, owner_type, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO documents(\
+                           id, project_id, generation, head_seq, schema_key, schema_version, \
+                           state_vector, state_hash, readiness, authority, created_at, updated_at, sync_engine\
+                         ) VALUES (?1, ?2, 1, 0, ?3, ?4, X'', '', \
+                           'pending_genesis', 'legacy_shadow', ?5, ?5, 'yjs')",
+                        params![DOCUMENT_ID, PROJECT_ID, schema_key, schema_version, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed pending Document");
+        let module = OwnedDocumentModule::new(PROFILE_ID, LIBRARY_ID, &kernel);
+        SeededModule {
+            _directory: directory,
+            kernel,
+            module,
+            full_state: Vec::new(),
+            state_vector: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn prepare_owner_commits_registered_genesis_once() {
+        for (owner_type, schema_key, schema_version) in [
+            ("page", "nodex.page", 2),
+            ("synced_block_source", "nodex.synced-block", 1),
+            ("reusable_template_source", "nodex.reusable-template", 1),
+        ] {
+            let seeded = pending_module(owner_type, schema_key, schema_version);
+            let request = ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: format!("prepare:{owner_type}"),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: OwnedDocumentIntent::PrepareOwner {
+                    owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                },
+            };
+            let prepared = seeded
+                .module
+                .apply(&context(), request.clone())
+                .expect("prepare pending owner");
+            assert_eq!(prepared.committed.value.head_seq, 1);
+            assert_eq!(
+                prepared.committed.value.outcome,
+                DocumentCommitOutcome::Committed
+            );
+            assert!(prepared.event.is_some());
+
+            seeded
+                .kernel
+                .readers()
+                .read_default(|connection| {
+                    let evidence = connection.query_row(
+                        "SELECT document.readiness, document.authority, document.head_seq, \
+                                materialization.projected_seq, \
+                                json_array_length(materialization.block_tree_json), \
+                                (SELECT count(*) FROM document_updates WHERE document_id = ?1), \
+                                (SELECT count(*) FROM document_snapshots WHERE document_id = ?1), \
+                                (SELECT count(*) FROM document_update_receipts WHERE document_id = ?1), \
+                                (SELECT count(*) FROM change_log WHERE operation_id = ?2) \
+                         FROM documents document JOIN document_materializations materialization \
+                           ON materialization.document_id = document.id WHERE document.id = ?1",
+                        params![DOCUMENT_ID, format!("prepare:{owner_type}")],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, i64>(2)?,
+                                row.get::<_, i64>(3)?,
+                                row.get::<_, i64>(4)?,
+                                row.get::<_, i64>(5)?,
+                                row.get::<_, i64>(6)?,
+                                row.get::<_, i64>(7)?,
+                                row.get::<_, i64>(8)?,
+                            ))
+                        },
+                    )?;
+                    assert_eq!(
+                        evidence,
+                        (
+                            "ready".to_owned(),
+                            "ydoc_primary".to_owned(),
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                        )
+                    );
+                    Ok::<_, StoreError>(())
+                })
+                .expect("genesis evidence");
+
+            let duplicate = seeded
+                .module
+                .apply(&context(), request)
+                .expect("exact prepare retry");
+            assert!(duplicate.committed.receipt.mutation.duplicate);
+            assert!(duplicate.event.is_none());
+
+            let no_change = seeded
+                .module
+                .apply(
+                    &context(),
+                    ModuleApplyRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        operation_id: format!("prepare-again:{owner_type}"),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        intent: OwnedDocumentIntent::PrepareOwner {
+                            owner_block_id: OWNER_BLOCK_ID.to_owned(),
+                        },
+                    },
+                )
+                .expect("already editable owner");
+            assert_eq!(
+                no_change.committed.value.outcome,
+                DocumentCommitOutcome::NoChange
+            );
+            assert!(no_change.event.is_none());
         }
     }
 

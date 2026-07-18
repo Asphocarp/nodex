@@ -55,6 +55,18 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub title_write_fence_required: bool,
 }
 
+pub(crate) struct PersistYjsGenesis<'a> {
+    pub authority: &'a DocumentAuthorityRow,
+    pub materialization: &'a DocumentMaterialization,
+    pub update_id: &'a str,
+    pub client_session_id: &'a str,
+    pub update: &'a [u8],
+    pub state_vector: &'a [u8],
+    pub full_state: &'a [u8],
+    pub store_epoch: &'a str,
+    pub operation_id: &'a str,
+}
+
 pub(crate) fn read_document_authority(
     connection: &Connection,
     document_id: &str,
@@ -308,6 +320,171 @@ pub(crate) fn persist_yjs_commit(
         state_hash,
         derived_touched_block_ids,
         event_sequence,
+        committed_at: now,
+    })
+}
+
+pub(crate) fn persist_yjs_genesis(
+    connection: &Connection,
+    input: PersistYjsGenesis<'_>,
+) -> Result<PersistedDocumentCommit, StoreError> {
+    if input.authority.head.generation < 1
+        || input.authority.head.head_seq != 0
+        || input.authority.head.readiness
+            != crate::infrastructure::document_repository::DocumentReadiness::PendingGenesis
+        || input.authority.head.authority
+            != crate::infrastructure::document_repository::DocumentAuthority::LegacyShadow
+        || input.authority.head.sync_engine
+            != crate::infrastructure::document_repository::DocumentSyncEngine::Yjs
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Owned Document is not a pending Yjs genesis authority",
+            false,
+        ));
+    }
+    let now = sqlite_now(connection)?;
+    validate_document_references(
+        connection,
+        &input.authority.head.project_id,
+        input.materialization,
+    )?;
+    reconcile_document_blocks(connection, input.authority, input.materialization, 1, &now)?;
+    persist_materialization(
+        connection,
+        &input.authority.head.id,
+        input.authority.head.generation,
+        1,
+        input.materialization,
+        &now,
+    )?;
+    let derived_touched_block_ids = std::iter::once(input.authority.owner_block_id.clone())
+        .chain(
+            input
+                .materialization
+                .search_units
+                .iter()
+                .map(|unit| unit.block_id.clone()),
+        )
+        .collect::<Vec<_>>();
+    let derived_touched_json = serde_json::to_string(&derived_touched_block_ids)
+        .map_err(|_| internal("Genesis touched Block IDs"))?;
+    let update_hash = sha256(input.update);
+    connection.execute(
+        "INSERT INTO document_update_receipts (\
+           document_id, generation, seq, update_id, client_session_id, base_head_seq, \
+           client_touched_block_ids_json, derived_touched_block_ids_json, derivation_version, \
+           update_hash, update_byte_length, committed_at\
+         ) VALUES (?1, ?2, 1, ?3, ?4, 0, '[]', ?5, 1, ?6, ?7, ?8)",
+        params![
+            input.authority.head.id,
+            input.authority.head.generation,
+            input.update_id,
+            input.client_session_id,
+            derived_touched_json,
+            update_hash,
+            i64::try_from(input.update.len()).map_err(|_| internal("Genesis update length"))?,
+            now,
+        ],
+    )?;
+    connection.execute(
+        "INSERT INTO document_updates (\
+           document_id, generation, seq, update_id, client_session_id, base_head_seq, \
+           touched_block_ids_json, update_blob, update_hash, committed_at\
+         ) VALUES (?1, ?2, 1, ?3, ?4, 0, ?5, ?6, ?7, ?8)",
+        params![
+            input.authority.head.id,
+            input.authority.head.generation,
+            input.update_id,
+            input.client_session_id,
+            derived_touched_json,
+            input.update,
+            update_hash,
+            now,
+        ],
+    )?;
+    let state_hash = sha256(input.full_state);
+    connection.execute(
+        "INSERT INTO document_snapshots (\
+           document_id, generation, snapshot_seq, state_vector, snapshot_update, \
+           snapshot_hash, schema_version, created_at\
+         ) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            input.authority.head.id,
+            input.authority.head.generation,
+            input.state_vector,
+            input.full_state,
+            state_hash,
+            input.authority.head.schema_version,
+            now,
+        ],
+    )?;
+    let changed = connection.execute(
+        "UPDATE documents SET head_seq = 1, state_vector = ?1, state_hash = ?2, \
+           readiness = 'ready', authority = 'ydoc_primary', updated_at = ?3 \
+         WHERE id = ?4 AND generation = ?5 AND head_seq = 0 \
+           AND readiness = 'pending_genesis' AND authority = 'legacy_shadow' \
+           AND sync_engine = 'yjs'",
+        params![
+            input.state_vector,
+            state_hash,
+            now,
+            input.authority.head.id,
+            input.authority.head.generation,
+        ],
+    )?;
+    if changed != 1 {
+        return Err(conflict("Document genesis authority changed before commit"));
+    }
+    replace_secondary_projections(connection, input.authority, input.materialization, 1, &now)?;
+    let materialization_bytes = serde_json::to_vec(input.materialization)
+        .map_err(|_| internal("Genesis materialization hash"))?;
+    connection.execute(
+        "INSERT INTO document_engine_fingerprints (\
+           document_id, generation, head_seq, source_state_hash, yrs_state_vector_sha256, \
+           yrs_full_state_sha256, materialization_sha256, validated_at_unix_ms\
+         ) VALUES (?1, ?2, 1, ?3, ?4, ?3, ?5, \
+                   CAST(strftime('%s', 'now') AS INTEGER) * 1000)",
+        params![
+            input.authority.head.id,
+            input.authority.head.generation,
+            state_hash,
+            sha256(input.state_vector),
+            sha256(&materialization_bytes),
+        ],
+    )?;
+    let payload = json!({
+        "module": "owned_document",
+        "kind": "document_initialized",
+        "documentId": input.authority.head.id,
+        "generation": input.authority.head.generation,
+        "headSeq": 1,
+        "updateId": input.update_id,
+        "updateHash": update_hash,
+        "updateByteLength": input.update.len(),
+    });
+    connection.execute(
+        "INSERT INTO change_log (\
+           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
+           database_block_ids_json, payload_json, committed_at\
+         ) VALUES (?1, ?2, 'owned_document.document_initialized', ?3, ?4, ?5, '[]', ?6, ?7)",
+        params![
+            input.authority.head.project_id,
+            input.store_epoch,
+            input.operation_id,
+            derived_touched_json,
+            serde_json::to_string(&[&input.authority.head.id])
+                .map_err(|_| internal("Genesis Document event IDs"))?,
+            serde_json::to_string(&payload).map_err(|_| internal("Genesis event payload"))?,
+            now,
+        ],
+    )?;
+    Ok(PersistedDocumentCommit {
+        head_seq: 1,
+        state_vector: input.state_vector.to_vec(),
+        state_hash,
+        derived_touched_block_ids,
+        event_sequence: connection.last_insert_rowid(),
         committed_at: now,
     })
 }

@@ -1,5 +1,6 @@
 mod block_document;
 mod compaction;
+mod genesis;
 mod history;
 mod materialization;
 mod module;
