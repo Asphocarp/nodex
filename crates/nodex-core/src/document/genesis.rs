@@ -55,6 +55,41 @@ pub(crate) fn prepare_yjs_genesis(
     })
 }
 
+pub(crate) fn prepare_yjs_genesis_with_blocks(
+    document_id: &str,
+    owner_type: &str,
+    schema: BlockDocumentSchema,
+    blocks: &[MaterializedBlockNode],
+) -> Result<PreparedYjsGenesis, StoreError> {
+    let tree = dematerialize_block_tree(blocks)
+        .map_err(|error| invalid(format!("Document genesis Blocks are invalid: {error}")))?;
+    let document = encode_block_document(document_id, schema, None, &tree)
+        .map_err(|error| invalid(format!("Document genesis is invalid: {error}")))?;
+    let decoded = decode_block_document(&document, schema)
+        .map_err(|error| invalid(format!("Document genesis schema is invalid: {error}")))?;
+    let materialization = materialize_decoded_document(&decoded)
+        .map_err(|error| invalid(format!("Document genesis cannot materialize: {error}")))?;
+    if materialization.schema.owner_type != owner_type {
+        return Err(StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "Document owner type does not match its registered schema",
+            false,
+        ));
+    }
+    let transaction = document.transact();
+    let state_vector_v1 = transaction.state_vector().encode_v1();
+    let update_v1 = transaction.encode_state_as_update_v1(&yrs::StateVector::default());
+    drop(transaction);
+    let engine = YrsDocumentEngine::from_full_state_v1(document_id, &update_v1)
+        .map_err(|error| invalid(format!("Document genesis update is invalid: {error}")))?;
+    Ok(PreparedYjsGenesis {
+        engine,
+        materialization,
+        update_v1,
+        state_vector_v1,
+    })
+}
+
 pub(crate) fn prepare_editable_root(
     document_id: &str,
     schema: BlockDocumentSchema,

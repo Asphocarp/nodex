@@ -92,7 +92,6 @@ pub enum OwnedDocumentIntent {
         expected_head_seq: i64,
     },
     ApplyOwnerCommand {
-        owner_block_id: String,
         command: DocumentOwnerCommand,
     },
 }
@@ -125,9 +124,90 @@ pub enum DocumentSemanticCommand {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DocumentOwnerCommand {
-    CreateSecondaryDocument { document_id: String, schema: String },
-    ArchiveDocument { document_id: String },
-    RestoreDocument { document_id: String },
+    CreateSyncedSource {
+        source_block_id: String,
+        document_id: String,
+        initial_blocks: Vec<Value>,
+        before: Option<DocumentSpaceAnchor>,
+    },
+    PromoteSyncedSource {
+        host: DocumentHeadRevision,
+        root_block_id: String,
+        reference_block_id: String,
+        source_block_id: String,
+        source_document_id: String,
+    },
+    DemoteSyncedSource {
+        host: DocumentHeadRevision,
+        source: DocumentHeadRevision,
+        reference_block_id: String,
+        source_block_id: String,
+    },
+    CreateTemplate {
+        source_block_id: String,
+        document_id: String,
+        display_name: String,
+        initial_blocks: Vec<Value>,
+        before: Option<DocumentSpaceAnchor>,
+    },
+    InstantiateTemplate {
+        source_block_id: String,
+        source: DocumentHeadRevision,
+        target: DocumentHeadRevision,
+        parent_block_id: Option<String>,
+        before_block_id: Option<String>,
+    },
+    DeleteOwnedSource {
+        owner_kind: DeletableOwnedSourceKind,
+        owner: DocumentOwnerRevision,
+    },
+    CreateCanvasOwner {
+        block_id: String,
+        document_id: String,
+        display_name: String,
+        before: Option<DocumentSpaceAnchor>,
+    },
+    DeleteCanvasOwner {
+        owner: DocumentOwnerRevision,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentHeadRevision {
+    pub document_id: String,
+    pub generation: i64,
+    pub head_seq: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentOwnerRevision {
+    pub owner_block_id: String,
+    pub document_id: String,
+    pub generation: i64,
+    pub head_seq: i64,
+    pub metadata_revision: i64,
+    pub location_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentSpaceAnchor {
+    pub block_id: String,
+    pub expected_location_revision: i64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeletableOwnedSourceKind {
+    SyncedBlock,
+    ReusableTemplate,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentOwnerEffect {
+    pub created_block_ids: Vec<String>,
+    pub preserved_block_ids: Vec<String>,
+    pub deleted_block_ids: Vec<String>,
+    pub document_heads: Vec<DocumentHeadRevision>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -138,6 +218,8 @@ pub struct OwnedDocumentCommitValue {
     pub outcome: DocumentCommitOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub canvas: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_effect: Option<DocumentOwnerEffect>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

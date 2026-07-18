@@ -1152,12 +1152,40 @@
           }
         ]
       },
+      "DeletableOwnedSourceKind": {
+        "type": "string",
+        "enum": [
+          "synced_block",
+          "reusable_template"
+        ]
+      },
       "DocumentCommitOutcome": {
         "type": "string",
         "enum": [
           "committed",
           "no_change"
         ]
+      },
+      "DocumentHeadRevision": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "generation",
+          "head_seq"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "head_seq": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "DocumentInvalidationReason": {
         "type": "string",
@@ -1172,21 +1200,36 @@
           {
             "type": "object",
             "required": [
+              "source_block_id",
               "document_id",
-              "schema",
+              "initial_blocks",
               "kind"
             ],
             "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentSpaceAnchor"
+                  }
+                ]
+              },
               "document_id": {
                 "type": "string"
+              },
+              "initial_blocks": {
+                "type": "array",
+                "items": {}
               },
               "kind": {
                 "type": "string",
                 "enum": [
-                  "create_secondary_document"
+                  "create_synced_source"
                 ]
               },
-              "schema": {
+              "source_block_id": {
                 "type": "string"
               }
             }
@@ -1194,17 +1237,200 @@
           {
             "type": "object",
             "required": [
-              "document_id",
+              "host",
+              "root_block_id",
+              "reference_block_id",
+              "source_block_id",
+              "source_document_id",
               "kind"
             ],
             "properties": {
+              "host": {
+                "$ref": "#/components/schemas/DocumentHeadRevision"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "promote_synced_source"
+                ]
+              },
+              "reference_block_id": {
+                "type": "string"
+              },
+              "root_block_id": {
+                "type": "string"
+              },
+              "source_block_id": {
+                "type": "string"
+              },
+              "source_document_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "host",
+              "source",
+              "reference_block_id",
+              "source_block_id",
+              "kind"
+            ],
+            "properties": {
+              "host": {
+                "$ref": "#/components/schemas/DocumentHeadRevision"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "demote_synced_source"
+                ]
+              },
+              "reference_block_id": {
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/components/schemas/DocumentHeadRevision"
+              },
+              "source_block_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "source_block_id",
+              "document_id",
+              "display_name",
+              "initial_blocks",
+              "kind"
+            ],
+            "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentSpaceAnchor"
+                  }
+                ]
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "document_id": {
+                "type": "string"
+              },
+              "initial_blocks": {
+                "type": "array",
+                "items": {}
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "create_template"
+                ]
+              },
+              "source_block_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "source_block_id",
+              "source",
+              "target",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "instantiate_template"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "$ref": "#/components/schemas/DocumentHeadRevision"
+              },
+              "source_block_id": {
+                "type": "string"
+              },
+              "target": {
+                "$ref": "#/components/schemas/DocumentHeadRevision"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "owner_kind",
+              "owner",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete_owned_source"
+                ]
+              },
+              "owner": {
+                "$ref": "#/components/schemas/DocumentOwnerRevision"
+              },
+              "owner_kind": {
+                "$ref": "#/components/schemas/DeletableOwnedSourceKind"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "document_id",
+              "display_name",
+              "kind"
+            ],
+            "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentSpaceAnchor"
+                  }
+                ]
+              },
+              "block_id": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string"
+              },
               "document_id": {
                 "type": "string"
               },
               "kind": {
                 "type": "string",
                 "enum": [
-                  "archive_document"
+                  "create_canvas_owner"
                 ]
               }
             }
@@ -1212,22 +1438,92 @@
           {
             "type": "object",
             "required": [
-              "document_id",
+              "owner",
               "kind"
             ],
             "properties": {
-              "document_id": {
-                "type": "string"
-              },
               "kind": {
                 "type": "string",
                 "enum": [
-                  "restore_document"
+                  "delete_canvas_owner"
                 ]
+              },
+              "owner": {
+                "$ref": "#/components/schemas/DocumentOwnerRevision"
               }
             }
           }
         ]
+      },
+      "DocumentOwnerEffect": {
+        "type": "object",
+        "required": [
+          "created_block_ids",
+          "preserved_block_ids",
+          "deleted_block_ids",
+          "document_heads"
+        ],
+        "properties": {
+          "created_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deleted_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "document_heads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentHeadRevision"
+            }
+          },
+          "preserved_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DocumentOwnerRevision": {
+        "type": "object",
+        "required": [
+          "owner_block_id",
+          "document_id",
+          "generation",
+          "head_seq",
+          "metadata_revision",
+          "location_revision"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "location_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "owner_block_id": {
+            "type": "string"
+          }
+        }
       },
       "DocumentSemanticCommand": {
         "oneOf": [
@@ -1346,6 +1642,22 @@
             }
           }
         ]
+      },
+      "DocumentSpaceAnchor": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "expected_location_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "expected_location_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "EventEnvelope": {
         "type": "object",
@@ -2607,7 +2919,6 @@
               {
                 "type": "object",
                 "required": [
-                  "owner_block_id",
                   "command",
                   "kind"
                 ],
@@ -2620,9 +2931,6 @@
                     "enum": [
                       "apply_owner_command"
                     ]
-                  },
-                  "owner_block_id": {
-                    "type": "string"
                   }
                 }
               }
@@ -4108,6 +4416,40 @@
             "type": "object",
             "required": [
               "document_id",
+              "generation",
+              "head_seq",
+              "scene_hash",
+              "mutation",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "canvas_updated"
+                ]
+              },
+              "mutation": {},
+              "scene_hash": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
               "reason",
               "kind"
             ],
@@ -4952,6 +5294,7 @@
                       "outcome"
                     ],
                     "properties": {
+                      "canvas": {},
                       "document_id": {
                         "type": "string"
                       },
@@ -4965,6 +5308,16 @@
                       },
                       "outcome": {
                         "$ref": "#/components/schemas/DocumentCommitOutcome"
+                      },
+                      "owner_effect": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/DocumentOwnerEffect"
+                          }
+                        ]
                       }
                     }
                   }

@@ -8,6 +8,7 @@ mod history;
 mod materialization;
 mod module;
 mod operations;
+mod owners;
 mod persistence;
 mod realtime;
 mod recovery;

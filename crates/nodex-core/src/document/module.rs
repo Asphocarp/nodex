@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::document::{
-    DocumentCommitOutcome, DocumentInvalidationReason, OwnedDocumentCommitValue,
-    OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
-    OwnedDocumentReceipt,
+    DocumentCommitOutcome, DocumentInvalidationReason, DocumentOwnerCommand,
+    OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
+    OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -42,6 +42,7 @@ use super::history::{
     insert_document_checkpoint, list_document_versions, prepare_canvas_revision,
     prepare_document_revision, prepare_version_restore, record_document_revision_edit,
 };
+use super::owners::execute_owner_command;
 use super::persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
     persist_yjs_genesis, read_document_authority, read_event_head, read_store_epoch, sha256,
@@ -100,7 +101,7 @@ pub struct DocumentCacheMetrics {
 #[derive(Debug, Clone)]
 pub struct OwnedDocumentApplyOutcome {
     pub committed: CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
-    pub event: Option<CommittedCoreModuleEvent>,
+    pub events: Vec<CommittedCoreModuleEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -374,7 +375,12 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
             ),
-            _ => Err(invalid("Owned Document intent is not implemented yet")),
+            OwnedDocumentIntent::ApplyOwnerCommand { command } => self.apply_owner_command(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                command,
+            ),
         }
     }
 
@@ -477,6 +483,115 @@ impl OwnedDocumentModule {
             .map_err(core_error)
     }
 
+    fn apply_owner_command(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        command: DocumentOwnerCommand,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let fingerprint = serde_json::to_vec(&(context, expected_store_epoch.clone(), &command))
+            .map_err(|_| invalid("Document owner command cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let context = context.clone();
+        let cache = Arc::clone(&self.cache);
+        let fail_after_commit = Arc::clone(&self.fail_after_commit);
+        let assets_root = self.assets_root.clone();
+        self.writer
+            .call(move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Conflict,
+                        "Document owner command targets a stale store epoch",
+                        true,
+                    ));
+                }
+                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                {
+                    if stored.request_hash != request_hash {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to another Owned Document intent",
+                            false,
+                        ));
+                    }
+                    let mut committed = serde_json::from_value::<
+                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                    >(stored.result)
+                    .map_err(|_| corrupt_receipt())?;
+                    committed.receipt.mutation.duplicate = true;
+                    transaction.commit()?;
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        events: Vec::new(),
+                    });
+                }
+                let executed = execute_owner_command(
+                    &transaction,
+                    &context,
+                    &store_epoch,
+                    &operation_id,
+                    &command,
+                    &assets_root,
+                )?;
+                let committed = CommittedModuleValue {
+                    value: OwnedDocumentCommitValue {
+                        document_id: executed.primary_document_id.clone(),
+                        generation: executed.generation,
+                        head_seq: executed.head_seq,
+                        outcome: DocumentCommitOutcome::Committed,
+                        canvas: None,
+                        owner_effect: Some(executed.effect),
+                    },
+                    receipt: OwnedDocumentReceipt {
+                        mutation: ModuleMutationReceipt {
+                            operation_id: operation_id.clone(),
+                            duplicate: false,
+                        },
+                        document_id: executed.primary_document_id,
+                        generation: executed.generation,
+                        head_seq: executed.head_seq,
+                    },
+                    event_sequence: executed.event_sequence,
+                    store_epoch: StoreEpoch(store_epoch.clone()),
+                };
+                insert_typed_receipt(
+                    &transaction,
+                    &context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    owner_command_kind(&command),
+                    &committed,
+                    executed.events.last().map(|event| event.sequence),
+                )?;
+                transaction.commit()?;
+                {
+                    let mut cache = cache
+                        .lock()
+                        .map_err(|_| internal("Document cache lock failed"))?;
+                    for document_id in &executed.invalidate_document_ids {
+                        cache.invalidate(document_id);
+                    }
+                }
+                if fail_after_commit.swap(false, Ordering::AcqRel) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Injected failure after durable Document owner command",
+                        true,
+                    ));
+                }
+                Ok(OwnedDocumentApplyOutcome {
+                    committed,
+                    events: executed.events,
+                })
+            })
+            .map_err(core_error)
+    }
+
     fn prepare_owner(
         &self,
         context: &BoundModuleContext,
@@ -521,7 +636,7 @@ impl OwnedDocumentModule {
                     transaction.commit()?;
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 }
                 let document_id = transaction
@@ -580,7 +695,7 @@ impl OwnedDocumentModule {
                     }
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 }
                 let schema = registered_yjs_schema(&authority)?;
@@ -686,7 +801,7 @@ impl OwnedDocumentModule {
                                     .install(&authority.head, engine);
                                 return Ok(OwnedDocumentApplyOutcome {
                                     committed,
-                                    event: None,
+                                    events: Vec::new(),
                                 });
                             };
                             let candidate = engine
@@ -782,7 +897,10 @@ impl OwnedDocumentModule {
                     .lock()
                     .map_err(|_| internal("Document cache lock failed"))?
                     .install(&next_head, next_engine);
-                Ok(OwnedDocumentApplyOutcome { committed, event })
+                Ok(OwnedDocumentApplyOutcome {
+                    committed,
+                    events: event.into_iter().collect(),
+                })
             })
             .map_err(core_error)
     }
@@ -846,7 +964,7 @@ impl OwnedDocumentModule {
                     transaction.commit()?;
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
@@ -946,7 +1064,10 @@ impl OwnedDocumentModule {
                             },
                         ),
                     });
-                Ok(OwnedDocumentApplyOutcome { committed, event })
+                Ok(OwnedDocumentApplyOutcome {
+                    committed,
+                    events: event.into_iter().collect(),
+                })
             })
             .map_err(core_error)
     }
@@ -1206,7 +1327,7 @@ impl OwnedDocumentModule {
                     transaction.commit()?;
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
@@ -1279,7 +1400,7 @@ impl OwnedDocumentModule {
                 }
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
-                    event: None,
+                    events: Vec::new(),
                 })
             })
             .map_err(core_error)
@@ -1453,7 +1574,7 @@ impl OwnedDocumentModule {
                     transaction.commit()?;
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
@@ -1494,7 +1615,7 @@ impl OwnedDocumentModule {
                     transaction.commit()?;
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 };
                 let now = sqlite_now(&transaction)?;
@@ -1577,7 +1698,7 @@ impl OwnedDocumentModule {
                 }
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
-                    event: Some(CommittedCoreModuleEvent {
+                    events: vec![CommittedCoreModuleEvent {
                         version: CORE_CONTRACT_VERSION,
                         sequence: persisted.event_sequence,
                         store_epoch: StoreEpoch(store_epoch),
@@ -1589,7 +1710,7 @@ impl OwnedDocumentModule {
                                 reason: DocumentInvalidationReason::Restored,
                             },
                         ),
-                    }),
+                    }],
                 })
             })
             .map_err(core_error)
@@ -1649,7 +1770,7 @@ impl OwnedDocumentModule {
                     transaction.commit()?;
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 }
                 let authority = read_document_authority(&transaction, &job.document_id)?
@@ -1731,7 +1852,7 @@ impl OwnedDocumentModule {
                         .install(&authority.head, engine);
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 };
                 validate_touched_block_ids_store(&touched_block_ids)?;
@@ -1765,7 +1886,7 @@ impl OwnedDocumentModule {
                         .install(&authority.head, engine);
                     return Ok(OwnedDocumentApplyOutcome {
                         committed,
-                        event: None,
+                        events: Vec::new(),
                     });
                 }
                 let candidate_transaction = candidate.document().transact();
@@ -1910,7 +2031,7 @@ impl OwnedDocumentModule {
                 };
                 Ok(OwnedDocumentApplyOutcome {
                     committed,
-                    event: Some(event),
+                    events: vec![event],
                 })
             })
             .map_err(core_error)
@@ -1964,6 +2085,7 @@ fn committed_value(
             head_seq,
             outcome,
             canvas: None,
+            owner_effect: None,
         },
         receipt: OwnedDocumentReceipt {
             mutation: ModuleMutationReceipt {
@@ -1976,6 +2098,19 @@ fn committed_value(
         },
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
+    }
+}
+
+fn owner_command_kind(command: &DocumentOwnerCommand) -> &'static str {
+    match command {
+        DocumentOwnerCommand::CreateSyncedSource { .. } => "create_synced_source",
+        DocumentOwnerCommand::PromoteSyncedSource { .. } => "promote_synced_source",
+        DocumentOwnerCommand::DemoteSyncedSource { .. } => "demote_synced_source",
+        DocumentOwnerCommand::CreateTemplate { .. } => "create_template",
+        DocumentOwnerCommand::InstantiateTemplate { .. } => "instantiate_template",
+        DocumentOwnerCommand::DeleteOwnedSource { .. } => "delete_owned_source",
+        DocumentOwnerCommand::CreateCanvasOwner { .. } => "create_canvas_owner",
+        DocumentOwnerCommand::DeleteCanvasOwner { .. } => "delete_canvas_owner",
     }
 }
 
@@ -2319,7 +2454,9 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::document::{
-        DocumentCommitOutcome, DocumentSemanticCommand, OwnedDocumentIntent, OwnedDocumentRead,
+        DeletableOwnedSourceKind, DocumentCommitOutcome, DocumentHeadRevision,
+        DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticCommand, OwnedDocumentIntent,
+        OwnedDocumentRead,
     };
     use nodex_core_contracts::{
         AdapterKind, LibraryId, ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId,
@@ -2343,6 +2480,15 @@ mod tests {
     const TARGET_PAGE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000002";
     const STORE_EPOCH: &str = "epoch:test";
     const NOW: &str = "2026-07-18T00:00:00.000Z";
+    const CREATED_SOURCE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000010";
+    const CREATED_SOURCE_DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000011";
+    const CREATED_CONTENT_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000012";
+    const CREATED_REFERENCE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000013";
+    const CREATED_TEMPLATE_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000014";
+    const CREATED_TEMPLATE_DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000015";
+    const CREATED_TEMPLATE_CONTENT_ID: &str = "019bf52d-6870-7000-8000-000000000016";
+    const CREATED_CANVAS_BLOCK_ID: &str = "019bf52d-6870-7000-8000-000000000017";
+    const CREATED_CANVAS_DOCUMENT_ID: &str = "019bf52d-6870-7000-8000-000000000018";
 
     struct SeededModule {
         _directory: tempfile::TempDir,
@@ -2599,6 +2745,65 @@ mod tests {
         }
     }
 
+    fn empty_project_module() -> SeededModule {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        fs::create_dir(home.join("assets")).expect("assets root");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh v83");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Owner command test', ?3, ?3)",
+                        params![PROJECT_ID, LIBRARY_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, ?1, ?2, ?2)",
+                        params![STORE_EPOCH, NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed empty Project");
+        let module = OwnedDocumentModule::new(PROFILE_ID, LIBRARY_ID, &kernel);
+        SeededModule {
+            _directory: directory,
+            kernel,
+            module,
+            full_state: Vec::new(),
+            state_vector: Vec::new(),
+        }
+    }
+
+    fn owner_request(
+        operation_id: &str,
+        command: DocumentOwnerCommand,
+    ) -> ModuleApplyRequest<OwnedDocumentIntent> {
+        ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplyOwnerCommand { command },
+        }
+    }
+
+    fn paragraph(block_id: &str, text: &str) -> Value {
+        json!({
+            "id": block_id,
+            "type": "paragraph",
+            "props": {},
+            "content": if text.is_empty() {
+                Value::Array(Vec::new())
+            } else {
+                json!([{ "type": "text", "text": text, "styles": {} }])
+            },
+            "children": [],
+        })
+    }
+
     fn canvas_module() -> SeededModule {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -2722,7 +2927,7 @@ mod tests {
             prepared.committed.value.outcome,
             DocumentCommitOutcome::Committed
         );
-        assert!(prepared.event.is_none());
+        assert!(prepared.events.is_empty());
 
         let initial = seeded
             .module
@@ -2760,7 +2965,7 @@ mod tests {
         );
         assert!(applied.committed.value.canvas.is_some());
         assert!(matches!(
-            applied.event.as_ref().map(|event| &event.payload),
+            applied.events.first().map(|event| &event.payload),
             Some(CoreModuleEventPayload::OwnedDocument(
                 OwnedDocumentEvent::CanvasUpdated { .. }
             ))
@@ -2773,7 +2978,7 @@ mod tests {
             panic!("Canvas mutation receipt should replay exactly")
         };
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload, applied.event.as_ref().unwrap().payload);
+        assert_eq!(events[0].payload, applied.events[0].payload);
         seeded
             .module
             .apply(
@@ -2861,7 +3066,7 @@ mod tests {
             duplicate.committed.value.canvas.as_ref().unwrap()["duplicate"],
             true
         );
-        assert!(duplicate.event.is_none());
+        assert!(duplicate.events.is_empty());
 
         let stale_merge = seeded
             .module
@@ -2894,7 +3099,7 @@ mod tests {
             .expect("recover Canvas receipt");
         assert_eq!(recovered.committed.value.head_seq, 3);
         assert!(recovered.committed.receipt.mutation.duplicate);
-        assert!(recovered.event.is_none());
+        assert!(recovered.events.is_empty());
 
         fs::write(
             seeded._directory.path().join("assets/canvas-image.png"),
@@ -3030,7 +3235,7 @@ mod tests {
             .expect("restore Canvas version");
         assert_eq!(restored.committed.value.head_seq, 6);
         assert!(matches!(
-            restored.event.as_ref().map(|event| &event.payload),
+            restored.events.first().map(|event| &event.payload),
             Some(CoreModuleEventPayload::OwnedDocument(
                 OwnedDocumentEvent::DocumentInvalidated {
                     reason: DocumentInvalidationReason::Restored,
@@ -3075,6 +3280,539 @@ mod tests {
     }
 
     #[test]
+    fn owner_commands_create_retry_delete_and_replay_without_losing_history() {
+        let seeded = empty_project_module();
+        let create = owner_request(
+            "owner:create-synced",
+            DocumentOwnerCommand::CreateSyncedSource {
+                source_block_id: CREATED_SOURCE_BLOCK_ID.to_owned(),
+                document_id: CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                initial_blocks: vec![paragraph(CREATED_CONTENT_BLOCK_ID, "Shared body")],
+                before: None,
+            },
+        );
+        let created = seeded
+            .module
+            .apply(&context(), create.clone())
+            .expect("create Synced Block source");
+        assert_eq!(created.committed.value.head_seq, 1);
+        assert_eq!(created.events.len(), 1);
+        assert_eq!(
+            created
+                .committed
+                .value
+                .owner_effect
+                .as_ref()
+                .expect("owner effect")
+                .created_block_ids,
+            vec![
+                CREATED_SOURCE_BLOCK_ID.to_owned(),
+                CREATED_CONTENT_BLOCK_ID.to_owned(),
+            ]
+        );
+
+        let duplicate = seeded
+            .module
+            .apply(&context(), create)
+            .expect("exact owner retry");
+        assert!(duplicate.committed.receipt.mutation.duplicate);
+        assert!(duplicate.events.is_empty());
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT document.readiness, document.authority, document.head_seq, \
+                            owner.lifecycle, child.lifecycle, child.containing_document_id, \
+                            (SELECT count(*) FROM document_snapshots WHERE document_id = ?1), \
+                            (SELECT count(*) FROM document_updates WHERE document_id = ?1), \
+                            (SELECT count(*) FROM core_module_receipts \
+                              WHERE module_name = 'owned_document' AND operation_id = ?2) \
+                     FROM documents document \
+                     JOIN block_documents ownership ON ownership.document_id = document.id \
+                     JOIN blocks owner ON owner.id = ownership.block_id \
+                     JOIN blocks child ON child.id = ?3 \
+                     WHERE document.id = ?1",
+                    params![
+                        CREATED_SOURCE_DOCUMENT_ID,
+                        "owner:create-synced",
+                        CREATED_CONTENT_BLOCK_ID,
+                    ],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, i64>(6)?,
+                            row.get::<_, i64>(7)?,
+                            row.get::<_, i64>(8)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        "ready".to_owned(),
+                        "ydoc_primary".to_owned(),
+                        1,
+                        "active".to_owned(),
+                        "active".to_owned(),
+                        CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                        1,
+                        1,
+                        1,
+                    )
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("created owner evidence");
+
+        let delete = owner_request(
+            "owner:delete-synced",
+            DocumentOwnerCommand::DeleteOwnedSource {
+                owner_kind: DeletableOwnedSourceKind::SyncedBlock,
+                owner: DocumentOwnerRevision {
+                    owner_block_id: CREATED_SOURCE_BLOCK_ID.to_owned(),
+                    document_id: CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                    generation: 1,
+                    head_seq: 1,
+                    metadata_revision: 1,
+                    location_revision: 1,
+                },
+            },
+        );
+        let deleted = seeded
+            .module
+            .apply(&context(), delete.clone())
+            .expect("delete unreferenced source");
+        assert_eq!(deleted.events.len(), 1);
+        assert!(matches!(
+            &deleted.events[0].payload,
+            CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
+                reason: DocumentInvalidationReason::AccessChanged,
+                ..
+            })
+        ));
+        let delete_retry = seeded
+            .module
+            .apply(&context(), delete)
+            .expect("exact delete retry");
+        assert!(delete_retry.committed.receipt.mutation.duplicate);
+        assert!(delete_retry.events.is_empty());
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT owner.lifecycle, child.lifecycle, document.head_seq, \
+                            (SELECT count(*) FROM document_snapshots WHERE document_id = ?1), \
+                            (SELECT count(*) FROM document_updates WHERE document_id = ?1), \
+                            (SELECT count(*) FROM document_materializations WHERE document_id = ?1) \
+                     FROM documents document \
+                     JOIN block_documents ownership ON ownership.document_id = document.id \
+                     JOIN blocks owner ON owner.id = ownership.block_id \
+                     JOIN blocks child ON child.id = ?2 \
+                     WHERE document.id = ?1",
+                    params![CREATED_SOURCE_DOCUMENT_ID, CREATED_CONTENT_BLOCK_ID],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    ("deleted".to_owned(), "deleted".to_owned(), 1, 1, 1, 1)
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("retained source evidence");
+
+        let replay = seeded
+            .module
+            .replay_document_events(&context(), 0, None)
+            .expect("owner event replay");
+        let DocumentEventReplay::Events { events, .. } = replay else {
+            panic!("expected retained owner events")
+        };
+        assert_eq!(events.len(), 2);
+        assert!(matches!(
+            &events[1].payload,
+            CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
+                reason: DocumentInvalidationReason::AccessChanged,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn owner_command_failure_rolls_back_staged_identity_and_receipt() {
+        let seeded = empty_project_module();
+        let error = seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:invalid-create",
+                    DocumentOwnerCommand::CreateSyncedSource {
+                        source_block_id: CREATED_SOURCE_BLOCK_ID.to_owned(),
+                        document_id: CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                        initial_blocks: vec![json!({
+                            "id": CREATED_CONTENT_BLOCK_ID,
+                            "type": "page",
+                            "props": {},
+                            "children": [],
+                        })],
+                        before: None,
+                    },
+                ),
+            )
+            .expect_err("typed Page cannot enter a Synced Block genesis");
+        assert_eq!(error.code, CoreErrorCode::InvalidInput);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT (SELECT count(*) FROM blocks WHERE id IN (?1, ?2)), \
+                            (SELECT count(*) FROM documents WHERE id = ?3), \
+                            (SELECT count(*) FROM core_module_receipts WHERE operation_id = ?4)",
+                    params![
+                        CREATED_SOURCE_BLOCK_ID,
+                        CREATED_CONTENT_BLOCK_ID,
+                        CREATED_SOURCE_DOCUMENT_ID,
+                        "owner:invalid-create",
+                    ],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(evidence, (0, 0, 0));
+                Ok::<_, StoreError>(())
+            })
+            .expect("rollback evidence");
+    }
+
+    #[test]
+    fn owner_command_retry_recovers_commit_lost_before_publication() {
+        let seeded = empty_project_module();
+        let request = owner_request(
+            "owner:create-postcommit",
+            DocumentOwnerCommand::CreateSyncedSource {
+                source_block_id: CREATED_SOURCE_BLOCK_ID.to_owned(),
+                document_id: CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                initial_blocks: vec![paragraph(CREATED_CONTENT_BLOCK_ID, "Recovered")],
+                before: None,
+            },
+        );
+        seeded.module.inject_failure_after_next_commit();
+        let failure = seeded
+            .module
+            .apply(&context(), request.clone())
+            .expect_err("injected post-commit failure");
+        assert_eq!(failure.code, CoreErrorCode::CoreUnavailable);
+
+        let recovered = seeded
+            .module
+            .apply(&context(), request)
+            .expect("recover durable owner receipt");
+        assert!(recovered.committed.receipt.mutation.duplicate);
+        assert!(recovered.events.is_empty());
+        assert_eq!(recovered.committed.value.head_seq, 1);
+    }
+
+    #[test]
+    fn template_instantiation_copies_fresh_ids_into_an_exact_target_head() {
+        let seeded = seeded_module();
+        let created = seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:create-template",
+                    DocumentOwnerCommand::CreateTemplate {
+                        source_block_id: CREATED_TEMPLATE_BLOCK_ID.to_owned(),
+                        document_id: CREATED_TEMPLATE_DOCUMENT_ID.to_owned(),
+                        display_name: "Meeting note".to_owned(),
+                        initial_blocks: vec![paragraph(
+                            CREATED_TEMPLATE_CONTENT_ID,
+                            "Template body",
+                        )],
+                        before: None,
+                    },
+                ),
+            )
+            .expect("create Reusable Template");
+        assert_eq!(created.committed.value.head_seq, 1);
+        let instantiated = seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:instantiate-template",
+                    DocumentOwnerCommand::InstantiateTemplate {
+                        source_block_id: CREATED_TEMPLATE_BLOCK_ID.to_owned(),
+                        source: DocumentHeadRevision {
+                            document_id: CREATED_TEMPLATE_DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            head_seq: 1,
+                        },
+                        target: DocumentHeadRevision {
+                            document_id: DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            head_seq: 1,
+                        },
+                        parent_block_id: None,
+                        before_block_id: None,
+                    },
+                ),
+            )
+            .expect("instantiate Reusable Template");
+        let effect = instantiated
+            .committed
+            .value
+            .owner_effect
+            .as_ref()
+            .expect("template effect");
+        assert_eq!(effect.created_block_ids.len(), 1);
+        assert_ne!(effect.created_block_ids[0], CREATED_TEMPLATE_CONTENT_ID);
+        assert_eq!(instantiated.committed.value.head_seq, 2);
+        assert_eq!(instantiated.events.len(), 1);
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let copied_document = connection.query_row(
+                    "SELECT containing_document_id FROM blocks WHERE id = ?1",
+                    [&effect.created_block_ids[0]],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let source_document = connection.query_row(
+                    "SELECT containing_document_id FROM blocks WHERE id = ?1",
+                    [CREATED_TEMPLATE_CONTENT_ID],
+                    |row| row.get::<_, String>(0),
+                )?;
+                assert_eq!(copied_document, DOCUMENT_ID);
+                assert_eq!(source_document, CREATED_TEMPLATE_DOCUMENT_ID);
+                Ok::<_, StoreError>(())
+            })
+            .expect("template copy identities");
+    }
+
+    #[test]
+    fn synced_promotion_and_demotion_preserve_content_identity_atomically() {
+        let seeded = seeded_module();
+        let root_block_id = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let tree = connection.query_row(
+                    "SELECT block_tree_json FROM document_materializations WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let tree = serde_json::from_str::<Value>(&tree)
+                    .map_err(|_| internal("test Block tree"))?;
+                tree.as_array()
+                    .and_then(|blocks| blocks.first())
+                    .and_then(|block| block.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or_else(|| internal("test root Block"))
+            })
+            .expect("host root Block");
+        let promoted = seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:promote-synced",
+                    DocumentOwnerCommand::PromoteSyncedSource {
+                        host: DocumentHeadRevision {
+                            document_id: DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            head_seq: 1,
+                        },
+                        root_block_id: root_block_id.clone(),
+                        reference_block_id: CREATED_REFERENCE_BLOCK_ID.to_owned(),
+                        source_block_id: CREATED_SOURCE_BLOCK_ID.to_owned(),
+                        source_document_id: CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                    },
+                ),
+            )
+            .expect("promote Page root to Synced Block source");
+        assert_eq!(promoted.committed.value.head_seq, 2);
+        assert_eq!(promoted.events.len(), 2);
+        seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:delete-referenced-synced",
+                    DocumentOwnerCommand::DeleteOwnedSource {
+                        owner_kind: DeletableOwnedSourceKind::SyncedBlock,
+                        owner: DocumentOwnerRevision {
+                            owner_block_id: CREATED_SOURCE_BLOCK_ID.to_owned(),
+                            document_id: CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            head_seq: 1,
+                            metadata_revision: 1,
+                            location_revision: 1,
+                        },
+                    },
+                ),
+            )
+            .expect_err("referenced Synced Block source cannot be deleted");
+        let demoted = seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:demote-synced",
+                    DocumentOwnerCommand::DemoteSyncedSource {
+                        host: DocumentHeadRevision {
+                            document_id: DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            head_seq: 2,
+                        },
+                        source: DocumentHeadRevision {
+                            document_id: CREATED_SOURCE_DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            head_seq: 1,
+                        },
+                        reference_block_id: CREATED_REFERENCE_BLOCK_ID.to_owned(),
+                        source_block_id: CREATED_SOURCE_BLOCK_ID.to_owned(),
+                    },
+                ),
+            )
+            .expect("demote sole Synced Block instance");
+        assert_eq!(demoted.committed.value.head_seq, 4);
+        assert_eq!(demoted.events.len(), 4);
+        let effect = demoted
+            .committed
+            .value
+            .owner_effect
+            .as_ref()
+            .expect("demotion effect");
+        assert!(effect.preserved_block_ids.contains(&root_block_id));
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT root.lifecycle, root.containing_document_id, source.lifecycle, \
+                            reference.lifecycle, host.head_seq, source_document.head_seq, \
+                            (SELECT count(*) FROM document_snapshots \
+                              WHERE document_id = source_document.id) \
+                     FROM blocks root \
+                     JOIN blocks source ON source.id = ?2 \
+                     JOIN blocks reference ON reference.id = ?3 \
+                     JOIN documents host ON host.id = ?4 \
+                     JOIN documents source_document ON source_document.id = ?5 \
+                     WHERE root.id = ?1",
+                    params![
+                        root_block_id,
+                        CREATED_SOURCE_BLOCK_ID,
+                        CREATED_REFERENCE_BLOCK_ID,
+                        DOCUMENT_ID,
+                        CREATED_SOURCE_DOCUMENT_ID,
+                    ],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                            row.get::<_, i64>(6)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        "active".to_owned(),
+                        DOCUMENT_ID.to_owned(),
+                        "deleted".to_owned(),
+                        "deleted".to_owned(),
+                        4,
+                        2,
+                        1,
+                    )
+                );
+                Ok::<_, StoreError>(())
+            })
+            .expect("demotion identity evidence");
+    }
+
+    #[test]
+    fn canvas_owner_create_and_delete_support_zero_head_invalidation_replay() {
+        let seeded = empty_project_module();
+        let created = seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:create-canvas",
+                    DocumentOwnerCommand::CreateCanvasOwner {
+                        block_id: CREATED_CANVAS_BLOCK_ID.to_owned(),
+                        document_id: CREATED_CANVAS_DOCUMENT_ID.to_owned(),
+                        display_name: "Sketch".to_owned(),
+                        before: None,
+                    },
+                ),
+            )
+            .expect("create non-primary Canvas");
+        assert_eq!(created.committed.value.head_seq, 0);
+        assert!(created.events.is_empty());
+        let deleted = seeded
+            .module
+            .apply(
+                &context(),
+                owner_request(
+                    "owner:delete-canvas",
+                    DocumentOwnerCommand::DeleteCanvasOwner {
+                        owner: DocumentOwnerRevision {
+                            owner_block_id: CREATED_CANVAS_BLOCK_ID.to_owned(),
+                            document_id: CREATED_CANVAS_DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            head_seq: 0,
+                            metadata_revision: 1,
+                            location_revision: 1,
+                        },
+                    },
+                ),
+            )
+            .expect("delete non-primary Canvas");
+        assert_eq!(deleted.events.len(), 1);
+        let replay = seeded
+            .module
+            .replay_document_events(&context(), 0, None)
+            .expect("Canvas invalidation replay");
+        let DocumentEventReplay::Events { events, .. } = replay else {
+            panic!("expected Canvas invalidation event")
+        };
+        assert_eq!(events, deleted.events);
+    }
+
+    #[test]
     fn prepare_owner_commits_registered_genesis_once() {
         for (owner_type, schema_key, schema_version) in [
             ("page", "nodex.page", 2),
@@ -3099,7 +3837,7 @@ mod tests {
                 prepared.committed.value.outcome,
                 DocumentCommitOutcome::Committed
             );
-            assert!(prepared.event.is_some());
+            assert!(!prepared.events.is_empty());
 
             seeded
                 .kernel
@@ -3153,7 +3891,7 @@ mod tests {
                 .apply(&context(), request)
                 .expect("exact prepare retry");
             assert!(duplicate.committed.receipt.mutation.duplicate);
-            assert!(duplicate.event.is_none());
+            assert!(duplicate.events.is_empty());
 
             let no_change = seeded
                 .module
@@ -3173,7 +3911,7 @@ mod tests {
                 no_change.committed.value.outcome,
                 DocumentCommitOutcome::NoChange
             );
-            assert!(no_change.event.is_none());
+            assert!(no_change.events.is_empty());
         }
     }
 
@@ -3211,7 +3949,7 @@ mod tests {
             applied.committed.value.outcome,
             DocumentCommitOutcome::Committed
         );
-        assert!(applied.event.is_some());
+        assert!(!applied.events.is_empty());
         assert!(!applied.committed.receipt.mutation.duplicate);
 
         seeded
@@ -3254,7 +3992,7 @@ mod tests {
             .apply(&context(), request)
             .expect("exact retry");
         assert!(duplicate.committed.receipt.mutation.duplicate);
-        assert!(duplicate.event.is_none());
+        assert!(duplicate.events.is_empty());
         assert_eq!(
             duplicate.committed.event_sequence,
             applied.committed.event_sequence
@@ -3334,7 +4072,7 @@ mod tests {
             panic!("expected committed event")
         };
         assert_eq!(replayed.sequence, applied.committed.event_sequence);
-        assert_eq!(replayed.payload, applied.event.expect("live event").payload);
+        assert_eq!(replayed.payload, applied.events[0].payload);
 
         let mut remote_awareness = DocumentAwareness::new("awareness:remote");
         remote_awareness
@@ -3468,7 +4206,7 @@ mod tests {
             .expect("receipt recovers committed result");
         assert!(recovered.committed.receipt.mutation.duplicate);
         assert_eq!(recovered.committed.value.head_seq, 3);
-        assert!(recovered.event.is_none());
+        assert!(recovered.events.is_empty());
         seeded
             .kernel
             .readers()
@@ -3510,7 +4248,7 @@ mod tests {
             .apply(&context(), checkpoint_request.clone())
             .expect("checkpoint");
         assert_eq!(checkpoint.committed.value.head_seq, 1);
-        assert!(checkpoint.event.is_none());
+        assert!(checkpoint.events.is_empty());
         assert!(
             seeded
                 .module
@@ -3595,7 +4333,7 @@ mod tests {
             .expect("restore checkpoint");
         assert_eq!(restored.committed.value.head_seq, 3);
         assert!(matches!(
-            restored.event.unwrap().payload,
+            restored.events[0].payload,
             CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
                 reason: DocumentInvalidationReason::Restored,
                 ..
@@ -4049,7 +4787,7 @@ mod tests {
             .apply(&context(), request.clone())
             .expect("semantic mutation");
         assert_eq!(committed.committed.value.head_seq, 2);
-        assert!(committed.event.is_some());
+        assert!(!committed.events.is_empty());
         seeded
             .kernel
             .readers()
@@ -4072,7 +4810,7 @@ mod tests {
 
         let duplicate = seeded.module.apply(&context(), request).unwrap();
         assert!(duplicate.committed.receipt.mutation.duplicate);
-        assert!(duplicate.event.is_none());
+        assert!(duplicate.events.is_empty());
         let stale = seeded
             .module
             .apply(

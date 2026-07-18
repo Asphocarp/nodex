@@ -428,22 +428,90 @@ export interface components {
             readonly kind: "data_source";
         };
         /** @enum {string} */
+        readonly DeletableOwnedSourceKind: "synced_block" | "reusable_template";
+        /** @enum {string} */
         readonly DocumentCommitOutcome: "committed" | "no_change";
+        readonly DocumentHeadRevision: {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+        };
         /** @enum {string} */
         readonly DocumentInvalidationReason: "access_changed" | "generation_changed" | "restored";
         readonly DocumentOwnerCommand: {
+            readonly before?: null | components["schemas"]["DocumentSpaceAnchor"];
             readonly document_id: string;
+            readonly initial_blocks: readonly unknown[];
             /** @enum {string} */
-            readonly kind: "create_secondary_document";
-            readonly schema: string;
+            readonly kind: "create_synced_source";
+            readonly source_block_id: string;
         } | {
-            readonly document_id: string;
+            readonly host: components["schemas"]["DocumentHeadRevision"];
             /** @enum {string} */
-            readonly kind: "archive_document";
+            readonly kind: "promote_synced_source";
+            readonly reference_block_id: string;
+            readonly root_block_id: string;
+            readonly source_block_id: string;
+            readonly source_document_id: string;
         } | {
+            readonly host: components["schemas"]["DocumentHeadRevision"];
+            /** @enum {string} */
+            readonly kind: "demote_synced_source";
+            readonly reference_block_id: string;
+            readonly source: components["schemas"]["DocumentHeadRevision"];
+            readonly source_block_id: string;
+        } | {
+            readonly before?: null | components["schemas"]["DocumentSpaceAnchor"];
+            readonly display_name: string;
+            readonly document_id: string;
+            readonly initial_blocks: readonly unknown[];
+            /** @enum {string} */
+            readonly kind: "create_template";
+            readonly source_block_id: string;
+        } | {
+            readonly before_block_id?: string | null;
+            /** @enum {string} */
+            readonly kind: "instantiate_template";
+            readonly parent_block_id?: string | null;
+            readonly source: components["schemas"]["DocumentHeadRevision"];
+            readonly source_block_id: string;
+            readonly target: components["schemas"]["DocumentHeadRevision"];
+        } | {
+            /** @enum {string} */
+            readonly kind: "delete_owned_source";
+            readonly owner: components["schemas"]["DocumentOwnerRevision"];
+            readonly owner_kind: components["schemas"]["DeletableOwnedSourceKind"];
+        } | {
+            readonly before?: null | components["schemas"]["DocumentSpaceAnchor"];
+            readonly block_id: string;
+            readonly display_name: string;
             readonly document_id: string;
             /** @enum {string} */
-            readonly kind: "restore_document";
+            readonly kind: "create_canvas_owner";
+        } | {
+            /** @enum {string} */
+            readonly kind: "delete_canvas_owner";
+            readonly owner: components["schemas"]["DocumentOwnerRevision"];
+        };
+        readonly DocumentOwnerEffect: {
+            readonly created_block_ids: readonly string[];
+            readonly deleted_block_ids: readonly string[];
+            readonly document_heads: readonly components["schemas"]["DocumentHeadRevision"][];
+            readonly preserved_block_ids: readonly string[];
+        };
+        readonly DocumentOwnerRevision: {
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            /** Format: int64 */
+            readonly location_revision: number;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly owner_block_id: string;
         };
         readonly DocumentSemanticCommand: {
             readonly expected_etag: string;
@@ -470,6 +538,11 @@ export interface components {
             /** @enum {string} */
             readonly kind: "move_block";
             readonly parent_block_id?: string | null;
+        };
+        readonly DocumentSpaceAnchor: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_location_revision: number;
         };
         readonly EventEnvelope: {
             readonly event: components["schemas"]["CommittedCoreModuleEvent"];
@@ -791,7 +864,6 @@ export interface components {
                 readonly command: components["schemas"]["DocumentOwnerCommand"];
                 /** @enum {string} */
                 readonly kind: "apply_owner_command";
-                readonly owner_block_id: string;
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -1137,6 +1209,16 @@ export interface components {
             readonly update: readonly number[];
         } | {
             readonly document_id: string;
+            /** Format: int64 */
+            readonly generation: number;
+            /** Format: int64 */
+            readonly head_seq: number;
+            /** @enum {string} */
+            readonly kind: "canvas_updated";
+            readonly mutation: unknown;
+            readonly scene_hash: string;
+        } | {
+            readonly document_id: string;
             /** @enum {string} */
             readonly kind: "document_invalidated";
             readonly reason: components["schemas"]["DocumentInvalidationReason"];
@@ -1324,12 +1406,14 @@ export interface components {
                 };
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
+                    readonly canvas?: unknown;
                     readonly document_id: string;
                     /** Format: int64 */
                     readonly generation: number;
                     /** Format: int64 */
                     readonly head_seq: number;
                     readonly outcome: components["schemas"]["DocumentCommitOutcome"];
+                    readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
                 };
             };
             /** @enum {string} */

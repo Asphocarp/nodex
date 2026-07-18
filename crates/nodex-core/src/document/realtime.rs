@@ -227,7 +227,7 @@ impl OwnedDocumentRealtimeAdapter {
             .ok_or_else(|| invalid("Realtime Adapter accepts only Document-bound mutations"))?;
         self.require_subscription(&context.connection_id, client_session_id, document_id)?;
         let outcome = self.module.apply(context, request)?;
-        if let Some(event) = outcome.event.as_ref() {
+        for event in &outcome.events {
             self.adopt_committed_boundary(event)?;
         }
         Ok(outcome)

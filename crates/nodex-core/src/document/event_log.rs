@@ -53,6 +53,8 @@ struct DocumentEventMetadata {
     scene_hash: Option<String>,
     #[serde(default)]
     event_delta: Option<Value>,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 pub(crate) fn replay_document_events(
@@ -143,7 +145,8 @@ fn reconstruct_document_event(
         || metadata.document_id.is_empty()
         || metadata.document_id.len() > 512
         || metadata.generation < 1
-        || metadata.head_seq < 1
+        || metadata.head_seq < 0
+        || (metadata.kind != "document_invalidated" && metadata.head_seq < 1)
     {
         return Err(corrupt("Owned Document event metadata is inconsistent"));
     }
@@ -229,10 +232,18 @@ fn reconstruct_document_event(
             document_id: metadata.document_id,
             reason: DocumentInvalidationReason::Restored,
         },
-        "document_invalidated" => OwnedDocumentEvent::DocumentInvalidated {
-            document_id: metadata.document_id,
-            reason: DocumentInvalidationReason::GenerationChanged,
-        },
+        "document_invalidated" => {
+            let reason = match metadata.reason.as_deref() {
+                Some("access_changed") => DocumentInvalidationReason::AccessChanged,
+                Some("generation_changed") => DocumentInvalidationReason::GenerationChanged,
+                Some("restored") => DocumentInvalidationReason::Restored,
+                _ => return Err(corrupt("Document invalidation reason is invalid")),
+            };
+            OwnedDocumentEvent::DocumentInvalidated {
+                document_id: metadata.document_id,
+                reason,
+            }
+        }
         _ => return Err(corrupt("Owned Document event kind is unsupported")),
     };
 
