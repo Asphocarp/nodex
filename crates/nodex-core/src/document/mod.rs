@@ -4,6 +4,7 @@ mod module;
 mod operations;
 mod persistence;
 mod runtime;
+mod semantic;
 mod yrs_engine;
 
 pub use block_document::{

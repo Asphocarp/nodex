@@ -27,6 +27,7 @@ pub enum StoreErrorCode {
     InvalidProfile,
     MissingDependencies,
     NotFound,
+    RevisionConflict,
     Unauthorized,
     WriterQueueFull,
     WriterClosed,

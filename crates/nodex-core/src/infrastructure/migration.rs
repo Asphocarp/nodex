@@ -79,6 +79,9 @@ CREATE TABLE core_module_receipts (
   CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
   CHECK (length(committed_at) > 0)
 ) WITHOUT ROWID, STRICT;
+
+INSERT OR IGNORE INTO nodex_agent_token_keys(id, key_material)
+VALUES (1, randomblob(32));
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

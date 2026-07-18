@@ -733,7 +733,7 @@ fn invalid(message: String) -> StoreError {
 }
 
 fn conflict(message: &str) -> StoreError {
-    StoreError::new(StoreErrorCode::SqliteBusy, message, true)
+    StoreError::new(StoreErrorCode::HeadConflict, message, true)
 }
 
 fn corrupt(message: &str) -> StoreError {

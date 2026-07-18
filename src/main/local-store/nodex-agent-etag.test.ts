@@ -44,6 +44,27 @@ function expectEtagError(
 }
 
 describe("Nodex Agent ETag", () => {
+  test("matches the Rust Core semantic-title authority vector", () => {
+    getDb().prepare(
+      "UPDATE nodex_agent_token_keys SET key_material = ? WHERE id = 1",
+    ).run(Buffer.alloc(32, 0x11));
+    getDb().prepare(
+      "UPDATE block_store_metadata SET store_epoch = ? WHERE id = 1",
+    ).run("epoch:test");
+    expect(mintNodexAgentEtag(getDb(), {
+      kind: "title",
+      projectId: "project:test",
+      subject: ["document:test"],
+      state: {
+        richTitle: [{
+          type: "text",
+          text: "Hello",
+          styles: { bold: true },
+        }],
+      },
+    })).toBe("nxe1.NeZS7_17LKIgmH87yqTDVA5mm9gP9Atq3ACGpOgzpp4");
+  });
+
   test("mints one deterministic 48-character digest across object key order and reopen", () => {
     const project = createProject({ name: "ETag project" });
     const input: NodexAgentEtagState = {

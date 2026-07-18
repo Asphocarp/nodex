@@ -1,5 +1,6 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::document::{
     DocumentCommitOutcome, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
@@ -30,12 +31,34 @@ use super::persistence::{
     read_event_head, read_store_epoch, sha256,
 };
 use super::runtime::DocumentRuntimeCache;
+use super::semantic::{SemanticMutationContext, SemanticMutationError, prepare_semantic_mutation};
 use super::{
     BlockDocumentSchema, DocumentMaterialization, YrsEngineError, decode_block_document,
     materialize_decoded_document,
 };
 
 const MODULE_NAME: &str = "owned_document";
+static DOCUMENT_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+struct DocumentUpdateJob {
+    context: BoundModuleContext,
+    operation_id: String,
+    expected_store_epoch: StoreEpoch,
+    document_id: String,
+    generation: i64,
+    operation_kind: &'static str,
+    request_hash: String,
+}
+
+enum PreparedUpdate {
+    Apply {
+        base_head_seq: i64,
+        update_id: String,
+        touched_block_ids: Vec<String>,
+        update: Vec<u8>,
+    },
+    NoChange,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentCacheMetrics {
@@ -105,10 +128,10 @@ impl OwnedDocumentModule {
                     let store_epoch = read_store_epoch(connection)?;
                     Ok(ModuleReadSnapshot {
                         version: CORE_CONTRACT_VERSION,
-                        store_epoch: StoreEpoch(store_epoch),
+                        store_epoch: StoreEpoch(store_epoch.clone()),
                         event_head: read_event_head(connection)?,
                         value: OwnedDocumentReadValue::Descriptor {
-                            descriptor: authority_descriptor(&authority),
+                            descriptor: authority_descriptor(&authority, &store_epoch),
                         },
                     })
                 })
@@ -128,12 +151,13 @@ impl OwnedDocumentModule {
                             .lock()
                             .map_err(|_| internal("Document cache lock failed"))?
                             .sync_diff(connection, &authority.head, &state_vector)?;
+                        let store_epoch = read_store_epoch(connection)?;
                         Ok(ModuleReadSnapshot {
                             version: CORE_CONTRACT_VERSION,
-                            store_epoch: StoreEpoch(read_store_epoch(connection)?),
+                            store_epoch: StoreEpoch(store_epoch.clone()),
                             event_head: read_event_head(connection)?,
                             value: OwnedDocumentReadValue::YjsSync {
-                                descriptor: authority_descriptor(&authority),
+                                descriptor: authority_descriptor(&authority, &store_epoch),
                                 update,
                             },
                         })
@@ -175,6 +199,20 @@ impl OwnedDocumentModule {
                 update_id,
                 touched_block_ids,
                 update,
+            ),
+            OwnedDocumentIntent::ApplySemanticMutation {
+                document_id,
+                generation,
+                expected_head_seq,
+                commands,
+            } => self.apply_semantic_mutation(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                document_id,
+                generation,
+                expected_head_seq,
+                commands,
             ),
             _ => Err(invalid("Owned Document intent is not implemented yet")),
         }
@@ -229,7 +267,171 @@ impl OwnedDocumentModule {
         ))
         .map_err(|_| invalid("Owned Document request cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
-        let context = context.clone();
+        let receipt_document_id = document_id.clone();
+        let receipt_update_id = update_id.clone();
+        let receipt_context = context.clone();
+        self.apply_document_update(
+            DocumentUpdateJob {
+                context: context.clone(),
+                operation_id,
+                expected_store_epoch,
+                document_id,
+                generation,
+                operation_kind: "apply_yjs_update",
+                request_hash,
+            },
+            move |connection, authority, _engine, _materialization, _store_epoch| {
+                if base_head_seq > authority.head.head_seq {
+                    return Err(StoreError::new(
+                        StoreErrorCode::HeadConflict,
+                        "Yjs update is based on a future Document head",
+                        true,
+                    ));
+                }
+                let receipt_conflicts =
+                    crate::infrastructure::document_repository::DocumentReadRepository::new(
+                        connection,
+                    )
+                    .update_receipt(&receipt_document_id, &receipt_update_id)?
+                    .is_some_and(|receipt| {
+                        receipt.generation != generation
+                            || receipt.client_session_id != receipt_context.connection_id
+                            || receipt.base_head_seq != base_head_seq
+                            || receipt.client_touched_block_ids != touched_block_ids
+                            || receipt.update_hash != sha256(&update)
+                            || receipt.update_byte_length
+                                != i64::try_from(update.len()).unwrap_or(i64::MAX)
+                    });
+                if receipt_conflicts {
+                    return Err(StoreError::new(
+                        StoreErrorCode::IdempotencyKeyReused,
+                        "update_id is already bound to another Yjs update",
+                        false,
+                    ));
+                }
+                Ok(PreparedUpdate::Apply {
+                    base_head_seq,
+                    update_id,
+                    touched_block_ids,
+                    update,
+                })
+            },
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn apply_semantic_mutation(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        commands: Vec<nodex_core_contracts::document::DocumentSemanticCommand>,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        let fingerprint = serde_json::to_vec(&(
+            context,
+            expected_store_epoch.clone(),
+            &document_id,
+            generation,
+            expected_head_seq,
+            &commands,
+        ))
+        .map_err(|_| invalid("Owned Document semantic request cannot be fingerprinted"))?;
+        let allocation_seed = operation_id.clone();
+        self.apply_document_update(
+            DocumentUpdateJob {
+                context: context.clone(),
+                operation_id: operation_id.clone(),
+                expected_store_epoch,
+                document_id,
+                generation,
+                operation_kind: "apply_semantic_mutation",
+                request_hash: sha256(&fingerprint),
+            },
+            move |connection, authority, engine, materialization, store_epoch| {
+                let requires_structural_barrier =
+                    commands.iter().any(|command| {
+                        matches!(
+                        command,
+                        nodex_core_contracts::document::DocumentSemanticCommand::DeleteBlock {
+                            ..
+                        } | nodex_core_contracts::document::DocumentSemanticCommand::MoveBlock {
+                            ..
+                        }
+                    )
+                    });
+                if expected_head_seq > authority.head.head_seq
+                    || (requires_structural_barrier && expected_head_seq != authority.head.head_seq)
+                {
+                    return Err(StoreError::new(
+                        StoreErrorCode::HeadConflict,
+                        "Semantic mutation crossed its required Document head barrier",
+                        true,
+                    ));
+                }
+                let schema = BlockDocumentSchema::from_identity(
+                    &authority.head.schema_key,
+                    authority.head.schema_version,
+                )
+                .ok_or_else(|| {
+                    StoreError::new(
+                        StoreErrorCode::UnsupportedSchema,
+                        "Owned Document schema is unsupported",
+                        false,
+                    )
+                })?;
+                let full_state = engine.full_state_v1();
+                let state_vector = engine.state_vector_v1();
+                let mut allocation_index = 0_u64;
+                let prepared = prepare_semantic_mutation(
+                    connection,
+                    SemanticMutationContext {
+                        document_id: &authority.head.id,
+                        project_id: &authority.head.project_id,
+                        store_epoch,
+                        schema,
+                        full_state_v1: &full_state,
+                        state_vector_v1: &state_vector,
+                        materialization,
+                    },
+                    &commands,
+                    &mut || {
+                        allocation_index += 1;
+                        allocate_document_block_id(&allocation_seed, allocation_index)
+                    },
+                );
+                match prepared {
+                    Ok(prepared) => Ok(PreparedUpdate::Apply {
+                        base_head_seq: authority.head.head_seq,
+                        update_id: operation_id,
+                        touched_block_ids: prepared.touched_block_ids,
+                        update: prepared.update_v1,
+                    }),
+                    Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
+                    Err(error) => Err(semantic_error(error)),
+                }
+            },
+        )
+    }
+
+    fn apply_document_update<F>(
+        &self,
+        job: DocumentUpdateJob,
+        prepare: F,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError>
+    where
+        F: FnOnce(
+                &rusqlite::Connection,
+                &DocumentAuthorityRow,
+                &super::YrsDocumentEngine,
+                &DocumentMaterialization,
+                &str,
+            ) -> Result<PreparedUpdate, StoreError>
+            + Send
+            + 'static,
+    {
         let cache = Arc::clone(&self.cache);
         let fail_after_commit = Arc::clone(&self.fail_after_commit);
         self.writer
@@ -237,16 +439,17 @@ impl OwnedDocumentModule {
                 let transaction =
                     connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 let store_epoch = read_store_epoch(&transaction)?;
-                if store_epoch != expected_store_epoch.0 {
+                if store_epoch != job.expected_store_epoch.0 {
                     return Err(StoreError::new(
                         StoreErrorCode::Conflict,
                         "Owned Document mutation targets a stale store epoch",
                         true,
                     ));
                 }
-                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                if let Some(stored) =
+                    read_module_receipt(&transaction, MODULE_NAME, &job.operation_id)?
                 {
-                    if stored.request_hash != request_hash {
+                    if stored.request_hash != job.request_hash {
                         return Err(StoreError::new(
                             StoreErrorCode::IdempotencyKeyReused,
                             "operation_id is already bound to another Owned Document intent",
@@ -270,41 +473,13 @@ impl OwnedDocumentModule {
                         event: None,
                     });
                 }
-                let authority = read_document_authority(&transaction, &document_id)?
+                let authority = read_document_authority(&transaction, &job.document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_yjs(&context, &authority)?;
-                if authority.head.generation != generation {
+                authorize_yjs(&job.context, &authority)?;
+                if authority.head.generation != job.generation {
                     return Err(StoreError::new(
                         StoreErrorCode::GenerationConflict,
                         "Owned Document generation does not match",
-                        false,
-                    ));
-                }
-                if base_head_seq > authority.head.head_seq {
-                    return Err(StoreError::new(
-                        StoreErrorCode::HeadConflict,
-                        "Yjs update is based on a future Document head",
-                        true,
-                    ));
-                }
-                let receipt_conflicts =
-                    crate::infrastructure::document_repository::DocumentReadRepository::new(
-                        &transaction,
-                    )
-                    .update_receipt(&document_id, &update_id)?
-                    .is_some_and(|receipt| {
-                        receipt.generation != generation
-                            || receipt.client_session_id != context.connection_id
-                            || receipt.base_head_seq != base_head_seq
-                            || receipt.client_touched_block_ids != touched_block_ids
-                            || receipt.update_hash != sha256(&update)
-                            || receipt.update_byte_length
-                                != i64::try_from(update.len()).unwrap_or(i64::MAX)
-                    });
-                if receipt_conflicts {
-                    return Err(StoreError::new(
-                        StoreErrorCode::IdempotencyKeyReused,
-                        "update_id is already bound to another Yjs update",
                         false,
                     ));
                 }
@@ -324,13 +499,23 @@ impl OwnedDocumentModule {
                     )
                 })?;
                 let base_materialization = materialize_engine(&engine, schema)?;
-                let candidate = engine.prepare_update_v1(&update).map_err(engine_error)?;
-                let materialization = materialize_candidate(&candidate, schema)?;
-                let did_change = candidate.did_change();
-                let event_head = read_event_head(&transaction)?;
-                if !did_change {
+                let prepared = prepare(
+                    &transaction,
+                    &authority,
+                    &engine,
+                    &base_materialization,
+                    &store_epoch,
+                )?;
+                let PreparedUpdate::Apply {
+                    base_head_seq,
+                    update_id,
+                    touched_block_ids,
+                    update,
+                } = prepared
+                else {
+                    let event_head = read_event_head(&transaction)?;
                     let committed = committed_value(
-                        &operation_id,
+                        &job.operation_id,
                         &store_epoch,
                         &authority,
                         authority.head.head_seq,
@@ -339,11 +524,45 @@ impl OwnedDocumentModule {
                     );
                     insert_typed_receipt(
                         &transaction,
-                        &context,
-                        &operation_id,
-                        &request_hash,
+                        &job.context,
+                        &job.operation_id,
+                        &job.request_hash,
                         &store_epoch,
-                        "apply_yjs_update",
+                        job.operation_kind,
+                        &committed,
+                        None,
+                    )?;
+                    transaction.commit()?;
+                    cache
+                        .lock()
+                        .map_err(|_| internal("Document cache lock failed"))?
+                        .install(&authority.head, engine);
+                    return Ok(OwnedDocumentApplyOutcome {
+                        committed,
+                        event: None,
+                    });
+                };
+                validate_touched_block_ids_store(&touched_block_ids)?;
+                let candidate = engine.prepare_update_v1(&update).map_err(engine_error)?;
+                let materialization = materialize_candidate(&candidate, schema)?;
+                let did_change = candidate.did_change();
+                let event_head = read_event_head(&transaction)?;
+                if !did_change {
+                    let committed = committed_value(
+                        &job.operation_id,
+                        &store_epoch,
+                        &authority,
+                        authority.head.head_seq,
+                        DocumentCommitOutcome::NoChange,
+                        event_head,
+                    );
+                    insert_typed_receipt(
+                        &transaction,
+                        &job.context,
+                        &job.operation_id,
+                        &job.request_hash,
+                        &store_epoch,
+                        job.operation_kind,
                         &committed,
                         None,
                     )?;
@@ -369,18 +588,18 @@ impl OwnedDocumentModule {
                         base_materialization: &base_materialization,
                         materialization: &materialization,
                         update_id: &update_id,
-                        client_session_id: &context.connection_id,
+                        client_session_id: &job.context.connection_id,
                         base_head_seq,
                         client_touched_block_ids: &touched_block_ids,
                         update: &update,
                         state_vector: &state_vector,
                         full_state: &full_state,
                         store_epoch: &store_epoch,
-                        operation_id: &operation_id,
+                        operation_id: &job.operation_id,
                     },
                 )?;
                 let committed = committed_value(
-                    &operation_id,
+                    &job.operation_id,
                     &store_epoch,
                     &authority,
                     persisted.head_seq,
@@ -389,11 +608,11 @@ impl OwnedDocumentModule {
                 );
                 insert_typed_receipt(
                     &transaction,
-                    &context,
-                    &operation_id,
-                    &request_hash,
+                    &job.context,
+                    &job.operation_id,
+                    &job.request_hash,
                     &store_epoch,
-                    "apply_yjs_update",
+                    job.operation_kind,
                     &committed,
                     Some(persisted.event_sequence),
                 )?;
@@ -402,7 +621,7 @@ impl OwnedDocumentModule {
                     cache
                         .lock()
                         .map_err(|_| internal("Document cache lock failed"))?
-                        .invalidate(&document_id);
+                        .invalidate(&job.document_id);
                     return Err(StoreError::new(
                         StoreErrorCode::Internal,
                         "Injected failure after durable Document commit",
@@ -422,12 +641,12 @@ impl OwnedDocumentModule {
                     version: CORE_CONTRACT_VERSION,
                     sequence: persisted.event_sequence,
                     store_epoch: StoreEpoch(store_epoch.clone()),
-                    operation_id: Some(operation_id),
+                    operation_id: Some(job.operation_id),
                     committed_at: persisted.committed_at,
                     payload: CoreModuleEventPayload::OwnedDocument(
                         OwnedDocumentEvent::DocumentUpdated {
-                            document_id,
-                            generation,
+                            document_id: job.document_id,
+                            generation: job.generation,
                             head_seq: persisted.head_seq,
                             update,
                         },
@@ -532,21 +751,33 @@ fn insert_typed_receipt(
     )
 }
 
-fn authority_descriptor(authority: &DocumentAuthorityRow) -> Value {
+fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> Value {
+    let readiness = match authority.head.readiness {
+        DocumentReadiness::PendingGenesis => "pending_genesis",
+        DocumentReadiness::Ready => "ready",
+        DocumentReadiness::Failed => "failed",
+    };
+    let sync = match authority.head.sync_engine {
+        DocumentSyncEngine::Yjs => json!({
+            "kind": "yjs",
+            "stateVector": authority.head.state_vector,
+        }),
+        DocumentSyncEngine::CanvasScene => json!({ "kind": "canvas_scene" }),
+    };
     json!({
+        "version": 2,
         "documentId": authority.head.id,
         "projectId": authority.head.project_id,
         "ownerBlockId": authority.owner_block_id,
         "ownerType": authority.owner_type,
         "ownerLifecycle": authority.owner_lifecycle,
+        "storeEpoch": store_epoch,
         "generation": authority.head.generation,
         "headSeq": authority.head.head_seq,
         "schemaKey": authority.head.schema_key,
         "schemaVersion": authority.head.schema_version,
-        "stateVector": authority.head.state_vector,
-        "syncEngine": "yjs",
-        "readiness": "ready",
-        "authority": "ydoc_primary",
+        "readiness": readiness,
+        "sync": sync,
     })
 }
 
@@ -586,22 +817,73 @@ fn authorize_yjs(
 }
 
 fn validate_touched_block_ids(ids: &[String]) -> Result<(), CoreError> {
+    validate_touched_block_ids_store(ids).map_err(core_error)
+}
+
+fn validate_touched_block_ids_store(ids: &[String]) -> Result<(), StoreError> {
     if ids.len() > 100_000 {
-        return Err(invalid("Touched Block ID list exceeds its bound"));
+        return Err(invalid_store(
+            "Touched Block ID list exceeds its bound".to_owned(),
+        ));
     }
     let mut sorted = ids.to_vec();
     sorted.sort();
     sorted.dedup();
-    if sorted.len() != ids.len()
-        || ids
+    if sorted.len() == ids.len()
+        && ids
             .iter()
-            .any(|id| id.is_empty() || id.len() > 512 || id.trim() != id)
+            .all(|id| !id.is_empty() && id.len() <= 512 && id.trim() == id)
     {
-        return Err(invalid(
-            "Touched Block IDs must be unique canonical identities",
-        ));
+        return Ok(());
     }
-    Ok(())
+    Err(invalid_store(
+        "Touched Block IDs must be unique canonical identities".to_owned(),
+    ))
+}
+
+fn semantic_error(error: SemanticMutationError) -> StoreError {
+    match error {
+        SemanticMutationError::Invalid(message) => invalid_store(message),
+        SemanticMutationError::RevisionConflict => StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Semantic ETag no longer matches current Document state",
+            true,
+        ),
+        SemanticMutationError::NoChange => {
+            invalid_store("Semantic mutation makes no change".to_owned())
+        }
+        SemanticMutationError::EtagAuthority(message) => StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            format!("Semantic ETag authority is unavailable: {message}"),
+            false,
+        ),
+        SemanticMutationError::Operation(error) => {
+            let code = match error.code() {
+                super::DocumentOperationErrorCode::StaleStateVector => StoreErrorCode::HeadConflict,
+                _ => StoreErrorCode::InvalidInput,
+            };
+            StoreError::new(code, error.to_string(), false)
+        }
+    }
+}
+
+fn allocate_document_block_id(seed: &str, index: u64) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let timestamp = now.min(0xffff_ffff_ffff) as u64;
+    let sequence = DOCUMENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let entropy = sha256(format!("{seed}:{index}:{sequence}:{now}").as_bytes());
+    let timestamp = format!("{timestamp:012x}");
+    format!(
+        "{}-{}-7{}-8{}-{}",
+        &timestamp[..8],
+        &timestamp[8..],
+        &entropy[..3],
+        &entropy[3..6],
+        &entropy[6..18],
+    )
 }
 
 fn engine_error(error: YrsEngineError) -> StoreError {
@@ -620,6 +902,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::Conflict => CoreErrorCode::StaleStoreEpoch,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
+        StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::InvalidDocumentSchema,
@@ -668,7 +951,7 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::document::{
-        DocumentCommitOutcome, OwnedDocumentIntent, OwnedDocumentRead,
+        DocumentCommitOutcome, DocumentSemanticCommand, OwnedDocumentIntent, OwnedDocumentRead,
     };
     use nodex_core_contracts::{
         AdapterKind, LibraryId, ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId,
@@ -1030,5 +1313,182 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .expect("committed authority survives missed publication");
+    }
+
+    #[test]
+    fn semantic_title_and_body_guards_commit_atomically() {
+        let seeded = seeded_module();
+        let materialization = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let (title_etag, body_etag) = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let title = super::super::semantic::mint_etag(
+                    connection,
+                    "title",
+                    PROJECT_ID,
+                    STORE_EPOCH,
+                    &[DOCUMENT_ID],
+                    json!({ "richTitle": materialization.rich_title }),
+                )
+                .expect("title ETag");
+                let body = super::super::semantic::mint_etag(
+                    connection,
+                    "document_body",
+                    PROJECT_ID,
+                    STORE_EPOCH,
+                    &[DOCUMENT_ID],
+                    json!({ "nfm": materialization.nfm }),
+                )
+                .expect("body ETag");
+                Ok::<_, StoreError>((title, body))
+            })
+            .unwrap();
+        let request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "semantic:title-and-body".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplySemanticMutation {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: 1,
+                commands: vec![
+                    DocumentSemanticCommand::SetTitle {
+                        inline_markdown: "**Semantic** title".to_owned(),
+                        expected_etag: title_etag.clone(),
+                    },
+                    DocumentSemanticCommand::ReplaceBody {
+                        nested_markdown: "Semantic body".to_owned(),
+                        expected_etag: body_etag,
+                    },
+                ],
+            },
+        };
+        let committed = seeded
+            .module
+            .apply(&context(), request.clone())
+            .expect("semantic mutation");
+        assert_eq!(committed.committed.value.head_seq, 2);
+        assert!(committed.event.is_some());
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let (title, nfm, rich_title): (String, String, String) = connection.query_row(
+                    "SELECT title, nfm, title_rich_json FROM document_materializations \
+                     WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                assert_eq!(title, "Semantic title");
+                assert_eq!(nfm, "Semantic body");
+                assert_eq!(
+                    serde_json::from_str::<Value>(&rich_title).unwrap()[0]["styles"]["bold"],
+                    true
+                );
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+
+        let duplicate = seeded.module.apply(&context(), request).unwrap();
+        assert!(duplicate.committed.receipt.mutation.duplicate);
+        assert!(duplicate.event.is_none());
+        let stale = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:stale-title".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 2,
+                        commands: vec![DocumentSemanticCommand::SetTitle {
+                            inline_markdown: "Stale overwrite".to_owned(),
+                            expected_etag: title_etag,
+                        }],
+                    },
+                },
+            )
+            .expect_err("stale narrow guard");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
+
+        let sync = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::SyncYjs {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        state_vector: Vec::new(),
+                    },
+                },
+            )
+            .unwrap();
+        let OwnedDocumentReadValue::YjsSync { update, .. } = sync.value else {
+            panic!("expected Yjs sync")
+        };
+        let current = YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &update).unwrap();
+        let renderer_update = title_update(
+            &current.full_state_v1(),
+            &current.state_vector_v1(),
+            "Concurrent renderer title",
+        );
+        seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:concurrent-title", 2, renderer_update),
+            )
+            .unwrap();
+        let merged = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:exact-patch-after-renderer".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 2,
+                        commands: vec![DocumentSemanticCommand::PatchBody {
+                            old_fragment: "Semantic body".to_owned(),
+                            new_fragment: "Merged body".to_owned(),
+                        }],
+                    },
+                },
+            )
+            .expect("exact patch rebases over unrelated renderer edit");
+        assert_eq!(merged.committed.value.head_seq, 4);
+
+        let structural = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:stale-structural".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 2,
+                        commands: vec![DocumentSemanticCommand::DeleteBlock {
+                            block_id: "019bf52d-6870-7000-8000-000000000099".to_owned(),
+                        }],
+                    },
+                },
+            )
+            .expect_err("structural edits retain the exact-head barrier");
+        assert_eq!(structural.code, CoreErrorCode::HeadConflict);
     }
 }
