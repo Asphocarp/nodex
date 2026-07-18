@@ -239,7 +239,19 @@ const createSchemaMatrix = (): {
   });
   const document = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
   document.clientID = 1_101;
-  document.getText("title").insert(0, "Schema matrix 😀");
+  replaceYTextWithPortableRichText(document.getText("title"), [
+    { type: "text", text: "Schema ", styles: { bold: true } },
+    {
+      type: "link",
+      text: "matrix 😀",
+      href: "https://nodex.local/schema-matrix",
+      styles: { italic: true, color: "blue" },
+    },
+    { type: "linebreak" },
+    { type: "threadMention", uuid: "thread-title-matrix" },
+    { type: "text", text: " at ", styles: {} },
+    { type: "dateMention", start: "2026-07-18", format: "ll" },
+  ]);
   blocksToYXmlFragment(editor, editor.document, document.getXmlFragment("body"));
   return {
     document,
@@ -312,6 +324,7 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
   );
 
   const matrix = createSchemaMatrix();
+  const matrixMaterialization = materializePageDocument(matrix.document);
   const matrixBase = Y.encodeStateAsUpdate(matrix.document);
   const matrixStateVector = Y.encodeStateVector(matrix.document);
   const matrixAfter = cloneFrom(matrixBase, 1_102);
@@ -354,6 +367,10 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     writeFile(path.join(outputRoot, "matrix-base.bin"), matrixBase),
     writeFile(path.join(outputRoot, "matrix-state-vector.bin"), matrixStateVector),
     writeFile(path.join(outputRoot, "matrix-after.bin"), matrixAfterUpdate),
+    writeFile(
+      path.join(outputRoot, "matrix-materialization.json"),
+      `${JSON.stringify(matrixMaterialization, null, 2)}\n`,
+    ),
     writeFile(path.join(outputRoot, "awareness-added.bin"), awarenessAdded),
     writeFile(path.join(outputRoot, "awareness-removed.bin"), awarenessRemoved),
     writeFile(
