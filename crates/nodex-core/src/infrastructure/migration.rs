@@ -15,6 +15,7 @@ use crate::document::{
     materialize_decoded_document,
 };
 
+use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
 use super::schema::{CORE_SCHEMA_VERSION, TYPESCRIPT_SCHEMA_VERSION, v82_schema_objects_sql};
 use super::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store, with_immediate_transaction,
@@ -72,40 +73,6 @@ pub struct StorePreparation {
     pub migrated_from_version: Option<i64>,
     pub migration_backup_path: Option<PathBuf>,
     pub validated_yjs_documents: usize,
-}
-
-#[derive(Debug, Clone)]
-struct LiveDocumentHead {
-    id: String,
-    generation: i64,
-    head_seq: i64,
-    schema_key: String,
-    schema_version: i64,
-    state_vector: Vec<u8>,
-    state_hash: String,
-}
-
-#[derive(Debug)]
-struct SnapshotRow {
-    seq: i64,
-    state_vector: Vec<u8>,
-    update: Vec<u8>,
-    update_hash: String,
-}
-
-#[derive(Debug)]
-struct PersistedMaterialization {
-    generation: i64,
-    projected_seq: i64,
-    schema_version: i64,
-    title: String,
-    rich_title: serde_json::Value,
-    nfm: String,
-    plain_text: String,
-    preview: String,
-    block_tree: serde_json::Value,
-    references: serde_json::Value,
-    asset_refs: serde_json::Value,
 }
 
 pub fn prepare_profile_store(
@@ -246,33 +213,17 @@ fn create_migration_backup(
 fn validate_live_yjs_documents(
     connection: &Connection,
 ) -> Result<Vec<DocumentEngineFingerprint>, StoreError> {
-    let heads = connection
-        .prepare(
-            "SELECT id, generation, head_seq, schema_key, schema_version, state_vector, state_hash \
-             FROM documents WHERE readiness = 'ready' AND authority = 'ydoc_primary' \
-               AND sync_engine = 'yjs' ORDER BY id",
-        )?
-        .query_map([], |row| {
-            Ok(LiveDocumentHead {
-                id: row.get(0)?,
-                generation: row.get(1)?,
-                head_seq: row.get(2)?,
-                schema_key: row.get(3)?,
-                schema_version: row.get(4)?,
-                state_vector: row.get(5)?,
-                state_hash: row.get(6)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let repository = DocumentReadRepository::new(connection);
+    let heads = repository.live_yjs_heads()?;
     heads
         .iter()
-        .map(|head| validate_live_yjs_document(connection, head))
+        .map(|head| validate_live_yjs_document(&repository, head))
         .collect()
 }
 
 fn validate_live_yjs_document(
-    connection: &Connection,
-    head: &LiveDocumentHead,
+    repository: &DocumentReadRepository<'_>,
+    head: &DocumentHeadRow,
 ) -> Result<DocumentEngineFingerprint, StoreError> {
     if !is_sha256(&head.state_hash) {
         return Err(corrupt(format!(
@@ -281,31 +232,16 @@ fn validate_live_yjs_document(
         )));
     }
     let schema = registered_schema(&head.schema_key, head.schema_version)?;
-    let snapshot = connection
-        .query_row(
-            "SELECT snapshot_seq, state_vector, snapshot_update, snapshot_hash \
-             FROM document_snapshots WHERE document_id = ?1 AND generation = ?2 \
-               AND snapshot_seq <= ?3 ORDER BY snapshot_seq DESC LIMIT 1",
-            params![head.id, head.generation, head.head_seq],
-            |row| {
-                Ok(SnapshotRow {
-                    seq: row.get(0)?,
-                    state_vector: row.get(1)?,
-                    update: row.get(2)?,
-                    update_hash: row.get(3)?,
-                })
-            },
-        )
-        .optional()?;
+    let snapshot = repository.latest_snapshot(&head.id, head.generation, head.head_seq)?;
     let document = create_compatible_document(&head.id);
     let snapshot_seq = if let Some(snapshot) = snapshot {
         verify_update_hash(
-            &snapshot.update,
-            &snapshot.update_hash,
+            &snapshot.snapshot_update,
+            &snapshot.snapshot_hash,
             &head.id,
             "snapshot",
         )?;
-        apply_update(&document, &snapshot.update, &head.id, "snapshot")?;
+        apply_update(&document, &snapshot.snapshot_update, &head.id, "snapshot")?;
         let expected = decode_state_vector_v1(&snapshot.state_vector)
             .map_err(|error| corrupt(format!("Document {} snapshot vector: {error}", head.id)))?;
         if document.transact().state_vector() != expected {
@@ -314,37 +250,23 @@ fn validate_live_yjs_document(
                 head.id
             )));
         }
-        snapshot.seq
+        snapshot.snapshot_seq
     } else {
         0
     };
 
-    let updates = connection
-        .prepare(
-            "SELECT seq, update_blob, update_hash FROM document_updates \
-             WHERE document_id = ?1 AND generation = ?2 AND seq > ?3 AND seq <= ?4 ORDER BY seq",
-        )?
-        .query_map(
-            params![head.id, head.generation, snapshot_seq, head.head_seq],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Vec<u8>>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let updates =
+        repository.updates_between(&head.id, head.generation, snapshot_seq, head.head_seq)?;
     let mut expected_seq = snapshot_seq + 1;
-    for (seq, update, update_hash) in updates {
-        if seq != expected_seq {
+    for update in updates {
+        if update.seq != expected_seq {
             return Err(corrupt(format!(
                 "Document {} update tail is not contiguous at sequence {expected_seq}",
                 head.id
             )));
         }
-        verify_update_hash(&update, &update_hash, &head.id, "update")?;
-        apply_update(&document, &update, &head.id, "update")?;
+        verify_update_hash(&update.update_blob, &update.update_hash, &head.id, "update")?;
+        apply_update(&document, &update.update_blob, &head.id, "update")?;
         expected_seq += 1;
     }
     if expected_seq - 1 != head.head_seq {
@@ -368,7 +290,7 @@ fn validate_live_yjs_document(
         .map_err(|error| corrupt(format!("Document {} schema validation: {error}", head.id)))?;
     let materialization = materialize_decoded_document(&decoded)
         .map_err(|error| corrupt(format!("Document {} materialization: {error}", head.id)))?;
-    assert_persisted_materialization(connection, head, &materialization)?;
+    assert_persisted_materialization(repository, head, &materialization)?;
 
     let transaction = document.transact();
     let state_vector_v1 = transaction.state_vector().encode_v1();
@@ -399,43 +321,12 @@ fn validate_live_yjs_document(
 }
 
 fn assert_persisted_materialization(
-    connection: &Connection,
-    head: &LiveDocumentHead,
+    repository: &DocumentReadRepository<'_>,
+    head: &DocumentHeadRow,
     actual: &crate::document::DocumentMaterialization,
 ) -> Result<(), StoreError> {
-    let persisted = connection
-        .query_row(
-            "SELECT generation, projected_seq, schema_version, title, title_rich_json, nfm, \
-                    plain_text, preview, block_tree_json, references_json, asset_refs_json \
-             FROM document_materializations WHERE document_id = ?1",
-            [&head.id],
-            |row| {
-                let parse_json = |index| -> rusqlite::Result<serde_json::Value> {
-                    let value: String = row.get(index)?;
-                    serde_json::from_str(&value).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            index,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })
-                };
-                Ok(PersistedMaterialization {
-                    generation: row.get(0)?,
-                    projected_seq: row.get(1)?,
-                    schema_version: row.get(2)?,
-                    title: row.get(3)?,
-                    rich_title: parse_json(4)?,
-                    nfm: row.get(5)?,
-                    plain_text: row.get(6)?,
-                    preview: row.get(7)?,
-                    block_tree: parse_json(8)?,
-                    references: parse_json(9)?,
-                    asset_refs: parse_json(10)?,
-                })
-            },
-        )
-        .optional()?
+    let persisted = repository
+        .materialization(&head.id)?
         .ok_or_else(|| corrupt(format!("Document {} has no materialization", head.id)))?;
     let rich_title = serde_json::to_value(&actual.rich_title).map_err(internal_json)?;
     let block_tree = serde_json::to_value(&actual.block_tree).map_err(internal_json)?;
