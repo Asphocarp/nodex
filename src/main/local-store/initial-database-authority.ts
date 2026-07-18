@@ -109,6 +109,131 @@ export interface CreateInitialDatabaseAuthorityInput {
   readonly name?: string;
 }
 
+export interface CreateDatabaseAuthorityRecordsInput {
+  readonly libraryId: string;
+  readonly identities: InitialDatabaseIdentities;
+  readonly now: string;
+  readonly name?: string;
+}
+
+/** Persist the Project-independent Database/Data Source/View authority graph. */
+export const createDatabaseAuthorityRecordsInDatabase = (
+  database: Database.Database,
+  input: CreateDatabaseAuthorityRecordsInput,
+): InitialDatabaseIdentities => {
+  if (!database.inTransaction) {
+    throw new Error(
+      "createDatabaseAuthorityRecordsInDatabase requires an active transaction",
+    );
+  }
+  const libraryId = input.libraryId.trim();
+  if (!libraryId) throw new TypeError("libraryId must be a canonical identity");
+  const databaseId = parseDatabaseId(
+    assertUuidV7(input.identities.databaseId, "databaseId"),
+  );
+  const dataSourceId = parseDataSourceId(
+    assertUuidV7(input.identities.dataSourceId, "dataSourceId"),
+  );
+  const viewId = parseDatabaseViewId(
+    assertUuidV7(input.identities.viewId, "viewId"),
+  );
+  const now = requireTimestamp(input.now);
+  const name = requireName(input.name ?? "Untitled database");
+  const block = database.prepare(`
+    SELECT 1 FROM blocks
+    WHERE id = ? AND type = 'database' AND lifecycle = 'active'
+  `).get(databaseId);
+  if (!block) {
+    throw new Error(`Database Block ${databaseId} must exist before authority creation`);
+  }
+
+  database.prepare(`
+    INSERT INTO database_containers (
+      block_id, library_id, name, lifecycle, default_view_id,
+      access_revision, metadata_revision, created_at, updated_at
+    ) VALUES (?, ?, ?, 'active', NULL, 1, 1, ?, ?)
+  `).run(databaseId, libraryId, name, now, now);
+  database.prepare(`
+    INSERT INTO data_sources (
+      id, library_id, home_database_block_id, name, schema_key,
+      schema_revision, lifecycle, rank_key, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 1, 'active', ?, ?, ?)
+  `).run(
+    dataSourceId,
+    libraryId,
+    databaseId,
+    name,
+    PRIMARY_DATABASE_SCHEMA_KEY,
+    rankForOrdinal(0, 1),
+    now,
+    now,
+  );
+  const insertProperty = database.prepare(`
+    INSERT INTO data_source_properties (
+      data_source_id, id, name, value_type, config_json, rank_key,
+      lifecycle, schema_revision, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)
+  `);
+  for (const [index, definition] of INITIAL_PROPERTY_DEFINITIONS.entries()) {
+    const config = parseDatabasePropertyConfig(
+      definition.valueType,
+      definition.config,
+    );
+    insertProperty.run(
+      dataSourceId,
+      definition.propertyId,
+      definition.name,
+      definition.valueType,
+      stableStringifyDatabaseJson(config),
+      rankForOrdinal(index, INITIAL_PROPERTY_DEFINITIONS.length),
+      now,
+      now,
+    );
+  }
+  const viewConfig = parseDatabaseViewConfigV2({
+    schemaKey: "nodex.database-view",
+    schemaVersion: 2,
+    filter: { kind: "group", operator: "and", children: [] },
+    sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
+    group: { propertyId: "status" },
+    display: {
+      propertyIds: ["status", "priority", "estimate", "tags"],
+      showTitle: true,
+    },
+  });
+  database.prepare(`
+    INSERT INTO database_views (
+      id, database_block_id, data_source_id, name, kind, config_json,
+      revision, rank_key, lifecycle, created_at, updated_at
+    ) VALUES (?, ?, ?, 'Kanban', 'kanban', ?, 1, ?, 'active', ?, ?)
+  `).run(
+    viewId,
+    databaseId,
+    dataSourceId,
+    stableStringifyDatabaseJson(viewConfig),
+    rankForOrdinal(0, 1),
+    now,
+    now,
+  );
+  database.prepare(`
+    UPDATE database_containers SET default_view_id = ? WHERE block_id = ?
+  `).run(viewId, databaseId);
+  const propertyIds = database.prepare(`
+    SELECT id FROM data_source_properties
+    WHERE data_source_id = ? AND lifecycle = 'active' ORDER BY rank_key, id
+  `).all(dataSourceId) as readonly { readonly id: string }[];
+  if (
+    propertyIds.length !== BUILT_IN_DATA_SOURCE_PROPERTY_IDS.length ||
+    propertyIds.some(
+      (row, index) => row.id !== BUILT_IN_DATA_SOURCE_PROPERTY_IDS[index],
+    )
+  ) {
+    throw new Error("Initial Data Source Property authority is incomplete");
+  }
+
+  return { databaseId, dataSourceId, viewId };
+};
+
 /**
  * Create one Project's initial Database authority after schema v82 is active.
  * The caller owns the surrounding Project transaction and preallocates all
@@ -173,96 +298,21 @@ export const createInitialDatabaseAuthorityInDatabase = (
     ) VALUES (?, ?, ?, ?, ?)
   `).run(databaseId, projectId, rankForOrdinal(0, 1), now, now);
   database.prepare(`
-    INSERT INTO database_containers (
-      block_id, library_id, name, lifecycle, default_view_id,
-      access_revision, metadata_revision, created_at, updated_at
-    ) VALUES (?, ?, ?, 'active', NULL, 1, 1, ?, ?)
-  `).run(databaseId, libraryId, name, now, now);
-  database.prepare(`
-    INSERT INTO data_sources (
-      id, library_id, home_database_block_id, name, schema_key,
-      schema_revision, lifecycle, rank_key, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 1, 'active', ?, ?, ?)
-  `).run(
-    dataSourceId,
+    INSERT INTO library_block_placements (
+      block_id, library_id, rank_key, revision, created_at, updated_at
+    ) VALUES (?, ?, ?, 1, ?, ?)
+  `).run(databaseId, libraryId, rankForOrdinal(0, 1), now, now);
+  createDatabaseAuthorityRecordsInDatabase(database, {
     libraryId,
-    databaseId,
+    identities: { databaseId, dataSourceId, viewId },
+    now,
     name,
-    PRIMARY_DATABASE_SCHEMA_KEY,
-    rankForOrdinal(0, 1),
-    now,
-    now,
-  );
-
-  const insertProperty = database.prepare(`
-    INSERT INTO data_source_properties (
-      data_source_id, id, name, value_type, config_json, rank_key,
-      lifecycle, schema_revision, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)
-  `);
-  for (const [index, definition] of INITIAL_PROPERTY_DEFINITIONS.entries()) {
-    const config = parseDatabasePropertyConfig(
-      definition.valueType,
-      definition.config,
-    );
-    insertProperty.run(
-      dataSourceId,
-      definition.propertyId,
-      definition.name,
-      definition.valueType,
-      stableStringifyDatabaseJson(config),
-      rankForOrdinal(index, INITIAL_PROPERTY_DEFINITIONS.length),
-      now,
-      now,
-    );
-  }
-
-  const viewConfig = parseDatabaseViewConfigV2({
-    schemaKey: "nodex.database-view",
-    schemaVersion: 2,
-    filter: { kind: "group", operator: "and", children: [] },
-    sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
-    group: { propertyId: "status" },
-    display: {
-      propertyIds: ["status", "priority", "estimate", "tags"],
-      showTitle: true,
-    },
   });
-  database.prepare(`
-    INSERT INTO database_views (
-      id, database_block_id, data_source_id, name, kind, config_json,
-      revision, rank_key, lifecycle, created_at, updated_at
-    ) VALUES (?, ?, ?, 'Kanban', 'kanban', ?, 1, ?, 'active', ?, ?)
-  `).run(
-    viewId,
-    databaseId,
-    dataSourceId,
-    stableStringifyDatabaseJson(viewConfig),
-    rankForOrdinal(0, 1),
-    now,
-    now,
-  );
-  database.prepare(`
-    UPDATE database_containers SET default_view_id = ? WHERE block_id = ?
-  `).run(viewId, databaseId);
   database.prepare(`
     INSERT INTO project_database_bindings (
       project_id, library_id, database_block_id, lifecycle, revision,
       created_at, updated_at
     ) VALUES (?, ?, ?, 'active', 1, ?, ?)
   `).run(projectId, libraryId, databaseId, now, now);
-
-  const propertyIds = database.prepare(`
-    SELECT id FROM data_source_properties
-    WHERE data_source_id = ? AND lifecycle = 'active' ORDER BY rank_key, id
-  `).all(dataSourceId) as readonly { readonly id: string }[];
-  if (
-    propertyIds.length !== BUILT_IN_DATA_SOURCE_PROPERTY_IDS.length ||
-    propertyIds.some(
-      (row, index) => row.id !== BUILT_IN_DATA_SOURCE_PROPERTY_IDS[index],
-    )
-  ) {
-    throw new Error("Initial Data Source Property authority is incomplete");
-  }
   return { databaseId, dataSourceId, viewId };
 };

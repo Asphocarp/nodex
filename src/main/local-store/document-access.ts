@@ -3,13 +3,17 @@ import type Database from "better-sqlite3";
 import type {
   DocumentAccessAck,
   DocumentAccessRequest,
+  LibraryDocumentAccessAck,
+  LibraryDocumentAccessRequest,
   DocumentSyncCommandError,
   DocumentSyncCommandResult,
 } from "../../shared/block-documents/document-sync";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
+import { requireLocalProfileLibraryInDatabase } from "./local-profile-library";
 
 interface PageDocumentRow {
   readonly pageId: string;
+  readonly libraryId: string;
   readonly lifecycle: "active" | "archived" | "deleted";
 }
 
@@ -47,7 +51,7 @@ export const authorizeDocumentAccessInDatabase = (
   }
 
   const page = database.prepare(`
-    SELECT block_id AS pageId, lifecycle
+    SELECT block_id AS pageId, library_id AS libraryId, lifecycle
     FROM pages
     WHERE document_id = ?
   `).get(request.documentId) as PageDocumentRow | undefined;
@@ -78,6 +82,60 @@ export const authorizeDocumentAccessInDatabase = (
       "document_not_found",
       "Document does not exist in the requesting Project",
     );
+  }
+  return { ok: true, value: { ...request, authorized: true } };
+};
+
+const libraryFailure = (
+  code: DocumentSyncCommandError["code"],
+  message: string,
+): DocumentSyncCommandResult<LibraryDocumentAccessAck> => ({
+  ok: false,
+  error: {
+    code,
+    message,
+    retryable: false,
+    resetRequired: false,
+  },
+});
+
+/**
+ * Resolves the trusted local human against the Page's Library identity. The
+ * private compatibility `documents.project_id` coordinate is deliberately not
+ * part of this authorization decision.
+ */
+export const authorizeLibraryDocumentAccessInDatabase = (
+  database: Database.Database,
+  request: LibraryDocumentAccessRequest,
+): DocumentSyncCommandResult<LibraryDocumentAccessAck> => {
+  if (
+    !isExactIdentity(request.documentId) ||
+    (request.access !== "read" && request.access !== "write")
+  ) {
+    return libraryFailure("unauthorized", "Document access identity is invalid");
+  }
+
+  const page = database.prepare(`
+    SELECT block_id AS pageId, library_id AS libraryId, lifecycle
+    FROM pages
+    WHERE document_id = ?
+  `).get(request.documentId) as PageDocumentRow | undefined;
+  if (!page || page.lifecycle === "deleted") {
+    return libraryFailure(
+      "document_not_found",
+      "Page Document does not exist in the local Library",
+    );
+  }
+
+  const local = requireLocalProfileLibraryInDatabase(database);
+  if (page.libraryId !== local.libraryId) {
+    return libraryFailure(
+      "unauthorized",
+      "Page Document does not belong to the local Library",
+    );
+  }
+  if (request.access === "write" && page.lifecycle !== "active") {
+    return libraryFailure("unauthorized", "Page Document is not writable");
   }
   return { ok: true, value: { ...request, authorized: true } };
 };

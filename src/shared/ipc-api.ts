@@ -1,11 +1,16 @@
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
   DocumentAwarenessPublishAck,
+  DocumentAwarenessPublishRequest,
+  DocumentRelocationLeaseResponseRequest,
   DocumentRelocationLeaseResponseAck,
   DocumentSyncApplyAck,
+  DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
   DocumentSyncRealtimeEvent,
+  DocumentSyncRequest,
   DocumentSyncResponse,
+  DocumentSyncSubscribeRequest,
   DocumentSyncSubscriptionAck,
   DocumentSyncUnsubscribeAck,
   ProjectScopedDocumentAwarenessPublishRequest,
@@ -23,6 +28,7 @@ import type {
   CanvasSceneSyncRequest,
 } from "./block-documents/canvas-scene-sync";
 import type {
+  LibraryOwnedDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "./block-documents/contracts";
 import type { BlockTransferCommandResult } from "./block-transfer";
@@ -43,13 +49,25 @@ import type { DocumentHistoryCommandResult } from "./block-documents/document-hi
 import type {
   BlockPropertyMutationCommandResultV2,
   BlockPropertyMutationRequestV2,
+  LibraryBlockPropertyMutationCommandResultV2,
+  LibraryBlockPropertyMutationRequestV2,
 } from "./block-property-mutations-v2";
 import type {
   DatabaseApplyResultV2,
   DatabaseApplyV2,
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
+  LibraryDatabaseModuleReadRequestV2,
+  LibraryDatabaseModuleReadResultV2,
+  LibraryDatabaseApplyV2,
+  LibraryDatabaseApplyResultV2,
 } from "./database-module-v2";
+import type {
+  LibraryModuleApplyRequest,
+  LibraryModuleApplyResult,
+  LibraryModuleReadRequest,
+  LibraryModuleReadResult,
+} from "./library-module";
 import type { DatabaseChangeEvent } from "./database-events";
 import type {
   PageLifecycleMutationCommandResultV2,
@@ -58,7 +76,10 @@ import type {
 import type { PageLifecyclePreflightResultV2 } from "./page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "./page-history";
 import type { PageHistoryCommandResult } from "./page-history-transport";
-import type { PageDetailResult } from "./page-detail";
+import type {
+  LibraryPageDetailResult,
+  PageDetailResult,
+} from "./page-detail";
 import type { AdditionalDocumentCommandResult } from "./additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "./additional-document-command-transport";
 import type {
@@ -344,6 +365,7 @@ import type {
   WindowSessionBounds,
   WindowSessionSeed,
 } from "./window-session";
+import type { ProductFeatureGates } from "./product-feature-gates";
 import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
 import type {
   CommandKeybindingUpdate,
@@ -519,6 +541,10 @@ export interface IpcApi {
     args: [projectId: string, request: BlockPropertyMutationRequestV2];
     result: BlockPropertyMutationCommandResultV2;
   };
+  "library-block-properties:mutate": {
+    args: [request: LibraryBlockPropertyMutationRequestV2];
+    result: LibraryBlockPropertyMutationCommandResultV2;
+  };
   "pages:lifecycle:preflight": {
     args: [projectId: string, pageId: string];
     result: PageLifecyclePreflightResultV2;
@@ -534,6 +560,26 @@ export interface IpcApi {
   "database-module:apply": {
     args: [projectId: string, request: DatabaseApplyV2];
     result: DatabaseApplyResultV2;
+  };
+  "library-module:read": {
+    args: [request: LibraryModuleReadRequest];
+    result: LibraryModuleReadResult;
+  };
+  "library-module:apply": {
+    args: [request: LibraryModuleApplyRequest];
+    result: LibraryModuleApplyResult;
+  };
+  "library-database-module:read": {
+    args: [request: LibraryDatabaseModuleReadRequestV2];
+    result: LibraryDatabaseModuleReadResultV2;
+  };
+  "library-database-module:apply": {
+    args: [request: LibraryDatabaseApplyV2];
+    result: LibraryDatabaseApplyResultV2;
+  };
+  "library-pages:detail:get": {
+    args: [pageId: string];
+    result: LibraryPageDetailResult;
   };
   "page-target:resolve": {
     args: [input: ResolvePageTargetInput];
@@ -554,6 +600,10 @@ export interface IpcApi {
   "block-document:owned:prepare": {
     args: [projectId: string, ownerBlockId: string];
     result: DocumentSyncCommandResult<OwnedDocumentDescriptor>;
+  };
+  "library-block-document:owned:prepare": {
+    args: [ownerBlockId: string];
+    result: DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>;
   };
   "document-sync:subscribe": {
     args: [request: ProjectScopedDocumentSyncSubscribeRequest];
@@ -593,6 +643,30 @@ export interface IpcApi {
   };
   "document-sync:relocation-lease:respond": {
     args: [request: ProjectScopedDocumentRelocationLeaseResponseRequest];
+    result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
+  };
+  "library-document-sync:subscribe": {
+    args: [request: DocumentSyncSubscribeRequest];
+    result: DocumentSyncCommandResult<DocumentSyncSubscriptionAck>;
+  };
+  "library-document-sync:unsubscribe": {
+    args: [request: DocumentSyncSubscribeRequest];
+    result: DocumentSyncCommandResult<DocumentSyncUnsubscribeAck>;
+  };
+  "library-document-sync:sync": {
+    args: [request: DocumentSyncRequest];
+    result: DocumentSyncCommandResult<DocumentSyncResponse>;
+  };
+  "library-document-sync:apply": {
+    args: [request: DocumentSyncApplyRequest];
+    result: DocumentSyncCommandResult<DocumentSyncApplyAck>;
+  };
+  "library-document-sync:awareness:publish": {
+    args: [request: DocumentAwarenessPublishRequest];
+    result: DocumentSyncCommandResult<DocumentAwarenessPublishAck>;
+  };
+  "library-document-sync:relocation-lease:respond": {
+    args: [request: DocumentRelocationLeaseResponseRequest];
     result: DocumentSyncCommandResult<DocumentRelocationLeaseResponseAck>;
   };
   "blocks:transfer": {
@@ -937,6 +1011,7 @@ export interface IpcApi {
   };
   "window:show-emoji-panel": { args: []; result: boolean };
   "window:new": { args: [seed?: WindowSessionSeed]; result: boolean };
+  "app:feature-gates:get": { args: []; result: ProductFeatureGates };
   "window-sessions:bootstrap": { args: []; result: WindowSessionBootstrap };
   "window-sessions:save-layout": {
     args: [layout: WorkbenchLayoutSnapshot];
@@ -1653,6 +1728,7 @@ export interface IpcEvents {
   "page-target-changed": import("./page-target-events").PageTargetChangedEvent;
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;
   "database-changed": DatabaseChangeEvent;
+  "library-navigation-changed": import("./library-events").LibraryNavigationChangedEvent;
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;
   "reminder:open": {

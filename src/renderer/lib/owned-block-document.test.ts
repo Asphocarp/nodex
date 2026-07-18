@@ -14,6 +14,7 @@ import {
   OwnedBlockDocumentBoundaryError,
   ownedBlockDocumentIdentity,
   unwrapOwnedBlockDocumentPreparationResult,
+  validateLibraryOwnedBlockDocumentDescriptor,
   validateOwnedBlockDocumentDescriptor,
   validateRegisteredOwnedBlockDocumentDescriptor,
   type OwnedBlockDocumentErrorCode,
@@ -59,6 +60,21 @@ const captureBoundaryCode = (operation: () => unknown): string => {
 };
 
 describe("owned Block Document renderer boundary", () => {
+  test("validates Library descriptors without admitting Project coordinates", () => {
+    const { projectId: _projectId, ...descriptor } = makeDescriptor();
+    void _projectId;
+    const ready = validateLibraryOwnedBlockDocumentDescriptor(
+      REQUEST.ownerBlockId,
+      { ...descriptor, accessContext: { kind: "library" } },
+    );
+    expect(ready.accessContext).toEqual({ kind: "library" });
+    expect("projectId" in ready).toBe(false);
+    expect(() => validateLibraryOwnedBlockDocumentDescriptor(
+      REQUEST.ownerBlockId,
+      makeDescriptor(),
+    )).toThrow("Library access context");
+  });
+
   test("accepts only the requested ready active nodex.page descriptor", () => {
     const descriptor = validateOwnedBlockDocumentDescriptor(
       REQUEST,

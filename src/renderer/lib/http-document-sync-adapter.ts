@@ -31,7 +31,8 @@ interface EventSourceLike {
 }
 
 interface HttpDocumentSyncAdapterOptions {
-  readonly projectId: string;
+  readonly projectId?: string;
+  readonly accessScope?: "project" | "library";
   readonly fetch?: typeof globalThis.fetch;
   readonly createEventSource?: (url: string) => EventSourceLike;
   readonly toUrl?: (pathname: string) => string;
@@ -121,13 +122,13 @@ const subscriptionKey = (request: DocumentSyncSubscribeRequest): string =>
   JSON.stringify([request.clientSessionId, request.documentId]);
 
 const makeSubscriptionPath = (
-  projectId: string,
+  routePrefix: string,
   request: DocumentSyncSubscribeRequest,
 ): string => {
   const query = new URLSearchParams({
     clientSessionId: request.clientSessionId,
   });
-  return `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/events?${query.toString()}`;
+  return `${routePrefix}/documents/${encodeURIComponent(request.documentId)}/events?${query.toString()}`;
 };
 
 const parseHttpError = async (
@@ -157,11 +158,14 @@ const parseBinaryResponse = async (response: Response): Promise<Uint8Array> => {
 
 export const createHttpDocumentSyncAdapter = ({
   projectId: rawProjectId,
+  accessScope = "project",
   fetch: fetchImplementation = globalThis.fetch,
   createEventSource = defaultEventSourceFactory,
   toUrl = toApiUrl,
 }: HttpDocumentSyncAdapterOptions): DocumentSyncAdapter => {
-  const projectId = requireIdentity(rawProjectId, "projectId");
+  const routePrefix = accessScope === "library"
+    ? "/api/library"
+    : `/api/projects/${encodeURIComponent(requireIdentity(rawProjectId ?? "", "projectId"))}`;
   const subscriptions = new Map<string, HttpSubscription>();
 
   const requireOpenSubscription = async <T>(
@@ -233,7 +237,7 @@ export const createHttpDocumentSyncAdapter = ({
         await requireOpenSubscription<DocumentSyncResponse>(request);
       if (blocked) return blocked;
       return postBinary(
-        `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/sync`,
+        `${routePrefix}/documents/${encodeURIComponent(request.documentId)}/sync`,
         encodeDocumentSyncHttpRequest(request),
         decodeDocumentSyncHttpResponse,
       );
@@ -243,7 +247,7 @@ export const createHttpDocumentSyncAdapter = ({
         await requireOpenSubscription<DocumentSyncApplyAck>(request);
       if (blocked) return blocked;
       return postBinary(
-        `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/updates`,
+        `${routePrefix}/documents/${encodeURIComponent(request.documentId)}/updates`,
         encodeDocumentApplyHttpRequest(request),
         decodeDocumentApplyHttpAck,
       );
@@ -256,7 +260,7 @@ export const createHttpDocumentSyncAdapter = ({
       try {
         response = await fetchImplementation(
           toUrl(
-            `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/awareness`,
+            `${routePrefix}/documents/${encodeURIComponent(request.documentId)}/awareness`,
           ),
           {
             method: "POST",
@@ -300,7 +304,7 @@ export const createHttpDocumentSyncAdapter = ({
       try {
         response = await fetchImplementation(
           toUrl(
-            `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(request.documentId)}/relocation-leases/${encodeURIComponent(request.leaseId)}/responses`,
+            `${routePrefix}/documents/${encodeURIComponent(request.documentId)}/relocation-leases/${encodeURIComponent(request.leaseId)}/responses`,
           ),
           {
             method: "POST",
@@ -363,7 +367,7 @@ export const createHttpDocumentSyncAdapter = ({
         subscriptions.set(key, createdSubscription);
         try {
           const eventSource = createEventSource(
-            toUrl(makeSubscriptionPath(projectId, request)),
+            toUrl(makeSubscriptionPath(routePrefix, request)),
           );
           createdSubscription.eventSource = eventSource;
           eventSource.onopen = () => {
@@ -429,3 +433,8 @@ export const createHttpDocumentSyncAdapter = ({
     },
   };
 };
+
+export const createHttpLibraryDocumentSyncAdapter = (
+  options: Omit<HttpDocumentSyncAdapterOptions, "projectId" | "accessScope"> = {},
+): DocumentSyncAdapter =>
+  createHttpDocumentSyncAdapter({ ...options, accessScope: "library" });

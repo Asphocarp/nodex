@@ -3,6 +3,8 @@ import type {
   BlockPropertyJsonValueV2,
   BlockPropertyMutationCommandResultV2,
   BlockPropertyMutationRequestV2,
+  LibraryBlockPropertyMutationCommandResultV2,
+  LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
 import { stableStringifyBlockPropertyJsonV2 } from "../../shared/block-property-mutations-v2";
 import {
@@ -17,20 +19,28 @@ import type {
   DatabasePropertyValueType,
 } from "../../shared/database-kernel";
 import { parseDatabasePropertyConfig } from "../../shared/database-kernel";
-import type { PageDetail } from "../../shared/page-detail";
+import type {
+  LibraryPageDetail,
+  PageDetail,
+} from "../../shared/page-detail";
 import type {
   PageInput,
   PageRunInTarget,
   Estimate,
   Priority,
 } from "../../shared/types";
-import { mutateBlockProperties } from "./api";
+import {
+  mutateBlockProperties,
+  mutateLibraryBlockProperties,
+  readLibraryPageDetail,
+} from "./api";
 import { fetchPageDetail } from "./page-detail-store";
 import type { PageStageMetadataMutationResult } from "./page-stage-page";
 
 type MetadataPatch = Partial<PageInput>;
+type PageDetailMetadataSource = PageDetail | LibraryPageDetail;
 type DataSourceProperty = Extract<
-  PageDetail["dataSourceContext"],
+  PageDetailMetadataSource["dataSourceContext"],
   { readonly kind: "member" }
 >["properties"][number];
 
@@ -53,6 +63,27 @@ const DEFAULT_DEPENDENCIES: PageDetailMetadataRuntimeDependencies = {
   readDetail: fetchPageDetail,
   mutateProperties: mutateBlockProperties,
   refreshDetail: fetchPageDetail,
+};
+
+export interface LibraryPageDetailMetadataRuntimeDependencies {
+  readonly readDetail: (pageId: string) => Promise<LibraryPageDetail | null>;
+  readonly mutateProperties: (
+    request: LibraryBlockPropertyMutationRequestV2,
+  ) => Promise<LibraryBlockPropertyMutationCommandResultV2>;
+  readonly refreshDetail: (pageId: string) => Promise<unknown>;
+}
+
+const readLibraryDetail = async (
+  pageId: string,
+): Promise<LibraryPageDetail | null> => {
+  const result = await readLibraryPageDetail(pageId);
+  return result.ok ? result.value : null;
+};
+
+const DEFAULT_LIBRARY_DEPENDENCIES: LibraryPageDetailMetadataRuntimeDependencies = {
+  readDetail: readLibraryDetail,
+  mutateProperties: mutateLibraryBlockProperties,
+  refreshDetail: readLibraryDetail,
 };
 
 const DATABASE_FIELDS = {
@@ -90,6 +121,13 @@ const hasOwn = <Key extends PropertyKey>(
 
 const DATABASE_FIELD_NAMES = new Set<string>(Object.keys(DATABASE_FIELDS));
 const INTRINSIC_FIELD_NAMES = new Set<string>(Object.keys(INTRINSIC_FIELDS));
+const PROJECT_EXECUTION_FIELD_NAMES = new Set<string>([
+  "runInTarget",
+  "runInLocalPath",
+  "runInBaseBranch",
+  "runInWorktreePath",
+  "runInEnvironmentPath",
+]);
 const PRIORITIES = new Set<Priority>([
   "p0-critical",
   "p1-high",
@@ -258,7 +296,7 @@ const resolveTagOptionIds = (
 };
 
 const compileDataSourceFields = (
-  detail: PageDetail,
+  detail: PageDetailMetadataSource,
   patch: MetadataPatch,
 ): readonly BlockPropertyFieldMutationV2[] => {
   const entries = Object.entries(DATABASE_FIELDS) as Array<
@@ -339,7 +377,7 @@ const compileDataSourceFields = (
 };
 
 const compileIntrinsicFields = (
-  detail: PageDetail,
+  detail: PageDetailMetadataSource,
   patch: MetadataPatch,
 ): readonly BlockPropertyFieldMutationV2[] => {
   const entries = Object.entries(INTRINSIC_FIELDS) as Array<
@@ -430,5 +468,78 @@ export const commitPageDetailMetadataPatch = async (input: {
     }
 
   await dependencies.refreshDetail(input.projectId, input.pageId);
+  return { status: "updated", didMutate: true };
+};
+
+const retryLibraryPropertyMutation = async (
+  request: LibraryBlockPropertyMutationRequestV2,
+  dependencies: LibraryPageDetailMetadataRuntimeDependencies,
+): Promise<LibraryBlockPropertyMutationCommandResultV2> => {
+  try {
+    const result = await dependencies.mutateProperties(request);
+    if (result.ok || !result.error.retryable) return result;
+  } catch {
+    // Durable mutation identity makes one exact retry transport-safe.
+  }
+  return await dependencies.mutateProperties(request);
+};
+
+export const commitLibraryPageDetailMetadataPatch = async (input: {
+  readonly pageId: string;
+  readonly operationId: string;
+  readonly clientSessionId?: string;
+  readonly patch: MetadataPatch;
+  readonly dependencies?: LibraryPageDetailMetadataRuntimeDependencies;
+}): Promise<PageStageMetadataMutationResult> => {
+  const dependencies = input.dependencies ?? DEFAULT_LIBRARY_DEPENDENCIES;
+  if (!isPageMetadataPatch(input.patch)) {
+    throw new TypeError("Page metadata patch contains unsupported fields");
+  }
+  if (Object.keys(input.patch).some((field) => PROJECT_EXECUTION_FIELD_NAMES.has(field))) {
+    throw new TypeError(
+      "Page execution settings require an explicit Project context",
+    );
+  }
+  const detail = await dependencies.readDetail(input.pageId);
+  if (!detail) return { status: "not_found" };
+  const fields = [
+    ...compileDataSourceFields(detail, input.patch),
+    ...compileIntrinsicFields(detail, input.patch),
+  ];
+  if (fields.length === 0) {
+    await dependencies.refreshDetail(input.pageId);
+    return { status: "updated", didMutate: false };
+  }
+
+  const result = await retryLibraryPropertyMutation(
+    {
+      version: 2,
+      mutationId: input.operationId,
+      storeEpoch: detail.storeEpoch,
+      ...(input.clientSessionId
+        ? { clientSessionId: input.clientSessionId }
+        : {}),
+      fields,
+    },
+    dependencies,
+  );
+  if (!result.ok) {
+    if (result.error.code === "property_conflict") {
+      await dependencies.refreshDetail(input.pageId);
+      return { status: "conflict" };
+    }
+    if (
+      result.error.code === "block_not_found" ||
+      result.error.code === "data_source_not_found" ||
+      result.error.code === "membership_not_found" ||
+      result.error.code === "property_not_found" ||
+      result.error.code === "project_not_found"
+    ) {
+      return { status: "not_found" };
+    }
+    return { status: "error", error: result.error.message };
+  }
+
+  await dependencies.refreshDetail(input.pageId);
   return { status: "updated", didMutate: true };
 };

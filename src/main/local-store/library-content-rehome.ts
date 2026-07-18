@@ -21,6 +21,7 @@ export interface LibraryContentRehomePlan {
   readonly documentIds: readonly string[];
   readonly databaseBlockIds: readonly string[];
   readonly databaseViewIds: readonly string[];
+  readonly authorityKind?: "project" | "local_library";
 }
 
 interface ProjectRow {
@@ -271,6 +272,7 @@ export const prepareLibraryContentRehome = (
     targetProjectId: string;
     rootPageIds: readonly string[];
     storeEpoch: string;
+    authorityKind?: "project" | "local_library";
   }>,
 ): LibraryContentRehomePlan => {
   const rootPageIds = uniqueSorted(input.rootPageIds);
@@ -283,7 +285,11 @@ export const prepareLibraryContentRehome = (
   const actor = requireProject(database, input.actorProjectId);
   const source = requireProject(database, input.sourceProjectId);
   const target = requireProject(database, input.targetProjectId);
-  if (actor.lifecycle !== "active" || source.lifecycle === "archived" || target.lifecycle !== "active") {
+  const authorityKind = input.authorityKind ?? "project";
+  if (
+    authorityKind === "project" &&
+    (actor.lifecycle !== "active" || source.lifecycle === "archived" || target.lifecycle !== "active")
+  ) {
     throw new Error("Library content rehome requires active actor and target Projects");
   }
   if (
@@ -310,6 +316,7 @@ export const prepareLibraryContentRehome = (
     closure.documentIds,
     closure.databaseBlockIds,
     closure.databaseViewIds,
+    authorityKind,
   ])).digest("hex");
   return {
     operationId: input.operationId,
@@ -325,6 +332,7 @@ export const prepareLibraryContentRehome = (
     documentIds: closure.documentIds,
     databaseBlockIds: closure.databaseBlockIds,
     databaseViewIds: closure.databaseViewIds,
+    ...(authorityKind === "local_library" ? { authorityKind } : {}),
   };
 };
 
@@ -360,6 +368,7 @@ export const applyLibraryContentRehomeInTransaction = (
     targetProjectId: expected.targetProjectId,
     rootPageIds: expected.rootPageIds,
     storeEpoch: expected.storeEpoch,
+    ...(expected.authorityKind ? { authorityKind: expected.authorityKind } : {}),
   });
   if (JSON.stringify(current) !== JSON.stringify(expected)) {
     throw new Error("Library content ownership closure changed after prepare");

@@ -47,6 +47,12 @@ export const pageBlockConfig = {
   content: "none",
 } as const satisfies CustomBlockConfig;
 
+export const databaseBlockConfig = {
+  type: "database",
+  propSchema: {},
+  content: "none",
+} as const satisfies CustomBlockConfig;
+
 export const databaseViewRefBlockConfig = {
   type: "databaseViewRef",
   propSchema: {
@@ -148,6 +154,7 @@ export const blockDocumentCustomBlockConfigs = {
   callout: calloutBlockConfig,
   threadSection: threadSectionBlockConfig,
   page: pageBlockConfig,
+  database: databaseBlockConfig,
   pageRef: pageRefBlockConfig,
   databaseViewRef: databaseViewRefBlockConfig,
   syncedBlockRef: syncedBlockRefBlockConfig,

@@ -15,6 +15,7 @@ import {
 } from "./page-outliner-block";
 import { createDateMentionInlineContentSpec } from "./date-mention-chip";
 import { createDatabaseViewRefBlockSpec } from "./database-view-ref-block";
+import { createDatabaseBlockSpec } from "./database-block";
 import { imageBlockSpec } from "./image-block";
 import { createThreadSectionBlockSpec } from "./thread-section-block";
 import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
@@ -37,6 +38,7 @@ export const nfmSchema = BlockNoteSchema.create({
     callout: createCalloutBlock(),
     threadSection: createThreadSectionBlockSpec(),
     page: createPageBlockSpec(),
+    database: createDatabaseBlockSpec(),
     databaseViewRef: createDatabaseViewRefBlockSpec(),
     pageRef: createPageRefBlockSpec(),
     syncedBlockRef: createSyncedBlockRefBlockSpec(),

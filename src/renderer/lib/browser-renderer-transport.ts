@@ -14,6 +14,7 @@ import type {
   WindowSessionBootstrap,
   WorkbenchLayoutSnapshot,
 } from "./types";
+import { parseProductFeatureGates } from "../../shared/product-feature-gates";
 import type {
   BoardChangeEvent,
   ProjectSessionsChangeEvent,
@@ -25,10 +26,14 @@ import type {
   PageOccurrenceUpdateInput,
 } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import { createHttpDocumentSyncAdapter } from "./http-document-sync-adapter";
+import {
+  createHttpDocumentSyncAdapter,
+  createHttpLibraryDocumentSyncAdapter,
+} from "./http-document-sync-adapter";
 import { createHttpCanvasSceneSyncAdapter } from "./http-canvas-scene-sync-adapter";
 import {
   decodeDocumentHttpError,
+  decodeLibraryOwnedDocumentDescriptorHttp,
   decodeOwnedDocumentDescriptorHttp,
 } from "../../shared/block-documents/http-contract";
 import {
@@ -36,12 +41,24 @@ import {
   decodePageTargetReadModelHttp,
   decodeDatabaseViewReadModelHttp,
 } from "../../shared/reference-read-http-contract";
-import { parseBlockPropertyMutationCommandResultV2 } from "../../shared/block-property-mutations-v2";
-import { parsePageDetailResult } from "../../shared/page-detail";
+import {
+  parseBlockPropertyMutationCommandResultV2,
+  parseLibraryBlockPropertyMutationCommandResultV2,
+} from "../../shared/block-property-mutations-v2";
+import {
+  parseLibraryPageDetailResult,
+  parsePageDetailResult,
+} from "../../shared/page-detail";
 import {
   parseDatabaseApplyResultV2,
   parseDatabaseModuleReadResultV2,
+  parseLibraryDatabaseApplyResultV2,
+  parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
+import {
+  parseLibraryModuleApplyResult,
+  parseLibraryModuleReadResult,
+} from "../../shared/library-module-transport";
 import {
   parseDocumentOperationCommandResult,
   type DocumentMutationRequest,
@@ -959,6 +976,85 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       );
       return parseDatabaseApplyResultV2(await response.json());
     }
+    case "library-module:read": {
+      const [request] = args as [unknown];
+      const response = await fetch(toApiUrl("/api/library-module/read"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(request),
+      });
+      return parseLibraryModuleReadResult(await response.json());
+    }
+    case "library-module:apply": {
+      const [request] = args as [unknown];
+      const response = await fetch(toApiUrl("/api/library-module/apply"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(request),
+      });
+      return parseLibraryModuleApplyResult(await response.json());
+    }
+    case "library-database-module:read": {
+      const [request] = args as [unknown];
+      const response = await fetch(
+        toApiUrl("/api/library/database-module/read"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(request),
+        },
+      );
+      return parseLibraryDatabaseModuleReadResultV2(await response.json());
+    }
+    case "library-database-module:apply": {
+      const [request] = args as [unknown];
+      const response = await fetch(
+        toApiUrl("/api/library/database-module/apply"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(request),
+        },
+      );
+      return parseLibraryDatabaseApplyResultV2(await response.json());
+    }
+    case "library-pages:detail:get": {
+      const [pageId] = args as [string];
+      const response = await fetch(
+        toApiUrl(`/api/library/pages/${encodeURIComponent(pageId)}`),
+        { headers: { Accept: "application/json" } },
+      );
+      return parseLibraryPageDetailResult(await response.json());
+    }
+    case "library-block-properties:mutate": {
+      const [request] = args as [unknown];
+      const response = await fetch(
+        toApiUrl("/api/library/block-property-mutations"),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(request),
+        },
+      );
+      return parseLibraryBlockPropertyMutationCommandResultV2(
+        await response.json(),
+      );
+    }
     case "page-target:resolve": {
       const [input] = args as [
         {
@@ -1068,6 +1164,15 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     }
     case "window-sessions:bootstrap": {
       return createBrowserWindowSessionBootstrap(browserWindowSessionLayout);
+    }
+    case "app:feature-gates:get": {
+      const response = await fetch(toApiUrl("/api/app/feature-gates"), {
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Feature gates request failed with ${response.status}`);
+      }
+      return parseProductFeatureGates(await response.json());
     }
     case "window-sessions:save-layout": {
       const [layout] = args as [WorkbenchLayoutSnapshot];
@@ -2299,6 +2404,50 @@ function subscribeDatabaseChanges(
   );
 }
 
+let browserLibraryEventSource: EventSource | null = null;
+const browserLibraryEventListeners = new Set<(
+  event: import("../../shared/library-events").LibraryNavigationChangedEvent,
+) => void>();
+
+function subscribeLibraryChanges(
+  callback: (
+    event: import("../../shared/library-events").LibraryNavigationChangedEvent,
+  ) => void,
+): () => void {
+  if (typeof EventSource === "undefined") return () => {};
+  browserLibraryEventListeners.add(callback);
+  if (!browserLibraryEventSource) {
+    browserLibraryEventSource = new EventSource(
+      toApiUrl("/api/library-module/events"),
+    );
+    browserLibraryEventSource.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as unknown;
+        if (
+          !isEventRecord(event) ||
+          event.event !== "library-navigation-changed" ||
+          event.version !== 1 ||
+          typeof event.libraryId !== "string"
+        ) return;
+        for (const listener of [...browserLibraryEventListeners]) {
+          listener(event as unknown as import("../../shared/library-events").LibraryNavigationChangedEvent);
+        }
+      } catch {
+        // A malformed event is only an invalidation miss; the next read heals it.
+      }
+    };
+  }
+  let active = true;
+  return () => {
+    if (!active) return;
+    active = false;
+    browserLibraryEventListeners.delete(callback);
+    if (browserLibraryEventListeners.size > 0) return;
+    browserLibraryEventSource?.close();
+    browserLibraryEventSource = null;
+  };
+}
+
 function subscribeProjectSessionChanges(
   projectId: string | null,
   callback: (event: ProjectSessionsChangeEvent) => void,
@@ -2585,8 +2734,41 @@ export const browserRendererTransport = {
       value: decodeOwnedDocumentDescriptorHttp(await response.text()),
     };
   },
+  async prepareLibraryOwnedBlockDocument(ownerBlockId: string) {
+    const response = await fetch(
+      toApiUrl(
+        `/api/library/blocks/${encodeURIComponent(ownerBlockId)}/document/prepare`,
+      ),
+      { method: "POST", headers: { Accept: "application/json" } },
+    );
+    if (!response.ok) {
+      try {
+        return {
+          ok: false as const,
+          error: decodeDocumentHttpError(await response.text()),
+        };
+      } catch {
+        return {
+          ok: false as const,
+          error: {
+            code: "invalid_response" as const,
+            message: `Library Document preparation failed with status ${response.status}`,
+            retryable: false,
+            resetRequired: false,
+          },
+        };
+      }
+    }
+    return {
+      ok: true as const,
+      value: decodeLibraryOwnedDocumentDescriptorHttp(await response.text()),
+    };
+  },
   createDocumentSyncAdapter(projectId: string) {
     return createHttpDocumentSyncAdapter({ projectId });
+  },
+  createLibraryDocumentSyncAdapter() {
+    return createHttpLibraryDocumentSyncAdapter();
   },
   createCanvasSceneSyncAdapter(projectId: string) {
     return createHttpCanvasSceneSyncAdapter({ projectId });
@@ -2720,6 +2902,7 @@ export const browserRendererTransport = {
   subscribePageTargetChanges,
   subscribePageOwnershipPathChanges,
   subscribeDatabaseChanges,
+  subscribeLibraryChanges,
   subscribeProjectSessionChanges,
   subscribeProjectChanges,
   subscribeCodexHostMessages,

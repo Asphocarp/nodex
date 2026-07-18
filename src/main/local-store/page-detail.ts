@@ -17,19 +17,28 @@ import type {
   PageDetail,
   PageDetailError,
   PageDetailResult,
+  LibraryPageDetailResult,
   PageIntrinsicProperty,
 } from "../../shared/page-detail";
 import { PAGE_DETAIL_CONTRACT_VERSION } from "../../shared/page-detail";
-import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
+import {
+  parseContentAccessContext,
+  projectContentAccess,
+  type ContentAccessContext,
+} from "../../shared/content-access-context";
+import {
+  authorizeContentResourceInDatabase,
+  resolveContentResourceAuthorityInDatabase,
+  type ContentAccessActor,
+} from "./content-resource-authority";
 import {
   readDatabaseContainerDescriptorV2InDatabase,
   readDataSourceDescriptorV2InDatabase,
 } from "./database-module-v2-runtime";
 import { PageStoreStateError, readPageInDatabase } from "./pages";
 
-interface ProjectRow {
-  readonly id: string;
-  readonly library_id: string;
+interface CompatibilityOwnerRow {
+  readonly projectId: string;
 }
 
 interface DocumentRow {
@@ -193,15 +202,16 @@ const failure = (
   retryable = false,
 ): PageDetailResult => ({ ok: false, error: { code, message, retryable } });
 
-export const readPageDetailInDatabase = (
+export const readPageDetailWithContextInDatabase = (
   database: Database.Database,
-  rawProjectId: string,
+  rawContext: ContentAccessContext,
   rawPageId: string,
+  actor: ContentAccessActor,
 ): PageDetailResult => {
-  let projectId: string;
+  let context: ContentAccessContext;
   let pageId: string;
   try {
-    projectId = normalizeIdentity(rawProjectId, "projectId");
+    context = parseContentAccessContext(rawContext);
     pageId = normalizeIdentity(rawPageId, "pageId");
   } catch (error) {
     return failure(
@@ -218,21 +228,38 @@ export const readPageDetailInDatabase = (
       if (!store) {
         return failure("store_not_initialized", "The Library store is not initialized");
       }
-      const project = database.prepare(`
-        SELECT id, library_id FROM projects WHERE id = ?
-      `).get(projectId) as ProjectRow | undefined;
-      if (!project) return failure("project_not_found", "Project does not exist");
+      let authority;
+      try {
+        authority = resolveContentResourceAuthorityInDatabase(database, {
+          context,
+          actor,
+        });
+      } catch (error) {
+        if (context.kind === "project") {
+          return failure(
+            "project_not_found",
+            error instanceof Error ? error.message : "Project does not exist",
+          );
+        }
+        throw error;
+      }
       const page = readPageInDatabase(database, pageId);
       if (!page || page.lifecycle === "deleted") {
         return failure("page_not_found", "Page does not exist");
       }
-      const authorization = authorizeProjectResourceInDatabase(database, {
-        projectId,
+      const authorization = authorizeContentResourceInDatabase(database, {
+        authority,
         resource: { kind: "page", pageId },
         action: "read",
       });
-      if (!authorization.allowed) {
-        if (authorization.reason === "resource_hierarchy_corrupt") {
+      const allowed = authorization.authorityKind === "project"
+        ? authorization.authorization.allowed
+        : authorization.allowed;
+      const reason = authorization.authorityKind === "project"
+        ? authorization.authorization.reason
+        : authorization.reason;
+      if (!allowed) {
+        if (reason === "resource_hierarchy_corrupt") {
           return failure(
             "page_detail_corrupt",
             `Page ${pageId} has an invalid ownership hierarchy`,
@@ -240,7 +267,15 @@ export const readPageDetailInDatabase = (
         }
         return failure(
           "authorization_denied",
-          `Page read denied: ${authorization.reason}`,
+          `Page read denied: ${reason}`,
+        );
+      }
+      const compatibilityOwner = database.prepare(`
+        SELECT project_id AS projectId FROM blocks WHERE id = ?
+      `).get(pageId) as CompatibilityOwnerRow | undefined;
+      if (!compatibilityOwner) {
+        throw new PageDetailStateError(
+          `Page ${pageId} has no compatibility storage owner`,
         );
       }
       const document = database.prepare(`
@@ -257,8 +292,8 @@ export const readPageDetailInDatabase = (
       `).get() as { readonly seq: number };
       const detail: PageDetail = {
         version: PAGE_DETAIL_CONTRACT_VERSION,
-        projectId,
-        libraryId: project.library_id,
+        projectId: compatibilityOwner.projectId,
+        libraryId: authority.libraryId,
         storeEpoch: store.storeEpoch,
         changeLogSeq: change.seq,
         page,
@@ -284,6 +319,49 @@ export const readPageDetailInDatabase = (
       "unknown",
       error instanceof Error ? error.message : "Page Detail is unavailable",
       true,
+    );
+  }
+};
+
+export const readLibraryPageDetailInDatabase = (
+  database: Database.Database,
+  pageId: string,
+  actor: ContentAccessActor,
+): LibraryPageDetailResult => {
+  const result = readPageDetailWithContextInDatabase(
+    database,
+    { kind: "library" },
+    pageId,
+    actor,
+  );
+  if (!result.ok) return result;
+  const { projectId: _compatibilityProjectId, ...detail } = result.value;
+  void _compatibilityProjectId;
+  return {
+    ok: true,
+    value: {
+      ...detail,
+      accessContext: { kind: "library" },
+    },
+  };
+};
+
+export const readPageDetailInDatabase = (
+  database: Database.Database,
+  rawProjectId: string,
+  rawPageId: string,
+): PageDetailResult => {
+  try {
+    return readPageDetailWithContextInDatabase(
+      database,
+      projectContentAccess(rawProjectId),
+      rawPageId,
+      "app_window",
+    );
+  } catch (error) {
+    return failure(
+      "invalid_request",
+      error instanceof Error ? error.message : "Page Detail scope is invalid",
     );
   }
 };

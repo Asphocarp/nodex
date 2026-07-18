@@ -9,6 +9,7 @@ import {
 } from "./database-identities";
 import {
   PageDetailContractError,
+  parseLibraryPageDetailResult,
   parsePageDetailResult,
   type PageDetailResult,
 } from "./page-detail";
@@ -112,6 +113,22 @@ describe("Page Detail contract", () => {
       kind: "data_source",
       dataSourceId,
     });
+  });
+
+  test("parses Library Page Detail without a compatibility Project identity", () => {
+    const result = memberResult();
+    if (!result.ok) return;
+    const { projectId: _projectId, ...detail } = result.value;
+    void _projectId;
+    const parsed = parseLibraryPageDetailResult({
+      ok: true,
+      value: { ...detail, accessContext: { kind: "library" } },
+    });
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: { accessContext: { kind: "library" } },
+    });
+    if (parsed.ok) expect("projectId" in parsed.value).toBe(false);
   });
 
   test("rejects a membership that differs from the exclusive Page parent", () => {

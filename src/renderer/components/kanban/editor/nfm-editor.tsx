@@ -211,6 +211,7 @@ interface NfmEditorCommonProps {
     pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
+  onOpenDatabase?: BlockReferenceHostRuntime["openDatabase"];
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
     targetSessionId?: string;
@@ -387,6 +388,7 @@ function NfmEditorInstance({
   linkedCodexThreads = [],
   onOpenCodexThread,
   onOpenPage,
+  onOpenDatabase,
   onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab = true,
@@ -1974,12 +1976,14 @@ function NfmEditorInstance({
         ),
         isActiveSurface: isActivePanelTab,
         ...(onOpenPage ? { openPage: onOpenPage } : {}),
+        ...(onOpenDatabase ? { openDatabase: onOpenDatabase } : {}),
       };
     },
     [
       documentOwnerBlockId,
       isActivePanelTab,
       onOpenPage,
+      onOpenDatabase,
       projectId,
       projectName,
       projectWorkspacePath,

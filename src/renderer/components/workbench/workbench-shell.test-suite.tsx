@@ -138,6 +138,7 @@ type TerminalEventListenerMap = Record<string, (payload: unknown) => void>;
 
 const DEFAULT_SIDEBAR_COLLAPSIBLE_SECTIONS: SidebarCollapsibleSectionsState = {
   pinned: false,
+  library: false,
   projects: false,
   chats: false,
 };
@@ -411,6 +412,45 @@ vi.mock("@/lib/api", () => ({
   },
   subscribeBoardChanges: () => () => undefined,
   subscribeDatabaseChanges: () => () => undefined,
+  subscribeLibraryChanges: () => () => undefined,
+  readLibraryModule: async (request: unknown) => {
+    invokeCalls.push(["library-module:read", request]);
+    return mockInvokeImpl?.("library-module:read", request) ?? {
+      ok: true,
+      value: {
+        version: 1,
+        profileId: "profile:test",
+        libraryId: "library:test",
+        storeEpoch: "epoch:test",
+        changeLogSeq: 0,
+        value: {
+          kind: "children",
+          parent: { kind: "library" },
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+          total: 0,
+        },
+      },
+    };
+  },
+  mutateLibraryBlockProperties: async (request: {
+    mutationId: string;
+    storeEpoch: string;
+  }) => ({
+    ok: true,
+    value: {
+      version: 2,
+      mutationId: request.mutationId,
+      projectId: "project-1",
+      storeEpoch: request.storeEpoch,
+      duplicate: false,
+      fields: [],
+      blockMetadataRevisions: {},
+      changeLogSeq: 1,
+      committedAt: "2026-07-18T00:00:00.000Z",
+    },
+  }),
   subscribeCommandKeymapChanges: () => () => undefined,
   subscribeGitBranchChanges: () => () => undefined,
   subscribeProjectChanges: () => () => undefined,
@@ -1639,6 +1679,7 @@ function renderWorkbench({
   panelTabCycleRequest = null,
   panelTabCloseRequest = null,
   workbenchCommandRequest = null,
+  libraryWorkspaceEnabled = false,
   onNavigationStateChange,
   cardGetOverride = null,
   ownershipPathsByPage = {},
@@ -1667,6 +1708,7 @@ function renderWorkbench({
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   workbenchCommandRequest?: WorkbenchCommandRequest | null;
+  libraryWorkspaceEnabled?: boolean;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
   cardGetOverride?: ((projectId: string, pageId: string) => Promise<unknown> | unknown) | null;
   ownershipPathsByPage?: Record<string, ReadonlyArray<{
@@ -2729,6 +2771,7 @@ function renderWorkbench({
     };
     return (
       <WorkbenchShell
+        libraryWorkspaceEnabled={libraryWorkspaceEnabled}
         projects={projects}
         dbProjectId={dbProjectId}
         initialActiveProjectSessionId={initialActiveProjectSessionId}
@@ -5158,6 +5201,47 @@ describe(`workbench session shell / ${scope}`, () => {
       .join(",");
     expect(visibleFirstRunSuggestionNames).toBe(firstRunSuggestionNames);
     expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+  });
+
+  test("hides Project panel toggles throughout the Library route shell", async () => {
+    const screen = renderWorkbench({ libraryWorkspaceEnabled: true });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const globalHeader = screen.getByTestId("workbench-global-header");
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle bottom panel" }) !== null).toBe(true);
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle side panel" }) !== null).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open Library" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("heading", { level: 1, name: "Library" }) !== null).toBe(true);
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle bottom panel" })).toBe(null);
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle side panel" })).toBe(null);
+    expect(within(globalHeader).queryByRole("button", { name: "Hide sidebar" }) !== null).toBe(true);
+    expect(within(globalHeader).queryByRole("button", { name: "Back" }) !== null).toBe(true);
+    expect(within(globalHeader).queryByRole("button", { name: "Forward" }) !== null).toBe(true);
+  });
+
+  test("keeps gated Library surfaces and Project archival unavailable", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("button", { name: "Open Library" })).toBeNull();
+    expect(invokeCalls.some(([channel]) => channel === "library-module:read")).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", {
+        name: "Project actions for Alpha",
+      }));
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole("menuitem", { name: "Delete project" })).toBeNull();
   });
 
   test("restores full-width right-panel geometry after returning from settings", async () => {

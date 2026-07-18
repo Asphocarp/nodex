@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { parseDatabaseId } from "../../shared/database-identities";
 import {
   navigateBackInWorkbenchShellHistory,
   navigateForwardInWorkbenchShellHistory,
   normalizeWorkbenchShellNavigationHistoryState,
   recordWorkbenchShellNavigationTransition,
+  removeLibraryRoutesFromWorkbenchShellNavigationHistory,
   workbenchShellNavigationHistoryStorageKey,
   type WorkbenchShellNavigationSnapshot,
 } from "./workbench-shell-navigation-history";
@@ -38,6 +40,7 @@ function makeSnapshot(overrides: Partial<WorkbenchShellNavigationSnapshot> = {})
     rightPanelCollapsed: false,
     bottomPanelCollapsed: true,
     rightPanelFullWidth: false,
+    libraryRoute: null,
     ...overrides,
   };
 }
@@ -81,6 +84,81 @@ describe("workbench shell navigation history", () => {
     expect(result.snapshot?.activeSessionId).toBe("session:alpha:database-view");
     expect(result.historyState.backStack.length).toBe(0);
     expect(result.historyState.forwardStack[0]?.activeSessionId).toBe("session:alpha:2");
+  });
+
+  test("round-trips Library routes through Back and Forward history", () => {
+    const chat = makeSnapshot();
+    const libraryHome = makeSnapshot({ libraryRoute: { kind: "home" } });
+    const libraryPage = makeSnapshot({
+      libraryRoute: { kind: "page", pageId: "page-1" },
+    });
+    const afterHome = recordWorkbenchShellNavigationTransition(
+      { backStack: [], forwardStack: [] },
+      chat,
+      libraryHome,
+    );
+    const afterPage = recordWorkbenchShellNavigationTransition(
+      afterHome,
+      libraryHome,
+      libraryPage,
+    );
+
+    const back = navigateBackInWorkbenchShellHistory(afterPage, libraryPage);
+    expect(back.snapshot?.libraryRoute).toEqual({ kind: "home" });
+    const backToChat = navigateBackInWorkbenchShellHistory(
+      back.historyState,
+      libraryHome,
+    );
+    expect(backToChat.snapshot?.libraryRoute).toBeNull();
+    const forward = navigateForwardInWorkbenchShellHistory(
+      backToChat.historyState,
+      chat,
+    );
+    expect(forward.snapshot?.libraryRoute).toEqual({ kind: "home" });
+  });
+
+  test("preserves explicit Project context for an opened Library Database", () => {
+    const snapshot = makeSnapshot({
+      activeProjectId: "beta",
+      libraryRoute: {
+        kind: "database",
+        databaseId: parseDatabaseId("database-1"),
+        accessProjectId: "beta",
+      },
+    });
+    const normalized = normalizeWorkbenchShellNavigationHistoryState({
+      backStack: [snapshot],
+      forwardStack: [],
+    });
+
+    expect(normalized.backStack[0]?.libraryRoute).toEqual({
+      kind: "database",
+      databaseId: "database-1",
+      accessProjectId: "beta",
+    });
+  });
+
+  test("removes persisted Library routes while retaining Project navigation", () => {
+    const history = removeLibraryRoutesFromWorkbenchShellNavigationHistory({
+      backStack: [
+        makeSnapshot({ activeSessionId: "session:alpha:previous" }),
+        makeSnapshot({ libraryRoute: { kind: "home" } }),
+      ],
+      forwardStack: [
+        makeSnapshot({ activeSessionId: "session:alpha:next" }),
+        makeSnapshot({
+          activeSessionId: "session:alpha:2",
+          libraryRoute: { kind: "page", pageId: "page-1" },
+        }),
+      ],
+    });
+
+    expect(history.backStack).toHaveLength(1);
+    expect(history.backStack[0]?.libraryRoute).toBeNull();
+    expect(history.backStack[0]?.activeSessionId).toBe("session:alpha:previous");
+    expect(history.forwardStack).toHaveLength(1);
+    expect(history.forwardStack[0]?.libraryRoute).toBeNull();
+    expect(history.forwardStack[0]?.activeSessionId).toBe("session:alpha:next");
   });
 
   test("forward pushes current snapshot to the back stack", () => {

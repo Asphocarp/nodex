@@ -110,6 +110,7 @@ import type {
   WindowSessionBounds,
   WindowSessionSeed,
 } from "../shared/window-session";
+import { productFeatureGates } from "./product-feature-gates";
 import type {
   NativeContextMenuItem,
   NativeContextMenuOptions,
@@ -203,11 +204,17 @@ import {
   documentSyncUnauthorized,
 } from "./document-sync-hub";
 import { documentSyncHub as defaultDocumentSyncHub } from "./document-sync-runtime";
-import { registerBlockPropertyMutationIpcHandler } from "./block-property-mutation-ipc";
+import {
+  registerBlockPropertyMutationIpcHandler,
+  registerLibraryBlockPropertyMutationIpcHandler,
+} from "./block-property-mutation-ipc";
 import {
   registerDatabaseModuleIpcHandlers,
 } from "./database-module-ipc";
+import { registerLibraryModuleIpcHandler } from "./library-module-ipc";
+import { registerLibraryDatabaseModuleIpcHandler } from "./library-database-module-ipc";
 import { registerPageDetailIpcHandler } from "./page-detail-ipc";
+import { registerLibraryPageDetailIpcHandler } from "./library-page-detail-ipc";
 import { registerDocumentMutationIpcHandler } from "./document-operation-ipc";
 import { registerAdditionalDocumentCommandIpcHandler } from "./additional-document-command-ipc";
 import { registerBlockTransferIpcHandler } from "./block-transfer-ipc";
@@ -872,6 +879,11 @@ export function registerIpcHandlers(
         ownerBlockId,
       ),
   );
+  registerHandle(
+    "library-block-document:owned:prepare",
+    async (_, ownerBlockId) =>
+      await blockMutationWriter.prepareLibraryOwnedBlockDocument(ownerBlockId),
+  );
   registerHandle("document-sync:unsubscribe", (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
@@ -998,6 +1010,67 @@ export function registerIpcHandlers(
       omitRelocationLeaseProjectScope(request),
     );
   });
+  registerHandle("library-document-sync:subscribe", async (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) return documentSyncUnauthorized();
+    const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
+      documentId: request.documentId,
+      access: "read",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.subscribe(target, request);
+  });
+  registerHandle("library-document-sync:unsubscribe", (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) return documentSyncUnauthorized();
+    return documentSyncHub.unsubscribe(target, request);
+  });
+  registerHandle("library-document-sync:sync", async (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) return documentSyncUnauthorized();
+    const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
+      documentId: request.documentId,
+      access: "read",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.sync(target, request);
+  });
+  registerHandle("library-document-sync:apply", async (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) return documentSyncUnauthorized();
+    const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
+      documentId: request.documentId,
+      access: "write",
+    });
+    if (!authorization.ok) return authorization;
+    return documentSyncHub.applyUpdate(target, request);
+  });
+  registerHandle(
+    "library-document-sync:awareness:publish",
+    async (event, request) => {
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return documentSyncUnauthorized();
+      const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
+        documentId: request.documentId,
+        access: "read",
+      });
+      if (!authorization.ok) return authorization;
+      return documentSyncHub.publishAwareness(target, request);
+    },
+  );
+  registerHandle(
+    "library-document-sync:relocation-lease:respond",
+    async (event, request) => {
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return documentSyncUnauthorized();
+      const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
+        documentId: request.documentId,
+        access: "read",
+      });
+      if (!authorization.ok) return authorization;
+      return documentSyncHub.respondToRelocationLease(target, request);
+    },
+  );
   registerBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, projectId, request) =>
@@ -1020,6 +1093,24 @@ export function registerIpcHandlers(
     },
     applyMutation: async (request) =>
       (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
+  });
+  registerLibraryBlockPropertyMutationIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, request) => listener(event, request));
+    },
+    resolveTrustedIdentity: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const target = resolveDocumentSyncTarget(event);
+      if (!target) return null;
+      const clientId =
+        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      return {
+        clientSessionId: clientId,
+        actor: { kind: "electron_renderer", clientId },
+      };
+    },
+    applyMutation: async (input) =>
+      (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
   });
 
   registerDatabaseModuleIpcHandlers({
@@ -1046,6 +1137,42 @@ export function registerIpcHandlers(
       (await blockMutationWriter.readDatabaseModule(request)).result,
   });
 
+  registerLibraryModuleIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, request) =>
+        listener(event, request) as
+          | IpcApi[typeof channel]["result"]
+          | Promise<IpcApi[typeof channel]["result"]>,
+      );
+    },
+    isTrustedEvent: (rawEvent) =>
+      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
+    read: async (request) =>
+      (await blockMutationWriter.readLibraryModule(request)).result,
+    apply: async (request) =>
+      (await blockMutationWriter.applyLibraryModule(request)).result,
+  });
+
+  registerLibraryDatabaseModuleIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, request) =>
+        listener(event, request) as
+          | IpcApi[typeof channel]["result"]
+          | Promise<IpcApi[typeof channel]["result"]>,
+      );
+    },
+    isTrustedEvent: (rawEvent) =>
+      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
+    read: (request) =>
+      blockMutationWriter.readLibraryDatabaseModule(request, "app_window"),
+    apply: (request) =>
+      blockMutationWriter.applyLibraryDatabaseModule(
+        request,
+        { kind: "electron_renderer" },
+        "app_window",
+      ),
+  });
+
   registerPageDetailIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, projectId, pageId) =>
@@ -1056,6 +1183,17 @@ export function registerIpcHandlers(
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
     read: async (projectId, pageId) =>
       (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+  });
+
+  registerLibraryPageDetailIpcHandler({
+    registerHandle: (channel, listener) => {
+      registerHandle(channel, (event, pageId) => listener(event, pageId));
+    },
+    isTrustedEvent: (rawEvent) =>
+      resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
+    read: async (pageId) =>
+      (await blockMutationWriter.readLibraryPageDetail(pageId, "app_window"))
+        .result,
   });
 
   registerPageLifecyclePreflightIpcHandler({
@@ -1989,6 +2127,8 @@ export function registerIpcHandlers(
     options.onCreateWindow(seed);
     return true;
   });
+
+  registerHandle("app:feature-gates:get", () => productFeatureGates);
 
   registerHandle("window-sessions:bootstrap", (event) => {
     if (!options.onBootstrapWindowSession) {

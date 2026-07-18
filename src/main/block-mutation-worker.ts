@@ -11,9 +11,16 @@ import {
   readPageTargetContentChangedEvent,
 } from "./local-store/page-targets";
 import * as pageOccurrences from "./local-store/page-occurrences";
-import { getOwnedDocumentDescriptor } from "./local-store/block-document-cutover";
+import {
+  getLibraryOwnedDocumentAccess,
+  getLibraryOwnedDocumentDescriptor,
+  getOwnedDocumentDescriptor,
+} from "./local-store/block-document-cutover";
 import { prepareEditableOwnedBlockDocument } from "./local-store/owned-block-document-preparation";
-import { authorizeDocumentAccessInDatabase } from "./local-store/document-access";
+import {
+  authorizeDocumentAccessInDatabase,
+  authorizeLibraryDocumentAccessInDatabase,
+} from "./local-store/document-access";
 import {
   applyCanvasSceneMutation,
   syncCanvasScene,
@@ -27,7 +34,10 @@ import {
   relocateBlocksAtomically,
 } from "./local-store/block-relocations";
 import { repairDocumentSecondaryProjections } from "./local-store/block-document-projections";
-import { applySourceBlockPropertyMutationV2 } from "./local-store/block-property-mutations-v2-store";
+import {
+  applyLibrarySourceBlockPropertyMutationV2,
+  applySourceBlockPropertyMutationV2,
+} from "./local-store/block-property-mutations-v2-store";
 import { rebuildBlockPropertyMutationProjections } from "./local-store/block-property-mutation-projections";
 import {
   applyBlockTransfer,
@@ -37,8 +47,17 @@ import {
 import {
   applyDatabaseModuleV2,
   readDatabaseModuleV2,
+  readLibraryDatabaseModuleV2,
+  applyLibraryDatabaseModuleV2,
 } from "./local-store/database-module-v2-runtime";
-import { readPageDetailInDatabase } from "./local-store/page-detail";
+import {
+  applyLibraryModuleInDatabase,
+  readLibraryModuleInDatabase,
+} from "./local-store/library-module-runtime";
+import {
+  readLibraryPageDetailInDatabase,
+  readPageDetailInDatabase,
+} from "./local-store/page-detail";
 import {
   applyPageLifecycleMutationV2,
   readPageLifecyclePreflightSnapshotV2,
@@ -84,6 +103,7 @@ import type {
   RelocationCommandResult,
   RelocationResult,
 } from "../shared/block-documents";
+import { toLibraryOwnedDocumentDescriptor } from "../shared/block-documents";
 import type {
   CanvasSceneMutationCommandResult,
   CanvasSceneSyncCommandResult,
@@ -96,6 +116,10 @@ import type {
   PageHistoryCommandError,
   PageHistoryCommandResult,
 } from "../shared/page-history-transport";
+import {
+  toLibraryBlockPropertyMutationCommandResultV2,
+  type BlockPropertyMutationCommandResultV2,
+} from "../shared/block-property-mutations-v2";
 import type { DatabasePage, DatabasePageSummary } from "../shared/types";
 import type {
   BlockMutationMetrics,
@@ -450,6 +474,40 @@ async function enrichEvents(
   return enriched;
 }
 
+const publishCommittedBlockPropertyMutation = (
+  result: BlockPropertyMutationCommandResultV2,
+): void => {
+  if (!result.ok || result.value.duplicate) return;
+  const { projectId, mutationId } = result.value;
+
+  // Authority and disposable projections are already committed. Fanout is
+  // best-effort and emitted only for the first durable receipt.
+  for (const pageId of Object.keys(result.value.blockMetadataRevisions)) {
+    try {
+      publishPageTargetChange(pageId, "metadata");
+      const summary = readDatabasePageSummaryById(getDb(), pageId);
+      if (!summary) {
+        postLog("error", "Committed Page properties have no read model", {
+          projectId,
+          pageId,
+          mutationId,
+        });
+        continue;
+      }
+      dbNotifier.notifyChange(projectId, "update", summary.status, pageId, {
+        summary,
+      });
+    } catch (error) {
+      postLog("error", "Committed Page property fanout failed", {
+        projectId,
+        pageId,
+        mutationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+};
+
 async function runRequest(
   request: BlockMutationWorkerRequest,
 ): Promise<BlockMutationWorkerResult> {
@@ -588,41 +646,28 @@ async function runRequest(
           },
         },
       );
-      if (!result.ok || result.value.duplicate) return result;
-
-      // The store has already committed authority plus every disposable
-      // projection before returning. Fanout is intentionally best-effort and
-      // happens only for the first durable receipt; exact retries must not
-      // create a second semantic board event.
-      for (const pageId of Object.keys(result.value.blockMetadataRevisions)) {
-        try {
-          publishPageTargetChange(pageId, "metadata");
-          const summary = readDatabasePageSummaryById(getDb(), pageId);
-          if (!summary) {
-            postLog("error", "Committed Page properties have no read model", {
-              projectId: request.payload.projectId,
-              pageId,
-              mutationId: request.payload.mutationId,
-            });
-            continue;
-          }
-          dbNotifier.notifyChange(
-            request.payload.projectId,
-            "update",
-            summary.status,
-            pageId,
-            { summary },
-          );
-        } catch (error) {
-          postLog("error", "Committed Page property fanout failed", {
-            projectId: request.payload.projectId,
-            pageId,
-            mutationId: request.payload.mutationId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
+      publishCommittedBlockPropertyMutation(result);
       return result;
+    }
+    case "applyLibraryBlockPropertyMutation": {
+      const result = applyLibrarySourceBlockPropertyMutationV2(
+        getDb(),
+        request.payload.request,
+        request.payload.actor,
+        request.payload.accessActor,
+        {
+          refreshProjections: (database, input) => {
+            rebuildBlockPropertyMutationProjections(
+              database,
+              input.projectId,
+              input.pageIds,
+              input.updatedAt,
+            );
+          },
+        },
+      );
+      publishCommittedBlockPropertyMutation(result);
+      return toLibraryBlockPropertyMutationCommandResultV2(result);
     }
     case "applyDatabaseModule": {
       const result = applyDatabaseModuleV2(getDb(), request.payload);
@@ -742,11 +787,34 @@ async function runRequest(
       return deleteProjectBlockFirst(getDb(), request.payload.projectId);
     case "readDatabaseModule":
       return readDatabaseModuleV2(getDb(), request.payload);
+    case "readLibraryDatabaseModule":
+      return readLibraryDatabaseModuleV2(
+        getDb(),
+        request.payload.request,
+        request.payload.actor,
+      );
+    case "applyLibraryDatabaseModule":
+      return applyLibraryDatabaseModuleV2(
+        getDb(),
+        request.payload.request,
+        request.payload.actor,
+        request.payload.accessActor,
+      );
+    case "readLibraryModule":
+      return readLibraryModuleInDatabase(getDb(), request.payload);
+    case "applyLibraryModule":
+      return applyLibraryModuleInDatabase(getDb(), request.payload);
     case "readPageDetail":
       return readPageDetailInDatabase(
         getDb(),
         request.payload.projectId,
         request.payload.pageId,
+      );
+    case "readLibraryPageDetail":
+      return readLibraryPageDetailInDatabase(
+        getDb(),
+        request.payload.pageId,
+        request.payload.actor,
       );
     case "syncBlockDocument":
       return runDocumentCommand(() =>
@@ -762,6 +830,8 @@ async function runRequest(
       );
     case "authorizeDocumentAccess":
       return authorizeDocumentAccessInDatabase(getDb(), request.payload);
+    case "authorizeLibraryDocumentAccess":
+      return authorizeLibraryDocumentAccessInDatabase(getDb(), request.payload);
     case "getOwnedDocumentDescriptor":
       return getOwnedDocumentDescriptor(
         getDb(),
@@ -788,6 +858,32 @@ async function runRequest(
           getDb(),
           request.payload.projectId,
           request.payload.ownerBlockId,
+        );
+      });
+    }
+    case "prepareLibraryOwnedBlockDocument": {
+      return runDocumentCommand(() => {
+        const access = getLibraryOwnedDocumentAccess(
+          getDb(),
+          request.payload.ownerBlockId,
+          "write",
+        );
+        if (access.descriptor.sync.kind === "canvas_scene") {
+          return toLibraryOwnedDocumentDescriptor(access.descriptor);
+        }
+        const prepared = prepareEditableOwnedBlockDocument(
+          getDb(),
+          access.storageProjectId,
+          request.payload.ownerBlockId,
+        );
+        if (prepared.repairedEmptyRoot) {
+          blockDocumentRuntime.invalidate(prepared.descriptor.documentId);
+        }
+        return toLibraryOwnedDocumentDescriptor(
+          getLibraryOwnedDocumentDescriptor(
+            getDb(),
+            request.payload.ownerBlockId,
+          ),
         );
       });
     }

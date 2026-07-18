@@ -129,6 +129,17 @@ export interface DocumentAccessAck {
   readonly authorized: true;
 }
 
+/** Trusted local-user Library authorization without a caller-selected ID. */
+export interface LibraryDocumentAccessRequest {
+  readonly documentId: DocumentId;
+  readonly access: DocumentAccessKind;
+}
+
+export interface LibraryDocumentAccessAck
+  extends LibraryDocumentAccessRequest {
+  readonly authorized: true;
+}
+
 export interface DocumentSyncSubscriptionAck {
   readonly subscribed: true;
 }

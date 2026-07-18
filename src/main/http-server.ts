@@ -67,9 +67,15 @@ import { renameProjectSessionChat } from "./project-session-rename-service";
 import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
 import { registerReferenceReadHttpRoutes } from "./reference-read-http";
-import { registerBlockPropertyMutationHttpRoute } from "./block-property-mutation-http";
+import {
+  registerBlockPropertyMutationHttpRoute,
+  registerLibraryBlockPropertyMutationHttpRoute,
+} from "./block-property-mutation-http";
 import { registerDatabaseModuleHttpRoutes } from "./database-module-http";
+import { registerLibraryModuleHttpRoute } from "./library-module-http";
+import { registerLibraryDatabaseModuleHttpRoute } from "./library-database-module-http";
 import { registerPageDetailHttpRoute } from "./page-detail-http";
+import { registerLibraryPageDetailHttpRoute } from "./library-page-detail-http";
 import { registerDocumentMutationHttpRoute } from "./document-operation-http";
 import { registerAdditionalDocumentCommandHttpRoute } from "./additional-document-command-http";
 import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
@@ -91,6 +97,7 @@ import {
   deleteProjectWithBrowserCleanup,
   type ProjectSessionBrowserRuntime,
 } from "./project-session-browser-ownership";
+import { productFeatureGates } from "./product-feature-gates";
 
 /** SSE keep-alive ping interval (ms) */
 const SSE_PING_INTERVAL_MS = 30_000;
@@ -263,6 +270,11 @@ app.onError((error, c) => {
   return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
 });
 
+app.get("/api/app/feature-gates", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json(productFeatureGates);
+});
+
 registerDocumentSyncHttpRoutes(app, {
   hub: documentSyncHub,
   authorizeDocumentAccess: (projectId, documentId, access) =>
@@ -281,6 +293,10 @@ registerDocumentSyncHttpRoutes(app, {
       projectId,
       ownerBlockId,
     ),
+  authorizeLibraryDocumentAccess: (documentId, access) =>
+    blockMutationWriter.authorizeLibraryDocumentAccess({ documentId, access }),
+  prepareLibraryOwnedBlockDocument: (ownerBlockId) =>
+    blockMutationWriter.prepareLibraryOwnedBlockDocument(ownerBlockId),
 });
 
 registerReferenceReadHttpRoutes(app, {
@@ -293,6 +309,10 @@ registerBlockPropertyMutationHttpRoute(app, {
   applyMutation: async (request) =>
     (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
 });
+registerLibraryBlockPropertyMutationHttpRoute(app, {
+  applyMutation: async (input) =>
+    (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
+});
 
 registerDatabaseModuleHttpRoutes(app, {
   apply: async (request) =>
@@ -301,9 +321,33 @@ registerDatabaseModuleHttpRoutes(app, {
     (await blockMutationWriter.readDatabaseModule(request)).result,
 });
 
+registerLibraryModuleHttpRoute(app, {
+  read: async (request) =>
+    (await blockMutationWriter.readLibraryModule(request)).result,
+  apply: async (request) =>
+    (await blockMutationWriter.applyLibraryModule(request)).result,
+});
+
+registerLibraryDatabaseModuleHttpRoute(app, {
+  read: (request) =>
+    blockMutationWriter.readLibraryDatabaseModule(request, "http_loopback"),
+  apply: (request) =>
+    blockMutationWriter.applyLibraryDatabaseModule(
+      request,
+      { kind: "http_loopback" },
+      "http_loopback",
+    ),
+});
+
 registerPageDetailHttpRoute(app, {
   read: async (projectId, pageId) =>
     (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+});
+
+registerLibraryPageDetailHttpRoute(app, {
+  read: async (pageId) =>
+    (await blockMutationWriter.readLibraryPageDetail(pageId, "http_loopback"))
+      .result,
 });
 
 registerPageLifecyclePreflightHttpRoute(app, {
@@ -1501,6 +1545,40 @@ app.get("/api/projects/:projectId/column", async (c) => {
 });
 
 // === SSE events ===
+
+app.get("/api/library-module/events", (c) => {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (data: string) => {
+        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+      };
+      send(JSON.stringify({ event: "connected" }));
+      const handler = (
+        event: import("../shared/library-events").LibraryNavigationChangedEvent,
+      ) => send(JSON.stringify({ event: "library-navigation-changed", ...event }));
+      dbNotifier.on("library-navigation-changed", handler);
+      const pingInterval = setInterval(() => {
+        try {
+          send(JSON.stringify({ event: "ping" }));
+        } catch {
+          clearInterval(pingInterval);
+        }
+      }, SSE_PING_INTERVAL_MS);
+      c.req.raw.signal.addEventListener("abort", () => {
+        dbNotifier.removeListener("library-navigation-changed", handler);
+        clearInterval(pingInterval);
+      });
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+});
 
 app.get("/api/projects/events", (c) => {
   const stream = new ReadableStream({

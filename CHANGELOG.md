@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a first-class Library workspace and sidebar ownership tree for browsing, searching, creating, moving, archiving, restoring, and editing Pages and Databases independently of Project lifecycle, with explicit recursive Project grants for cross-Project use.
 - Added first-class projectless chats with prompt-named workspaces under `~/Documents/Nodex`, dedicated scratch/output folders, durable resume and fork behavior, and safe migration of previously generated task directories.
 - Added semantic Page revision history with exact read-only title/body previews, meaningful automatic edit checkpoints, named and operation-linked revisions, forward restore, and bounded long-term retention.
 - Added the Project-bound `nodex_app@5` catalog: agents can `search → fetch`, query saved Views or run advanced Database queries, create complete Page batches from Nested Markdown, update Pages through text or stable-Block intents, and move or duplicate Pages with sparse Code Mode-friendly results and fully inspectable transcript calls. Ordinary Turns directly use their primary Database and read-write grants, with resource-scoped one-call, task, or persistent Project consent for other known same-Library targets; Turns launched with the built-in Full access preset can use the same catalog across the entire current Library without approval prompts.

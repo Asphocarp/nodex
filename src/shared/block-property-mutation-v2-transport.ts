@@ -5,6 +5,8 @@ import {
   type BlockPropertyMutationCommandErrorV2,
   type BlockPropertyMutationCommandResultV2,
   type BlockPropertyMutationRequestV2,
+  type LibraryBlockPropertyMutationCommandResultV2,
+  type LibraryBlockPropertyMutationRequestV2,
 } from "./block-property-mutations-v2";
 
 export interface TrustedBlockPropertyMutationIdentityV2 {
@@ -15,6 +17,22 @@ export interface TrustedBlockPropertyMutationIdentityV2 {
 export type TrustedBlockPropertyMutationBindingV2 =
   | { readonly ok: true; readonly value: BlockPropertyMutationRequestV2 }
   | { readonly ok: false; readonly error: BlockPropertyMutationCommandErrorV2 };
+
+export type TrustedLibraryBlockPropertyMutationBindingV2 =
+  | {
+      readonly ok: true;
+      readonly value: LibraryBlockPropertyMutationRequestV2;
+      readonly actor: BlockPropertyMutationRequestV2["actor"];
+    }
+  | { readonly ok: false; readonly error: BlockPropertyMutationCommandErrorV2 };
+
+const LIBRARY_PROPERTY_MUTATION_KEYS = new Set([
+  "version",
+  "mutationId",
+  "storeEpoch",
+  "clientSessionId",
+  "fields",
+]);
 
 const readMutationIdHint = (value: unknown): string | undefined => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -110,6 +128,77 @@ export const bindTrustedBlockPropertyMutationV2 = (
   }
 };
 
+/**
+ * Bind a local Library mutation without accepting a caller-authored Project
+ * coordinate or audit actor. The sentinel Project exists only long enough to
+ * reuse the canonical request parser; it never crosses the trusted boundary.
+ */
+export const bindTrustedLibraryBlockPropertyMutationV2 = (
+  rawRequest: unknown,
+  identity: TrustedBlockPropertyMutationIdentityV2,
+): TrustedLibraryBlockPropertyMutationBindingV2 => {
+  const mutationId = readMutationIdHint(rawRequest);
+  if (
+    typeof rawRequest !== "object" ||
+    rawRequest === null ||
+    Array.isArray(rawRequest)
+  ) {
+    return {
+      ok: false,
+      error: blockPropertyMutationFailureV2(
+        "invalid_property_mutation_request",
+        "Library Block property mutation v2 request must be an object",
+        { mutationId },
+      ),
+    };
+  }
+  const requestRecord = rawRequest as Readonly<Record<string, unknown>>;
+  for (const key of Object.keys(requestRecord)) {
+    if (LIBRARY_PROPERTY_MUTATION_KEYS.has(key)) continue;
+    return {
+      ok: false,
+      error: blockPropertyMutationFailureV2(
+        "invalid_property_mutation_request",
+        `Library Block property mutation v2 does not support ${key}`,
+        { mutationId },
+      ),
+    };
+  }
+
+  try {
+    const bound = parseBlockPropertyMutationRequestV2({
+      ...requestRecord,
+      projectId: "local-library-boundary",
+      actor: identity.actor,
+      ...(identity.clientSessionId === undefined
+        ? {}
+        : { clientSessionId: identity.clientSessionId }),
+    });
+    const value: LibraryBlockPropertyMutationRequestV2 = {
+      version: bound.version,
+      mutationId: bound.mutationId,
+      storeEpoch: bound.storeEpoch,
+      ...(bound.clientSessionId === undefined
+        ? {}
+        : { clientSessionId: bound.clientSessionId }),
+      fields: bound.fields,
+    };
+    const actor = bound.actor;
+    return { ok: true, value, actor };
+  } catch (error) {
+    return {
+      ok: false,
+      error: blockPropertyMutationFailureV2(
+        "invalid_property_mutation_request",
+        error instanceof BlockPropertyMutationV2ContractError
+          ? error.message
+          : "Trusted Library Block property mutation v2 identity is invalid",
+        { mutationId },
+      ),
+    };
+  }
+};
+
 export const blockPropertyMutationHttpStatusV2 = (
   error: BlockPropertyMutationCommandErrorV2,
 ): 400 | 404 | 409 | 500 => {
@@ -135,7 +224,7 @@ export const blockPropertyMutationHttpStatusV2 = (
 };
 
 export const blockPropertyMutationTransportFailureV2 = (
-  request: BlockPropertyMutationRequestV2,
+  request: Pick<BlockPropertyMutationRequestV2, "mutationId">,
   error: unknown,
 ): BlockPropertyMutationCommandResultV2 => ({
   ok: false,
@@ -144,6 +233,20 @@ export const blockPropertyMutationTransportFailureV2 = (
     error instanceof Error
       ? error.message
       : "The durable Block property mutation v2 writer is unavailable",
+    { mutationId: request.mutationId, retryable: true },
+  ),
+});
+
+export const libraryBlockPropertyMutationTransportFailureV2 = (
+  request: Pick<LibraryBlockPropertyMutationRequestV2, "mutationId">,
+  error: unknown,
+): LibraryBlockPropertyMutationCommandResultV2 => ({
+  ok: false,
+  error: blockPropertyMutationFailureV2(
+    "unknown",
+    error instanceof Error
+      ? error.message
+      : "The durable Library Block property mutation v2 writer is unavailable",
     { mutationId: request.mutationId, retryable: true },
   ),
 });

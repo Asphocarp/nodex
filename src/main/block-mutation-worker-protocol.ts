@@ -5,6 +5,9 @@ import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type {
   DocumentAccessAck,
   DocumentAccessRequest,
+  LibraryDocumentAccessAck,
+  LibraryDocumentAccessRequest,
+  LibraryOwnedDocumentDescriptor,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -41,14 +44,29 @@ import type {
 import type {
   BlockPropertyMutationCommandResultV2,
   BlockPropertyMutationRequestV2,
+  LibraryBlockPropertyMutationCommandResultV2,
+  LibraryBlockPropertyMutationRequestV2,
 } from "../shared/block-property-mutations-v2";
 import type {
   DatabaseApplyResultV2,
   DatabaseApplyV2,
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
+  LibraryDatabaseModuleReadRequestV2,
+  LibraryDatabaseModuleReadResultV2,
+  LibraryDatabaseApplyV2,
+  LibraryDatabaseApplyResultV2,
 } from "../shared/database-module-v2";
-import type { PageDetailResult } from "../shared/page-detail";
+import type {
+  LibraryModuleApplyRequest,
+  LibraryModuleApplyResult,
+  LibraryModuleReadRequest,
+  LibraryModuleReadResult,
+} from "../shared/library-module";
+import type {
+  LibraryPageDetailResult,
+  PageDetailResult,
+} from "../shared/page-detail";
 import type {
   PageLifecycleMutationCommandResultV2,
   PageLifecycleMutationRequestV2,
@@ -193,6 +211,14 @@ export type BlockMutationWorkerRequest =
       payload: BlockPropertyMutationRequestV2;
     })
   | (BlockMutationWorkerRequestBase & {
+      type: "applyLibraryBlockPropertyMutation";
+      payload: {
+        readonly request: LibraryBlockPropertyMutationRequestV2;
+        readonly actor: BlockPropertyMutationRequestV2["actor"];
+        readonly accessActor: "app_window" | "http_loopback";
+      };
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "applyDatabaseModule";
       payload: DatabaseApplyV2;
     })
@@ -237,8 +263,35 @@ export type BlockMutationWorkerRequest =
       payload: DatabaseModuleReadRequestV2;
     })
   | (BlockMutationWorkerRequestBase & {
+      type: "readLibraryDatabaseModule";
+      payload: {
+        readonly request: LibraryDatabaseModuleReadRequestV2;
+        readonly actor: "app_window" | "http_loopback";
+      };
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "applyLibraryDatabaseModule";
+      payload: {
+        readonly request: LibraryDatabaseApplyV2;
+        readonly actor: DatabaseApplyV2["actor"];
+        readonly accessActor: "app_window" | "http_loopback";
+      };
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "readLibraryModule";
+      payload: LibraryModuleReadRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "applyLibraryModule";
+      payload: LibraryModuleApplyRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "readPageDetail";
       payload: { readonly projectId: string; readonly pageId: string };
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "readLibraryPageDetail";
+      payload: { readonly pageId: string; readonly actor: "app_window" | "http_loopback" };
     })
   | (BlockMutationWorkerRequestBase & {
       type: "syncBlockDocument";
@@ -257,6 +310,10 @@ export type BlockMutationWorkerRequest =
       payload: DocumentAccessRequest;
     })
   | (BlockMutationWorkerRequestBase & {
+      type: "authorizeLibraryDocumentAccess";
+      payload: LibraryDocumentAccessRequest;
+    })
+  | (BlockMutationWorkerRequestBase & {
       type: "getOwnedDocumentDescriptor";
       payload: {
         readonly projectId: string;
@@ -269,6 +326,10 @@ export type BlockMutationWorkerRequest =
         readonly projectId: string;
         readonly ownerBlockId: string;
       };
+    })
+  | (BlockMutationWorkerRequestBase & {
+      type: "prepareLibraryOwnedBlockDocument";
+      payload: { readonly ownerBlockId: string };
     })
   | (BlockMutationWorkerRequestBase & {
       type: "applyBlockDocumentUpdate";
@@ -327,11 +388,13 @@ export type BlockMutationWorkerRequest =
 
 export type BlockDocumentWorkerResult =
   | DocumentSyncCommandResult<DocumentAccessAck>
+  | DocumentSyncCommandResult<LibraryDocumentAccessAck>
   | DocumentSyncCommandResult<DocumentSyncResponse>
   | DocumentSyncCommandResult<DocumentSyncApplyAck>
   | CanvasSceneSyncCommandResult
   | CanvasSceneMutationCommandResult
   | DocumentSyncCommandResult<OwnedDocumentDescriptor>
+  | DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>
   | DocumentSyncCommandResult<string>
   | DocumentOperationCommandResult
   | DocumentHistoryCommandResult<CreatedDocumentVersionSummary>
@@ -360,9 +423,15 @@ export type BlockMutationWorkerResult =
   | OwnedDocumentDescriptor
   | RepairDocumentSecondaryProjectionsResult
   | BlockPropertyMutationCommandResultV2
+  | LibraryBlockPropertyMutationCommandResultV2
   | DatabaseApplyResultV2
   | DatabaseModuleReadResultV2
+  | LibraryDatabaseModuleReadResultV2
+  | LibraryDatabaseApplyResultV2
+  | LibraryModuleReadResult
+  | LibraryModuleApplyResult
   | PageDetailResult
+  | LibraryPageDetailResult
   | BlockTransferCommandResult
   | PageLifecycleMutationCommandResultV2
   | PageLifecyclePreflightResultV2

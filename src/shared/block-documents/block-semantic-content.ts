@@ -27,6 +27,7 @@ export const BLOCK_TO_PAGE_TYPE_CAPABILITIES = {
   callout: "wrap_subtree",
   threadSection: "wrap_subtree",
   page: "already_page",
+  database: "wrap_subtree",
   pageRef: "wrap_subtree",
   databaseViewRef: "wrap_subtree",
   syncedBlockRef: "wrap_subtree",

@@ -8,6 +8,7 @@ import {
   decodeDocumentSyncHttpRequest,
   encodeDocumentApplyHttpAck,
   encodeDocumentHttpError,
+  encodeLibraryOwnedDocumentDescriptorHttp,
   encodeOwnedDocumentDescriptorHttp,
   encodeDocumentRealtimeSseEvent,
   encodeDocumentSyncHttpResponse,
@@ -16,12 +17,16 @@ import {
   MAX_PAGE_DOCUMENT_STATE_BYTES,
   MAX_PAGE_DOCUMENT_UPDATE_BYTES,
 } from "../shared/block-documents/contracts";
-import type { OwnedDocumentDescriptor } from "../shared/block-documents/contracts";
+import type {
+  LibraryOwnedDocumentDescriptor,
+  OwnedDocumentDescriptor,
+} from "../shared/block-documents/contracts";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
   parseDocumentRelocationLeaseResponseRequest,
   type DocumentAccessAck,
   type DocumentAccessKind,
+  type LibraryDocumentAccessAck,
   type DocumentSyncCommandError,
   type DocumentSyncCommandResult,
   type DocumentSyncRealtimeEvent,
@@ -74,6 +79,13 @@ export interface DocumentSyncHttpDependencies {
     projectId: string,
     ownerBlockId: string,
   ) => Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
+  readonly authorizeLibraryDocumentAccess?: (
+    documentId: string,
+    access: DocumentAccessKind,
+  ) => Promise<DocumentSyncCommandResult<LibraryDocumentAccessAck>>;
+  readonly prepareLibraryOwnedBlockDocument?: (
+    ownerBlockId: string,
+  ) => Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
 }
 
 const commandError = (
@@ -347,11 +359,245 @@ const requireAnyBrowserClient = (
   };
 };
 
+const LOCAL_LIBRARY_HTTP_SCOPE = "local-user-library";
+
+const resolveLibraryScope = async (
+  dependencies: DocumentSyncHttpDependencies,
+  documentId: string,
+  access: DocumentAccessKind = "read",
+): Promise<DocumentSyncCommandError | null> => {
+  if (!dependencies.authorizeLibraryDocumentAccess) {
+    return commandError(
+      "transport_unavailable",
+      "Library Document access is unavailable",
+      { retryable: true },
+    );
+  }
+  try {
+    const result = await dependencies.authorizeLibraryDocumentAccess(
+      documentId,
+      access,
+    );
+    if (!result.ok) return result.error;
+    if (
+      result.value.authorized &&
+      result.value.documentId === documentId &&
+      result.value.access === access
+    ) {
+      return null;
+    }
+    return commandError("invalid_response", "Library Document access escaped its scope");
+  } catch {
+    return commandError(
+      "transport_unavailable",
+      "The durable document writer is unavailable",
+      { retryable: true },
+    );
+  }
+};
+
+/** Registers the Yjs transport under trusted local Library authority. */
+const registerLibraryDocumentSyncHttpRoutes = (
+  app: Hono,
+  dependencies: DocumentSyncHttpDependencies,
+  clients: DocumentSyncHttpClients,
+): void => {
+  app.post("/api/library/blocks/:ownerBlockId/document/prepare", async (context) => {
+    const ownerBlockId = context.req.param("ownerBlockId").trim();
+    if (!ownerBlockId) return invalidRequest("Owner Block is required");
+    if (!dependencies.prepareLibraryOwnedBlockDocument) {
+      return errorResponse(commandError(
+        "transport_unavailable",
+        "Library Document preparation is unavailable",
+        { retryable: true },
+      ));
+    }
+    try {
+      const prepared = await dependencies.prepareLibraryOwnedBlockDocument(
+        ownerBlockId,
+      );
+      if (!prepared.ok) return errorResponse(prepared.error);
+      if (prepared.value.ownerBlockId !== ownerBlockId) {
+        return errorResponse(commandError(
+          "invalid_response",
+          "Prepared Document escaped its requested Library owner",
+        ));
+      }
+      return new Response(
+        encodeLibraryOwnedDocumentDescriptorHttp(prepared.value),
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    } catch (error) {
+      return errorResponse(commandError(
+        "transport_unavailable",
+        error instanceof Error ? error.message : "Owned Document preparation failed",
+        { retryable: true },
+      ));
+    }
+  });
+
+  app.get("/api/library/documents/:documentId/events", async (context) => {
+    const documentId = context.req.param("documentId").trim();
+    const clientSessionId = context.req.query("clientSessionId")?.trim() ?? "";
+    if (!documentId || !clientSessionId) {
+      return invalidRequest("Document and client session are required");
+    }
+    const scopeError = await resolveLibraryScope(dependencies, documentId);
+    if (scopeError) return errorResponse(scopeError);
+
+    const encoder = new TextEncoder();
+    let entry: BrowserClientEntry | null = null;
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const target = new BrowserDocumentSyncTarget((serializedEvent) => {
+          controller.enqueue(encoder.encode(`data: ${serializedEvent}\n\n`));
+        });
+        entry = {
+          projectId: LOCAL_LIBRARY_HTTP_SCOPE,
+          engine: "yjs",
+          request: { documentId, clientSessionId },
+          target,
+        };
+        clients.replace(entry);
+        const subscribed = dependencies.hub.subscribe(target, entry.request);
+        if (!subscribed.ok) {
+          clients.remove(entry);
+          controller.error(new Error(subscribed.error.message));
+          return;
+        }
+        pingInterval = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(": ping\n\n"));
+          } catch {
+            if (pingInterval) clearInterval(pingInterval);
+          }
+        }, SSE_PING_INTERVAL_MS);
+      },
+      cancel() {
+        if (pingInterval) clearInterval(pingInterval);
+        if (entry) clients.remove(entry);
+      },
+    });
+    context.req.raw.signal.addEventListener("abort", () => {
+      if (pingInterval) clearInterval(pingInterval);
+      if (entry) clients.remove(entry);
+    }, { once: true });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-store",
+        Connection: "keep-alive",
+      },
+    });
+  });
+
+  app.post("/api/library/documents/:documentId/sync", async (context) => {
+    const documentId = context.req.param("documentId").trim();
+    try {
+      const request = decodeDocumentSyncHttpRequest(
+        documentId,
+        await readBinaryBody(context, MAX_SYNC_REQUEST_BYTES),
+      );
+      const scopeError = await resolveLibraryScope(dependencies, documentId);
+      if (scopeError) return errorResponse(scopeError);
+      const client = requireBrowserClient(clients, LOCAL_LIBRARY_HTTP_SCOPE, request);
+      if (!client.ok) return errorResponse(client.error);
+      const result = await dependencies.hub.sync(client.value.target, request);
+      return result.ok
+        ? binaryResponse(encodeDocumentSyncHttpResponse(result.value))
+        : errorResponse(result.error);
+    } catch (error) {
+      return invalidRequest(error instanceof Error ? error.message : "Invalid sync request");
+    }
+  });
+
+  app.post("/api/library/documents/:documentId/updates", async (context) => {
+    const documentId = context.req.param("documentId").trim();
+    try {
+      const request = decodeDocumentApplyHttpRequest(
+        documentId,
+        await readBinaryBody(context, MAX_APPLY_REQUEST_BYTES),
+      );
+      const scopeError = await resolveLibraryScope(dependencies, documentId, "write");
+      if (scopeError) return errorResponse(scopeError);
+      const client = requireBrowserClient(clients, LOCAL_LIBRARY_HTTP_SCOPE, request);
+      if (!client.ok) return errorResponse(client.error);
+      const result = await dependencies.hub.applyUpdate(client.value.target, request);
+      return result.ok
+        ? binaryResponse(encodeDocumentApplyHttpAck(result.value))
+        : errorResponse(result.error);
+    } catch (error) {
+      return invalidRequest(error instanceof Error ? error.message : "Invalid update request");
+    }
+  });
+
+  app.post("/api/library/documents/:documentId/awareness", async (context) => {
+    const documentId = context.req.param("documentId").trim();
+    try {
+      const request = decodeDocumentAwarenessHttpRequest(
+        documentId,
+        await readBinaryBody(context, MAX_AWARENESS_REQUEST_BYTES),
+      );
+      const scopeError = await resolveLibraryScope(dependencies, documentId);
+      if (scopeError) return errorResponse(scopeError);
+      const client = requireBrowserClient(clients, LOCAL_LIBRARY_HTTP_SCOPE, request);
+      if (!client.ok) return errorResponse(client.error);
+      const result = dependencies.hub.publishAwareness(client.value.target, request);
+      return result.ok ? context.json(result.value) : errorResponse(result.error);
+    } catch (error) {
+      return invalidRequest(
+        error instanceof Error ? error.message : "Invalid Awareness request",
+      );
+    }
+  });
+
+  app.post(
+    "/api/library/documents/:documentId/relocation-leases/:leaseId/responses",
+    async (context) => {
+      const documentId = context.req.param("documentId").trim();
+      const leaseId = context.req.param("leaseId").trim();
+      if (!documentId || !leaseId) {
+        return invalidRequest("Document and relocation lease are required");
+      }
+      try {
+        const request = await readRelocationLeaseJsonBody(context);
+        if (request.documentId !== documentId || request.leaseId !== leaseId) {
+          return invalidRequest("Relocation lease response does not match its route");
+        }
+        const scopeError = await resolveLibraryScope(dependencies, documentId);
+        if (scopeError) return errorResponse(scopeError);
+        const client = requireAnyBrowserClient(
+          clients,
+          LOCAL_LIBRARY_HTTP_SCOPE,
+          request,
+        );
+        if (!client.ok) return errorResponse(client.error);
+        const result = dependencies.hub.respondToRelocationLease(
+          client.value.target,
+          request,
+        );
+        return result.ok ? context.json(result.value) : errorResponse(result.error);
+      } catch (error) {
+        return invalidRequest(
+          error instanceof Error ? error.message : "Invalid relocation lease response",
+        );
+      }
+    },
+  );
+};
+
 export const registerDocumentSyncHttpRoutes = (
   app: Hono,
   dependencies: DocumentSyncHttpDependencies,
 ): DocumentSyncHttpClients => {
   const clients = new DocumentSyncHttpClients();
+  registerLibraryDocumentSyncHttpRoutes(app, dependencies, clients);
 
   app.get(
     "/api/projects/:projectId/blocks/:ownerBlockId/document",

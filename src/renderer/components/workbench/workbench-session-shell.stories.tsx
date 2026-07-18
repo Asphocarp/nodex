@@ -11,6 +11,10 @@ import type {
 } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
+import type {
+  LibraryModuleReadRequest,
+  LibraryReadValue,
+} from "../../../shared/library-module";
 import { buildPageDetailStoryResult } from "../kanban/page-stage/page-stage-story-page-detail";
 import {
   writeWorkbenchShellNavigationHistoryState,
@@ -36,6 +40,7 @@ type ShellStoryArgs = {
   sidebarReveal: "idle" | "edge" | "focus";
   sidebarWidth: 240 | 300 | 520;
   navigationHistory: "disabled" | "back" | "forward" | "both";
+  libraryWorkspace: boolean;
   longNames: boolean;
 };
 
@@ -59,6 +64,7 @@ const meta = {
     sidebarReveal: "idle",
     sidebarWidth: 300,
     navigationHistory: "both",
+    libraryWorkspace: false,
     longNames: false,
   },
   argTypes: {
@@ -97,6 +103,9 @@ const meta = {
     navigationHistory: {
       control: "inline-radio",
       options: ["disabled", "back", "forward", "both"],
+    },
+    libraryWorkspace: {
+      control: "boolean",
     },
     longNames: {
       control: "boolean",
@@ -537,6 +546,7 @@ function makeStoryNavigationSnapshot(
     rightPanelCollapsed: session.panels.right.collapsed,
     bottomPanelCollapsed: session.panels.bottom.collapsed,
     rightPanelFullWidth: session.panels.right.size.fullWidth ?? false,
+    libraryRoute: null,
   };
 }
 
@@ -593,6 +603,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
   const [sidebarCollapsibleSections, setSidebarCollapsibleSections] = useState({
     pinned: false,
+    library: false,
     projects: false,
     chats: false,
   });
@@ -653,6 +664,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   return (
     <div className="h-screen">
       <WorkbenchShell
+        libraryWorkspaceEnabled={args.libraryWorkspace}
         key={`${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
         projects={PROJECTS}
         dbProjectId="nodex"
@@ -744,6 +756,19 @@ function ScheduledRouteProjectSessionShellStory(args: ShellStoryArgs) {
   return <ProjectSessionShellStory {...args} />;
 }
 
+function LibraryRouteProjectSessionShellStory(args: ShellStoryArgs) {
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      document.querySelector<HTMLButtonElement>('[aria-label="Open Library"]')?.click();
+    }, 0);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
+  return <ProjectSessionShellStory {...args} />;
+}
+
 function installStoryApi(
   sessionsByProject: Record<string, ProjectSession[]>,
   setSessionsByProject: Dispatch<SetStateAction<Record<string, ProjectSession[]>>>,
@@ -757,6 +782,37 @@ function installStoryApi(
         }
         if (channel === "board:summary:get") {
           return STORY_BOARD;
+        }
+        if (channel === "library-module:read") {
+          const read = (args[0] as LibraryModuleReadRequest).read;
+          const value: LibraryReadValue = (() => {
+            if (read.mode === "metadata") return { kind: "metadata" };
+            if (read.mode === "path") {
+              return { kind: "path", target: read.target, nodes: [] };
+            }
+            if (read.mode === "catalog") {
+              return { kind: "catalog", items: [], nextCursor: null, hasMore: false, total: 0 };
+            }
+            return {
+              kind: "children",
+              parent: read.parent,
+              items: [],
+              nextCursor: null,
+              hasMore: false,
+              total: 0,
+            };
+          })();
+          return {
+            ok: true,
+            value: {
+              version: 1,
+              profileId: "profile:story",
+              libraryId: "library:test",
+              storeEpoch: "epoch:story",
+              changeLogSeq: 0,
+              value,
+            },
+          };
         }
         if (channel === "codex:scheduled-automations:list") {
           return { items: [] };
@@ -1194,6 +1250,25 @@ export const ScheduledRouteShellHeader: Story = {
     docs: {
       description: {
         story: "Scheduled route opened inside the normal Workbench shell: left titlebar chrome stays mounted while the Scheduled tabs and create controls occupy the global header center.",
+      },
+    },
+  },
+};
+
+export const LibraryRouteShellHeader: Story = {
+  args: {
+    thread: "attached",
+    rightPanel: "regular",
+    bottomPanel: "terminal",
+    sidebar: "expanded",
+    sidebarWidth: 300,
+    libraryWorkspace: true,
+  },
+  render: (args) => <LibraryRouteProjectSessionShellStory {...args} />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Library route opened inside the normal Workbench shell: window navigation and Sidebar controls remain, while Project-session right and bottom panel toggles are absent.",
       },
     },
   },

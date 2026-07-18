@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   decodeOwnedDocumentDescriptorHttp,
+  decodeLibraryOwnedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentApplyHttpRequest,
   decodeDocumentAwarenessHttpRequest,
@@ -16,12 +17,38 @@ import {
   encodeDocumentSyncHttpRequest,
   encodeDocumentSyncHttpResponse,
   encodeOwnedDocumentDescriptorHttp,
+  encodeLibraryOwnedDocumentDescriptorHttp,
 } from "./http-contract";
 import { PAGE_DOCUMENT_SCHEMA_VERSION } from "./page-document";
 
 const bytes = (...values: number[]): Uint8Array => Uint8Array.from(values);
 
 describe("Document HTTP contract", () => {
+  test("round-trips Library descriptors without a compatibility Project", () => {
+    const descriptor = decodeLibraryOwnedDocumentDescriptorHttp(
+      encodeLibraryOwnedDocumentDescriptorHttp({
+        accessContext: { kind: "library" },
+        ownerBlockId: "page-1",
+        ownerType: "page",
+        ownerLifecycle: "active",
+        documentId: "document-1",
+        storeEpoch: "store-1",
+        generation: 1,
+        headSeq: 2,
+        schemaKey: "nodex.page",
+        schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
+        readiness: "ready",
+        sync: { kind: "yjs", stateVector: bytes(1, 2, 3) },
+      }),
+    );
+    expect(descriptor.accessContext).toEqual({ kind: "library" });
+    expect("projectId" in descriptor).toBe(false);
+    expect(() => decodeLibraryOwnedDocumentDescriptorHttp(JSON.stringify({
+      ...JSON.parse(encodeLibraryOwnedDocumentDescriptorHttp(descriptor)),
+      projectId: "forged",
+    }))).toThrow("unsupported fields");
+  });
+
   test("round-trips engine-neutral Yjs and Canvas descriptors", () => {
     const common = {
       projectId: "project-1",

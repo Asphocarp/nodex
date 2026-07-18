@@ -6,6 +6,7 @@ import type { IpcApi } from "../../shared/ipc-api";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
 import type { CanvasSceneSyncAdapter } from "./canvas-scene-provider";
 import type {
+  LibraryOwnedDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
@@ -24,6 +25,8 @@ import type {
 import type {
   BlockPropertyMutationCommandResultV2,
   BlockPropertyMutationRequestV2,
+  LibraryBlockPropertyMutationCommandResultV2,
+  LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
 import type {
   DatabaseApplyResultV2,
@@ -31,7 +34,16 @@ import type {
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
-import type { PageDetailResult } from "../../shared/page-detail";
+import type {
+  LibraryModuleApplyRequest,
+  LibraryModuleApplyResult,
+  LibraryModuleReadRequest,
+  LibraryModuleReadResult,
+} from "../../shared/library-module";
+import type {
+  LibraryPageDetailResult,
+  PageDetailResult,
+} from "../../shared/page-detail";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -102,6 +114,12 @@ export function createDocumentSyncAdapter(
   throw new Error("Document sync is unavailable for this renderer transport");
 }
 
+export function createLibraryDocumentSyncAdapter(): DocumentSyncAdapter {
+  const createAdapter = resolveRendererTransport().createLibraryDocumentSyncAdapter;
+  if (createAdapter) return createAdapter();
+  throw new Error("Library Document sync is unavailable for this renderer transport");
+}
+
 export function createCanvasSceneSyncAdapter(
   projectId: string,
 ): CanvasSceneSyncAdapter {
@@ -129,6 +147,12 @@ export function prepareOwnedBlockDocument(
     projectId,
     ownerBlockId,
   );
+}
+
+export function prepareLibraryOwnedBlockDocument(
+  ownerBlockId: string,
+): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>> {
+  return resolveRendererTransport().prepareLibraryOwnedBlockDocument(ownerBlockId);
 }
 
 export function mutateDocument(
@@ -221,6 +245,12 @@ export function mutateBlockProperties(
   return invoke("block-properties:mutate", projectId, request);
 }
 
+export function mutateLibraryBlockProperties(
+  request: LibraryBlockPropertyMutationRequestV2,
+): Promise<LibraryBlockPropertyMutationCommandResultV2> {
+  return invoke("library-block-properties:mutate", request);
+}
+
 export function readPageLifecyclePreflight(
   projectId: string,
   pageId: string,
@@ -258,11 +288,47 @@ export function applyDatabaseModule(
   return invoke("database-module:apply", projectId, request);
 }
 
+export function readLibraryModule(
+  request: LibraryModuleReadRequest,
+): Promise<LibraryModuleReadResult> {
+  return invoke("library-module:read", request);
+}
+
+export function applyLibraryModule(
+  request: LibraryModuleApplyRequest,
+): Promise<LibraryModuleApplyResult> {
+  return invoke("library-module:apply", request);
+}
+
+export function readLibraryDatabaseModule(
+  request: import("../../shared/database-module-v2").LibraryDatabaseModuleReadRequestV2,
+): Promise<import("../../shared/database-module-v2").LibraryDatabaseModuleReadResultV2> {
+  return invoke(
+    "library-database-module:read",
+    request,
+  ) as Promise<import("../../shared/database-module-v2").LibraryDatabaseModuleReadResultV2>;
+}
+
+export function applyLibraryDatabaseModule(
+  request: import("../../shared/database-module-v2").LibraryDatabaseApplyV2,
+): Promise<import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2> {
+  return invoke(
+    "library-database-module:apply",
+    request,
+  ) as Promise<import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2>;
+}
+
 export function readPageDetail(
   projectId: string,
   pageId: string,
 ): Promise<PageDetailResult> {
   return invoke("pages:detail:get", projectId, pageId);
+}
+
+export function readLibraryPageDetail(
+  pageId: string,
+): Promise<LibraryPageDetailResult> {
+  return invoke("library-pages:detail:get", pageId);
 }
 
 export function subscribeBoardChanges(
@@ -280,6 +346,14 @@ export function subscribeDatabaseChanges(
     projectId,
     callback,
   );
+}
+
+export function subscribeLibraryChanges(
+  callback: (
+    event: import("../../shared/library-events").LibraryNavigationChangedEvent,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeLibraryChanges?.(callback) ?? (() => {});
 }
 
 export function subscribeProjectSessionChanges(

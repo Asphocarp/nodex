@@ -7,8 +7,15 @@ import {
   parseBlockPropertyMutationRequestV2,
   type BlockPropertyMutationCommandResultV2,
 } from "../../shared/block-property-mutations-v2";
+import {
+  parseDataSourceId,
+  parseDataSourcePropertyId,
+} from "../../shared/database-identities";
 import { WORKFLOW_STATUS_ORDER } from "../../shared/workflow-status";
-import { applySourceBlockPropertyMutationV2 } from "./block-property-mutations-v2-store";
+import {
+  applyLibrarySourceBlockPropertyMutationV2,
+  applySourceBlockPropertyMutationV2,
+} from "./block-property-mutations-v2-store";
 
 const NOW = "2026-07-18T02:00:00.000Z";
 const SOURCE_ID = "source-1";
@@ -35,11 +42,20 @@ const createFixture = (): Fixture => {
       id INTEGER PRIMARY KEY,
       store_epoch TEXT NOT NULL
     );
+    CREATE TABLE profiles (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE libraries (
+      id TEXT PRIMARY KEY,
+      profile_id TEXT NOT NULL
+    );
     CREATE TABLE projects (
       id TEXT PRIMARY KEY,
       library_id TEXT NOT NULL,
       database_block_id TEXT NOT NULL,
-      lifecycle TEXT NOT NULL
+      lifecycle TEXT NOT NULL,
+      created TEXT NOT NULL
     );
     CREATE TABLE blocks (
       id TEXT PRIMARY KEY,
@@ -172,10 +188,18 @@ const createFixture = (): Fixture => {
     "INSERT INTO block_store_metadata (id, store_epoch) VALUES (1, ?)",
   ).run(storeEpoch);
   database.prepare(`
-    INSERT INTO projects (id, library_id, database_block_id, lifecycle)
-    VALUES ('project-1', 'library-1', 'database-1', 'active'),
-      ('project-2', 'library-1', 'database-2', 'active')
+    INSERT INTO profiles (id, created_at) VALUES ('profile-1', ?)
+  `).run(NOW);
+  database.prepare(`
+    INSERT INTO libraries (id, profile_id) VALUES ('library-1', 'profile-1')
   `).run();
+  database.prepare(`
+    INSERT INTO projects (
+      id, library_id, database_block_id, lifecycle, created
+    ) VALUES
+      ('project-1', 'library-1', 'database-1', 'active', ?),
+      ('project-2', 'library-1', 'database-2', 'active', ?)
+  `).run(NOW, NOW);
   database.prepare(`
     INSERT INTO blocks (
       id, project_id, type, lifecycle, location_kind,
@@ -371,6 +395,55 @@ const requireError = (
 };
 
 describe("dormant Source Block Property v2 store", () => {
+  test("commits Page properties through Library authority after its compatibility Project is archived", () => {
+    withFixture((fixture) => {
+      fixture.database.prepare(`
+        UPDATE projects SET lifecycle = 'archived' WHERE id = 'project-1'
+      `).run();
+      const committed = requireOk(
+        applyLibrarySourceBlockPropertyMutationV2(
+          fixture.database,
+          {
+            version: 2,
+            mutationId: "library-page-properties",
+            storeEpoch: fixture.storeEpoch,
+            clientSessionId: "library-test",
+            fields: [
+              {
+                scope: "data_source",
+                pageId: PAGE_ID,
+                dataSourceId: parseDataSourceId(SOURCE_ID),
+                propertyId: parseDataSourcePropertyId("status"),
+                operation: "set",
+                expectedRevision: 1,
+                value: "build",
+              },
+              {
+                scope: "intrinsic",
+                blockId: PAGE_ID,
+                propertyKey: "run.target",
+                operation: "set",
+                expectedRevision: 0,
+                value: "localProject",
+              },
+            ],
+          },
+          { kind: "test" },
+          "app_window",
+          { now: () => NOW },
+        ),
+      );
+      expect(committed.value).toMatchObject({
+        projectId: "project-1",
+        blockMetadataRevisions: { [PAGE_ID]: 5 },
+      });
+      expect(committed.value.fields.map((field) => field.path)).toEqual([
+        "data_source/source-1/page-1/status",
+        "intrinsic/page-1/run.target",
+      ]);
+    });
+  });
+
   test("commits Source paths with CAS, status grouping, exact retry, and coupled evidence", () => {
     withFixture((fixture) => {
       const raw = request(

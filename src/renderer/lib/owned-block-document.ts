@@ -1,6 +1,7 @@
 import type {
   BlockId,
   DocumentId,
+  LibraryOwnedDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import {
@@ -32,6 +33,18 @@ export interface ReadyPageBlockDocumentDescriptor extends OwnedDocumentDescripto
   readonly readiness: "ready";
   readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
 }
+
+export interface ReadyLibraryPageBlockDocumentDescriptor
+  extends LibraryOwnedDocumentDescriptor {
+  readonly ownerType: "page";
+  readonly ownerLifecycle: "active";
+  readonly schemaKey: typeof PAGE_BLOCK_DOCUMENT_SCHEMA_KEY;
+  readonly schemaVersion: typeof PAGE_BLOCK_DOCUMENT_SCHEMA_VERSION;
+  readonly readiness: "ready";
+  readonly sync: { readonly kind: "yjs"; readonly stateVector: Uint8Array };
+}
+
+export const LIBRARY_DOCUMENT_SURFACE_SCOPE_ID = "library" as const;
 
 export interface ReadyRegisteredOwnedBlockDocumentDescriptor extends OwnedDocumentDescriptor {
   readonly ownerLifecycle: "active";
@@ -132,6 +145,16 @@ export const unwrapOwnedBlockDocumentPreparationResult = (
   );
 };
 
+export const unwrapLibraryOwnedBlockDocumentPreparationResult = (
+  result: DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>,
+): LibraryOwnedDocumentDescriptor => {
+  if (result.ok) return result.value;
+  throw new OwnedBlockDocumentBoundaryError(
+    result.error.code,
+    result.error.message,
+  );
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -204,6 +227,63 @@ export const validateOwnedBlockDocumentDescriptor = (
     );
   }
   return registered as ReadyPageBlockDocumentDescriptor;
+};
+
+export const validateLibraryOwnedBlockDocumentDescriptor = (
+  ownerBlockId: string,
+  value: unknown,
+): ReadyLibraryPageBlockDocumentDescriptor => {
+  if (!isExactNonEmptyId(ownerBlockId)) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "invalid_request",
+      "Library Owned Block Document requests require an exact owner Block ID",
+    );
+  }
+  if (!isRecord(value) || Object.hasOwn(value, "projectId")) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "invalid_descriptor",
+      "Library Owned Block Document descriptors must use Library access context",
+    );
+  }
+  if (
+    !isRecord(value.accessContext) ||
+    value.accessContext.kind !== "library" ||
+    Object.keys(value.accessContext).length !== 1
+  ) {
+    throw new OwnedBlockDocumentBoundaryError(
+      "invalid_descriptor",
+      "Library Owned Block Document access context is invalid",
+    );
+  }
+  const { accessContext: _accessContext, ...descriptor } = value;
+  void _accessContext;
+  const ready = validateOwnedBlockDocumentDescriptor(
+    {
+      projectId: LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
+      ownerBlockId,
+    },
+    {
+      ...descriptor,
+      projectId: LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
+    },
+  );
+  const { projectId: _surfaceScopeId, ...libraryDescriptor } = ready;
+  void _surfaceScopeId;
+  return {
+    ...libraryDescriptor,
+    accessContext: { kind: "library" },
+  };
+};
+
+export const toLibraryDocumentSurfaceDescriptor = (
+  descriptor: ReadyLibraryPageBlockDocumentDescriptor,
+): ReadyPageBlockDocumentDescriptor => {
+  const { accessContext: _accessContext, ...surfaceDescriptor } = descriptor;
+  void _accessContext;
+  return {
+    ...surfaceDescriptor,
+    projectId: LIBRARY_DOCUMENT_SURFACE_SCOPE_ID,
+  };
 };
 
 export const validateRegisteredOwnedBlockDocumentDescriptor = (

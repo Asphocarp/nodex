@@ -183,6 +183,29 @@ export type DatabaseModuleReadResultV2 =
   | { readonly ok: false; readonly error: DatabaseModuleErrorV2 };
 
 /**
+ * Local Library reads always name a concrete Database, Data Source, or View.
+ * `project_default` remains an execution-context concept and is excluded.
+ */
+export type LibraryDatabaseReadV2 = Exclude<
+  DatabaseReadV2,
+  { readonly target: { readonly kind: "project_default" } }
+>;
+
+export interface LibraryDatabaseModuleReadRequestV2 {
+  readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
+  readonly read: LibraryDatabaseReadV2;
+}
+
+export interface LibraryDatabaseModuleReadSnapshotV2
+  extends Omit<DatabaseModuleReadSnapshotV2, "projectId"> {
+  readonly accessContext: { readonly kind: "library" };
+}
+
+export type LibraryDatabaseModuleReadResultV2 =
+  | { readonly ok: true; readonly value: LibraryDatabaseModuleReadSnapshotV2 }
+  | { readonly ok: false; readonly error: DatabaseModuleErrorV2 };
+
+/**
  * Property metadata is intentionally separate from a select-like Property's
  * option registry. The current Property schemas have no mutable config outside
  * that registry, so v2 accepts only an empty object here.
@@ -328,6 +351,11 @@ export interface DatabaseApplyV2
   readonly operations: readonly DatabaseApplyOperationV2[];
 }
 
+export type LibraryDatabaseApplyV2 = Omit<
+  DatabaseApplyV2,
+  "projectId" | "actor"
+>;
+
 export interface DatabaseApplyReceiptV2 {
   readonly version: typeof DATABASE_MODULE_V2_CONTRACT_VERSION;
   readonly operationId: string;
@@ -344,6 +372,15 @@ export interface DatabaseApplyReceiptV2 {
   readonly changeLogSeq: number;
   readonly committedAt: string;
 }
+
+export interface LibraryDatabaseApplyReceiptV2
+  extends Omit<DatabaseApplyReceiptV2, "projectId"> {
+  readonly accessContext: { readonly kind: "library" };
+}
+
+export type LibraryDatabaseApplyResultV2 =
+  | { readonly ok: true; readonly value: LibraryDatabaseApplyReceiptV2 }
+  | { readonly ok: false; readonly error: DatabaseModuleErrorV2 };
 
 export type DatabaseApplyResultV2 =
   | { readonly ok: true; readonly value: DatabaseApplyReceiptV2 }

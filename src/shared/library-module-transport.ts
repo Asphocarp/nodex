@@ -1,0 +1,970 @@
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+  parseDataSourceId,
+} from "./database-identities";
+import type { DatabaseViewKind } from "./database-kernel";
+import {
+  DEFAULT_LIBRARY_READ_LIMIT,
+  LIBRARY_MODULE_CONTRACT_VERSION,
+  MAX_LIBRARY_CURSOR_LENGTH,
+  MAX_LIBRARY_QUERY_LENGTH,
+  MAX_LIBRARY_READ_LIMIT,
+  type LibraryCatalogEntry,
+  type LibraryModuleApplyReceipt,
+  type LibraryModuleApplyRequest,
+  type LibraryModuleApplyResult,
+  type LibraryModuleError,
+  type LibraryModuleErrorCode,
+  type LibraryModuleReadRequest,
+  type LibraryModuleReadResult,
+  type LibraryNavigationNode,
+  type LibraryNavigationParent,
+  type LibraryPlacementAnchor,
+  type LibraryReadValue,
+  type LibraryRouteTarget,
+  type LibraryWriteParent,
+} from "./library-module";
+import { assertUuidV7 } from "./uuid-v7";
+
+const MAX_ID_LENGTH = 512;
+const MAX_TITLE_LENGTH = 1_000_000;
+
+const isRecord = (
+  value: unknown,
+): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const record = (
+  value: unknown,
+  label: string,
+): Readonly<Record<string, unknown>> => {
+  if (isRecord(value)) return value;
+  throw new TypeError(`${label} must be an object`);
+};
+
+const exactKeys = (
+  value: Readonly<Record<string, unknown>>,
+  label: string,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): void => {
+  const allowed = new Set([...required, ...optional]);
+  for (const key of required) {
+    if (Object.hasOwn(value, key)) continue;
+    throw new TypeError(`${label}.${key} is required`);
+  }
+  for (const key of Object.keys(value)) {
+    if (allowed.has(key)) continue;
+    throw new TypeError(`${label}.${key} is not supported`);
+  }
+};
+
+const string = (
+  value: unknown,
+  label: string,
+  maximum = MAX_ID_LENGTH,
+  allowEmpty = false,
+): string => {
+  if (
+    typeof value === "string" &&
+    value.length <= maximum &&
+    (allowEmpty || value.length > 0) &&
+    value === value.trim() &&
+    !/[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    return value;
+  }
+  throw new TypeError(`${label} must be a canonical bounded string`);
+};
+
+const optionalString = (
+  value: unknown,
+  label: string,
+  maximum: number,
+): string | undefined =>
+  value === undefined ? undefined : string(value, label, maximum, true);
+
+const revision = (value: unknown, label: string): number => {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  throw new TypeError(`${label} must be a safe non-negative integer`);
+};
+
+const uuidV7 = (value: unknown, label: string): string =>
+  assertUuidV7(string(value, label), label);
+
+const boolean = (value: unknown, label: string): boolean => {
+  if (typeof value === "boolean") return value;
+  throw new TypeError(`${label} must be a boolean`);
+};
+
+const readLimit = (value: unknown, label: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= MAX_LIBRARY_READ_LIMIT
+  ) {
+    return value;
+  }
+  throw new TypeError(
+    `${label} must be between 1 and ${MAX_LIBRARY_READ_LIMIT}`,
+  );
+};
+
+const parseRouteTarget = (
+  value: unknown,
+  label: string,
+): LibraryRouteTarget => {
+  const target = record(value, label);
+  if (target.kind === "page") {
+    exactKeys(target, label, ["kind", "pageId"]);
+    return { kind: "page", pageId: string(target.pageId, `${label}.pageId`) };
+  }
+  if (target.kind === "database") {
+    exactKeys(target, label, ["kind", "databaseId"]);
+    return {
+      kind: "database",
+      databaseId: parseDatabaseId(target.databaseId),
+    };
+  }
+  if (target.kind === "view") {
+    exactKeys(target, label, ["kind", "viewId"]);
+    return { kind: "view", viewId: parseDatabaseViewId(target.viewId) };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
+
+const parseNavigationParent = (
+  value: unknown,
+  label: string,
+): LibraryNavigationParent => {
+  const parent = record(value, label);
+  if (parent.kind === "library") {
+    exactKeys(parent, label, ["kind"]);
+    return { kind: "library" };
+  }
+  if (parent.kind === "page") {
+    exactKeys(parent, label, ["kind", "pageId"]);
+    return { kind: "page", pageId: string(parent.pageId, `${label}.pageId`) };
+  }
+  if (parent.kind === "database") {
+    exactKeys(parent, label, ["kind", "databaseId"]);
+    return {
+      kind: "database",
+      databaseId: parseDatabaseId(parent.databaseId),
+    };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
+
+const parsePlacementAnchor = (
+  value: unknown,
+  label: string,
+): LibraryPlacementAnchor => {
+  const anchor = record(value, label);
+  exactKeys(anchor, label, ["blockId", "expectedLocationRevision"]);
+  return {
+    blockId: string(anchor.blockId, `${label}.blockId`),
+    expectedLocationRevision: revision(
+      anchor.expectedLocationRevision,
+      `${label}.expectedLocationRevision`,
+    ),
+  };
+};
+
+const parseWriteParent = (
+  value: unknown,
+  label: string,
+): LibraryWriteParent => {
+  const parent = record(value, label);
+  const before = parent.before === undefined
+    ? undefined
+    : parsePlacementAnchor(parent.before, `${label}.before`);
+  if (parent.kind === "library") {
+    exactKeys(parent, label, ["kind"], ["before"]);
+    return { kind: "library", ...(before ? { before } : {}) };
+  }
+  if (parent.kind === "page") {
+    exactKeys(
+      parent,
+      label,
+      [
+        "kind",
+        "pageId",
+        "expectedDocumentGeneration",
+        "expectedDocumentHeadSeq",
+      ],
+      ["before"],
+    );
+    const expectedDocumentGeneration = revision(
+      parent.expectedDocumentGeneration,
+      `${label}.expectedDocumentGeneration`,
+    );
+    if (expectedDocumentGeneration < 1) {
+      throw new TypeError(`${label}.expectedDocumentGeneration must be positive`);
+    }
+    return {
+      kind: "page",
+      pageId: string(parent.pageId, `${label}.pageId`),
+      expectedDocumentGeneration,
+      expectedDocumentHeadSeq: revision(
+        parent.expectedDocumentHeadSeq,
+        `${label}.expectedDocumentHeadSeq`,
+      ),
+      ...(before ? { before } : {}),
+    };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
+
+const parseApplyResourceTarget = (
+  value: unknown,
+  label: string,
+):
+  | { readonly kind: "page"; readonly pageId: string }
+  | { readonly kind: "database"; readonly databaseId: ReturnType<typeof parseDatabaseId> } => {
+  const target = record(value, label);
+  if (target.kind === "page") {
+    exactKeys(target, label, ["kind", "pageId"]);
+    return { kind: "page", pageId: string(target.pageId, `${label}.pageId`) };
+  }
+  if (target.kind === "database") {
+    exactKeys(target, label, ["kind", "databaseId"]);
+    return { kind: "database", databaseId: parseDatabaseId(target.databaseId) };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
+
+export const bindLibraryModuleApply = (
+  value: unknown,
+): LibraryModuleApplyRequest => {
+  const request = record(value, "libraryModuleApply");
+  exactKeys(request, "libraryModuleApply", [
+    "version",
+    "operationId",
+    "storeEpoch",
+    "operation",
+  ]);
+  if (request.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
+    throw new TypeError(
+      `libraryModuleApply.version must be ${LIBRARY_MODULE_CONTRACT_VERSION}`,
+    );
+  }
+  const operationId = uuidV7(request.operationId, "operationId");
+  const storeEpoch = string(request.storeEpoch, "libraryModuleApply.storeEpoch");
+  const operation = record(request.operation, "libraryModuleApply.operation");
+  if (operation.kind === "create_page") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "pageId",
+      "documentId",
+      "title",
+      "parent",
+    ]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: "create_page",
+        pageId: uuidV7(operation.pageId, "pageId"),
+        documentId: uuidV7(operation.documentId, "documentId"),
+        title: string(operation.title, "libraryModuleApply.operation.title", MAX_TITLE_LENGTH, true),
+        parent: parseWriteParent(operation.parent, "libraryModuleApply.operation.parent"),
+      },
+    };
+  }
+  if (operation.kind === "create_database") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "databaseId",
+      "dataSourceId",
+      "viewId",
+      "name",
+      "parent",
+    ]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: "create_database",
+        databaseId: parseDatabaseId(uuidV7(operation.databaseId, "databaseId")),
+        dataSourceId: parseDataSourceId(uuidV7(operation.dataSourceId, "dataSourceId")),
+        viewId: parseDatabaseViewId(uuidV7(operation.viewId, "viewId")),
+        name: string(operation.name, "libraryModuleApply.operation.name", 256),
+        parent: parseWriteParent(operation.parent, "libraryModuleApply.operation.parent"),
+      },
+    };
+  }
+  if (operation.kind === "move_block") {
+    exactKeys(operation, "libraryModuleApply.operation", ["kind", "target", "parent"]);
+    const rawTarget = record(operation.target, "libraryModuleApply.operation.target");
+    const expectedLocationRevision = revision(
+      rawTarget.expectedLocationRevision,
+      "libraryModuleApply.operation.target.expectedLocationRevision",
+    );
+    const target = parseApplyResourceTarget(
+      Object.fromEntries(Object.entries(rawTarget).filter(([key]) => key !== "expectedLocationRevision")),
+      "libraryModuleApply.operation.target",
+    );
+    if (expectedLocationRevision < 1) {
+      throw new TypeError("libraryModuleApply.operation.target.expectedLocationRevision must be positive");
+    }
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: "move_block",
+        target: { ...target, expectedLocationRevision },
+        parent: parseWriteParent(operation.parent, "libraryModuleApply.operation.parent"),
+      },
+    };
+  }
+  if (operation.kind === "archive_resource" || operation.kind === "restore_resource") {
+    exactKeys(operation, "libraryModuleApply.operation", ["kind", "target"]);
+    const rawTarget = record(operation.target, "libraryModuleApply.operation.target");
+    const expectedMetadataRevision = revision(
+      rawTarget.expectedMetadataRevision,
+      "libraryModuleApply.operation.target.expectedMetadataRevision",
+    );
+    const target = parseApplyResourceTarget(
+      Object.fromEntries(Object.entries(rawTarget).filter(([key]) => key !== "expectedMetadataRevision")),
+      "libraryModuleApply.operation.target",
+    );
+    if (expectedMetadataRevision < 1) {
+      throw new TypeError("libraryModuleApply.operation.target.expectedMetadataRevision must be positive");
+    }
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        target: { ...target, expectedMetadataRevision },
+      },
+    };
+  }
+  if (operation.kind === "grant_project_access") {
+    exactKeys(operation, "libraryModuleApply.operation", [
+      "kind",
+      "projectId",
+      "target",
+      "access",
+    ]);
+    if (operation.access !== "read" && operation.access !== "read_write") {
+      throw new TypeError("libraryModuleApply.operation.access is unsupported");
+    }
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: "grant_project_access",
+        projectId: string(operation.projectId, "libraryModuleApply.operation.projectId"),
+        target: parseApplyResourceTarget(
+          operation.target,
+          "libraryModuleApply.operation.target",
+        ),
+        access: operation.access,
+      },
+    };
+  }
+  throw new TypeError("libraryModuleApply.operation.kind is unsupported");
+};
+
+const parseKinds = (
+  value: unknown,
+  label: string,
+): readonly ("page" | "database")[] | undefined => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 2) {
+    throw new TypeError(`${label} must be a bounded array`);
+  }
+  const parsed = value.map((entry) => {
+    if (entry === "page" || entry === "database") return entry;
+    throw new TypeError(`${label} contains an unsupported kind`);
+  });
+  if (new Set(parsed).size !== parsed.length) {
+    throw new TypeError(`${label} must contain unique kinds`);
+  }
+  return parsed;
+};
+
+export const bindLibraryModuleRead = (
+  value: unknown,
+): LibraryModuleReadRequest => {
+  const request = record(value, "libraryModuleRead");
+  exactKeys(request, "libraryModuleRead", ["version", "read"]);
+  if (request.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
+    throw new TypeError(
+      `libraryModuleRead.version must be ${LIBRARY_MODULE_CONTRACT_VERSION}`,
+    );
+  }
+  const read = record(request.read, "libraryModuleRead.read");
+  if (read.mode === "metadata") {
+    exactKeys(read, "libraryModuleRead.read", ["mode"]);
+    return { version: LIBRARY_MODULE_CONTRACT_VERSION, read: { mode: "metadata" } };
+  }
+  if (read.mode === "children") {
+    exactKeys(
+      read,
+      "libraryModuleRead.read",
+      ["mode", "parent"],
+      ["cursor", "limit", "forceIncludeTarget"],
+    );
+    const cursor = optionalString(
+      read.cursor,
+      "libraryModuleRead.read.cursor",
+      MAX_LIBRARY_CURSOR_LENGTH,
+    );
+    const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
+    const forceIncludeTarget = read.forceIncludeTarget === undefined
+      ? undefined
+      : parseRouteTarget(
+          read.forceIncludeTarget,
+          "libraryModuleRead.read.forceIncludeTarget",
+        );
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "children",
+        parent: parseNavigationParent(
+          read.parent,
+          "libraryModuleRead.read.parent",
+        ),
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(limit === undefined ? {} : { limit }),
+        ...(forceIncludeTarget === undefined ? {} : { forceIncludeTarget }),
+      },
+    };
+  }
+  if (read.mode === "path") {
+    exactKeys(read, "libraryModuleRead.read", ["mode", "target"]);
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "path",
+        target: parseRouteTarget(read.target, "libraryModuleRead.read.target"),
+      },
+    };
+  }
+  if (read.mode === "catalog") {
+    exactKeys(
+      read,
+      "libraryModuleRead.read",
+      ["mode"],
+      ["query", "kinds", "lifecycle", "cursor", "limit"],
+    );
+    const query = optionalString(
+      read.query,
+      "libraryModuleRead.read.query",
+      MAX_LIBRARY_QUERY_LENGTH,
+    );
+    const kinds = parseKinds(read.kinds, "libraryModuleRead.read.kinds");
+    if (
+      read.lifecycle !== undefined &&
+      read.lifecycle !== "active" &&
+      read.lifecycle !== "archived"
+    ) {
+      throw new TypeError("libraryModuleRead.read.lifecycle is unsupported");
+    }
+    const cursor = optionalString(
+      read.cursor,
+      "libraryModuleRead.read.cursor",
+      MAX_LIBRARY_CURSOR_LENGTH,
+    );
+    const limit = readLimit(read.limit, "libraryModuleRead.read.limit");
+    return {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      read: {
+        mode: "catalog",
+        ...(query === undefined ? {} : { query }),
+        ...(kinds === undefined ? {} : { kinds }),
+        ...(read.lifecycle === undefined
+          ? {}
+          : { lifecycle: read.lifecycle }),
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(limit === undefined ? {} : { limit }),
+      },
+    };
+  }
+  throw new TypeError("libraryModuleRead.read.mode is unsupported");
+};
+
+const parseViewKind = (value: unknown, label: string): DatabaseViewKind => {
+  if (
+    value === "kanban" ||
+    value === "list" ||
+    value === "calendar" ||
+    value === "canvas"
+  ) {
+    return value;
+  }
+  throw new TypeError(`${label} is unsupported`);
+};
+
+const parseNavigationNode = (
+  value: unknown,
+  label: string,
+): LibraryNavigationNode => {
+  const node = record(value, label);
+  if (node.kind === "page") {
+    exactKeys(node, label, [
+      "kind",
+      "pageId",
+      "title",
+      "hasChildren",
+      "parentRevision",
+      "metadataRevision",
+      "documentGeneration",
+      "documentHeadSeq",
+      "updatedAt",
+    ]);
+    return {
+      kind: "page",
+      pageId: string(node.pageId, `${label}.pageId`),
+      title: string(node.title, `${label}.title`, MAX_TITLE_LENGTH, true),
+      hasChildren: boolean(node.hasChildren, `${label}.hasChildren`),
+      parentRevision: revision(node.parentRevision, `${label}.parentRevision`),
+      metadataRevision: revision(
+        node.metadataRevision,
+        `${label}.metadataRevision`,
+      ),
+      documentGeneration: revision(
+        node.documentGeneration,
+        `${label}.documentGeneration`,
+      ),
+      documentHeadSeq: revision(
+        node.documentHeadSeq,
+        `${label}.documentHeadSeq`,
+      ),
+      updatedAt: string(node.updatedAt, `${label}.updatedAt`),
+    };
+  }
+  if (node.kind === "database") {
+    exactKeys(node, label, [
+      "kind",
+      "databaseId",
+      "title",
+      "defaultViewId",
+      "hasMultipleViews",
+      "metadataRevision",
+      "locationRevision",
+      "updatedAt",
+    ]);
+    return {
+      kind: "database",
+      databaseId: parseDatabaseId(node.databaseId),
+      title: string(node.title, `${label}.title`, 256),
+      defaultViewId: parseDatabaseViewId(node.defaultViewId),
+      hasMultipleViews: boolean(
+        node.hasMultipleViews,
+        `${label}.hasMultipleViews`,
+      ),
+      metadataRevision: revision(
+        node.metadataRevision,
+        `${label}.metadataRevision`,
+      ),
+      locationRevision: revision(
+        node.locationRevision,
+        `${label}.locationRevision`,
+      ),
+      updatedAt: string(node.updatedAt, `${label}.updatedAt`),
+    };
+  }
+  if (node.kind === "view") {
+    exactKeys(node, label, [
+      "kind",
+      "viewId",
+      "databaseId",
+      "dataSourceId",
+      "title",
+      "viewKind",
+      "isDefault",
+      "revision",
+    ]);
+    return {
+      kind: "view",
+      viewId: parseDatabaseViewId(node.viewId),
+      databaseId: parseDatabaseId(node.databaseId),
+      dataSourceId: parseDataSourceId(node.dataSourceId),
+      title: string(node.title, `${label}.title`, 256),
+      viewKind: parseViewKind(node.viewKind, `${label}.viewKind`),
+      isDefault: boolean(node.isDefault, `${label}.isDefault`),
+      revision: revision(node.revision, `${label}.revision`),
+    };
+  }
+  throw new TypeError(`${label}.kind is unsupported`);
+};
+
+const parseCatalogEntry = (
+  value: unknown,
+  label: string,
+): LibraryCatalogEntry => {
+  const entry = record(value, label);
+  exactKeys(entry, label, [
+    "target",
+    "title",
+    "kind",
+    "lifecycle",
+    "locationLabel",
+    "updatedAt",
+    "locationRevision",
+    "metadataRevision",
+  ]);
+  const target = parseRouteTarget(entry.target, `${label}.target`);
+  if (target.kind === "view") {
+    throw new TypeError(`${label}.target must identify a Page or Database`);
+  }
+  if (entry.kind !== "page" && entry.kind !== "database") {
+    throw new TypeError(`${label}.kind is unsupported`);
+  }
+  if (target.kind !== entry.kind) {
+    throw new TypeError(`${label}.target kind must match entry kind`);
+  }
+  if (entry.lifecycle !== "active" && entry.lifecycle !== "archived") {
+    throw new TypeError(`${label}.lifecycle is unsupported`);
+  }
+  return {
+    target,
+    title: string(entry.title, `${label}.title`, MAX_TITLE_LENGTH, true),
+    kind: entry.kind,
+    lifecycle: entry.lifecycle,
+    locationLabel: string(
+      entry.locationLabel,
+      `${label}.locationLabel`,
+      MAX_TITLE_LENGTH,
+      true,
+    ),
+    updatedAt: string(entry.updatedAt, `${label}.updatedAt`),
+    locationRevision: revision(
+      entry.locationRevision,
+      `${label}.locationRevision`,
+    ),
+    metadataRevision: revision(
+      entry.metadataRevision,
+      `${label}.metadataRevision`,
+    ),
+  };
+};
+
+const parseReadValue = (value: unknown): LibraryReadValue => {
+  const readValue = record(value, "libraryModuleReadResult.value.value");
+  if (readValue.kind === "metadata") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", ["kind"]);
+    return { kind: "metadata" };
+  }
+  if (readValue.kind === "children") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", [
+      "kind",
+      "parent",
+      "items",
+      "nextCursor",
+      "hasMore",
+      "total",
+    ]);
+    if (!Array.isArray(readValue.items)) {
+      throw new TypeError("library children items must be an array");
+    }
+    const nextCursor = readValue.nextCursor === null
+      ? null
+      : string(
+          readValue.nextCursor,
+          "libraryModuleReadResult.value.value.nextCursor",
+          MAX_LIBRARY_CURSOR_LENGTH,
+        );
+    return {
+      kind: "children",
+      parent: parseNavigationParent(
+        readValue.parent,
+        "libraryModuleReadResult.value.value.parent",
+      ),
+      items: readValue.items.map((entry, index) =>
+        parseNavigationNode(entry, `library children items[${index}]`),
+      ),
+      nextCursor,
+      hasMore: boolean(readValue.hasMore, "library children hasMore"),
+      total: revision(readValue.total, "library children total"),
+    };
+  }
+  if (readValue.kind === "path") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", [
+      "kind",
+      "target",
+      "nodes",
+    ]);
+    if (!Array.isArray(readValue.nodes)) {
+      throw new TypeError("library path nodes must be an array");
+    }
+    return {
+      kind: "path",
+      target: parseRouteTarget(
+        readValue.target,
+        "libraryModuleReadResult.value.value.target",
+      ),
+      nodes: readValue.nodes.map((entry, index) =>
+        parseNavigationNode(entry, `library path nodes[${index}]`),
+      ),
+    };
+  }
+  if (readValue.kind === "catalog") {
+    exactKeys(readValue, "libraryModuleReadResult.value.value", [
+      "kind",
+      "items",
+      "nextCursor",
+      "hasMore",
+      "total",
+    ]);
+    if (!Array.isArray(readValue.items)) {
+      throw new TypeError("library catalog items must be an array");
+    }
+    const nextCursor = readValue.nextCursor === null
+      ? null
+      : string(
+          readValue.nextCursor,
+          "libraryModuleReadResult.value.value.nextCursor",
+          MAX_LIBRARY_CURSOR_LENGTH,
+        );
+    return {
+      kind: "catalog",
+      items: readValue.items.map((entry, index) =>
+        parseCatalogEntry(entry, `library catalog items[${index}]`),
+      ),
+      nextCursor,
+      hasMore: boolean(readValue.hasMore, "library catalog hasMore"),
+      total: revision(readValue.total, "library catalog total"),
+    };
+  }
+  throw new TypeError("libraryModuleReadResult value kind is unsupported");
+};
+
+const parseErrorCode = (value: unknown): LibraryModuleErrorCode => {
+  if (
+    value === "invalid_request" ||
+    value === "store_epoch_mismatch" ||
+    value === "identity_conflict" ||
+    value === "resource_not_found" ||
+    value === "revision_conflict" ||
+    value === "invalid_parent" ||
+    value === "hierarchy_cycle" ||
+    value === "project_inactive" ||
+    value === "primary_database_bound" ||
+    value === "document_conflict" ||
+    value === "stale_cursor" ||
+    value === "state_corrupt" ||
+    value === "unknown"
+  ) {
+    return value;
+  }
+  throw new TypeError("libraryModuleReadResult.error.code is unsupported");
+};
+
+export const parseLibraryModuleReadResult = (
+  value: unknown,
+): LibraryModuleReadResult => {
+  const result = record(value, "libraryModuleReadResult");
+  if (result.ok === false) {
+    exactKeys(result, "libraryModuleReadResult", ["ok", "error"]);
+    const error = record(result.error, "libraryModuleReadResult.error");
+    exactKeys(error, "libraryModuleReadResult.error", [
+      "code",
+      "message",
+      "retryable",
+    ]);
+    return {
+      ok: false,
+      error: {
+        code: parseErrorCode(error.code),
+        message: string(error.message, "libraryModuleReadResult.error.message", 4096),
+        retryable: boolean(
+          error.retryable,
+          "libraryModuleReadResult.error.retryable",
+        ),
+      },
+    };
+  }
+  if (result.ok !== true) {
+    throw new TypeError("libraryModuleReadResult.ok must be a boolean");
+  }
+  exactKeys(result, "libraryModuleReadResult", ["ok", "value"]);
+  const snapshot = record(result.value, "libraryModuleReadResult.value");
+  exactKeys(snapshot, "libraryModuleReadResult.value", [
+    "version",
+    "profileId",
+    "libraryId",
+    "storeEpoch",
+    "changeLogSeq",
+    "value",
+  ]);
+  if (snapshot.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
+    throw new TypeError("libraryModuleReadResult.value.version is unsupported");
+  }
+  return {
+    ok: true,
+    value: {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      profileId: string(snapshot.profileId, "libraryModuleReadResult.value.profileId"),
+      libraryId: string(snapshot.libraryId, "libraryModuleReadResult.value.libraryId"),
+      storeEpoch: string(snapshot.storeEpoch, "libraryModuleReadResult.value.storeEpoch"),
+      changeLogSeq: revision(
+        snapshot.changeLogSeq,
+        "libraryModuleReadResult.value.changeLogSeq",
+      ),
+      value: parseReadValue(snapshot.value),
+    },
+  };
+};
+
+const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
+  const receipt = record(value, "libraryModuleApplyResult.value");
+  exactKeys(receipt, "libraryModuleApplyResult.value", [
+    "version",
+    "operationId",
+    "storeEpoch",
+    "libraryId",
+    "operationKind",
+    "duplicate",
+    "didMutate",
+    "createdTarget",
+    "affectedParentKeys",
+    "affectedPageIds",
+    "affectedDatabaseIds",
+    "affectedViewIds",
+    "committedRevisions",
+    "changeLogSeq",
+    "committedAt",
+  ]);
+  if (receipt.version !== LIBRARY_MODULE_CONTRACT_VERSION) {
+    throw new TypeError("libraryModuleApplyResult.value.version is unsupported");
+  }
+  const operationKinds = new Set([
+    "create_page",
+    "create_database",
+    "move_block",
+    "archive_resource",
+    "restore_resource",
+    "grant_project_access",
+  ]);
+  if (typeof receipt.operationKind !== "string" || !operationKinds.has(receipt.operationKind)) {
+    throw new TypeError("libraryModuleApplyResult.value.operationKind is unsupported");
+  }
+  const parseStringList = (candidate: unknown, label: string): readonly string[] => {
+    if (!Array.isArray(candidate) || candidate.some((entry) => typeof entry !== "string")) {
+      throw new TypeError(`${label} must be a string array`);
+    }
+    const values = candidate.map((entry, index) => string(entry, `${label}[${index}]`));
+    if (new Set(values).size !== values.length) {
+      throw new TypeError(`${label} must contain unique values`);
+    }
+    return values;
+  };
+  const rawRevisions = record(
+    receipt.committedRevisions,
+    "libraryModuleApplyResult.value.committedRevisions",
+  );
+  const committedRevisions = Object.fromEntries(
+    Object.entries(rawRevisions).map(([key, candidate]) => [
+      string(key, "libraryModuleApplyResult.value.committedRevisions key"),
+      revision(candidate, `libraryModuleApplyResult.value.committedRevisions.${key}`),
+    ]),
+  );
+  const rawCreatedTarget = receipt.createdTarget;
+  const createdTarget = rawCreatedTarget === null
+    ? null
+    : parseRouteTarget(rawCreatedTarget, "libraryModuleApplyResult.value.createdTarget");
+  if (createdTarget?.kind === "view") {
+    throw new TypeError("libraryModuleApplyResult.value.createdTarget cannot be a View");
+  }
+  return {
+    version: LIBRARY_MODULE_CONTRACT_VERSION,
+    operationId: string(receipt.operationId, "libraryModuleApplyResult.value.operationId"),
+    storeEpoch: string(receipt.storeEpoch, "libraryModuleApplyResult.value.storeEpoch"),
+    libraryId: string(receipt.libraryId, "libraryModuleApplyResult.value.libraryId"),
+    operationKind: receipt.operationKind as LibraryModuleApplyReceipt["operationKind"],
+    duplicate: boolean(receipt.duplicate, "libraryModuleApplyResult.value.duplicate"),
+    didMutate: boolean(receipt.didMutate, "libraryModuleApplyResult.value.didMutate"),
+    createdTarget,
+    affectedParentKeys: parseStringList(
+      receipt.affectedParentKeys,
+      "libraryModuleApplyResult.value.affectedParentKeys",
+    ),
+    affectedPageIds: parseStringList(
+      receipt.affectedPageIds,
+      "libraryModuleApplyResult.value.affectedPageIds",
+    ),
+    affectedDatabaseIds: parseStringList(
+      receipt.affectedDatabaseIds,
+      "libraryModuleApplyResult.value.affectedDatabaseIds",
+    ).map(parseDatabaseId),
+    affectedViewIds: parseStringList(
+      receipt.affectedViewIds,
+      "libraryModuleApplyResult.value.affectedViewIds",
+    ).map(parseDatabaseViewId),
+    committedRevisions,
+    changeLogSeq: revision(receipt.changeLogSeq, "libraryModuleApplyResult.value.changeLogSeq"),
+    committedAt: string(receipt.committedAt, "libraryModuleApplyResult.value.committedAt"),
+  };
+};
+
+export const parseLibraryModuleApplyResult = (
+  value: unknown,
+): LibraryModuleApplyResult => {
+  const result = record(value, "libraryModuleApplyResult");
+  if (result.ok === false) {
+    exactKeys(result, "libraryModuleApplyResult", ["ok", "error"]);
+    const error = record(result.error, "libraryModuleApplyResult.error");
+    exactKeys(error, "libraryModuleApplyResult.error", [
+      "code",
+      "message",
+      "retryable",
+    ]);
+    return {
+      ok: false,
+      error: {
+        code: parseErrorCode(error.code),
+        message: string(error.message, "libraryModuleApplyResult.error.message", 4096),
+        retryable: boolean(error.retryable, "libraryModuleApplyResult.error.retryable"),
+      },
+    };
+  }
+  if (result.ok !== true) {
+    throw new TypeError("libraryModuleApplyResult.ok must be a boolean");
+  }
+  exactKeys(result, "libraryModuleApplyResult", ["ok", "value"]);
+  return { ok: true, value: parseApplyReceipt(result.value) };
+};
+
+export const libraryModuleFailure = (
+  code: LibraryModuleErrorCode,
+  message: string,
+  retryable = false,
+): LibraryModuleError => ({ code, message, retryable });
+
+export const libraryModuleHttpStatus = (
+  error: LibraryModuleError,
+): 400 | 404 | 409 | 500 => {
+  if (error.code === "invalid_request") return 400;
+  if (error.code === "resource_not_found") return 404;
+  if (
+    error.code === "stale_cursor" ||
+    error.code === "store_epoch_mismatch" ||
+    error.code === "identity_conflict" ||
+    error.code === "revision_conflict" ||
+    error.code === "invalid_parent" ||
+    error.code === "hierarchy_cycle" ||
+    error.code === "project_inactive" ||
+    error.code === "primary_database_bound" ||
+    error.code === "document_conflict"
+  ) return 409;
+  if (error.code === "state_corrupt") return 500;
+  return 500;
+};
+
+export const resolveLibraryReadLimit = (limit: number | undefined): number =>
+  limit ?? DEFAULT_LIBRARY_READ_LIMIT;

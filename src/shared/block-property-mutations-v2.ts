@@ -71,6 +71,11 @@ export interface BlockPropertyMutationRequestV2 {
   readonly fields: readonly BlockPropertyFieldMutationV2[];
 }
 
+export type LibraryBlockPropertyMutationRequestV2 = Omit<
+  BlockPropertyMutationRequestV2,
+  "projectId" | "actor"
+>;
+
 export interface IntrinsicBlockPropertyMutationFieldResultV2 {
   readonly path: string;
   readonly scope: "intrinsic";
@@ -108,6 +113,11 @@ export interface BlockPropertyMutationResultV2 {
   readonly committedAt: string;
 }
 
+export interface LibraryBlockPropertyMutationResultV2
+  extends Omit<BlockPropertyMutationResultV2, "projectId"> {
+  readonly accessContext: { readonly kind: "library" };
+}
+
 export type BlockPropertyMutationErrorCodeV2 =
   | "invalid_property_mutation_request"
   | "store_epoch_mismatch"
@@ -137,6 +147,10 @@ export interface BlockPropertyMutationCommandErrorV2 {
 
 export type BlockPropertyMutationCommandResultV2 =
   | { readonly ok: true; readonly value: BlockPropertyMutationResultV2 }
+  | { readonly ok: false; readonly error: BlockPropertyMutationCommandErrorV2 };
+
+export type LibraryBlockPropertyMutationCommandResultV2 =
+  | { readonly ok: true; readonly value: LibraryBlockPropertyMutationResultV2 }
   | { readonly ok: false; readonly error: BlockPropertyMutationCommandErrorV2 };
 
 export class BlockPropertyMutationV2ContractError extends Error {
@@ -1017,4 +1031,84 @@ export const parseBlockPropertyMutationCommandResultV2 = (
   throw new BlockPropertyMutationV2ContractError(
     "propertyMutationCommandResultV2.ok must be a boolean",
   );
+};
+
+export const toLibraryBlockPropertyMutationCommandResultV2 = (
+  result: BlockPropertyMutationCommandResultV2,
+): LibraryBlockPropertyMutationCommandResultV2 => {
+  if (!result.ok) return result;
+  const { projectId: _privateProjectId, ...receipt } = result.value;
+  void _privateProjectId;
+  return {
+    ok: true,
+    value: {
+      ...receipt,
+      accessContext: { kind: "library" },
+    },
+  };
+};
+
+export const parseLibraryBlockPropertyMutationCommandResultV2 = (
+  value: unknown,
+): LibraryBlockPropertyMutationCommandResultV2 => {
+  const result = readRecord(value, "libraryPropertyMutationCommandResultV2");
+  if (result.ok === false) {
+    assertExactKeys(result, "libraryPropertyMutationCommandResultV2", [
+      "ok",
+      "error",
+    ]);
+    return {
+      ok: false,
+      error: parseBlockPropertyMutationCommandErrorV2(result.error),
+    };
+  }
+  if (result.ok !== true) {
+    throw new BlockPropertyMutationV2ContractError(
+      "libraryPropertyMutationCommandResultV2.ok must be a boolean",
+    );
+  }
+  assertExactKeys(result, "libraryPropertyMutationCommandResultV2", [
+    "ok",
+    "value",
+  ]);
+  const receipt = readRecord(
+    result.value,
+    "libraryPropertyMutationCommandResultV2.value",
+  );
+  assertExactKeys(receipt, "libraryPropertyMutationCommandResultV2.value", [
+    "version",
+    "mutationId",
+    "accessContext",
+    "storeEpoch",
+    "duplicate",
+    "fields",
+    "blockMetadataRevisions",
+    "changeLogSeq",
+    "committedAt",
+  ]);
+  const accessContext = readRecord(
+    receipt.accessContext,
+    "libraryPropertyMutationCommandResultV2.value.accessContext",
+  );
+  assertExactKeys(
+    accessContext,
+    "libraryPropertyMutationCommandResultV2.value.accessContext",
+    ["kind"],
+  );
+  if (accessContext.kind !== "library") {
+    throw new BlockPropertyMutationV2ContractError(
+      "Library property mutation access context must be library",
+    );
+  }
+  const { accessContext: _libraryAccessContext, ...standardReceipt } = receipt;
+  void _libraryAccessContext;
+  const parsed = parseBlockPropertyMutationCommandResultV2({
+    ok: true,
+    value: {
+      ...standardReceipt,
+      projectId: "local-library",
+    },
+  });
+  if (!parsed.ok) return parsed;
+  return toLibraryBlockPropertyMutationCommandResultV2(parsed);
 };

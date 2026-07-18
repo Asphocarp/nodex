@@ -24,6 +24,10 @@ import {
   type DatabaseModuleErrorV2,
   type DatabaseModuleReadRequestV2,
   type DatabaseModuleReadResultV2,
+  type LibraryDatabaseModuleReadRequestV2,
+  type LibraryDatabaseModuleReadResultV2,
+  type LibraryDatabaseApplyV2,
+  type LibraryDatabaseApplyResultV2,
   type DatabaseModuleV2,
   type DatabaseReadValueV2,
   type DatabaseViewQueryResultV2,
@@ -95,6 +99,13 @@ import {
   authorizeNodexAgentResourceInDatabase,
   authorizeProjectResourceInDatabase,
 } from "./project-resource-grants";
+import {
+  authorizeContentResourceInDatabase,
+  resolveContentResourceAuthorityInDatabase,
+  type ContentResourceAuthority,
+} from "./content-resource-authority";
+import { libraryContentAccess } from "../../shared/content-access-context";
+import { requireLocalProfileLibraryInDatabase } from "./local-profile-library";
 
 const CANONICAL_DATABASE_SCHEMA_VERSION = 82;
 
@@ -109,6 +120,10 @@ interface DatabaseModuleReadAuthorityOptions {
   readonly authority?: FrozenNodexAgentTurnAuthority;
   readonly resourceAccess?: NodexAgentResourceAccessOverlay;
   readonly callId?: string;
+  readonly contentAuthority?: Extract<
+    ContentResourceAuthority,
+    { readonly kind: "local_user_library" }
+  >;
 }
 
 interface ContainerRow {
@@ -737,7 +752,13 @@ const readCatalog = (
       kind: "database" as const,
       databaseId: candidate.block_id,
     };
-    const authorization = options.authority
+    const authorization = options.contentAuthority
+      ? authorizeContentResourceInDatabase(database, {
+          authority: options.contentAuthority,
+          resource,
+          action: "read",
+        })
+      : options.authority
       ? authorizeNodexAgentResourceInDatabase(database, {
           authority: options.authority,
           resource,
@@ -753,7 +774,10 @@ const readCatalog = (
           resource,
           action: "read",
         });
-    if (!authorization.allowed) return [];
+    if (
+      !("allowed" in authorization) ||
+      !authorization.allowed
+    ) return [];
     const descriptor = readDatabaseContainerDescriptorV2InDatabase(
       database,
       candidate.block_id,
@@ -890,7 +914,13 @@ export const readDatabaseModuleV2 = (
           },
         };
       }
-      const authorization = options.authority
+      const authorization = options.contentAuthority
+        ? authorizeContentResourceInDatabase(database, {
+            authority: options.contentAuthority,
+            resource,
+            action: "read",
+          })
+        : options.authority
         ? authorizeNodexAgentResourceInDatabase(database, {
             authority: options.authority,
             resource,
@@ -906,12 +936,15 @@ export const readDatabaseModuleV2 = (
             resource,
             action: "read",
           });
-      if (!authorization.allowed) {
+      if (!("allowed" in authorization) || !authorization.allowed) {
+        const reason = "reason" in authorization
+          ? authorization.reason
+          : authorization.authorization.reason;
         return {
           ok: false,
           error: {
             code: "authorization_denied",
-            message: `Database read denied: ${authorization.reason}`,
+            message: `Database read denied: ${reason}`,
             retryable: false,
           },
         };
@@ -970,6 +1003,63 @@ export const readDatabaseModuleV2 = (
   }
 };
 
+export const readLibraryDatabaseModuleV2 = (
+  database: Database.Database,
+  input: LibraryDatabaseModuleReadRequestV2,
+  actor: "app_window" | "http_loopback",
+): LibraryDatabaseModuleReadResultV2 => {
+  const local = requireLocalProfileLibraryInDatabase(database);
+  const compatibilityProject = database.prepare(`
+    SELECT id FROM projects
+    WHERE library_id = ?
+    ORDER BY created, id
+    LIMIT 1
+  `).get(local.libraryId) as { readonly id: string } | undefined;
+  if (!compatibilityProject) {
+    return {
+      ok: false,
+      error: {
+        code: "project_not_found",
+        message: "The local Library has no compatibility storage Project",
+        retryable: false,
+      },
+    };
+  }
+  const authority = resolveContentResourceAuthorityInDatabase(database, {
+    context: libraryContentAccess,
+    actor,
+  });
+  if (authority.kind !== "local_user_library") {
+    return {
+      ok: false,
+      error: {
+        code: "authorization_denied",
+        message: "Local Library authority could not be resolved",
+        retryable: false,
+      },
+    };
+  }
+  const result = readDatabaseModuleV2(
+    database,
+    {
+      version: input.version,
+      projectId: compatibilityProject.id,
+      read: input.read,
+    },
+    { contentAuthority: authority },
+  );
+  if (!result.ok) return result;
+  const { projectId: _compatibilityProjectId, ...snapshot } = result.value;
+  void _compatibilityProjectId;
+  return {
+    ok: true,
+    value: {
+      ...snapshot,
+      accessContext: { kind: "library" },
+    },
+  };
+};
+
 const makeApplyError = (
   code: DatabaseModuleErrorV2["code"],
   message: string,
@@ -1019,19 +1109,36 @@ const requireAuthorization = (
   request: DatabaseApplyV2,
   resource: LibraryResource,
   action: ProjectResourceAction,
+  options: DatabaseModuleApplyAuthorityOptions,
 ): void => {
-  const authorization = authorizeProjectResourceInDatabase(database, {
-    projectId: request.projectId,
-    resource,
-    action,
-  });
-  if (authorization.allowed) return;
+  const authorization = options.contentAuthority
+    ? authorizeContentResourceInDatabase(database, {
+        authority: options.contentAuthority,
+        resource,
+        action,
+      })
+    : authorizeProjectResourceInDatabase(database, {
+        projectId: request.projectId,
+        resource,
+        action,
+      });
+  if ("allowed" in authorization && authorization.allowed) return;
+  const reason = "reason" in authorization
+    ? authorization.reason
+    : authorization.authorization.reason;
   rejectApply(
     "authorization_denied",
-    `${action} denied for ${resource.kind}: ${authorization.reason}`,
+    `${action} denied for ${resource.kind}: ${reason}`,
     request,
   );
 };
+
+interface DatabaseModuleApplyAuthorityOptions {
+  readonly contentAuthority?: Extract<
+    ContentResourceAuthority,
+    { readonly kind: "local_user_library" }
+  >;
+}
 
 const requireRevision = (
   request: DatabaseApplyV2,
@@ -1432,6 +1539,7 @@ const applyPutProperty = (
   operation: PutDataSourcePropertyOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   const source = requireApplyResource(
     readSourceRow(database, operation.dataSourceId),
@@ -1450,6 +1558,7 @@ const applyPutProperty = (
     request,
     { kind: "data_source", dataSourceId: operation.dataSourceId },
     "manage_schema",
+    authorityOptions,
   );
   requireRevision(
     request,
@@ -1558,6 +1667,7 @@ const applyDeleteProperty = (
   operation: DeleteDataSourcePropertyOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   const source = requireApplyResource(
     readSourceRow(database, operation.dataSourceId),
@@ -1588,6 +1698,7 @@ const applyDeleteProperty = (
     request,
     { kind: "data_source", dataSourceId: operation.dataSourceId },
     "manage_schema",
+    authorityOptions,
   );
   requireRevision(
     request,
@@ -1755,6 +1866,7 @@ const applyPutView = (
   operation: PutDatabaseViewOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   const container = requireApplyResource(
     readContainerRow(database, operation.databaseId),
@@ -1782,6 +1894,7 @@ const applyPutView = (
     request,
     { kind: "database", databaseId: operation.databaseId },
     "manage_views",
+    authorityOptions,
   );
   const existing = readViewRow(database, operation.viewId);
   requireRevision(
@@ -1910,6 +2023,7 @@ const applyDeleteView = (
   operation: DeleteDatabaseViewOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   const container = requireApplyResource(
     readContainerRow(database, operation.databaseId),
@@ -1936,6 +2050,7 @@ const applyDeleteView = (
     request,
     { kind: "database", databaseId: operation.databaseId },
     "manage_views",
+    authorityOptions,
   );
   requireRevision(
     request,
@@ -1992,6 +2107,7 @@ const applyPutOption = (
   operation: PutDataSourceOptionOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   const source = requireApplyResource(
     readSourceRow(database, operation.dataSourceId),
@@ -2010,6 +2126,7 @@ const applyPutOption = (
     request,
     { kind: "data_source", dataSourceId: operation.dataSourceId },
     "manage_schema",
+    authorityOptions,
   );
   const property = requireApplyResource(
     readPropertyRow(database, operation.dataSourceId, operation.propertyId),
@@ -2084,6 +2201,7 @@ const applyDeleteOption = (
   operation: DeleteDataSourceOptionOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   const source = requireApplyResource(
     readSourceRow(database, operation.dataSourceId),
@@ -2102,6 +2220,7 @@ const applyDeleteOption = (
     request,
     { kind: "data_source", dataSourceId: operation.dataSourceId },
     "manage_schema",
+    authorityOptions,
   );
   const property = requireApplyResource(
     readPropertyRow(database, operation.dataSourceId, operation.propertyId),
@@ -2250,12 +2369,14 @@ const applySetValue = (
   operation: SetDataSourcePageValueOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   requireAuthorization(
     database,
     request,
     { kind: "page", pageId: operation.pageId },
     "write",
+    authorityOptions,
   );
   const source = requireApplyResource(
     readSourceRow(database, operation.dataSourceId),
@@ -2392,12 +2513,14 @@ const applyAddRemoveValue = (
   >,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   requireAuthorization(
     database,
     request,
     { kind: "page", pageId: operation.pageId },
     "write",
+    authorityOptions,
   );
   const property = requireApplyResource(
     readPropertyRow(database, operation.dataSourceId, operation.propertyId),
@@ -2471,6 +2594,7 @@ const applyAddRemoveValue = (
     },
     now,
     accumulator,
+    authorityOptions,
   );
 };
 
@@ -2948,6 +3072,7 @@ const applyTransferPage = (
   now: string,
   accumulator: ApplyAccumulator,
   allowPageParentTransition = false,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions = {},
 ): void => {
   const page = requireApplyResource(
     database.prepare(`
@@ -2981,6 +3106,7 @@ const applyTransferPage = (
       request,
       { kind: "page", pageId: operation.pageId },
       "move",
+      authorityOptions,
     );
   }
   requireRevision(
@@ -3093,6 +3219,7 @@ const applyTransferPage = (
         request,
         { kind: "page", pageId: targetPage.block_id },
         "create_child",
+        authorityOptions,
       );
     }
     requireAcyclicPageParent(
@@ -3134,6 +3261,7 @@ const applyTransferPage = (
         request,
         { kind: "data_source", dataSourceId: operation.target.dataSourceId },
         "create_child",
+        authorityOptions,
       );
     }
     if (activeMembership?.data_source_id === targetSource.id) {
@@ -3468,6 +3596,7 @@ const applyPositionRun = (
   }>,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   const pageIds = operation.pages.map((page) => page.pageId);
   if (new Set(pageIds).size !== pageIds.length) {
@@ -3502,6 +3631,7 @@ const applyPositionRun = (
     request,
     { kind: "view", viewId: operation.viewId },
     "read",
+    authorityOptions,
   );
   const validated = operation.pages.map((entry) => {
     requireAuthorization(
@@ -3509,6 +3639,7 @@ const applyPositionRun = (
       request,
       { kind: "page", pageId: entry.pageId },
       "write",
+      authorityOptions,
     );
     const membership = requireApplyResource(
       readActiveMembership(database, entry.pageId, view.dataSourceId),
@@ -3674,6 +3805,7 @@ const applyPositionPage = (
   operation: PositionDatabaseViewPageOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void =>
   applyPositionRun(
     database,
@@ -3691,6 +3823,7 @@ const applyPositionPage = (
     },
     now,
     accumulator,
+    authorityOptions,
   );
 
 const applyPositionPages = (
@@ -3699,8 +3832,16 @@ const applyPositionPages = (
   operation: PositionDatabaseViewPagesOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void =>
-  applyPositionRun(database, request, operation, now, accumulator);
+  applyPositionRun(
+    database,
+    request,
+    operation,
+    now,
+    accumulator,
+    authorityOptions,
+  );
 
 const executeOperation = (
   database: Database.Database,
@@ -3708,25 +3849,26 @@ const executeOperation = (
   operation: DatabaseApplyOperationV2,
   now: string,
   accumulator: ApplyAccumulator,
+  authorityOptions: DatabaseModuleApplyAuthorityOptions,
 ): void => {
   if (operation.kind === "put_property") {
-    applyPutProperty(database, request, operation, now, accumulator);
+    applyPutProperty(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "delete_property") {
-    applyDeleteProperty(database, request, operation, now, accumulator);
+    applyDeleteProperty(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "put_option") {
-    applyPutOption(database, request, operation, now, accumulator);
+    applyPutOption(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "delete_option") {
-    applyDeleteOption(database, request, operation, now, accumulator);
+    applyDeleteOption(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "set_value") {
-    applySetValue(database, request, operation, now, accumulator);
+    applySetValue(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "set_values") {
@@ -3737,31 +3879,40 @@ const executeOperation = (
         { kind: "set_value", ...value },
         now,
         accumulator,
+        authorityOptions,
       );
     }
     return;
   }
   if (operation.kind === "add_remove_value") {
-    applyAddRemoveValue(database, request, operation, now, accumulator);
+    applyAddRemoveValue(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "transfer_page") {
-    applyTransferPage(database, request, operation, now, accumulator);
+    applyTransferPage(
+      database,
+      request,
+      operation,
+      now,
+      accumulator,
+      false,
+      authorityOptions,
+    );
     return;
   }
   if (operation.kind === "put_view") {
-    applyPutView(database, request, operation, now, accumulator);
+    applyPutView(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "delete_view") {
-    applyDeleteView(database, request, operation, now, accumulator);
+    applyDeleteView(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
   if (operation.kind === "position_page") {
-    applyPositionPage(database, request, operation, now, accumulator);
+    applyPositionPage(database, request, operation, now, accumulator, authorityOptions);
     return;
   }
-  applyPositionPages(database, request, operation, now, accumulator);
+  applyPositionPages(database, request, operation, now, accumulator, authorityOptions);
 };
 
 const readStoredReceipt = (
@@ -3874,7 +4025,13 @@ const persistChange = (
 export const applyDatabaseModuleV2 = (
   database: Database.Database,
   input: DatabaseApplyV2,
-  options: Readonly<{ now?: () => string }> = {},
+  options: Readonly<{
+    now?: () => string;
+    contentAuthority?: Extract<
+      ContentResourceAuthority,
+      { readonly kind: "local_user_library" }
+    >;
+  }> = {},
 ): DatabaseApplyResultV2 => {
   let request: DatabaseApplyV2;
   try {
@@ -3931,7 +4088,11 @@ export const applyDatabaseModuleV2 = (
     try {
       database.transaction(() => {
         for (const operation of request.operations) {
-          executeOperation(database, request, operation, now, accumulator);
+          executeOperation(database, request, operation, now, accumulator, {
+            ...(options.contentAuthority
+              ? { contentAuthority: options.contentAuthority }
+              : {}),
+          });
         }
       })();
     } catch (error) {
@@ -3999,6 +4160,66 @@ export const applyDatabaseModuleV2 = (
       },
     };
   }
+};
+
+export const applyLibraryDatabaseModuleV2 = (
+  database: Database.Database,
+  input: LibraryDatabaseApplyV2,
+  actor: DatabaseApplyV2["actor"],
+  accessActor: "app_window" | "http_loopback",
+): LibraryDatabaseApplyResultV2 => {
+  const local = requireLocalProfileLibraryInDatabase(database);
+  const compatibilityProject = database.prepare(`
+    SELECT id FROM projects
+    WHERE library_id = ?
+    ORDER BY created, id
+    LIMIT 1
+  `).get(local.libraryId) as { readonly id: string } | undefined;
+  if (!compatibilityProject) {
+    return {
+      ok: false,
+      error: {
+        code: "project_not_found",
+        message: "The local Library has no compatibility storage Project",
+        retryable: false,
+        operationId: input.operationId,
+      },
+    };
+  }
+  const authority = resolveContentResourceAuthorityInDatabase(database, {
+    context: libraryContentAccess,
+    actor: accessActor,
+  });
+  if (authority.kind !== "local_user_library") {
+    return {
+      ok: false,
+      error: {
+        code: "authorization_denied",
+        message: "Local Library authority could not be resolved",
+        retryable: false,
+        operationId: input.operationId,
+      },
+    };
+  }
+  const result = applyDatabaseModuleV2(
+    database,
+    {
+      ...input,
+      projectId: compatibilityProject.id,
+      actor,
+    },
+    { contentAuthority: authority },
+  );
+  if (!result.ok) return result;
+  const { projectId: _compatibilityProjectId, ...receipt } = result.value;
+  void _compatibilityProjectId;
+  return {
+    ok: true,
+    value: {
+      ...receipt,
+      accessContext: { kind: "library" },
+    },
+  };
 };
 
 /** Canonical schema-v81 Database Module adapter. */

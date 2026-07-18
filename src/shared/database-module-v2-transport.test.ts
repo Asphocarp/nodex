@@ -8,6 +8,8 @@ import {
   databaseModuleHttpStatusV2,
   parseDatabaseApplyResultV2,
   parseDatabaseModuleReadResultV2,
+  parseLibraryDatabaseApplyResultV2,
+  parseLibraryDatabaseModuleReadResultV2,
 } from "./database-module-v2-transport";
 
 const CUSTOM_PROPERTY_ID = "p_abcdefgh";
@@ -363,5 +365,55 @@ describe("Database Module v2 transport boundary", () => {
         },
       }),
     ).toThrow("must contain unique identities");
+  });
+
+  test("keeps compatibility Project identity out of Library read and write receipts", () => {
+    const read = parseLibraryDatabaseModuleReadResultV2({
+      ok: true,
+      value: {
+        version: 2,
+        accessContext: { kind: "library" },
+        libraryId: "library-1",
+        storeEpoch: "epoch-1",
+        changeLogSeq: 4,
+        value: {
+          kind: "data_source",
+          value: {
+            dataSource: dataSourceRecord(),
+            properties: [propertyRecord()],
+          },
+        },
+      },
+    });
+    expect(read).toMatchObject({
+      ok: true,
+      value: { accessContext: { kind: "library" } },
+    });
+    if (read.ok) expect("projectId" in read.value).toBe(false);
+
+    const apply = parseLibraryDatabaseApplyResultV2({
+      ok: true,
+      value: {
+        version: 2,
+        operationId: "operation-1",
+        accessContext: { kind: "library" },
+        libraryId: "library-1",
+        storeEpoch: "epoch-1",
+        duplicate: false,
+        operationKinds: ["put_option"],
+        affectedDatabaseIds: ["database-1"],
+        affectedDataSourceIds: ["source-1"],
+        affectedPageIds: [],
+        affectedViewIds: [],
+        committedRevisions: {},
+        changeLogSeq: 5,
+        committedAt: "2026-07-18T00:00:00.000Z",
+      },
+    });
+    expect(apply).toMatchObject({
+      ok: true,
+      value: { accessContext: { kind: "library" } },
+    });
+    if (apply.ok) expect("projectId" in apply.value).toBe(false);
   });
 });

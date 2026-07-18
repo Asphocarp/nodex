@@ -86,6 +86,12 @@ import { isCodexGitSettings } from "../../../shared/codex-git-settings";
 import { WorkbenchAutomationsRouteShell, WorkbenchAutomationSidePanelTab } from "./workbench-automations-overlay";
 import { buildAutomationsPath } from "./workbench-automations-routes";
 import { PendingWorktreeRoute } from "./pending-worktree-route";
+import { LibraryHome } from "../library/library-home";
+import { LibraryPageRoute } from "../library/library-page-route";
+import { LibraryDatabaseRoute } from "../library/library-database-route";
+import { SidebarLibrarySection } from "./sidebar-library-section";
+import type { LibraryRouteTarget } from "../../../shared/library-module";
+import type { LibraryResourceTarget } from "../library/library-resource-actions";
 import { WorkbenchProcessManagerDialog } from "./workbench-process-manager-dialog";
 import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
@@ -100,6 +106,20 @@ import { NodexButton, NodexIconButton } from "@/components/ui/button";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogDescription,
+  NodexDialogFooter,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
+import { useApplyLibraryOperation } from "@/lib/use-library-navigation";
+import {
+  buildLibraryMoveOperation,
+  buildLibraryProjectGrantOperation,
+} from "@/lib/library-operations";
+import type { SidebarLibraryDragResource } from "./sidebar-library-dnd";
 import {
   ConnectedThreadStage,
   ConnectedReviewDiffPanel,
@@ -486,7 +506,9 @@ import {
   navigateForwardInWorkbenchShellHistory,
   readWorkbenchShellNavigationHistoryState,
   recordWorkbenchShellNavigationTransition,
+  removeLibraryRoutesFromWorkbenchShellNavigationHistory,
   writeWorkbenchShellNavigationHistoryState,
+  type WorkbenchLibraryRoute,
   type WorkbenchShellNavigationSnapshot,
 } from "@/lib/workbench-shell-navigation-history";
 
@@ -900,6 +922,7 @@ function mergeLoadedProjectSessionSummaries(
 }
 
 interface WorkbenchShellProps {
+  libraryWorkspaceEnabled: boolean;
   projects: Project[];
   dbProjectId: string;
   initialActiveProjectSessionId?: string | null;
@@ -2326,6 +2349,7 @@ function buildShellNavigationSnapshot(input: {
   rightPanelCollapsed?: boolean;
   bottomPanelCollapsed?: boolean;
   rightPanelFullWidth?: boolean;
+  libraryRoute?: WorkbenchLibraryRoute | null;
 }): WorkbenchShellNavigationSnapshot {
   const { activeProjectId, activeSession, activeView } = input;
   return {
@@ -2339,10 +2363,12 @@ function buildShellNavigationSnapshot(input: {
     rightPanelCollapsed: input.rightPanelCollapsed ?? activeSession?.panels.right.collapsed ?? true,
     bottomPanelCollapsed: input.bottomPanelCollapsed ?? activeSession?.panels.bottom.collapsed ?? true,
     rightPanelFullWidth: input.rightPanelFullWidth ?? activeSession?.panels.right.size.fullWidth ?? false,
+    libraryRoute: input.libraryRoute ?? null,
   };
 }
 
 export function WorkbenchShell({
+  libraryWorkspaceEnabled,
   projects,
   dbProjectId,
   initialActiveProjectSessionId = null,
@@ -2482,7 +2508,12 @@ export function WorkbenchShell({
   const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] =
     useDistinctState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
-  const [shellNavigationHistory, setShellNavigationHistory] = useState(readWorkbenchShellNavigationHistoryState);
+  const [shellNavigationHistory, setShellNavigationHistory] = useState(() => {
+    const history = readWorkbenchShellNavigationHistoryState();
+    return libraryWorkspaceEnabled
+      ? history
+      : removeLibraryRoutesFromWorkbenchShellNavigationHistory(history);
+  });
   const workbenchRootRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarPointerRef = useRef<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
@@ -2522,6 +2553,7 @@ export function WorkbenchShell({
   const sidebarWidth = sidebarDragWidth ?? persistedSidebarWidth;
   const sidebarCollapsibleSections = sidebar?.collapsibleSections ?? localSidebarCollapsibleSections;
   const pinnedProjectsSectionCollapsed = sidebarCollapsibleSections.pinned;
+  const librarySectionCollapsed = sidebarCollapsibleSections.library;
   const projectsSectionCollapsed = sidebarCollapsibleSections.projects;
   const chatsSectionCollapsed = sidebarCollapsibleSections.chats;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
@@ -2583,6 +2615,7 @@ export function WorkbenchShell({
     configPath: string | null;
   } | null>(null);
   const [automationsPath, setAutomationsPath] = useState<string | null>(null);
+  const [libraryRoute, setLibraryRoute] = useState<WorkbenchLibraryRoute | null>(null);
   const [newThreadComposerIntentsBySessionId, setNewThreadComposerIntentsBySessionId] =
     useState<Record<string, CodexComposerIntent>>({});
   const [processManagerOpen, setProcessManagerOpen] = useState(false);
@@ -2852,9 +2885,10 @@ export function WorkbenchShell({
   const shellCanNavigateBack = shellNavigationHistory.backStack.length > 0;
   const shellCanNavigateForward = shellNavigationHistory.forwardStack.length > 0;
   const currentShellNavigationSnapshot = useMemo<WorkbenchShellNavigationSnapshot | null>(() => {
-    if (!activeProject) return null;
+    const snapshotProjectId = activeProject?.id ?? activeProjectId;
+    if (!snapshotProjectId) return null;
     return buildShellNavigationSnapshot({
-      activeProjectId: activeProject.id,
+      activeProjectId: snapshotProjectId,
       activeSession,
       activeView,
       rightActiveTabId,
@@ -2862,16 +2896,19 @@ export function WorkbenchShell({
       rightPanelCollapsed,
       bottomPanelCollapsed,
       rightPanelFullWidth,
+      libraryRoute,
     });
   }, [
     activeProject,
     activeSession,
+    activeProjectId,
     activeView,
     bottomActiveTabId,
     bottomPanelCollapsed,
     rightActiveTabId,
     rightPanelCollapsed,
     rightPanelFullWidth,
+    libraryRoute,
   ]);
   const readShellBodyFallbackSize = useCallback(() => {
     if (typeof window === "undefined") return { height: 0, width: 0 };
@@ -3119,6 +3156,7 @@ export function WorkbenchShell({
   const openSettings = useCallback(() => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
+    setLibraryRoute(null);
     setReopenStableWorktreeAfterSettingsId(null);
     setReopenPendingWorktreeAfterSettingsClientThreadId(null);
     setLocalEnvironmentSettingsInitial(null);
@@ -3128,6 +3166,7 @@ export function WorkbenchShell({
   const openKeyboardShortcutsSettings = useCallback(() => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
+    setLibraryRoute(null);
     setReopenStableWorktreeAfterSettingsId(null);
     setReopenPendingWorktreeAfterSettingsClientThreadId(null);
     setLocalEnvironmentSettingsInitial(null);
@@ -3142,6 +3181,7 @@ export function WorkbenchShell({
   }) => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
+    setLibraryRoute(null);
     setReopenStableWorktreeAfterSettingsId(input?.reopenStableWorktreeId ?? null);
     setReopenPendingWorktreeAfterSettingsClientThreadId(
       input?.reopenPendingWorktreeClientThreadId ?? null,
@@ -3156,6 +3196,7 @@ export function WorkbenchShell({
   const openHooksSettings = useCallback((target: CodexHooksSettingsTarget) => {
     closePendingWorktreeRoute();
     setAutomationsPath(null);
+    setLibraryRoute(null);
     setReopenStableWorktreeAfterSettingsId(null);
     setReopenPendingWorktreeAfterSettingsClientThreadId(null);
     setLocalEnvironmentSettingsInitial(null);
@@ -3193,10 +3234,36 @@ export function WorkbenchShell({
   const openAutomations = useCallback((path = buildAutomationsPath()) => {
     closePendingWorktreeRoute();
     setSettingsPath(null);
+    setLibraryRoute(null);
     setReopenStableWorktreeAfterSettingsId(null);
     setReopenPendingWorktreeAfterSettingsClientThreadId(null);
     setAutomationsPath(path);
   }, [closePendingWorktreeRoute]);
+
+  const navigateToLibraryRoute = useCallback((route: WorkbenchLibraryRoute) => {
+    if (!libraryWorkspaceEnabled) return;
+    const current = currentShellNavigationSnapshotRef.current;
+    if (current) {
+      setShellNavigationHistory((history) =>
+        recordWorkbenchShellNavigationTransition(history, current, {
+          ...current,
+          libraryRoute: route,
+        })
+      );
+    }
+    closePendingWorktreeRoute();
+    setSettingsPath(null);
+    setAutomationsPath(null);
+    setLibraryRoute(route);
+  }, [closePendingWorktreeRoute, libraryWorkspaceEnabled]);
+
+  const openLibrary = useCallback(() => {
+    navigateToLibraryRoute({ kind: "home" });
+  }, [navigateToLibraryRoute]);
+
+  const openLibraryTarget = useCallback((target: LibraryRouteTarget) => {
+    navigateToLibraryRoute(target);
+  }, [navigateToLibraryRoute]);
 
   useEffect(() => {
     if (
@@ -3617,6 +3684,7 @@ export function WorkbenchShell({
       activeProjectId: projectId ?? session?.projectId ?? activeProjectId,
       activeSession: session,
       activeView,
+      libraryRoute: null,
     }), [activeProjectId, activeView]);
 
   const recordShellNavigation = useCallback((nextSnapshot: WorkbenchShellNavigationSnapshot) => {
@@ -6539,6 +6607,10 @@ export function WorkbenchShell({
     setSidebarSectionCollapsed("pinned", !pinnedProjectsSectionCollapsed);
   }, [pinnedProjectsSectionCollapsed, setSidebarSectionCollapsed]);
 
+  const toggleLibrarySectionCollapsed = useCallback(() => {
+    setSidebarSectionCollapsed("library", !librarySectionCollapsed);
+  }, [librarySectionCollapsed, setSidebarSectionCollapsed]);
+
   const toggleChatsSectionCollapsed = useCallback(() => {
     setSidebarSectionCollapsed("chats", !chatsSectionCollapsed);
   }, [chatsSectionCollapsed, setSidebarSectionCollapsed]);
@@ -7482,11 +7554,21 @@ export function WorkbenchShell({
   }, [updateSessionPanel]);
 
   const applyShellNavigationSnapshot = useCallback(async (snapshot: WorkbenchShellNavigationSnapshot) => {
-    if (!projects.some((candidate) => candidate.id === snapshot.activeProjectId)) return;
+    const targetProjectExists = projects.some(
+      (candidate) => candidate.id === snapshot.activeProjectId,
+    );
+    const libraryRouteFromSnapshot = libraryWorkspaceEnabled
+      ? snapshot.libraryRoute
+      : null;
+    if (!targetProjectExists && !libraryRouteFromSnapshot) return;
 
     applyingShellNavigationRef.current = true;
     let overrideSessionId: string | null = null;
     try {
+      setSettingsPath(null);
+      setAutomationsPath(null);
+      setLibraryRoute(libraryRouteFromSnapshot);
+      if (!targetProjectExists) return;
       setActiveProjectId(snapshot.activeProjectId);
       setDbProject(snapshot.activeProjectId);
       setExpandedProjectIds((current) => new Set([...current, snapshot.activeProjectId]));
@@ -7532,7 +7614,14 @@ export function WorkbenchShell({
       }
       applyingShellNavigationRef.current = false;
     }
-  }, [applyPanelNavigationSnapshot, projects, refreshProjectSessions, sessionsByProject, setDbProject]);
+  }, [
+    applyPanelNavigationSnapshot,
+    libraryWorkspaceEnabled,
+    projects,
+    refreshProjectSessions,
+    sessionsByProject,
+    setDbProject,
+  ]);
 
   const executeShellNavigation = useCallback(async (direction: "back" | "forward") => {
     const currentSnapshot = currentShellNavigationSnapshotRef.current;
@@ -9020,6 +9109,65 @@ export function WorkbenchShell({
       onStripSmartPrefixFromTitleEnabledChange={handleStripSmartPrefixFromTitleEnabledChange}
     />
   ) : null;
+  const openLibraryTargetInProject = useCallback(async (
+    projectId: string,
+    target: LibraryResourceTarget,
+    title: string,
+  ) => {
+    if (!libraryWorkspaceEnabled) return;
+    selectProject(projectId);
+    if (target.kind === "page") {
+      setLibraryRoute(null);
+      await openPageTab(projectId, target.pageId, title, {
+        openMode: "durable",
+      });
+      return;
+    }
+    setLibraryRoute({
+      ...target,
+      accessProjectId: projectId,
+    });
+  }, [libraryWorkspaceEnabled, openPageTab, selectProject]);
+  const libraryRouteShell = libraryWorkspaceEnabled && libraryRoute
+    ? libraryRoute.kind === "page"
+      ? (
+          <LibraryPageRoute
+            pageId={libraryRoute.pageId}
+            onBack={openLibrary}
+            onOpenDatabase={(databaseId) =>
+              openLibraryTarget({ kind: "database", databaseId })}
+          />
+        )
+      : libraryRoute.kind === "database" || libraryRoute.kind === "view"
+        ? (
+            <LibraryDatabaseRoute
+              target={libraryRoute}
+              accessProjectId={libraryRoute.accessProjectId}
+              onBack={openLibrary}
+              onOpenPage={(pageId, title) => {
+                if (libraryRoute.accessProjectId) {
+                  void openLibraryTargetInProject(
+                    libraryRoute.accessProjectId,
+                    { kind: "page", pageId },
+                    title,
+                  );
+                  return;
+                }
+                openLibraryTarget({ kind: "page", pageId });
+              }}
+            />
+          )
+        : (
+            <LibraryHome
+              onOpen={openLibraryTarget}
+              projects={projects.map((project) => ({
+                id: project.id,
+                name: project.name,
+              }))}
+              onOpenInProject={openLibraryTargetInProject}
+            />
+          )
+    : null;
   const automationsRouteShell = automationsPath ? (
     <WorkbenchAutomationsRouteShell
       path={automationsPath}
@@ -9101,6 +9249,7 @@ export function WorkbenchShell({
     />
   ) : null;
   const appShellHeaderCenterVisible = settingsRouteShell == null
+    && libraryRouteShell == null
     && (
       activeSession != null
       || automationsRouteShell != null
@@ -9110,7 +9259,7 @@ export function WorkbenchShell({
     ? null
     : pendingWorktreeRouteShell
       ? null
-      : automationsPath
+      : automationsPath || libraryRoute
         ? sidebarHeaderActions
         : headerActions;
   const automationsDetailRailMounted = Boolean(automationsRouteShell && automationsDetailRailOpen);
@@ -9810,6 +9959,7 @@ export function WorkbenchShell({
             <>
           {showInlineSidebar ? (
             <ProjectSessionSidebar
+              libraryWorkspaceEnabled={libraryWorkspaceEnabled}
               projectRefs={projectRefs}
               activeProjectId={activeProjectId}
               activeSessionId={activeSession?.id ?? null}
@@ -9821,6 +9971,7 @@ export function WorkbenchShell({
               pendingStableWorktrees={pendingStableWorktrees}
               expandedProjectIds={expandedProjectIds}
               pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
+              librarySectionCollapsed={librarySectionCollapsed}
               projectsSectionCollapsed={projectsSectionCollapsed}
               chatsSectionCollapsed={chatsSectionCollapsed}
               loadingSessions={loadingSessions}
@@ -9831,17 +9982,20 @@ export function WorkbenchShell({
               getWindowZoom={getWindowZoom}
               onResizeWidth={applySidebarWidth}
               onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
+              onToggleLibrarySectionCollapsed={toggleLibrarySectionCollapsed}
               onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
               onToggleChatsSectionCollapsed={toggleChatsSectionCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
               onSelectProject={(projectId) => {
                 closePendingWorktreeRoute();
                 setAutomationsPath(null);
+                setLibraryRoute(null);
                 selectProject(projectId);
               }}
               onSelectSidebarThread={(item) => {
                 closePendingWorktreeRoute();
                 setAutomationsPath(null);
+                setLibraryRoute(null);
                 void selectSidebarThread(item);
               }}
               onPreviewSidebarThread={prefetchSidebarSession}
@@ -9854,6 +10008,7 @@ export function WorkbenchShell({
               onStartNewChatInProject={(projectId) => {
                 closePendingWorktreeRoute();
                 setAutomationsPath(null);
+                setLibraryRoute(null);
                 void startNewChatInProject(projectId);
               }}
               onOpenStableWorktree={setStableWorktreeStatusId}
@@ -9861,6 +10016,10 @@ export function WorkbenchShell({
               onOpenCommandPalette={openSidebarCommandPalette}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
               onOpenAutomations={openAutomations}
+              onOpenLibrary={openLibrary}
+              onOpenLibraryTarget={openLibraryTarget}
+              onOpenLibraryTargetInProject={openLibraryTargetInProject}
+              activeLibraryTarget={libraryRoute?.kind === "home" ? null : libraryRoute}
               automationsActive={Boolean(automationsPath)}
               projectPickerOpenTick={projectPickerOpenTick}
               onCreateProject={async (input) => {
@@ -9907,6 +10066,7 @@ export function WorkbenchShell({
                 transition={floatingSidebarTransition}
               >
                 <ProjectSessionSidebar
+                  libraryWorkspaceEnabled={libraryWorkspaceEnabled}
                   floating
                   header={floatingSidebarHeader}
                   projectRefs={projectRefs}
@@ -9920,6 +10080,7 @@ export function WorkbenchShell({
                   pendingStableWorktrees={pendingStableWorktrees}
                   expandedProjectIds={expandedProjectIds}
                   pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
+                  librarySectionCollapsed={librarySectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   chatsSectionCollapsed={chatsSectionCollapsed}
                   loadingSessions={loadingSessions}
@@ -9928,17 +10089,20 @@ export function WorkbenchShell({
                   onResizeWidth={applySidebarWidth}
                   onResizeActiveChange={setFloatingSidebarResizing}
                   onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
+                  onToggleLibrarySectionCollapsed={toggleLibrarySectionCollapsed}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
                   onToggleChatsSectionCollapsed={toggleChatsSectionCollapsed}
                   onToggleProjectExpanded={toggleProjectExpanded}
                   onSelectProject={(projectId) => {
                     closePendingWorktreeRoute();
                     setAutomationsPath(null);
+                    setLibraryRoute(null);
                     selectProject(projectId);
                   }}
                   onSelectSidebarThread={(item) => {
                     closePendingWorktreeRoute();
                     setAutomationsPath(null);
+                    setLibraryRoute(null);
                     void selectSidebarThread(item);
                   }}
                   onPreviewSidebarThread={prefetchSidebarSession}
@@ -9951,6 +10115,7 @@ export function WorkbenchShell({
                   onStartNewChatInProject={(projectId) => {
                     closePendingWorktreeRoute();
                     setAutomationsPath(null);
+                    setLibraryRoute(null);
                     void startNewChatInProject(projectId);
                   }}
                   onOpenStableWorktree={setStableWorktreeStatusId}
@@ -9958,6 +10123,10 @@ export function WorkbenchShell({
                   onOpenCommandPalette={openSidebarCommandPalette}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
                   onOpenAutomations={openAutomations}
+                  onOpenLibrary={openLibrary}
+                  onOpenLibraryTarget={openLibraryTarget}
+                  onOpenLibraryTargetInProject={openLibraryTargetInProject}
+                  activeLibraryTarget={libraryRoute?.kind === "home" ? null : libraryRoute}
                   automationsActive={Boolean(automationsPath)}
                   projectPickerOpenTick={projectPickerOpenTick}
                   onCreateProject={async (input) => {
@@ -9997,6 +10166,15 @@ export function WorkbenchShell({
               )}
             >
               {pendingWorktreeRouteShell}
+            </main>
+          ) : libraryRouteShell ? (
+            <main
+              className={cn(
+                "main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
+              )}
+            >
+              {libraryRouteShell}
             </main>
           ) : automationsRouteShell ? (
             <>
@@ -10610,6 +10788,7 @@ function SidebarProjectThreadRowsContent({
 }
 
 function SidebarThreadOrganizerSections({
+  libraryWorkspaceEnabled,
   activeProjectId,
   activeSessionId,
   activePendingClientThreadId,
@@ -10618,11 +10797,13 @@ function SidebarThreadOrganizerSections({
   projectlessSessions,
   expandedProjectIds,
   pinnedThreadsSectionCollapsed,
+  librarySectionCollapsed,
   projectsSectionCollapsed,
   chatsSectionCollapsed,
   loadingSessions,
   model,
   onTogglePinnedThreadsSectionCollapsed,
+  onToggleLibrarySectionCollapsed,
   onToggleProjectsSectionCollapsed,
   onToggleChatsSectionCollapsed,
   onToggleProjectExpanded,
@@ -10650,7 +10831,12 @@ function SidebarThreadOrganizerSections({
   onReorderChatsThreads,
   onReorderPinnedThreads,
   sidebarArchivePendingKeys,
+  onOpenLibrary,
+  onOpenLibraryTarget,
+  onOpenLibraryTargetInProject,
+  activeLibraryTarget,
 }: {
+  libraryWorkspaceEnabled: boolean;
   activeProjectId: string;
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
@@ -10659,11 +10845,13 @@ function SidebarThreadOrganizerSections({
   projectlessSessions: ProjectSession[];
   expandedProjectIds: Set<string>;
   pinnedThreadsSectionCollapsed: boolean;
+  librarySectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
   loadingSessions: boolean;
   model: CodexSidebarThreadSyncModel;
   onTogglePinnedThreadsSectionCollapsed: () => void;
+  onToggleLibrarySectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleChatsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
@@ -10694,6 +10882,14 @@ function SidebarThreadOrganizerSections({
   onReorderChatsThreads: (input: CodexSidebarChatsThreadOrderInput) => Promise<void>;
   onReorderPinnedThreads: (orderedThreadIds: readonly string[]) => Promise<unknown>;
   sidebarArchivePendingKeys: ReadonlySet<string>;
+  onOpenLibrary: () => void;
+  onOpenLibraryTarget: (target: LibraryRouteTarget) => void;
+  onOpenLibraryTargetInProject?: (
+    projectId: string,
+    target: LibraryResourceTarget,
+    title: string,
+  ) => void | Promise<void>;
+  activeLibraryTarget: LibraryRouteTarget | null;
 }) {
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
@@ -11225,6 +11421,7 @@ function SidebarThreadOrganizerSections({
                   onStartNewChat={() => void onStartNewChatInProject(project.id)}
                   onUpdateProject={onUpdateProject}
                   onDeleteProject={onDeleteProject}
+                  projectArchivingEnabled={libraryWorkspaceEnabled}
                   onSetProjectPinned={onSetProjectPinned}
                   onCreateStableWorktree={onCreateStableWorktree}
                   stableWorktreeWorkspaceRootOptions={stableWorktreeWorkspaceRootOptions}
@@ -11340,6 +11537,20 @@ function SidebarThreadOrganizerSections({
   const renderProjectGroups = () => (
     <>
       {renderPinnedSection()}
+      {libraryWorkspaceEnabled ? (
+        <SidebarLibrarySection
+          collapsed={librarySectionCollapsed}
+          activeTarget={activeLibraryTarget}
+          onToggle={onToggleLibrarySectionCollapsed}
+          onOpenLibrary={onOpenLibrary}
+          onOpenTarget={onOpenLibraryTarget}
+          projects={projectGroups.map(({ project }) => ({
+            id: project.id,
+            name: project.name,
+          }))}
+          onOpenInProject={onOpenLibraryTargetInProject}
+        />
+      ) : null}
       <CodexSidebarSection
         heading="Projects"
         collapsed={projectsSectionCollapsed}
@@ -11398,6 +11609,7 @@ function SidebarThreadOrganizerSections({
 }
 
 function ProjectSessionSidebar({
+  libraryWorkspaceEnabled,
   floating = false,
   header,
   activeProjectId,
@@ -11410,6 +11622,7 @@ function ProjectSessionSidebar({
   pendingStableWorktrees,
   expandedProjectIds,
   pinnedProjectsSectionCollapsed,
+  librarySectionCollapsed,
   projectsSectionCollapsed,
   chatsSectionCollapsed,
   loadingSessions,
@@ -11421,6 +11634,7 @@ function ProjectSessionSidebar({
   onResizeWidth,
   onResizeActiveChange,
   onTogglePinnedProjectsSectionCollapsed,
+  onToggleLibrarySectionCollapsed,
   onToggleProjectsSectionCollapsed,
   onToggleChatsSectionCollapsed,
   onToggleProjectExpanded,
@@ -11439,6 +11653,10 @@ function ProjectSessionSidebar({
   onOpenCommandPalette,
   onShowUnavailableProduct,
   onOpenAutomations,
+  onOpenLibrary,
+  onOpenLibraryTarget,
+  onOpenLibraryTargetInProject,
+  activeLibraryTarget,
   automationsActive,
   projectPickerOpenTick = 0,
   onCreateProject,
@@ -11462,6 +11680,7 @@ function ProjectSessionSidebar({
   onAccountErrorMessage,
   sidebarArchivePendingKeys,
 }: {
+  libraryWorkspaceEnabled: boolean;
   floating?: boolean;
   header?: ReactNode;
   projectRefs: ProjectRef[];
@@ -11475,6 +11694,7 @@ function ProjectSessionSidebar({
   pendingStableWorktrees: readonly StableWorktreeEntry[];
   expandedProjectIds: Set<string>;
   pinnedProjectsSectionCollapsed: boolean;
+  librarySectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   chatsSectionCollapsed: boolean;
   loadingSessions: boolean;
@@ -11486,6 +11706,7 @@ function ProjectSessionSidebar({
   onResizeWidth: (width: number, phase?: SidebarResizePhase, surface?: SidebarResizeSurface) => void;
   onResizeActiveChange?: (active: boolean) => void;
   onTogglePinnedProjectsSectionCollapsed: () => void;
+  onToggleLibrarySectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleChatsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
@@ -11507,6 +11728,14 @@ function ProjectSessionSidebar({
   onOpenCommandPalette: () => void;
   onShowUnavailableProduct: (label: string) => void;
   onOpenAutomations: () => void;
+  onOpenLibrary: () => void;
+  onOpenLibraryTarget: (target: LibraryRouteTarget) => void;
+  onOpenLibraryTargetInProject?: (
+    projectId: string,
+    target: LibraryResourceTarget,
+    title: string,
+  ) => void | Promise<void>;
+  activeLibraryTarget: LibraryRouteTarget | null;
   automationsActive: boolean;
   projectPickerOpenTick?: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
@@ -11531,6 +11760,14 @@ function ProjectSessionSidebar({
   sidebarArchivePendingKeys: ReadonlySet<string>;
 }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [pendingLibraryGrantDrop, setPendingLibraryGrantDrop] = useState<{
+    readonly resource: SidebarLibraryDragResource;
+    readonly projectId: string;
+  } | null>(null);
+  const [libraryGrantAccess, setLibraryGrantAccess] = useState<"read" | "read_write">("read_write");
+  const { mutation: libraryMutation } = useApplyLibraryOperation(
+    libraryWorkspaceEnabled,
+  );
   const [scrolledContentUnderHeader, setScrolledContentUnderHeader] = useState(false);
   const sidebarResizeDisabled = resizeDisabled;
   const sidebarResizeSurface: SidebarResizeSurface = floating ? "floating" : "inline";
@@ -11544,6 +11781,58 @@ function ProjectSessionSidebar({
       toast.danger("Failed to pin project");
     });
   }, [onSetProjectPinned]);
+  const handleLibraryMove = useCallback(async ({
+    resource,
+    parent,
+  }: {
+    resource: SidebarLibraryDragResource;
+    parent: import("../../../shared/library-module").LibraryWriteParent;
+  }) => {
+    if (!libraryWorkspaceEnabled) return;
+    try {
+      await libraryMutation.mutateAsync(buildLibraryMoveOperation({
+        target: resource.target,
+        expectedLocationRevision: resource.expectedLocationRevision,
+        parent,
+      }));
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "Could not move Library item");
+    }
+  }, [libraryMutation, libraryWorkspaceEnabled]);
+  const confirmLibraryGrantDrop = useCallback(async () => {
+    if (!libraryWorkspaceEnabled) return;
+    if (!pendingLibraryGrantDrop) return;
+    const project = sidebarThreadModel.projectGroups.find(
+      (group) => group.project.id === pendingLibraryGrantDrop.projectId,
+    )?.project;
+    if (!project) {
+      toast.danger("The destination Project is no longer active");
+      setPendingLibraryGrantDrop(null);
+      return;
+    }
+    try {
+      const receipt = await libraryMutation.mutateAsync(buildLibraryProjectGrantOperation({
+        projectId: project.id,
+        target: pendingLibraryGrantDrop.resource.target,
+        access: libraryGrantAccess,
+      }));
+      if (!receipt.didMutate) toast.info(`${project.name} already has this access`);
+      setPendingLibraryGrantDrop(null);
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "Could not grant Project access");
+    }
+  }, [
+    libraryGrantAccess,
+    libraryMutation,
+    libraryWorkspaceEnabled,
+    pendingLibraryGrantDrop,
+    sidebarThreadModel.projectGroups,
+  ]);
+  const pendingLibraryGrantProject = pendingLibraryGrantDrop
+    ? sidebarThreadModel.projectGroups.find(
+        (group) => group.project.id === pendingLibraryGrantDrop.projectId,
+      )?.project ?? null
+    : null;
   const sidebarThreadIdByKey = useMemo(() => {
     const entries: Array<readonly [string, string]> = [];
     for (const [threadKey, item] of sidebarThreadModel.threadItemsByKey) {
@@ -11745,8 +12034,11 @@ function ProjectSessionSidebar({
                 onProjectDrop={handleProjectDrop}
                 onThreadError={reportSidebarThreadReorderError}
                 onThreadDrop={onMoveSidebarThread}
+                onLibraryMove={libraryWorkspaceEnabled ? handleLibraryMove : undefined}
+                onLibraryGrant={libraryWorkspaceEnabled ? setPendingLibraryGrantDrop : undefined}
               >
                 <SidebarThreadOrganizerSections
+                  libraryWorkspaceEnabled={libraryWorkspaceEnabled}
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSessionId}
                   activePendingClientThreadId={activePendingClientThreadId}
@@ -11755,11 +12047,13 @@ function ProjectSessionSidebar({
                   projectlessSessions={projectlessSessions}
                   expandedProjectIds={expandedProjectIds}
                   pinnedThreadsSectionCollapsed={pinnedProjectsSectionCollapsed}
+                  librarySectionCollapsed={librarySectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   chatsSectionCollapsed={chatsSectionCollapsed}
                   loadingSessions={loadingSessions}
                   model={sidebarThreadModel}
                   onTogglePinnedThreadsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
+                  onToggleLibrarySectionCollapsed={onToggleLibrarySectionCollapsed}
                   onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}
                   onToggleChatsSectionCollapsed={onToggleChatsSectionCollapsed}
                   onToggleProjectExpanded={onToggleProjectExpanded}
@@ -11787,8 +12081,61 @@ function ProjectSessionSidebar({
                   onReorderChatsThreads={onReorderChatsThreads}
                   onReorderPinnedThreads={onReorderPinnedThreads}
                   sidebarArchivePendingKeys={sidebarArchivePendingKeys}
+                  onOpenLibrary={onOpenLibrary}
+                  onOpenLibraryTarget={onOpenLibraryTarget}
+                  onOpenLibraryTargetInProject={onOpenLibraryTargetInProject}
+                  activeLibraryTarget={activeLibraryTarget}
                 />
               </SidebarReorderDndProvider>
+              {libraryWorkspaceEnabled ? (
+                <NodexDialog
+                  open={pendingLibraryGrantDrop !== null}
+                  onOpenChange={(open) => {
+                    if (!open) setPendingLibraryGrantDrop(null);
+                  }}
+                >
+                  <NodexDialogContent className="max-w-md">
+                    <NodexDialogHeader>
+                      <NodexDialogTitle>Give Project access?</NodexDialogTitle>
+                      <NodexDialogDescription>
+                        {pendingLibraryGrantProject?.name ?? "This Project"} will receive recursive access to {pendingLibraryGrantDrop?.resource.title ?? "this Library item"}. Ownership and Database bindings will not change.
+                      </NodexDialogDescription>
+                    </NodexDialogHeader>
+                    <fieldset className="grid gap-2 text-sm text-token-text-primary">
+                      <legend className="mb-1">Access</legend>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="library-drop-access"
+                          checked={libraryGrantAccess === "read"}
+                          onChange={() => setLibraryGrantAccess("read")}
+                        />
+                        Read
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="library-drop-access"
+                          checked={libraryGrantAccess === "read_write"}
+                          onChange={() => setLibraryGrantAccess("read_write")}
+                        />
+                        Read &amp; write
+                      </label>
+                    </fieldset>
+                    <NodexDialogFooter>
+                      <NodexButton variant="ghost" onClick={() => setPendingLibraryGrantDrop(null)}>
+                        Cancel
+                      </NodexButton>
+                      <NodexButton
+                        disabled={!pendingLibraryGrantProject || libraryMutation.isPending}
+                        onClick={() => void confirmLibraryGrantDrop()}
+                      >
+                        Grant access
+                      </NodexButton>
+                    </NodexDialogFooter>
+                  </NodexDialogContent>
+                </NodexDialog>
+              ) : null}
             </div>
 
             <LeftSidebarFooter

@@ -114,6 +114,10 @@ describe("headless Block Document schema", () => {
         type: "page",
       },
       {
+        id: "database-block",
+        type: "database",
+      },
+      {
         id: "legacy-page-ref-block",
         type: "pageRef",
         props: { sourceProjectId: "project-1", cardId: "card-2" },
@@ -158,7 +162,7 @@ describe("headless Block Document schema", () => {
 
     expect(JSON.stringify(decoded)).toBe(JSON.stringify(editor.document));
     expect(decoded.map((block) => block.id).join(",")).toBe(
-      "callout-block,card-toggle-block,thread-section-block,inline-view-block,page-block,legacy-page-ref-block,canonical-page-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block",
+      "callout-block,card-toggle-block,thread-section-block,inline-view-block,page-block,database-block,legacy-page-ref-block,canonical-page-ref-block,database-view-ref-block,synced-block-ref-block,template-ref-block",
     );
   });
 });

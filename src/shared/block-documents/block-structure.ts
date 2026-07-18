@@ -62,6 +62,7 @@ export interface ChildlessBlockViolation {
   readonly blockType:
     | "pageRef"
     | "page"
+    | "database"
     | "databaseViewRef"
     | "syncedBlockRef"
     | "templateRef";
@@ -115,6 +116,7 @@ const isCanonicalChildlessBlockContent = (
   readonly nodeName:
     | "pageRef"
     | "page"
+    | "database"
     | "databaseViewRef"
     | "syncedBlockRef"
     | "templateRef";
@@ -122,6 +124,7 @@ const isCanonicalChildlessBlockContent = (
   if (!content) return false;
   if (
     content.nodeName === "databaseViewRef" ||
+    content.nodeName === "database" ||
     content.nodeName === "page"
   ) {
     return true;

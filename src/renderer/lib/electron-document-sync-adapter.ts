@@ -437,17 +437,31 @@ const normalizeRealtimeEvent = (
 const subscriptionKey = (request: DocumentSyncSubscribeRequest): string =>
   JSON.stringify([request.clientSessionId, request.documentId]);
 
-export function createElectronDocumentSyncAdapter(
+type ElectronDocumentAccessScope =
+  | { readonly kind: "project"; readonly projectId: string }
+  | { readonly kind: "library" };
+
+const createScopedElectronDocumentSyncAdapter = (
   bridge: ElectronRendererBridge,
-  projectId: string,
-): DocumentSyncAdapter {
-  if (!projectId || projectId !== projectId.trim()) {
+  accessScope: ElectronDocumentAccessScope,
+): DocumentSyncAdapter => {
+  if (
+    accessScope.kind === "project" &&
+    (!accessScope.projectId || accessScope.projectId !== accessScope.projectId.trim())
+  ) {
     throw new TypeError("projectId must be an exact non-empty identity");
   }
   const subscriptions = new Map<string, SubscriptionEntry>();
   const scope = <Request extends { readonly documentId: string }>(
     request: Request,
-  ): Request & { readonly projectId: string } => ({ ...request, projectId });
+  ): Request | (Request & { readonly projectId: string }) =>
+    accessScope.kind === "library"
+      ? request
+      : { ...request, projectId: accessScope.projectId };
+  const channel = (operation: string): string =>
+    accessScope.kind === "library"
+      ? `library-document-sync:${operation}`
+      : `document-sync:${operation}`;
 
   const invokeCommand = async <T>(
     channel: string,
@@ -474,7 +488,7 @@ export function createElectronDocumentSyncAdapter(
     }
 
     const command = invokeCommand<DocumentSyncSubscriptionAck>(
-      "document-sync:subscribe",
+      channel("subscribe"),
       scope(entry.request),
     ).then((result) => {
       if (result.ok && result.value.subscribed !== true) {
@@ -519,7 +533,7 @@ export function createElectronDocumentSyncAdapter(
       }
       return normalizeSyncResult(
         await invokeCommand<DocumentSyncResponse>(
-          "document-sync:sync",
+          channel("sync"),
           scope(request),
         ),
       );
@@ -532,7 +546,7 @@ export function createElectronDocumentSyncAdapter(
       }
       return normalizeApplyResult(
         await invokeCommand<DocumentSyncApplyAck>(
-          "document-sync:apply",
+          channel("apply"),
           scope(request),
         ),
       );
@@ -544,7 +558,7 @@ export function createElectronDocumentSyncAdapter(
         return blocked;
       }
       return invokeCommand<DocumentAwarenessPublishAck>(
-        "document-sync:awareness:publish",
+        channel("awareness:publish"),
         scope(request),
       );
     },
@@ -558,7 +572,7 @@ export function createElectronDocumentSyncAdapter(
       if (blocked) return blocked;
       return normalizeRelocationLeaseResponse(
         await invokeCommand<DocumentRelocationLeaseResponseAck>(
-          "document-sync:relocation-lease:respond",
+          channel("relocation-lease:respond"),
           scope(request),
         ),
       );
@@ -624,9 +638,25 @@ export function createElectronDocumentSyncAdapter(
           if (!entry?.remoteSubscribed) {
             return;
           }
-          await invokeCommand("document-sync:unsubscribe", scope(request));
+          await invokeCommand(channel("unsubscribe"), scope(request));
         })();
       };
     },
   };
+};
+
+export function createElectronDocumentSyncAdapter(
+  bridge: ElectronRendererBridge,
+  projectId: string,
+): DocumentSyncAdapter {
+  return createScopedElectronDocumentSyncAdapter(bridge, {
+    kind: "project",
+    projectId,
+  });
+}
+
+export function createElectronLibraryDocumentSyncAdapter(
+  bridge: ElectronRendererBridge,
+): DocumentSyncAdapter {
+  return createScopedElectronDocumentSyncAdapter(bridge, { kind: "library" });
 }

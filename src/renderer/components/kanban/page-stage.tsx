@@ -68,6 +68,7 @@ interface PageStageDescriptionEditorProps {
   readonly linkedCodexThreads: PageStageProps["linkedCodexThreads"];
   readonly onOpenCodexThread: PageStageProps["onOpenCodexThread"];
   readonly onOpenPage: PageStageProps["onOpenPage"];
+  readonly onOpenDatabase: PageStageProps["onOpenDatabase"];
   readonly onStartNewSessionThreadFromEditor: PageStageProps["onStartNewSessionThreadFromEditor"];
   readonly onSendThreadSectionPrompt: PageStageProps["onSendThreadSectionPrompt"];
   readonly isActivePanelTab: boolean;
@@ -117,6 +118,7 @@ const PageStageDescriptionEditor = memo(
     linkedCodexThreads,
     onOpenCodexThread,
     onOpenPage,
+    onOpenDatabase,
     onStartNewSessionThreadFromEditor,
     onSendThreadSectionPrompt,
     isActivePanelTab,
@@ -150,6 +152,7 @@ const PageStageDescriptionEditor = memo(
         linkedCodexThreads={linkedCodexThreads}
         onOpenCodexThread={onOpenCodexThread}
         onOpenPage={onOpenPage}
+        onOpenDatabase={onOpenDatabase}
         onStartNewSessionThreadFromEditor={onStartNewSessionThreadFromEditor}
         onSendThreadSectionPrompt={onSendThreadSectionPrompt}
         isActivePanelTab={isActivePanelTab}
@@ -216,11 +219,13 @@ function PageStageDocumentTitle({
   surfaceWriteFence,
   onValueChange,
   onTitleSourceDispose,
+  autoFocus,
 }: {
   readonly title: Y.Text;
   readonly surfaceWriteFence: BlockDocumentSurfaceRuntime;
   readonly onValueChange: (title: string) => void;
   readonly onTitleSourceDispose?: () => void;
+  readonly autoFocus?: boolean;
 }) {
   const disposeTitleSource = useEffectEvent(() => {
     onTitleSourceDispose?.();
@@ -233,6 +238,7 @@ function PageStageDocumentTitle({
   return (
     <CollaborativePageTitle
       title={title}
+      autoFocus={autoFocus}
       surfaceWriteFence={surfaceWriteFence}
       onValueChange={onValueChange}
       onKeyDown={(event) => {
@@ -287,6 +293,7 @@ export function PageStage(props: PageStageProps) {
       data-page-stage-surface="true"
     >
       <PageStageToolbar
+        onNavigateBack={props.onNavigateBack}
         saving={controller.saving}
         historyPanelActive={controller.historyPanelActive}
         limitMainContentWidth={controller.limitMainContentWidth}
@@ -349,6 +356,7 @@ export function PageStage(props: PageStageProps) {
                       surfaceWriteFence={surface.runtime}
                       onValueChange={controller.handleDocumentTitleChange}
                       onTitleSourceDispose={props.onTitleSourceDispose}
+                      autoFocus={props.autoFocusTitle}
                     />
                   }
                   syncStatus={
@@ -376,6 +384,7 @@ export function PageStage(props: PageStageProps) {
                       linkedCodexThreads={props.linkedCodexThreads}
                       onOpenCodexThread={props.onOpenCodexThread}
                       onOpenPage={props.onOpenPage}
+                      onOpenDatabase={props.onOpenDatabase}
                       onStartNewSessionThreadFromEditor={
                         props.onStartNewSessionThreadFromEditor
                       }

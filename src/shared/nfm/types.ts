@@ -140,6 +140,7 @@ export type NfmBlockType =
   | "callout"
   | "image"
   | "toggleListInlineView"
+  | "database"
   | "databaseViewRef"
   | "syncedBlockRef"
   | "templateRef"
@@ -263,6 +264,12 @@ export interface NfmDatabaseViewRef extends NfmBlockBase {
   displayHint?: string;
 }
 
+export interface NfmDatabase extends NfmBlockBase {
+  type: "database";
+  /** Owning Database Container shell identity. */
+  uuid: string;
+}
+
 export interface NfmSyncedBlockRef extends NfmBlockBase {
   type: "syncedBlockRef";
   sourceBlockId: string;
@@ -330,6 +337,7 @@ export type NfmBlock =
   | NfmCallout
   | NfmImage
   | NfmToggleListInlineView
+  | NfmDatabase
   | NfmDatabaseViewRef
   | NfmSyncedBlockRef
   | NfmReusableTemplateRef

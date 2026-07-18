@@ -268,6 +268,7 @@ export function CodexSidebarSection({
 
 export function CodexProjectActionsMenu({
   project,
+  projectArchivingEnabled = true,
   onUpdateProject,
   onDeleteProject,
   onSetProjectPinned,
@@ -277,6 +278,7 @@ export function CodexProjectActionsMenu({
   stableWorktreeWorkspaceRootLabels = {},
 }: {
   project: Project;
+  projectArchivingEnabled?: boolean;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
@@ -442,16 +444,20 @@ export function CodexProjectActionsMenu({
           >
             Edit sources
           </NodexDropdownItem>
-          <NodexDropdownSeparator />
-          <NodexDropdownItem
-            leftSlot={<Trash2 className="icon-sm text-(--red-text)" />}
-            className="text-(--red-text)"
-            onSelect={() => {
-              void deleteProject();
-            }}
-          >
-            Delete project
-          </NodexDropdownItem>
+          {projectArchivingEnabled ? (
+            <>
+              <NodexDropdownSeparator />
+              <NodexDropdownItem
+                leftSlot={<Trash2 className="icon-sm text-(--red-text)" />}
+                className="text-(--red-text)"
+                onSelect={() => {
+                  void deleteProject();
+                }}
+              >
+                Delete project
+              </NodexDropdownItem>
+            </>
+          ) : null}
         </NodexDropdownMenu>
       </div>
 
@@ -565,6 +571,7 @@ export function CodexProjectRow({
   animateChildren = true,
   groupDndController,
   allowProjectReorder = false,
+  projectArchivingEnabled = true,
   onActivate,
   onSelectProject,
   onStartNewChat,
@@ -582,6 +589,7 @@ export function CodexProjectRow({
   animateChildren?: boolean;
   groupDndController?: SidebarGroupDndController;
   allowProjectReorder?: boolean;
+  projectArchivingEnabled?: boolean;
   onActivate: () => void;
   onSelectProject?: () => void;
   onStartNewChat?: () => void;
@@ -775,6 +783,7 @@ export function CodexProjectRow({
         <div className="flex gap-1">
           <CodexProjectActionsMenu
             project={project}
+            projectArchivingEnabled={projectArchivingEnabled}
             onUpdateProject={onUpdateProject}
             onDeleteProject={onDeleteProject}
             onSetProjectPinned={onSetProjectPinned}

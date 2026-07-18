@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import {
   DOCUMENT_HTTP_CONTENT_TYPE,
   decodeDocumentHttpError,
+  decodeLibraryOwnedDocumentDescriptorHttp,
   decodeOwnedDocumentDescriptorHttp,
   decodeDocumentApplyHttpAck,
   decodeDocumentRealtimeSseEvent,
@@ -157,6 +158,32 @@ const createApp = (options?: {
               resetRequired: false,
             },
           },
+    authorizeLibraryDocumentAccess: async (documentId, access) =>
+      documentId === "document-1"
+        ? success({ documentId, access, authorized: true as const })
+        : {
+            ok: false,
+            error: {
+              code: "document_not_found",
+              message: "missing",
+              retryable: false,
+              resetRequired: false,
+            },
+          },
+    prepareLibraryOwnedBlockDocument: async (ownerBlockId) => success({
+      accessContext: { kind: "library" },
+      ownerBlockId,
+      ownerType: "page",
+      ownerLifecycle: "active",
+      documentId: "document-1",
+      storeEpoch: "store-1",
+      generation: 1,
+      headSeq: 0,
+      schemaKey: "nodex.page",
+      schemaVersion: 2,
+      readiness: "ready",
+      sync: { kind: "yjs", stateVector: new Uint8Array([2]) },
+    }),
   });
   return { app, hub, syncCalls, applyCalls };
 };
@@ -188,6 +215,43 @@ const readSseData = async (
 };
 
 describe("Document sync HTTP routes", () => {
+  test("prepares and syncs a Page through local Library authority", async () => {
+    const { app, syncCalls } = createApp();
+    const prepared = await app.request(
+      "/api/library/blocks/page-1/document/prepare",
+      { method: "POST" },
+    );
+    expect(prepared.status).toBe(200);
+    const descriptor = decodeLibraryOwnedDocumentDescriptorHttp(
+      await prepared.text(),
+    );
+    expect(descriptor).toMatchObject({
+      accessContext: { kind: "library" },
+      ownerBlockId: "page-1",
+      documentId: "document-1",
+    });
+    expect("projectId" in descriptor).toBe(false);
+
+    const events = await app.request(
+      "/api/library/documents/document-1/events?clientSessionId=library-client",
+    );
+    expect(events.status).toBe(200);
+    const reader = events.body?.getReader();
+    if (!reader) throw new Error("Missing Library SSE response body");
+    await readSseData(reader);
+    const synced = await app.request(
+      "/api/library/documents/document-1/sync",
+      binaryRequest(encodeDocumentSyncHttpRequest({
+        documentId: "document-1",
+        clientSessionId: "library-client",
+        stateVector: new Uint8Array([0]),
+      })),
+    );
+    expect(synced.status).toBe(200);
+    expect(syncCalls).toHaveLength(1);
+    await reader.cancel();
+  });
+
   test("serves Canvas full sync only behind its project-scoped SSE subscription", async () => {
     const { app } = createApp();
     const abort = new AbortController();

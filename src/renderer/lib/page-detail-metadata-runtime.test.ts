@@ -4,6 +4,8 @@ import { plainTextToPortableRichText } from "../../shared/block-documents";
 import type {
   BlockPropertyMutationCommandResultV2,
   BlockPropertyMutationRequestV2,
+  LibraryBlockPropertyMutationCommandResultV2,
+  LibraryBlockPropertyMutationRequestV2,
 } from "../../shared/block-property-mutations-v2";
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
 import {
@@ -12,9 +14,11 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
-import type { PageDetail } from "../../shared/page-detail";
+import type { LibraryPageDetail, PageDetail } from "../../shared/page-detail";
 import {
+  commitLibraryPageDetailMetadataPatch,
   commitPageDetailMetadataPatch,
+  type LibraryPageDetailMetadataRuntimeDependencies,
   type PageDetailMetadataRuntimeDependencies,
 } from "./page-detail-metadata-runtime";
 
@@ -151,6 +155,12 @@ const detail = (member = true): PageDetail => {
   };
 };
 
+const libraryDetail = (member = true): LibraryPageDetail => {
+  const { projectId: _privateProjectId, ...value } = detail(member);
+  void _privateProjectId;
+  return { ...value, accessContext: { kind: "library" } };
+};
+
 const mutationSuccess = (
   request: BlockPropertyMutationRequestV2,
 ): BlockPropertyMutationCommandResultV2 => ({
@@ -184,7 +194,77 @@ const dependencies = (input: {
   },
 });
 
+const libraryDependencies = (input: {
+  readonly requests: LibraryBlockPropertyMutationRequestV2[];
+  readonly refreshes?: string[];
+}): LibraryPageDetailMetadataRuntimeDependencies => ({
+  readDetail: async () => libraryDetail(),
+  mutateProperties: async (request) => {
+    input.requests.push(request);
+    return {
+      ok: true,
+      value: {
+        version: 2,
+        mutationId: request.mutationId,
+        accessContext: { kind: "library" },
+        storeEpoch: request.storeEpoch,
+        duplicate: false,
+        fields: [],
+        blockMetadataRevisions: { "page-1": 3 },
+        changeLogSeq: 5,
+        committedAt: timestamp,
+      },
+    } satisfies LibraryBlockPropertyMutationCommandResultV2;
+  },
+  refreshDetail: async (pageId) => {
+    input.refreshes?.push(pageId);
+  },
+});
+
 describe("Page Detail metadata runtime", () => {
+  test("writes through Library scope without renderer-authored Project or actor fields", async () => {
+    const requests: LibraryBlockPropertyMutationRequestV2[] = [];
+    const refreshes: string[] = [];
+    const result = await commitLibraryPageDetailMetadataPatch({
+      pageId: "page-1",
+      operationId: "library-set-priority",
+      clientSessionId: "library-window",
+      patch: { priority: "p1-high" },
+      dependencies: libraryDependencies({ requests, refreshes }),
+    });
+
+    expect(result).toEqual({ status: "updated", didMutate: true });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      mutationId: "library-set-priority",
+      clientSessionId: "library-window",
+      fields: [{
+        scope: "data_source",
+        pageId: "page-1",
+        dataSourceId,
+        propertyId: "priority",
+        expectedRevision: 7,
+        value: "p1-high",
+      }],
+    });
+    expect("projectId" in requests[0]!).toBe(false);
+    expect("actor" in requests[0]!).toBe(false);
+    expect(refreshes).toEqual(["page-1"]);
+  });
+
+  test("rejects execution metadata without an explicit Project context", async () => {
+    const requests: LibraryBlockPropertyMutationRequestV2[] = [];
+
+    await expect(commitLibraryPageDetailMetadataPatch({
+      pageId: "page-1",
+      operationId: "library-set-run-target",
+      patch: { runInTarget: "newWorktree" },
+      dependencies: libraryDependencies({ requests }),
+    })).rejects.toThrow("require an explicit Project context");
+
+    expect(requests).toHaveLength(0);
+  });
+
   test("writes Data Source values with the Page Detail value revision", async () => {
     const requests: BlockPropertyMutationRequestV2[] = [];
     const refreshes: string[] = [];

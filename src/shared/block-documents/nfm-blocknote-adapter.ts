@@ -247,6 +247,14 @@ function nfmBlockToBN(
         children: [],
       };
 
+    case "database":
+      return {
+        id: block.uuid,
+        type: "database",
+        props: {},
+        children: [],
+      };
+
     case "syncedBlockRef":
       return {
         type: "syncedBlockRef",
@@ -665,6 +673,16 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
         children: [],
       };
     }
+
+    case "database":
+      if (!block.id) {
+        throw new TypeError("Canonical Database Block requires an identity");
+      }
+      return {
+        type: "database",
+        uuid: block.id,
+        children: [],
+      };
 
     case "syncedBlockRef":
       return {

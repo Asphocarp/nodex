@@ -41,6 +41,7 @@ import {
   MAX_PAGE_HIERARCHY_DEPTH,
   findInvalidPageHierarchy,
 } from "./page-hierarchy";
+import { readLocalProfileLibraryInDatabase } from "./local-profile-library";
 
 export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
@@ -7240,21 +7241,6 @@ export function migrateSchema66To67(db: Database.Database): void {
   migrate.immediate();
 }
 
-const readLocalProfileLibrary = (
-  db: Database.Database,
-): LocalProfileLibrary | null => {
-  const rows = db.prepare(`
-    SELECT profile.id AS profileId, library.id AS libraryId
-    FROM profiles profile
-    INNER JOIN libraries library ON library.profile_id = profile.id
-    ORDER BY profile.created_at ASC, profile.id ASC
-  `).all() as LocalProfileLibrary[];
-  if (rows.length > 1) {
-    throw new Error("A local store may contain only one Profile Library");
-  }
-  return rows[0] ?? null;
-};
-
 export function ensureLocalProfileLibrary(
   db: Database.Database,
   now = new Date().toISOString(),
@@ -7277,7 +7263,7 @@ export function ensureLocalProfileLibrary(
     ) WITHOUT ROWID;
   `);
 
-  const existing = readLocalProfileLibrary(db);
+  const existing = readLocalProfileLibraryInDatabase(db);
   if (existing) return existing;
 
   const profileId = randomUUID();

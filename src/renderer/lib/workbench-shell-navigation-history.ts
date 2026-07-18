@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { WorkbenchViewSchema } from "../../shared/schemas/workbench";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+} from "../../shared/database-identities";
+import type { LibraryRouteTarget } from "../../shared/library-module";
 import type { WorkbenchView } from "./use-workbench-state";
 
 const HISTORY_STORAGE_KEY = "nodex-workbench-shell-navigation-history-v1";
@@ -14,7 +19,15 @@ export interface WorkbenchShellNavigationSnapshot {
   rightPanelCollapsed: boolean;
   bottomPanelCollapsed: boolean;
   rightPanelFullWidth: boolean;
+  libraryRoute: WorkbenchLibraryRoute | null;
 }
+
+export type WorkbenchLibraryRoute =
+  | { readonly kind: "home" }
+  | Extract<LibraryRouteTarget, { readonly kind: "page" }>
+  | (Extract<LibraryRouteTarget, { readonly kind: "database" | "view" }> & {
+      readonly accessProjectId?: string;
+    });
 
 export interface WorkbenchShellNavigationHistoryState {
   backStack: WorkbenchShellNavigationSnapshot[];
@@ -26,6 +39,41 @@ const EMPTY_HISTORY: WorkbenchShellNavigationHistoryState = {
   forwardStack: [],
 };
 
+const WorkbenchLibraryRouteSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("home") }),
+  z.object({ kind: z.literal("page"), pageId: z.string().min(1) }),
+  z.object({
+    kind: z.literal("database"),
+    databaseId: z.string().min(1),
+    accessProjectId: z.string().min(1).optional(),
+  }),
+  z.object({
+    kind: z.literal("view"),
+    viewId: z.string().min(1),
+    accessProjectId: z.string().min(1).optional(),
+  }),
+]).transform((route): WorkbenchLibraryRoute => {
+  if (route.kind === "database") {
+    return {
+      kind: "database",
+      databaseId: parseDatabaseId(route.databaseId),
+      ...(route.accessProjectId
+        ? { accessProjectId: route.accessProjectId }
+        : {}),
+    };
+  }
+  if (route.kind === "view") {
+    return {
+      kind: "view",
+      viewId: parseDatabaseViewId(route.viewId),
+      ...(route.accessProjectId
+        ? { accessProjectId: route.accessProjectId }
+        : {}),
+    };
+  }
+  return route;
+});
+
 const WorkbenchShellNavigationSnapshotSchema = z.object({
   activeProjectId: z.string().min(1),
   activeSessionId: z.string().min(1).nullable(),
@@ -35,6 +83,8 @@ const WorkbenchShellNavigationSnapshotSchema = z.object({
   rightPanelCollapsed: z.boolean(),
   bottomPanelCollapsed: z.boolean(),
   rightPanelFullWidth: z.boolean(),
+  libraryRoute: WorkbenchLibraryRouteSchema.nullable().optional()
+    .transform((route) => route ?? null),
 }) satisfies z.ZodType<WorkbenchShellNavigationSnapshot>;
 
 const UnknownArraySchema = z.array(z.unknown());
@@ -65,6 +115,20 @@ export function normalizeWorkbenchShellNavigationHistoryState(
   return {
     backStack: parsed.data.backStack.slice(-MAX_HISTORY_ENTRIES),
     forwardStack: parsed.data.forwardStack.slice(0, MAX_HISTORY_ENTRIES),
+  };
+}
+
+export function removeLibraryRoutesFromWorkbenchShellNavigationHistory(
+  value: unknown,
+): WorkbenchShellNavigationHistoryState {
+  const normalized = normalizeWorkbenchShellNavigationHistoryState(value);
+  const isProjectSnapshot = (
+    snapshot: WorkbenchShellNavigationSnapshot,
+  ): boolean => snapshot.libraryRoute === null;
+
+  return {
+    backStack: normalized.backStack.filter(isProjectSnapshot),
+    forwardStack: normalized.forwardStack.filter(isProjectSnapshot),
   };
 }
 
@@ -160,4 +224,3 @@ export function navigateForwardInWorkbenchShellHistory(
 }
 
 export const workbenchShellNavigationHistoryStorageKey = HISTORY_STORAGE_KEY;
-

@@ -48,6 +48,22 @@ export interface OwnedDocumentDescriptor
   readonly sync: OwnedDocumentSyncEngine;
 }
 
+export interface LibraryOwnedDocumentDescriptor
+  extends Omit<OwnedDocumentDescriptor, "projectId"> {
+  readonly accessContext: { readonly kind: "library" };
+}
+
+export const toLibraryOwnedDocumentDescriptor = (
+  descriptor: OwnedDocumentDescriptor,
+): LibraryOwnedDocumentDescriptor => {
+  const { projectId: _privateProjectId, ...publicDescriptor } = descriptor;
+  void _privateProjectId;
+  return {
+    ...publicDescriptor,
+    accessContext: { kind: "library" },
+  };
+};
+
 export const MAX_PAGE_DOCUMENT_UPDATE_BYTES = 2 * 1024 * 1024;
 export const MAX_PAGE_DOCUMENT_STATE_BYTES = 16 * 1024 * 1024;
 export const MAX_PAGE_DOCUMENT_BODY_XML_LENGTH = 4_000_000;

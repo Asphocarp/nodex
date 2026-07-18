@@ -17,6 +17,11 @@ import type {
   LegacyOwnedBlockDocumentDescriptor,
 } from "./legacy-document-authority";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
+import { libraryContentAccess } from "../../shared/content-access-context";
+import {
+  authorizeContentResourceInDatabase,
+  resolveContentResourceAuthorityInDatabase,
+} from "./content-resource-authority";
 
 export type { LegacyOwnedBlockDocumentDescriptor } from "./legacy-document-authority";
 
@@ -348,6 +353,70 @@ export const getOwnedDocumentDescriptor = (
   ownerBlockId: string,
 ): OwnedDocumentDescriptor =>
   getOwnedDocumentAccess(database, projectId, ownerBlockId, "read").descriptor;
+
+/**
+ * Resolves a Page-owned Document using trusted local Library authority. The
+ * descriptor retains the private storage Project coordinate for legacy table
+ * joins, but callers must not use it as permission evidence.
+ */
+export const getLibraryOwnedDocumentAccess = (
+  database: Database.Database,
+  ownerBlockId: string,
+  action: Extract<ProjectResourceAction, "read" | "write">,
+): OwnedDocumentAccess => {
+  const normalizedOwnerBlockId = requireIdentity(ownerBlockId, "ownerBlockId");
+  const read = database.transaction((): OwnedDocumentAccess => {
+    if (!isPageOwner(database, normalizedOwnerBlockId)) {
+      throw new BlockDocumentCutoverError(
+        "owned_document_not_found",
+        `Block ${normalizedOwnerBlockId} is not a Library Page`,
+      );
+    }
+    const authority = resolveContentResourceAuthorityInDatabase(database, {
+      context: libraryContentAccess,
+      actor: "app_window",
+    });
+    const authorization = authorizeContentResourceInDatabase(database, {
+      authority,
+      resource: { kind: "page", pageId: normalizedOwnerBlockId },
+      action,
+    });
+    if (
+      authorization.authorityKind !== "local_user_library" ||
+      !authorization.allowed
+    ) {
+      throw new BlockDocumentCutoverError(
+        "owned_document_not_found",
+        `Page ${normalizedOwnerBlockId} is not available in the local Library`,
+      );
+    }
+    const row = readOwnedDocumentRowByOwner(database, normalizedOwnerBlockId);
+    if (!row) {
+      throw new BlockDocumentCutoverError(
+        "owned_document_not_found",
+        `Page ${normalizedOwnerBlockId} has no owned Document`,
+      );
+    }
+    if (action === "write" && row.owner_lifecycle !== "active") {
+      throw new BlockDocumentCutoverError(
+        "owner_not_writable",
+        `Page ${normalizedOwnerBlockId} is not writable`,
+      );
+    }
+    return {
+      requestingProjectId: row.project_id,
+      storageProjectId: row.project_id,
+      descriptor: toOwnedDocumentDescriptor(row, readStoreEpoch(database)),
+    };
+  });
+  return read();
+};
+
+export const getLibraryOwnedDocumentDescriptor = (
+  database: Database.Database,
+  ownerBlockId: string,
+): OwnedDocumentDescriptor =>
+  getLibraryOwnedDocumentAccess(database, ownerBlockId, "read").descriptor;
 
 /** @deprecated Use `getOwnedDocumentDescriptor` for engine dispatch. */
 export const getOwnedBlockDocumentDescriptor = (

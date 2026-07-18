@@ -1,4 +1,9 @@
-export const SIDEBAR_COLLAPSIBLE_SECTION_IDS = ["pinned", "projects", "chats"] as const;
+export const SIDEBAR_COLLAPSIBLE_SECTION_IDS = [
+  "pinned",
+  "library",
+  "projects",
+  "chats",
+] as const;
 
 export type SidebarCollapsibleSectionId = (typeof SIDEBAR_COLLAPSIBLE_SECTION_IDS)[number];
 

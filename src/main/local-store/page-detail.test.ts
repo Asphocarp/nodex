@@ -5,9 +5,12 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { readPageDetailInDatabase } from "./page-detail";
+import {
+  readPageDetailInDatabase,
+  readLibraryPageDetailInDatabase,
+} from "./page-detail";
 import { putProjectResourceGrant } from "./project-resource-grants";
-import { createProject } from "./projects";
+import { createProject, setProjectLifecycle } from "./projects";
 
 let tempDirectory = "";
 
@@ -82,6 +85,25 @@ describe("Page Detail", () => {
       ok: false,
       error: { code: "authorization_denied" },
     });
+  });
+
+  test("reads through local Library authority after the compatibility Project is archived", async () => {
+    const project = createProject({ name: "Archived owner" });
+    const page = await createPage(project.id, "triage", { title: "Durable" });
+    setProjectLifecycle(project.id, { lifecycle: "archived" });
+
+    const result = readLibraryPageDetailInDatabase(
+      getDb(), page.id, "app_window",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        accessContext: { kind: "library" },
+        libraryId: project.libraryId,
+        page: { pageId: page.id, title: "Durable" },
+      },
+    });
+    if (result.ok) expect("projectId" in result.value).toBe(false);
   });
 
   test("rejects a Source-parented Page without exactly one active membership", async () => {

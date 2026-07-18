@@ -4,6 +4,7 @@ import type {
   NfmCardRef,
   NfmPageRef,
   NfmPage,
+  NfmDatabase,
   NfmDatabaseViewRef,
   NfmColor,
   NfmInlineContent,
@@ -153,6 +154,15 @@ export function parseNfm(input: string): NfmBlock[] {
       const databaseViewRef = parseDatabaseViewRef(content.trim());
       if (databaseViewRef) {
         addBlock(databaseViewRef, indent);
+        i++;
+        continue;
+      }
+    }
+
+    if (content.trimStart().startsWith("<database")) {
+      const database = parseDatabase(content.trim());
+      if (database) {
+        addBlock(database, indent);
         i++;
         continue;
       }
@@ -622,6 +632,16 @@ function parsePage(line: string): NfmPage | null {
     ...(uuid === undefined ? {} : { uuid }),
     children: [],
   };
+}
+
+function parseDatabase(line: string): NfmDatabase | null {
+  const match = line.match(/^<database(?:\s+([^>]*))?\s*\/>$/);
+  if (!match) return null;
+  const uuid = getXmlAttr(match[1] ?? "", "uuid");
+  if (!uuid || uuid !== uuid.trim()) {
+    throw new TypeError("Canonical Database NFM requires an exact non-empty uuid");
+  }
+  return { type: "database", uuid, children: [] };
 }
 
 function parsePageRef(line: string): NfmPageRef | null {

@@ -40,6 +40,7 @@ import {
   bootstrapWindowSession,
   saveWindowSessionLayout,
 } from "@/lib/window-sessions";
+import { loadProductFeatureGates } from "@/lib/product-feature-gates";
 import { AppStartupScreen } from "@/components/app-startup-screen";
 import { NodexToastProvider } from "@/components/ui/toast";
 import type { OpenPageStageOptions } from "@/components/kanban/open-page-stage";
@@ -58,6 +59,10 @@ import type {
   AppInitializationStep,
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
+import {
+  DEFAULT_PRODUCT_FEATURE_GATES,
+  type ProductFeatureGates,
+} from "../shared/product-feature-gates";
 import type {
   WorkbenchCommandId,
   WorkbenchCommandInvocation,
@@ -112,7 +117,13 @@ function replaceProjectQueryParam(projectId: string): void {
   }
 }
 
-function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionBootstrap: WindowSessionBootstrap }) {
+function WorkbenchApp({
+  initialWindowSessionBootstrap,
+  productFeatureGates,
+}: {
+  initialWindowSessionBootstrap: WindowSessionBootstrap;
+  productFeatureGates: ProductFeatureGates;
+}) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const {
     projects,
@@ -1201,6 +1212,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       />
       <HeartbeatAutomationController />
       <WorkbenchShell
+      libraryWorkspaceEnabled={productFeatureGates.libraryWorkspace}
       projects={projects}
       dbProjectId={resolvedDbProjectId}
       threadsProjectId={threadsProjectId}
@@ -1304,11 +1316,13 @@ export default function App() {
   const [bootstrapState, setBootstrapState] = useState<{
     ready: boolean;
     windowSession: WindowSessionBootstrap | null;
+    productFeatureGates: ProductFeatureGates;
     step: AppInitializationStep;
     migrationProgress: DatabaseMigrationProgress | null;
   }>({
     ready: false,
     windowSession: null,
+    productFeatureGates: DEFAULT_PRODUCT_FEATURE_GATES,
     step: { phase: "app_waiting" },
     migrationProgress: null,
   });
@@ -1335,16 +1349,21 @@ export default function App() {
       );
     }
 
+    const loadBootstrap = () => Promise.all([
+      bootstrapWindowSession(),
+      loadProductFeatureGates(),
+    ] as const);
     const bootstrapPromise = window.api?.awaitInitialization
-      ? window.api.awaitInitialization().then(() => bootstrapWindowSession())
-      : bootstrapWindowSession();
+      ? window.api.awaitInitialization().then(loadBootstrap)
+      : loadBootstrap();
 
     void bootstrapPromise
-      .then((windowSession) => {
+      .then(([windowSession, productFeatureGates]) => {
         if (cancelled) return;
         setBootstrapState({
           ready: true,
           windowSession,
+          productFeatureGates,
           step: { phase: "done" },
           migrationProgress: { type: "Done" },
         });
@@ -1354,6 +1373,7 @@ export default function App() {
         setBootstrapState({
           ready: true,
           windowSession: null,
+          productFeatureGates: DEFAULT_PRODUCT_FEATURE_GATES,
           step: { phase: "done" },
           migrationProgress: { type: "Done" },
         });
@@ -1379,7 +1399,10 @@ export default function App() {
   return (
     <NodexToastProvider>
       {bootstrapState.windowSession ? (
-        <WorkbenchApp initialWindowSessionBootstrap={bootstrapState.windowSession} />
+        <WorkbenchApp
+          initialWindowSessionBootstrap={bootstrapState.windowSession}
+          productFeatureGates={bootstrapState.productFeatureGates}
+        />
       ) : (
         <AppStartupScreen
           step={{ phase: "done" }}

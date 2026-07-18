@@ -24,8 +24,11 @@ import { closeDatabase, getDb, initializeDatabase } from "./database";
 import { createPage } from "./database-pages";
 import {
   applyDatabaseModuleV2,
+  applyLibraryDatabaseModuleV2,
+  readLibraryDatabaseModuleV2,
   readDatabaseModuleV2,
 } from "./database-module-v2-runtime";
+import { setProjectLifecycle } from "./projects";
 
 const tempDirectories: string[] = [];
 
@@ -121,6 +124,69 @@ const applyFixture = (
 );
 
 describe("dormant canonical Database Module v2 runtime", () => {
+  test("reads a concrete View through Library authority after Project archive", async () => {
+    const fixture = await createV81Fixture(2);
+    setProjectLifecycle(fixture.projectId, { lifecycle: "archived" });
+
+    const libraryRead = readLibraryDatabaseModuleV2(
+      fixture.database,
+      {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        read: {
+          target: { kind: "view", viewId: fixture.viewId },
+          mode: "query",
+        },
+      },
+      "app_window",
+    );
+    expect(libraryRead).toMatchObject({
+      ok: true,
+      value: {
+        accessContext: { kind: "library" },
+        value: {
+          kind: "query",
+          value: { view: { viewId: fixture.viewId } },
+        },
+      },
+    });
+    if (libraryRead.ok) expect("projectId" in libraryRead.value).toBe(false);
+    if (!libraryRead.ok || libraryRead.value.value.kind !== "query") {
+      throw new Error("Expected a Library View query");
+    }
+    const row = libraryRead.value.value.value.rows[0];
+    if (!row) throw new Error("Expected a Library row");
+    const currentStatus = row.values.status;
+    if (typeof currentStatus?.value !== "string") {
+      throw new Error("Expected a valid option-backed status value");
+    }
+    const applied = applyLibraryDatabaseModuleV2(
+      fixture.database,
+      {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: "library-option-write",
+        storeEpoch: fixture.storeEpoch,
+        operations: [{
+          kind: "set_value",
+          pageId: row.page.pageId,
+          dataSourceId: fixture.dataSourceId,
+          propertyId: parseDataSourcePropertyId("status"),
+          expectedValueRevision: currentStatus.revision,
+          value: currentStatus.value,
+        }],
+      },
+      { kind: "test" },
+      "app_window",
+    );
+    expect(applied).toMatchObject({
+      ok: true,
+      value: {
+        accessContext: { kind: "library" },
+        affectedPageIds: [row.page.pageId],
+      },
+    });
+    if (applied.ok) expect("projectId" in applied.value).toBe(false);
+  });
+
   test("reads v81 authority and applies owner-scoped option/value intents atomically", async () => {
     useTempStore();
     await initializeDatabase();

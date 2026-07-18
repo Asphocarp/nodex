@@ -24,6 +24,11 @@ import {
   type DatabaseModuleErrorV2,
   type DatabaseModuleReadRequestV2,
   type DatabaseModuleReadResultV2,
+  type LibraryDatabaseModuleReadRequestV2,
+  type LibraryDatabaseModuleReadResultV2,
+  type LibraryDatabaseReadV2,
+  type LibraryDatabaseApplyV2,
+  type LibraryDatabaseApplyResultV2,
   type DatabaseReadValueV2,
   type DatabaseViewQueryResultV2,
   type DatabaseViewRecordV2,
@@ -751,6 +756,34 @@ export const bindDatabaseApplyV2 = (
   };
 };
 
+export const bindLibraryDatabaseApplyV2 = (
+  raw: unknown,
+  trusted: TrustedDatabaseModuleIdentityV2,
+): LibraryDatabaseApplyV2 => {
+  const request = readRecord(raw, "libraryDatabaseApplyV2");
+  assertExactKeys(request, "libraryDatabaseApplyV2", [
+    "version",
+    "operationId",
+    "storeEpoch",
+    "operations",
+  ]);
+  const bound = bindDatabaseApplyV2(
+    {
+      ...request,
+      projectId: "local-library-boundary",
+      actor: {},
+    },
+    "local-library-boundary",
+    trusted,
+  );
+  return {
+    version: bound.version,
+    operationId: bound.operationId,
+    storeEpoch: bound.storeEpoch,
+    operations: bound.operations,
+  };
+};
+
 export const bindDatabaseModuleReadV2 = (
   raw: unknown,
   routeProjectId: unknown,
@@ -868,6 +901,23 @@ export const bindDatabaseModuleReadV2 = (
   }
 
   throw new TypeError("Database Module v2 read target and mode are incompatible");
+};
+
+export const bindLibraryDatabaseModuleReadV2 = (
+  raw: unknown,
+): LibraryDatabaseModuleReadRequestV2 => {
+  const request = readRecord(raw, "libraryDatabaseModuleReadV2");
+  assertExactKeys(request, "libraryDatabaseModuleReadV2", ["version", "read"]);
+  const bound = bindDatabaseModuleReadV2(
+    { ...request, projectId: "local-library-boundary" },
+    "local-library-boundary",
+  );
+  if (bound.read.target.kind === "project_default") {
+    throw new TypeError(
+      "Library Database reads require a concrete Database, Data Source, or View",
+    );
+  }
+  return { version: bound.version, read: bound.read as LibraryDatabaseReadV2 };
 };
 
 const DATABASE_MODULE_ERROR_CODES = new Set<DatabaseModuleErrorCodeV2>([
@@ -1479,6 +1529,107 @@ export const parseDatabaseApplyResultV2 = (
       committedRevisions,
       changeLogSeq: readRevision(receipt.changeLogSeq, "databaseApplyV2.receipt.changeLogSeq"),
       committedAt: readTimestamp(receipt.committedAt, "databaseApplyV2.receipt.committedAt"),
+    },
+  };
+};
+
+const assertLibraryAccessContext = (value: unknown, label: string): void => {
+  const context = readRecord(value, label);
+  assertExactKeys(context, label, ["kind"]);
+  if (context.kind !== "library") {
+    throw new TypeError(`${label}.kind must be library`);
+  }
+};
+
+export const parseLibraryDatabaseModuleReadResultV2 = (
+  value: unknown,
+): LibraryDatabaseModuleReadResultV2 => {
+  const result = parseResultEnvelope(value, "Library Database Module v2 read result");
+  if (result.ok === false && Object.prototype.hasOwnProperty.call(result, "error")) {
+    return { ok: false, error: parseDatabaseModuleErrorV2(result.error) };
+  }
+  if (result.ok !== true || !Object.prototype.hasOwnProperty.call(result, "value")) {
+    throw new TypeError("Library Database Module v2 read result envelope is invalid");
+  }
+  const snapshot = readRecord(result.value, "libraryDatabaseModuleReadV2.snapshot");
+  assertExactKeys(snapshot, "libraryDatabaseModuleReadV2.snapshot", [
+    "version",
+    "accessContext",
+    "libraryId",
+    "storeEpoch",
+    "changeLogSeq",
+    "value",
+  ]);
+  assertLibraryAccessContext(
+    snapshot.accessContext,
+    "libraryDatabaseModuleReadV2.snapshot.accessContext",
+  );
+  const { accessContext: _accessContext, ...standardSnapshot } = snapshot;
+  void _accessContext;
+  const parsed = parseDatabaseModuleReadResultV2({
+    ok: true,
+    value: {
+      ...standardSnapshot,
+      projectId: "local-library",
+    },
+  });
+  if (!parsed.ok) return parsed;
+  const { projectId: _privateProjectId, ...publicSnapshot } = parsed.value;
+  void _privateProjectId;
+  return {
+    ok: true,
+    value: {
+      ...publicSnapshot,
+      accessContext: { kind: "library" },
+    },
+  };
+};
+
+export const parseLibraryDatabaseApplyResultV2 = (
+  value: unknown,
+): LibraryDatabaseApplyResultV2 => {
+  const result = parseResultEnvelope(value, "Library Database Module v2 apply result");
+  if (result.ok === false && Object.prototype.hasOwnProperty.call(result, "error")) {
+    return { ok: false, error: parseDatabaseModuleErrorV2(result.error) };
+  }
+  if (result.ok !== true || !Object.prototype.hasOwnProperty.call(result, "value")) {
+    throw new TypeError("Library Database Module v2 apply result envelope is invalid");
+  }
+  const receipt = readRecord(result.value, "libraryDatabaseApplyV2.receipt");
+  assertExactKeys(receipt, "libraryDatabaseApplyV2.receipt", [
+    "version",
+    "operationId",
+    "accessContext",
+    "libraryId",
+    "storeEpoch",
+    "duplicate",
+    "operationKinds",
+    "affectedDatabaseIds",
+    "affectedDataSourceIds",
+    "affectedPageIds",
+    "affectedViewIds",
+    "committedRevisions",
+    "changeLogSeq",
+    "committedAt",
+  ]);
+  assertLibraryAccessContext(
+    receipt.accessContext,
+    "libraryDatabaseApplyV2.receipt.accessContext",
+  );
+  const { accessContext: _accessContext, ...standardReceipt } = receipt;
+  void _accessContext;
+  const parsed = parseDatabaseApplyResultV2({
+    ok: true,
+    value: { ...standardReceipt, projectId: "local-library" },
+  });
+  if (!parsed.ok) return parsed;
+  const { projectId: _privateProjectId, ...publicReceipt } = parsed.value;
+  void _privateProjectId;
+  return {
+    ok: true,
+    value: {
+      ...publicReceipt,
+      accessContext: { kind: "library" },
     },
   };
 };

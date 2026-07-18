@@ -8,11 +8,15 @@ import {
   getOwnedDocumentAccess,
   getOwnedBlockDocumentDescriptor,
   getOwnedDocumentDescriptor,
+  getLibraryOwnedDocumentAccess,
 } from "./block-document-cutover";
-import { authorizeDocumentAccessInDatabase } from "./document-access";
+import {
+  authorizeDocumentAccessInDatabase,
+  authorizeLibraryDocumentAccessInDatabase,
+} from "./document-access";
 import { createPage } from "./database-pages";
 import { closeDatabase, getDb, initializeDatabase } from "./database";
-import { createProject } from "./projects";
+import { createProject, setProjectLifecycle } from "./projects";
 import { putProjectResourceGrant } from "./project-resource-grants";
 
 const supportsBetterSqlite3 = (): boolean => {
@@ -158,6 +162,41 @@ describe("owned Document descriptor lookup", () => {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
       delete process.env.NODEX_HOME;
+    }
+  });
+
+  sqliteTest("keeps Page Documents writable through Library authority after Project archive", async () => {
+    closeDatabase();
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nodex-library-page-document-access-"),
+    );
+    process.env.NODEX_DIR = tempDir;
+    try {
+      await initializeDatabase();
+      const owner = createProject({ name: "Compatibility owner" });
+      const page = await createPage(owner.id, "triage", { title: "Durable Page" });
+      setProjectLifecycle(owner.id, { lifecycle: "archived" });
+      const database = getDb();
+
+      const access = getLibraryOwnedDocumentAccess(database, page.id, "write");
+      expect(access.storageProjectId).toBe(owner.id);
+      expect(access.descriptor.ownerBlockId).toBe(page.id);
+      expect(
+        authorizeLibraryDocumentAccessInDatabase(database, {
+          documentId: access.descriptor.documentId,
+          access: "write",
+        }),
+      ).toMatchObject({
+        ok: true,
+        value: { authorized: true, access: "write" },
+      });
+      expect(() =>
+        getOwnedDocumentAccess(database, owner.id, page.id, "write")
+      ).toThrow("not available in the requesting Project");
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.NODEX_DIR;
     }
   });
 });

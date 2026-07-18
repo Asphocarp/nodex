@@ -1,4 +1,4 @@
-import { Link2, MoreHorizontal, Trash2 } from "lucide-react";
+import { ArrowLeft, Link2, MoreHorizontal, Trash2 } from "lucide-react";
 import { CodeBracketsIcon } from "@/components/shared/icons";
 import {
   NodexDropdownItem,
@@ -25,6 +25,7 @@ interface PageStageToolbarProps {
   onToggleShowRawContent: () => void;
   onToggleHistoryPanel?: () => void;
   breadcrumb?: Omit<PageStageBreadcrumbProps, "disabled">;
+  onNavigateBack?: () => void;
 }
 
 const pageStageToolbarButtonChrome =
@@ -46,9 +47,27 @@ export function PageStageToolbar({
   onToggleShowRawContent,
   onToggleHistoryPanel,
   breadcrumb,
+  onNavigateBack,
 }: PageStageToolbarProps) {
   return (
     <div className="flex h-11 items-center gap-2 px-3">
+      {onNavigateBack ? (
+        <NodexTooltip tooltipContent="Back to Library" side="bottom" delayDuration={0}>
+          <button
+            type="button"
+            aria-label="Back to Library"
+            onClick={onNavigateBack}
+            className={cn(
+              pageStageToolbarButtonChrome,
+              "shrink-0 text-(--foreground-tertiary)",
+              pageStageToolbarButtonHover,
+              "hover:text-(--foreground-secondary)",
+            )}
+          >
+            <ArrowLeft className="icon-sm" />
+          </button>
+        </NodexTooltip>
+      ) : null}
       {breadcrumb ? (
         <PageStageBreadcrumb
           {...breadcrumb}

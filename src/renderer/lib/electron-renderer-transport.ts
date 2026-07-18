@@ -19,9 +19,13 @@ import type {
 } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
-import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
+import {
+  createElectronDocumentSyncAdapter,
+  createElectronLibraryDocumentSyncAdapter,
+} from "./electron-document-sync-adapter";
 import { createElectronCanvasSceneSyncAdapter } from "./electron-canvas-scene-sync-adapter";
 import type {
+  LibraryOwnedDocumentDescriptor,
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
@@ -95,8 +99,17 @@ export function createElectronRendererTransport(
         ownerBlockId,
       ) as Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
     },
+    prepareLibraryOwnedBlockDocument(ownerBlockId: string) {
+      return bridge.invoke(
+        "library-block-document:owned:prepare",
+        ownerBlockId,
+      ) as Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
+    },
     createDocumentSyncAdapter(projectId: string) {
       return createElectronDocumentSyncAdapter(bridge, projectId);
+    },
+    createLibraryDocumentSyncAdapter() {
+      return createElectronLibraryDocumentSyncAdapter(bridge);
     },
     createCanvasSceneSyncAdapter(projectId: string) {
       return createElectronCanvasSceneSyncAdapter(bridge, projectId);
@@ -215,6 +228,19 @@ export function createElectronRendererTransport(
       return bridge.on("database-changed", (...args: unknown[]) => {
         const payload = args[0] as DatabaseChangeEvent | undefined;
         if (!payload || payload.projectId !== projectId) return;
+        callback(payload);
+      });
+    },
+    subscribeLibraryChanges(
+      callback: (
+        event: import("../../shared/library-events").LibraryNavigationChangedEvent,
+      ) => void,
+    ) {
+      return bridge.on("library-navigation-changed", (...args: unknown[]) => {
+        const payload = args[0] as
+          | import("../../shared/library-events").LibraryNavigationChangedEvent
+          | undefined;
+        if (!payload) return;
         callback(payload);
       });
     },

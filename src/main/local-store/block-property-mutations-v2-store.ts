@@ -15,6 +15,7 @@ import {
   type BlockPropertyMutationCommandResultV2,
   type BlockPropertyMutationFieldResultV2,
   type BlockPropertyMutationRequestV2,
+  type LibraryBlockPropertyMutationRequestV2,
   type BlockPropertyMutationResultV2,
   type SetIntrinsicBlockPropertyV2,
   type SetDataSourceScalarPropertyV2,
@@ -30,6 +31,13 @@ import type { DataSourceOptionId } from "../../shared/database-identities";
 import type { PageInput } from "../../shared/types";
 import { assertValidPageInput } from "./page-input-validation";
 import { authorizeProjectResourceInDatabase } from "./project-resource-grants";
+import {
+  authorizeContentResourceInDatabase,
+  resolveContentResourceAuthorityInDatabase,
+  type ContentResourceAuthority,
+} from "./content-resource-authority";
+import { libraryContentAccess } from "../../shared/content-access-context";
+import { requireLocalProfileLibraryInDatabase } from "./local-profile-library";
 
 export type BlockPropertyMutationV2FaultPoint =
   | "after_property_values"
@@ -43,6 +51,10 @@ export type BlockPropertyMutationV2FaultPoint =
 export interface ApplySourceBlockPropertyMutationV2Options {
   readonly faultInjector?: (point: BlockPropertyMutationV2FaultPoint) => void;
   readonly now?: () => string;
+  readonly contentAuthority?: Extract<
+    ContentResourceAuthority,
+    { readonly kind: "local_user_library" }
+  >;
   /**
    * The worker supplies the v81 projection refresher here so the authority
    * kernel stays independent from disposable scheduler/read-model modules.
@@ -58,6 +70,27 @@ export interface ApplySourceBlockPropertyMutationV2Options {
     }>,
   ) => void;
 }
+
+const hasWriteAccess = (
+  database: Database.Database,
+  request: BlockPropertyMutationRequestV2,
+  resource: import("../../shared/resource-authorization").LibraryResource,
+  options: ApplySourceBlockPropertyMutationV2Options,
+): boolean => {
+  if (options.contentAuthority) {
+    const authorization = authorizeContentResourceInDatabase(database, {
+      authority: options.contentAuthority,
+      resource,
+      action: "write",
+    });
+    return "allowed" in authorization && authorization.allowed;
+  }
+  return authorizeProjectResourceInDatabase(database, {
+    projectId: request.projectId,
+    resource,
+    action: "write",
+  }).allowed;
+};
 
 interface StoreEpochRow {
   readonly store_epoch: string;
@@ -685,6 +718,7 @@ const readSource = (
   request: BlockPropertyMutationRequestV2,
   dataSourceId: string,
   path: string,
+  options: ApplySourceBlockPropertyMutationV2Options,
 ): SourceRow => {
   const source = database.prepare(`
     SELECT source.id, source.library_id, source.home_database_block_id,
@@ -712,12 +746,12 @@ const readSource = (
       { fieldPath: path },
     );
   }
-  const authorization = authorizeProjectResourceInDatabase(database, {
-    projectId: request.projectId,
-    resource: { kind: "data_source", dataSourceId },
-    action: "write",
-  });
-  if (authorization.allowed) return source;
+  if (hasWriteAccess(
+    database,
+    request,
+    { kind: "data_source", dataSourceId },
+    options,
+  )) return source;
   return reject(
     "data_source_not_found",
     `Writable Data Source is unavailable: ${dataSourceId}`,
@@ -850,15 +884,16 @@ const resolveIntrinsicField = (
   database: Database.Database,
   request: BlockPropertyMutationRequestV2,
   field: SetIntrinsicBlockPropertyV2,
+  options: ApplySourceBlockPropertyMutationV2Options,
 ): ResolvedIntrinsicField => {
   const path = makeBlockPropertyFieldPathV2(field);
   const page = readActivePage(database, request, field.blockId, path);
-  const authorization = authorizeProjectResourceInDatabase(database, {
-    projectId: request.projectId,
-    resource: { kind: "page", pageId: field.blockId },
-    action: "write",
-  });
-  if (!authorization.allowed) {
+  if (!hasWriteAccess(
+    database,
+    request,
+    { kind: "page", pageId: field.blockId },
+    options,
+  )) {
     return reject(
       "block_not_found",
       `Writable Page Block is unavailable: ${field.blockId}`,
@@ -902,9 +937,16 @@ const resolveField = (
   database: Database.Database,
   request: BlockPropertyMutationRequestV2,
   field: SetDataSourceScalarPropertyV2 | UpdateDataSourceSetPropertyV2,
+  options: ApplySourceBlockPropertyMutationV2Options,
 ): ResolvedSourceField => {
   const path = makeBlockPropertyFieldPathV2(field);
-  const source = readSource(database, request, field.dataSourceId, path);
+  const source = readSource(
+    database,
+    request,
+    field.dataSourceId,
+    path,
+    options,
+  );
   const membership = readPageMembership(
     database,
     request,
@@ -1127,11 +1169,12 @@ const validateScheduleAfterMutation = (
 const resolveFields = (
   database: Database.Database,
   request: BlockPropertyMutationRequestV2,
+  options: ApplySourceBlockPropertyMutationV2Options,
 ): readonly ResolvedPropertyField[] => {
   const fields = request.fields.map((field) =>
     field.scope === "intrinsic"
-      ? resolveIntrinsicField(database, request, field)
-      : resolveField(database, request, field),
+      ? resolveIntrinsicField(database, request, field, options)
+      : resolveField(database, request, field, options),
   );
   validateScheduleAfterMutation(database, request, fields);
   return fields;
@@ -1484,7 +1527,7 @@ export const applySourceBlockPropertyMutationV2 = (
     const now = options.now?.() ?? new Date().toISOString();
     let fields: readonly ResolvedPropertyField[];
     try {
-      fields = resolveFields(database, request);
+      fields = resolveFields(database, request, options);
     } catch (error) {
       if (!(error instanceof SourcePropertyMutationRejection)) throw error;
       const outcome = persistRejectedOutcome(
@@ -1559,4 +1602,51 @@ export const applySourceBlockPropertyMutationV2 = (
   const result = apply.immediate();
   inject("after_commit");
   return result;
+};
+
+export const applyLibrarySourceBlockPropertyMutationV2 = (
+  database: Database.Database,
+  request: LibraryBlockPropertyMutationRequestV2,
+  actor: BlockPropertyMutationRequestV2["actor"],
+  accessActor: "app_window" | "http_loopback",
+  options: Omit<ApplySourceBlockPropertyMutationV2Options, "contentAuthority"> = {},
+): BlockPropertyMutationCommandResultV2 => {
+  const local = requireLocalProfileLibraryInDatabase(database);
+  const compatibilityProject = database.prepare(`
+    SELECT id FROM projects
+    WHERE library_id = ?
+    ORDER BY created, id
+    LIMIT 1
+  `).get(local.libraryId) as { readonly id: string } | undefined;
+  if (!compatibilityProject) {
+    return {
+      ok: false,
+      error: makeError(
+        "project_not_found",
+        "The local Library has no compatibility storage Project",
+      ),
+    };
+  }
+  const authority = resolveContentResourceAuthorityInDatabase(database, {
+    context: libraryContentAccess,
+    actor: accessActor,
+  });
+  if (authority.kind !== "local_user_library") {
+    return {
+      ok: false,
+      error: makeError(
+        "invalid_property_mutation_request",
+        "Local Library authority could not be resolved",
+      ),
+    };
+  }
+  return applySourceBlockPropertyMutationV2(
+    database,
+    {
+      ...request,
+      projectId: compatibilityProject.id,
+      actor,
+    },
+    { ...options, contentAuthority: authority },
+  );
 };

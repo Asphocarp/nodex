@@ -5,6 +5,7 @@ import {
   MAX_DOCUMENT_TOUCHED_BLOCK_IDS,
   type DocumentReadiness,
   type OwnedDocumentDescriptor,
+  type LibraryOwnedDocumentDescriptor,
 } from "./contracts";
 import {
   MAX_DOCUMENT_AWARENESS_UPDATE_BYTES,
@@ -129,6 +130,11 @@ interface EncodedOwnedDocumentDescriptor {
   readonly schemaVersion: number;
   readonly readiness: DocumentReadiness;
   readonly sync: EncodedOwnedDocumentSyncEngine;
+}
+
+interface EncodedLibraryOwnedDocumentDescriptor
+  extends Omit<EncodedOwnedDocumentDescriptor, "projectId"> {
+  readonly accessContext: { readonly kind: "library" };
 }
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -444,6 +450,89 @@ export const decodeOwnedDocumentDescriptorHttp = (
     schemaVersion: descriptor.schemaVersion,
     readiness: descriptor.readiness,
     sync,
+  };
+};
+
+export const encodeLibraryOwnedDocumentDescriptorHttp = (
+  descriptor: LibraryOwnedDocumentDescriptor,
+): string => {
+  const sync: EncodedOwnedDocumentSyncEngine = descriptor.sync.kind === "yjs"
+    ? {
+        kind: "yjs",
+        stateVector: documentBytesToBase64(descriptor.sync.stateVector),
+      }
+    : { kind: "canvas_scene" };
+  return JSON.stringify({
+    version: 2,
+    accessContext: { kind: "library" },
+    ownerBlockId: descriptor.ownerBlockId,
+    ownerType: descriptor.ownerType,
+    ownerLifecycle: descriptor.ownerLifecycle,
+    documentId: descriptor.documentId,
+    storeEpoch: descriptor.storeEpoch,
+    generation: descriptor.generation,
+    headSeq: descriptor.headSeq,
+    schemaKey: descriptor.schemaKey,
+    schemaVersion: descriptor.schemaVersion,
+    readiness: descriptor.readiness,
+    sync,
+  } satisfies EncodedLibraryOwnedDocumentDescriptor);
+};
+
+export const decodeLibraryOwnedDocumentDescriptorHttp = (
+  serialized: string,
+): LibraryOwnedDocumentDescriptor => {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(serialized) as unknown;
+  } catch (error) {
+    throw new DocumentHttpWireError(
+      "Library Owned Document descriptor is not valid JSON",
+      { cause: error },
+    );
+  }
+  const record = readRecord(decoded);
+  assertExactKeys(
+    record,
+    [
+      "version",
+      "accessContext",
+      "ownerBlockId",
+      "ownerType",
+      "ownerLifecycle",
+      "documentId",
+      "storeEpoch",
+      "generation",
+      "headSeq",
+      "schemaKey",
+      "schemaVersion",
+      "readiness",
+      "sync",
+    ],
+    "Library Owned Document descriptor",
+  );
+  const accessContext = readRecord(record.accessContext);
+  assertExactKeys(
+    accessContext,
+    ["kind"],
+    "Library Owned Document access context",
+  );
+  if (accessContext.kind !== "library") {
+    throw new DocumentHttpWireError(
+      "Library Owned Document access context must be library",
+    );
+  }
+  const { accessContext: _accessContext, ...standardDescriptor } = record;
+  void _accessContext;
+  const parsed = decodeOwnedDocumentDescriptorHttp(JSON.stringify({
+    ...standardDescriptor,
+    projectId: "local-library",
+  }));
+  const { projectId: _privateProjectId, ...publicDescriptor } = parsed;
+  void _privateProjectId;
+  return {
+    ...publicDescriptor,
+    accessContext: { kind: "library" },
   };
 };
 

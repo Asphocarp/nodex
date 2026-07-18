@@ -11,6 +11,9 @@ import type { PageTargetChangedEvent } from "../shared/page-target-events";
 import type {
   DocumentAccessAck,
   DocumentAccessRequest,
+  LibraryDocumentAccessAck,
+  LibraryDocumentAccessRequest,
+  LibraryOwnedDocumentDescriptor,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
   DocumentSyncCommandResult,
@@ -47,14 +50,30 @@ import type {
 import type {
   BlockPropertyMutationCommandResultV2,
   BlockPropertyMutationRequestV2,
+  LibraryBlockPropertyMutationCommandResultV2,
+  LibraryBlockPropertyMutationRequestV2,
 } from "../shared/block-property-mutations-v2";
 import type {
   DatabaseApplyResultV2,
   DatabaseApplyV2,
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
+  LibraryDatabaseModuleReadRequestV2,
+  LibraryDatabaseModuleReadResultV2,
+  LibraryDatabaseApplyV2,
+  LibraryDatabaseApplyResultV2,
 } from "../shared/database-module-v2";
-import type { PageDetailResult } from "../shared/page-detail";
+import type {
+  LibraryModuleApplyRequest,
+  LibraryModuleApplyResult,
+  LibraryModuleReadRequest,
+  LibraryModuleReadResult,
+} from "../shared/library-module";
+import { LIBRARY_NAVIGATION_EVENT_VERSION } from "../shared/library-events";
+import type {
+  LibraryPageDetailResult,
+  PageDetailResult,
+} from "../shared/page-detail";
 import {
   DATABASE_CHANGE_EVENT_VERSION,
   type DatabaseChangeEvent,
@@ -289,6 +308,17 @@ export class BlockMutationWriter {
     return await this.executeTyped<BlockPropertyMutationCommandResultV2>({
       type: "applyBlockPropertyMutation",
       payload: request,
+    });
+  }
+
+  async applyLibraryBlockPropertyMutation(input: {
+    readonly request: LibraryBlockPropertyMutationRequestV2;
+    readonly actor: BlockPropertyMutationRequestV2["actor"];
+    readonly accessActor: "app_window" | "http_loopback";
+  }): Promise<BlockMutationEnvelope<LibraryBlockPropertyMutationCommandResultV2>> {
+    return await this.executeTyped<LibraryBlockPropertyMutationCommandResultV2>({
+      type: "applyLibraryBlockPropertyMutation",
+      payload: input,
     });
   }
 
@@ -570,6 +600,78 @@ export class BlockMutationWriter {
     });
   }
 
+  async readLibraryDatabaseModule(
+    request: LibraryDatabaseModuleReadRequestV2,
+    actor: "app_window" | "http_loopback",
+  ): Promise<LibraryDatabaseModuleReadResultV2> {
+    const envelope = await this.executeTyped<LibraryDatabaseModuleReadResultV2>({
+      type: "readLibraryDatabaseModule",
+      payload: { request, actor },
+    });
+    return envelope.result;
+  }
+
+  async applyLibraryDatabaseModule(
+    request: LibraryDatabaseApplyV2,
+    actor: DatabaseApplyV2["actor"],
+    accessActor: "app_window" | "http_loopback",
+  ): Promise<LibraryDatabaseApplyResultV2> {
+    const envelope = await this.executeTyped<LibraryDatabaseApplyResultV2>({
+      type: "applyLibraryDatabaseModule",
+      payload: { request, actor, accessActor },
+    });
+    return envelope.result;
+  }
+
+  async readLibraryModule(
+    request: LibraryModuleReadRequest,
+  ): Promise<BlockMutationEnvelope<LibraryModuleReadResult>> {
+    return await this.executeTyped<LibraryModuleReadResult>({
+      type: "readLibraryModule",
+      payload: request,
+    });
+  }
+
+  async applyLibraryModule(
+    request: LibraryModuleApplyRequest,
+  ): Promise<BlockMutationEnvelope<LibraryModuleApplyResult>> {
+    const envelope = await this.executeTyped<LibraryModuleApplyResult>({
+      type: "applyLibraryModule",
+      payload: request,
+    });
+    const result = envelope.result;
+    if (!result.ok || result.value.duplicate || !result.value.didMutate) {
+      return envelope;
+    }
+    const changeKind = result.value.operationKind === "move_block"
+      ? "location"
+      : result.value.operationKind === "archive_resource" ||
+          result.value.operationKind === "restore_resource"
+        ? "lifecycle"
+        : "content";
+    try {
+      dbNotifier.notifyLibraryNavigationChanged({
+        version: LIBRARY_NAVIGATION_EVENT_VERSION,
+        libraryId: result.value.libraryId,
+        storeEpoch: result.value.storeEpoch,
+        changeLogSeq: result.value.changeLogSeq,
+        changeKind,
+        affectedParentKeys: result.value.affectedParentKeys,
+        affectedPageIds: result.value.affectedPageIds,
+        affectedDatabaseIds: result.value.affectedDatabaseIds,
+        affectedViewIds: result.value.affectedViewIds,
+      });
+    } catch (error) {
+      logger.warn("Failed to publish committed Library navigation event", {
+        error: error instanceof Error ? error.message : String(error),
+        mutationId: envelope.metrics.mutationId,
+        operationId: result.value.operationId,
+        libraryId: result.value.libraryId,
+      });
+    }
+    return envelope;
+  }
+
   async readPageDetail(
     projectId: string,
     pageId: string,
@@ -577,6 +679,16 @@ export class BlockMutationWriter {
     return await this.executeTyped<PageDetailResult>({
       type: "readPageDetail",
       payload: { projectId, pageId },
+    });
+  }
+
+  async readLibraryPageDetail(
+    pageId: string,
+    actor: "app_window" | "http_loopback",
+  ): Promise<BlockMutationEnvelope<LibraryPageDetailResult>> {
+    return await this.executeTyped<LibraryPageDetailResult>({
+      type: "readLibraryPageDetail",
+      payload: { pageId, actor },
     });
   }
 
@@ -626,6 +738,18 @@ export class BlockMutationWriter {
     return envelope.result;
   }
 
+  async authorizeLibraryDocumentAccess(
+    request: LibraryDocumentAccessRequest,
+  ): Promise<DocumentSyncCommandResult<LibraryDocumentAccessAck>> {
+    const envelope = await this.executeTyped<
+      DocumentSyncCommandResult<LibraryDocumentAccessAck>
+    >({
+      type: "authorizeLibraryDocumentAccess",
+      payload: request,
+    });
+    return envelope.result;
+  }
+
   async getOwnedDocumentDescriptor(
     projectId: string,
     ownerBlockId: string,
@@ -645,6 +769,18 @@ export class BlockMutationWriter {
     >({
       type: "prepareOwnedBlockDocument",
       payload: { projectId, ownerBlockId },
+    });
+    return envelope.result;
+  }
+
+  async prepareLibraryOwnedBlockDocument(
+    ownerBlockId: string,
+  ): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>> {
+    const envelope = await this.executeTyped<
+      DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>
+    >({
+      type: "prepareLibraryOwnedBlockDocument",
+      payload: { ownerBlockId },
     });
     return envelope.result;
   }

@@ -15,9 +15,12 @@ describe("sidebar-section-prefs", () => {
     });
 
     expect(defaults.pinned).toBe(false);
+    expect(defaults.library).toBe(false);
     expect(state.pinned).toBe(true);
     expect(state.projects).toBe(false);
     expect(state.chats).toBe(true);
-    expect(JSON.stringify(Object.keys(state))).toBe(JSON.stringify(["pinned", "projects", "chats"]));
+    expect(JSON.stringify(Object.keys(state))).toBe(
+      JSON.stringify(["pinned", "library", "projects", "chats"]),
+    );
   });
 });

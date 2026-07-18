@@ -81,6 +81,14 @@ export type PageDetailResult =
   | { readonly ok: true; readonly value: PageDetail }
   | { readonly ok: false; readonly error: PageDetailError };
 
+export interface LibraryPageDetail extends Omit<PageDetail, "projectId"> {
+  readonly accessContext: { readonly kind: "library" };
+}
+
+export type LibraryPageDetailResult =
+  | { readonly ok: true; readonly value: LibraryPageDetail }
+  | { readonly ok: false; readonly error: PageDetailError };
+
 export class PageDetailContractError extends TypeError {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -677,6 +685,60 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
       document,
       intrinsicProperties,
       dataSourceContext,
+    },
+  };
+};
+
+export const parseLibraryPageDetailResult = (
+  value: unknown,
+): LibraryPageDetailResult => {
+  if (!isRecord(value)) {
+    throw new PageDetailContractError("Library Page Detail result is invalid");
+  }
+  if (value.ok === false) {
+    const parsed = parsePageDetailResult(value);
+    if (parsed.ok) {
+      throw new PageDetailContractError("Library Page Detail error envelope is invalid");
+    }
+    return parsed;
+  }
+  if (value.ok !== true || !isRecord(value.value)) {
+    throw new PageDetailContractError("Library Page Detail result envelope is invalid");
+  }
+  exactKeys(value, "libraryPageDetailResult", ["ok", "value"]);
+  const detail = value.value;
+  exactKeys(detail, "libraryPageDetail", [
+    "version",
+    "accessContext",
+    "libraryId",
+    "storeEpoch",
+    "changeLogSeq",
+    "page",
+    "document",
+    "intrinsicProperties",
+    "dataSourceContext",
+  ]);
+  if (!isRecord(detail.accessContext)) {
+    throw new PageDetailContractError("Library Page Detail access context is invalid");
+  }
+  exactKeys(detail.accessContext, "libraryPageDetail.accessContext", ["kind"]);
+  if (detail.accessContext.kind !== "library") {
+    throw new PageDetailContractError("Library Page Detail access context must be library");
+  }
+  const { accessContext: _accessContext, ...standardDetail } = detail;
+  void _accessContext;
+  const parsed = parsePageDetailResult({
+    ok: true,
+    value: { ...standardDetail, projectId: "local-library" },
+  });
+  if (!parsed.ok) return parsed;
+  const { projectId: _privateProjectId, ...publicDetail } = parsed.value;
+  void _privateProjectId;
+  return {
+    ok: true,
+    value: {
+      ...publicDetail,
+      accessContext: { kind: "library" },
     },
   };
 };

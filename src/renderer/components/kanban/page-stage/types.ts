@@ -12,6 +12,7 @@ import type {
   PageStageMetadataMutationResult,
 } from "@/lib/page-stage-page";
 import type { PageStageBreadcrumbProps } from "./breadcrumb";
+import type { DatabaseId } from "../../../../shared/database-identities";
 
 export type { PageStageMetadataMutationResult } from "@/lib/page-stage-page";
 
@@ -51,9 +52,13 @@ export interface PageStageDocumentAuthority {
 
 export interface PageStageProps {
   onClose: () => void;
+  /** Optional route-level navigation control for standalone Page surfaces. */
+  onNavigateBack?: () => void;
   onLeavePage?: (snapshot: PageStageSessionSnapshot) => void;
   /** Publishes the authoritative plain-text Y.Text title for surrounding chrome. */
   onTitleChange?: (title: string) => void;
+  /** Focuses the collaborative title when this Page surface first mounts. */
+  autoFocusTitle?: boolean;
   /** Signals that the mounted Y.Text title publisher is no longer authoritative. */
   onTitleSourceDispose?: () => void;
   closeRef?: MutableRefObject<(() => Promise<void>) | null>;
@@ -86,6 +91,7 @@ export interface PageStageProps {
     pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
+  onOpenDatabase?: (databaseId: DatabaseId) => void | Promise<void>;
   breadcrumb?: Omit<PageStageBreadcrumbProps, "currentTitle" | "disabled">;
   onOpenNewCodexThread?: () => void;
   onOpenLocalEnvironmentSettings?: (input: {

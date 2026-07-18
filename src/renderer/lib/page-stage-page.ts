@@ -1,4 +1,7 @@
-import type { PageDetail } from "../../shared/page-detail";
+import type {
+  LibraryPageDetail,
+  PageDetail,
+} from "../../shared/page-detail";
 import { isWorkflowStatus, type WorkflowStatus } from "../../shared/workflow-status";
 import type {
   PageRunInTarget,
@@ -89,7 +92,7 @@ export class PageStagePageProjectionError extends TypeError {
 }
 
 const requireIntrinsic = (
-  detail: PageDetail,
+  detail: PageDetail | LibraryPageDetail,
   key: string,
 ) => {
   const property = detail.intrinsicProperties.find(
@@ -173,7 +176,7 @@ const reminders = (value: unknown): readonly ReminderConfig[] => {
 };
 
 const readCompatibilityDatabaseProperties = (
-  detail: PageDetail,
+  detail: PageDetail | LibraryPageDetail,
 ): PageStageDatabaseProperties | null => {
   if (detail.dataSourceContext.kind !== "member") return null;
   const context = detail.dataSourceContext;
@@ -238,7 +241,7 @@ const readCompatibilityDatabaseProperties = (
 };
 
 export const projectPageDetailToStageModel = (
-  detail: PageDetail,
+  detail: PageDetail | LibraryPageDetail,
 ): PageStagePageModel => {
   const runTargetValue = requireIntrinsic(detail, "run.target").value;
   if (runTargetValue !== null && !RUN_TARGETS.has(runTargetValue as PageRunInTarget)) {

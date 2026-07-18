@@ -120,6 +120,15 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         lines.push(prefix + `<database-view-ref ${attrs.join(" ")} />`);
         break;
       }
+      case "database": {
+        if (!block.uuid || block.uuid !== block.uuid.trim()) {
+          throw new TypeError("Canonical Database NFM requires an exact non-empty uuid");
+        }
+        lines.push(
+          prefix + `<database uuid="${escapeXmlAttr(block.uuid)}" />`,
+        );
+        break;
+      }
       case "syncedBlockRef": {
         lines.push(
           prefix +

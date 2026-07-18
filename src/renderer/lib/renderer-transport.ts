@@ -41,6 +41,13 @@ export interface RendererTransport {
       import("../../shared/block-documents/contracts").OwnedDocumentDescriptor
     >
   >;
+  prepareLibraryOwnedBlockDocument: (
+    ownerBlockId: string,
+  ) => Promise<
+    import("../../shared/block-documents/document-sync").DocumentSyncCommandResult<
+      import("../../shared/block-documents/contracts").LibraryOwnedDocumentDescriptor
+    >
+  >;
   mutateDocument: (
     projectId: string,
     documentId: string,
@@ -93,6 +100,8 @@ export interface RendererTransport {
   createDocumentSyncAdapter?: (
     projectId: string,
   ) => import("./nodex-y-provider").DocumentSyncAdapter;
+  createLibraryDocumentSyncAdapter?: () =>
+    import("./nodex-y-provider").DocumentSyncAdapter;
   createCanvasSceneSyncAdapter?: (
     projectId: string,
   ) => import("./canvas-scene-provider").CanvasSceneSyncAdapter;
@@ -114,6 +123,11 @@ export interface RendererTransport {
   subscribeDatabaseChanges: (
     projectId: string,
     callback: (event: DatabaseChangeEvent) => void,
+  ) => () => void;
+  subscribeLibraryChanges?: (
+    callback: (
+      event: import("../../shared/library-events").LibraryNavigationChangedEvent,
+    ) => void,
   ) => () => void;
   subscribeProjectSessionChanges: (
     projectId: string | null,

@@ -117,6 +117,7 @@ describe("Block-first reference codec", () => {
     const source = [
       '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
       '<page uuid="nested-card" />',
+      '<database uuid="nested-database" />',
     ].join("\n");
     const nfmBlocks = parseNfm(source);
     const blockNoteBlocks = nfmToBlockNote(nfmBlocks);
@@ -128,9 +129,13 @@ describe("Block-first reference codec", () => {
     expect(blockNoteBlocks[1]?.type).toBe("page");
     expect(blockNoteBlocks[1]?.id).toBe("nested-card");
     expect(blockNoteBlocks[1]?.children?.length).toBe(0);
+    expect(blockNoteBlocks[2]?.type).toBe("database");
+    expect(blockNoteBlocks[2]?.id).toBe("nested-database");
+    expect(blockNoteBlocks[2]?.children?.length).toBe(0);
     expect(serializeNfm(roundTrip)).toBe([
       '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
       '<page uuid="nested-card" />',
+      '<database uuid="nested-database" />',
     ].join("\n"));
   });
 

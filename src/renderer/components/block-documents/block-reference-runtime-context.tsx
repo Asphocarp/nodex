@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
+import type { DatabaseId } from "../../../shared/database-identities";
 
 export interface BlockReferenceHostRuntime {
   readonly projectId: string;
@@ -23,6 +24,7 @@ export interface BlockReferenceHostRuntime {
     pageId: string;
     titleSnapshot?: string;
   }) => void | Promise<void>;
+  readonly openDatabase?: (databaseId: DatabaseId) => void | Promise<void>;
 }
 
 export const appendInlineCardAncestor = (

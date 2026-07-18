@@ -3,6 +3,14 @@ import type { DatabasePageSummary } from "../../shared/types";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageTargetChangedEvent } from "../../shared/page-target-events";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
+import {
+  parseDatabaseId,
+  parseDatabaseViewId,
+} from "../../shared/database-identities";
+import {
+  LIBRARY_NAVIGATION_EVENT_VERSION,
+  type LibraryNavigationChangedEvent,
+} from "../../shared/library-events";
 import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
@@ -73,16 +81,49 @@ export class DatabaseNotifier extends EventEmitter {
 
   notifyDatabaseChanged(event: DatabaseChangeEvent): void {
     this.emit("database-changed", event);
+    if (!event.libraryId) return;
+    this.notifyLibraryNavigationChanged({
+      version: LIBRARY_NAVIGATION_EVENT_VERSION,
+      libraryId: event.libraryId,
+      storeEpoch: event.storeEpoch,
+      changeLogSeq: event.changeLogSeq,
+      changeKind: "database",
+      affectedParentKeys: [
+        "library",
+        "catalog",
+        ...event.affectedDatabaseIds.map((id) => `database:${id}`),
+      ],
+      affectedPageIds: event.affectedPageIds ?? [],
+      affectedDatabaseIds: event.affectedDatabaseIds.map(parseDatabaseId),
+      affectedViewIds: (event.affectedViewIds ?? []).map(parseDatabaseViewId),
+    });
   }
 
   notifyPageTargetChanged(event: PageTargetChangedEvent): void {
     this.emit("page-target-changed", event);
+    this.notifyLibraryNavigationChanged({
+      version: LIBRARY_NAVIGATION_EVENT_VERSION,
+      libraryId: event.libraryId,
+      storeEpoch: null,
+      changeLogSeq: null,
+      changeKind: event.changeKind === "metadata"
+        ? "content"
+        : event.changeKind,
+      affectedParentKeys: ["library", "catalog", `page:${event.targetPageId}`],
+      affectedPageIds: [event.targetPageId],
+      affectedDatabaseIds: [],
+      affectedViewIds: [],
+    });
     if (event.changeKind === "location" || event.changeKind === "lifecycle") {
       this.notifyPageOwnershipPathsChanged({
         libraryId: event.libraryId,
         changeKind: event.changeKind,
       });
     }
+  }
+
+  notifyLibraryNavigationChanged(event: LibraryNavigationChangedEvent): void {
+    this.emit("library-navigation-changed", event);
   }
 
   notifyPageOwnershipPathsChanged(event: PageOwnershipPathsChangedEvent): void {

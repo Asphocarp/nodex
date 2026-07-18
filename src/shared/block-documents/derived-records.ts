@@ -187,6 +187,13 @@ const collectDerivedRecords = (
       throw new BlockDocumentDerivedRecordsError(
         `Owning Page NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
       );
+    } else if (
+      nfmBlock.type === "database" &&
+      nfmBlock.uuid !== block.id
+    ) {
+      throw new BlockDocumentDerivedRecordsError(
+        `Owning Database NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
+      );
     } else if (nfmBlock.type === "pageRef") {
       assertCanonicalReferenceId(nfmBlock.targetBlockId, "targetBlockId");
       references.push({

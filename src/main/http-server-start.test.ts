@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { getHttpServerOptions, resolveHttpRequestLogLevel } from "./http-server";
+import { productFeatureGates } from "./product-feature-gates";
 
 describe("http server startup options", () => {
   test("keeps routine requests at debug while escalating slow and failed requests", () => {
@@ -15,6 +16,17 @@ describe("http server startup options", () => {
     expect(options.port).toBe(51283);
     expect(options.hostname).toBe("127.0.0.1");
     expect(typeof options.fetch).toBe("function");
+  });
+
+  test("serves the startup-fixed product feature gates", async () => {
+    const options = getHttpServerOptions(51283);
+    const response = await options.fetch(
+      new Request("http://127.0.0.1:51283/api/app/feature-gates"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual(productFeatureGates);
   });
 
   test("emits CORS headers for trusted local dev origins only", async () => {
