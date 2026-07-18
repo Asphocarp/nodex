@@ -191,11 +191,11 @@ const seedCard = (
 describe("BlockTransfer store", () => {
   test("rejects moving a Page into itself or a descendant at prepare and commit", async () => {
     closeDatabase();
-    const previous = process.env.NODEX_DIR;
+    const previous = process.env.NODEX_HOME;
     const directory = fs.mkdtempSync(
       path.join(os.tmpdir(), "nodex-block-transfer-cycle-"),
     );
-    process.env.NODEX_DIR = directory;
+    process.env.NODEX_HOME = directory;
     try {
       await initializeDatabase();
       const project = createProject({ name: "Page hierarchy transfer" });
@@ -286,18 +286,18 @@ describe("BlockTransfer store", () => {
     } finally {
       closeDatabase();
       fs.rmSync(directory, { recursive: true, force: true });
-      if (previous === undefined) delete process.env.NODEX_DIR;
-      else process.env.NODEX_DIR = previous;
+      if (previous === undefined) delete process.env.NODEX_HOME;
+      else process.env.NODEX_HOME = previous;
     }
   });
 
   test("atomically moves one Card Database -> Document -> Database and restores dormant membership", async () => {
     closeDatabase();
-    const previous = process.env.NODEX_DIR;
+    const previous = process.env.NODEX_HOME;
     const directory = fs.mkdtempSync(
       path.join(os.tmpdir(), "nodex-block-transfer-"),
     );
-    process.env.NODEX_DIR = directory;
+    process.env.NODEX_HOME = directory;
     try {
       await initializeDatabase();
       const project = createProject({ name: "Block transfer" });
@@ -2265,8 +2265,8 @@ describe("BlockTransfer store", () => {
     } finally {
       closeDatabase();
       fs.rmSync(directory, { recursive: true, force: true });
-      if (previous === undefined) delete process.env.NODEX_DIR;
-      else process.env.NODEX_DIR = previous;
+      if (previous === undefined) delete process.env.NODEX_HOME;
+      else process.env.NODEX_HOME = previous;
     }
   });
 });

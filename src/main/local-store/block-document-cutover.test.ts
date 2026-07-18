@@ -41,7 +41,7 @@ describe("owned Document descriptor lookup", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "nodex-owned-document-descriptor-"),
     );
-    process.env.NODEX_DIR = tempDir;
+    process.env.NODEX_HOME = tempDir;
     try {
       await initializeDatabase();
       const project = createProject({ name: "Owned descriptor engines" });
@@ -79,7 +79,7 @@ describe("owned Document descriptor lookup", () => {
     } finally {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     }
   });
 
@@ -88,7 +88,7 @@ describe("owned Document descriptor lookup", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "nodex-owned-page-access-"),
     );
-    process.env.NODEX_DIR = tempDir;
+    process.env.NODEX_HOME = tempDir;
     try {
       await initializeDatabase();
       const requester = createProject({ name: "Requester" });
@@ -157,7 +157,7 @@ describe("owned Document descriptor lookup", () => {
     } finally {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     }
   });
 });

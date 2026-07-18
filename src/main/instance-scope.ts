@@ -10,8 +10,8 @@ interface InstanceScopePaths {
 const USER_DATA_DIR_NAME = "electron-user-data";
 const SESSION_DATA_DIR_NAME = "electron-session-data";
 
-export function resolveInstanceScopePaths(localStoreDir: string): InstanceScopePaths {
-  const scopeRoot = resolve(localStoreDir);
+export function resolveInstanceScopePaths(nodexHome: string): InstanceScopePaths {
+  const scopeRoot = resolve(nodexHome);
   return {
     userDataPath: join(scopeRoot, USER_DATA_DIR_NAME),
     sessionDataPath: join(scopeRoot, SESSION_DATA_DIR_NAME),
@@ -20,9 +20,9 @@ export function resolveInstanceScopePaths(localStoreDir: string): InstanceScopeP
 
 export function configureInstanceScopePaths(
   electronApp: Pick<App, "setPath">,
-  localStoreDir: string,
+  nodexHome: string,
 ): InstanceScopePaths {
-  const scopedPaths = resolveInstanceScopePaths(localStoreDir);
+  const scopedPaths = resolveInstanceScopePaths(nodexHome);
 
   mkdirSync(scopedPaths.userDataPath, { recursive: true });
   mkdirSync(scopedPaths.sessionDataPath, { recursive: true });

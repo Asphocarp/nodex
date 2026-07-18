@@ -10,7 +10,7 @@ import {
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-assets-"));
 
 vi.mock("./assets-deps", () => ({
-  getLocalStoreDir: () => fixtureRoot,
+  getNodexHome: () => fixtureRoot,
 }));
 
 const assetService = await import("./assets");

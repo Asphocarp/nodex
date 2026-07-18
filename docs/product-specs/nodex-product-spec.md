@@ -66,7 +66,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Each restored window resumes its own active Project/session/tab, pane state, DB View, open Page context, selected thread context, workbench layout, and saved window bounds.
 - Windows opened while another window is already open start from the requesting window's current layout and then diverge as independent window sessions
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
-- Desktop single-instance behavior is scoped per resolved server profile (`NODEX_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
+- Desktop single-instance behavior is scoped per resolved Nodex home (`NODEX_HOME` or `[server].home`). Different Nodex homes can run at the same time (for example packaged release + dev build), while each Profile still enforces one process with many windows.
 - Packaged macOS launches from outside `/Applications` show a native prompt to move Nodex into Applications, continue from the current location, or quit before the app runtime starts.
 - Project-local session pins, archived state, unread state, durable tab state, no-thread fallback labels, right/bottom panel collapse/size/split layout, active leaf, active tab, and derived flat tab ordering are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, transient focus history, and temporary side-chat tabs. The `Database View` row is ordinary starter content: it starts pinned for new projects but can be renamed, unpinned, archived, deleted, opened in a new window, and shown in the normal session row context menu.
 - Codex thread metadata lives in `codex_threads`, where `project_id` is nullable. Durable local chat ownership lives in `project_session_threads`, with exactly one Project-session owner per thread; Pages can reference or mention threads but do not own them. Attached session row titles use `threadName || threadPreview || noThreadFallbackTitle || "New thread"`; blank sessions use `noThreadFallbackTitle || "New thread"`. `noThreadFallbackTitle` is not a thread title authority.
@@ -218,7 +218,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Supported DB view filter/sort/display settings persist per project and per view in renderer localStorage
 
 #### 4. SQLite Database Storage
-- Single `nodex.db` file in the local store directory
+- Single `nodex.db` file in the Nodex home
 - Schema v81 stores Profile→Library, Page ownership, independently identified Database Containers/Data Sources/Views, Source-scoped compact Property/option identity, Project binding/lifecycle/grants, engine-neutral Documents, immutable mutation/history evidence, exact-Turn Nodex authority provenance, actor/source/target relocation evidence, and rebuildable Page/search/schedule/reference projections. Physical Space/Document/Database coordinates are private adapters for canonical Library/Page/Data Source parents; the previous Project-shaped Database tables are migration input only.
 - One asynchronous `BlockMutationWriter` serializes Block/Page/Database-domain `better-sqlite3` transactions outside the Electron main event loop.
 - New user/content Blocks, Database Containers, Data Sources, and Views use independently allocated canonical lowercase UUID-v7 identities and are validated only at creation. Existing global IDs remain opaque. Built-in Data Source Properties use reserved stable IDs; custom Properties use `p_` plus eight base64url characters, and custom options use `o_` plus eight base64url characters under their owning Property. Unbound references carry `{dataSourceId, propertyId}` and, for options, `optionId`; display names never define identity. Membership, operation, and mutation identities remain opaque, while explicit timestamps, ranks, and sequences are the only ordering authority.
@@ -462,7 +462,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Auto-title, manual rename, and app-server `thread/name/updated` notifications update `codex_threads.thread_name` and notify linked project sessions to refetch their derived `displayTitle`. `project_sessions.no_thread_fallback_title` is only used before a thread is attached or as the final display fallback.
 - Empty Project sessions show the new-chat composer for the first prompt; Page Stage does not create Page-owned thread tabs.
 - `Work locally` uses the selected project's primary source when available, otherwise a generated per-thread local workspace.
-- `New worktree` run target creates a managed Git worktree under `${serverDir}/worktrees/<rand4>/<project-id>` and links thread cwd to that worktree.
+- `New worktree` run target creates a managed Git worktree under `${nodexHome}/worktrees/<rand4>/<project-id>` and links thread cwd to that worktree.
 - The new-chat `Start in` selector shows `Work locally` and `New worktree`; the environment selector is populated from `<workspace>/.codex/environments/*.toml`, with a `No environment` option and an `Environment settings` action that deep-links into the shared `Local environments` settings section for that project/config context.
 - If `runInEnvironmentPath` is selected and points to a valid `.toml` file, Nodex reads the structured local-environment definition from Settings -> Local environments and runs its default `[setup].script` in the newly created managed worktree before `thread/start`.
 - Environment setup failure aborts thread creation and best-effort removes the just-created managed worktree.
@@ -599,7 +599,7 @@ nodex/
 │   │   ├── ipc-handlers.ts     # ipcMain.handle() registrations
 │   │   ├── http-server.ts      # Hono HTTP server (configured port) for CLI + browser
 │   │   └── local-store/
-│   │       ├── config.ts       # Configuration (NODEX_DIR + backup env)
+│   │       ├── config.ts       # Configuration (NODEX_HOME + backup env)
 │   │       ├── database.ts     # SQLite connection, init, and legacy filename migration
 │   │       ├── projects.ts     # Project CRUD and run context
 │   │       ├── project-sessions.ts # Session tree, tabs, and thread links
@@ -1070,7 +1070,7 @@ nodex serve --dev                # Development mode
 ```
 
 Server options:
-- `[local-store-path]` - path to local store directory (default: `~/.nodex`)
+- `[nodex-home]` - path to the Nodex home (default: `~/.nodex`)
 - `-p, --port <port>` - Port to run on (default: 51283)
 - `--dev` - Run in development mode with hot reload
 
@@ -1187,7 +1187,7 @@ session_id = "my-agent"
 project = "default"
 
 [server]
-dir = "~/.nodex"
+home = "~/.nodex"
 port = 51283
 backup_auto_enabled = false
 backup_interval_hours = 6
@@ -1195,13 +1195,13 @@ backup_retention = 28
 history_retention = 1000 # retained newest deleted Block roots; legacy config key
 ```
 
-**Dev/production separation**: Use project-level `.nodex/config.toml` for dev settings (different port/dir) and `~/.nodex/config.toml` for production. When running `nodex --dev` from a project directory, the project-level config takes priority. When the Electron app is launched directly (e.g., from Dock), only `~/.nodex/config.toml` is read.
+**Dev/production separation**: Use project-level `.nodex/config.toml` for dev settings (different `port`/`home`) and `~/.nodex/config.toml` for production. When running `nodex --dev` from a project directory, the project-level config takes priority. When the Electron app is launched directly (e.g., from Dock), only `~/.nodex/config.toml` is read.
 
 **Electron renderer API base resolution**: Main process resolves server port from the same config chain (`config.toml` + env), starts HTTP server on that port, and injects `serverUrl` through preload. Renderer HTTP helpers (including image upload and asset URL resolution) consume this runtime URL so `[server].port` changes are honored; browser mode uses same-origin except local Vite dev (`:51284`) which falls back to default API port (`:51283`).
 
 ### Server Environment Variables
 ```bash
-NODEX_DIR=~/.nodex     # Local store directory (default: ~/.nodex)
+NODEX_HOME=~/.nodex     # Nodex home (default: ~/.nodex)
 NODEX_PORT=51283        # Port (default: 51283)
 NODEX_BACKUP_AUTO_ENABLED=false   # Enable auto backups (default: false)
 NODEX_BACKUP_INTERVAL_HOURS=6    # Auto backup interval in hours (default: 6)

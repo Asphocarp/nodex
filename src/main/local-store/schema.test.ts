@@ -60,7 +60,7 @@ const useTempStore = (): string => {
   resetAssetPathCacheForTests();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v68-"));
   tempDirectories.push(directory);
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   return directory;
 };
 
@@ -390,7 +390,7 @@ const seedHistoricalMutationEvidence = (
 afterEach(() => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   for (const directory of tempDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }

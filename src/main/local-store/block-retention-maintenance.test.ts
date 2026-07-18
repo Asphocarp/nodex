@@ -52,11 +52,11 @@ const withFixture = async (
   run: (fixture: Fixture) => Promise<void> | void,
 ): Promise<void> => {
   closeDatabase();
-  const previousDirectory = process.env.NODEX_DIR;
+  const previousDirectory = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-block-retention-maintenance-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Block retention maintenance" });
@@ -66,8 +66,8 @@ const withFixture = async (
     await run({ database, projectId: project.id, storeEpoch });
   } finally {
     closeDatabase();
-    if (previousDirectory === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previousDirectory;
+    if (previousDirectory === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previousDirectory;
     fs.rmSync(directory, { recursive: true, force: true });
   }
 };

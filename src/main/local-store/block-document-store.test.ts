@@ -238,7 +238,7 @@ describe("BlockDocumentStore", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nodex-empty-document-prepare-"),
       );
-      process.env.NODEX_DIR = tempDir;
+      process.env.NODEX_HOME = tempDir;
 
       try {
         await initializeDatabase();
@@ -354,7 +354,7 @@ describe("BlockDocumentStore", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nodex-pending-image-upload-"),
       );
-      process.env.NODEX_DIR = tempDir;
+      process.env.NODEX_HOME = tempDir;
 
       try {
         await initializeDatabase();
@@ -484,7 +484,7 @@ describe("BlockDocumentStore", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nodex-block-id-boundary-"),
       );
-      process.env.NODEX_DIR = tempDir;
+      process.env.NODEX_HOME = tempDir;
 
       try {
         await initializeDatabase();
@@ -588,7 +588,7 @@ describe("BlockDocumentStore", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nodex-page-shell-typed-create-"),
       );
-      process.env.NODEX_DIR = tempDir;
+      process.env.NODEX_HOME = tempDir;
 
       try {
         await initializeDatabase();
@@ -655,7 +655,7 @@ describe("BlockDocumentStore", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nodex-document-store-"),
       );
-      process.env.NODEX_DIR = tempDir;
+      process.env.NODEX_HOME = tempDir;
 
       try {
         await initializeDatabase();
@@ -1153,7 +1153,7 @@ describe("BlockDocumentStore", () => {
       } finally {
         closeDatabase();
         fs.rmSync(tempDir, { recursive: true, force: true });
-        delete process.env.NODEX_DIR;
+        delete process.env.NODEX_HOME;
       }
     },
   );
@@ -1165,7 +1165,7 @@ describe("BlockDocumentStore", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nodex-document-recovery-"),
       );
-      process.env.NODEX_DIR = tempDir;
+      process.env.NODEX_HOME = tempDir;
 
       try {
         await initializeDatabase();
@@ -1528,7 +1528,7 @@ describe("BlockDocumentStore", () => {
       } finally {
         closeDatabase();
         fs.rmSync(tempDir, { recursive: true, force: true });
-        delete process.env.NODEX_DIR;
+        delete process.env.NODEX_HOME;
       }
     },
   );

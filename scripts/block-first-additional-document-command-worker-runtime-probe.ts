@@ -31,11 +31,11 @@ const blockIds = {
 } as const;
 
 const main = async (): Promise<void> => {
-  const previous = process.env.NODEX_DIR;
+  const previous = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-additional-command-worker-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   let writer: BlockMutationWriter | undefined;
   try {
     await initializeDatabase();
@@ -202,8 +202,8 @@ const main = async (): Promise<void> => {
   } finally {
     if (writer) await writer.shutdown().catch(() => undefined);
     closeDatabase();
-    if (previous === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previous;
+    if (previous === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previous;
     fs.rmSync(directory, { recursive: true, force: true });
   }
 };

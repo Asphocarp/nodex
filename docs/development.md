@@ -36,8 +36,8 @@ pnpm run build:run:isolated
 scripts/run.sh
 ```
 
-The isolated runner creates temporary `CODEX_HOME` and `NODEX_DIR` directories
-and removes them when the app exits. It starts with an empty Codex home by
+The isolated runner creates temporary `CODEX_HOME` and `NODEX_HOME` roots and
+removes them when the app exits. It starts with an empty Codex home by
 default. Copy snapshots of the current Codex authentication or configuration
 when they are needed:
 
@@ -46,7 +46,7 @@ scripts/run.sh -ac
 scripts/run.sh -da
 ```
 
-Run `scripts/run.sh --help` for options that use either global directory.
+Run `scripts/run.sh --help` for options that use either global home.
 Use `--keep` to preserve the generated run root for inspection, or
 `--root DIR` to choose its path explicitly. An existing root can be reused only
 when `--keep` is also set.

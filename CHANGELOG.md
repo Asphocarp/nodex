@@ -51,6 +51,7 @@ All notable changes to this project will be documented in this file.
 - Added a Page Stage heading rail navigator for rich NFM descriptions, with automatic left-gutter markers for heading-heavy Pages.
 
 ### Changed
+- Nodex Profile storage is now configured exclusively through `NODEX_HOME` or `[server].home`; the previous environment variable and TOML key are no longer accepted.
 - Page workflows now use the action-oriented Triage, Plan, Build, Review, and Ship stages; CLI and API callers must use the corresponding `triage`, `plan`, `build`, `review`, and `ship` identifiers.
 - Page mentions now persist only stable Page identity and refresh from membership-independent, identity-keyed events, so renamed or cleared titles cannot fall back to stale insertion-time text and nested Pages update without a Database row.
 - NFM now exposes nested Page ownership as `<page uuid="..." />` and non-owning references as `<page-ref url="nodex://pages/..." />`; persisted editor references use `pageRef`, older Card-shaped tags and `cardRef` nodes remain import-only aliases, and whole-NFM replacement can preserve existing shells exactly without allowing text import to create or move Pages.

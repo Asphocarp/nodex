@@ -65,7 +65,7 @@ url = "http://localhost:51283"
 # project = "default"
 
 # [server]
-# dir = "~/.nodex"
+# home = "~/.nodex"
 # port = 51283
 # backup_auto_enabled = false
 # backup_interval_hours = 6
@@ -85,7 +85,7 @@ function expandTilde(p) {
 }
 
 function loadServerConfig() {
-  const server = { dir: undefined, port: undefined, backup_auto_enabled: undefined, backup_interval_hours: undefined, backup_retention: undefined, history_retention: undefined };
+  const server = { home: undefined, port: undefined, backup_auto_enabled: undefined, backup_interval_hours: undefined, backup_retention: undefined, history_retention: undefined };
 
   // User-level
   const homeConfig = join(homedir(), ".nodex", "config.toml");
@@ -102,7 +102,8 @@ function loadServerConfig() {
   }
 
   // Env vars override TOML
-  if (process.env.NODEX_DIR) server.dir = process.env.NODEX_DIR;
+  const environmentHome = process.env.NODEX_HOME?.trim();
+  if (environmentHome) server.home = environmentHome;
   if (process.env.NODEX_PORT) server.port = parseInt(process.env.NODEX_PORT, 10);
   if (process.env.NODEX_BACKUP_AUTO_ENABLED !== undefined) server.backup_auto_enabled = parseBooleanEnvCli(process.env.NODEX_BACKUP_AUTO_ENABLED);
   if (process.env.NODEX_BACKUP_INTERVAL_HOURS) server.backup_interval_hours = parseInt(process.env.NODEX_BACKUP_INTERVAL_HOURS, 10);
@@ -113,7 +114,7 @@ function loadServerConfig() {
 }
 
 function applyServerToml(server, s) {
-  if (s.dir !== undefined) server.dir = s.dir;
+  if (s.home !== undefined) server.home = s.home;
   if (s.port !== undefined) server.port = s.port;
   if (s.backup_auto_enabled !== undefined) server.backup_auto_enabled = s.backup_auto_enabled;
   if (s.backup_interval_hours !== undefined) server.backup_interval_hours = s.backup_interval_hours;
@@ -182,7 +183,7 @@ function loadConfigWithSources() {
     url: { value: "http://localhost:51283", source: "default" },
     sessionId: { value: undefined, source: "default" },
     project: { value: "default", source: "default" },
-    "server.dir": { value: "~/.nodex", source: "default" },
+    "server.home": { value: "~/.nodex", source: "default" },
     "server.port": { value: 51283, source: "default" },
     "server.backup_auto_enabled": { value: false, source: "default" },
     "server.backup_interval_hours": { value: 6, source: "default" },
@@ -217,7 +218,8 @@ function loadConfigWithSources() {
   if (process.env.NODEX_SESSION_ID) fields.sessionId = { value: process.env.NODEX_SESSION_ID, source: "env NODEX_SESSION_ID" };
   if (process.env.NODEX_PROJECT) fields.project = { value: process.env.NODEX_PROJECT, source: "env NODEX_PROJECT" };
 
-  if (process.env.NODEX_DIR) fields["server.dir"] = { value: process.env.NODEX_DIR, source: "env NODEX_DIR" };
+  const environmentHome = process.env.NODEX_HOME?.trim();
+  if (environmentHome) fields["server.home"] = { value: environmentHome, source: "env NODEX_HOME" };
   if (process.env.NODEX_PORT) fields["server.port"] = { value: parseInt(process.env.NODEX_PORT, 10), source: "env NODEX_PORT" };
   if (process.env.NODEX_BACKUP_AUTO_ENABLED !== undefined) fields["server.backup_auto_enabled"] = { value: parseBooleanEnvCli(process.env.NODEX_BACKUP_AUTO_ENABLED), source: "env NODEX_BACKUP_AUTO_ENABLED" };
   if (process.env.NODEX_BACKUP_INTERVAL_HOURS) fields["server.backup_interval_hours"] = { value: parseInt(process.env.NODEX_BACKUP_INTERVAL_HOURS, 10), source: "env NODEX_BACKUP_INTERVAL_HOURS" };
@@ -229,7 +231,7 @@ function loadConfigWithSources() {
 
 function applyServerTomlSources(fields, server, source) {
   if (!server) return;
-  if (server.dir !== undefined) fields["server.dir"] = { value: server.dir, source };
+  if (server.home !== undefined) fields["server.home"] = { value: server.home, source };
   if (server.port !== undefined) fields["server.port"] = { value: server.port, source };
   if (server.backup_auto_enabled !== undefined) fields["server.backup_auto_enabled"] = { value: server.backup_auto_enabled, source };
   if (server.backup_interval_hours !== undefined) fields["server.backup_interval_hours"] = { value: server.backup_interval_hours, source };
@@ -2469,7 +2471,7 @@ async function cmdBackups(positional, flags) {
 
 const CONFIG_DISPLAY_NAMES = {
   url: "url", sessionId: "session_id", project: "project",
-  "server.dir": "server.dir", "server.port": "server.port",
+  "server.home": "server.home", "server.port": "server.port",
   "server.backup_auto_enabled": "server.backup_auto_enabled",
   "server.backup_interval_hours": "server.backup_interval_hours",
   "server.backup_retention": "server.backup_retention",
@@ -2563,10 +2565,10 @@ async function cmdConfigInteractive() {
     const existingServer = existing.server || {};
     console.log("\nServer settings (leave blank to keep default):");
 
-    const dirDefault = existingServer.dir || "";
-    const dirAnswer = (await rl.question(`  dir [${dirDefault || "~/.nodex"}]: `)).trim();
-    if (dirAnswer) (newConfig.server ??= {}).dir = dirAnswer;
-    else if (existingServer.dir) (newConfig.server ??= {}).dir = existingServer.dir;
+    const homeDefault = existingServer.home || "";
+    const homeAnswer = (await rl.question(`  home [${homeDefault || "~/.nodex"}]: `)).trim();
+    if (homeAnswer) (newConfig.server ??= {}).home = homeAnswer;
+    else if (existingServer.home) (newConfig.server ??= {}).home = existingServer.home;
 
     const portDefault = existingServer.port;
     const portAnswer = (await rl.question(`  port [${portDefault ?? 51283}]: `)).trim();
@@ -2667,11 +2669,11 @@ Config: .nodex/config.toml (CWD walk-up, then ~/.nodex/config.toml)
   session_id = "my-session"
   project = "default"
   [server]
-  dir = "~/.nodex"
+  home = "~/.nodex"
   port = 51283
 
 Env vars: NODEX_URL, NODEX_SESSION_ID, NODEX_PROJECT
-Server env vars: NODEX_DIR, NODEX_PORT, NODEX_BACKUP_*
+Server env vars: NODEX_HOME, NODEX_PORT, NODEX_BACKUP_*
 
 File Input: Use @filepath or @- for stdin
   nodex add plan "Task" -d @./plan.md
@@ -2881,7 +2883,7 @@ function printCommandHelp(cmd) {
     --yes                Required confirmation for restore
     --no-safety-backup   Skip automatic pre-restore safety backup`,
 
-    serve: `Usage: nodex serve [local-store-path] [options]
+    serve: `Usage: nodex serve [nodex-home] [options]
 
   Start the Nodex server.
 
@@ -2922,10 +2924,10 @@ function printCommandHelp(cmd) {
     2. User-level:    ~/.nodex/config.toml
     3. Project-level: .nodex/config.toml (walked up from CWD)
     4. Env vars:      NODEX_URL, NODEX_SESSION_ID, NODEX_PROJECT
-                      NODEX_DIR, NODEX_PORT, NODEX_BACKUP_*
+                      NODEX_HOME, NODEX_PORT, NODEX_BACKUP_*
     5. CLI flags:     --url, --session-id, --project, --port, [path]
 
-  Use [server] section for dir, port, backup settings.
+  Use [server] section for home, port, backup settings.
   Project-level config overrides user-level (useful for dev/production split).`,
   };
 
@@ -2985,7 +2987,7 @@ function parseServeArgs(args) {
   // Resolution: CLI flag → env → TOML (user + project) → default
   const serverCfg = loadServerConfig();
   if (!result.path) {
-    result.path = serverCfg.dir ? expandTilde(serverCfg.dir) : join(homedir(), ".nodex");
+    result.path = serverCfg.home ? expandTilde(serverCfg.home) : join(homedir(), ".nodex");
   }
   if (result.port === null) {
     result.port = typeof serverCfg.port === "number" ? serverCfg.port : 51283;
@@ -3005,17 +3007,17 @@ async function cmdServe(args) {
     process.exit(1);
   }
 
-  const localStoreDir = resolve(process.cwd(), serveArgs.path);
+  const nodexHome = resolve(process.cwd(), serveArgs.path);
 
-  if (!existsSync(localStoreDir)) {
-    console.log(`Creating local store directory: ${localStoreDir}`);
-    mkdirSync(localStoreDir, { recursive: true });
+  if (!existsSync(nodexHome)) {
+    console.log(`Creating Nodex home: ${nodexHome}`);
+    mkdirSync(nodexHome, { recursive: true });
   }
 
   const packageRoot = resolve(__dirname, "..");
 
   console.log(`Starting Nodex...`);
-  console.log(`  Local store directory: ${localStoreDir}`);
+  console.log(`  Nodex home: ${nodexHome}`);
   console.log(`  Port: ${serveArgs.port}`);
   console.log(`  Mode: ${serveArgs.dev ? "development" : "production"}`);
 
@@ -3025,7 +3027,7 @@ async function cmdServe(args) {
   const serverCfg = loadServerConfig();
   const env = {
     ...process.env,
-    NODEX_DIR: localStoreDir,
+    NODEX_HOME: nodexHome,
     NODEX_PORT: String(serveArgs.port),
   };
   if (serverCfg.backup_auto_enabled !== undefined && !process.env.NODEX_BACKUP_AUTO_ENABLED)

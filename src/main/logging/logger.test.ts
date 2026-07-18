@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const ORIGINAL_ENV = {
-  NODEX_DIR: process.env.NODEX_DIR,
+  NODEX_HOME: process.env.NODEX_HOME,
   NODEX_LOG_LEVEL: process.env.NODEX_LOG_LEVEL,
   NODEX_LOG_CONSOLE_LEVEL: process.env.NODEX_LOG_CONSOLE_LEVEL,
   NODEX_LOG_FILE_LEVEL: process.env.NODEX_LOG_FILE_LEVEL,
@@ -25,8 +25,8 @@ async function importLoggerModule() {
 }
 
 function restoreEnv(): void {
-  if (ORIGINAL_ENV.NODEX_DIR === undefined) delete process.env.NODEX_DIR;
-  else process.env.NODEX_DIR = ORIGINAL_ENV.NODEX_DIR;
+  if (ORIGINAL_ENV.NODEX_HOME === undefined) delete process.env.NODEX_HOME;
+  else process.env.NODEX_HOME = ORIGINAL_ENV.NODEX_HOME;
 
   if (ORIGINAL_ENV.NODEX_LOG_LEVEL === undefined) delete process.env.NODEX_LOG_LEVEL;
   else process.env.NODEX_LOG_LEVEL = ORIGINAL_ENV.NODEX_LOG_LEVEL;
@@ -67,7 +67,7 @@ function restoreEnv(): void {
 
 async function withTempLoggerEnv(run: (root: string) => Promise<void>): Promise<void> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
-  process.env.NODEX_DIR = root;
+  process.env.NODEX_HOME = root;
   process.env.NODEX_LOG_LEVEL = "info";
   process.env.NODEX_LOG_FILE = "true";
   process.env.NODEX_LOG_CONSOLE = "false";
@@ -84,7 +84,7 @@ async function withTempLoggerEnv(run: (root: string) => Promise<void>): Promise<
 describe("backend logger", () => {
   test("keeps info logs durable while the terminal defaults to warn and above", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
-    process.env.NODEX_DIR = root;
+    process.env.NODEX_HOME = root;
     process.env.NODEX_LOG_FILE = "true";
     process.env.NODEX_LOG_CONSOLE = "true";
     process.env.NODEX_LOG_FILE_LEVEL = "info";
@@ -197,7 +197,7 @@ describe("backend logger", () => {
   test("does not write production packaged logs unless a sink is explicitly enabled", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
     const logDir = path.join(root, "logs");
-    process.env.NODEX_DIR = root;
+    process.env.NODEX_HOME = root;
     process.env.NODEX_INTERNAL_APP_PACKAGED = "true";
     process.env.NODEX_LOG_LEVEL = "info";
     process.env.NODEX_LOG_DIR = logDir;
@@ -221,7 +221,7 @@ describe("backend logger", () => {
   test("allows packaged file logging when explicitly enabled", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
     const logDir = path.join(root, "logs");
-    process.env.NODEX_DIR = root;
+    process.env.NODEX_HOME = root;
     process.env.NODEX_INTERNAL_APP_PACKAGED = "true";
     process.env.NODEX_LOG_LEVEL = "info";
     process.env.NODEX_LOG_FILE = "true";
@@ -246,7 +246,7 @@ describe("backend logger", () => {
   test("rotates JSONL segments and enforces the global byte budget", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
     const logDir = path.join(root, "logs");
-    process.env.NODEX_DIR = root;
+    process.env.NODEX_HOME = root;
     process.env.NODEX_LOG_FILE = "true";
     process.env.NODEX_LOG_CONSOLE = "false";
     process.env.NODEX_LOG_FILE_LEVEL = "info";
@@ -290,7 +290,7 @@ describe("backend logger", () => {
   test("bounds the pending file queue while preserving an error record", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
     const logDir = path.join(root, "logs");
-    process.env.NODEX_DIR = root;
+    process.env.NODEX_HOME = root;
     process.env.NODEX_LOG_FILE = "true";
     process.env.NODEX_LOG_CONSOLE = "false";
     process.env.NODEX_LOG_FILE_LEVEL = "debug";

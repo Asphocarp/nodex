@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { getLogger } from "../logging/logger";
-import { getLocalStoreDir } from "../local-store/config";
+import { getNodexHome } from "../local-store/config";
 import type {
   CodexConversationSnapshot,
   CommandPaletteThreadContentSearchInput,
@@ -152,7 +152,7 @@ class WorkerThreadSearchClient implements CommandPaletteThreadSearchClient {
       this.worker = new Worker(workerUrl, {
         env: {
           ...process.env,
-          NODEX_DIR: getLocalStoreDir(),
+          NODEX_HOME: getNodexHome(),
         },
       });
       this.worker.on("message", (message: ThreadSearchWorkerMessage) => this.handleWorkerMessage(message));

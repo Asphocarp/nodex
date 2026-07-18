@@ -1,1 +1,1 @@
-export { getLocalStoreDir } from "./config";
+export { getNodexHome } from "./config";

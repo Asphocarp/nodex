@@ -6,9 +6,9 @@ export const DATABASE_FILE_NAME = "nodex.db";
 const LEGACY_DATABASE_FILE_NAME = "kanban.db";
 const DATABASE_SIDE_CAR_SUFFIXES = ["", "-wal", "-shm"] as const;
 
-export function migrateLegacyDatabaseFileName(localStoreDir: string): void {
-  const legacyDatabasePath = path.join(localStoreDir, LEGACY_DATABASE_FILE_NAME);
-  const databasePath = path.join(localStoreDir, DATABASE_FILE_NAME);
+export function migrateLegacyDatabaseFileName(nodexHome: string): void {
+  const legacyDatabasePath = path.join(nodexHome, LEGACY_DATABASE_FILE_NAME);
+  const databasePath = path.join(nodexHome, DATABASE_FILE_NAME);
   if (!fs.existsSync(legacyDatabasePath) || fs.existsSync(databasePath)) return;
 
   const plannedMoves = DATABASE_SIDE_CAR_SUFFIXES.map((suffix) => ({
@@ -21,7 +21,7 @@ export function migrateLegacyDatabaseFileName(localStoreDir: string): void {
     .some((move) => fs.existsSync(move.destinationPath));
   if (hasTargetSideCarConflict) return;
 
-  fs.mkdirSync(localStoreDir, { recursive: true });
+  fs.mkdirSync(nodexHome, { recursive: true });
   for (const move of plannedMoves) {
     if (!fs.existsSync(move.sourcePath)) continue;
     fs.renameSync(move.sourcePath, move.destinationPath);

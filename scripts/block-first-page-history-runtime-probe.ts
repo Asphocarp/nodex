@@ -222,11 +222,11 @@ const readErrorCode = (operation: () => unknown): string | null => {
 };
 
 const main = async (): Promise<void> => {
-  const previousDir = process.env.NODEX_DIR;
+  const previousDir = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-page-history-runtime-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Card history runtime probe" });
@@ -463,9 +463,9 @@ const main = async (): Promise<void> => {
     closeDatabase();
     fs.rmSync(directory, { recursive: true, force: true });
     if (previousDir === undefined) {
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     } else {
-      process.env.NODEX_DIR = previousDir;
+      process.env.NODEX_HOME = previousDir;
     }
   }
 };

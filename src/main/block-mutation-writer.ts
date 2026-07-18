@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { Worker } from "node:worker_threads";
-import { getLocalStoreDir } from "./local-store/config";
+import { getNodexHome } from "./local-store/config";
 import { dbNotifier, type ChangeType } from "./local-store/notifier";
 import { getLogger } from "./logging/logger";
 import type { BoardChangeEvent } from "../shared/ipc-api";
@@ -1108,7 +1108,7 @@ export class BlockMutationWriter {
     return new Worker(workerUrl, {
       env: {
         ...process.env,
-        NODEX_DIR: getLocalStoreDir(),
+        NODEX_HOME: getNodexHome(),
       },
     });
   }

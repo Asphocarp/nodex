@@ -18,7 +18,7 @@ beforeEach(async () => {
   closeDatabase();
   resetAssetPathCacheForTests();
   tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-tool-catalog-"));
-  process.env.NODEX_DIR = tempDirectory;
+  process.env.NODEX_HOME = tempDirectory;
   await initializeDatabase();
   upsertCodexThread({ threadId: "source-thread" });
   upsertCodexThread({ threadId: "target-thread" });
@@ -27,7 +27,7 @@ beforeEach(async () => {
 afterEach(() => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   fs.rmSync(tempDirectory, { recursive: true, force: true });
 });
 

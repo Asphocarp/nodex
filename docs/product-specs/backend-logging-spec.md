@@ -32,7 +32,7 @@ The logger is implemented in [src/main/logging/logger.ts](src/main/logging/logge
 
 When file logging is enabled, backend logs are written under:
 
-`$NODEX_DIR/logs`
+`$NODEX_HOME/logs`
 
 Default file naming:
 
@@ -46,7 +46,7 @@ Important properties:
 - A bounded asynchronous queue respects writable-stream backpressure. Queue pressure discards trace/debug/info before warn/error and emits a structured dropped-record summary.
 - Files are created with mode `0600`; a newly created log directory uses mode `0700`.
 - Stream failures disable only the file sink, emit one emergency terminal error, and never fail application work.
-- The active profile is determined by the same `NODEX_DIR` resolution used elsewhere in the app.
+- The active profile is determined by the same `NODEX_HOME` resolution used elsewhere in the app.
 
 ## Default Runtime Behavior
 
@@ -97,7 +97,7 @@ Supported variables:
 - `NODEX_LOG_FILE`
   - enables/disables file sink
 - `NODEX_LOG_DIR`
-  - overrides the default `${NODEX_DIR}/logs` directory
+  - overrides the default `${NODEX_HOME}/logs` directory
   - relative paths resolve from `process.cwd()`
 - `NODEX_LOG_RETENTION_DAYS`
   - default: `14`
@@ -401,7 +401,7 @@ Bad candidates:
 
 Recommended workflow:
 
-1. Find the relevant day file in `${NODEX_DIR}/logs`.
+1. Find the relevant day file in `${NODEX_HOME}/logs`.
 2. Filter for `subsystem":"codex"`.
 3. Narrow by `threadId`, `turnId`, `projectId`, or `cardId`.
 4. Reconstruct the sequence:

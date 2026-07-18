@@ -49,7 +49,7 @@ import {
   getBackupSettings,
   getCommandKeymapState,
   getHistorySettings,
-  getLocalStoreDir,
+  getNodexHome,
   getWindowRestoreSettings,
   getPort,
 } from "./local-store/config";
@@ -1334,7 +1334,7 @@ export async function runMainAppStartup(
     packaged: app.isPackaged,
     platform: process.platform,
     pid: process.pid,
-    localStoreDir: getLocalStoreDir(),
+    nodexHome: getNodexHome(),
   });
   registerDeepLinkProtocol();
   // Packaged macOS builds use the bundle icon; dev still needs an explicit Dock icon override.

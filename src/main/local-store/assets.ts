@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "node:crypto";
 
-import { getLocalStoreDir } from "./assets-deps";
+import { getNodexHome } from "./assets-deps";
 import {
   getAssetSource,
   isSafeAssetFileName,
@@ -88,7 +88,7 @@ function getCachedAssetPaths(): CachedAssetPaths {
     return cachedAssetPaths;
   }
 
-  const rootPath = path.resolve(path.join(getLocalStoreDir(), "assets"));
+  const rootPath = path.resolve(path.join(getNodexHome(), "assets"));
   cachedAssetPaths = {
     pathPrefix: `${rootPath}${path.sep}`,
     rootPath,

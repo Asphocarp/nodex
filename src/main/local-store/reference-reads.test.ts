@@ -35,7 +35,7 @@ describe("Project-scoped canonical reference reads", () => {
   sqliteTest("allows cross-Project targets only through an explicit resource grant", async () => {
     closeDatabase();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-reference-read-"));
-    process.env.NODEX_DIR = tempDir;
+    process.env.NODEX_HOME = tempDir;
     try {
       await initializeDatabase();
       const hostProject = createProject({ name: "Host" });
@@ -162,7 +162,7 @@ describe("Project-scoped canonical reference reads", () => {
     } finally {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     }
   });
 });

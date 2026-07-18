@@ -56,13 +56,13 @@ const useTempStore = (): void => {
     path.join(os.tmpdir(), "nodex-page-lifecycle-v2-store-"),
   );
   tempDirectories.push(directory);
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
 };
 
 afterEach(() => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   for (const directory of tempDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }

@@ -25,7 +25,7 @@ function serializeError(value: unknown): unknown {
 }
 
 export function writeBootstrapLog(
-  localStoreDir: string,
+  nodexHome: string,
   level: BootstrapLogLevel,
   message: string,
   fields: Record<string, unknown> = {},
@@ -47,7 +47,7 @@ export function writeBootstrapLog(
 
   if (fileEnabled && isLogLevelEnabled(level, fileLevel)) {
     try {
-      const logDir = path.join(localStoreDir, "logs");
+      const logDir = path.join(nodexHome, "logs");
       mkdirSync(logDir, { recursive: true });
       appendFileSync(
         path.join(logDir, `bootstrap-${entry.ts.slice(0, 10)}.log`),

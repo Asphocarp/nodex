@@ -2,16 +2,17 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { resolveNodexHomePath } from "./nodex-home";
 
 interface BootstrapServerTomlConfig {
-  dir?: string;
+  home?: string;
 }
 
 interface BootstrapRootTomlConfig extends Record<string, unknown> {
   server?: BootstrapServerTomlConfig;
 }
 
-export interface ResolveBootstrapLocalStoreDirOptions {
+export interface ResolveBootstrapNodexHomeOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
@@ -45,25 +46,13 @@ function findProjectConfig(
   }
 }
 
-function expandTilde(inputPath: string, homeDir: string): string {
-  if (inputPath === "~" || inputPath.startsWith("~/")) {
-    return path.join(homeDir, inputPath.slice(1));
-  }
-  return inputPath;
-}
-
-export function resolveBootstrapLocalStoreDir(options: ResolveBootstrapLocalStoreDirOptions = {}): string {
+export function resolveBootstrapNodexHome(options: ResolveBootstrapNodexHomeOptions = {}): string {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const envHome = env.HOME?.trim();
   const homeDir = options.homeDir ?? (envHome ? envHome : homedir());
   const exists = options.exists ?? existsSync;
   const readFile = options.readFile ?? ((filePath) => readFileSync(filePath, "utf8"));
-
-  const envDir = env.NODEX_DIR?.trim();
-  if (envDir) {
-    return path.isAbsolute(envDir) ? envDir : path.resolve(cwd, envDir);
-  }
 
   const mergedConfig: BootstrapServerTomlConfig = {};
   const userConfig = path.join(homeDir, ".nodex", "config.toml");
@@ -76,10 +65,10 @@ export function resolveBootstrapLocalStoreDir(options: ResolveBootstrapLocalStor
     Object.assign(mergedConfig, readServerSection(projectConfig, readFile) ?? {});
   }
 
-  if (mergedConfig.dir) {
-    const expanded = expandTilde(mergedConfig.dir, homeDir);
-    return path.isAbsolute(expanded) ? expanded : path.resolve(cwd, expanded);
-  }
-
-  return path.join(homeDir, ".nodex");
+  return resolveNodexHomePath({
+    cwd,
+    env,
+    userHome: homeDir,
+    configuredHome: mergedConfig.home,
+  });
 }

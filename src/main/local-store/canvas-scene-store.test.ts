@@ -67,7 +67,7 @@ const createFixture = async (name: string): Promise<CanvasFixture> => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-canvas-scene-"));
   directories.push(directory);
   closeDatabase();
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   resetAssetPathCacheForTests();
   await initializeDatabase();
   const project = createProject({ name });
@@ -133,7 +133,7 @@ const shape = (
 
 afterEach(() => {
   closeDatabase();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   resetAssetPathCacheForTests();
   for (const directory of directories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -453,7 +453,7 @@ describe("Canvas scene SQLite authority", () => {
     });
     expect(() =>
       validateBackupStore(getDatabasePath(), {
-        assetsPath: path.join(process.env.NODEX_DIR ?? "", "assets"),
+        assetsPath: path.join(process.env.NODEX_HOME ?? "", "assets"),
       }),
     ).toThrow(/Canvas mutation receipt is corrupt/u);
   });

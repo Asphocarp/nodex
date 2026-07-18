@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import * as fs from "fs";
-import { getDatabasePath, getLocalStoreDir } from "./config";
+import { getDatabasePath, getNodexHome } from "./config";
 import { migrateLegacyDatabaseFileName } from "./database-file-migration";
 import { ensureDatabase } from "./schema";
 import { recoverInterruptedStoreRestore } from "./store-restore-journal";
@@ -77,7 +77,7 @@ export function getDb(): Database.Database {
   }
   if (!db) {
     const dbPath = getDatabasePath();
-    const dir = getLocalStoreDir();
+    const dir = getNodexHome();
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -100,7 +100,7 @@ export async function initializeDatabase(
   options?: ShippedSchemaMigrationOptions,
 ): Promise<void> {
   recoverInterruptedStoreRestore();
-  migrateLegacyDatabaseFileName(getLocalStoreDir());
+  migrateLegacyDatabaseFileName(getNodexHome());
   await migrateShippedSchemaStoreToCurrent(options);
   ensureDatabase();
   const database = getDb();

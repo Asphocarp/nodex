@@ -89,11 +89,11 @@ const eventCount = (events: readonly unknown[]): number =>
   events.length;
 
 const main = async (): Promise<void> => {
-  const previousNodexDir = process.env.NODEX_DIR;
+  const previousNodexHome = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-page-lifecycle-worker-runtime-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   let writer: BlockMutationWriter | undefined;
 
   try {
@@ -406,8 +406,8 @@ const main = async (): Promise<void> => {
     if (writer) await writer.shutdown().catch(() => undefined);
     closeDatabase();
     fs.rmSync(directory, { recursive: true, force: true });
-    if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previousNodexDir;
+    if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previousNodexHome;
   }
 };
 

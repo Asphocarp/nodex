@@ -28,7 +28,7 @@ const useFreshStore = async (): Promise<Database.Database> => {
     path.join(os.tmpdir(), "nodex-canvas-scene-cutover-"),
   );
   directories.push(directory);
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   await initializeDatabase();
   return getDb();
 };
@@ -118,7 +118,7 @@ const seedLegacyCanvasYjsAuthority = (
 
 afterEach(() => {
   closeDatabase();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   for (const directory of directories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }

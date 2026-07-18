@@ -32,11 +32,11 @@ interface PropertyCoordinate {
 }
 
 const run = async (): Promise<void> => {
-  const previousNodexDir = process.env.NODEX_DIR;
+  const previousNodexHome = process.env.NODEX_HOME;
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-property-worker-runtime-"),
   );
-  process.env.NODEX_DIR = tempDir;
+  process.env.NODEX_HOME = tempDir;
   let writer: BlockMutationWriter | undefined;
   try {
     await initializeDatabase();
@@ -306,8 +306,8 @@ const run = async (): Promise<void> => {
     if (writer) await writer.shutdown().catch(() => undefined);
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previousNodexDir;
+    if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previousNodexHome;
   }
 };
 

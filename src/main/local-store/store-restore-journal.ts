@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import Database from "better-sqlite3";
-import { getDatabasePath, getLocalStoreDir } from "./config";
+import { getDatabasePath, getNodexHome } from "./config";
 import { validateBackupStore } from "./backup-store-validation";
 import {
   CURRENT_SCHEMA_VERSION,
@@ -34,17 +34,17 @@ export interface StoreRestoreJournal {
 }
 
 export interface StoreRestorePaths {
-  readonly localStoreDirectoryPath: string;
+  readonly nodexHome: string;
   readonly databasePath: string;
 }
 
 const defaultStoreRestorePaths = (): StoreRestorePaths => ({
-  localStoreDirectoryPath: getLocalStoreDir(),
+  nodexHome: getNodexHome(),
   databasePath: getDatabasePath(),
 });
 
 const journalPath = (paths: StoreRestorePaths): string =>
-  path.join(paths.localStoreDirectoryPath, JOURNAL_FILE_NAME);
+  path.join(paths.nodexHome, JOURNAL_FILE_NAME);
 
 export const fsyncDirectory = (directoryPath: string): void => {
   const descriptor = fs.openSync(directoryPath, "r");
@@ -203,7 +203,7 @@ export function installStagedStoreFiles(
 ): void {
   const databasePath = paths.databasePath;
   const assetsPath = path.join(
-    paths.localStoreDirectoryPath,
+    paths.nodexHome,
     ASSETS_DIRECTORY_NAME,
   );
   fs.mkdirSync(rollbackDirectoryPath, { recursive: true });
@@ -220,7 +220,7 @@ export function installStagedStoreFiles(
     path.join(stagingDirectoryPath, ASSETS_DIRECTORY_NAME),
     assetsPath,
   );
-  fsyncDirectory(paths.localStoreDirectoryPath);
+  fsyncDirectory(paths.nodexHome);
 }
 
 const assertJournalPath = (
@@ -228,7 +228,7 @@ const assertJournalPath = (
   prefix: ".restore-" | ".rollback-",
   paths: StoreRestorePaths,
 ): string => {
-  const backupsRoot = path.join(paths.localStoreDirectoryPath, "backups");
+  const backupsRoot = path.join(paths.nodexHome, "backups");
   const resolved = path.resolve(candidatePath);
   if (
     path.dirname(resolved) !== path.resolve(backupsRoot) ||
@@ -334,7 +334,7 @@ export function createStoreRestoreJournal(input: {
     ),
     phase: "prepared",
     hadAssets: fs.existsSync(
-      path.join(paths.localStoreDirectoryPath, ASSETS_DIRECTORY_NAME),
+      path.join(paths.nodexHome, ASSETS_DIRECTORY_NAME),
     ),
     hadWal: fs.existsSync(`${databasePath}-wal`),
     hadShm: fs.existsSync(`${databasePath}-shm`),
@@ -362,7 +362,7 @@ const restoreRollback = (
 ): void => {
   const databasePath = paths.databasePath;
   const assetsPath = path.join(
-    paths.localStoreDirectoryPath,
+    paths.nodexHome,
     ASSETS_DIRECTORY_NAME,
   );
   const rollbackDatabasePath = path.join(
@@ -414,7 +414,7 @@ const restoreRollback = (
   } else if (!journal.hadAssets) {
     removePath(assetsPath);
   }
-  fsyncDirectory(paths.localStoreDirectoryPath);
+  fsyncDirectory(paths.nodexHome);
 };
 
 const cleanupJournalArtifacts = (

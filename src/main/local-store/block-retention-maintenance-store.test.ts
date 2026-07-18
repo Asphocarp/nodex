@@ -11,11 +11,11 @@ import { createProject } from "./projects";
 describe("store-wide Block retention maintenance", () => {
   test("runs every Project under one current store-epoch fence", async () => {
     closeDatabase();
-    const previousDirectory = process.env.NODEX_DIR;
+    const previousDirectory = process.env.NODEX_HOME;
     const directory = fs.mkdtempSync(
       path.join(os.tmpdir(), "nodex-block-retention-store-"),
     );
-    process.env.NODEX_DIR = directory;
+    process.env.NODEX_HOME = directory;
     try {
       await initializeDatabase();
       const database = getDb();
@@ -40,8 +40,8 @@ describe("store-wide Block retention maintenance", () => {
       ).toThrow("store epoch changed");
     } finally {
       closeDatabase();
-      if (previousDirectory === undefined) delete process.env.NODEX_DIR;
-      else process.env.NODEX_DIR = previousDirectory;
+      if (previousDirectory === undefined) delete process.env.NODEX_HOME;
+      else process.env.NODEX_HOME = previousDirectory;
       fs.rmSync(directory, { recursive: true, force: true });
     }
   });

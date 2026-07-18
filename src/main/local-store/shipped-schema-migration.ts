@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
-import { getDatabasePath, getLocalStoreDir } from "./config";
+import { getDatabasePath, getNodexHome } from "./config";
 import { finalizeBlockFirstAuthority } from "./block-first-finalization";
 import {
   CURRENT_SCHEMA_VERSION,
@@ -40,7 +40,7 @@ export type ShippedSchemaMigrationFaultPoint =
   | "committed";
 
 export interface ShippedSchemaMigrationOptions extends EnsureDatabaseOptions {
-  readonly localStoreDirectoryPath?: string;
+  readonly nodexHome?: string;
   readonly databasePath?: string;
   readonly injectFault?: (point: ShippedSchemaMigrationFaultPoint) => void;
 }
@@ -164,8 +164,8 @@ const rollbackAfterFailure = (
 export async function migrateShippedSchemaStoreToCurrent(
   options: ShippedSchemaMigrationOptions = {},
 ): Promise<ShippedSchemaMigrationResult> {
-  const localStoreDirectoryPath =
-    options.localStoreDirectoryPath ?? getLocalStoreDir();
+  const nodexHome =
+    options.nodexHome ?? getNodexHome();
   const databasePath = options.databasePath ?? getDatabasePath();
   const sourceSchemaVersion = readSchemaVersion(databasePath);
   if (sourceSchemaVersion === null) {
@@ -190,7 +190,7 @@ export async function migrateShippedSchemaStoreToCurrent(
 
   const migrationId =
     `schema-v${sourceSchemaVersion}-to-v${SHIPPED_SCHEMA_VERSION}-${randomUUID()}`;
-  const backupsRootPath = path.join(localStoreDirectoryPath, "backups");
+  const backupsRootPath = path.join(nodexHome, "backups");
   const stagingDirectoryPath = path.join(
     backupsRootPath,
     `.restore-${migrationId}`,
@@ -199,7 +199,7 @@ export async function migrateShippedSchemaStoreToCurrent(
     backupsRootPath,
     `.rollback-${migrationId}`,
   );
-  const paths = { localStoreDirectoryPath, databasePath };
+  const paths = { nodexHome, databasePath };
   let journal: StoreRestoreJournal | null = null;
   let committed = false;
   fs.mkdirSync(backupsRootPath, { recursive: true });
@@ -208,7 +208,7 @@ export async function migrateShippedSchemaStoreToCurrent(
     options.onMigrationProgress?.({ type: "InProgress", value: 0 });
     const staging = await prepareStagingSnapshot(
       databasePath,
-      path.join(localStoreDirectoryPath, "assets"),
+      path.join(nodexHome, "assets"),
       stagingDirectoryPath,
     );
     options.onMigrationProgress?.({ type: "InProgress", value: 0.1 });
@@ -244,7 +244,7 @@ export async function migrateShippedSchemaStoreToCurrent(
     options.injectFault?.("store_installed");
     journal = advanceStoreRestoreJournal(journal, "install_started", paths);
     validateBackupStore(databasePath, {
-      assetsPath: path.join(localStoreDirectoryPath, "assets"),
+      assetsPath: path.join(nodexHome, "assets"),
       expectedSchemaVersion: SHIPPED_SCHEMA_VERSION,
     });
     journal = advanceStoreRestoreJournal(journal, "committed", paths);

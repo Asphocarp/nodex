@@ -80,7 +80,7 @@ const main = async (): Promise<void> => {
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-scheduler-runtime-"),
   );
-  process.env.NODEX_DIR = tempDir;
+  process.env.NODEX_HOME = tempDir;
 
   try {
     await initializeDatabase();
@@ -326,7 +326,7 @@ const main = async (): Promise<void> => {
   } finally {
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.NODEX_DIR;
+    delete process.env.NODEX_HOME;
   }
 };
 

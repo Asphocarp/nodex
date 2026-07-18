@@ -47,8 +47,8 @@ const run = async (): Promise<void> => {
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-database-page-drag-runtime-"),
   );
-  const previousDirectory = process.env.NODEX_DIR;
-  process.env.NODEX_DIR = directory;
+  const previousDirectory = process.env.NODEX_HOME;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Database Page drag runtime" });
@@ -147,9 +147,9 @@ const run = async (): Promise<void> => {
     closeDatabase();
     fs.rmSync(directory, { recursive: true, force: true });
     if (previousDirectory === undefined) {
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     } else {
-      process.env.NODEX_DIR = previousDirectory;
+      process.env.NODEX_HOME = previousDirectory;
     }
   }
 };

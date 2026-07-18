@@ -1061,7 +1061,7 @@ export type ManagedWorktreeStartingState =
 
 export interface CreateManagedWorktreeInput {
   repositoryPath: string;
-  serverDir: string;
+  nodexHome: string;
   projectId: string;
   targetId: string;
   threadTitle?: string | null;
@@ -1156,8 +1156,8 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
   throwIfRequestAborted(signal);
   const sourceWorkspace = await resolveSourceWorkspace(input.repositoryPath, signal);
   const sourceGitRoot = sourceWorkspace.sourceGitRoot;
-  const serverDir = path.resolve(input.serverDir.trim());
-  await runAbortChecked(signal, () => mkdir(serverDir, { recursive: true }));
+  const nodexHome = path.resolve(input.nodexHome.trim());
+  await runAbortChecked(signal, () => mkdir(nodexHome, { recursive: true }));
   const detachedStartingState =
     input.mode === "detachedHead" && input.startingState
       ? await resolveDetachedStartingState({
@@ -1170,7 +1170,7 @@ export async function createManagedWorktree(input: CreateManagedWorktreeInput): 
     detachedStartingState?.startingRef ??
     (await resolveDefaultBaseRef(sourceGitRoot, input.preferredBaseBranch, signal));
   const worktreePathLeaf = path.basename(sourceGitRoot);
-  const worktreesRoot = path.join(serverDir, "worktrees");
+  const worktreesRoot = path.join(nodexHome, "worktrees");
   await runAbortChecked(signal, () => mkdir(worktreesRoot, { recursive: true }));
 
   for (let attempt = 0; attempt < 10; attempt += 1) {

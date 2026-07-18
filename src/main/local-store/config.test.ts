@@ -5,6 +5,7 @@ import * as path from "path";
 
 const ORIGINAL_CWD = process.cwd();
 const ORIGINAL_HOME = process.env.HOME;
+const ORIGINAL_NODEX_HOME = process.env.NODEX_HOME;
 const ORIGINAL_BACKUP_ENV = {
   autoEnabled: process.env.NODEX_BACKUP_AUTO_ENABLED,
   intervalHours: process.env.NODEX_BACKUP_INTERVAL_HOURS,
@@ -32,6 +33,7 @@ async function importConfigModule() {
 }
 
 function clearBackupEnv(): void {
+  delete process.env.NODEX_HOME;
   delete process.env.NODEX_BACKUP_AUTO_ENABLED;
   delete process.env.NODEX_BACKUP_INTERVAL_HOURS;
   delete process.env.NODEX_BACKUP_RETENTION;
@@ -57,6 +59,12 @@ function restoreProcessState(): void {
     delete process.env.HOME;
   } else {
     process.env.HOME = ORIGINAL_HOME;
+  }
+
+  if (ORIGINAL_NODEX_HOME === undefined) {
+    delete process.env.NODEX_HOME;
+  } else {
+    process.env.NODEX_HOME = ORIGINAL_NODEX_HOME;
   }
 
   if (ORIGINAL_BACKUP_ENV.autoEnabled === undefined) {
@@ -162,6 +170,59 @@ async function withTempConfigFixture(
     fs.rmSync(tempHome, { recursive: true, force: true });
   }
 }
+
+describe("Nodex home config", () => {
+  test("prefers NODEX_HOME over TOML configuration", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const configuredHome = path.join(tempHome, "configured-home");
+      const environmentHome = path.join(tempHome, "environment-home");
+      const configDirectory = path.join(tempHome, ".nodex");
+      fs.mkdirSync(configDirectory, { recursive: true });
+      fs.writeFileSync(
+        path.join(configDirectory, "config.toml"),
+        ["[server]", `home = "${configuredHome}"`, ""].join("\n"),
+        "utf8",
+      );
+      process.env.NODEX_HOME = environmentHome;
+
+      const config = await importConfigModule();
+
+      expect(config.getNodexHome()).toBe(environmentHome);
+      expect(config.getDatabasePath()).toBe(
+        path.join(environmentHome, "nodex.db"),
+      );
+    });
+  });
+
+  test("resolves the merged project home relative to the process cwd", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const userConfigDirectory = path.join(tempHome, ".nodex");
+      const projectConfigDirectory = path.join(
+        tempHome,
+        "workspace",
+        ".nodex",
+      );
+      fs.mkdirSync(userConfigDirectory, { recursive: true });
+      fs.mkdirSync(projectConfigDirectory, { recursive: true });
+      fs.writeFileSync(
+        path.join(userConfigDirectory, "config.toml"),
+        ["[server]", 'home = "~/user-home"', ""].join("\n"),
+        "utf8",
+      );
+      fs.writeFileSync(
+        path.join(projectConfigDirectory, "config.toml"),
+        ["[server]", 'home = "project-home"', ""].join("\n"),
+        "utf8",
+      );
+
+      const config = await importConfigModule();
+
+      expect(config.getNodexHome()).toBe(
+        path.join(process.cwd(), "project-home"),
+      );
+    });
+  });
+});
 
 describe("backup settings config", () => {
   test("persists updated backup settings to user config", async () => {

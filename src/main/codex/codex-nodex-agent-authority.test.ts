@@ -18,13 +18,13 @@ beforeEach(async () => {
   tempDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-turn-authority-"),
   );
-  process.env.NODEX_DIR = tempDirectory;
+  process.env.NODEX_HOME = tempDirectory;
   await initializeDatabase();
 });
 
 afterEach(() => {
   closeDatabase();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   fs.rmSync(tempDirectory, { recursive: true, force: true });
 });
 

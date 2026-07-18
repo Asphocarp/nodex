@@ -255,11 +255,11 @@ const assertProjectionHead = (
 };
 
 const run = async (): Promise<void> => {
-  const previousNodexDir = process.env.NODEX_DIR;
+  const previousNodexHome = process.env.NODEX_HOME;
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-document-projection-runtime-"),
   );
-  process.env.NODEX_DIR = tempDir;
+  process.env.NODEX_HOME = tempDir;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Document projections" });
@@ -576,10 +576,10 @@ const run = async (): Promise<void> => {
   } finally {
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    if (previousNodexDir === undefined) {
-      delete process.env.NODEX_DIR;
+    if (previousNodexHome === undefined) {
+      delete process.env.NODEX_HOME;
     } else {
-      process.env.NODEX_DIR = previousNodexDir;
+      process.env.NODEX_HOME = previousNodexHome;
     }
   }
 };

@@ -18,14 +18,14 @@ beforeEach(async () => {
   closeDatabase();
   resetAssetPathCacheForTests();
   tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-etag-"));
-  process.env.NODEX_DIR = tempDirectory;
+  process.env.NODEX_HOME = tempDirectory;
   await initializeDatabase();
 });
 
 afterEach(() => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   fs.rmSync(tempDirectory, { recursive: true, force: true });
 });
 

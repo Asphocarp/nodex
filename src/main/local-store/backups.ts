@@ -12,7 +12,7 @@ import type {
 import {
   dbNotifier,
   getDatabasePath,
-  getLocalStoreDir,
+  getNodexHome,
   listProjects,
   openStandaloneBackupDatabase,
 } from "./backups-deps";
@@ -88,11 +88,11 @@ function enqueueBackupOperation<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 function getBackupsRootPath(): string {
-  return path.join(getLocalStoreDir(), "backups");
+  return path.join(getNodexHome(), "backups");
 }
 
 function getAssetsRootPath(): string {
-  return path.join(getLocalStoreDir(), "assets");
+  return path.join(getNodexHome(), "assets");
 }
 
 function assertSafeBackupId(backupId: string): void {
@@ -340,7 +340,7 @@ async function restoreBackupInternal(
   let stagingDirectoryPath: string | null = null;
   let restoreJournal: StoreRestoreJournal | null = null;
   const restorePaths: StoreRestorePaths = {
-    localStoreDirectoryPath: getLocalStoreDir(),
+    nodexHome: getNodexHome(),
     databasePath: getDatabasePath(),
   };
   try {

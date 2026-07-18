@@ -62,7 +62,7 @@ describe("Card summary Document authority", () => {
   sqliteTest("reads primary content from the committed materialization across restart", async () => {
     closeDatabase();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-page-summary-authority-"));
-    process.env.NODEX_DIR = tempDir;
+    process.env.NODEX_HOME = tempDir;
 
     try {
       await initializeDatabase();
@@ -153,7 +153,7 @@ describe("Card summary Document authority", () => {
     } finally {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     }
   });
 });

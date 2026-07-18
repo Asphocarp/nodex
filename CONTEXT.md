@@ -25,8 +25,8 @@ Source cutover is tracked in
 
 ### Profile
 
-A Profile is one local Nodex installation context with its own filesystem data
-directory, process lock, SQLite store, browser session, and preferences. Each
+A Profile is one local Nodex installation context rooted at one Nodex home,
+with its own process lock, SQLite store, browser session, and preferences. Each
 Profile owns exactly one Library. Profile is not a Block and is not inferred
 from any Project.
 

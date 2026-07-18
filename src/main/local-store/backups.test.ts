@@ -16,7 +16,7 @@ const state = {
 };
 
 vi.mock("./backups-deps", () => ({
-  getLocalStoreDir: () => fixtureRoot,
+  getNodexHome: () => fixtureRoot,
   getDatabasePath: () => liveDbPath,
   dbNotifier: {
     notifyChange: (projectId: string, changeType: string, columnId: string) => {

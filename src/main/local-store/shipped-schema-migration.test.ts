@@ -69,7 +69,7 @@ const seedV57Store = (): {
     path.join(os.tmpdir(), "nodex-schema-v57-import-"),
   );
   tempDirectories.push(directoryPath);
-  process.env.NODEX_DIR = directoryPath;
+  process.env.NODEX_HOME = directoryPath;
 
   const database = new Database(getDatabasePath());
   database.pragma("foreign_keys = ON");
@@ -116,7 +116,7 @@ const seedV26Store = (): {
     path.join(os.tmpdir(), "nodex-schema-v26-import-"),
   );
   tempDirectories.push(directoryPath);
-  process.env.NODEX_DIR = directoryPath;
+  process.env.NODEX_HOME = directoryPath;
 
   const sourceDatabasePath = path.join(directoryPath, "kanban.db");
   const database = new Database(sourceDatabasePath);
@@ -175,7 +175,7 @@ const seedV26Store = (): {
 afterEach(() => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   for (const directory of tempDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -319,7 +319,7 @@ describe("shipped schema through v58 staging and current startup migrations", ()
       path.join(os.tmpdir(), "nodex-schema-current-fresh-"),
     );
     tempDirectories.push(freshDirectoryPath);
-    process.env.NODEX_DIR = freshDirectoryPath;
+    process.env.NODEX_HOME = freshDirectoryPath;
     await initializeDatabase();
     expect(normalizedSchema(getDb())).toEqual(migratedSchema);
   }, 30_000);

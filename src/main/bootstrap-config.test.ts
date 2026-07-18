@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import path from "node:path";
-import { resolveBootstrapLocalStoreDir } from "./bootstrap-config";
+import { resolveBootstrapNodexHome } from "./bootstrap-config";
 
 function makeVirtualFs(files: Record<string, string>) {
   return {
@@ -9,25 +9,25 @@ function makeVirtualFs(files: Record<string, string>) {
   };
 }
 
-describe("resolveBootstrapLocalStoreDir", () => {
-  test("prefers NODEX_DIR and resolves relative env paths from cwd", () => {
+describe("resolveBootstrapNodexHome", () => {
+  test("prefers NODEX_HOME and resolves relative env paths from cwd", () => {
     const cwd = "/workspace/project";
 
-    expect(resolveBootstrapLocalStoreDir({
+    expect(resolveBootstrapNodexHome({
       cwd,
-      env: { NODEX_DIR: "relative-data" },
+      env: { NODEX_HOME: "relative-data" },
       homeDir: "/home/user",
     })).toBe(path.join(cwd, "relative-data"));
   });
 
-  test("merges user and project config with project dir taking precedence", () => {
+  test("merges user and project config with project home taking precedence", () => {
     const cwd = "/workspace/project/subdir";
     const files = makeVirtualFs({
-      "/home/user/.nodex/config.toml": "[server]\ndir = \"~/user-data\"\n",
-      "/workspace/project/.nodex/config.toml": "[server]\ndir = \"project-data\"\n",
+      "/home/user/.nodex/config.toml": "[server]\nhome = \"~/user-data\"\n",
+      "/workspace/project/.nodex/config.toml": "[server]\nhome = \"project-data\"\n",
     });
 
-    expect(resolveBootstrapLocalStoreDir({
+    expect(resolveBootstrapNodexHome({
       cwd,
       env: {},
       homeDir: "/home/user",
@@ -36,12 +36,12 @@ describe("resolveBootstrapLocalStoreDir", () => {
     })).toBe(path.join(cwd, "project-data"));
   });
 
-  test("expands tilde config paths and falls back to home nodex dir", () => {
+  test("expands tilde config paths and falls back to the default Nodex home", () => {
     const files = makeVirtualFs({
-      "/home/user/.nodex/config.toml": "[server]\ndir = \"~/custom-nodex\"\n",
+      "/home/user/.nodex/config.toml": "[server]\nhome = \"~/custom-nodex\"\n",
     });
 
-    expect(resolveBootstrapLocalStoreDir({
+    expect(resolveBootstrapNodexHome({
       cwd: "/workspace/project",
       env: {},
       homeDir: "/home/user",
@@ -49,7 +49,7 @@ describe("resolveBootstrapLocalStoreDir", () => {
       readFile: files.readFile,
     })).toBe("/home/user/custom-nodex");
 
-    expect(resolveBootstrapLocalStoreDir({
+    expect(resolveBootstrapNodexHome({
       cwd: "/workspace/project",
       env: {},
       homeDir: "/home/user",

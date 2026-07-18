@@ -2,6 +2,7 @@ import * as path from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
+import { resolveNodexHomePath } from "../nodex-home";
 import { DATABASE_FILE_NAME } from "./database-file-migration";
 import {
   applyCommandKeybindingUpdate,
@@ -38,7 +39,7 @@ import type {
 // ─── TOML [server] config (user-level + CWD walk-up for project-level) ───
 
 interface ServerTomlConfig {
-  dir?: string;
+  home?: string;
   port?: number;
   backup_auto_enabled?: boolean;
   backup_interval_hours?: number;
@@ -178,34 +179,22 @@ function writeUserServerTomlConfig(nextServer: ServerTomlConfig): void {
   serverToml = loadServerTomlConfig();
 }
 
-function expandTilde(p: string): string {
-  if (p === "~" || p.startsWith("~/")) return path.join(getHomeDir(), p.slice(1));
-  return p;
-}
-
 let userServerToml = loadUserServerTomlConfig();
 let serverToml = loadServerTomlConfig();
 
 // ─── Getters (resolution: env → TOML → default) ───
 
-export function getLocalStoreDir(): string {
-  const envDir = process.env.NODEX_DIR;
-  if (envDir) {
-    return path.isAbsolute(envDir)
-      ? envDir
-      : path.resolve(process.cwd(), envDir);
-  }
-  if (serverToml.dir) {
-    const expanded = expandTilde(serverToml.dir);
-    return path.isAbsolute(expanded)
-      ? expanded
-      : path.resolve(process.cwd(), expanded);
-  }
-  return path.join(getHomeDir(), ".nodex");
+export function getNodexHome(): string {
+  return resolveNodexHomePath({
+    cwd: process.cwd(),
+    env: process.env,
+    userHome: getHomeDir(),
+    configuredHome: serverToml.home,
+  });
 }
 
 export function getDatabasePath(): string {
-  return path.join(getLocalStoreDir(), DATABASE_FILE_NAME);
+  return path.join(getNodexHome(), DATABASE_FILE_NAME);
 }
 
 export function getPort(): number {

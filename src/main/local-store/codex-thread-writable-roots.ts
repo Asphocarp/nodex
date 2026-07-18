@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getLocalStoreDir } from "./config";
+import { getNodexHome } from "./config";
 
 const CODEX_THREAD_WRITABLE_ROOTS_FILE_NAME = "codex-thread-writable-roots-v1.json";
 
@@ -11,7 +11,7 @@ let pathOverrideForTests: string | null = null;
 
 function getStatePath(): string {
   return pathOverrideForTests
-    ?? join(getLocalStoreDir(), CODEX_THREAD_WRITABLE_ROOTS_FILE_NAME);
+    ?? join(getNodexHome(), CODEX_THREAD_WRITABLE_ROOTS_FILE_NAME);
 }
 
 function isCodexAbsoluteWorkspaceRoot(root: string): boolean {

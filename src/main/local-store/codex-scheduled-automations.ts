@@ -8,7 +8,7 @@ import {
   normalizeCodexScheduledAutomationRrule,
   reconcileCodexScheduledAutomationRuntimeState,
 } from "./codex-scheduled-automation-schedule";
-import { getLocalStoreDir } from "./config";
+import { getNodexHome } from "./config";
 import { getDb } from "./database";
 import type {
   CodexScheduledAutomation,
@@ -196,7 +196,7 @@ function parseCwdsJson(value: string | null): string[] {
 }
 
 function getAutomationsDir(): string {
-  return path.join(getLocalStoreDir(), AUTOMATIONS_DIR_NAME);
+  return path.join(getNodexHome(), AUTOMATIONS_DIR_NAME);
 }
 
 function getRunJitterSalt(): string {

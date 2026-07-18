@@ -64,9 +64,9 @@ async function withFixture(
   run: (fixture: Fixture) => void | Promise<void>,
 ): Promise<void> {
   closeDatabase();
-  const previousDir = process.env.NODEX_DIR;
+  const previousDir = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-agent-edit-"));
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Agent edit project" });
@@ -77,8 +77,8 @@ async function withFixture(
   } finally {
     closeDatabase();
     fs.rmSync(directory, { recursive: true, force: true });
-    if (previousDir === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previousDir;
+    if (previousDir === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previousDir;
   }
 }
 

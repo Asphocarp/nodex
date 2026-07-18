@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
-import { getLocalStoreDir } from "./config";
+import { getNodexHome } from "./config";
 import type { PersistedAtomState, PersistedAtomUpdate } from "../../shared/ipc-api";
 
 const PERSISTED_ATOMS_FILE_NAME = "persisted-atoms-v1.json";
@@ -13,7 +13,7 @@ function getPersistedAtomsPath(): string {
     return persistedAtomsPathOverrideForTests;
   }
 
-  return join(getLocalStoreDir(), PERSISTED_ATOMS_FILE_NAME);
+  return join(getNodexHome(), PERSISTED_ATOMS_FILE_NAME);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

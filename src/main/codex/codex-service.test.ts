@@ -793,7 +793,7 @@ function makeConversationSnapshot(input: {
 const DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT = fs.mkdtempSync(
   path.join(os.tmpdir(), "nodex-codex-service-goal-attachments-"),
 );
-const PREVIOUS_TEST_NODEX_DIR = process.env.NODEX_DIR;
+const PREVIOUS_TEST_NODEX_HOME = process.env.NODEX_HOME;
 const DEFAULT_TEST_LOCAL_STORE_ROOT = fs.mkdtempSync(
   path.join(os.tmpdir(), "nodex-codex-service-local-store-"),
 );
@@ -808,14 +808,14 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
 
 beforeAll(async () => {
   closeDatabase();
-  process.env.NODEX_DIR = DEFAULT_TEST_LOCAL_STORE_ROOT;
+  process.env.NODEX_HOME = DEFAULT_TEST_LOCAL_STORE_ROOT;
   await initializeDatabase();
 });
 
 afterAll(() => {
   closeDatabase();
-  if (PREVIOUS_TEST_NODEX_DIR === undefined) delete process.env.NODEX_DIR;
-  else process.env.NODEX_DIR = PREVIOUS_TEST_NODEX_DIR;
+  if (PREVIOUS_TEST_NODEX_HOME === undefined) delete process.env.NODEX_HOME;
+  else process.env.NODEX_HOME = PREVIOUS_TEST_NODEX_HOME;
   fs.rmSync(DEFAULT_TEST_LOCAL_STORE_ROOT, { recursive: true, force: true });
   fs.rmSync(DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT, { recursive: true, force: true });
 });
@@ -4100,11 +4100,11 @@ let defaultProjectId = "";
 const tempCodexHomeCleanups: Array<() => void> = [];
 
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
-  const previousNodexDir = process.env.NODEX_DIR;
+  const previousNodexHome = process.env.NODEX_HOME;
   closeDatabase();
   resetPersistedAtomStateForTests();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-service-"));
-  process.env.NODEX_DIR = tempDir;
+  process.env.NODEX_HOME = tempDir;
 
   try {
     await initializeDatabase();
@@ -4112,8 +4112,8 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     if (isUnsupportedSqliteError(error)) {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
-      else process.env.NODEX_DIR = previousNodexDir;
+      if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
+      else process.env.NODEX_HOME = previousNodexHome;
       return false;
     }
     throw error;
@@ -4131,8 +4131,8 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     closeDatabase();
     resetPersistedAtomStateForTests();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previousNodexDir;
+    if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previousNodexHome;
   }
 }
 
@@ -20284,11 +20284,11 @@ describe("codex-service startThreadForSession", () => {
 
   test("lists managed worktrees once per path when reused by multiple threads", async () => {
     const ran = await withTempDatabase(async () => {
-      const localStoreDir = process.env.NODEX_DIR;
-      if (!localStoreDir) {
-        throw new Error("NODEX_DIR was not set by withTempDatabase");
+      const nodexHome = process.env.NODEX_HOME;
+      if (!nodexHome) {
+        throw new Error("NODEX_HOME was not set by withTempDatabase");
       }
-      const sharedPath = path.join(localStoreDir, "worktrees", "reuse", defaultProjectId);
+      const sharedPath = path.join(nodexHome, "worktrees", "reuse", defaultProjectId);
       const olderWorkspacePath = path.join(sharedPath, "packages", "old");
       const newerWorkspacePath = path.join(sharedPath, "packages", "new");
       fs.mkdirSync(olderWorkspacePath, { recursive: true });
@@ -20336,13 +20336,13 @@ describe("codex-service startThreadForSession", () => {
 
   test("deletes managed worktree directory and unlinks all threads that point to that path", async () => {
     const ran = await withTempDatabase(async () => {
-      const localStoreDir = process.env.NODEX_DIR;
-      if (!localStoreDir) {
-        throw new Error("NODEX_DIR was not set by withTempDatabase");
+      const nodexHome = process.env.NODEX_HOME;
+      if (!nodexHome) {
+        throw new Error("NODEX_HOME was not set by withTempDatabase");
       }
 
-      const sharedPath = path.join(localStoreDir, "worktrees", "delete", defaultProjectId);
-      const otherPath = path.join(localStoreDir, "worktrees", "keep", defaultProjectId);
+      const sharedPath = path.join(nodexHome, "worktrees", "delete", defaultProjectId);
+      const otherPath = path.join(nodexHome, "worktrees", "keep", defaultProjectId);
       const oldWorkspacePath = path.join(sharedPath, "packages", "old");
       const newWorkspacePath = path.join(sharedPath, "packages", "new");
       fs.mkdirSync(oldWorkspacePath, { recursive: true });
@@ -20389,9 +20389,9 @@ describe("codex-service startThreadForSession", () => {
 
   test("removes git worktree metadata when deleting a managed worktree", async () => {
     const ran = await withTempDatabase(async () => {
-      const localStoreDir = process.env.NODEX_DIR;
-      if (!localStoreDir) {
-        throw new Error("NODEX_DIR was not set by withTempDatabase");
+      const nodexHome = process.env.NODEX_HOME;
+      if (!nodexHome) {
+        throw new Error("NODEX_HOME was not set by withTempDatabase");
       }
 
       const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-delete-worktree-repo-"));
@@ -20404,7 +20404,7 @@ describe("codex-service startThreadForSession", () => {
         cwd: repositoryPath,
       });
 
-      const managedPath = path.join(localStoreDir, "worktrees", "git-remove", defaultProjectId);
+      const managedPath = path.join(nodexHome, "worktrees", "git-remove", defaultProjectId);
       fs.mkdirSync(path.dirname(managedPath), { recursive: true });
       execFileSync("git", ["worktree", "add", "--detach", managedPath, "main"], { cwd: repositoryPath });
       const nestedWorktreeWorkspacePath = path.join(managedPath, "packages", "app");
@@ -20517,14 +20517,14 @@ describe("codex-service pending managed worktree setup", () => {
   }
 
   async function withPendingWorktreeStore(run: () => Promise<void>): Promise<void> {
-    const previousNodexDir = process.env.NODEX_DIR;
+    const previousNodexHome = process.env.NODEX_HOME;
     const storeDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pending-worktree-store-"));
-    process.env.NODEX_DIR = storeDir;
+    process.env.NODEX_HOME = storeDir;
     try {
       await run();
     } finally {
-      if (previousNodexDir === undefined) delete process.env.NODEX_DIR;
-      else process.env.NODEX_DIR = previousNodexDir;
+      if (previousNodexHome === undefined) delete process.env.NODEX_HOME;
+      else process.env.NODEX_HOME = previousNodexHome;
       fs.rmSync(storeDir, { recursive: true, force: true });
     }
   }
@@ -20753,7 +20753,7 @@ describe("codex-service pending managed worktree setup", () => {
           ["worktree", "list", "--porcelain"],
           { cwd: repositoryPath, encoding: "utf8" },
         );
-        const managedWorktreesRoot = path.resolve(process.env.NODEX_DIR ?? "", "worktrees");
+        const managedWorktreesRoot = path.resolve(process.env.NODEX_HOME ?? "", "worktrees");
         expect(worktreeList.includes(managedWorktreesRoot)).toBe(false);
       } finally {
         await service.shutdown();

@@ -3,7 +3,7 @@ import { sep } from "path";
 import { configureInstanceScopePaths, resolveInstanceScopePaths } from "./instance-scope";
 
 describe("resolveInstanceScopePaths", () => {
-  test("returns deterministic user/session data paths under the kanban dir", () => {
+  test("returns deterministic user/session data paths under the Nodex home", () => {
     const scopedPaths = resolveInstanceScopePaths("/tmp/nodex-profile");
 
     expect(scopedPaths.userDataPath.endsWith(`${sep}electron-user-data`)).toBe(true);

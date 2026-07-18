@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getLocalStoreDir } from "../local-store/config";
+import { getNodexHome } from "../local-store/config";
 import {
   isLogLevelEnabled,
   resolveLogSinkLevels,
@@ -97,7 +97,7 @@ function parseIntegerEnv(value: string | undefined, fallback: number, minimum: n
 }
 
 function createLoggerConfig(): LoggerConfig {
-  const defaultLogDir = path.join(getLocalStoreDir(), "logs");
+  const defaultLogDir = path.join(getNodexHome(), "logs");
   const configuredLogDir = process.env.NODEX_LOG_DIR?.trim();
   const defaultSinkEnabled = !IS_TEST_RUNTIME && !IS_PACKAGED_RUNTIME;
   const sinkLevels = resolveLogSinkLevels(process.env);

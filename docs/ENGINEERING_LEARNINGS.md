@@ -274,7 +274,7 @@ Prefer behavioral tests at the public Interface. Mock only a feature-local
 Adapter, not broad shared entrypoints, and restore timers, DOM constructors,
 globals, and mutable singletons after each test. Low-level native events require
 async `act` and an awaited observable outcome. Main-process tests must set and
-initialize a suite-owned temporary `NODEX_DIR`; a supposedly pure helper must
+initialize a suite-owned temporary `NODEX_HOME`; a supposedly pure helper must
 never lazily open the developer's store.
 
 When a flake appears only in CI, reproduce the exact commit, test project,

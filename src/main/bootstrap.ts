@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog } from "electron";
 import { configureInstanceScopePaths } from "./instance-scope";
-import { resolveBootstrapLocalStoreDir } from "./bootstrap-config";
+import { resolveBootstrapNodexHome } from "./bootstrap-config";
 import { BootstrapRuntimeEventQueue } from "./bootstrap-events";
 import { writeBootstrapLog } from "./bootstrap-log";
 import { resolveLogSinkLevels } from "./logging/log-level";
@@ -18,8 +18,9 @@ import type { MainRuntimeController } from "./main-runtime";
 
 process.env.NODEX_INTERNAL_APP_PACKAGED = app.isPackaged ? "true" : "false";
 
-const localStoreDir = resolveBootstrapLocalStoreDir();
-configureInstanceScopePaths(app, localStoreDir);
+const nodexHome = resolveBootstrapNodexHome();
+process.env.NODEX_HOME = nodexHome;
+configureInstanceScopePaths(app, nodexHome);
 
 const runtimeQueue = new BootstrapRuntimeEventQueue();
 
@@ -38,7 +39,7 @@ function logBootstrap(
 ): void {
   const defaultSinkEnabled = !app.isPackaged;
   const sinkLevels = resolveLogSinkLevels(process.env);
-  writeBootstrapLog(localStoreDir, level, message, fields, {
+  writeBootstrapLog(nodexHome, level, message, fields, {
     consoleEnabled: parseBooleanEnv(process.env.NODEX_LOG_CONSOLE, defaultSinkEnabled),
     fileEnabled: parseBooleanEnv(process.env.NODEX_LOG_FILE, defaultSinkEnabled),
     consoleLevel: sinkLevels.console,

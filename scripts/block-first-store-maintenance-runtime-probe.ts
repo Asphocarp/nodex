@@ -155,7 +155,7 @@ const simulateCrashRecovery = (
   directory: string,
   phase: StoreRestorePhase,
 ): "none" | "rolled_back" | "committed" => {
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   ensureDatabase();
   const databasePath = path.join(directory, "nodex.db");
   rotateBackupStoreEpoch(databasePath, () => "epoch-old");
@@ -217,11 +217,11 @@ const simulateCrashRecovery = (
 };
 
 const run = async (): Promise<void> => {
-  const previousDir = process.env.NODEX_DIR;
+  const previousDir = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-store-maintenance-runtime-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   const providers: NodexYProvider[] = [];
   const documents: Y.Doc[] = [];
   try {
@@ -422,8 +422,8 @@ const run = async (): Promise<void> => {
     documents.forEach((document) => document.destroy());
     await blockMutationWriter.shutdown().catch(() => undefined);
     closeDatabase();
-    if (previousDir === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previousDir;
+    if (previousDir === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previousDir;
     fs.rmSync(directory, { recursive: true, force: true });
   }
 };

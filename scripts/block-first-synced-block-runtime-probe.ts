@@ -245,7 +245,7 @@ const main = async (): Promise<void> => {
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-synced-probe-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Synced Block probe" });

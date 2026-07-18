@@ -451,7 +451,7 @@ import { resolveAssetPath } from "../local-store/assets";
 import {
   getCodexDeveloperInstructionSettings,
   getCodexGitSettings,
-  getLocalStoreDir,
+  getNodexHome,
 } from "../local-store/config";
 import {
   deleteCodexThreadWritableRoots,
@@ -8529,7 +8529,7 @@ export class CodexService extends EventEmitter {
   }
 
   async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {
-    const managedRoot = path.resolve(getLocalStoreDir(), "worktrees");
+    const managedRoot = path.resolve(getNodexHome(), "worktrees");
     const links = listCodexThreadLinks({ includeArchived: true });
     const recordsByPath = links.reduce<Map<string, ManagedWorktreeRecord>>((acc, link) => {
       const resolvedPath = resolveManagedWorktreeGitRoot(link);
@@ -8569,7 +8569,7 @@ export class CodexService extends EventEmitter {
 
   /** Remove a managed worktree directory. Returns true if deletion was performed. */
   async deleteManagedWorktree(threadId: string): Promise<boolean> {
-    const managedRoot = path.resolve(getLocalStoreDir(), "worktrees");
+    const managedRoot = path.resolve(getNodexHome(), "worktrees");
     const link = this.getThreadLinkSafely(threadId);
     if (!link) return false;
 
@@ -9395,7 +9395,7 @@ export class CodexService extends EventEmitter {
 
     const createdWorktree = await createManagedWorktree({
       repositoryPath: input.sourceCwd,
-      serverDir: getLocalStoreDir(),
+      nodexHome: getNodexHome(),
       projectId: input.automation.id,
       targetId: input.automation.id,
       threadTitle: input.automation.name,
@@ -10020,7 +10020,7 @@ export class CodexService extends EventEmitter {
   private createProjectlessThreadWorkspace(projectId: string): string {
     const context = this.resolveProjectRuntimeContext(projectId);
     const workspacePath = path.resolve(
-      getLocalStoreDir(),
+      getNodexHome(),
       "projectless-workspaces",
       context.canonicalProjectId,
       randomUUID(),
@@ -10112,7 +10112,7 @@ export class CodexService extends EventEmitter {
 
     const createdWorktree = await createManagedWorktree({
       repositoryPath: workspacePath,
-      serverDir: getLocalStoreDir(),
+      nodexHome: getNodexHome(),
       projectId: projectContext.canonicalProjectId,
       targetId: input.sessionId,
       threadTitle: input.threadTitle?.trim() || input.sessionTitle?.trim() || input.sessionId,
@@ -18754,7 +18754,7 @@ export class CodexService extends EventEmitter {
     const selectedEnvironmentPath = entry.localEnvironmentConfigPath?.trim() || null;
     const created = await createManagedWorktree({
       repositoryPath: entry.sourceWorkspaceRoot,
-      serverDir: getLocalStoreDir(),
+      nodexHome: getNodexHome(),
       projectId: entry.launchMode === "start-conversation"
         ? entry.startConversationParamsInput.projectAssignment?.projectId ?? entry.id
         : entry.id,

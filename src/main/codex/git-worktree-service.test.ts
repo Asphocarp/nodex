@@ -149,7 +149,7 @@ describe("createManagedWorktree starting state", () => {
 
     const result = await createManagedWorktree({
       repositoryPath,
-      serverDir: path.join(root, "server"),
+      nodexHome: path.join(root, "server"),
       projectId: "project-branch-start",
       targetId: "target-branch-start",
       mode: "detachedHead",
@@ -190,7 +190,7 @@ describe("createManagedWorktree starting state", () => {
     for (const [index, startingRef] of startingRefs.entries()) {
       const result = await createManagedWorktree({
         repositoryPath,
-        serverDir: path.join(root, `server-ref-${String(index)}`),
+        nodexHome: path.join(root, `server-ref-${String(index)}`),
         projectId: `project-ref-${String(index)}`,
         targetId: `target-ref-${String(index)}`,
         mode: "detachedHead",
@@ -219,7 +219,7 @@ describe("createManagedWorktree starting state", () => {
 
     const result = await createManagedWorktree({
       repositoryPath: nestedWorkspace,
-      serverDir: path.join(root, "server-nested"),
+      nodexHome: path.join(root, "server-nested"),
       projectId: "project-id-must-not-name-the-path",
       targetId: "target-nested",
       mode: "detachedHead",
@@ -274,7 +274,7 @@ describe("createManagedWorktree starting state", () => {
 
     const result = await createManagedWorktree({
       repositoryPath,
-      serverDir: path.join(root, "server-copy-rules"),
+      nodexHome: path.join(root, "server-copy-rules"),
       projectId: "project-copy-rules",
       targetId: "target-copy-rules",
       mode: "detachedHead",
@@ -322,7 +322,7 @@ describe("createManagedWorktree starting state", () => {
     const { repositoryPath, root } = await createRepository();
     const result = await createManagedWorktree({
       repositoryPath,
-      serverDir: path.join(root, "server-owner"),
+      nodexHome: path.join(root, "server-owner"),
       projectId: "project-owner",
       targetId: "target-owner",
       mode: "detachedHead",
@@ -355,7 +355,7 @@ describe("createManagedWorktree starting state", () => {
 
     const result = await createManagedWorktree({
       repositoryPath,
-      serverDir: path.join(root, "server-synced"),
+      nodexHome: path.join(root, "server-synced"),
       projectId: "project-synced",
       targetId: "target-synced",
       mode: "detachedHead",
@@ -387,7 +387,7 @@ describe("createManagedWorktree starting state", () => {
     ] as const) {
       const result = await createManagedWorktree({
         repositoryPath,
-        serverDir: path.join(root, `server-detached-${name}`),
+        nodexHome: path.join(root, `server-detached-${name}`),
         projectId: `project-detached-${name}`,
         targetId: `target-detached-${name}`,
         mode: "detachedHead",
@@ -432,7 +432,7 @@ describe("createManagedWorktree starting state", () => {
 
     const result = await createManagedWorktree({
       repositoryPath,
-      serverDir: path.join(root, "server"),
+      nodexHome: path.join(root, "server"),
       projectId: "project-working-tree-start",
       targetId: "target-working-tree-start",
       mode: "detachedHead",
@@ -478,7 +478,7 @@ describe("createManagedWorktree starting state", () => {
 
     const result = await createManagedWorktree({
       repositoryPath,
-      serverDir: path.join(root, "server"),
+      nodexHome: path.join(root, "server"),
       projectId: "project-failed-working-tree-capture",
       targetId: "target-failed-working-tree-capture",
       mode: "detachedHead",
@@ -510,7 +510,7 @@ describe("createManagedWorktree starting state", () => {
     try {
       await createManagedWorktree({
         repositoryPath,
-        serverDir: path.join(root, "server"),
+        nodexHome: path.join(root, "server"),
         projectId: "project-missing-branch",
         targetId: "target-missing-branch",
         mode: "detachedHead",
@@ -530,7 +530,7 @@ describe("createManagedWorktree starting state", () => {
 describe("createManagedWorktree cancellation", () => {
   test("fails before allocating server or worktree paths when already canceled", async () => {
     const { repositoryPath, root } = await createRepository();
-    const serverDir = path.join(root, "server");
+    const nodexHome = path.join(root, "server");
     const controller = new AbortController();
     controller.abort();
     let message = "";
@@ -538,7 +538,7 @@ describe("createManagedWorktree cancellation", () => {
     try {
       await createManagedWorktree({
         repositoryPath,
-        serverDir,
+        nodexHome,
         projectId: "project-canceled-before-start",
         targetId: "target-canceled-before-start",
         mode: "detachedHead",
@@ -549,7 +549,7 @@ describe("createManagedWorktree cancellation", () => {
     }
 
     expect(message).toBe("Request canceled");
-    expect(await stat(serverDir).then(() => true).catch(() => false)).toBe(false);
+    expect(await stat(nodexHome).then(() => true).catch(() => false)).toBe(false);
   });
 
   test("does not swallow cancellation while capturing the working tree diff", async () => {
@@ -559,7 +559,7 @@ describe("createManagedWorktree cancellation", () => {
     }
 
     const { repositoryPath, root } = await createRepository();
-    const serverDir = path.join(root, "server");
+    const nodexHome = path.join(root, "server");
     const filteredPath = path.join(repositoryPath, "capture.txt");
     const sourceIndexPath = path.join(repositoryPath, ".git", "index");
     await writeFile(path.join(repositoryPath, ".gitattributes"), "capture.txt filter=slow-capture\n", "utf8");
@@ -595,7 +595,7 @@ describe("createManagedWorktree cancellation", () => {
     const controller = new AbortController();
     const creation = createManagedWorktree({
       repositoryPath,
-      serverDir,
+      nodexHome,
       projectId: "project-canceled-during-capture",
       targetId: "target-canceled-during-capture",
       mode: "detachedHead",
@@ -620,9 +620,9 @@ describe("createManagedWorktree cancellation", () => {
 
     expect(message).toBe("Request canceled");
     await waitFor(async () => !isProcessAlive(capturePid), "the canceled clean filter to exit");
-    expect(await stat(path.join(serverDir, "worktrees")).then(() => true).catch(() => false)).toBe(false);
+    expect(await stat(path.join(nodexHome, "worktrees")).then(() => true).catch(() => false)).toBe(false);
     const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
-    expect(worktreeList.stdout.includes(serverDir)).toBe(false);
+    expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
     expect(await readFile(filteredPath, "utf8")).toBe("source capture edit remains\n");
     expect((await readFile(sourceIndexPath)).equals(sourceIndexBefore)).toBe(true);
   });
@@ -634,7 +634,7 @@ describe("createManagedWorktree cancellation", () => {
     }
 
     const { repositoryPath, root } = await createRepository();
-    const serverDir = path.join(root, "server");
+    const nodexHome = path.join(root, "server");
     const hookStartedPath = path.join(root, "post-checkout-started");
     const hookPidPath = path.join(root, "post-checkout-pid");
     const hooksPath = path.join(repositoryPath, ".git", "hooks");
@@ -656,7 +656,7 @@ describe("createManagedWorktree cancellation", () => {
     const controller = new AbortController();
     const creation = createManagedWorktree({
       repositoryPath,
-      serverDir,
+      nodexHome,
       projectId: "project-canceled-in-git",
       targetId: "target-canceled-in-git",
       mode: "detachedHead",
@@ -678,10 +678,10 @@ describe("createManagedWorktree cancellation", () => {
 
     expect(message).toBe("Request canceled");
     await waitFor(async () => !isProcessAlive(hookPid), "the canceled git hook process to exit");
-    const worktreesRoot = path.join(serverDir, "worktrees");
+    const worktreesRoot = path.join(nodexHome, "worktrees");
     expect((await readdir(worktreesRoot)).length).toBe(0);
     const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
-    expect(worktreeList.stdout.includes(serverDir)).toBe(false);
+    expect(worktreeList.stdout.includes(nodexHome)).toBe(false);
   });
 
   test("rolls back only the canceled child and preserves existing worktrees and source changes", async () => {
@@ -691,10 +691,10 @@ describe("createManagedWorktree cancellation", () => {
     }
 
     const { repositoryPath, root } = await createRepository();
-    const serverDir = path.join(root, "server");
+    const nodexHome = path.join(root, "server");
     const existing = await createManagedWorktree({
       repositoryPath,
-      serverDir,
+      nodexHome,
       projectId: "project-existing",
       targetId: "target-existing",
       mode: "detachedHead",
@@ -722,7 +722,7 @@ describe("createManagedWorktree cancellation", () => {
     const controller = new AbortController();
     const creation = createManagedWorktree({
       repositoryPath,
-      serverDir,
+      nodexHome,
       projectId: "project-canceled-with-existing",
       targetId: "target-canceled-with-existing",
       mode: "detachedHead",
@@ -763,7 +763,7 @@ describe("createManagedWorktree cancellation", () => {
     );
     const worktreeList = await runCommand("git", ["worktree", "list", "--porcelain"], repositoryPath);
     expect(worktreeList.stdout.includes(existing.worktreeGitRoot)).toBe(true);
-    const worktreeTokens = await readdir(path.join(serverDir, "worktrees"));
+    const worktreeTokens = await readdir(path.join(nodexHome, "worktrees"));
     expect(worktreeTokens.length).toBe(1);
   });
 });

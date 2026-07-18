@@ -161,9 +161,9 @@ const withDatabase = async (
   ) => void,
 ): Promise<void> => {
   closeDatabase();
-  const previous = process.env.NODEX_DIR;
+  const previous = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-extra-docs-"));
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     closeDatabase();
@@ -184,8 +184,8 @@ const withDatabase = async (
     }
   } finally {
     closeDatabase();
-    if (previous === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previous;
+    if (previous === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previous;
     fs.rmSync(directory, { recursive: true, force: true });
   }
 };

@@ -19,13 +19,13 @@ const useTempStore = (): void => {
     path.join(os.tmpdir(), "nodex-card-reference-finalization-"),
   );
   tempDirectories.push(directory);
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
 };
 
 afterEach(() => {
   closeDatabase();
   resetAssetPathCacheForTests();
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
   for (const directory of tempDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }

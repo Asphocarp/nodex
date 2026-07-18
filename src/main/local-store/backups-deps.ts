@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 
 export { dbNotifier } from "./notifier";
-export { getDatabasePath, getLocalStoreDir } from "./config";
+export { getDatabasePath, getNodexHome } from "./config";
 export { closeDatabase, getDb } from "./database";
 export { listProjects } from "./projects";
 

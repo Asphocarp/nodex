@@ -207,7 +207,7 @@ afterEach(() => {
   tempDirectories.splice(0).forEach((directory) =>
     fs.rmSync(directory, { recursive: true, force: true }),
   );
-  delete process.env.NODEX_DIR;
+  delete process.env.NODEX_HOME;
 });
 
 describe("legacy Card promotion cutover", () => {
@@ -216,7 +216,7 @@ describe("legacy Card promotion cutover", () => {
       path.join(os.tmpdir(), "nodex-legacy-promotion-cutover-"),
     );
     tempDirectories.push(directory);
-    process.env.NODEX_DIR = directory;
+    process.env.NODEX_HOME = directory;
     await initializeDatabase();
     const project = createProject({ name: "Cutover" });
     const safe = await createPage(project.id, "plan", {
@@ -372,7 +372,7 @@ describe("legacy Card promotion cutover", () => {
       path.join(os.tmpdir(), "nodex-legacy-promotion-copy-cutover-"),
     );
     tempDirectories.push(directory);
-    process.env.NODEX_DIR = directory;
+    process.env.NODEX_HOME = directory;
     await initializeDatabase();
     const project = createProject({ name: "Copy cutover" });
     const copied = await createPage(project.id, "plan", {
@@ -446,7 +446,7 @@ describe("legacy Card promotion cutover", () => {
       path.join(os.tmpdir(), "nodex-retired-promotion-cutover-"),
     );
     tempDirectories.push(directory);
-    process.env.NODEX_DIR = directory;
+    process.env.NODEX_HOME = directory;
     await initializeDatabase();
     const project = createProject({ name: "Retired cutover" });
     const card = await createPage(project.id, "plan", {

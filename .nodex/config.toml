@@ -6,7 +6,7 @@ project = "nodex"
 
 # Dev Server Config
 [server]
-dir = "~/.nodex/dev/"
+home = "~/.nodex/dev/"
 port = 51283
 backup_auto_enabled = false
 # backup_interval_hours = 6

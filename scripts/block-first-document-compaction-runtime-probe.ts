@@ -125,7 +125,7 @@ const main = async (): Promise<void> => {
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-document-compaction-runtime-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Document compaction runtime" });

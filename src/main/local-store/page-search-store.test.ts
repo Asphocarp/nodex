@@ -55,7 +55,7 @@ describe("authoritative Page search", () => {
       const tempDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nodex-page-search-"),
       );
-      process.env.NODEX_DIR = tempDir;
+      process.env.NODEX_HOME = tempDir;
       try {
         await initializeDatabase();
         const project = createProject({ name: "Card search authority" });
@@ -153,7 +153,7 @@ describe("authoritative Page search", () => {
       } finally {
         closeDatabase();
         fs.rmSync(tempDir, { recursive: true, force: true });
-        delete process.env.NODEX_DIR;
+        delete process.env.NODEX_HOME;
       }
     },
   );

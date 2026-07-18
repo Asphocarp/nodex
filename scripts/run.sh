@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 use_codex_home="true"
-use_nodex_dir="true"
+use_nodex_home="true"
 copy_codex_auth="false"
 copy_codex_config="false"
 keep_run_root="false"
@@ -14,7 +14,7 @@ run_script="build:run"
 
 run_root=""
 isolated_codex_home=""
-isolated_nodex_dir=""
+isolated_nodex_home=""
 
 usage() {
   cat <<'EOF'
@@ -23,7 +23,7 @@ Usage:
   pnpm run build:run:isolated -- [options]
 
 Run Nodex with isolated temporary state. By default, both CODEX_HOME and
-NODEX_DIR point into a new temporary directory that is deleted on exit.
+NODEX_HOME point into a new temporary directory that is deleted on exit.
 
 Options:
   -a, --auth        Copy auth.json from the current Codex home.
@@ -31,7 +31,7 @@ Options:
       --global-codex
                     Use the inherited or default global CODEX_HOME.
       --global-nodex
-                    Use the inherited or default global NODEX_DIR.
+                    Use the inherited or default global NODEX_HOME.
   -d, --dev         Run the development server instead of the built app.
   -k, --keep        Preserve the run root after Nodex exits.
   -r, --root DIR    Use DIR as the run root. DIR may already exist with --keep.
@@ -68,7 +68,7 @@ while (($# > 0)); do
       shift
       ;;
     --global-nodex)
-      use_nodex_dir="false"
+      use_nodex_home="false"
       shift
       ;;
     -d|--dev)
@@ -122,9 +122,9 @@ if [[ "${use_codex_home}" != "true" && ("${copy_codex_auth}" == "true" || "${cop
   fail "--global-codex cannot be combined with --auth or --config."
 fi
 
-if [[ "${use_codex_home}" != "true" && "${use_nodex_dir}" != "true" ]]; then
-  [[ -z "${requested_run_root}" ]] || fail "--root requires an isolated Codex home or Nodex directory."
-  [[ "${keep_run_root}" != "true" ]] || fail "--keep requires an isolated Codex home or Nodex directory."
+if [[ "${use_codex_home}" != "true" && "${use_nodex_home}" != "true" ]]; then
+  [[ -z "${requested_run_root}" ]] || fail "--root requires an isolated Codex home or Nodex home."
+  [[ "${keep_run_root}" != "true" ]] || fail "--keep requires an isolated Codex home or Nodex home."
 fi
 
 resolve_source_codex_home() {
@@ -154,7 +154,7 @@ cleanup() {
   exit "${exit_code}"
 }
 
-if [[ "${use_codex_home}" == "true" || "${use_nodex_dir}" == "true" ]]; then
+if [[ "${use_codex_home}" == "true" || "${use_nodex_home}" == "true" ]]; then
   umask 077
 
   if [[ -n "${requested_run_root}" ]]; then
@@ -203,9 +203,9 @@ if [[ "${use_codex_home}" == "true" ]]; then
   fi
 fi
 
-if [[ "${use_nodex_dir}" == "true" ]]; then
-  isolated_nodex_dir="${run_root}/.nodex"
-  mkdir -p "${isolated_nodex_dir}"
+if [[ "${use_nodex_home}" == "true" ]]; then
+  isolated_nodex_home="${run_root}/.nodex"
+  mkdir -p "${isolated_nodex_home}"
 fi
 
 printf 'Nodex run mode: %s\n' "${run_script}"
@@ -217,18 +217,18 @@ if [[ "${use_codex_home}" == "true" ]]; then
 else
   printf 'CODEX_HOME=<inherited or default>\n'
 fi
-if [[ "${use_nodex_dir}" == "true" ]]; then
-  printf 'NODEX_DIR=%s\n' "${isolated_nodex_dir}"
+if [[ "${use_nodex_home}" == "true" ]]; then
+  printf 'NODEX_HOME=%s\n' "${isolated_nodex_home}"
 else
-  printf 'NODEX_DIR=<inherited or default>\n'
+  printf 'NODEX_HOME=<inherited or default>\n'
 fi
 
 (
   if [[ "${use_codex_home}" == "true" ]]; then
     export CODEX_HOME="${isolated_codex_home}"
   fi
-  if [[ "${use_nodex_dir}" == "true" ]]; then
-    export NODEX_DIR="${isolated_nodex_dir}"
+  if [[ "${use_nodex_home}" == "true" ]]; then
+    export NODEX_HOME="${isolated_nodex_home}"
   fi
 
   cd "${REPO_ROOT}"

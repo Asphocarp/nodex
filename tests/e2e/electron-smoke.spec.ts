@@ -40,13 +40,13 @@ function prepareRuntimeFixture(root: string): void {
   }));
 }
 
-async function launchApplication(cwd: string, nodexDir: string): Promise<ElectronApplication> {
+async function launchApplication(cwd: string, nodexHome: string): Promise<ElectronApplication> {
   return electron.launch({
     args: [repositoryRoot],
     cwd,
     env: {
       ...process.env,
-      NODEX_DIR: nodexDir,
+      NODEX_HOME: nodexHome,
       NODE_ENV: "test",
     },
   });
@@ -65,14 +65,14 @@ async function stopApplication(application: ElectronApplication): Promise<void> 
 
 test("persists a project across a full Electron restart", async () => {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-electron-e2e-"));
-  const nodexDir = path.join(fixtureRoot, "profile");
+  const nodexHome = path.join(fixtureRoot, "profile");
   const workspace = path.join(fixtureRoot, "workspace");
   fs.mkdirSync(workspace, { recursive: true });
   prepareRuntimeFixture(fixtureRoot);
 
   let application: ElectronApplication | undefined;
   try {
-    application = await launchApplication(fixtureRoot, nodexDir);
+    application = await launchApplication(fixtureRoot, nodexHome);
     const firstWindow = await application.firstWindow();
     await firstWindow.evaluate(() => window.api?.awaitInitialization?.());
 
@@ -90,7 +90,7 @@ test("persists a project across a full Electron restart", async () => {
 
     await stopApplication(application);
     application = undefined;
-    application = await launchApplication(fixtureRoot, nodexDir);
+    application = await launchApplication(fixtureRoot, nodexHome);
     const restartedWindow = await application.firstWindow();
     await restartedWindow.evaluate(() => window.api?.awaitInitialization?.());
 

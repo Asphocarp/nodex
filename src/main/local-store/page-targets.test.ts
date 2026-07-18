@@ -33,7 +33,7 @@ describe("Page target read model", () => {
   sqliteTest("resolves a Page with no Database membership", async () => {
     closeDatabase();
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-card-target-"));
-    process.env.NODEX_DIR = tempDir;
+    process.env.NODEX_HOME = tempDir;
     try {
       await initializeDatabase();
       const project = createProject({ name: "Target project" });
@@ -126,7 +126,7 @@ describe("Page target read model", () => {
     } finally {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     }
   });
 });

@@ -26,14 +26,14 @@ function isUnsupportedSqliteError(error: unknown): boolean {
 async function withTempDatabase(run: () => Promise<void> | void): Promise<boolean> {
   closeDatabase();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-project-thread-move-"));
-  process.env.NODEX_DIR = tempDir;
+  process.env.NODEX_HOME = tempDir;
   try {
     await initializeDatabase();
   } catch (error) {
     if (!isUnsupportedSqliteError(error)) throw error;
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.NODEX_DIR;
+    delete process.env.NODEX_HOME;
     return false;
   }
 
@@ -43,7 +43,7 @@ async function withTempDatabase(run: () => Promise<void> | void): Promise<boolea
   } finally {
     closeDatabase();
     fs.rmSync(tempDir, { recursive: true, force: true });
-    delete process.env.NODEX_DIR;
+    delete process.env.NODEX_HOME;
   }
 }
 

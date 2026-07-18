@@ -148,11 +148,11 @@ const materialize = (documentId: string) => {
 };
 
 const main = async (): Promise<void> => {
-  const previous = process.env.NODEX_DIR;
+  const previous = process.env.NODEX_HOME;
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "nodex-additional-documents-probe-"),
   );
-  process.env.NODEX_DIR = directory;
+  process.env.NODEX_HOME = directory;
   try {
     await initializeDatabase();
     const project = createProject({ name: "Additional Documents probe" });
@@ -364,8 +364,8 @@ const main = async (): Promise<void> => {
     );
   } finally {
     closeDatabase();
-    if (previous === undefined) delete process.env.NODEX_DIR;
-    else process.env.NODEX_DIR = previous;
+    if (previous === undefined) delete process.env.NODEX_HOME;
+    else process.env.NODEX_HOME = previous;
     fs.rmSync(directory, { recursive: true, force: true });
   }
 };
