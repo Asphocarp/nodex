@@ -442,6 +442,49 @@ describe("Yjs/Yrs compatibility", () => {
   );
 
   test(
+    "consumes a Rust exact-NFM body replacement and rich title atomically",
+    () => {
+      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-nfm-patch-"));
+      temporaryRoots.push(temporaryRoot);
+      const corpusPath = path.join(temporaryRoot, "nfm-patch.json");
+      const updatePath = path.join(temporaryRoot, "nfm-patch.bin");
+      writeFileSync(corpusPath, JSON.stringify({
+        patches: [{
+          oldNfm: "## Heading",
+          newNfm: "## Heading from an exact Rust patch",
+          expectedMatches: 1,
+        }],
+        richTitle: [{
+          type: "text",
+          text: "Patched by Rust",
+          styles: { bold: true },
+        }],
+      }));
+
+      const summary = runBridge<SemanticOperationSummary>([
+        "nfm-patch",
+        fixtureRoot,
+        corpusPath,
+        updatePath,
+      ]);
+      const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
+      Y.applyUpdate(
+        consumer,
+        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
+      );
+      Y.applyUpdate(consumer, readFileSync(updatePath));
+
+      expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
+      expect(summary.writeFenceBlockIds).toHaveLength(22);
+      expect(summary.titleWriteFenceRequired).toBe(true);
+      expect(
+        normalizedStateVector(Uint8Array.from(summary.stateVectorV1)),
+      ).toEqual(normalizedStateVector(Y.encodeStateVector(consumer)));
+    },
+    60_000,
+  );
+
+  test(
     "round-trips every registered Block and inline shape with exact XML tags",
     () => {
       const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-matrix-"));

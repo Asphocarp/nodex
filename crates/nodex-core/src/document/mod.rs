@@ -16,8 +16,9 @@ pub use materialization::{
 };
 pub use operations::{
     DocumentBlockOperation, DocumentBlockUpdatePatch, DocumentOperationError,
-    DocumentOperationErrorCode, MAX_DOCUMENT_OPERATION_BATCH_SIZE, PreparedDocumentOperationUpdate,
-    prepare_document_operation_update,
+    DocumentOperationErrorCode, ExactNfmPatch, MAX_DOCUMENT_OPERATION_BATCH_SIZE,
+    PreparedDocumentOperationUpdate, apply_exact_nfm_patches, prepare_document_operation_update,
+    prepare_exact_nfm_patch_update, prepare_nfm_replacement_update,
 };
 pub use yrs_engine::{
     AwarenessChange, CandidateCommit, DocumentAwareness, MAX_AWARENESS_UPDATE_BYTES,

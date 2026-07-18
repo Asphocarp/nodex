@@ -12,10 +12,12 @@ use yrs::updates::encoder::Encode;
 use yrs::{Any, GetString, Out, ReadTxn, Text, Transact, Update, Xml, XmlFragment, XmlOut};
 
 use nodex_core::document::{
-    BlockDocumentSchema, DocumentBlockOperation, create_compatible_document, decode_block_document,
-    encode_block_document, has_pending_dependencies, materialize_decoded_document,
-    prepare_document_operation_update,
+    BlockDocumentSchema, DocumentBlockOperation, ExactNfmPatch, create_compatible_document,
+    decode_block_document, encode_block_document, has_pending_dependencies,
+    materialize_decoded_document, prepare_document_operation_update,
+    prepare_exact_nfm_patch_update,
 };
+use nodex_core::domain::rich_text::RichTextItem;
 
 #[derive(Serialize)]
 struct DocumentSummary {
@@ -394,18 +396,7 @@ fn randomized_product_summary(
 ) -> Result<RandomizedProductSummary, Box<dyn std::error::Error>> {
     let decoded = decode_block_document(document, BlockDocumentSchema::PageV2)?;
     let materialization = serde_json::to_value(materialize_decoded_document(&decoded)?)?;
-    let materialization = serde_json::json!({
-        "schemaVersion": materialization["schemaVersion"],
-        "title": materialization["title"],
-        "richTitle": materialization["richTitle"],
-        "blockTree": materialization["blockTree"],
-        "nfm": materialization["nfm"],
-        "plainText": materialization["plainText"],
-        "preview": materialization["preview"],
-        "references": materialization["references"],
-        "assetRefs": materialization["assetRefs"],
-        "searchUnits": materialization["searchUnits"],
-    });
+    let materialization = project_materialization(&materialization);
     let body = document.get_or_insert_xml_fragment("body");
     let transaction = document.transact();
     Ok(RandomizedProductSummary {
@@ -488,21 +479,67 @@ fn run_semantic_operations(
     fs::write(output_update, &prepared.update_v1)?;
     let materialization = serde_json::to_value(prepared.materialization)?;
     Ok(SemanticOperationSummary {
-        materialization: serde_json::json!({
-            "schemaVersion": materialization["schemaVersion"],
-            "title": materialization["title"],
-            "richTitle": materialization["richTitle"],
-            "blockTree": materialization["blockTree"],
-            "nfm": materialization["nfm"],
-            "plainText": materialization["plainText"],
-            "preview": materialization["preview"],
-            "references": materialization["references"],
-            "assetRefs": materialization["assetRefs"],
-            "searchUnits": materialization["searchUnits"],
-        }),
+        materialization: project_materialization(&materialization),
         state_vector_v1: prepared.state_vector_v1,
         write_fence_block_ids: prepared.write_fence_block_ids,
         title_write_fence_required: prepared.title_write_fence_required,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NfmPatchCorpus {
+    patches: Vec<ExactNfmPatch>,
+    #[serde(default)]
+    rich_title: Option<Vec<RichTextItem>>,
+}
+
+fn run_nfm_patch(
+    fixture_root: &Path,
+    corpus_path: &Path,
+    output_update: &Path,
+) -> Result<SemanticOperationSummary, Box<dyn std::error::Error>> {
+    let document = load_matrix_fixture(fixture_root)?;
+    let transaction = document.transact();
+    let full_state = transaction.encode_state_as_update_v1(&yrs::StateVector::default());
+    let state_vector = transaction.state_vector().encode_v1();
+    drop(transaction);
+    let corpus: NfmPatchCorpus = serde_json::from_slice(&fs::read(corpus_path)?)?;
+    let mut next_id = 0usize;
+    let prepared = prepare_exact_nfm_patch_update(
+        "nodex-yjs-yrs-schema-matrix",
+        BlockDocumentSchema::PageV2,
+        &full_state,
+        &state_vector,
+        &corpus.patches,
+        corpus.rich_title.as_deref(),
+        &mut || {
+            next_id += 1;
+            format!("bridge-nfm-{next_id}")
+        },
+    )?;
+    fs::write(output_update, &prepared.update_v1)?;
+    let materialization = serde_json::to_value(prepared.materialization)?;
+    Ok(SemanticOperationSummary {
+        materialization: project_materialization(&materialization),
+        state_vector_v1: prepared.state_vector_v1,
+        write_fence_block_ids: prepared.write_fence_block_ids,
+        title_write_fence_required: prepared.title_write_fence_required,
+    })
+}
+
+fn project_materialization(materialization: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "schemaVersion": materialization["schemaVersion"],
+        "title": materialization["title"],
+        "richTitle": materialization["richTitle"],
+        "blockTree": materialization["blockTree"],
+        "nfm": materialization["nfm"],
+        "plainText": materialization["plainText"],
+        "preview": materialization["preview"],
+        "references": materialization["references"],
+        "assetRefs": materialization["assetRefs"],
+        "searchUnits": materialization["searchUnits"],
     })
 }
 
@@ -536,6 +573,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&summary)?);
             return Ok(());
         }
+        [_, mode, fixture_root, corpus, output_update] if mode == "nfm-patch" => {
+            let summary = run_nfm_patch(
+                Path::new(fixture_root),
+                Path::new(corpus),
+                Path::new(output_update),
+            )?;
+            println!("{}", serde_json::to_string(&summary)?);
+            return Ok(());
+        }
         [_, mode, fixture_root, output_update] if mode == "generate" => {
             generate(Path::new(fixture_root), Path::new(output_update))?
         }
@@ -559,7 +605,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update> | randomized <fixture-root> <corpus-json> <yjs-update-root> <rust-update-root> | semantic-operations <fixture-root> <corpus-json> <output-update>"
+                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update> | randomized <fixture-root> <corpus-json> <yjs-update-root> <rust-update-root> | semantic-operations|nfm-patch <fixture-root> <corpus-json> <output-update>"
                     .into(),
             );
         }

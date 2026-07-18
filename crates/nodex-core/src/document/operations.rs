@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
@@ -15,8 +16,9 @@ use crate::domain::block_materialization::{
 };
 use crate::domain::block_tree::{
     BLOCK_GROUP_NODE_NAME, BLOCK_ID_ATTRIBUTE, BlockNode, BlockTree, BlockTreeError,
-    insert_block_nodes, replace_block_content_element, replace_text_delta,
+    encode_block_tree, insert_block_nodes, replace_block_content_element, replace_text_delta,
 };
+use crate::domain::nfm_parser::{NfmParseError, parse_nfm_with_ids};
 use crate::domain::rich_text::{
     RichTextError, RichTextItem, RichTextStyles, canonicalize_rich_text, rich_text_to_delta,
 };
@@ -89,6 +91,15 @@ pub struct PreparedDocumentOperationUpdate {
     pub title_write_fence_required: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExactNfmPatch {
+    pub old_nfm: String,
+    pub new_nfm: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_matches: Option<usize>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentOperationErrorCode {
@@ -101,6 +112,9 @@ pub enum DocumentOperationErrorCode {
     AncestorCycle,
     InvalidBlock,
     InvalidOperation,
+    InvalidNfm,
+    NfmPatchMismatch,
+    NfmPatchOverlap,
     NoChange,
     DocumentStateCorrupt,
 }
@@ -126,6 +140,8 @@ pub enum DocumentOperationError {
     RichText(#[from] RichTextError),
     #[error(transparent)]
     Materialization(#[from] DocumentMaterializationError),
+    #[error(transparent)]
+    NfmParse(#[from] NfmParseError),
 }
 
 impl DocumentOperationError {
@@ -134,6 +150,7 @@ impl DocumentOperationError {
             Self::Operation { code, .. } => *code,
             Self::BlockMaterialization(_) => DocumentOperationErrorCode::InvalidBlock,
             Self::RichText(_) => DocumentOperationErrorCode::InvalidOperation,
+            Self::NfmParse(_) => DocumentOperationErrorCode::InvalidNfm,
             Self::Yrs(_)
             | Self::BlockDocument(_)
             | Self::BlockTree(_)
@@ -156,6 +173,14 @@ impl DocumentOperationError {
             _ => None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct NfmPatchSpan {
+    start: usize,
+    end: usize,
+    replacement: String,
+    patch_index: usize,
 }
 
 struct XmlBlockLocation {
@@ -273,6 +298,231 @@ pub fn prepare_document_operation_update(
         state_vector_v1,
         materialization,
         write_fence_block_ids: write_fences.into_iter().collect(),
+        title_write_fence_required,
+    })
+}
+
+pub fn apply_exact_nfm_patches(
+    source: &str,
+    patches: &[ExactNfmPatch],
+) -> Result<String, DocumentOperationError> {
+    if patches.is_empty() {
+        return Err(operation_error(
+            DocumentOperationErrorCode::EmptyBatch,
+            "NFM patch batch must not be empty",
+            None,
+            None,
+        ));
+    }
+    let mut spans = Vec::new();
+    for (patch_index, patch) in patches.iter().enumerate() {
+        if patch.old_nfm.is_empty() {
+            return Err(operation_error(
+                DocumentOperationErrorCode::InvalidOperation,
+                format!("NFM patch {patch_index} must match non-empty content"),
+                Some(patch_index),
+                None,
+            ));
+        }
+        let expected = patch.expected_matches.unwrap_or(1);
+        if !(1..=100).contains(&expected) {
+            return Err(operation_error(
+                DocumentOperationErrorCode::InvalidOperation,
+                format!("NFM patch {patch_index} expectedMatches is out of bounds"),
+                Some(patch_index),
+                None,
+            ));
+        }
+        let starts = overlapping_match_starts(source, &patch.old_nfm);
+        if starts.len() != expected {
+            return Err(operation_error(
+                DocumentOperationErrorCode::NfmPatchMismatch,
+                format!(
+                    "NFM patch {patch_index} matched {} span(s); expected {expected}",
+                    starts.len()
+                ),
+                Some(patch_index),
+                None,
+            ));
+        }
+        spans.extend(starts.into_iter().map(|start| NfmPatchSpan {
+            start,
+            end: start + patch.old_nfm.len(),
+            replacement: patch.new_nfm.clone(),
+            patch_index,
+        }));
+    }
+    spans.sort_by_key(|span| (span.start, span.end));
+    for pair in spans.windows(2) {
+        let [previous, current] = pair else {
+            unreachable!();
+        };
+        if current.start >= previous.end {
+            continue;
+        }
+        return Err(operation_error(
+            DocumentOperationErrorCode::NfmPatchOverlap,
+            format!(
+                "NFM patches {} and {} overlap",
+                previous.patch_index, current.patch_index
+            ),
+            Some(current.patch_index),
+            None,
+        ));
+    }
+    spans.sort_by_key(|span| Reverse(span.start));
+    let mut result = source.to_owned();
+    for span in spans {
+        result.replace_range(span.start..span.end, &span.replacement);
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_nfm_replacement_update(
+    document_id: &str,
+    schema: BlockDocumentSchema,
+    full_state_v1: &[u8],
+    expected_state_vector_v1: &[u8],
+    nfm: &str,
+    rich_title: Option<&[RichTextItem]>,
+    allocate_block_id: &mut impl FnMut() -> String,
+) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
+    if !super::schema_metadata(schema).nfm_replace {
+        return Err(operation_error(
+            DocumentOperationErrorCode::InvalidOperation,
+            "This Document schema does not support whole-body NFM replacement",
+            None,
+            None,
+        ));
+    }
+    let target_blocks = parse_nfm_with_ids(nfm, allocate_block_id)?;
+    let target_tree = dematerialize_block_tree(&target_blocks)?;
+    prepare_document_body_replacement_update(
+        document_id,
+        schema,
+        full_state_v1,
+        expected_state_vector_v1,
+        &target_blocks,
+        &target_tree,
+        rich_title,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_exact_nfm_patch_update(
+    document_id: &str,
+    schema: BlockDocumentSchema,
+    full_state_v1: &[u8],
+    expected_state_vector_v1: &[u8],
+    patches: &[ExactNfmPatch],
+    rich_title: Option<&[RichTextItem]>,
+    allocate_block_id: &mut impl FnMut() -> String,
+) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
+    let source = load_document(document_id, full_state_v1)?;
+    let source = materialize_decoded_document(&decode_block_document(&source, schema)?)?;
+    let nfm = apply_exact_nfm_patches(&source.nfm, patches)?;
+    prepare_nfm_replacement_update(
+        document_id,
+        schema,
+        full_state_v1,
+        expected_state_vector_v1,
+        &nfm,
+        rich_title,
+        allocate_block_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_document_body_replacement_update(
+    document_id: &str,
+    schema: BlockDocumentSchema,
+    full_state_v1: &[u8],
+    expected_state_vector_v1: &[u8],
+    target_blocks: &[MaterializedBlockNode],
+    target_tree: &BlockTree,
+    rich_title: Option<&[RichTextItem]>,
+) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
+    let source = load_document(document_id, full_state_v1)?;
+    let expected = decode_state_vector_v1(expected_state_vector_v1)
+        .map_err(|error| DocumentOperationError::Yrs(error.to_string()))?;
+    let source_vector = source.transact().state_vector();
+    if source_vector != expected {
+        return Err(operation_error(
+            DocumentOperationErrorCode::StaleStateVector,
+            "NFM replacement was prepared from a stale structural state",
+            None,
+            None,
+        ));
+    }
+    let source_decoded = decode_block_document(&source, schema)?;
+    let source_materialization = materialize_decoded_document(&source_decoded)?;
+    let old_ids: BTreeSet<_> = current_ids(&source_decoded.block_tree.blocks)
+        .into_iter()
+        .collect();
+    if let Some(reused) = flatten_materialized_ids(target_blocks)
+        .into_iter()
+        .find(|id| old_ids.contains(id))
+    {
+        return Err(operation_error(
+            DocumentOperationErrorCode::DuplicateBlockId,
+            format!("NFM replacement reused existing Block identity {reused}"),
+            None,
+            Some(&reused),
+        ));
+    }
+
+    let working = load_document(document_id, full_state_v1)?;
+    let body = working.get_or_insert_xml_fragment("body");
+    let title = schema
+        .has_title()
+        .then(|| working.get_or_insert_text("title"));
+    let mut title_write_fence_required = false;
+    {
+        let mut transaction = working.transact_mut();
+        let body_length = body.len(&transaction);
+        if body_length > 0 {
+            body.remove_range(&mut transaction, 0, body_length);
+        }
+        encode_block_tree(&body, &mut transaction, target_tree)?;
+        if let Some(rich_title) = rich_title {
+            replace_title(
+                schema,
+                title.as_ref(),
+                &mut transaction,
+                rich_title,
+                0,
+                &mut title_write_fence_required,
+            )?;
+        }
+    }
+
+    let decoded = decode_block_document(&working, schema)?;
+    let materialization = materialize_decoded_document(&decoded)?;
+    if materialization.block_tree != target_blocks {
+        return Err(operation_error(
+            DocumentOperationErrorCode::InvalidNfm,
+            "NFM replacement did not reproduce its validated target Block tree",
+            None,
+            None,
+        ));
+    }
+    if source_materialization.rich_title == materialization.rich_title
+        && source_materialization.block_tree == materialization.block_tree
+    {
+        return Err(operation_error(
+            DocumentOperationErrorCode::NoChange,
+            "NFM replacement produced no semantic change",
+            None,
+            None,
+        ));
+    }
+    let transaction = working.transact();
+    Ok(PreparedDocumentOperationUpdate {
+        update_v1: transaction.encode_state_as_update_v1(&source_vector),
+        state_vector_v1: transaction.state_vector().encode_v1(),
+        materialization,
+        write_fence_block_ids: old_ids.into_iter().collect(),
         title_write_fence_required,
     })
 }
@@ -548,6 +798,29 @@ fn materialized_ids(block: &MaterializedBlockNode) -> Vec<String> {
         ids.extend(materialized_ids(child));
     }
     ids
+}
+
+fn flatten_materialized_ids(blocks: &[MaterializedBlockNode]) -> Vec<String> {
+    blocks.iter().flat_map(materialized_ids).collect()
+}
+
+fn overlapping_match_starts(source: &str, needle: &str) -> Vec<usize> {
+    let mut starts = Vec::new();
+    let mut from = 0usize;
+    while from <= source.len().saturating_sub(needle.len()) {
+        let Some(relative) = source[from..].find(needle) else {
+            break;
+        };
+        let start = from + relative;
+        starts.push(start);
+        let advance = source[start..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
+        from = start + advance;
+    }
+    starts
 }
 
 fn current_ids(blocks: &[BlockNode]) -> Vec<String> {
@@ -979,5 +1252,113 @@ mod tests {
         )
         .expect_err("semantic no-op");
         assert_eq!(no_change.code(), DocumentOperationErrorCode::NoChange);
+    }
+
+    #[test]
+    fn applies_exact_non_overlapping_nfm_patches_with_unicode() {
+        let patched = apply_exact_nfm_patches(
+            "Alpha 😀\nBeta 😀",
+            &[
+                ExactNfmPatch {
+                    old_nfm: "😀".to_owned(),
+                    new_nfm: "中".to_owned(),
+                    expected_matches: Some(2),
+                },
+                ExactNfmPatch {
+                    old_nfm: "Beta".to_owned(),
+                    new_nfm: "Gamma".to_owned(),
+                    expected_matches: None,
+                },
+            ],
+        )
+        .expect("exact patches");
+        assert_eq!(patched, "Alpha 中\nGamma 中");
+
+        let mismatch = apply_exact_nfm_patches(
+            "One",
+            &[ExactNfmPatch {
+                old_nfm: "Missing".to_owned(),
+                new_nfm: "Replacement".to_owned(),
+                expected_matches: None,
+            }],
+        )
+        .expect_err("mismatch");
+        assert_eq!(
+            mismatch.code(),
+            DocumentOperationErrorCode::NfmPatchMismatch
+        );
+
+        let overlap = apply_exact_nfm_patches(
+            "aaa",
+            &[ExactNfmPatch {
+                old_nfm: "aa".to_owned(),
+                new_nfm: "b".to_owned(),
+                expected_matches: Some(2),
+            }],
+        )
+        .expect_err("overlap");
+        assert_eq!(overlap.code(), DocumentOperationErrorCode::NfmPatchOverlap);
+    }
+
+    #[test]
+    fn prepares_a_whole_nfm_replacement_as_one_yjs_consumable_update() {
+        let (state, vector) = matrix_state();
+        let mut next_id = 0usize;
+        let prepared = prepare_exact_nfm_patch_update(
+            "operations-matrix",
+            BlockDocumentSchema::PageV2,
+            &state,
+            &vector,
+            &[ExactNfmPatch {
+                old_nfm: "## Heading".to_owned(),
+                new_nfm: "## Heading from Rust patch".to_owned(),
+                expected_matches: None,
+            }],
+            None,
+            &mut || {
+                next_id += 1;
+                format!("replacement-{next_id}")
+            },
+        )
+        .expect("NFM replacement");
+
+        assert!(
+            prepared
+                .materialization
+                .nfm
+                .contains("## Heading from Rust patch")
+        );
+        assert_eq!(prepared.write_fence_block_ids.len(), 22);
+        assert!(!prepared.title_write_fence_required);
+        let consumer = load_document("operations-consumer", &state).expect("consumer");
+        consumer
+            .transact_mut()
+            .apply_update(Update::decode_v1(&prepared.update_v1).expect("relative update"))
+            .expect("Yjs/Yrs consumer update");
+        let actual = materialize_decoded_document(
+            &decode_block_document(&consumer, BlockDocumentSchema::PageV2)
+                .expect("consumer document"),
+        )
+        .expect("consumer materialization");
+        assert_eq!(actual, prepared.materialization);
+    }
+
+    #[test]
+    fn keeps_body_only_source_capabilities_explicit() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yjs-yrs");
+        let state = std::fs::read(root.join("empty-synced-block.bin")).expect("synced fixture");
+        let document = load_document("empty-synced", &state).expect("synced document");
+        let vector = document.transact().state_vector().encode_v1();
+        let error = prepare_nfm_replacement_update(
+            "empty-synced",
+            BlockDocumentSchema::SyncedBlockV1,
+            &state,
+            &vector,
+            "Synced content",
+            None,
+            &mut || "synced-new".to_owned(),
+        )
+        .expect_err("body-only NFM replacement is not a Page capability");
+        assert_eq!(error.code(), DocumentOperationErrorCode::InvalidOperation);
     }
 }
