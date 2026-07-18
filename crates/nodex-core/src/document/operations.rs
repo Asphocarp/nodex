@@ -433,6 +433,51 @@ pub fn prepare_exact_nfm_patch_update(
     )
 }
 
+pub fn prepare_reference_hint_finalization_update(
+    document_id: &str,
+    schema: BlockDocumentSchema,
+    full_state_v1: &[u8],
+    expected_state_vector_v1: &[u8],
+) -> Result<PreparedDocumentOperationUpdate, DocumentOperationError> {
+    let source = load_document(document_id, full_state_v1)?;
+    let expected = decode_state_vector_v1(expected_state_vector_v1)
+        .map_err(|error| DocumentOperationError::Yrs(error.to_string()))?;
+    let source_vector = source.transact().state_vector();
+    if source_vector != expected {
+        return Err(operation_error(
+            DocumentOperationErrorCode::StaleStateVector,
+            "Page reference finalization was prepared from a stale structural state",
+            None,
+            None,
+        ));
+    }
+
+    let working = load_document(document_id, full_state_v1)?;
+    let body = working.get_or_insert_xml_fragment("body");
+    let changed = {
+        let mut transaction = working.transact_mut();
+        finalize_page_references(&body, &mut transaction)?
+    };
+    if changed.is_empty() {
+        return Err(operation_error(
+            DocumentOperationErrorCode::NoChange,
+            "Document has no historical Page reference hints to finalize",
+            None,
+            None,
+        ));
+    }
+    let decoded = decode_block_document(&working, schema)?;
+    let materialization = materialize_decoded_document(&decoded)?;
+    let transaction = working.transact();
+    Ok(PreparedDocumentOperationUpdate {
+        update_v1: transaction.encode_state_as_update_v1(&source_vector),
+        state_vector_v1: transaction.state_vector().encode_v1(),
+        materialization,
+        write_fence_block_ids: changed.into_iter().collect(),
+        title_write_fence_required: false,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn prepare_document_body_replacement_update(
     document_id: &str,
@@ -525,6 +570,89 @@ fn prepare_document_body_replacement_update(
         write_fence_block_ids: old_ids.into_iter().collect(),
         title_write_fence_required,
     })
+}
+
+fn finalize_page_references(
+    body: &XmlFragmentRef,
+    transaction: &mut yrs::TransactionMut<'_>,
+) -> Result<BTreeSet<String>, DocumentOperationError> {
+    let root = match body.get(transaction, 0) {
+        Some(XmlOut::Element(root)) if root.tag().as_ref() == BLOCK_GROUP_NODE_NAME => root,
+        _ => {
+            return Err(operation_error(
+                DocumentOperationErrorCode::DocumentStateCorrupt,
+                "Document body is missing its canonical root group",
+                None,
+                None,
+            ));
+        }
+    };
+    let containers = collect_xml_containers(&root, transaction);
+    let mut changed = BTreeSet::new();
+    for container in containers {
+        let Some(block_id) = read_string_attribute(&container, transaction, BLOCK_ID_ATTRIBUTE)
+        else {
+            continue;
+        };
+        let content = container
+            .children(transaction)
+            .enumerate()
+            .find_map(|(index, child)| match child {
+                XmlOut::Element(element) if element.tag().as_ref() != BLOCK_GROUP_NODE_NAME => {
+                    Some((index as u32, element))
+                }
+                _ => None,
+            });
+        let Some((content_index, content)) = content else {
+            continue;
+        };
+        let node_name = content.tag();
+        if matches!(node_name.as_ref(), "page" | "pageRef" | "cardRef")
+            && content.get_attribute(transaction, "displayHint").is_some()
+        {
+            content.remove_attribute(transaction, &"displayHint");
+            changed.insert(block_id.clone());
+        }
+        if node_name.as_ref() != "cardRef" {
+            continue;
+        }
+        let Some(target_block_id) = read_string_attribute(&content, transaction, "targetBlockId")
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        container.remove(transaction, content_index);
+        let replacement = container.insert(
+            transaction,
+            content_index,
+            XmlElementPrelim::empty("pageRef"),
+        );
+        replacement.insert_attribute(transaction, "targetBlockId", target_block_id);
+        changed.insert(block_id);
+    }
+    Ok(changed)
+}
+
+fn collect_xml_containers<T: ReadTxn>(
+    group: &yrs::XmlElementRef,
+    transaction: &T,
+) -> Vec<yrs::XmlElementRef> {
+    let mut output = Vec::new();
+    for child in group.children(transaction) {
+        let XmlOut::Element(container) = child else {
+            continue;
+        };
+        output.push(container.clone());
+        for nested in container.children(transaction) {
+            let XmlOut::Element(nested_group) = nested else {
+                continue;
+            };
+            if nested_group.tag().as_ref() == BLOCK_GROUP_NODE_NAME {
+                output.extend(collect_xml_containers(&nested_group, transaction));
+            }
+        }
+    }
+    output
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -752,6 +880,11 @@ fn replace_title(
 }
 
 fn load_document(document_id: &str, state: &[u8]) -> Result<Doc, DocumentOperationError> {
+    if state.len() > MAX_DOCUMENT_UPDATE_BYTES {
+        return Err(DocumentOperationError::Yrs(format!(
+            "document state exceeds {MAX_DOCUMENT_UPDATE_BYTES} bytes"
+        )));
+    }
     let document = create_compatible_document(document_id);
     let update =
         Update::decode_v1(state).map_err(|error| DocumentOperationError::Yrs(error.to_string()))?;
@@ -1360,5 +1493,81 @@ mod tests {
         )
         .expect_err("body-only NFM replacement is not a Page capability");
         assert_eq!(error.code(), DocumentOperationErrorCode::InvalidOperation);
+    }
+
+    #[test]
+    fn finalizes_historical_page_reference_hints_as_one_relative_update() {
+        let document = create_compatible_document("legacy-references");
+        document.get_or_insert_text("title");
+        let body = document.get_or_insert_xml_fragment("body");
+        {
+            let mut transaction = document.transact_mut();
+            let group = body.insert(
+                &mut transaction,
+                0,
+                XmlElementPrelim::empty(BLOCK_GROUP_NODE_NAME),
+            );
+            let legacy = group.insert(
+                &mut transaction,
+                0,
+                XmlElementPrelim::empty("blockContainer"),
+            );
+            legacy.insert_attribute(&mut transaction, BLOCK_ID_ATTRIBUTE, "legacy-reference");
+            let legacy_content =
+                legacy.insert(&mut transaction, 0, XmlElementPrelim::empty("cardRef"));
+            legacy_content.insert_attribute(&mut transaction, "targetBlockId", "page-target");
+            legacy_content.insert_attribute(&mut transaction, "displayHint", "Old title");
+
+            let page = group.insert(
+                &mut transaction,
+                1,
+                XmlElementPrelim::empty("blockContainer"),
+            );
+            page.insert_attribute(&mut transaction, BLOCK_ID_ATTRIBUTE, "page-owner");
+            let page_content = page.insert(&mut transaction, 0, XmlElementPrelim::empty("page"));
+            page_content.insert_attribute(&mut transaction, "displayHint", "Stale title");
+        }
+        let transaction = document.transact();
+        let vector = transaction.state_vector().encode_v1();
+        let state = transaction.encode_state_as_update_v1(&StateVector::default());
+        drop(transaction);
+
+        let prepared = prepare_reference_hint_finalization_update(
+            "legacy-references",
+            BlockDocumentSchema::PageV2,
+            &state,
+            &vector,
+        )
+        .expect("reference finalization");
+        assert_eq!(
+            prepared.write_fence_block_ids,
+            vec!["legacy-reference".to_owned(), "page-owner".to_owned()]
+        );
+        assert!(!prepared.title_write_fence_required);
+
+        let reference =
+            find_semantic_block(&prepared.materialization.block_tree, "legacy-reference")
+                .expect("finalized reference");
+        assert_eq!(reference.block_type, "pageRef");
+        assert_eq!(
+            reference.props.get("targetBlockId"),
+            Some(&Value::String("page-target".to_owned()))
+        );
+        assert!(!reference.props.contains_key("displayHint"));
+        let page = find_semantic_block(&prepared.materialization.block_tree, "page-owner")
+            .expect("Page owner");
+        assert!(!page.props.contains_key("displayHint"));
+
+        let consumer = load_document("legacy-reference-consumer", &state).expect("consumer");
+        consumer
+            .transact_mut()
+            .apply_update(Update::decode_v1(&prepared.update_v1).expect("relative update"))
+            .expect("consumer accepts update");
+        let actual = materialize_decoded_document(
+            &decode_block_document(&consumer, BlockDocumentSchema::PageV2)
+                .expect("consumer document"),
+        )
+        .expect("consumer materialization");
+        assert_eq!(actual, prepared.materialization);
     }
 }
