@@ -7,6 +7,19 @@ pub const PROTOCOL_MIN: u32 = 1;
 pub const PROTOCOL_MAX: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RuntimeDescriptor {
+    pub protocol_min: u32,
+    pub protocol_max: u32,
+    pub build_id: String,
+    pub pid: u32,
+    pub start_nonce: String,
+    pub socket_path: String,
+    pub profile_id: String,
+    pub store_epoch: String,
+    pub readiness_generation: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientKind {
     ElectronHost,
