@@ -27,14 +27,17 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+use super::compaction::{DocumentCompactionResult, compact_yjs_document};
 use super::history::{
     NewDocumentCheckpoint, get_document_version, insert_document_checkpoint,
-    list_document_versions, prepare_version_restore,
+    list_document_versions, prepare_document_revision, prepare_version_restore,
+    record_document_revision_edit,
 };
 use super::persistence::{
     DocumentAuthorityRow, PersistYjsCommit, persist_yjs_commit, read_document_authority,
     read_event_head, read_store_epoch, sha256,
 };
+use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
 use super::runtime::DocumentRuntimeCache;
 use super::semantic::{SemanticMutationContext, SemanticMutationError, prepare_semantic_mutation};
 use super::{
@@ -68,8 +71,13 @@ enum PreparedUpdate {
         update_id: String,
         touched_block_ids: Vec<String>,
         update: Vec<u8>,
+        write_fence_block_ids: Vec<String>,
+        title_write_fence_required: bool,
     },
     NoChange,
+    Recovery {
+        artifact_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +335,47 @@ impl OwnedDocumentModule {
         self.fail_after_commit.store(true, Ordering::Release);
     }
 
+    pub fn compact(
+        &self,
+        context: &BoundModuleContext,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+    ) -> Result<DocumentCompactionResult, CoreError> {
+        self.validate_context(context)?;
+        let context = context.clone();
+        let cache = Arc::clone(&self.cache);
+        self.writer
+            .call(move |connection| {
+                let transaction =
+                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                if read_store_epoch(&transaction)? != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::Conflict,
+                        "Document compaction targets a stale store epoch",
+                        true,
+                    ));
+                }
+                let authority = read_document_authority(&transaction, &document_id)?
+                    .ok_or_else(|| not_found("Owned Document was not found"))?;
+                authorize_yjs(&context, &authority)?;
+                assert_document_head(&authority, generation, expected_head_seq)?;
+                let engine = cache
+                    .lock()
+                    .map_err(|_| internal("Document cache lock failed"))?
+                    .clone_engine(&transaction, &authority.head)?;
+                let result = compact_yjs_document(&transaction, &authority, &engine)?;
+                transaction.commit()?;
+                cache
+                    .lock()
+                    .map_err(|_| internal("Document cache lock failed"))?
+                    .install(&authority.head, engine);
+                Ok(result)
+            })
+            .map_err(core_error)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn apply_yjs_update(
         &self,
@@ -372,7 +421,7 @@ impl OwnedDocumentModule {
                 request_hash,
                 publication: UpdatePublication::Updated,
             },
-            move |connection, authority, _engine, _materialization, _store_epoch| {
+            move |connection, authority, _engine, _materialization, store_epoch| {
                 if base_head_seq > authority.head.head_seq {
                     return Err(StoreError::new(
                         StoreErrorCode::HeadConflict,
@@ -401,11 +450,28 @@ impl OwnedDocumentModule {
                         false,
                     ));
                 }
+                if let Some(artifact_id) = persist_recovery_if_barrier_crossed(
+                    connection,
+                    authority,
+                    StaleYjsUpdate {
+                        store_epoch,
+                        context: &receipt_context,
+                        generation,
+                        base_head_seq,
+                        update_id: &receipt_update_id,
+                        touched_block_ids: &touched_block_ids,
+                        update: &update,
+                    },
+                )? {
+                    return Ok(PreparedUpdate::Recovery { artifact_id });
+                }
                 Ok(PreparedUpdate::Apply {
                     base_head_seq,
                     update_id,
                     touched_block_ids,
                     update,
+                    write_fence_block_ids: Vec::new(),
+                    title_write_fence_required: false,
                 })
             },
         )
@@ -501,6 +567,8 @@ impl OwnedDocumentModule {
                         update_id: operation_id,
                         touched_block_ids: prepared.touched_block_ids,
                         update: prepared.update_v1,
+                        write_fence_block_ids: prepared.write_fence_block_ids,
+                        title_write_fence_required: prepared.title_write_fence_required,
                     }),
                     Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
                     Err(error) => Err(semantic_error(error)),
@@ -695,6 +763,8 @@ impl OwnedDocumentModule {
                     update_id: operation_id,
                     touched_block_ids: Vec::new(),
                     update: prepared.update_v1,
+                    write_fence_block_ids: prepared.write_fence_block_ids,
+                    title_write_fence_required: prepared.title_write_fence_required,
                 })
             },
         )
@@ -790,11 +860,24 @@ impl OwnedDocumentModule {
                     &base_materialization,
                     &store_epoch,
                 )?;
+                if let PreparedUpdate::Recovery { artifact_id } = &prepared {
+                    let artifact_id = artifact_id.clone();
+                    transaction.commit()?;
+                    return Err(StoreError::new(
+                        StoreErrorCode::RevisionConflict,
+                        format!(
+                            "Stale Yjs update crossed a structural barrier; recovery artifact {artifact_id}"
+                        ),
+                        false,
+                    ));
+                }
                 let PreparedUpdate::Apply {
                     base_head_seq,
                     update_id,
                     touched_block_ids,
                     update,
+                    write_fence_block_ids,
+                    title_write_fence_required,
                 } = prepared
                 else {
                     let event_head = read_event_head(&transaction)?;
@@ -865,6 +948,14 @@ impl OwnedDocumentModule {
                 let full_state =
                     candidate_transaction.encode_state_as_update_v1(&yrs::StateVector::default());
                 drop(candidate_transaction);
+                let revision_now = sqlite_now(&transaction)?;
+                prepare_document_revision(
+                    &transaction,
+                    &authority,
+                    &base_materialization,
+                    &job.context,
+                    &revision_now,
+                )?;
                 let persisted = persist_yjs_commit(
                     &transaction,
                     PersistYjsCommit {
@@ -887,8 +978,46 @@ impl OwnedDocumentModule {
                             ) => "document_restored",
                             UpdatePublication::Invalidated(_) => "document_invalidated",
                         },
+                        write_fence_block_ids: &write_fence_block_ids,
+                        title_write_fence_required,
                     },
                 )?;
+                if matches!(
+                    job.publication,
+                    UpdatePublication::Invalidated(DocumentInvalidationReason::Restored)
+                ) {
+                    let mut restored_authority = authority.clone();
+                    restored_authority.head.head_seq = persisted.head_seq;
+                    restored_authority.head.state_vector = persisted.state_vector.clone();
+                    restored_authority.head.state_hash = persisted.state_hash.clone();
+                    insert_document_checkpoint(
+                        &transaction,
+                        &restored_authority,
+                        &materialization,
+                        NewDocumentCheckpoint {
+                            operation_id: &job.operation_id,
+                            cause: "after_restore",
+                            label: Some("Restored Document state"),
+                            revision_kind: "restore",
+                            source_change_seq: Some(persisted.event_sequence),
+                            context: &job.context,
+                            now: &persisted.committed_at,
+                        },
+                    )?;
+                    transaction.execute(
+                        "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                        [&authority.head.id],
+                    )?;
+                } else {
+                    record_document_revision_edit(
+                        &transaction,
+                        &authority.head.id,
+                        authority.head.generation,
+                        persisted.head_seq,
+                        &job.context.connection_id,
+                        &persisted.committed_at,
+                    )?;
+                }
                 let committed = committed_value(
                     &job.operation_id,
                     &store_epoch,
@@ -1790,8 +1919,359 @@ mod tests {
                     |row| row.get(0),
                 )?;
                 assert_eq!(title, "");
-                assert_eq!(versions, 2);
+                assert_eq!(versions, 3);
                 assert_eq!(restored_events, 1);
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn compaction_reconstructs_from_one_verified_snapshot_and_keeps_receipts() {
+        let seeded = seeded_module();
+        let update = title_update(
+            &seeded.full_state,
+            &seeded.state_vector,
+            "Compacted authority",
+        );
+        let request = apply_request("update:before-compaction", 1, update);
+        seeded.module.apply(&context(), request.clone()).unwrap();
+        let compacted = seeded
+            .module
+            .compact(
+                &context(),
+                StoreEpoch(STORE_EPOCH.to_owned()),
+                DOCUMENT_ID.to_owned(),
+                1,
+                2,
+            )
+            .expect("compact current head");
+        assert_eq!(compacted.snapshot_seq, 2);
+        assert_eq!(compacted.pruned_update_count, 2);
+        assert_eq!(compacted.retained_receipt_count, 2);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence: (i64, i64, i64) = connection.query_row(
+                    "SELECT \
+                       (SELECT count(*) FROM document_updates WHERE document_id = ?1), \
+                       (SELECT count(*) FROM document_snapshots WHERE document_id = ?1), \
+                       (SELECT count(*) FROM document_update_receipts WHERE document_id = ?1)",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                assert_eq!(evidence, (0, 1, 2));
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+
+        let cold_module = OwnedDocumentModule::new(PROFILE_ID, LIBRARY_ID, &seeded.kernel);
+        let synced = cold_module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::SyncYjs {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        state_vector: Vec::new(),
+                    },
+                },
+            )
+            .expect("cold snapshot reconstruction");
+        let OwnedDocumentReadValue::YjsSync { update, .. } = synced.value else {
+            panic!("expected Yjs sync")
+        };
+        let engine = YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &update).unwrap();
+        assert_eq!(
+            materialize_engine(&engine, BlockDocumentSchema::PageV2)
+                .unwrap()
+                .title,
+            "Compacted authority"
+        );
+        assert!(
+            cold_module
+                .apply(&context(), request)
+                .unwrap()
+                .committed
+                .receipt
+                .mutation
+                .duplicate
+        );
+        let repeated = cold_module
+            .compact(
+                &context(),
+                StoreEpoch(STORE_EPOCH.to_owned()),
+                DOCUMENT_ID.to_owned(),
+                1,
+                2,
+            )
+            .expect("repeat compaction");
+        assert_eq!(repeated.pruned_update_count, 0);
+        assert_eq!(repeated.retained_receipt_count, 2);
+    }
+
+    #[test]
+    fn checkpoint_creation_bounds_unpinned_revision_retention() {
+        let seeded = seeded_module();
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "checkpoint:retention-base".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::CreateCheckpoint {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        cause: "manual".to_owned(),
+                        label: None,
+                    },
+                },
+            )
+            .unwrap();
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute_batch(
+                        "WITH RECURSIVE sequence(value) AS (\
+                           SELECT 1 UNION ALL SELECT value + 1 FROM sequence WHERE value < 501\
+                         ) \
+                         INSERT INTO document_versions(\
+                           version_id, document_id, project_id, generation, base_head_seq, \
+                           schema_key, schema_version, cause, label, actor_json, revision_kind, \
+                           source_mutation_id, source_change_seq, pinned, checkpoint_format, \
+                           full_update_blob, state_vector, checkpoint_hash, byte_length, created_at\
+                         ) \
+                         SELECT printf('retention:auto:%03d', sequence.value), version.document_id, \
+                           version.project_id, version.generation, version.base_head_seq, \
+                           version.schema_key, version.schema_version, 'automatic', NULL, '{}', \
+                           'automatic', NULL, NULL, 0, version.checkpoint_format, \
+                           version.full_update_blob, version.state_vector, version.checkpoint_hash, \
+                           version.byte_length, version.created_at \
+                         FROM sequence \
+                         JOIN document_versions version \
+                           ON version.version_id LIKE 'document-version:%' \
+                         LIMIT 501;",
+                    )?;
+                    Ok(())
+                })
+            })
+            .unwrap();
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "checkpoint:retention-prune".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::CreateCheckpoint {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        cause: "manual".to_owned(),
+                        label: Some("Retention boundary".to_owned()),
+                    },
+                },
+            )
+            .unwrap();
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let counts: (i64, i64) = connection.query_row(
+                    "SELECT \
+                       sum(CASE WHEN pinned = 0 THEN 1 ELSE 0 END), \
+                       sum(CASE WHEN pinned = 1 THEN 1 ELSE 0 END) \
+                     FROM document_versions WHERE document_id = ?1",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                assert_eq!(counts, (500, 2));
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn revision_sessions_checkpoint_edit_burst_boundaries() {
+        let seeded = seeded_module();
+        let first_update = title_update(&seeded.full_state, &seeded.state_vector, "Burst one");
+        let mut engine =
+            YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap();
+        let first_candidate = engine.prepare_update_v1(&first_update).unwrap();
+        engine.commit_candidate(first_candidate).unwrap();
+        seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:burst-one", 1, first_update),
+            )
+            .unwrap();
+        let second_update = title_update(
+            &engine.full_state_v1(),
+            &engine.state_vector_v1(),
+            "Burst two",
+        );
+        let second_candidate = engine.prepare_update_v1(&second_update).unwrap();
+        engine.commit_candidate(second_candidate).unwrap();
+        seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:burst-two", 2, second_update),
+            )
+            .unwrap();
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    let evidence: (i64, i64) = transaction.query_row(
+                        "SELECT \
+                           (SELECT count(*) FROM document_versions WHERE document_id = ?1), \
+                           (SELECT dirty_head_seq FROM document_revision_sessions \
+                            WHERE document_id = ?1)",
+                        [DOCUMENT_ID],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )?;
+                    assert_eq!(evidence, (1, 3));
+                    transaction.execute(
+                        "UPDATE document_revision_sessions \
+                         SET last_edit_at = '2020-01-01T00:00:00.000Z' \
+                         WHERE document_id = ?1",
+                        [DOCUMENT_ID],
+                    )?;
+                    Ok(())
+                })
+            })
+            .unwrap();
+        let third_update = title_update(
+            &engine.full_state_v1(),
+            &engine.state_vector_v1(),
+            "Burst after idle",
+        );
+        seeded
+            .module
+            .apply(
+                &context(),
+                apply_request("update:after-idle", 3, third_update),
+            )
+            .unwrap();
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence: (i64, i64, i64) = connection.query_row(
+                    "SELECT \
+                       (SELECT count(*) FROM document_versions \
+                        WHERE document_id = ?1 AND cause = 'before_edit_burst'), \
+                       (SELECT count(*) FROM document_versions \
+                        WHERE document_id = ?1 AND cause = 'idle_edit'), \
+                       (SELECT dirty_head_seq FROM document_revision_sessions \
+                        WHERE document_id = ?1)",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                assert_eq!(evidence, (1, 1, 4));
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn stale_yjs_updates_crossing_structural_barriers_become_recovery_artifacts() {
+        let seeded = seeded_module();
+        let materialization = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let title_etag = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                Ok::<_, StoreError>(
+                    super::super::semantic::mint_etag(
+                        connection,
+                        "title",
+                        PROJECT_ID,
+                        STORE_EPOCH,
+                        &[DOCUMENT_ID],
+                        json!({ "richTitle": materialization.rich_title }),
+                    )
+                    .unwrap(),
+                )
+            })
+            .unwrap();
+        let stale_update = title_update(
+            &seeded.full_state,
+            &seeded.state_vector,
+            "Unsafe stale renderer title",
+        );
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "semantic:title-barrier".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplySemanticMutation {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        commands: vec![DocumentSemanticCommand::SetTitle {
+                            inline_markdown: "Authoritative semantic title".to_owned(),
+                            expected_etag: title_etag,
+                        }],
+                    },
+                },
+            )
+            .unwrap();
+        let request = apply_request("update:stale-across-barrier", 1, stale_update);
+        let recovery = seeded
+            .module
+            .apply(&context(), request.clone())
+            .expect_err("stale structural update requires recovery");
+        assert_eq!(recovery.code, CoreErrorCode::RevisionConflict);
+        assert!(recovery.message.contains("document-recovery:"));
+        let repeated = seeded
+            .module
+            .apply(&context(), request.clone())
+            .expect_err("recovery decision is durable");
+        assert_eq!(repeated.message, recovery.message);
+        let mut changed_request = request;
+        let OwnedDocumentIntent::ApplyYjsUpdate { update, .. } = &mut changed_request.intent else {
+            unreachable!()
+        };
+        update.push(0);
+        let collision = seeded
+            .module
+            .apply(&context(), changed_request)
+            .expect_err("recovery update identity is immutable");
+        assert_eq!(collision.code, CoreErrorCode::IdempotencyKeyReused);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence: (i64, i64, i64, String) = connection.query_row(
+                    "SELECT \
+                       (SELECT head_seq FROM documents WHERE id = ?1), \
+                       (SELECT count(*) FROM document_structural_barriers WHERE document_id = ?1), \
+                       (SELECT count(*) FROM document_update_receipts \
+                        WHERE update_id = 'update:stale-across-barrier'), \
+                       (SELECT status FROM document_recovery_artifacts \
+                        WHERE update_id = 'update:stale-across-barrier')",
+                    [DOCUMENT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )?;
+                assert_eq!(evidence, (2, 1, 0, "pending".to_owned()));
                 Ok::<_, StoreError>(())
             })
             .unwrap();

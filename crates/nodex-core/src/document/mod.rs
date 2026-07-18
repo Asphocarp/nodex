@@ -1,9 +1,11 @@
 mod block_document;
+mod compaction;
 mod history;
 mod materialization;
 mod module;
 mod operations;
 mod persistence;
+mod recovery;
 mod runtime;
 mod semantic;
 mod yrs_engine;
@@ -14,6 +16,7 @@ pub use block_document::{
     SYNCED_BLOCK_SCHEMA_KEY, SYNCED_BLOCK_SCHEMA_VERSION, decode_block_document,
     encode_block_document,
 };
+pub use compaction::DocumentCompactionResult;
 pub use materialization::{
     BlockDocumentKind, BlockDocumentSchemaMetadata, DocumentBlockSearchUnit,
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,

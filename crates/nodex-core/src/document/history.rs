@@ -98,6 +98,10 @@ pub(crate) fn insert_document_checkpoint(
     });
     let actor_json = String::from_utf8(canonical_json_bytes(actor.clone())?)
         .map_err(|_| internal("Checkpoint actor encoding is invalid"))?;
+    let links_mutation = matches!(input.revision_kind, "operation" | "restore");
+    let source_mutation_id = links_mutation.then_some(input.operation_id);
+    let source_change_seq = links_mutation.then_some(input.source_change_seq).flatten();
+    let pinned = i64::from(matches!(input.revision_kind, "manual" | "restore"));
     let identity = json!({
         "documentId": authority.head.id,
         "projectId": authority.head.project_id,
@@ -108,8 +112,8 @@ pub(crate) fn insert_document_checkpoint(
         "cause": input.cause,
         "label": input.label,
         "revisionKind": input.revision_kind,
-        "sourceMutationId": input.operation_id,
-        "sourceChangeSeq": input.source_change_seq,
+        "sourceMutationId": source_mutation_id,
+        "sourceChangeSeq": source_change_seq,
         "checkpointHash": checkpoint_hash,
     });
     let version_id = format!(
@@ -124,8 +128,8 @@ pub(crate) fn insert_document_checkpoint(
            schema_version, cause, label, actor_json, revision_kind, source_mutation_id, \
            source_change_seq, pinned, checkpoint_format, full_update_blob, state_vector, \
            checkpoint_hash, byte_length, created_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, \
-                   ?14, ?15, X'', ?16, ?17, ?18) \
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, \
+                   ?15, ?16, X'', ?17, ?18, ?19) \
          ON CONFLICT(version_id) DO NOTHING",
         params![
             version_id,
@@ -139,8 +143,9 @@ pub(crate) fn insert_document_checkpoint(
             input.label,
             actor_json,
             input.revision_kind,
-            input.operation_id,
-            input.source_change_seq,
+            source_mutation_id,
+            source_change_seq,
+            pinned,
             CHECKPOINT_FORMAT,
             checkpoint_bytes,
             checkpoint_hash,
@@ -167,7 +172,9 @@ pub(crate) fn insert_document_checkpoint(
             false,
         ));
     }
-    decode_document_version(stored)
+    let version = decode_document_version(stored)?;
+    prune_document_history(connection, &authority.head.id, input.now)?;
+    Ok(version)
 }
 
 pub(crate) fn get_document_version(
@@ -296,6 +303,169 @@ pub(crate) fn prepare_version_restore(
         Err(error) if error.code() == super::DocumentOperationErrorCode::NoChange => Ok(None),
         Err(error) => Err(invalid(error.to_string())),
     }
+}
+
+pub(crate) fn prepare_document_revision(
+    connection: &Connection,
+    authority: &DocumentAuthorityRow,
+    materialization: &DocumentMaterialization,
+    context: &BoundModuleContext,
+    now: &str,
+) -> Result<(), StoreError> {
+    let session = connection
+        .query_row(
+            "SELECT generation, last_edit_at FROM document_revision_sessions \
+             WHERE document_id = ?1",
+            [&authority.head.id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    if let Some((session_generation, last_edit_at)) = session {
+        if session_generation != authority.head.generation {
+            connection.execute(
+                "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                [&authority.head.id],
+            )?;
+        } else {
+            let idle = connection
+                .query_row(
+                    "SELECT (julianday(?1) - julianday(?2)) * 86400000 >= 120000",
+                    params![now, last_edit_at],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|_| corrupt("Document revision session timestamp is invalid"))?;
+            if !idle {
+                return Ok(());
+            }
+            let operation_id = format!(
+                "revision-idle:{}:{}:{}",
+                authority.head.id, authority.head.generation, authority.head.head_seq
+            );
+            insert_document_checkpoint(
+                connection,
+                authority,
+                materialization,
+                NewDocumentCheckpoint {
+                    operation_id: &operation_id,
+                    cause: "idle_edit",
+                    label: None,
+                    revision_kind: "automatic",
+                    source_change_seq: None,
+                    context,
+                    now,
+                },
+            )?;
+            connection.execute(
+                "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                [&authority.head.id],
+            )?;
+            return Ok(());
+        }
+    }
+    let covered = connection
+        .query_row(
+            "SELECT 1 FROM document_versions \
+             WHERE document_id = ?1 AND generation = ?2 AND base_head_seq = ?3 LIMIT 1",
+            params![
+                authority.head.id,
+                authority.head.generation,
+                authority.head.head_seq
+            ],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if covered {
+        return Ok(());
+    }
+    let operation_id = format!(
+        "revision-safety:{}:{}:{}",
+        authority.head.id, authority.head.generation, authority.head.head_seq
+    );
+    insert_document_checkpoint(
+        connection,
+        authority,
+        materialization,
+        NewDocumentCheckpoint {
+            operation_id: &operation_id,
+            cause: "before_edit_burst",
+            label: None,
+            revision_kind: "safety",
+            source_change_seq: None,
+            context,
+            now,
+        },
+    )?;
+    Ok(())
+}
+
+pub(crate) fn record_document_revision_edit(
+    connection: &Connection,
+    document_id: &str,
+    generation: i64,
+    head_seq: i64,
+    client_session_id: &str,
+    committed_at: &str,
+) -> Result<(), StoreError> {
+    let existing = connection
+        .query_row(
+            "SELECT generation, burst_started_at, last_edit_at, last_checkpoint_at \
+             FROM document_revision_sessions WHERE document_id = ?1",
+            [document_id],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let continues_burst = if let Some(existing) = existing
+        .as_ref()
+        .filter(|existing| existing.0 == generation)
+    {
+        connection
+            .query_row(
+                "SELECT (julianday(?1) - julianday(?2)) * 86400000 < 120000",
+                params![committed_at, existing.2],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|_| corrupt("Document revision session timestamp is invalid"))?
+    } else {
+        false
+    };
+    let burst_started_at = existing
+        .as_ref()
+        .filter(|_| continues_burst)
+        .map(|existing| existing.1.as_str())
+        .unwrap_or(committed_at);
+    let last_checkpoint_at = existing
+        .as_ref()
+        .filter(|_| continues_burst)
+        .and_then(|existing| existing.3.as_deref());
+    connection.execute(
+        "INSERT INTO document_revision_sessions (\
+           document_id, generation, dirty_head_seq, burst_started_at, last_edit_at, \
+           last_checkpoint_at, client_session_id\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+         ON CONFLICT(document_id) DO UPDATE SET \
+           generation = excluded.generation, dirty_head_seq = excluded.dirty_head_seq, \
+           burst_started_at = excluded.burst_started_at, last_edit_at = excluded.last_edit_at, \
+           last_checkpoint_at = excluded.last_checkpoint_at, \
+           client_session_id = excluded.client_session_id",
+        params![
+            document_id,
+            generation,
+            head_seq,
+            burst_started_at,
+            committed_at,
+            last_checkpoint_at,
+            client_session_id,
+        ],
+    )?;
+    Ok(())
 }
 
 fn read_document_version(
@@ -514,6 +684,67 @@ fn validate_checkpoint_input(input: &NewDocumentCheckpoint<'_>) -> Result<(), St
         return Err(invalid(
             "Document checkpoint metadata is invalid".to_owned(),
         ));
+    }
+    Ok(())
+}
+
+fn prune_document_history(
+    connection: &Connection,
+    document_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    const DAY_MS: i64 = 24 * 60 * 60 * 1_000;
+    const KEEP_ALL_MS: i64 = 7 * DAY_MS;
+    const KEEP_HOURLY_MS: i64 = 30 * DAY_MS;
+    const KEEP_DAILY_MS: i64 = 90 * DAY_MS;
+    const MAX_UNPINNED: usize = 500;
+    let rows = connection
+        .prepare(
+            "SELECT version_id, created_at, pinned, \
+                    CAST(MAX(0, (julianday(?2) - julianday(created_at)) * 86400000) AS INTEGER) \
+             FROM document_versions WHERE document_id = ?1 \
+             ORDER BY created_at DESC, version_id DESC",
+        )?
+        .query_map(params![document_id, now], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|_| corrupt("Document revision retention row is invalid"))?;
+    let mut hourly = std::collections::HashSet::new();
+    let mut daily = std::collections::HashSet::new();
+    let mut retained_unpinned = 0usize;
+    for (version_id, created_at, pinned, age) in rows {
+        if pinned == 1 {
+            continue;
+        }
+        let age = age.ok_or_else(|| corrupt("Document revision timestamp is invalid"))?;
+        let retain = if age < KEEP_ALL_MS {
+            true
+        } else if age < KEEP_HOURLY_MS {
+            created_at
+                .get(..13)
+                .is_some_and(|bucket| hourly.insert(bucket.to_owned()))
+        } else if age < KEEP_DAILY_MS {
+            created_at
+                .get(..10)
+                .is_some_and(|bucket| daily.insert(bucket.to_owned()))
+        } else {
+            false
+        };
+        if retain && retained_unpinned < MAX_UNPINNED {
+            retained_unpinned += 1;
+            continue;
+        }
+        connection.execute(
+            "DELETE FROM document_versions \
+             WHERE version_id = ?1 AND document_id = ?2 AND pinned = 0",
+            params![version_id, document_id],
+        )?;
     }
     Ok(())
 }

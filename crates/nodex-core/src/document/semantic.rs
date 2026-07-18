@@ -37,6 +37,8 @@ pub(crate) enum SemanticMutationError {
 pub(crate) struct PreparedSemanticMutation {
     pub(crate) update_v1: Vec<u8>,
     pub(crate) touched_block_ids: Vec<String>,
+    pub(crate) write_fence_block_ids: Vec<String>,
+    pub(crate) title_write_fence_required: bool,
 }
 
 pub(crate) struct SemanticMutationContext<'a> {
@@ -195,6 +197,8 @@ pub(crate) fn prepare_semantic_mutation(
     Ok(PreparedSemanticMutation {
         update_v1: prepared.update_v1,
         touched_block_ids: touched,
+        write_fence_block_ids: prepared.write_fence_block_ids,
+        title_write_fence_required: prepared.title_write_fence_required,
     })
 }
 

@@ -80,6 +80,43 @@ CREATE TABLE core_module_receipts (
   CHECK (length(committed_at) > 0)
 ) WITHOUT ROWID, STRICT;
 
+CREATE TABLE document_structural_barriers (
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  generation INTEGER NOT NULL CHECK (generation >= 1),
+  head_seq INTEGER NOT NULL CHECK (head_seq >= 1),
+  operation_id TEXT NOT NULL,
+  block_ids_json TEXT NOT NULL,
+  title_fence INTEGER NOT NULL CHECK (title_fence IN (0, 1)),
+  committed_at TEXT NOT NULL,
+  PRIMARY KEY (document_id, generation, head_seq),
+  UNIQUE (operation_id),
+  CHECK (length(operation_id) BETWEEN 1 AND 512),
+  CHECK (json_valid(block_ids_json) AND json_type(block_ids_json) = 'array'),
+  CHECK (length(committed_at) > 0)
+) WITHOUT ROWID, STRICT;
+
+CREATE TRIGGER document_structural_barriers_validate_insert
+BEFORE INSERT ON document_structural_barriers
+WHEN NOT EXISTS (
+  SELECT 1 FROM documents document
+  WHERE document.id = NEW.document_id
+    AND document.generation = NEW.generation
+    AND document.head_seq = NEW.head_seq
+    AND document.readiness = 'ready'
+) OR EXISTS (
+  SELECT 1 FROM json_each(NEW.block_ids_json) block_id
+  WHERE block_id.type <> 'text'
+    OR length(block_id.value) NOT BETWEEN 1 AND 512
+) OR (
+  SELECT count(*) FROM json_each(NEW.block_ids_json)
+) <> (
+  SELECT count(DISTINCT block_id.value)
+  FROM json_each(NEW.block_ids_json) block_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Document structural barrier is invalid');
+END;
+
 INSERT OR IGNORE INTO nodex_agent_token_keys(id, key_material)
 VALUES (1, randomblob(32));
 "#;

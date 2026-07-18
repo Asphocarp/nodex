@@ -51,6 +51,8 @@ pub(crate) struct PersistYjsCommit<'a> {
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
     pub event_kind: &'a str,
+    pub write_fence_block_ids: &'a [String],
+    pub title_write_fence_required: bool,
 }
 
 pub(crate) fn read_document_authority(
@@ -219,6 +221,27 @@ pub(crate) fn persist_yjs_commit(
     )?;
     if changed != 1 {
         return Err(conflict("Document head advanced before commit"));
+    }
+    if !input.write_fence_block_ids.is_empty() || input.title_write_fence_required {
+        let mut block_ids = input.write_fence_block_ids.to_vec();
+        block_ids.sort();
+        block_ids.dedup();
+        connection.execute(
+            "INSERT INTO document_structural_barriers (\
+               document_id, generation, head_seq, operation_id, block_ids_json, \
+               title_fence, committed_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                input.authority.head.id,
+                input.authority.head.generation,
+                next_head_seq,
+                input.operation_id,
+                serde_json::to_string(&block_ids)
+                    .map_err(|_| internal("Structural barrier Block IDs"))?,
+                i64::from(input.title_write_fence_required),
+                now,
+            ],
+        )?;
     }
     replace_secondary_projections(
         connection,
