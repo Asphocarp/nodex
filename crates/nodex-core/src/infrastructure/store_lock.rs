@@ -1,0 +1,126 @@
+use std::fs::{self, File, OpenOptions};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
+
+use fs2::FileExt;
+
+use super::sqlite::{StoreError, StoreErrorCode};
+
+const PRIVATE_DIRECTORY_MODE: u32 = 0o700;
+const PRIVATE_FILE_MODE: u32 = 0o600;
+
+#[derive(Debug)]
+pub struct ProfileStoreLock {
+    _file: File,
+    path: PathBuf,
+}
+
+impl ProfileStoreLock {
+    pub fn acquire(profile_home: &Path) -> Result<Self, StoreError> {
+        if !profile_home.is_absolute() || !profile_home.is_dir() {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                "Profile home must be an existing absolute directory",
+                false,
+            ));
+        }
+        let metadata = fs::symlink_metadata(profile_home).map_err(|error| {
+            StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                format!("Profile home metadata is unavailable: {error}"),
+                false,
+            )
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                "Profile home must not be a symlink",
+                false,
+            ));
+        }
+
+        let directory = profile_home.join("run/core");
+        fs::create_dir_all(&directory).map_err(io_error)?;
+        if fs::symlink_metadata(&directory)
+            .map_err(io_error)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                "Profile runtime directory must not be a symlink",
+                false,
+            ));
+        }
+        fs::set_permissions(
+            &directory,
+            fs::Permissions::from_mode(PRIVATE_DIRECTORY_MODE),
+        )
+        .map_err(io_error)?;
+        let path = directory.join("store.lock");
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err(StoreError::new(
+                StoreErrorCode::InvalidProfile,
+                "Profile store lock must not be a symlink",
+                false,
+            ));
+        }
+        let mut options = OpenOptions::new();
+        options
+            .create(true)
+            .read(true)
+            .write(true)
+            .mode(PRIVATE_FILE_MODE);
+        let file = options.open(&path).map_err(io_error)?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(PRIVATE_FILE_MODE))
+            .map_err(io_error)?;
+        file.try_lock_exclusive().map_err(|_| {
+            StoreError::new(
+                StoreErrorCode::AlreadyOwned,
+                "Another Core already owns this Profile store",
+                true,
+            )
+        })?;
+        Ok(Self { _file: file, path })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+fn io_error(error: std::io::Error) -> StoreError {
+    StoreError::new(
+        StoreErrorCode::InvalidProfile,
+        format!("Profile store lock failed: {error}"),
+        false,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn one_private_lock_fences_store_open() {
+        let directory = tempdir().expect("profile");
+        let home = directory.path().canonicalize().expect("absolute profile");
+        let first = ProfileStoreLock::acquire(&home).expect("first owner");
+        assert_eq!(
+            fs::metadata(first.path())
+                .expect("lock metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            PRIVATE_FILE_MODE
+        );
+        let second = ProfileStoreLock::acquire(&home).expect_err("second owner rejected");
+        assert_eq!(second.code, StoreErrorCode::AlreadyOwned);
+        drop(first);
+        ProfileStoreLock::acquire(&home).expect("lock released");
+    }
+}
