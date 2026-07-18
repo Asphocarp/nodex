@@ -10,12 +10,17 @@ use nodex_core_contracts::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::json;
+use yrs::updates::encoder::Encode;
+use yrs::{ReadTxn, Transact};
 
 use crate::document::{
-    BlockDocumentSchema, PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsGenesis,
-    persist_yjs_genesis, prepare_page_yjs_genesis, read_document_authority, read_store_epoch,
-    sha256,
+    BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
+    PAGE_SCHEMA_KEY, PAGE_SCHEMA_VERSION, PersistYjsCommit, PersistYjsGenesis, YrsDocumentEngine,
+    decode_block_document, materialize_decoded_document, persist_yjs_commit, persist_yjs_genesis,
+    prepare_document_operation_update, prepare_page_yjs_genesis, read_document_authority,
+    read_store_epoch, reconstruct_yjs_engine, sha256,
 };
+use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
@@ -40,6 +45,21 @@ struct MutationEffects {
     affected_document_ids: Vec<String>,
     committed_revisions: BTreeMap<String, i64>,
     committed_at: String,
+}
+
+struct ResolvedWriteParent {
+    parent_key: String,
+    page_id: Option<String>,
+    project_id: String,
+    document: Option<ResolvedParentDocument>,
+    before_block_id: Option<String>,
+}
+
+struct ResolvedParentDocument {
+    authority: DocumentAuthorityRow,
+    engine: YrsDocumentEngine,
+    base_materialization: DocumentMaterialization,
+    schema: BlockDocumentSchema,
 }
 
 pub(super) fn apply(
@@ -137,6 +157,183 @@ pub(super) fn apply(
     })
 }
 
+fn resolve_write_parent(
+    connection: &Connection,
+    library_id: &str,
+    parent: &LibraryWriteParent,
+) -> Result<ResolvedWriteParent, StoreError> {
+    let LibraryWriteParent::Page {
+        page_id,
+        expected_document_generation,
+        expected_document_head_seq,
+        before,
+    } = parent
+    else {
+        let LibraryWriteParent::Library { before } = parent else {
+            unreachable!("closed LibraryWriteParent")
+        };
+        if let Some(anchor) = before {
+            validate_library_anchor(connection, library_id, anchor)?;
+        }
+        return Ok(ResolvedWriteParent {
+            parent_key: "library".to_owned(),
+            page_id: None,
+            project_id: preferred_project_id(connection, library_id)?,
+            document: None,
+            before_block_id: before.as_ref().map(|anchor| anchor.block_id.clone()),
+        });
+    };
+    let parent_row = connection
+        .query_row(
+            "SELECT page.document_id, block.project_id, page.lifecycle \
+             FROM pages page JOIN blocks block ON block.id = page.block_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2",
+            params![page_id, library_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((document_id, project_id, lifecycle)) = parent_row else {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Target Page is not in this Library",
+            false,
+        ));
+    };
+    if lifecycle != "active" {
+        return Err(invalid("Target Page is unavailable"));
+    }
+    let authority = read_document_authority(connection, &document_id)?
+        .ok_or_else(|| corrupt("Target Page has no Document authority"))?;
+    if authority.owner_block_id != *page_id
+        || authority.owner_type != "page"
+        || !authority.head.is_live_yjs_authority()
+    {
+        return Err(corrupt("Target Page Document authority is invalid"));
+    }
+    if authority.head.generation != *expected_document_generation
+        || authority.head.head_seq != *expected_document_head_seq
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::HeadConflict,
+            "Target Page content changed",
+            true,
+        ));
+    }
+    let schema = BlockDocumentSchema::from_identity(
+        &authority.head.schema_key,
+        authority.head.schema_version,
+    )
+    .filter(|schema| schema.has_title())
+    .ok_or_else(|| corrupt("Target Page has an unsupported Document schema"))?;
+    let engine = reconstruct_yjs_engine(connection, &authority.head)?;
+    let decoded = decode_block_document(engine.document(), schema)
+        .map_err(|error| corrupt(&format!("Target Page schema is invalid: {error}")))?;
+    let base_materialization = materialize_decoded_document(&decoded)
+        .map_err(|error| corrupt(&format!("Target Page cannot materialize: {error}")))?;
+    let before_block_id = if let Some(anchor) = before {
+        let actual = connection
+            .query_row(
+                "SELECT block.location_revision FROM document_block_index indexed \
+                 JOIN blocks block ON block.id = indexed.block_id \
+                 WHERE indexed.document_id = ?1 AND indexed.block_id = ?2 \
+                   AND indexed.parent_block_id IS NULL AND block.lifecycle = 'active'",
+                params![document_id, anchor.block_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(actual) = actual else {
+            return Err(invalid(
+                "Placement anchor is unavailable in the target Page",
+            ));
+        };
+        if actual != anchor.expected_location_revision {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Placement anchor changed",
+                true,
+            ));
+        }
+        Some(anchor.block_id.clone())
+    } else {
+        None
+    };
+    Ok(ResolvedWriteParent {
+        parent_key: format!("page:{page_id}"),
+        page_id: Some(page_id.clone()),
+        project_id,
+        document: Some(ResolvedParentDocument {
+            authority,
+            engine,
+            base_materialization,
+            schema,
+        }),
+        before_block_id,
+    })
+}
+
+fn persist_parent_insert(
+    connection: &Connection,
+    store_epoch: &str,
+    operation_id: &str,
+    parent: &ResolvedParentDocument,
+    block: MaterializedBlockNode,
+    before_block_id: Option<String>,
+) -> Result<i64, StoreError> {
+    let full_state = parent.engine.full_state_v1();
+    let prepared = prepare_document_operation_update(
+        &parent.authority.head.id,
+        parent.schema,
+        &full_state,
+        &parent.authority.head.state_vector,
+        &[DocumentBlockOperation::InsertBlock {
+            block,
+            parent_block_id: None,
+            before_block_id,
+        }],
+        false,
+    )
+    .map_err(|error| invalid(&format!("Parent Page update is invalid: {error}")))?;
+    let candidate = parent
+        .engine
+        .prepare_update_v1(&prepared.update_v1)
+        .map_err(|error| invalid(&format!("Parent Page update cannot apply: {error}")))?;
+    let transaction = candidate.document().transact();
+    let state_vector = transaction.state_vector().encode_v1();
+    let next_full_state = transaction.encode_state_as_update_v1(&yrs::StateVector::default());
+    drop(transaction);
+    if state_vector != prepared.state_vector_v1 {
+        return Err(corrupt("Prepared parent state vector is inconsistent"));
+    }
+    let update_id = format!("library-parent-insert:{}", sha256(operation_id.as_bytes()));
+    let persisted = persist_yjs_commit(
+        connection,
+        PersistYjsCommit {
+            authority: &parent.authority,
+            base_materialization: &parent.base_materialization,
+            materialization: &prepared.materialization,
+            update_id: &update_id,
+            client_session_id: "library-module",
+            base_head_seq: parent.authority.head.head_seq,
+            client_touched_block_ids: &[],
+            update: &prepared.update_v1,
+            state_vector: &state_vector,
+            full_state: &next_full_state,
+            store_epoch,
+            operation_id: &update_id,
+            event_kind: "document_updated",
+            write_fence_block_ids: &prepared.write_fence_block_ids,
+            title_write_fence_required: prepared.title_write_fence_required,
+        },
+    )?;
+    Ok(persisted.head_seq)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_database(
     connection: &Connection,
@@ -161,14 +358,7 @@ fn create_database(
             "Database name must contain between 1 and 256 characters",
         ));
     }
-    let before = match parent {
-        LibraryWriteParent::Library { before } => before.as_ref(),
-        LibraryWriteParent::Page { .. } => {
-            return Err(invalid(
-                "nested Database creation is not available in this Library slice",
-            ));
-        }
-    };
+    let resolved_parent = resolve_write_parent(connection, library_id, parent)?;
     if connection
         .query_row(
             "SELECT 1 WHERE EXISTS (SELECT 1 FROM blocks WHERE id = ?1) \
@@ -186,23 +376,47 @@ fn create_database(
             false,
         ));
     }
-    let project_id = preferred_project_id(connection, library_id)?;
+    let project_id = resolved_parent.project_id.clone();
     let now = sqlite_now(connection)?;
     connection.execute(
         "INSERT INTO blocks(\
            id, project_id, type, lifecycle, location_kind, containing_document_id, \
            containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-         ) VALUES (?1, ?2, 'database', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-        params![database_id, project_id, now],
+         ) VALUES (?1, ?2, 'database', 'active', ?3, ?4, NULL, 1, 1, ?5, ?5)",
+        params![
+            database_id,
+            project_id,
+            if resolved_parent.document.is_some() {
+                "document"
+            } else {
+                "space"
+            },
+            resolved_parent
+                .document
+                .as_ref()
+                .map(|parent| parent.authority.head.id.as_str()),
+            now
+        ],
     )?;
-    let top_level_rank = append_rank(connection, "top_level_block_placements", &project_id)?;
-    connection.execute(
-        "INSERT INTO top_level_block_placements(\
-           block_id, project_id, rank_key, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![database_id, project_id, top_level_rank, now],
-    )?;
-    insert_library_placement(connection, library_id, database_id, before, &now)?;
+    if resolved_parent.document.is_none() {
+        let top_level_rank = append_rank(connection, "top_level_block_placements", &project_id)?;
+        connection.execute(
+            "INSERT INTO top_level_block_placements(\
+               block_id, project_id, rank_key, created_at, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?4)",
+            params![database_id, project_id, top_level_rank, now],
+        )?;
+        insert_library_placement(
+            connection,
+            library_id,
+            database_id,
+            match parent {
+                LibraryWriteParent::Library { before } => before.as_ref(),
+                LibraryWriteParent::Page { .. } => None,
+            },
+            &now,
+        )?;
+    }
     create_database_authority(
         connection,
         library_id,
@@ -212,6 +426,20 @@ fn create_database(
         name,
         &now,
     )?;
+    let parent_head_seq = resolved_parent
+        .document
+        .as_ref()
+        .map(|parent| {
+            persist_parent_insert(
+                connection,
+                store_epoch,
+                operation_id,
+                parent,
+                embedded_resource_block(database_id, "database"),
+                resolved_parent.before_block_id.clone(),
+            )
+        })
+        .transpose()?;
     finish_mutation(
         connection,
         context,
@@ -225,18 +453,34 @@ fn create_database(
             created_target: Some(LibraryResourceTarget::Database {
                 database_id: database_id.to_owned(),
             }),
-            affected_parent_keys: vec!["library".to_owned()],
-            affected_page_ids: Vec::new(),
+            affected_parent_keys: vec![resolved_parent.parent_key.clone()],
+            affected_page_ids: resolved_parent.page_id.clone().into_iter().collect(),
             affected_database_ids: vec![database_id.to_owned()],
             affected_view_ids: vec![view_id.to_owned()],
-            affected_document_ids: Vec::new(),
-            committed_revisions: BTreeMap::from([
-                (format!("blockLocation:{database_id}"), 1),
-                (format!("blockMetadata:{database_id}"), 1),
-                (format!("databaseMetadata:{database_id}"), 1),
-                (format!("dataSourceSchema:{data_source_id}"), 1),
-                (format!("view:{view_id}"), 1),
-            ]),
+            affected_document_ids: resolved_parent
+                .document
+                .as_ref()
+                .map(|parent| parent.authority.head.id.clone())
+                .into_iter()
+                .collect(),
+            committed_revisions: BTreeMap::from_iter(
+                [
+                    (format!("blockLocation:{database_id}"), 1),
+                    (format!("blockMetadata:{database_id}"), 1),
+                    (format!("databaseMetadata:{database_id}"), 1),
+                    (format!("dataSourceSchema:{data_source_id}"), 1),
+                    (format!("view:{view_id}"), 1),
+                ]
+                .into_iter()
+                .chain(parent_head_seq.zip(resolved_parent.document.as_ref()).map(
+                    |(head_seq, parent)| {
+                        (
+                            format!("documentHead:{}", parent.authority.head.id),
+                            head_seq,
+                        )
+                    },
+                )),
+            ),
             committed_at: now,
         },
     )
@@ -261,14 +505,7 @@ fn create_page(
     if title.len() > MAX_PAGE_TITLE_LENGTH {
         return Err(invalid("Page title exceeds its bound"));
     }
-    let before = match parent {
-        LibraryWriteParent::Library { before } => before.as_ref(),
-        LibraryWriteParent::Page { .. } => {
-            return Err(invalid(
-                "nested Page creation is not available in this Library slice",
-            ));
-        }
-    };
+    let resolved_parent = resolve_write_parent(connection, library_id, parent)?;
     if connection
         .query_row(
             "SELECT 1 WHERE EXISTS (SELECT 1 FROM blocks WHERE id = ?1) \
@@ -285,7 +522,7 @@ fn create_page(
             false,
         ));
     }
-    let project_id = preferred_project_id(connection, library_id)?;
+    let project_id = resolved_parent.project_id.clone();
     let now = sqlite_now(connection)?;
     let root_block_id = deterministic_block_id(operation_id);
     let prepared = prepare_page_yjs_genesis(document_id, title, &root_block_id)?;
@@ -294,16 +531,34 @@ fn create_page(
         "INSERT INTO blocks (\
            id, project_id, type, lifecycle, location_kind, containing_document_id, \
            containing_database_id, location_revision, metadata_revision, created_at, updated_at\
-         ) VALUES (?1, ?2, 'page', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
-        params![page_id, project_id, now],
+         ) VALUES (?1, ?2, 'page', 'active', ?3, ?4, NULL, 1, 1, ?5, ?5)",
+        params![
+            page_id,
+            project_id,
+            if resolved_parent.document.is_some() {
+                "document"
+            } else {
+                "space"
+            },
+            resolved_parent
+                .document
+                .as_ref()
+                .map(|parent| parent.authority.head.id.as_str()),
+            now
+        ],
     )?;
-    let top_level_rank = append_rank(connection, "top_level_block_placements", &project_id)?;
-    connection.execute(
-        "INSERT INTO top_level_block_placements(\
-           block_id, project_id, rank_key, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, ?4, ?4)",
-        params![page_id, project_id, top_level_rank, now],
-    )?;
+    let top_level_rank = if resolved_parent.document.is_none() {
+        let rank = append_rank(connection, "top_level_block_placements", &project_id)?;
+        connection.execute(
+            "INSERT INTO top_level_block_placements(\
+               block_id, project_id, rank_key, created_at, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?4)",
+            params![page_id, project_id, rank, now],
+        )?;
+        Some(rank)
+    } else {
+        None
+    };
     connection.execute(
         "INSERT INTO documents(\
            id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
@@ -328,10 +583,32 @@ fn create_page(
         "INSERT INTO pages(\
            block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
            parent_revision, metadata_revision, created_at, updated_at\
-         ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
-        params![page_id, library_id, document_id, now],
+         ) VALUES (?1, ?2, ?3, ?4, ?5, 'active', 1, 1, ?6, ?6)",
+        params![
+            page_id,
+            library_id,
+            document_id,
+            if resolved_parent.page_id.is_some() {
+                "page"
+            } else {
+                "library"
+            },
+            resolved_parent.page_id.as_deref().unwrap_or(library_id),
+            now
+        ],
     )?;
-    insert_library_placement(connection, library_id, page_id, before, &now)?;
+    if resolved_parent.document.is_none() {
+        insert_library_placement(
+            connection,
+            library_id,
+            page_id,
+            match parent {
+                LibraryWriteParent::Library { before } => before.as_ref(),
+                LibraryWriteParent::Page { .. } => None,
+            },
+            &now,
+        )?;
+    }
     let authority = read_document_authority(connection, document_id)?
         .ok_or_else(|| corrupt("Created Page has no Document authority"))?;
     if authority.head.schema_key != BlockDocumentSchema::PageV2.schema_key()
@@ -360,11 +637,35 @@ fn create_page(
         page_id,
         &project_id,
         document_id,
-        &top_level_rank,
+        if resolved_parent.document.is_some() {
+            "document"
+        } else {
+            "space"
+        },
+        resolved_parent
+            .document
+            .as_ref()
+            .map(|parent| parent.authority.head.id.as_str()),
+        top_level_rank.as_deref(),
         &prepared.materialization,
         persisted.head_seq,
         &now,
     )?;
+
+    let parent_head_seq = resolved_parent
+        .document
+        .as_ref()
+        .map(|parent| {
+            persist_parent_insert(
+                connection,
+                store_epoch,
+                operation_id,
+                parent,
+                embedded_resource_block(page_id, "page"),
+                resolved_parent.before_block_id.clone(),
+            )
+        })
+        .transpose()?;
 
     finish_mutation(
         connection,
@@ -379,16 +680,36 @@ fn create_page(
             created_target: Some(LibraryResourceTarget::Page {
                 page_id: page_id.to_owned(),
             }),
-            affected_parent_keys: vec!["library".to_owned()],
-            affected_page_ids: vec![page_id.to_owned()],
+            affected_parent_keys: vec![resolved_parent.parent_key.clone()],
+            affected_page_ids: std::iter::once(page_id.to_owned())
+                .chain(resolved_parent.page_id.clone())
+                .collect(),
             affected_database_ids: Vec::new(),
             affected_view_ids: Vec::new(),
-            affected_document_ids: vec![document_id.to_owned()],
-            committed_revisions: BTreeMap::from([
-                (format!("blockLocation:{page_id}"), 1),
-                (format!("blockMetadata:{page_id}"), 1),
-                (format!("documentHead:{document_id}"), persisted.head_seq),
-            ]),
+            affected_document_ids: std::iter::once(document_id.to_owned())
+                .chain(
+                    resolved_parent
+                        .document
+                        .as_ref()
+                        .map(|parent| parent.authority.head.id.clone()),
+                )
+                .collect(),
+            committed_revisions: BTreeMap::from_iter(
+                [
+                    (format!("blockLocation:{page_id}"), 1),
+                    (format!("blockMetadata:{page_id}"), 1),
+                    (format!("documentHead:{document_id}"), persisted.head_seq),
+                ]
+                .into_iter()
+                .chain(parent_head_seq.zip(resolved_parent.document.as_ref()).map(
+                    |(head_seq, parent)| {
+                        (
+                            format!("documentHead:{}", parent.authority.head.id),
+                            head_seq,
+                        )
+                    },
+                )),
+            ),
             committed_at: now,
         },
     )
@@ -705,28 +1026,7 @@ fn insert_library_placement(
     now: &str,
 ) -> Result<String, StoreError> {
     if let Some(anchor) = before {
-        let actual = connection
-            .query_row(
-                "SELECT block.location_revision FROM library_block_placements placement \
-                 JOIN blocks block ON block.id = placement.block_id \
-                 WHERE placement.library_id = ?1 AND placement.block_id = ?2 \
-                   AND block.lifecycle = 'active'",
-                params![library_id, anchor.block_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
-        let Some(actual) = actual else {
-            return Err(invalid(
-                "Placement anchor is unavailable in the target Library",
-            ));
-        };
-        if actual != anchor.expected_location_revision {
-            return Err(StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Placement anchor changed",
-                true,
-            ));
-        }
+        validate_library_anchor(connection, library_id, anchor)?;
         let ids = connection
             .prepare(
                 "SELECT block_id FROM library_block_placements WHERE library_id = ?1 \
@@ -769,13 +1069,45 @@ fn insert_library_placement(
     Ok(rank)
 }
 
+fn validate_library_anchor(
+    connection: &Connection,
+    library_id: &str,
+    anchor: &nodex_core_contracts::library::LibraryPlacementAnchor,
+) -> Result<(), StoreError> {
+    let actual = connection
+        .query_row(
+            "SELECT block.location_revision FROM library_block_placements placement \
+             JOIN blocks block ON block.id = placement.block_id \
+             WHERE placement.library_id = ?1 AND placement.block_id = ?2 \
+               AND block.lifecycle = 'active'",
+            params![library_id, anchor.block_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    let Some(actual) = actual else {
+        return Err(invalid(
+            "Placement anchor is unavailable in the target Library",
+        ));
+    };
+    if actual == anchor.expected_location_revision {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::RevisionConflict,
+        "Placement anchor changed",
+        true,
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn insert_page_read_model(
     connection: &Connection,
     page_id: &str,
     project_id: &str,
     document_id: &str,
-    top_level_rank: &str,
+    location_kind: &str,
+    containing_document_id: Option<&str>,
+    top_level_rank: Option<&str>,
     materialization: &crate::document::DocumentMaterialization,
     head_seq: i64,
     now: &str,
@@ -789,12 +1121,14 @@ fn insert_page_read_model(
            view_rank_key, title, description_preview, description_length, has_description, \
            database_values_json, intrinsic_properties_json, property_revisions_json, \
            projection_version, created_at, updated_at\
-         ) VALUES (?1, ?2, 'active', 'space', NULL, NULL, ?3, 1, 1, ?4, 1, ?5, ?6, \
-           'ydoc_primary', NULL, NULL, NULL, NULL, NULL, ?7, ?8, ?9, ?10, '{}', '{}', '{}', \
-           1, ?11, ?11)",
+         ) VALUES (?1, ?2, 'active', ?3, ?4, NULL, ?5, 1, 1, ?6, 1, ?7, ?8, \
+           'ydoc_primary', NULL, NULL, NULL, NULL, NULL, ?9, ?10, ?11, ?12, '{}', '{}', '{}', \
+           1, ?13, ?13)",
         params![
             page_id,
             project_id,
+            location_kind,
+            containing_document_id,
             top_level_rank,
             document_id,
             head_seq,
@@ -851,6 +1185,16 @@ fn deterministic_block_id(seed: &str) -> String {
         &entropy[15..18],
         &entropy[18..30]
     )
+}
+
+fn embedded_resource_block(block_id: &str, block_type: &str) -> MaterializedBlockNode {
+    MaterializedBlockNode {
+        id: block_id.to_owned(),
+        block_type: block_type.to_owned(),
+        props: BTreeMap::new(),
+        content: None,
+        children: Vec::new(),
+    }
 }
 
 fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
@@ -1159,5 +1503,174 @@ mod tests {
                 Ok(())
             })
             .expect("durable Database evidence");
+
+        let nested_page = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-nested-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:nested".to_owned(),
+                        document_id: "document:nested".to_owned(),
+                        title: "Nested Page".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:created".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create nested Page");
+        assert_eq!(
+            nested_page.committed.receipt.committed_revisions["documentHead:document:created"],
+            2
+        );
+        let nested_database = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-nested-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: "018f0000-0000-7000-8000-000000000011".to_owned(),
+                        data_source_id: "018f0000-0000-7000-8000-000000000012".to_owned(),
+                        view_id: "018f0000-0000-7000-8000-000000000013".to_owned(),
+                        name: "Nested work".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:created".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 2,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create nested Database");
+        assert_eq!(
+            nested_database.committed.receipt.committed_revisions["documentHead:document:created"],
+            3
+        );
+        let nested_children = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::Children {
+                        parent: LibraryNavigationParent::Page {
+                            page_id: "page:created".to_owned(),
+                        },
+                        cursor: None,
+                        limit: None,
+                        force_include_target: None,
+                    },
+                },
+            )
+            .expect("read nested resources");
+        let LibraryReadValue::Children { items, total, .. } = nested_children.value else {
+            panic!("nested children snapshot");
+        };
+        assert_eq!(total, 2);
+        assert!(matches!(
+            &items[0],
+            nodex_core_contracts::library::LibraryNavigationNode::Page { page_id, .. }
+                if page_id == "page:nested"
+        ));
+        assert!(matches!(
+            &items[1],
+            nodex_core_contracts::library::LibraryNavigationNode::Database { database_id, .. }
+                if database_id == "018f0000-0000-7000-8000-000000000011"
+        ));
+        let stale = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:stale-nested-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:must-rollback".to_owned(),
+                        document_id: "document:must-rollback".to_owned(),
+                        title: "Must roll back".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:created".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 2,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect_err("stale nested create");
+        assert_eq!(
+            stale.code,
+            nodex_core_contracts::CoreErrorCode::RevisionConflict
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT parent.head_seq, parent_projection.document_projected_seq, \
+                       nested_block.location_kind, nested_block.containing_document_id, \
+                       nested_page.parent_kind, nested_page.parent_id, \
+                       nested_projection.location_kind, nested_projection.containing_document_id, \
+                       database_block.location_kind, database_block.containing_document_id, \
+                       (SELECT count(*) FROM document_block_index \
+                         WHERE document_id = parent.id AND parent_block_id IS NULL \
+                           AND block_id IN ('page:nested', \
+                             '018f0000-0000-7000-8000-000000000011')), \
+                       (SELECT count(*) FROM blocks WHERE id = 'page:must-rollback') \
+                     FROM documents parent \
+                     JOIN page_read_model parent_projection \
+                       ON parent_projection.document_id = parent.id \
+                     JOIN blocks nested_block ON nested_block.id = 'page:nested' \
+                     JOIN pages nested_page ON nested_page.block_id = nested_block.id \
+                     JOIN page_read_model nested_projection \
+                       ON nested_projection.page_block_id = nested_block.id \
+                     JOIN blocks database_block \
+                       ON database_block.id = '018f0000-0000-7000-8000-000000000011' \
+                     WHERE parent.id = 'document:created'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, String>(7)?,
+                            row.get::<_, String>(8)?,
+                            row.get::<_, String>(9)?,
+                            row.get::<_, i64>(10)?,
+                            row.get::<_, i64>(11)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        3,
+                        3,
+                        "document".to_owned(),
+                        "document:created".to_owned(),
+                        "page".to_owned(),
+                        "page:created".to_owned(),
+                        "document".to_owned(),
+                        "document:created".to_owned(),
+                        "document".to_owned(),
+                        "document:created".to_owned(),
+                        2,
+                        0,
+                    )
+                );
+                Ok(())
+            })
+            .expect("nested ownership evidence");
     }
 }

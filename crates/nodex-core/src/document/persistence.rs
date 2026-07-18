@@ -676,6 +676,27 @@ fn replace_secondary_projections(
     projected_seq: i64,
     now: &str,
 ) -> Result<(), StoreError> {
+    if authority.owner_type == "page" {
+        connection.execute(
+            "UPDATE page_read_model SET document_generation = ?1, document_projected_seq = ?2, \
+               document_schema_version = ?3, document_authority = 'ydoc_primary', title = ?4, \
+               description_preview = ?5, description_length = ?6, has_description = ?7, \
+               updated_at = ?8 WHERE page_block_id = ?9 AND document_id = ?10",
+            params![
+                authority.head.generation,
+                projected_seq,
+                authority.head.schema_version,
+                materialization.title,
+                materialization.preview,
+                i64::try_from(materialization.nfm.len())
+                    .map_err(|_| internal("Page description length overflow"))?,
+                i64::from(!materialization.nfm.trim().is_empty()),
+                now,
+                authority.owner_block_id,
+                authority.head.id,
+            ],
+        )?;
+    }
     connection.execute(
         "DELETE FROM block_asset_refs WHERE document_id = ?1",
         [&authority.head.id],

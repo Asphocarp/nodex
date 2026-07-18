@@ -51,5 +51,7 @@ pub use yrs_engine::{
 
 pub(crate) use genesis::prepare_page_yjs_genesis;
 pub(crate) use persistence::{
-    PersistYjsGenesis, persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,
+    DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
+    persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,
 };
+pub(crate) use runtime::reconstruct_yjs_engine;
