@@ -99,6 +99,10 @@ impl YrsDocumentEngine {
         &self.document_id
     }
 
+    pub(crate) fn document(&self) -> &Doc {
+        &self.document
+    }
+
     pub fn state_vector_v1(&self) -> Vec<u8> {
         self.document.transact().state_vector().encode_v1()
     }
@@ -223,6 +227,16 @@ impl YrsDocumentEngine {
             body_xml,
             state_vector,
         }
+    }
+}
+
+impl YrsUpdateCandidate {
+    pub(crate) fn document(&self) -> &Doc {
+        &self.document
+    }
+
+    pub(crate) fn did_change(&self) -> bool {
+        self.did_change
     }
 }
 

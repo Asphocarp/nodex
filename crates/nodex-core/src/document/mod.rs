@@ -1,6 +1,9 @@
 mod block_document;
 mod materialization;
+mod module;
 mod operations;
+mod persistence;
+mod runtime;
 mod yrs_engine;
 
 pub use block_document::{
@@ -14,6 +17,7 @@ pub use materialization::{
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,
     materialize_decoded_document, schema_metadata,
 };
+pub use module::{DocumentCacheMetrics, OwnedDocumentApplyOutcome, OwnedDocumentModule};
 pub use operations::{
     DocumentBlockOperation, DocumentBlockUpdatePatch, DocumentOperationError,
     DocumentOperationErrorCode, ExactNfmPatch, MAX_DOCUMENT_OPERATION_BATCH_SIZE,
@@ -29,6 +33,3 @@ pub use yrs_engine::{
     YrsEngineError, YrsUpdateCandidate, create_compatible_document, decode_state_vector_v1,
     has_pending_dependencies,
 };
-
-#[derive(Default)]
-pub struct OwnedDocumentModule;

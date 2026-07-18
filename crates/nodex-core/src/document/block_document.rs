@@ -26,6 +26,16 @@ pub enum BlockDocumentSchema {
 }
 
 impl BlockDocumentSchema {
+    pub fn from_identity(schema_key: &str, schema_version: i64) -> Option<Self> {
+        match (schema_key, schema_version) {
+            (PAGE_SCHEMA_KEY, 1) => Some(Self::PageV1),
+            (PAGE_SCHEMA_KEY, 2) => Some(Self::PageV2),
+            (SYNCED_BLOCK_SCHEMA_KEY, 1) => Some(Self::SyncedBlockV1),
+            (REUSABLE_TEMPLATE_SCHEMA_KEY, 1) => Some(Self::ReusableTemplateV1),
+            _ => None,
+        }
+    }
+
     pub fn schema_key(self) -> &'static str {
         match self {
             Self::PageV1 | Self::PageV2 => PAGE_SCHEMA_KEY,

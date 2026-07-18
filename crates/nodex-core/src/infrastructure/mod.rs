@@ -2,6 +2,7 @@
 
 pub mod document_repository;
 pub mod migration;
+pub mod module_receipts;
 pub mod schema;
 pub mod sqlite;
 pub mod store;

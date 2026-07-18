@@ -51,6 +51,34 @@ CREATE TABLE document_engine_fingerprints (
   CHECK (length(yrs_full_state_sha256) = 64 AND yrs_full_state_sha256 NOT GLOB '*[^0-9a-f]*'),
   CHECK (length(materialization_sha256) = 64 AND materialization_sha256 NOT GLOB '*[^0-9a-f]*')
 ) WITHOUT ROWID, STRICT;
+
+CREATE TABLE core_module_receipts (
+  module_name TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  adapter_kind TEXT NOT NULL,
+  operation_kind TEXT NOT NULL,
+  store_epoch TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  event_sequence INTEGER REFERENCES change_log(seq) ON DELETE RESTRICT,
+  committed_at TEXT NOT NULL,
+  PRIMARY KEY (module_name, operation_id),
+  CHECK (module_name IN (
+    'library', 'database', 'owned_document', 'project_workspace',
+    'automation', 'store_administration'
+  )),
+  CHECK (length(operation_id) BETWEEN 1 AND 512),
+  CHECK (length(profile_id) BETWEEN 1 AND 512),
+  CHECK (project_id IS NULL OR length(project_id) BETWEEN 1 AND 512),
+  CHECK (adapter_kind IN ('electron_host', 'loopback_http', 'native_cli', 'agent', 'test')),
+  CHECK (length(operation_kind) BETWEEN 1 AND 128),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (json_valid(result_json) AND json_type(result_json) = 'object'),
+  CHECK (length(committed_at) > 0)
+) WITHOUT ROWID, STRICT;
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,15 +507,8 @@ fn verify_update_hash(
 }
 
 fn registered_schema(key: &str, version: i64) -> Result<BlockDocumentSchema, StoreError> {
-    match (key, version) {
-        ("nodex.page", 1) => Ok(BlockDocumentSchema::PageV1),
-        ("nodex.page", 2) => Ok(BlockDocumentSchema::PageV2),
-        ("nodex.synced-block", 1) => Ok(BlockDocumentSchema::SyncedBlockV1),
-        ("nodex.reusable-template", 1) => Ok(BlockDocumentSchema::ReusableTemplateV1),
-        _ => Err(corrupt(format!(
-            "Document uses unregistered schema {key}@{version}"
-        ))),
-    }
+    BlockDocumentSchema::from_identity(key, version)
+        .ok_or_else(|| corrupt(format!("Document uses unregistered schema {key}@{version}")))
 }
 
 fn unix_time_millis() -> Result<u64, StoreError> {

@@ -19,7 +19,15 @@ const PROGRESS_HANDLER_OPS: i32 = 1_000;
 #[serde(rename_all = "snake_case")]
 pub enum StoreErrorCode {
     AlreadyOwned,
+    Conflict,
+    GenerationConflict,
+    HeadConflict,
+    IdempotencyKeyReused,
+    InvalidInput,
     InvalidProfile,
+    MissingDependencies,
+    NotFound,
+    Unauthorized,
     WriterQueueFull,
     WriterClosed,
     ReaderPoolTimeout,

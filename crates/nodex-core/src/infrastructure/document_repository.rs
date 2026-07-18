@@ -159,6 +159,40 @@ impl<'connection> DocumentReadRepository<'connection> {
         rows.into_iter().map(DocumentHeadRow::try_from).collect()
     }
 
+    pub fn document_head(&self, document_id: &str) -> Result<Option<DocumentHeadRow>, StoreError> {
+        validate_identifier(document_id, "documents.id")?;
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT id, project_id, generation, head_seq, schema_key, schema_version, \
+                        state_vector, state_hash, readiness, authority, genesis_source_revision, \
+                        created_at, updated_at, sync_engine \
+                 FROM documents WHERE id = ?1",
+                [document_id],
+                |row| {
+                    Ok(RawDocumentHead {
+                        id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        generation: row.get(2)?,
+                        head_seq: row.get(3)?,
+                        schema_key: row.get(4)?,
+                        schema_version: row.get(5)?,
+                        state_vector: row.get(6)?,
+                        state_hash: row.get(7)?,
+                        readiness: row.get(8)?,
+                        authority: row.get(9)?,
+                        genesis_source_revision: row.get(10)?,
+                        created_at: row.get(11)?,
+                        updated_at: row.get(12)?,
+                        sync_engine: row.get(13)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|_| corrupt_row("documents", "column types do not match the schema"))?;
+        raw.map(DocumentHeadRow::try_from).transpose()
+    }
+
     pub fn live_yjs_heads(&self) -> Result<Vec<DocumentHeadRow>, StoreError> {
         Ok(self
             .document_heads()?
