@@ -1,0 +1,12 @@
+[package]
+name = "nodex-core-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+nodex-core = { path = "../nodex-core" }
+nodex-core-contracts.workspace = true
+nodex-core-protocol.workspace = true
+

@@ -1,0 +1,11 @@
+[package]
+name = "nodex-core-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+nodex-core-contracts.workspace = true
+serde.workspace = true
+

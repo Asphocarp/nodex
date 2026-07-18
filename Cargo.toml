@@ -1,0 +1,23 @@
+[workspace]
+members = [
+  "crates/nodex-cli",
+  "crates/nodex-core",
+  "crates/nodex-core-contracts",
+  "crates/nodex-core-protocol",
+  "crates/nodex-core-server",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
+
+[workspace.dependencies]
+nodex-core-contracts = { path = "crates/nodex-core-contracts" }
+nodex-core-protocol = { path = "crates/nodex-core-protocol" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.17"
+yrs = { version = "=0.27.3", features = ["sync", "small-client"] }

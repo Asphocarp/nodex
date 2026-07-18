@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "yjsVersion": "13.6.31",
+  "title": "A 迁移 😀 é Nodex B",
+  "bodyXml": "<blockgroup><blockcontainer id=\"fixture-block-1\"><heading backgroundColor=\"default\" isToggleable=\"false\" level=\"1\" textAlignment=\"left\" textColor=\"default\"><code>Runtime</code> · concurrent</heading></blockcontainer><blockcontainer id=\"fixture-block-2\"><paragraph backgroundColor=\"default\" textAlignment=\"left\" textColor=\"default\">Parent <bold>bold</bold> with <link href=\"https://nodex.local/spec\">link</link> 😀 中文 é</paragraph><blockgroup><blockcontainer id=\"fixture-block-3\"><paragraph backgroundColor=\"default\" textAlignment=\"left\" textColor=\"default\">Nested child</paragraph></blockcontainer></blockgroup></blockcontainer><blockcontainer id=\"fixture-block-4\"><paragraph backgroundColor=\"default\" textAlignment=\"left\" textColor=\"default\">Sibling</paragraph></blockcontainer></blockgroup>",
+  "nfm": "# `Runtime` · concurrent\nParent **bold** with [link](https://nodex.local/spec) 😀 中文 é\n\tNested child\nSibling",
+  "blockIds": [
+    "fixture-block-1",
+    "fixture-block-2",
+    "fixture-block-4"
+  ]
+}
