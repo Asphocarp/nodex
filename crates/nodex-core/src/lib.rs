@@ -4,6 +4,7 @@ pub mod administration;
 pub mod automation;
 pub mod database;
 pub mod document;
+pub mod domain;
 pub mod infrastructure;
 pub mod library;
 pub mod workspace;

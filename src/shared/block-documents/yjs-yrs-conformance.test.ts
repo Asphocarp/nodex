@@ -8,6 +8,7 @@ import {
   applyAwarenessUpdate,
 } from "y-protocols/awareness";
 import * as Y from "yjs";
+import { materializePageDocument } from "./block-document-codec";
 
 interface BridgeSummary {
   readonly title: string;
@@ -117,6 +118,36 @@ afterEach(() => {
 });
 
 describe("Yjs/Yrs compatibility", () => {
+  test(
+    "materializes the same schema matrix after a Rust BlockTree round trip",
+    () => {
+      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-block-tree-"));
+      temporaryRoots.push(temporaryRoot);
+      const roundtripUpdatePath = path.join(temporaryRoot, "matrix-roundtrip.bin");
+      runBridge([
+        "matrix-block-tree-roundtrip",
+        fixtureRoot,
+        roundtripUpdatePath,
+      ]);
+
+      const source = new Y.Doc({ guid: "matrix-source" });
+      Y.applyUpdate(
+        source,
+        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
+      );
+      const roundtrip = new Y.Doc({ guid: "matrix-roundtrip" });
+      Y.applyUpdate(roundtrip, readFileSync(roundtripUpdatePath));
+
+      expect(materializePageDocument(roundtrip)).toEqual(
+        materializePageDocument(source),
+      );
+      expect(semanticXml(roundtrip.getXmlFragment("body"))).toEqual(
+        semanticXml(source.getXmlFragment("body")),
+      );
+    },
+    60_000,
+  );
+
   test(
     "continues editing a rich Page in both engines after a bidirectional round trip",
     () => {

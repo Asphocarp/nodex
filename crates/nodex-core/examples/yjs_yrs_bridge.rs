@@ -10,7 +10,10 @@ use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Any, GetString, Out, ReadTxn, Text, Transact, Update, Xml, XmlFragment, XmlOut};
 
-use nodex_core::document::{create_compatible_document, has_pending_dependencies};
+use nodex_core::document::{
+    BlockDocumentSchema, create_compatible_document, decode_block_document, encode_block_document,
+    has_pending_dependencies,
+};
 
 #[derive(Serialize)]
 struct DocumentSummary {
@@ -220,6 +223,25 @@ fn inspect_matrix(
     Ok(summarize(&document))
 }
 
+fn roundtrip_matrix_block_tree(
+    fixture_root: &Path,
+    output_update: &Path,
+) -> Result<DocumentSummary, Box<dyn std::error::Error>> {
+    let source = load_matrix_fixture(fixture_root)?;
+    let decoded = decode_block_document(&source, BlockDocumentSchema::PageV2)?;
+    let target = encode_block_document(
+        "nodex-yjs-yrs-matrix-block-tree-roundtrip",
+        decoded.schema,
+        decoded.title.as_deref(),
+        &decoded.block_tree,
+    )?;
+    let update = target
+        .transact()
+        .encode_state_as_update_v1(&yrs::StateVector::default());
+    fs::write(output_update, update)?;
+    Ok(summarize(&target))
+}
+
 #[derive(Serialize)]
 struct AwarenessSummary {
     client_id: u64,
@@ -262,6 +284,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         [_, mode, fixture_root, output_update] if mode == "matrix-generate" => {
             generate_matrix(Path::new(fixture_root), Path::new(output_update))?
         }
+        [_, mode, fixture_root, output_update] if mode == "matrix-block-tree-roundtrip" => {
+            roundtrip_matrix_block_tree(Path::new(fixture_root), Path::new(output_update))?
+        }
         [_, mode, fixture_root, rust_update, third_update] if mode == "inspect" => inspect(
             Path::new(fixture_root),
             Path::new(rust_update),
@@ -276,7 +301,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: yjs_yrs_bridge generate|matrix-generate <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update>"
+                "usage: yjs_yrs_bridge generate|matrix-generate|matrix-block-tree-roundtrip <fixture-root> <output-update> | inspect|matrix-inspect <fixture-root> <rust-update> <third-update> | awareness <input-update> <output-update>"
                     .into(),
             );
         }
