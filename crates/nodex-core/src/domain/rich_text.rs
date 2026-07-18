@@ -159,6 +159,90 @@ pub fn rich_text_plain_text(items: &[RichTextItem]) -> String {
         .collect()
 }
 
+pub fn canonicalize_rich_text(
+    items: &[RichTextItem],
+) -> Result<RichTextMaterialization, RichTextError> {
+    materialize_rich_text(&encode_rich_text_delta(items)?)
+}
+
+pub fn rich_text_to_delta(items: &[RichTextItem]) -> Result<Vec<TextDelta>, RichTextError> {
+    let canonical = canonicalize_rich_text(items)?;
+    encode_rich_text_delta(&canonical.rich_text)
+}
+
+fn encode_rich_text_delta(items: &[RichTextItem]) -> Result<Vec<TextDelta>, RichTextError> {
+    if items.len() > MAX_RICH_TEXT_SEGMENTS {
+        return Err(RichTextError::TooManySegments);
+    }
+    items
+        .iter()
+        .map(|item| match item {
+            RichTextItem::Text { text, styles } => Ok(TextDelta {
+                insert: text.clone(),
+                attributes: encode_styles(styles),
+            }),
+            RichTextItem::Link { text, href, styles } => {
+                if !valid_bounded_string(href, MAX_LINK_LENGTH)
+                    || href.chars().any(char::is_control)
+                {
+                    return Err(RichTextError::InvalidLink);
+                }
+                let mut attributes = encode_styles(styles);
+                attributes.insert(
+                    LINK_ATTRIBUTE.to_owned(),
+                    PortableValue::String(href.clone()),
+                );
+                Ok(TextDelta {
+                    insert: text.clone(),
+                    attributes,
+                })
+            }
+            RichTextItem::LineBreak => Ok(TextDelta {
+                insert: "\n".to_owned(),
+                attributes: BTreeMap::new(),
+            }),
+            RichTextItem::ThreadMention { .. } | RichTextItem::DateMention { .. } => {
+                validate_atom(item)?;
+                let encoded =
+                    serde_json::to_string(item).map_err(|_| RichTextError::InvalidInlineItem)?;
+                Ok(TextDelta {
+                    insert: RICH_TEXT_ATOM.to_string(),
+                    attributes: [(ATOM_ATTRIBUTE.to_owned(), PortableValue::String(encoded))]
+                        .into_iter()
+                        .collect(),
+                })
+            }
+        })
+        .collect()
+}
+
+fn encode_styles(styles: &RichTextStyles) -> BTreeMap<String, PortableValue> {
+    let mut attributes = BTreeMap::new();
+    for (key, enabled) in [
+        ("bold", styles.bold),
+        ("italic", styles.italic),
+        ("underline", styles.underline),
+        ("strike", styles.strikethrough),
+        ("code", styles.code),
+    ] {
+        if enabled {
+            attributes.insert(key.to_owned(), PortableValue::Boolean(true));
+        }
+    }
+    if let Some(color) = &styles.color {
+        attributes.insert(
+            if color.ends_with("_bg") {
+                "backgroundColor"
+            } else {
+                "textColor"
+            }
+            .to_owned(),
+            PortableValue::String(color.clone()),
+        );
+    }
+    attributes
+}
+
 fn decode_chunk(chunk: &TextDelta, output: &mut Vec<RichTextItem>) -> Result<(), RichTextError> {
     for key in chunk.attributes.keys() {
         if matches!(
@@ -535,6 +619,57 @@ mod tests {
         assert_eq!(
             materialize_rich_text(&[invalid]),
             Err(RichTextError::TitleTooLong)
+        );
+    }
+
+    #[test]
+    fn canonical_rich_title_round_trips_back_to_y_text_delta() {
+        let (actual, _) = {
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yjs-yrs");
+            let document = create_compatible_document("rich-title-inverse");
+            let update = std::fs::read(root.join("matrix-base.bin")).expect("fixture");
+            document
+                .transact_mut()
+                .apply_update(Update::decode_v1(&update).expect("valid fixture"))
+                .expect("fixture applies");
+            let transaction = document.transact();
+            let title = transaction.get_text("title").expect("title root");
+            let delta = decode_text_delta(&title, &transaction).expect("title delta");
+            let materialized = materialize_rich_text(&delta).expect("rich title");
+            (materialized, delta)
+        };
+
+        let encoded = rich_text_to_delta(&actual.rich_text).expect("inverse title Delta");
+        let roundtrip = materialize_rich_text(&encoded).expect("round-trip title");
+        assert_eq!(roundtrip, actual);
+    }
+
+    #[test]
+    fn canonicalizes_adjacent_text_and_embedded_newlines() {
+        let items = vec![
+            RichTextItem::Text {
+                text: "one".to_owned(),
+                styles: RichTextStyles::default(),
+            },
+            RichTextItem::Text {
+                text: "\ntwo".to_owned(),
+                styles: RichTextStyles::default(),
+            },
+        ];
+        let canonical = canonicalize_rich_text(&items).expect("canonical rich title");
+        assert_eq!(
+            canonical.rich_text,
+            vec![
+                RichTextItem::Text {
+                    text: "one".to_owned(),
+                    styles: RichTextStyles::default(),
+                },
+                RichTextItem::LineBreak,
+                RichTextItem::Text {
+                    text: "two".to_owned(),
+                    styles: RichTextStyles::default(),
+                },
+            ]
         );
     }
 }
