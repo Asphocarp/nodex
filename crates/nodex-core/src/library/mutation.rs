@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use nodex_core_contracts::library::{
-    LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent, LibraryReceipt,
-    LibraryResourceTarget, LibraryWriteParent,
+    LibraryAccess, LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent,
+    LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -60,6 +60,18 @@ struct ResolvedParentDocument {
     engine: YrsDocumentEngine,
     base_materialization: DocumentMaterialization,
     schema: BlockDocumentSchema,
+}
+
+struct ResourceAuthority {
+    id: String,
+    project_id: String,
+    resource_kind: &'static str,
+    lifecycle: String,
+    location_kind: String,
+    containing_document_id: Option<String>,
+    location_revision: i64,
+    block_metadata_revision: i64,
+    resource_metadata_revision: i64,
 }
 
 pub(super) fn apply(
@@ -149,12 +161,763 @@ pub(super) fn apply(
                     name,
                     parent,
                 ),
-                _ => Err(invalid(
-                    "this durable Library slice currently supports create operations only",
-                )),
+                LibraryIntent::ArchiveResource {
+                    target,
+                    expected_metadata_revision,
+                } => change_resource_lifecycle(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    target,
+                    *expected_metadata_revision,
+                    false,
+                ),
+                LibraryIntent::RestoreResource {
+                    target,
+                    expected_metadata_revision,
+                } => change_resource_lifecycle(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    target,
+                    *expected_metadata_revision,
+                    true,
+                ),
+                LibraryIntent::GrantProjectAccess {
+                    project_id,
+                    target,
+                    access,
+                } => grant_project_access(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    project_id,
+                    target,
+                    *access,
+                ),
+                LibraryIntent::MoveBlock {
+                    target,
+                    expected_location_revision,
+                    parent,
+                } => move_block(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    target,
+                    *expected_location_revision,
+                    parent,
+                ),
             }
         })
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn move_block(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    target: &LibraryResourceTarget,
+    expected_location_revision: i64,
+    parent: &LibraryWriteParent,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let authority = read_resource_authority(connection, library_id, target)?;
+    if authority.lifecycle != "active" {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Only an active Library resource can move",
+            false,
+        ));
+    }
+    if authority.location_revision != expected_location_revision {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Library resource moved since this action began",
+            true,
+        ));
+    }
+    if authority.location_kind == "database" {
+        return Err(invalid(
+            "A Data Source row Page must move through the Database Module",
+        ));
+    }
+    let resolved_parent = resolve_write_parent(connection, library_id, parent)?;
+    if authority.resource_kind == "page"
+        && let Some(target_page_id) = &resolved_parent.page_id
+    {
+        let cycle = connection
+            .query_row(
+                "WITH RECURSIVE ancestors(page_id) AS (\
+                   SELECT ?1 \
+                   UNION ALL \
+                   SELECT page.parent_id FROM pages page JOIN ancestors current \
+                     ON page.block_id = current.page_id \
+                   WHERE page.parent_kind = 'page'\
+                 ) SELECT 1 FROM ancestors WHERE page_id = ?2 LIMIT 1",
+                params![target_page_id, authority.id],
+                |_| Ok(()),
+            )
+            .optional()?;
+        if cycle.is_some() {
+            return Err(invalid("A Page cannot move below itself"));
+        }
+    }
+    let target_project_id = resolved_parent.document.as_ref().map_or_else(
+        || authority.project_id.clone(),
+        |_| resolved_parent.project_id.clone(),
+    );
+    if target_project_id != authority.project_id {
+        return Err(invalid(
+            "Cross-Project Library resource rehome is not available in this slice",
+        ));
+    }
+    let source_parent_key = resource_parent_key(connection, &authority)?;
+    let source_document_id = authority.containing_document_id.clone();
+    let source_document = source_document_id
+        .as_deref()
+        .map(|document_id| load_parent_document(connection, document_id))
+        .transpose()?;
+    let source_parent_page_id = source_document
+        .as_ref()
+        .map(|source| source.authority.owner_block_id.clone());
+    let target_document_id = resolved_parent
+        .document
+        .as_ref()
+        .map(|target| target.authority.head.id.clone());
+    let same_document = source_document_id.is_some() && source_document_id == target_document_id;
+    let moved_block = source_document
+        .as_ref()
+        .and_then(|source| {
+            find_materialized_block(&source.base_materialization.block_tree, &authority.id)
+        })
+        .unwrap_or_else(|| embedded_resource_block(&authority.id, authority.resource_kind));
+    let now = sqlite_now(connection)?;
+
+    if authority.location_kind == "space" && target_document_id.is_some() {
+        connection.execute(
+            "DELETE FROM top_level_block_placements WHERE block_id = ?1",
+            [&authority.id],
+        )?;
+        connection.execute(
+            "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+            params![authority.id, library_id],
+        )?;
+    }
+
+    let changed = connection.execute(
+        "UPDATE blocks SET location_kind = ?1, containing_document_id = ?2, \
+           containing_database_id = NULL, location_revision = location_revision + 1, \
+           updated_at = ?3 WHERE id = ?4 AND location_revision = ?5",
+        params![
+            if target_document_id.is_some() {
+                "document"
+            } else {
+                "space"
+            },
+            target_document_id,
+            now,
+            authority.id,
+            expected_location_revision
+        ],
+    )?;
+    if changed != 1 {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Library resource changed during move",
+            true,
+        ));
+    }
+
+    if target_document_id.is_none() {
+        connection.execute(
+            "DELETE FROM library_block_placements WHERE block_id = ?1 AND library_id = ?2",
+            params![authority.id, library_id],
+        )?;
+        if authority.location_kind != "space" {
+            let rank = append_rank(
+                connection,
+                "top_level_block_placements",
+                &authority.project_id,
+            )?;
+            connection.execute(
+                "INSERT INTO top_level_block_placements(\
+                   block_id, project_id, rank_key, created_at, updated_at\
+                 ) VALUES (?1, ?2, ?3, ?4, ?4)",
+                params![authority.id, authority.project_id, rank, now],
+            )?;
+        }
+        insert_library_placement(
+            connection,
+            library_id,
+            &authority.id,
+            match parent {
+                LibraryWriteParent::Library { before } => before.as_ref(),
+                LibraryWriteParent::Page { .. } => None,
+            },
+            &now,
+        )?;
+    }
+
+    let mut committed_document_heads = BTreeMap::new();
+    if same_document {
+        let target_document = resolved_parent
+            .document
+            .as_ref()
+            .ok_or_else(|| corrupt("Same-Document move lost its target"))?;
+        let head_seq = persist_parent_operations(
+            connection,
+            store_epoch,
+            operation_id,
+            "move",
+            target_document,
+            &[DocumentBlockOperation::MoveBlock {
+                block_id: authority.id.clone(),
+                parent_block_id: None,
+                before_block_id: resolved_parent.before_block_id.clone(),
+            }],
+        )?;
+        committed_document_heads.insert(target_document.authority.head.id.clone(), head_seq);
+    } else {
+        if let Some(source) = &source_document {
+            let head_seq = persist_parent_operations(
+                connection,
+                store_epoch,
+                operation_id,
+                "source",
+                source,
+                &[DocumentBlockOperation::DeleteBlock {
+                    block_id: authority.id.clone(),
+                }],
+            )?;
+            committed_document_heads.insert(source.authority.head.id.clone(), head_seq);
+        }
+        if let Some(target_document) = &resolved_parent.document {
+            let head_seq = persist_parent_operations(
+                connection,
+                store_epoch,
+                operation_id,
+                "target",
+                target_document,
+                &[DocumentBlockOperation::InsertBlock {
+                    block: moved_block,
+                    parent_block_id: None,
+                    before_block_id: resolved_parent.before_block_id.clone(),
+                }],
+            )?;
+            committed_document_heads.insert(target_document.authority.head.id.clone(), head_seq);
+        }
+    }
+
+    if authority.resource_kind == "page" {
+        let parent_kind = if resolved_parent.page_id.is_some() {
+            "page"
+        } else {
+            "library"
+        };
+        let parent_id = resolved_parent.page_id.as_deref().unwrap_or(library_id);
+        let changed = connection.execute(
+            "UPDATE pages SET parent_kind = ?1, parent_id = ?2, parent_revision = ?3, \
+               updated_at = ?4 WHERE block_id = ?5 AND library_id = ?6",
+            params![
+                parent_kind,
+                parent_id,
+                expected_location_revision + 1,
+                now,
+                authority.id,
+                library_id
+            ],
+        )?;
+        if changed != 1 {
+            return Err(corrupt("Moved Page lost its canonical coordinates"));
+        }
+        let top_level_rank = if target_document_id.is_none() {
+            connection
+                .query_row(
+                    "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
+                    [&authority.id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+        } else {
+            None
+        };
+        connection.execute(
+            "UPDATE page_read_model SET location_kind = ?1, containing_document_id = ?2, \
+               containing_database_id = NULL, top_level_rank_key = ?3, location_revision = ?4, \
+               updated_at = ?5 WHERE page_block_id = ?6",
+            params![
+                if target_document_id.is_some() {
+                    "document"
+                } else {
+                    "space"
+                },
+                target_document_id,
+                top_level_rank,
+                expected_location_revision + 1,
+                now,
+                authority.id
+            ],
+        )?;
+    }
+
+    let mut affected_page_ids = vec![];
+    if authority.resource_kind == "page" {
+        affected_page_ids.push(authority.id.clone());
+    }
+    affected_page_ids.extend(source_parent_page_id);
+    affected_page_ids.extend(resolved_parent.page_id.clone());
+    normalize_ids(&mut affected_page_ids);
+    let mut affected_parent_keys = vec![source_parent_key, resolved_parent.parent_key];
+    normalize_ids(&mut affected_parent_keys);
+    let mut affected_document_ids = committed_document_heads.keys().cloned().collect::<Vec<_>>();
+    normalize_ids(&mut affected_document_ids);
+    let committed_revisions = BTreeMap::from_iter(
+        [(
+            format!("blockLocation:{}", authority.id),
+            expected_location_revision + 1,
+        )]
+        .into_iter()
+        .chain(
+            committed_document_heads
+                .into_iter()
+                .map(|(document_id, head_seq)| (format!("documentHead:{document_id}"), head_seq)),
+        ),
+    );
+    finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            project_id: authority.project_id,
+            operation_kind: "move_block",
+            did_mutate: true,
+            created_target: None,
+            affected_parent_keys,
+            affected_page_ids,
+            affected_database_ids: (authority.resource_kind == "database")
+                .then(|| authority.id.clone())
+                .into_iter()
+                .collect(),
+            affected_view_ids: Vec::new(),
+            affected_document_ids,
+            committed_revisions,
+            committed_at: now,
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn change_resource_lifecycle(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    target: &LibraryResourceTarget,
+    expected_metadata_revision: i64,
+    restore: bool,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let authority = read_resource_authority(connection, library_id, target)?;
+    let (from, to, operation_kind) = if restore {
+        ("archived", "active", "restore_resource")
+    } else {
+        ("active", "archived", "archive_resource")
+    };
+    if authority.lifecycle != from
+        || authority.resource_metadata_revision != expected_metadata_revision
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Library resource lifecycle or metadata changed",
+            true,
+        ));
+    }
+    if authority.location_kind == "database" {
+        return Err(invalid(
+            "A Data Source row Page must change lifecycle through the Database Module",
+        ));
+    }
+    if authority.resource_kind == "database" && !restore {
+        let protected = connection
+            .query_row(
+                "SELECT 1 WHERE EXISTS (\
+                   SELECT 1 FROM project_database_bindings \
+                   WHERE database_block_id = ?1 AND lifecycle = 'active'\
+                 ) OR EXISTS (\
+                   SELECT 1 FROM projects \
+                   WHERE database_block_id = ?1 AND lifecycle = 'active'\
+                 )",
+                [&authority.id],
+                |_| Ok(()),
+            )
+            .optional()?;
+        if protected.is_some() {
+            return Err(StoreError::new(
+                StoreErrorCode::Conflict,
+                "An active primary Database cannot be archived",
+                false,
+            ));
+        }
+    }
+    if authority.resource_kind == "page" && restore {
+        let parent = connection.query_row(
+            "SELECT parent_kind, parent_id FROM pages WHERE block_id = ?1",
+            [&authority.id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        if parent.0 == "page" {
+            let active = connection
+                .query_row(
+                    "SELECT 1 FROM pages WHERE block_id = ?1 AND library_id = ?2 \
+                     AND lifecycle = 'active'",
+                    params![parent.1, library_id],
+                    |_| Ok(()),
+                )
+                .optional()?;
+            if active.is_none() {
+                return Err(invalid(
+                    "Restore the parent Page before restoring this Page",
+                ));
+            }
+        }
+    }
+    let now = sqlite_now(connection)?;
+    let changed = connection.execute(
+        "UPDATE blocks SET lifecycle = ?1, metadata_revision = metadata_revision + 1, \
+           updated_at = ?2 WHERE id = ?3 AND lifecycle = ?4 AND metadata_revision = ?5",
+        params![
+            to,
+            now,
+            authority.id,
+            from,
+            authority.block_metadata_revision
+        ],
+    )?;
+    if changed != 1 {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Library resource changed during lifecycle transition",
+            true,
+        ));
+    }
+    if authority.resource_kind == "page" {
+        let changed = connection.execute(
+            "UPDATE pages SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
+             WHERE block_id = ?4 AND library_id = ?5",
+            params![
+                to,
+                authority.block_metadata_revision + 1,
+                now,
+                authority.id,
+                library_id
+            ],
+        )?;
+        if changed != 1 {
+            return Err(corrupt("Page lifecycle authority disappeared"));
+        }
+        connection.execute(
+            "UPDATE page_read_model SET lifecycle = ?1, metadata_revision = ?2, updated_at = ?3 \
+             WHERE page_block_id = ?4",
+            params![to, authority.block_metadata_revision + 1, now, authority.id],
+        )?;
+    } else {
+        let changed = connection.execute(
+            "UPDATE database_containers SET lifecycle = ?1, \
+               metadata_revision = metadata_revision + 1, updated_at = ?2 \
+             WHERE block_id = ?3 AND lifecycle = ?4 AND metadata_revision = ?5",
+            params![
+                to,
+                now,
+                authority.id,
+                from,
+                authority.resource_metadata_revision
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Database changed during lifecycle transition",
+                true,
+            ));
+        }
+    }
+    let parent_key = resource_parent_key(connection, &authority)?;
+    let affected_document_ids = if authority.resource_kind == "page" {
+        vec![connection.query_row(
+            "SELECT document_id FROM pages WHERE block_id = ?1",
+            [&authority.id],
+            |row| row.get::<_, String>(0),
+        )?]
+    } else {
+        Vec::new()
+    };
+    finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            project_id: authority.project_id,
+            operation_kind,
+            did_mutate: true,
+            created_target: None,
+            affected_parent_keys: vec![parent_key],
+            affected_page_ids: (authority.resource_kind == "page")
+                .then(|| authority.id.clone())
+                .into_iter()
+                .collect(),
+            affected_database_ids: (authority.resource_kind == "database")
+                .then(|| authority.id.clone())
+                .into_iter()
+                .collect(),
+            affected_view_ids: Vec::new(),
+            affected_document_ids,
+            committed_revisions: BTreeMap::from_iter(
+                [(
+                    format!("blockMetadata:{}", authority.id),
+                    authority.block_metadata_revision + 1,
+                )]
+                .into_iter()
+                .chain((authority.resource_kind == "database").then(|| {
+                    (
+                        format!("databaseMetadata:{}", authority.id),
+                        authority.resource_metadata_revision + 1,
+                    )
+                })),
+            ),
+            committed_at: now,
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn grant_project_access(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    library_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    project_id: &str,
+    target: &LibraryResourceTarget,
+    access: LibraryAccess,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    validate_id("project_id", project_id)?;
+    let project = connection
+        .query_row(
+            "SELECT lifecycle, database_block_id FROM projects \
+             WHERE id = ?1 AND library_id = ?2",
+            params![project_id, library_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()?;
+    let Some((project_lifecycle, primary_database_id)) = project else {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Project is unavailable in this Library",
+            false,
+        ));
+    };
+    if project_lifecycle != "active" {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Project must be active before it can receive access",
+            false,
+        ));
+    }
+    let authority = read_resource_authority(connection, library_id, target)?;
+    let access = match access {
+        LibraryAccess::Read => "read",
+        LibraryAccess::ReadWrite => "read_write",
+    };
+    let primary_access = authority.resource_kind == "database"
+        && primary_database_id.as_deref() == Some(authority.id.as_str());
+    let existing = connection
+        .query_row(
+            "SELECT id, access, lifecycle, revision FROM project_resource_grants \
+             WHERE project_id = ?1 AND root_kind = ?2 AND root_id = ?3",
+            params![project_id, authority.resource_kind, authority.id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    let now = sqlite_now(connection)?;
+    let (did_mutate, revision) = if primary_access {
+        (false, None)
+    } else if let Some((grant_id, current_access, lifecycle, revision)) = existing {
+        if current_access == access && lifecycle == "active" {
+            (false, Some(revision))
+        } else {
+            let changed = connection.execute(
+                "UPDATE project_resource_grants SET access = ?1, lifecycle = 'active', \
+                   revision = revision + 1, updated_at = ?2 WHERE id = ?3 AND revision = ?4",
+                params![access, now, grant_id, revision],
+            )?;
+            if changed != 1 {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Project grant changed during update",
+                    true,
+                ));
+            }
+            (true, Some(revision + 1))
+        }
+    } else {
+        let grant_id = format!(
+            "grant:{}",
+            sha256(
+                serde_json::to_string(&[
+                    project_id,
+                    authority.resource_kind,
+                    authority.id.as_str()
+                ])
+                .map_err(|_| internal("Project grant identity"))?
+                .as_bytes()
+            )
+        );
+        connection.execute(
+            "INSERT INTO project_resource_grants(\
+               id, project_id, library_id, root_kind, root_id, access, recursive, revision, \
+               lifecycle, created_at, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 1, 'active', ?7, ?7)",
+            params![
+                grant_id,
+                project_id,
+                library_id,
+                authority.resource_kind,
+                authority.id,
+                access,
+                now
+            ],
+        )?;
+        (true, Some(1))
+    };
+    finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            project_id: project_id.to_owned(),
+            operation_kind: "grant_project_access",
+            did_mutate,
+            created_target: None,
+            affected_parent_keys: Vec::new(),
+            affected_page_ids: (authority.resource_kind == "page")
+                .then(|| authority.id.clone())
+                .into_iter()
+                .collect(),
+            affected_database_ids: (authority.resource_kind == "database")
+                .then(|| authority.id.clone())
+                .into_iter()
+                .collect(),
+            affected_view_ids: Vec::new(),
+            affected_document_ids: Vec::new(),
+            committed_revisions: revision
+                .map(|revision| (format!("projectGrant:{project_id}"), revision))
+                .into_iter()
+                .collect(),
+            committed_at: now,
+        },
+    )
+}
+
+fn read_resource_authority(
+    connection: &Connection,
+    library_id: &str,
+    target: &LibraryResourceTarget,
+) -> Result<ResourceAuthority, StoreError> {
+    let (id, resource_kind) = match target {
+        LibraryResourceTarget::Page { page_id } => (page_id, "page"),
+        LibraryResourceTarget::Database { database_id } => (database_id, "database"),
+    };
+    let row = connection
+        .query_row(
+            "SELECT block.project_id, block.lifecycle, block.location_kind, \
+               block.containing_document_id, block.location_revision, block.metadata_revision, \
+               CASE WHEN block.type = 'page' THEN page.metadata_revision \
+                    ELSE container.metadata_revision END \
+             FROM blocks block \
+             LEFT JOIN pages page ON page.block_id = block.id \
+             LEFT JOIN database_containers container ON container.block_id = block.id \
+             WHERE block.id = ?1 AND block.type = ?2 \
+               AND COALESCE(page.library_id, container.library_id) = ?3",
+            params![id, resource_kind, library_id],
+            |row| {
+                Ok(ResourceAuthority {
+                    id: id.clone(),
+                    project_id: row.get(0)?,
+                    resource_kind,
+                    lifecycle: row.get(1)?,
+                    location_kind: row.get(2)?,
+                    containing_document_id: row.get(3)?,
+                    location_revision: row.get(4)?,
+                    block_metadata_revision: row.get(5)?,
+                    resource_metadata_revision: row.get(6)?,
+                })
+            },
+        )
+        .optional()?;
+    row.ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::NotFound,
+            "Library resource is unavailable",
+            false,
+        )
+    })
+}
+
+fn resource_parent_key(
+    connection: &Connection,
+    authority: &ResourceAuthority,
+) -> Result<String, StoreError> {
+    if authority.location_kind == "space" {
+        return Ok("library".to_owned());
+    }
+    if authority.location_kind != "document" {
+        return Err(invalid("Library resource is not Library/Page placed"));
+    }
+    let document_id = authority
+        .containing_document_id
+        .as_deref()
+        .ok_or_else(|| corrupt("Document-placed resource has no Document"))?;
+    connection
+        .query_row(
+            "SELECT page.block_id FROM block_documents ownership \
+             JOIN pages page ON page.block_id = ownership.block_id \
+             WHERE ownership.document_id = ?1",
+            [document_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|page_id| format!("page:{page_id}"))
+        .ok_or_else(|| corrupt("Containing Document has no Page owner"))
 }
 
 fn resolve_write_parent(
@@ -239,10 +1002,10 @@ fn resolve_write_parent(
     let before_block_id = if let Some(anchor) = before {
         let actual = connection
             .query_row(
-                "SELECT block.location_revision FROM document_block_index indexed \
-                 JOIN blocks block ON block.id = indexed.block_id \
-                 WHERE indexed.document_id = ?1 AND indexed.block_id = ?2 \
-                   AND indexed.parent_block_id IS NULL AND block.lifecycle = 'active'",
+                "SELECT block.location_revision FROM document_block_index indexed_block \
+                 JOIN blocks block ON block.id = indexed_block.block_id \
+                 WHERE indexed_block.document_id = ?1 AND indexed_block.block_id = ?2 \
+                   AND indexed_block.parent_block_id IS NULL AND block.lifecycle = 'active'",
                 params![document_id, anchor.block_id],
                 |row| row.get::<_, i64>(0),
             )
@@ -277,6 +1040,51 @@ fn resolve_write_parent(
     })
 }
 
+fn load_parent_document(
+    connection: &Connection,
+    document_id: &str,
+) -> Result<ResolvedParentDocument, StoreError> {
+    let authority = read_document_authority(connection, document_id)?
+        .ok_or_else(|| corrupt("Source Page has no Document authority"))?;
+    if authority.owner_type != "page" || !authority.head.is_live_yjs_authority() {
+        return Err(corrupt("Source Page Document authority is invalid"));
+    }
+    let schema = BlockDocumentSchema::from_identity(
+        &authority.head.schema_key,
+        authority.head.schema_version,
+    )
+    .filter(|schema| schema.has_title())
+    .ok_or_else(|| corrupt("Source Page has an unsupported Document schema"))?;
+    let engine = reconstruct_yjs_engine(connection, &authority.head)?;
+    let decoded = decode_block_document(engine.document(), schema)
+        .map_err(|error| corrupt(&format!("Source Page schema is invalid: {error}")))?;
+    let base_materialization = materialize_decoded_document(&decoded)
+        .map_err(|error| corrupt(&format!("Source Page cannot materialize: {error}")))?;
+    Ok(ResolvedParentDocument {
+        authority,
+        engine,
+        base_materialization,
+        schema,
+    })
+}
+
+fn find_materialized_block(
+    blocks: &[MaterializedBlockNode],
+    block_id: &str,
+) -> Option<MaterializedBlockNode> {
+    blocks.iter().find_map(|block| {
+        if block.id == block_id {
+            return Some(block.clone());
+        }
+        find_materialized_block(&block.children, block_id)
+    })
+}
+
+fn normalize_ids(ids: &mut Vec<String>) {
+    ids.sort();
+    ids.dedup();
+}
+
 fn persist_parent_insert(
     connection: &Connection,
     store_epoch: &str,
@@ -285,17 +1093,35 @@ fn persist_parent_insert(
     block: MaterializedBlockNode,
     before_block_id: Option<String>,
 ) -> Result<i64, StoreError> {
+    persist_parent_operations(
+        connection,
+        store_epoch,
+        operation_id,
+        "insert",
+        parent,
+        &[DocumentBlockOperation::InsertBlock {
+            block,
+            parent_block_id: None,
+            before_block_id,
+        }],
+    )
+}
+
+fn persist_parent_operations(
+    connection: &Connection,
+    store_epoch: &str,
+    operation_id: &str,
+    phase: &str,
+    parent: &ResolvedParentDocument,
+    operations: &[DocumentBlockOperation],
+) -> Result<i64, StoreError> {
     let full_state = parent.engine.full_state_v1();
     let prepared = prepare_document_operation_update(
         &parent.authority.head.id,
         parent.schema,
         &full_state,
         &parent.authority.head.state_vector,
-        &[DocumentBlockOperation::InsertBlock {
-            block,
-            parent_block_id: None,
-            before_block_id,
-        }],
+        operations,
         false,
     )
     .map_err(|error| invalid(&format!("Parent Page update is invalid: {error}")))?;
@@ -310,7 +1136,10 @@ fn persist_parent_insert(
     if state_vector != prepared.state_vector_v1 {
         return Err(corrupt("Prepared parent state vector is inconsistent"));
     }
-    let update_id = format!("library-parent-insert:{}", sha256(operation_id.as_bytes()));
+    let update_id = format!(
+        "library-document-{phase}:{}",
+        sha256(operation_id.as_bytes())
+    );
     let persisted = persist_yjs_commit(
         connection,
         PersistYjsCommit {
@@ -1672,5 +2501,400 @@ mod tests {
                 Ok(())
             })
             .expect("nested ownership evidence");
+
+        let archive_page = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:archive-nested-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ArchiveResource {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:nested".to_owned(),
+                        },
+                        expected_metadata_revision: 1,
+                    },
+                },
+            )
+            .expect("archive nested Page");
+        assert_eq!(
+            archive_page.committed.receipt.committed_revisions["blockMetadata:page:nested"],
+            2
+        );
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:edit-parent-after-archive".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: "018f0000-0000-7000-8000-000000000021".to_owned(),
+                        data_source_id: "018f0000-0000-7000-8000-000000000022".to_owned(),
+                        view_id: "018f0000-0000-7000-8000-000000000023".to_owned(),
+                        name: "Archive fence".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:created".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 3,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("edit parent after child archive");
+        let archived_lifecycle = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT lifecycle FROM blocks WHERE id = 'page:nested'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("archived lifecycle");
+        assert_eq!(archived_lifecycle, "archived");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:restore-nested-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::RestoreResource {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:nested".to_owned(),
+                        },
+                        expected_metadata_revision: 2,
+                    },
+                },
+            )
+            .expect("restore nested Page");
+
+        for (operation_id, intent) in [
+            (
+                "operation:archive-database",
+                LibraryIntent::ArchiveResource {
+                    target: LibraryResourceTarget::Database {
+                        database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                    },
+                    expected_metadata_revision: 1,
+                },
+            ),
+            (
+                "operation:restore-database",
+                LibraryIntent::RestoreResource {
+                    target: LibraryResourceTarget::Database {
+                        database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                    },
+                    expected_metadata_revision: 2,
+                },
+            ),
+        ] {
+            module
+                .apply(
+                    &context(),
+                    ModuleApplyRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent,
+                    },
+                )
+                .expect("Database lifecycle transition");
+        }
+        let first_grant = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:grant-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-1".to_owned(),
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:nested".to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("grant Page access");
+        let already_granted = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:grant-page-again".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-1".to_owned(),
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:nested".to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("recognize existing grant");
+        assert!(first_grant.committed.receipt.did_mutate);
+        assert!(!already_granted.committed.receipt.did_mutate);
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                        ["018f0000-0000-7000-8000-000000000001"],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("bind primary Database");
+        let primary_grant = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:grant-primary".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-1".to_owned(),
+                        target: LibraryResourceTarget::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                        },
+                        access: LibraryAccess::ReadWrite,
+                    },
+                },
+            )
+            .expect("primary Database already authorizes Project");
+        assert!(!primary_grant.committed.receipt.did_mutate);
+        let protected_archive = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:archive-primary".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ArchiveResource {
+                        target: LibraryResourceTarget::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                        },
+                        expected_metadata_revision: 3,
+                    },
+                },
+            )
+            .expect_err("primary Database cannot archive");
+        assert_eq!(
+            protected_archive.code,
+            nodex_core_contracts::CoreErrorCode::RevisionConflict
+        );
+
+        let move_to_library = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:move-page-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveBlock {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:nested".to_owned(),
+                        },
+                        expected_location_revision: 1,
+                        parent: LibraryWriteParent::Library {
+                            before: Some(nodex_core_contracts::library::LibraryPlacementAnchor {
+                                block_id: "018f0000-0000-7000-8000-000000000001".to_owned(),
+                                expected_location_revision: 1,
+                            }),
+                        },
+                    },
+                },
+            )
+            .expect("move nested Page to Library");
+        assert_eq!(
+            move_to_library.committed.receipt.committed_revisions["documentHead:document:created"],
+            5
+        );
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:move-page-back".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveBlock {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:nested".to_owned(),
+                        },
+                        expected_location_revision: 2,
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:created".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 5,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("move Page back into parent");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:reorder-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveBlock {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:nested".to_owned(),
+                        },
+                        expected_location_revision: 3,
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:created".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 6,
+                            before: Some(nodex_core_contracts::library::LibraryPlacementAnchor {
+                                block_id: "018f0000-0000-7000-8000-000000000011".to_owned(),
+                                expected_location_revision: 1,
+                            }),
+                        },
+                    },
+                },
+            )
+            .expect("reorder Page within parent");
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:create-other-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: "page:other".to_owned(),
+                        document_id: "document:other".to_owned(),
+                        title: "Other parent".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create other parent Page");
+        let cross_document = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:move-database-across-pages".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveBlock {
+                        target: LibraryResourceTarget::Database {
+                            database_id: "018f0000-0000-7000-8000-000000000011".to_owned(),
+                        },
+                        expected_location_revision: 1,
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:other".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("move Database across Page Documents");
+        assert_eq!(
+            cross_document.committed.receipt.committed_revisions["documentHead:document:created"],
+            8
+        );
+        assert_eq!(
+            cross_document.committed.receipt.committed_revisions["documentHead:document:other"],
+            2
+        );
+        let hierarchy_cycle = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:reject-page-cycle".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::MoveBlock {
+                        target: LibraryResourceTarget::Page {
+                            page_id: "page:created".to_owned(),
+                        },
+                        expected_location_revision: 1,
+                        parent: LibraryWriteParent::Page {
+                            page_id: "page:nested".to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect_err("reject Page hierarchy cycle");
+        assert_eq!(
+            hierarchy_cycle.code,
+            nodex_core_contracts::CoreErrorCode::InvalidInput
+        );
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT moved_page.location_revision, moved_page.containing_document_id, \
+                       page.parent_kind, page.parent_id, projection.location_revision, \
+                       projection.containing_document_id, moved_database.location_revision, \
+                       moved_database.containing_document_id, \
+                       (SELECT ordinal FROM document_block_index \
+                         WHERE document_id = 'document:created' AND block_id = 'page:nested'), \
+                       (SELECT count(*) FROM document_block_index \
+                         WHERE document_id = 'document:created' \
+                           AND block_id = '018f0000-0000-7000-8000-000000000011'), \
+                       (SELECT count(*) FROM document_block_index \
+                         WHERE document_id = 'document:other' \
+                           AND block_id = '018f0000-0000-7000-8000-000000000011') \
+                     FROM blocks moved_page \
+                     JOIN pages page ON page.block_id = moved_page.id \
+                     JOIN page_read_model projection ON projection.page_block_id = moved_page.id \
+                     JOIN blocks moved_database \
+                       ON moved_database.id = '018f0000-0000-7000-8000-000000000011' \
+                     WHERE moved_page.id = 'page:nested'",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, i64>(6)?,
+                            row.get::<_, String>(7)?,
+                            row.get::<_, i64>(8)?,
+                            row.get::<_, i64>(9)?,
+                            row.get::<_, i64>(10)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        4,
+                        "document:created".to_owned(),
+                        "page".to_owned(),
+                        "page:created".to_owned(),
+                        4,
+                        "document:created".to_owned(),
+                        2,
+                        "document:other".to_owned(),
+                        1,
+                        0,
+                        1,
+                    )
+                );
+                Ok(())
+            })
+            .expect("move ownership evidence");
     }
 }

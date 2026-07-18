@@ -583,11 +583,13 @@ fn reconcile_document_blocks(
                         unit.block_id
                     )));
                 }
-                if lifecycle != "active" || block_type != unit.block_type {
+                let typed_resource = TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str());
+                if (lifecycle != "active" && !typed_resource) || block_type != unit.block_type {
                     connection.execute(
-                        "UPDATE blocks SET type = ?1, lifecycle = 'active', \
-                           metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE id = ?3",
-                        params![unit.block_type, now, unit.block_id],
+                        "UPDATE blocks SET type = ?1, \
+                           lifecycle = CASE WHEN ?2 THEN lifecycle ELSE 'active' END, \
+                           metadata_revision = metadata_revision + 1, updated_at = ?3 WHERE id = ?4",
+                        params![unit.block_type, typed_resource, now, unit.block_id],
                     )?;
                 }
             }
