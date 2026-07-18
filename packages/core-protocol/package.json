@@ -1,0 +1,10 @@
+{
+  "name": "@nodex/core-protocol",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./openapi.json": "./openapi.json"
+  },
+  "types": "./src/index.ts"
+}

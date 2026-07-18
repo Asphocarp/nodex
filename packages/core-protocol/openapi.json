@@ -1,0 +1,6380 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Nodex Core private protocol",
+    "description": "",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/core/v1/admin/shutdown": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "shutdown",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShutdownResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/events": {
+      "get": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "events",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Last committed event sequence observed",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-sent committed Module events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/handshake": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "handshake",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandshakeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandshakeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/health": {
+      "get": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/administration/apply": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "administration_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreAdministrationApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreAdministrationApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/administration/read": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "administration_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoreAdministrationReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreAdministrationReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/automation/apply": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "automation_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/automation/read": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "automation_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/database/apply": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "database_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatabaseApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/database/read": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "database_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatabaseReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/document/apply": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "document_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnedDocumentApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnedDocumentApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/document/read": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "document_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnedDocumentReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnedDocumentReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/library/apply": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "library_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/library/read": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "library_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/workspace/apply": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "workspace_apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectWorkspaceApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWorkspaceApplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/core/v1/modules/workspace/read": {
+      "post": {
+        "tags": [
+          "api"
+        ],
+        "operationId": "workspace_read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectWorkspaceReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectWorkspaceReadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AutomationApplyRequest": {
+        "$ref": "#/components/schemas/ModuleApplyRequest_AutomationIntent"
+      },
+      "AutomationApplyResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt"
+      },
+      "AutomationEvent": {
+        "type": "object",
+        "required": [
+          "kind",
+          "automation_ids",
+          "occurrence_ids",
+          "lease_ids"
+        ],
+        "properties": {
+          "automation_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AutomationEventKind"
+          },
+          "lease_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "occurrence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AutomationEventKind": {
+        "type": "string",
+        "enum": [
+          "automation_changed"
+        ]
+      },
+      "AutomationLease": {
+        "type": "object",
+        "required": [
+          "lease_id",
+          "automation_id",
+          "attempt",
+          "expires_at"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "automation_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "lease_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AutomationReadRequest": {
+        "$ref": "#/components/schemas/ModuleReadRequest_AutomationRead"
+      },
+      "AutomationReadResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue"
+      },
+      "BackupRecord": {
+        "type": "object",
+        "required": [
+          "backup_id",
+          "created_at",
+          "byte_length"
+        ],
+        "properties": {
+          "backup_id": {
+            "type": "string"
+          },
+          "byte_length": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ClientIdentity": {
+        "type": "object",
+        "required": [
+          "kind",
+          "build_id"
+        ],
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ClientKind"
+          }
+        }
+      },
+      "ClientKind": {
+        "type": "string",
+        "enum": [
+          "electron_host",
+          "native_cli",
+          "test"
+        ]
+      },
+      "CommittedCoreModuleEvent": {
+        "type": "object",
+        "required": [
+          "version",
+          "sequence",
+          "store_epoch",
+          "committed_at",
+          "payload"
+        ],
+        "properties": {
+          "committed_at": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payload": {
+            "$ref": "#/components/schemas/CoreModuleEventPayload"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "CoreError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "recovery"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/CoreErrorCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "recovery": {
+            "$ref": "#/components/schemas/CoreErrorRecovery"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CoreErrorCode": {
+        "type": "string",
+        "enum": [
+          "invalid_input",
+          "unauthorized",
+          "not_found",
+          "ambiguous",
+          "stale_store_epoch",
+          "revision_conflict",
+          "generation_conflict",
+          "head_conflict",
+          "idempotency_key_reused",
+          "document_update_missing_dependencies",
+          "invalid_document_schema",
+          "maintenance_in_progress",
+          "schema_unsupported",
+          "store_corrupt",
+          "protocol_incompatible",
+          "event_replay_unavailable",
+          "core_unavailable"
+        ]
+      },
+      "CoreErrorRecovery": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "none"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "store_epoch",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "current_store_epoch"
+                ]
+              },
+              "store_epoch": {
+                "$ref": "#/components/schemas/StoreEpoch"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "revision",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "current_revision"
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "generation",
+              "head_seq",
+              "kind"
+            ],
+            "properties": {
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "current_document_head"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "minimum",
+              "maximum",
+              "actual",
+              "kind"
+            ],
+            "properties": {
+              "actual": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "supported_schema"
+                ]
+              },
+              "maximum": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "minimum": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
+      "CoreModuleEventPayload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/LibraryEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/DatabaseEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/OwnedDocumentEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "owned_document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/ProjectWorkspaceEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "project_workspace"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/AutomationEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "automation"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "event",
+              "module"
+            ],
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/StoreAdministrationEvent"
+              },
+              "module": {
+                "type": "string",
+                "enum": [
+                  "store_administration"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "CoreReadiness": {
+        "type": "string",
+        "enum": [
+          "starting",
+          "ready",
+          "maintenance",
+          "failed"
+        ]
+      },
+      "DatabaseApplyRequest": {
+        "$ref": "#/components/schemas/ModuleApplyRequest_Vec_DatabaseIntent"
+      },
+      "DatabaseApplyResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt"
+      },
+      "DatabaseEvent": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_ids",
+          "data_source_ids",
+          "page_ids",
+          "view_ids"
+        ],
+        "properties": {
+          "data_source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DatabaseEventKind"
+          },
+          "page_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "view_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "DatabaseEventKind": {
+        "type": "string",
+        "enum": [
+          "database_changed"
+        ]
+      },
+      "DatabasePagePosition": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "expected_position_revision"
+        ],
+        "properties": {
+          "expected_position_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabasePageValue": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "data_source_id",
+          "property_id",
+          "expected_value_revision",
+          "value"
+        ],
+        "properties": {
+          "data_source_id": {
+            "type": "string"
+          },
+          "expected_value_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "property_id": {
+            "type": "string"
+          },
+          "value": {}
+        }
+      },
+      "DatabaseReadMode": {
+        "type": "string",
+        "enum": [
+          "catalog",
+          "database",
+          "data_source",
+          "view",
+          "query"
+        ]
+      },
+      "DatabaseReadRequest": {
+        "$ref": "#/components/schemas/ModuleReadRequest_DatabaseRead"
+      },
+      "DatabaseReadResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue"
+      },
+      "DatabaseTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project_default"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "view"
+                ]
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "DatabaseTransferTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "library_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              },
+              "library_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "DocumentCommitOutcome": {
+        "type": "string",
+        "enum": [
+          "committed",
+          "no_change"
+        ]
+      },
+      "DocumentInvalidationReason": {
+        "type": "string",
+        "enum": [
+          "access_changed",
+          "generation_changed",
+          "restored"
+        ]
+      },
+      "DocumentOwnerCommand": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "schema",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "create_secondary_document"
+                ]
+              },
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "archive_document"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "restore_document"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "DocumentSemanticCommand": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "inline_markdown",
+              "expected_etag",
+              "kind"
+            ],
+            "properties": {
+              "expected_etag": {
+                "type": "string"
+              },
+              "inline_markdown": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_title"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "old_fragment",
+              "new_fragment",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "patch_body"
+                ]
+              },
+              "new_fragment": {
+                "type": "string"
+              },
+              "old_fragment": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "nested_markdown",
+              "expected_etag",
+              "kind"
+            ],
+            "properties": {
+              "expected_etag": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "replace_body"
+                ]
+              },
+              "nested_markdown": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete_block"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_block"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "EventEnvelope": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "event"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/CommittedCoreModuleEvent"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "HandshakeRequest": {
+        "type": "object",
+        "required": [
+          "protocol_min",
+          "protocol_max",
+          "client"
+        ],
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/ClientIdentity"
+          },
+          "expected_profile_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_start_nonce": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "protocol_max": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol_min": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "HandshakeResponse": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "build_id",
+          "pid",
+          "start_nonce",
+          "profile_id",
+          "library_id",
+          "store_epoch",
+          "schema_version",
+          "event_head"
+        ],
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "event_head": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "start_nonce": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "pid",
+          "start_nonce"
+        ],
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "start_nonce": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CoreReadiness"
+          }
+        }
+      },
+      "LibraryAccess": {
+        "type": "string",
+        "enum": [
+          "read",
+          "read_write"
+        ]
+      },
+      "LibraryApplyRequest": {
+        "$ref": "#/components/schemas/ModuleApplyRequest_LibraryIntent"
+      },
+      "LibraryApplyResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"
+      },
+      "LibraryCatalogEntry": {
+        "type": "object",
+        "required": [
+          "target",
+          "title",
+          "kind",
+          "lifecycle",
+          "location_label",
+          "updated_at",
+          "location_revision",
+          "metadata_revision"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/LibraryCatalogKind"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/LibraryLifecycle"
+          },
+          "location_label": {
+            "type": "string"
+          },
+          "location_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "target": {
+            "$ref": "#/components/schemas/LibraryResourceTarget"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryCatalogKind": {
+        "type": "string",
+        "enum": [
+          "page",
+          "database"
+        ]
+      },
+      "LibraryEvent": {
+        "type": "object",
+        "required": [
+          "kind",
+          "page_ids",
+          "database_ids",
+          "parent_keys"
+        ],
+        "properties": {
+          "database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LibraryEventKind"
+          },
+          "page_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parent_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LibraryEventKind": {
+        "type": "string",
+        "enum": [
+          "library_changed"
+        ]
+      },
+      "LibraryLifecycle": {
+        "type": "string",
+        "enum": [
+          "active",
+          "archived"
+        ]
+      },
+      "LibraryNavigationNode": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "title",
+              "has_children",
+              "parent_revision",
+              "metadata_revision",
+              "document_generation",
+              "document_head_seq",
+              "updated_at",
+              "kind"
+            ],
+            "properties": {
+              "document_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "document_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "has_children": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "metadata_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "parent_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "title": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "title",
+              "default_view_id",
+              "has_multiple_views",
+              "metadata_revision",
+              "location_revision",
+              "updated_at",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "default_view_id": {
+                "type": "string"
+              },
+              "has_multiple_views": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              },
+              "location_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "metadata_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "title": {
+                "type": "string"
+              },
+              "updated_at": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "database_id",
+              "data_source_id",
+              "title",
+              "view_kind",
+              "is_default",
+              "revision",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "database_id": {
+                "type": "string"
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "view"
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "title": {
+                "type": "string"
+              },
+              "view_id": {
+                "type": "string"
+              },
+              "view_kind": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryNavigationParent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryPlacementAnchor": {
+        "type": "object",
+        "required": [
+          "block_id",
+          "expected_location_revision"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "expected_location_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "LibraryReadRequest": {
+        "$ref": "#/components/schemas/ModuleReadRequest_LibraryRead"
+      },
+      "LibraryReadResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue"
+      },
+      "LibraryResourceTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryRouteTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "database_id",
+              "kind"
+            ],
+            "properties": {
+              "database_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "view_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "view"
+                ]
+              },
+              "view_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryWriteParent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPlacementAnchor"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "expected_document_generation",
+              "expected_document_head_seq",
+              "kind"
+            ],
+            "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPlacementAnchor"
+                  }
+                ]
+              },
+              "expected_document_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "expected_document_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "MaintenanceTask": {
+        "type": "string",
+        "enum": [
+          "integrity_check",
+          "foreign_key_check",
+          "document_compaction",
+          "history_retention",
+          "block_retention"
+        ]
+      },
+      "ModuleApplyRequest_AutomationIntent": {
+        "type": "object",
+        "required": [
+          "version",
+          "operation_id",
+          "store_epoch",
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "definition",
+                  "kind"
+                ],
+                "properties": {
+                  "definition": {},
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_definition"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "definition",
+                  "kind"
+                ],
+                "properties": {
+                  "definition": {},
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "update_definition"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "automation_id",
+                  "kind"
+                ],
+                "properties": {
+                  "automation_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "delete_definition"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "due_before",
+                  "limit",
+                  "lease_duration_ms",
+                  "kind"
+                ],
+                "properties": {
+                  "due_before": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "claim_due"
+                    ]
+                  },
+                  "lease_duration_ms": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "lease_id",
+                  "completed_at",
+                  "kind"
+                ],
+                "properties": {
+                  "completed_at": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "complete_lease"
+                    ]
+                  },
+                  "lease_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "lease_id",
+                  "failed_at",
+                  "reason_code",
+                  "kind"
+                ],
+                "properties": {
+                  "failed_at": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fail_lease"
+                    ]
+                  },
+                  "lease_id": {
+                    "type": "string"
+                  },
+                  "reason_code": {
+                    "type": "string"
+                  },
+                  "retry_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "request",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "complete_occurrence"
+                    ]
+                  },
+                  "request": {}
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "request",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "update_occurrence"
+                    ]
+                  },
+                  "request": {}
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "reminder_id",
+                  "consumed_at",
+                  "kind"
+                ],
+                "properties": {
+                  "consumed_at": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "consume_reminder"
+                    ]
+                  },
+                  "reminder_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "reminder_id",
+                  "wake_at",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "snooze_reminder"
+                    ]
+                  },
+                  "reminder_id": {
+                    "type": "string"
+                  },
+                  "wake_at": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleApplyRequest_LibraryIntent": {
+        "type": "object",
+        "required": [
+          "version",
+          "operation_id",
+          "store_epoch",
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "document_id",
+                  "title",
+                  "parent",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_page"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  },
+                  "parent": {
+                    "$ref": "#/components/schemas/LibraryWriteParent"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "database_id",
+                  "data_source_id",
+                  "view_id",
+                  "name",
+                  "parent",
+                  "kind"
+                ],
+                "properties": {
+                  "data_source_id": {
+                    "type": "string"
+                  },
+                  "database_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_database"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "parent": {
+                    "$ref": "#/components/schemas/LibraryWriteParent"
+                  },
+                  "view_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "expected_location_revision",
+                  "parent",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_location_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "move_block"
+                    ]
+                  },
+                  "parent": {
+                    "$ref": "#/components/schemas/LibraryWriteParent"
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "expected_metadata_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_metadata_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "archive_resource"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "expected_metadata_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_metadata_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "restore_resource"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "target",
+                  "access",
+                  "kind"
+                ],
+                "properties": {
+                  "access": {
+                    "$ref": "#/components/schemas/LibraryAccess"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "grant_project_access"
+                    ]
+                  },
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryResourceTarget"
+                  }
+                }
+              }
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleApplyRequest_OwnedDocumentIntent": {
+        "type": "object",
+        "required": [
+          "version",
+          "operation_id",
+          "store_epoch",
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "owner_block_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "prepare_owner"
+                    ]
+                  },
+                  "owner_block_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "base_head_seq",
+                  "update_id",
+                  "touched_block_ids",
+                  "update",
+                  "kind"
+                ],
+                "properties": {
+                  "base_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_yjs_update"
+                    ]
+                  },
+                  "touched_block_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "update": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "format": "int32",
+                      "minimum": 0
+                    }
+                  },
+                  "update_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "expected_head_seq",
+                  "commands",
+                  "kind"
+                ],
+                "properties": {
+                  "commands": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/DocumentSemanticCommand"
+                    }
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_semantic_mutation"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "expected_head_seq",
+                  "mutation",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_canvas_mutation"
+                    ]
+                  },
+                  "mutation": {}
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "expected_head_seq",
+                  "cause",
+                  "kind"
+                ],
+                "properties": {
+                  "cause": {
+                    "type": "string"
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_checkpoint"
+                    ]
+                  },
+                  "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "version_id",
+                  "generation",
+                  "expected_head_seq",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "restore_version"
+                    ]
+                  },
+                  "version_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "owner_block_id",
+                  "command",
+                  "kind"
+                ],
+                "properties": {
+                  "command": {
+                    "$ref": "#/components/schemas/DocumentOwnerCommand"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_owner_command"
+                    ]
+                  },
+                  "owner_block_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleApplyRequest_ProjectWorkspaceIntent": {
+        "type": "object",
+        "required": [
+          "version",
+          "operation_id",
+          "store_epoch",
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "name",
+                  "description",
+                  "source_roots",
+                  "kind"
+                ],
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_project"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "source_roots": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "expected_binding_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expected_binding_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "icon": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "update_project"
+                    ]
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "source_roots": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "lifecycle",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_project_lifecycle"
+                    ]
+                  },
+                  "lifecycle": {
+                    "$ref": "#/components/schemas/ProjectLifecycle"
+                  },
+                  "project_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reorder_projects"
+                    ]
+                  },
+                  "project_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "pinned",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_project_pinned"
+                    ]
+                  },
+                  "pinned": {
+                    "type": "boolean"
+                  },
+                  "project_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_id",
+                  "intent",
+                  "kind"
+                ],
+                "properties": {
+                  "intent": {
+                    "$ref": "#/components/schemas/ProjectSessionIntent"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "mutate_session"
+                    ]
+                  },
+                  "session_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleApplyRequest_StoreAdministrationIntent": {
+        "type": "object",
+        "required": [
+          "version",
+          "operation_id",
+          "store_epoch",
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "include_assets",
+                  "kind"
+                ],
+                "properties": {
+                  "include_assets": {
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_backup"
+                    ]
+                  },
+                  "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "backup_id",
+                  "create_safety_backup",
+                  "kind"
+                ],
+                "properties": {
+                  "backup_id": {
+                    "type": "string"
+                  },
+                  "create_safety_backup": {
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "restore_backup"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "backup_id",
+                  "kind"
+                ],
+                "properties": {
+                  "backup_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "delete_backup"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "retain_count",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "prune_backups"
+                    ]
+                  },
+                  "retain_count": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "tasks",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "run_maintenance"
+                    ]
+                  },
+                  "tasks": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/MaintenanceTask"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleApplyRequest_Vec_DatabaseIntent": {
+        "type": "object",
+        "required": [
+          "version",
+          "operation_id",
+          "store_epoch",
+          "intent"
+        ],
+        "properties": {
+          "intent": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "data_source_id",
+                    "property_id",
+                    "expected_data_source_revision",
+                    "expected_property_revision",
+                    "name",
+                    "value_type",
+                    "kind"
+                  ],
+                  "properties": {
+                    "before_property_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "expected_data_source_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "expected_property_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "put_property"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "property_id": {
+                      "type": "string"
+                    },
+                    "value_type": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "data_source_id",
+                    "property_id",
+                    "expected_data_source_revision",
+                    "expected_property_revision",
+                    "kind"
+                  ],
+                  "properties": {
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "expected_data_source_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "expected_property_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "delete_property"
+                      ]
+                    },
+                    "property_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "data_source_id",
+                    "property_id",
+                    "option_id",
+                    "name",
+                    "expected_property_revision",
+                    "kind"
+                  ],
+                  "properties": {
+                    "color": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "expected_property_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "put_option"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "option_id": {
+                      "type": "string"
+                    },
+                    "property_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "data_source_id",
+                    "property_id",
+                    "option_id",
+                    "expected_property_revision",
+                    "kind"
+                  ],
+                  "properties": {
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "expected_property_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "delete_option"
+                      ]
+                    },
+                    "option_id": {
+                      "type": "string"
+                    },
+                    "property_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "page_id",
+                    "data_source_id",
+                    "property_id",
+                    "expected_value_revision",
+                    "value",
+                    "kind"
+                  ],
+                  "properties": {
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "expected_value_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "set_value"
+                      ]
+                    },
+                    "page_id": {
+                      "type": "string"
+                    },
+                    "property_id": {
+                      "type": "string"
+                    },
+                    "value": {}
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "values",
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "set_values"
+                      ]
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DatabasePageValue"
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "page_id",
+                    "data_source_id",
+                    "property_id",
+                    "add",
+                    "remove",
+                    "kind"
+                  ],
+                  "properties": {
+                    "add": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "add_remove_value"
+                      ]
+                    },
+                    "page_id": {
+                      "type": "string"
+                    },
+                    "property_id": {
+                      "type": "string"
+                    },
+                    "remove": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "page_id",
+                    "expected_parent_revision",
+                    "expected_active_membership_revision",
+                    "target",
+                    "kind"
+                  ],
+                  "properties": {
+                    "expected_active_membership_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "expected_parent_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "transfer_page"
+                      ]
+                    },
+                    "page_id": {
+                      "type": "string"
+                    },
+                    "target": {
+                      "$ref": "#/components/schemas/DatabaseTransferTarget"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "database_id",
+                    "data_source_id",
+                    "view_id",
+                    "expected_revision",
+                    "name",
+                    "view_kind",
+                    "config",
+                    "is_default",
+                    "kind"
+                  ],
+                  "properties": {
+                    "before_view_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "config": {},
+                    "data_source_id": {
+                      "type": "string"
+                    },
+                    "database_id": {
+                      "type": "string"
+                    },
+                    "expected_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "is_default": {
+                      "type": "boolean"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "put_view"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "view_id": {
+                      "type": "string"
+                    },
+                    "view_kind": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "database_id",
+                    "view_id",
+                    "expected_revision",
+                    "kind"
+                  ],
+                  "properties": {
+                    "database_id": {
+                      "type": "string"
+                    },
+                    "expected_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "delete_view"
+                      ]
+                    },
+                    "view_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "view_id",
+                    "page_id",
+                    "expected_position_revision",
+                    "kind"
+                  ],
+                  "properties": {
+                    "before_page_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expected_position_revision": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "group_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "position_page"
+                      ]
+                    },
+                    "page_id": {
+                      "type": "string"
+                    },
+                    "view_id": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "view_id",
+                    "pages",
+                    "kind"
+                  ],
+                  "properties": {
+                    "before_page_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "group_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "position_pages"
+                      ]
+                    },
+                    "pages": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DatabasePagePosition"
+                      }
+                    },
+                    "view_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleMutationReceipt": {
+        "type": "object",
+        "required": [
+          "operation_id",
+          "duplicate"
+        ],
+        "properties": {
+          "duplicate": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ModuleReadRequest_AutomationRead": {
+        "type": "object",
+        "required": [
+          "version",
+          "read"
+        ],
+        "properties": {
+          "read": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "include_deleted": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "definitions"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "automation_id",
+                  "kind"
+                ],
+                "properties": {
+                  "automation_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "definition"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "runs_inbox"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "window_start",
+                  "window_end",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "occurrences"
+                    ]
+                  },
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "window_end": {
+                    "type": "string"
+                  },
+                  "window_start": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleReadRequest_DatabaseRead": {
+        "type": "object",
+        "required": [
+          "version",
+          "read"
+        ],
+        "properties": {
+          "read": {
+            "type": "object",
+            "required": [
+              "target",
+              "mode"
+            ],
+            "properties": {
+              "filter": {},
+              "mode": {
+                "$ref": "#/components/schemas/DatabaseReadMode"
+              },
+              "sort": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {}
+              },
+              "target": {
+                "$ref": "#/components/schemas/DatabaseTarget"
+              }
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleReadRequest_LibraryRead": {
+        "type": "object",
+        "required": [
+          "version",
+          "read"
+        ],
+        "properties": {
+          "read": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "metadata"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "parent",
+                  "kind"
+                ],
+                "properties": {
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "force_include_target": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryRouteTarget"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "children"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "parent": {
+                    "$ref": "#/components/schemas/LibraryNavigationParent"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "target",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "path"
+                    ]
+                  },
+                  "target": {
+                    "$ref": "#/components/schemas/LibraryRouteTarget"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "catalog"
+                    ]
+                  },
+                  "kinds": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "$ref": "#/components/schemas/LibraryCatalogKind"
+                    }
+                  },
+                  "lifecycle": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryLifecycle"
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "query": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleReadRequest_OwnedDocumentRead": {
+        "type": "object",
+        "required": [
+          "version",
+          "read"
+        ],
+        "properties": {
+          "read": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "owner_block_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "descriptor"
+                    ]
+                  },
+                  "owner_block_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "state_vector",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "sync_yjs"
+                    ]
+                  },
+                  "state_vector": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "format": "int32",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "sync_canvas"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "kind"
+                ],
+                "properties": {
+                  "before_version_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "list_versions"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "version_id",
+                  "kind"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "get_version"
+                    ]
+                  },
+                  "version_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleReadRequest_ProjectWorkspaceRead": {
+        "type": "object",
+        "required": [
+          "version",
+          "read"
+        ],
+        "properties": {
+          "read": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "startup"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "project"
+                    ]
+                  },
+                  "project_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "include_archived": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "sessions"
+                    ]
+                  },
+                  "project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "session"
+                    ]
+                  },
+                  "session_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "thread"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "managed_worktrees"
+                    ]
+                  },
+                  "project_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleReadRequest_StoreAdministrationRead": {
+        "type": "object",
+        "required": [
+          "version",
+          "read"
+        ],
+        "properties": {
+          "read": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "status"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "backups"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "maintenance_status"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "OwnedDocumentApplyRequest": {
+        "$ref": "#/components/schemas/ModuleApplyRequest_OwnedDocumentIntent"
+      },
+      "OwnedDocumentApplyResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"
+      },
+      "OwnedDocumentEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "generation",
+              "head_seq",
+              "update",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document_updated"
+                ]
+              },
+              "update": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "document_id",
+              "reason",
+              "kind"
+            ],
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "document_invalidated"
+                ]
+              },
+              "reason": {
+                "$ref": "#/components/schemas/DocumentInvalidationReason"
+              }
+            }
+          }
+        ]
+      },
+      "OwnedDocumentReadRequest": {
+        "$ref": "#/components/schemas/ModuleReadRequest_OwnedDocumentRead"
+      },
+      "OwnedDocumentReadResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"
+      },
+      "ProjectLifecycle": {
+        "type": "string",
+        "enum": [
+          "active",
+          "inactive",
+          "archived"
+        ]
+      },
+      "ProjectSessionIntent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "title",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rename"
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "pinned",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_pinned"
+                ]
+              },
+              "pinned": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "unread",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_unread"
+                ]
+              },
+              "unread": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "layout",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "replace_panel_layout"
+                ]
+              },
+              "layout": {}
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tab_id",
+              "panel_id",
+              "title",
+              "config",
+              "kind"
+            ],
+            "properties": {
+              "config": {},
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "create_tab"
+                ]
+              },
+              "panel_id": {
+                "type": "string"
+              },
+              "tab_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tab_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete_tab"
+                ]
+              },
+              "tab_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tab_id",
+              "panel_id",
+              "kind"
+            ],
+            "properties": {
+              "before_tab_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_tab"
+                ]
+              },
+              "panel_id": {
+                "type": "string"
+              },
+              "tab_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "thread_id",
+              "kind"
+            ],
+            "properties": {
+              "expected_project_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "link_thread"
+                ]
+              },
+              "thread_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "thread_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unlink_thread"
+                ]
+              },
+              "thread_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "ProjectSource": {
+        "type": "object",
+        "required": [
+          "root",
+          "order"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "root": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceApplyRequest": {
+        "$ref": "#/components/schemas/ModuleApplyRequest_ProjectWorkspaceIntent"
+      },
+      "ProjectWorkspaceApplyResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"
+      },
+      "ProjectWorkspaceEvent": {
+        "type": "object",
+        "required": [
+          "kind",
+          "project_ids",
+          "session_ids",
+          "thread_ids"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ProjectWorkspaceEventKind"
+          },
+          "project_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "session_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "thread_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ProjectWorkspaceEventKind": {
+        "type": "string",
+        "enum": [
+          "workspace_changed"
+        ]
+      },
+      "ProjectWorkspaceProject": {
+        "type": "object",
+        "required": [
+          "id",
+          "library_id",
+          "database_id",
+          "lifecycle",
+          "binding_revision",
+          "name",
+          "description",
+          "sources",
+          "pinned",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "binding_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/ProjectLifecycle"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "pinned_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "primary_workspace_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectSource"
+            }
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceReadRequest": {
+        "$ref": "#/components/schemas/ModuleReadRequest_ProjectWorkspaceRead"
+      },
+      "ProjectWorkspaceReadResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue"
+      },
+      "ProjectWorkspaceSessionSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "display_title",
+          "order",
+          "pinned",
+          "archived",
+          "unread",
+          "updated_at"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "display_title": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "order": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thread_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unread": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "receipt",
+                  "event_sequence",
+                  "store_epoch"
+                ],
+                "properties": {
+                  "event_sequence": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "receipt": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "affected_automation_ids",
+                          "affected_occurrence_ids"
+                        ],
+                        "properties": {
+                          "affected_automation_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_occurrence_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "type": "object",
+                    "required": [
+                      "affected_automation_ids",
+                      "affected_occurrence_ids",
+                      "claimed_leases"
+                    ],
+                    "properties": {
+                      "affected_automation_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_occurrence_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "claimed_leases": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/AutomationLease"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "receipt",
+                  "event_sequence",
+                  "store_epoch"
+                ],
+                "properties": {
+                  "event_sequence": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "receipt": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "affected_database_ids",
+                          "affected_data_source_ids",
+                          "affected_page_ids",
+                          "affected_view_ids"
+                        ],
+                        "properties": {
+                          "affected_data_source_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_database_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_page_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_view_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "type": "object",
+                    "required": [
+                      "operation_count"
+                    ],
+                    "properties": {
+                      "operation_count": {
+                        "type": "integer",
+                        "format": "int32",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "receipt",
+                  "event_sequence",
+                  "store_epoch"
+                ],
+                "properties": {
+                  "event_sequence": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "receipt": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "operation_kind",
+                          "did_mutate",
+                          "affected_parent_keys",
+                          "affected_page_ids",
+                          "affected_database_ids",
+                          "affected_view_ids",
+                          "committed_revisions",
+                          "change_log_seq",
+                          "committed_at"
+                        ],
+                        "properties": {
+                          "affected_database_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_page_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_parent_keys": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_view_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "change_log_seq": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "committed_at": {
+                            "type": "string"
+                          },
+                          "committed_revisions": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "integer",
+                              "format": "int64"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            }
+                          },
+                          "created_target": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryResourceTarget"
+                              }
+                            ]
+                          },
+                          "did_mutate": {
+                            "type": "boolean"
+                          },
+                          "operation_kind": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "type": "object",
+                    "required": [
+                      "affected_resource_ids"
+                    ],
+                    "properties": {
+                      "affected_resource_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "receipt",
+                  "event_sequence",
+                  "store_epoch"
+                ],
+                "properties": {
+                  "event_sequence": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "receipt": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "document_id",
+                          "generation",
+                          "head_seq"
+                        ],
+                        "properties": {
+                          "document_id": {
+                            "type": "string"
+                          },
+                          "generation": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "head_seq": {
+                            "type": "integer",
+                            "format": "int64"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "type": "object",
+                    "required": [
+                      "document_id",
+                      "generation",
+                      "head_seq",
+                      "outcome"
+                    ],
+                    "properties": {
+                      "document_id": {
+                        "type": "string"
+                      },
+                      "generation": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "head_seq": {
+                        "type": "integer",
+                        "format": "int64"
+                      },
+                      "outcome": {
+                        "$ref": "#/components/schemas/DocumentCommitOutcome"
+                      }
+                    }
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "receipt",
+                  "event_sequence",
+                  "store_epoch"
+                ],
+                "properties": {
+                  "event_sequence": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "receipt": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "affected_project_ids",
+                          "affected_session_ids"
+                        ],
+                        "properties": {
+                          "affected_project_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_session_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "type": "object",
+                    "required": [
+                      "affected_project_ids",
+                      "affected_session_ids",
+                      "affected_thread_ids"
+                    ],
+                    "properties": {
+                      "affected_project_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_session_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "affected_thread_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "value",
+                  "receipt",
+                  "event_sequence",
+                  "store_epoch"
+                ],
+                "properties": {
+                  "event_sequence": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "receipt": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/ModuleMutationReceipt"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "backup_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "safety_backup_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "type": "object",
+                    "required": [
+                      "completed_tasks"
+                    ],
+                    "properties": {
+                      "backup_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "completed_tasks": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/MaintenanceTask"
+                        }
+                      },
+                      "safety_backup_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "store_epoch",
+                  "event_head",
+                  "value"
+                ],
+                "properties": {
+                  "event_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {}
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "definitions"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "item",
+                          "kind"
+                        ],
+                        "properties": {
+                          "item": {},
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "definition"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "leases",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "runs_inbox"
+                            ]
+                          },
+                          "leases": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationLease"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "occurrence_ids",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "occurrences"
+                            ]
+                          },
+                          "occurrence_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ModuleReadSnapshot_DatabaseReadValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "store_epoch",
+                  "event_head",
+                  "value"
+                ],
+                "properties": {
+                  "event_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "databases",
+                          "kind"
+                        ],
+                        "properties": {
+                          "databases": {
+                            "type": "array",
+                            "items": {}
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "catalog"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "database"
+                            ]
+                          },
+                          "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "data_source"
+                            ]
+                          },
+                          "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "view"
+                            ]
+                          },
+                          "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "query"
+                            ]
+                          },
+                          "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "data_source_query"
+                            ]
+                          },
+                          "value": {}
+                        }
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "store_epoch",
+                  "event_head",
+                  "value"
+                ],
+                "properties": {
+                  "event_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "profile_id",
+                          "library_id",
+                          "change_log_seq",
+                          "kind"
+                        ],
+                        "properties": {
+                          "change_log_seq": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "metadata"
+                            ]
+                          },
+                          "library_id": {
+                            "type": "string"
+                          },
+                          "profile_id": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "parent",
+                          "items",
+                          "has_more",
+                          "total",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryNavigationNode"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "children"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "parent": {
+                            "$ref": "#/components/schemas/LibraryNavigationParent"
+                          },
+                          "total": {
+                            "type": "integer",
+                            "format": "int64",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "target",
+                          "nodes",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "path"
+                            ]
+                          },
+                          "nodes": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryNavigationNode"
+                            }
+                          },
+                          "target": {
+                            "$ref": "#/components/schemas/LibraryRouteTarget"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "has_more",
+                          "total",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryCatalogEntry"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "catalog"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "total": {
+                            "type": "integer",
+                            "format": "int64",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "store_epoch",
+                  "event_head",
+                  "value"
+                ],
+                "properties": {
+                  "event_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "descriptor",
+                          "kind"
+                        ],
+                        "properties": {
+                          "descriptor": {},
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "descriptor"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "descriptor",
+                          "update",
+                          "kind"
+                        ],
+                        "properties": {
+                          "descriptor": {},
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "yjs_sync"
+                            ]
+                          },
+                          "update": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "format": "int32",
+                              "minimum": 0
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "descriptor",
+                          "scene_json",
+                          "scene_hash",
+                          "kind"
+                        ],
+                        "properties": {
+                          "descriptor": {},
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "canvas_sync"
+                            ]
+                          },
+                          "scene_hash": {
+                            "type": "string"
+                          },
+                          "scene_json": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "format": "int32",
+                              "minimum": 0
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {}
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "versions"
+                            ]
+                          },
+                          "next_version_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "version"
+                            ]
+                          },
+                          "value": {}
+                        }
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "store_epoch",
+                  "event_head",
+                  "value"
+                ],
+                "properties": {
+                  "event_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "projects",
+                          "sessions",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "startup"
+                            ]
+                          },
+                          "projects": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceProject"
+                            }
+                          },
+                          "sessions": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "project",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "project"
+                            ]
+                          },
+                          "project": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceProject"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "sessions",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "sessions"
+                            ]
+                          },
+                          "sessions": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "session",
+                          "panel_layout",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "session"
+                            ]
+                          },
+                          "panel_layout": {},
+                          "session": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "thread_id",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "thread"
+                            ]
+                          },
+                          "project_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "session_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "thread_id": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "roots",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "managed_worktrees"
+                            ]
+                          },
+                          "roots": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ResponseEnvelope_ModuleReadSnapshot_StoreAdministrationReadValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "version",
+                  "store_epoch",
+                  "event_head",
+                  "value"
+                ],
+                "properties": {
+                  "event_head": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "readiness",
+                          "schema_version",
+                          "schema_owner",
+                          "integrity",
+                          "kind"
+                        ],
+                        "properties": {
+                          "integrity": {
+                            "$ref": "#/components/schemas/StoreIntegrity"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "status"
+                            ]
+                          },
+                          "readiness": {
+                            "$ref": "#/components/schemas/StoreReadiness"
+                          },
+                          "schema_owner": {
+                            "$ref": "#/components/schemas/SchemaOwner"
+                          },
+                          "schema_version": {
+                            "type": "integer",
+                            "format": "int32",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/BackupRecord"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "backups"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "active",
+                          "kind"
+                        ],
+                        "properties": {
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "maintenance_status"
+                            ]
+                          },
+                          "operation_id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "phase": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "status"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/CoreError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "RuntimeDescriptor": {
+        "type": "object",
+        "required": [
+          "protocol_min",
+          "protocol_max",
+          "build_id",
+          "pid",
+          "start_nonce",
+          "socket_path",
+          "profile_id",
+          "store_epoch",
+          "readiness_generation"
+        ],
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "protocol_max": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol_min": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "readiness_generation": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "socket_path": {
+            "type": "string"
+          },
+          "start_nonce": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        }
+      },
+      "SchemaOwner": {
+        "type": "string",
+        "enum": [
+          "type_script",
+          "rust"
+        ]
+      },
+      "ShutdownResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ShutdownStatus"
+          }
+        }
+      },
+      "ShutdownStatus": {
+        "type": "string",
+        "enum": [
+          "draining"
+        ]
+      },
+      "StoreAdministrationApplyRequest": {
+        "$ref": "#/components/schemas/ModuleApplyRequest_StoreAdministrationIntent"
+      },
+      "StoreAdministrationApplyResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt"
+      },
+      "StoreAdministrationEvent": {
+        "type": "object",
+        "required": [
+          "kind",
+          "operation",
+          "backup_ids",
+          "readiness_changed"
+        ],
+        "properties": {
+          "backup_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/StoreAdministrationEventKind"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "readiness_changed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StoreAdministrationEventKind": {
+        "type": "string",
+        "enum": [
+          "store_administration_changed"
+        ]
+      },
+      "StoreAdministrationReadRequest": {
+        "$ref": "#/components/schemas/ModuleReadRequest_StoreAdministrationRead"
+      },
+      "StoreAdministrationReadResponse": {
+        "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_StoreAdministrationReadValue"
+      },
+      "StoreEpoch": {
+        "type": "string"
+      },
+      "StoreIntegrity": {
+        "type": "string",
+        "enum": [
+          "unknown",
+          "ok",
+          "failed"
+        ]
+      },
+      "StoreReadiness": {
+        "type": "string",
+        "enum": [
+          "starting",
+          "ready",
+          "maintenance",
+          "failed"
+        ]
+      }
+    }
+  }
+}
