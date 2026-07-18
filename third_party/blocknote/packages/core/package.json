@@ -44,13 +44,13 @@
     },
     "./style.css": {
       "import": "./src/style.css",
-      "default": "./src/style.css",
-      "style": "./src/style.css"
+      "style": "./src/style.css",
+      "default": "./src/style.css"
     },
     "./fonts/inter.css": {
       "import": "./src/fonts/inter.css",
-      "default": "./src/fonts/inter.css",
-      "style": "./src/fonts/inter.css"
+      "style": "./src/fonts/inter.css",
+      "default": "./src/fonts/inter.css"
     },
     "./comments": {
       "types": "./src/comments/index.ts",

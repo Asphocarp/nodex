@@ -44,8 +44,8 @@
     },
     "./style.css": {
       "import": "./src/style.css",
-      "default": "./src/style.css",
-      "style": "./src/style.css"
+      "style": "./src/style.css",
+      "default": "./src/style.css"
     }
   },
   "scripts": {

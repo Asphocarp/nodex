@@ -107,6 +107,7 @@ After copying, restore the vendored package manifest rules:
 - Keep upstream `name` and new upstream `version`.
 - Set `private: true`.
 - Keep source-first `main`, `module`, `types`, `source`, and `exports` entries.
+- Order conditional exports from specific to fallback: keep custom conditions such as `style` before `default`, and always keep `default` last so later conditions remain reachable.
 - Keep all existing public subpath exports used by Nodex.
 - Change internal BlockNote runtime dependencies to `workspace:*`.
 - Omit upstream package `devDependencies` unless Nodex intentionally starts running upstream package-local tooling.
