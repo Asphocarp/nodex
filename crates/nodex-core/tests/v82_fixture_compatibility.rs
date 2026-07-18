@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use nodex_core::document::{create_compatible_document, has_pending_dependencies};
+use nodex_core::infrastructure::schema::{install_v82_schema, read_schema_inventory};
 use rusqlite::{Connection, MAIN_DB, OpenFlags, OptionalExtension, params};
 use tempfile::tempdir;
 use yrs::updates::decoder::Decode;
@@ -241,6 +242,15 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
     assert_eq!(user_version, 82);
     assert_store_is_valid(&source);
     assert_search_and_json_projections(&source);
+
+    let artifact_path = temporary.path().join("artifact.db");
+    let artifact = Connection::open(&artifact_path).expect("artifact database opens");
+    install_v82_schema(&artifact).expect("checked-in v82 schema installs");
+    assert_eq!(
+        read_schema_inventory(&artifact).expect("artifact inventory"),
+        read_schema_inventory(&source).expect("TypeScript inventory"),
+        "checked-in Rust schema artifact must exactly match TypeScript v82"
+    );
 
     let heads = load_document_heads(&source);
     assert!(
