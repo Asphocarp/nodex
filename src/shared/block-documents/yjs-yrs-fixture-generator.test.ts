@@ -13,6 +13,7 @@ import {
   materializePageDocument,
   populateBlockDocumentBodyFromNfm,
 } from "./block-document-codec";
+import { assertValidBlockDocument } from "./block-structure";
 import { createPageDocument } from "./page-document";
 import { replaceYTextWithPortableRichText } from "./portable-rich-text";
 import {
@@ -324,7 +325,18 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
   );
 
   const matrix = createSchemaMatrix();
-  const matrixMaterialization = materializePageDocument(matrix.document);
+  const matrixMaterialization = {
+    ...materializePageDocument(matrix.document),
+    searchUnits: assertValidBlockDocument(
+      matrix.document.getXmlFragment("body"),
+    ).map((block, ordinal) => ({
+      blockId: block.id,
+      parentBlockId: block.parentBlockId,
+      ordinal,
+      blockType: block.blockType,
+      text: block.text,
+    })),
+  };
   const matrixBase = Y.encodeStateAsUpdate(matrix.document);
   const matrixStateVector = Y.encodeStateVector(matrix.document);
   const matrixAfter = cloneFrom(matrixBase, 1_102);

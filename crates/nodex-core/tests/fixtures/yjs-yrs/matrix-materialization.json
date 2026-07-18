@@ -536,5 +536,161 @@
       "start": "2026-07-18",
       "format": "ll"
     }
+  ],
+  "searchUnits": [
+    {
+      "blockId": "matrix-paragraph",
+      "parentBlockId": null,
+      "ordinal": 0,
+      "blockType": "paragraph",
+      "text": "bold italic strike underline code link"
+    },
+    {
+      "blockId": "matrix-callout",
+      "parentBlockId": null,
+      "ordinal": 1,
+      "blockType": "callout",
+      "text": "Before  after 😀 中文 é"
+    },
+    {
+      "blockId": "matrix-heading",
+      "parentBlockId": null,
+      "ordinal": 2,
+      "blockType": "heading",
+      "text": "Heading"
+    },
+    {
+      "blockId": "matrix-bullet",
+      "parentBlockId": null,
+      "ordinal": 3,
+      "blockType": "bulletListItem",
+      "text": "Bullet"
+    },
+    {
+      "blockId": "matrix-numbered",
+      "parentBlockId": null,
+      "ordinal": 4,
+      "blockType": "numberedListItem",
+      "text": "Numbered"
+    },
+    {
+      "blockId": "matrix-check",
+      "parentBlockId": null,
+      "ordinal": 5,
+      "blockType": "checkListItem",
+      "text": "Checked"
+    },
+    {
+      "blockId": "matrix-toggle",
+      "parentBlockId": null,
+      "ordinal": 6,
+      "blockType": "toggleListItem",
+      "text": "Toggle"
+    },
+    {
+      "blockId": "matrix-toggle-child",
+      "parentBlockId": "matrix-toggle",
+      "ordinal": 7,
+      "blockType": "paragraph",
+      "text": "Nested"
+    },
+    {
+      "blockId": "matrix-code",
+      "parentBlockId": null,
+      "ordinal": 8,
+      "blockType": "codeBlock",
+      "text": "const core = 'rust';"
+    },
+    {
+      "blockId": "matrix-quote",
+      "parentBlockId": null,
+      "ordinal": 9,
+      "blockType": "quote",
+      "text": "Quote"
+    },
+    {
+      "blockId": "matrix-divider",
+      "parentBlockId": null,
+      "ordinal": 10,
+      "blockType": "divider",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-image",
+      "parentBlockId": null,
+      "ordinal": 11,
+      "blockType": "image",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-table",
+      "parentBlockId": null,
+      "ordinal": 12,
+      "blockType": "table",
+      "text": "KeyValue"
+    },
+    {
+      "blockId": "matrix-card-toggle",
+      "parentBlockId": null,
+      "ordinal": 13,
+      "blockType": "cardToggle",
+      "text": "Card title"
+    },
+    {
+      "blockId": "matrix-thread-section",
+      "parentBlockId": null,
+      "ordinal": 14,
+      "blockType": "threadSection",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-inline-view",
+      "parentBlockId": null,
+      "ordinal": 15,
+      "blockType": "toggleListInlineView",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-page",
+      "parentBlockId": null,
+      "ordinal": 16,
+      "blockType": "page",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-database",
+      "parentBlockId": null,
+      "ordinal": 17,
+      "blockType": "database",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-page-ref",
+      "parentBlockId": null,
+      "ordinal": 18,
+      "blockType": "pageRef",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-database-view-ref",
+      "parentBlockId": null,
+      "ordinal": 19,
+      "blockType": "databaseViewRef",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-synced-ref",
+      "parentBlockId": null,
+      "ordinal": 20,
+      "blockType": "syncedBlockRef",
+      "text": ""
+    },
+    {
+      "blockId": "matrix-template-ref",
+      "parentBlockId": null,
+      "ordinal": 21,
+      "blockType": "templateRef",
+      "text": ""
+    }
   ]
 }

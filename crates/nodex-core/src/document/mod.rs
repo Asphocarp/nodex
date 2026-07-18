@@ -1,4 +1,5 @@
 mod block_document;
+mod materialization;
 mod yrs_engine;
 
 pub use block_document::{
@@ -6,6 +7,11 @@ pub use block_document::{
     PAGE_SCHEMA_VERSION, REUSABLE_TEMPLATE_SCHEMA_KEY, REUSABLE_TEMPLATE_SCHEMA_VERSION,
     SYNCED_BLOCK_SCHEMA_KEY, SYNCED_BLOCK_SCHEMA_VERSION, decode_block_document,
     encode_block_document,
+};
+pub use materialization::{
+    BlockDocumentKind, BlockDocumentSchemaMetadata, DocumentBlockSearchUnit,
+    DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,
+    materialize_decoded_document, schema_metadata,
 };
 pub use yrs_engine::{
     AwarenessChange, CandidateCommit, DocumentAwareness, MAX_AWARENESS_UPDATE_BYTES,
