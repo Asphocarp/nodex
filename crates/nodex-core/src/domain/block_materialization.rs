@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Number, Value};
 use thiserror::Error;
 
-use super::block_tree::{BlockNode, BlockTree, PortableValue, TextDelta, XmlElementNode, XmlNode};
+use super::block_tree::{
+    BLOCK_ID_ATTRIBUTE, BlockNode, BlockTree, PortableValue, TextDelta, XmlElementNode, XmlNode,
+    validate_block_tree,
+};
 
 const INLINE_BLOCK_TYPES: &[&str] = &[
     "paragraph",
@@ -68,12 +71,440 @@ pub enum BlockMaterializationError {
     BinaryValue,
     #[error("portable number cannot enter JSON materialization")]
     InvalidNumber,
+    #[error("materialized Block tree is not canonical: {0}")]
+    InvalidTree(String),
 }
 
 pub fn materialize_block_tree(
     tree: &BlockTree,
 ) -> Result<Vec<MaterializedBlockNode>, BlockMaterializationError> {
     tree.blocks.iter().map(materialize_block).collect()
+}
+
+/// Convert the transport-safe BlockNote projection back into the canonical,
+/// engine-neutral XML model. This is the only inverse used by semantic writes;
+/// callers never need to construct Yrs XML vocabulary themselves.
+pub fn dematerialize_block_tree(
+    blocks: &[MaterializedBlockNode],
+) -> Result<BlockTree, BlockMaterializationError> {
+    let tree = BlockTree {
+        root_attributes: BTreeMap::new(),
+        blocks: blocks
+            .iter()
+            .map(dematerialize_block)
+            .collect::<Result<_, _>>()?,
+    };
+    let issues = validate_block_tree(&tree);
+    if issues.is_empty() {
+        return Ok(tree);
+    }
+    Err(BlockMaterializationError::InvalidTree(format!(
+        "{issues:?}"
+    )))
+}
+
+fn dematerialize_block(
+    block: &MaterializedBlockNode,
+) -> Result<BlockNode, BlockMaterializationError> {
+    let attributes = block
+        .props
+        .iter()
+        .map(|(key, value)| json_to_portable_value(value).map(|value| (key.clone(), value)))
+        .collect::<Result<_, _>>()?;
+    let children = match block.block_type.as_str() {
+        block_type if INLINE_BLOCK_TYPES.contains(&block_type) => {
+            dematerialize_inline_content(require_content_array(block)?, &block.id)?
+        }
+        "table" => dematerialize_table(block)?,
+        block_type if NONE_BLOCK_TYPES.contains(&block_type) => {
+            if block.content.is_some() {
+                return Err(invalid_materialized_content(
+                    block,
+                    "content",
+                    "childless Block content must be absent",
+                ));
+            }
+            Vec::new()
+        }
+        _ => {
+            return Err(BlockMaterializationError::UnsupportedBlockType {
+                block_id: block.id.clone(),
+                block_type: block.block_type.clone(),
+            });
+        }
+    };
+    let nested = block
+        .children
+        .iter()
+        .map(dematerialize_block)
+        .collect::<Result<_, _>>()?;
+
+    Ok(BlockNode {
+        id: block.id.clone(),
+        container_attributes: [(
+            BLOCK_ID_ATTRIBUTE.to_owned(),
+            PortableValue::String(block.id.clone()),
+        )]
+        .into_iter()
+        .collect(),
+        content: XmlElementNode {
+            name: block.block_type.clone(),
+            attributes,
+            children,
+        },
+        children: nested,
+    })
+}
+
+fn require_content_array(
+    block: &MaterializedBlockNode,
+) -> Result<&[Value], BlockMaterializationError> {
+    match block.content.as_ref() {
+        Some(Value::Array(content)) => Ok(content),
+        _ => Err(invalid_materialized_content(
+            block,
+            "content",
+            "inline content must be an array",
+        )),
+    }
+}
+
+fn dematerialize_inline_content(
+    content: &[Value],
+    block_id: &str,
+) -> Result<Vec<XmlNode>, BlockMaterializationError> {
+    let mut output = Vec::new();
+    for (index, value) in content.iter().enumerate() {
+        let object = value.as_object().ok_or_else(|| {
+            invalid_materialized_field(
+                block_id,
+                format!("content[{index}]"),
+                "inline item must be an object",
+            )
+        })?;
+        let item_type = object.get("type").and_then(Value::as_str).ok_or_else(|| {
+            invalid_materialized_field(
+                block_id,
+                format!("content[{index}].type"),
+                "inline item type must be a string",
+            )
+        })?;
+        match item_type {
+            "text" => output.push(XmlNode::Text {
+                delta: vec![dematerialize_text_item(object, block_id, index, None)?],
+            }),
+            "link" => {
+                let href = object.get("href").and_then(Value::as_str).ok_or_else(|| {
+                    invalid_materialized_field(
+                        block_id,
+                        format!("content[{index}].href"),
+                        "link href must be a string",
+                    )
+                })?;
+                let linked = object
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        invalid_materialized_field(
+                            block_id,
+                            format!("content[{index}].content"),
+                            "link content must be an array",
+                        )
+                    })?;
+                let mut delta = Vec::with_capacity(linked.len());
+                for (linked_index, linked_item) in linked.iter().enumerate() {
+                    let linked_object = linked_item.as_object().ok_or_else(|| {
+                        invalid_materialized_field(
+                            block_id,
+                            format!("content[{index}].content[{linked_index}]"),
+                            "linked text must be an object",
+                        )
+                    })?;
+                    if linked_object.get("type").and_then(Value::as_str) != Some("text") {
+                        return Err(invalid_materialized_field(
+                            block_id,
+                            format!("content[{index}].content[{linked_index}].type"),
+                            "link content may only contain text",
+                        ));
+                    }
+                    delta.push(dematerialize_text_item(
+                        linked_object,
+                        block_id,
+                        linked_index,
+                        Some(href),
+                    )?);
+                }
+                output.push(XmlNode::Text { delta });
+            }
+            atom_type => {
+                let props = object
+                    .get("props")
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| {
+                        invalid_materialized_field(
+                            block_id,
+                            format!("content[{index}].props"),
+                            "inline atom props must be an object",
+                        )
+                    })?;
+                output.push(XmlNode::Element(XmlElementNode {
+                    name: atom_type.to_owned(),
+                    attributes: json_object_to_portable(props)?,
+                    children: Vec::new(),
+                }));
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn dematerialize_text_item(
+    object: &Map<String, Value>,
+    block_id: &str,
+    index: usize,
+    href: Option<&str>,
+) -> Result<TextDelta, BlockMaterializationError> {
+    let text = object.get("text").and_then(Value::as_str).ok_or_else(|| {
+        invalid_materialized_field(
+            block_id,
+            format!("content[{index}].text"),
+            "text must be a string",
+        )
+    })?;
+    let styles = object
+        .get("styles")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            invalid_materialized_field(
+                block_id,
+                format!("content[{index}].styles"),
+                "text styles must be an object",
+            )
+        })?;
+    let mut attributes = BTreeMap::new();
+    for (key, value) in styles {
+        if !INLINE_STYLE_NAMES.contains(&key.as_str()) {
+            return Err(invalid_materialized_field(
+                block_id,
+                format!("content[{index}].styles.{key}"),
+                "unsupported inline style",
+            ));
+        }
+        attributes.insert(
+            key.clone(),
+            if value == &Value::Bool(true) {
+                PortableValue::Object(BTreeMap::new())
+            } else {
+                json_to_portable_value(value)?
+            },
+        );
+    }
+    if let Some(href) = href {
+        attributes.insert(
+            "link".to_owned(),
+            PortableValue::Object(
+                [("href".to_owned(), PortableValue::String(href.to_owned()))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
+    }
+    Ok(TextDelta {
+        insert: text.to_owned(),
+        attributes,
+    })
+}
+
+fn dematerialize_table(
+    block: &MaterializedBlockNode,
+) -> Result<Vec<XmlNode>, BlockMaterializationError> {
+    let content = block
+        .content
+        .as_ref()
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            invalid_materialized_content(block, "content", "table content must be an object")
+        })?;
+    if content.get("type").and_then(Value::as_str) != Some("tableContent") {
+        return Err(invalid_materialized_content(
+            block,
+            "content.type",
+            "table content type must be tableContent",
+        ));
+    }
+    let widths = content
+        .get("columnWidths")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            invalid_materialized_content(
+                block,
+                "content.columnWidths",
+                "table column widths must be an array",
+            )
+        })?;
+    let rows = content
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            invalid_materialized_content(block, "content.rows", "table rows must be an array")
+        })?;
+    let mut width_offset = 0usize;
+    rows.iter()
+        .enumerate()
+        .map(|(row_index, row)| {
+            let cells = row
+                .as_object()
+                .and_then(|row| row.get("cells"))
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    invalid_materialized_field(
+                        &block.id,
+                        format!("content.rows[{row_index}].cells"),
+                        "table row cells must be an array",
+                    )
+                })?;
+            let cells = cells
+                .iter()
+                .enumerate()
+                .map(|(cell_index, cell)| {
+                    let cell = cell.as_object().ok_or_else(|| {
+                        invalid_materialized_field(
+                            &block.id,
+                            format!("content.rows[{row_index}].cells[{cell_index}]"),
+                            "table cell must be an object",
+                        )
+                    })?;
+                    if cell.get("type").and_then(Value::as_str) != Some("tableCell") {
+                        return Err(invalid_materialized_field(
+                            &block.id,
+                            format!("content.rows[{row_index}].cells[{cell_index}].type"),
+                            "table cell type must be tableCell",
+                        ));
+                    }
+                    let props = cell
+                        .get("props")
+                        .and_then(Value::as_object)
+                        .ok_or_else(|| {
+                            invalid_materialized_field(
+                                &block.id,
+                                format!("content.rows[{row_index}].cells[{cell_index}].props"),
+                                "table cell props must be an object",
+                            )
+                        })?;
+                    let mut attributes = json_object_to_portable(props)?;
+                    let colspan = props
+                        .get("colspan")
+                        .and_then(Value::as_u64)
+                        .map(|value| value as usize)
+                        .unwrap_or(1);
+                    if colspan == 0 {
+                        return Err(invalid_materialized_field(
+                            &block.id,
+                            format!("content.rows[{row_index}].cells[{cell_index}].props.colspan"),
+                            "table cell colspan must be positive",
+                        ));
+                    }
+                    if row_index == 0 {
+                        let end = width_offset.saturating_add(colspan);
+                        if end > widths.len() {
+                            return Err(invalid_materialized_content(
+                                block,
+                                "content.columnWidths",
+                                "column widths do not cover the first row",
+                            ));
+                        }
+                        let selected = &widths[width_offset..end];
+                        width_offset = end;
+                        if selected.iter().any(|width| !width.is_null()) {
+                            attributes.insert(
+                                "colwidth".to_owned(),
+                                PortableValue::Array(
+                                    selected
+                                        .iter()
+                                        .map(json_to_portable_value)
+                                        .collect::<Result<_, _>>()?,
+                                ),
+                            );
+                        }
+                    }
+                    let inline =
+                        cell.get("content")
+                            .and_then(Value::as_array)
+                            .ok_or_else(|| {
+                                invalid_materialized_field(
+                                    &block.id,
+                                    format!(
+                                        "content.rows[{row_index}].cells[{cell_index}].content"
+                                    ),
+                                    "table cell content must be an array",
+                                )
+                            })?;
+                    Ok(XmlNode::Element(XmlElementNode {
+                        name: "tableCell".to_owned(),
+                        attributes,
+                        children: vec![XmlNode::Element(XmlElementNode {
+                            name: "tableParagraph".to_owned(),
+                            attributes: BTreeMap::new(),
+                            children: dematerialize_inline_content(inline, &block.id)?,
+                        })],
+                    }))
+                })
+                .collect::<Result<Vec<_>, BlockMaterializationError>>()?;
+            Ok(XmlNode::Element(XmlElementNode {
+                name: "tableRow".to_owned(),
+                attributes: BTreeMap::new(),
+                children: cells,
+            }))
+        })
+        .collect()
+}
+
+fn json_object_to_portable(
+    object: &Map<String, Value>,
+) -> Result<BTreeMap<String, PortableValue>, BlockMaterializationError> {
+    object
+        .iter()
+        .map(|(key, value)| json_to_portable_value(value).map(|value| (key.clone(), value)))
+        .collect()
+}
+
+fn json_to_portable_value(value: &Value) -> Result<PortableValue, BlockMaterializationError> {
+    match value {
+        Value::Null => Ok(PortableValue::Null),
+        Value::Bool(value) => Ok(PortableValue::Boolean(*value)),
+        Value::Number(value) => value
+            .as_f64()
+            .filter(|value| value.is_finite())
+            .map(PortableValue::Number)
+            .ok_or(BlockMaterializationError::InvalidNumber),
+        Value::String(value) => Ok(PortableValue::String(value.clone())),
+        Value::Array(values) => values
+            .iter()
+            .map(json_to_portable_value)
+            .collect::<Result<_, _>>()
+            .map(PortableValue::Array),
+        Value::Object(values) => json_object_to_portable(values).map(PortableValue::Object),
+    }
+}
+
+fn invalid_materialized_content(
+    block: &MaterializedBlockNode,
+    field: impl Into<String>,
+    message: impl Into<String>,
+) -> BlockMaterializationError {
+    invalid_materialized_field(&block.id, field, message)
+}
+
+fn invalid_materialized_field(
+    block_id: &str,
+    field: impl Into<String>,
+    message: impl Into<String>,
+) -> BlockMaterializationError {
+    BlockMaterializationError::InvalidContent {
+        block_id: block_id.to_owned(),
+        field: field.into(),
+        message: message.into(),
+    }
 }
 
 fn materialize_block(
@@ -434,5 +865,51 @@ mod tests {
         .expect("valid oracle fixture");
 
         assert_eq!(actual, expected["blockTree"]);
+    }
+
+    #[test]
+    fn round_trips_every_registered_materialized_block_back_to_canonical_xml() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/yjs-yrs");
+        let expected: Value = serde_json::from_slice(
+            &std::fs::read(root.join("matrix-materialization.json")).expect("oracle fixture"),
+        )
+        .expect("valid oracle fixture");
+        let blocks: Vec<MaterializedBlockNode> =
+            serde_json::from_value(expected["blockTree"].clone()).expect("materialized blocks");
+
+        let canonical = dematerialize_block_tree(&blocks).expect("canonical Block tree");
+        let actual = serde_json::to_value(
+            materialize_block_tree(&canonical).expect("round-trip materialization"),
+        )
+        .expect("serialize materialization");
+
+        assert_eq!(actual, expected["blockTree"]);
+    }
+
+    #[test]
+    fn rejects_childless_content_and_duplicate_application_identities() {
+        let invalid = vec![MaterializedBlockNode {
+            id: "duplicate".to_owned(),
+            block_type: "divider".to_owned(),
+            props: BTreeMap::new(),
+            content: Some(Value::Array(Vec::new())),
+            children: Vec::new(),
+        }];
+        assert!(matches!(
+            dematerialize_block_tree(&invalid),
+            Err(BlockMaterializationError::InvalidContent { .. })
+        ));
+
+        let duplicate = MaterializedBlockNode {
+            id: "duplicate".to_owned(),
+            block_type: "paragraph".to_owned(),
+            props: BTreeMap::new(),
+            content: Some(Value::Array(Vec::new())),
+            children: Vec::new(),
+        };
+        assert!(matches!(
+            dematerialize_block_tree(&[duplicate.clone(), duplicate]),
+            Err(BlockMaterializationError::InvalidTree(_))
+        ));
     }
 }
