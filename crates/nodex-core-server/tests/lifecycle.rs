@@ -30,17 +30,43 @@ fn request_with_headers(
     body: &str,
     headers: &[(&str, &str)],
 ) -> String {
+    request_bytes_with_headers(socket, auth, method, path, body.as_bytes(), headers)
+}
+
+fn request_bytes_with_headers(
+    socket: &str,
+    auth: &str,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    headers: &[(&str, &str)],
+) -> String {
     let mut stream = UnixStream::connect(socket).expect("connect to Core socket");
     let headers = headers
         .iter()
         .map(|(name, value)| format!("{name}: {value}\r\n"))
         .collect::<String>();
-    write!(
+    let write_result = write!(
         stream,
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {auth}\r\nContent-Type: application/json\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {auth}\r\nContent-Type: application/json\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
         body.len(),
-    )
-    .expect("write request");
+    );
+    if write_result.is_ok() {
+        let _ = stream.write_all(body).inspect_err(|error| {
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe,
+                "write request body: {error}"
+            );
+        });
+    }
+    if let Err(error) = write_result {
+        assert_eq!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe,
+            "write request: {error}"
+        );
+    }
     let mut response = String::new();
     stream.read_to_string(&mut response).expect("read response");
     response
@@ -360,6 +386,26 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &"x".repeat(2 * 1024 * 1024 + 1),
     );
     assert!(oversized.starts_with("HTTP/1.1 413"));
+
+    let invalid_utf8 = request_bytes_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/handshake",
+        &[b'{', b'"', b'x', b'"', b':', b'"', 0xff, b'"', b'}'],
+        &[],
+    );
+    assert!(invalid_utf8.starts_with("HTTP/1.1 400"));
+
+    let deep_json = format!("{}0{}", "[".repeat(34), "]".repeat(34));
+    let deep_json = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/handshake",
+        &deep_json,
+    );
+    assert!(deep_json.starts_with("HTTP/1.1 400"));
 
     let unbound_shutdown = request(
         &expected.socket_path,

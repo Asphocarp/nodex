@@ -26,6 +26,12 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   that exact connection binding. Core process reuse requires a live
   authenticated handshake matching the fixed-path descriptor, so a stale
   descriptor or recycled PID is never process authority.
+- The native Core transport rejects declared or streamed body overflow before
+  domain decoding. JSON is required to be valid UTF-8 and is bounded by bytes,
+  nesting depth, total nodes, array length, object fields, key length, and
+  string length; Yjs/Awareness binary frames retain their narrower framing and
+  payload bounds. JSON and Document responses are capped independently, while
+  SSE remains a bounded-frame stream instead of being buffered as one response.
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.

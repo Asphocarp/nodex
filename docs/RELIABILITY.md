@@ -113,6 +113,13 @@
   first enters drain state, rejects fresh connected work, stops accepting
   sockets, and lets Axum finish in-flight requests before Store teardown and
   exact-generation runtime-file cleanup.
+- One native transport guard surrounds every private route. It enforces the
+  route-specific body cap even when a handler would otherwise ignore its body,
+  validates JSON UTF-8 and structural budgets before typed extraction, rebuilds
+  the request body for the owning handler, and caps non-streaming JSON/binary
+  responses before publication. Oversized, deeply nested, container-heavy, and
+  invalid-UTF-8 inputs fail before Module work; the connection is closed after
+  a transport-bound rejection so unread request bytes cannot poison reuse.
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before

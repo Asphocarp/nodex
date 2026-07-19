@@ -3,6 +3,7 @@
 mod connections;
 mod document_wire;
 mod runtime_files;
+mod transport_bounds;
 
 use std::convert::Infallible;
 use std::fs;
@@ -57,9 +58,8 @@ use tokio::sync::{Notify, broadcast};
 use connections::{BoundConnection, ConnectionRegistry, PeerIdentity};
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
 use runtime_files::{PRIVATE_FILE_MODE, RuntimePaths, random_hex};
+use transport_bounds::{MAX_DOCUMENT_REQUEST_BYTES, MAX_JSON_REQUEST_BYTES};
 
-const MAX_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
-const MAX_DOCUMENT_REQUEST_BYTES: usize = document_wire::MAX_DOCUMENT_FRAME_BYTES;
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const PROJECT_HEADER: &str = "x-nodex-project-id";
 const CONNECTION_HEADER: &str = "x-nodex-connection-id";
@@ -919,6 +919,7 @@ fn router(state: Arc<ServerState>) -> Router {
     infrastructure_routes
         .merge(connected_routes)
         .merge(document_routes)
+        .layer(middleware::from_fn(transport_bounds::enforce))
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             authenticate,
