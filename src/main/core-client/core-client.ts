@@ -30,6 +30,12 @@ import type {
   CoreEventSubscription,
   CoreHandshakeResponse,
   CoreModuleError,
+  AutomationApplyInput,
+  AutomationApplyResponse,
+  AutomationCommittedValue,
+  AutomationRead,
+  AutomationReadResponse,
+  AutomationReadSnapshot,
   DatabaseApplyInput,
   DatabaseApplyResponse,
   DatabaseCommittedValue,
@@ -99,6 +105,7 @@ export class CoreClient implements CoreClientPort {
   }
 
   static async connect(input: ConnectCoreClientInput): Promise<CoreClient> {
+    const connectionId = randomUUID();
     const runtime = readCoreRuntimeConnection(input.nodexHome);
     const transport = new UdsHttpTransport(
       runtime.descriptor.socket_path,
@@ -114,12 +121,13 @@ export class CoreClient implements CoreClientPort {
           kind: input.clientKind,
           build_id: input.buildId,
         },
+        connection_id: connectionId,
         expected_profile_id: runtime.descriptor.profile_id,
         expected_start_nonce: runtime.descriptor.start_nonce,
       },
     );
     assertHandshake(runtime.descriptor, handshake);
-    return new CoreClient(transport, handshake, input.projectId, randomUUID());
+    return new CoreClient(transport, handshake, input.projectId, connectionId);
   }
 
   health(): Promise<HealthResponse> {
@@ -199,6 +207,35 @@ export class CoreClient implements CoreClientPort {
     const response = await this.#transport.requestJson<ProjectWorkspaceApplyResponse>(
       "POST",
       "/core/v1/modules/workspace/apply",
+      {
+        version: PROTOCOL_MAX,
+        operation_id: input.operationId,
+        store_epoch: this.handshake.store_epoch,
+        intent: input.intent,
+      },
+      this.#moduleHeaders(),
+    );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async automationRead(read: AutomationRead): Promise<AutomationReadSnapshot> {
+    const response = await this.#transport.requestJson<AutomationReadResponse>(
+      "POST",
+      "/core/v1/modules/automation/read",
+      { version: PROTOCOL_MAX, read },
+      this.#moduleHeaders(),
+    );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async automationApply(
+    input: AutomationApplyInput,
+  ): Promise<AutomationCommittedValue> {
+    const response = await this.#transport.requestJson<AutomationApplyResponse>(
+      "POST",
+      "/core/v1/modules/automation/apply",
       {
         version: PROTOCOL_MAX,
         operation_id: input.operationId,
@@ -355,6 +392,7 @@ export class CoreClient implements CoreClientPort {
     }
     return {
       "x-nodex-connection-id": this.#connectionId,
+      "x-nodex-connection-binding": this.handshake.connection_binding,
       ...(this.#projectId ? { "x-nodex-project-id": this.#projectId } : {}),
     };
   }

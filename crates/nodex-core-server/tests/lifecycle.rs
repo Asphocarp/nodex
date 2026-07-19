@@ -112,6 +112,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
             kind: ClientKind::Test,
             build_id: "lifecycle-test".to_owned(),
         },
+        connection_id: "connection:lifecycle".to_owned(),
         expected_profile_id: Some(expected.profile_id.clone()),
         expected_start_nonce: Some(expected.start_nonce.clone()),
     })
@@ -125,13 +126,23 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
     assert!(response.starts_with("HTTP/1.1 200"));
     assert!(response.contains(&expected.start_nonce));
+    let handshake_json = response_json(&response);
+    let connection_binding = handshake_json["connection_binding"]
+        .as_str()
+        .expect("connection binding")
+        .to_owned();
 
-    let read = request(
+    let connection_headers = [
+        ("x-nodex-connection-id", "connection:lifecycle"),
+        ("x-nodex-connection-binding", connection_binding.as_str()),
+    ];
+    let read = request_with_headers(
         &expected.socket_path,
         &auth,
         "POST",
         "/core/v1/modules/library/read",
         r#"{"version":1,"read":{"kind":"metadata"}}"#,
+        &connection_headers,
     );
     assert!(read.starts_with("HTTP/1.1 200"));
     let read_json = response_json(&read);
@@ -159,6 +170,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     let module_headers = [
         ("x-nodex-project-id", "project:default"),
         ("x-nodex-connection-id", "connection:lifecycle"),
+        ("x-nodex-connection-binding", connection_binding.as_str()),
     ];
     let apply = request_with_headers(
         &expected.socket_path,

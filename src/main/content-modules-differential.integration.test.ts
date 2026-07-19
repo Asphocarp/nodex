@@ -90,6 +90,13 @@ import {
   upsertCodexBackgroundProcess,
 } from "./local-store/codex-background-processes";
 import {
+  createCodexScheduledAutomation,
+  deleteCodexScheduledAutomation,
+  listCodexScheduledAutomations,
+  listDueCodexScheduledAutomationRuns,
+  recordCodexScheduledAutomationRunDispatched,
+} from "./local-store/codex-scheduled-automations";
+import {
   getCodexProjectThreadOrder,
   moveCodexProjectThread,
   setCodexProjectThreadOrder,
@@ -307,6 +314,19 @@ describe("TypeScript/Rust content Module differential", () => {
     const anchorPage = await createPage(coordinates.projectId, "triage", {
       title: "Secondary imported row",
     });
+    const oracleImportedAutomation = createCodexScheduledAutomation({
+      kind: "cron",
+      name: "Gate C Automation",
+      prompt: "Prepare the Gate C report",
+      rrule: "FREQ=HOURLY;INTERVAL=24;BYMINUTE=0",
+      cwds: [typescriptHome],
+      executionEnvironment: "worktree",
+    });
+    oracle.prepare(`
+      UPDATE codex_scheduled_automations
+      SET next_run_at = 0
+      WHERE automation_id = ?
+    `).run(oracleImportedAutomation.id);
     const sourceDocument = oracle.prepare(`
       SELECT document.id, document.generation, document.head_seq
       FROM pages page INNER JOIN documents document ON document.id = page.document_id
@@ -345,6 +365,39 @@ describe("TypeScript/Rust content Module differential", () => {
       library_id: coordinates.libraryId,
       store_epoch: coordinates.storeEpoch,
       schema_version: 83,
+    });
+
+    const importedAutomations = await stage(
+      "Automation imported definitions",
+      candidate.automationRead({ kind: "definitions", include_deleted: false }),
+    );
+    if (importedAutomations.value.kind !== "definitions") {
+      throw new Error("Expected Automation definitions snapshot");
+    }
+    const candidateImportedAutomation = importedAutomations.value.items.find(
+      (automation) => automation.automation_id === oracleImportedAutomation.id,
+    );
+    const oracleImportedRuntime = listCodexScheduledAutomations().find(
+      (automation) => automation.id === oracleImportedAutomation.id,
+    );
+    expect(candidateImportedAutomation).toMatchObject({
+      automation_id: oracleImportedRuntime?.id,
+      definition_revision: 1,
+      kind: oracleImportedRuntime?.kind,
+      status: oracleImportedRuntime?.status,
+      target_thread_id: oracleImportedRuntime?.targetThreadId,
+      name: oracleImportedRuntime?.name,
+      prompt: oracleImportedRuntime?.prompt,
+      rrule: oracleImportedRuntime?.rrule,
+      model: oracleImportedRuntime?.model,
+      reasoning_effort: oracleImportedRuntime?.reasoningEffort,
+      cwds: oracleImportedRuntime?.cwds,
+      execution_environment: oracleImportedRuntime?.executionEnvironment,
+      local_environment_config_path: oracleImportedRuntime?.localEnvironmentConfigPath,
+      next_run_at_ms: 0,
+      last_run_at_ms: oracleImportedRuntime?.lastRunAt,
+      created_at_ms: oracleImportedRuntime?.createdAt,
+      updated_at_ms: oracleImportedRuntime?.updatedAt,
     });
 
     const oracleWorkspaceProjects = listProjects();
@@ -4670,6 +4723,103 @@ describe("TypeScript/Rust content Module differential", () => {
     expect(candidateMutatedWorkspace.value.projects.map(comparableProjectState)).toEqual(
       listProjects().map(comparableProjectState),
     );
+
+    const oracleDueAutomations = listDueCodexScheduledAutomationRuns();
+    expect(oracleDueAutomations.map((automation) => automation.id)).toContain(
+      oracleImportedAutomation.id,
+    );
+    const claimedAutomation = await stage(
+      "Automation durable due claim",
+      candidate.automationApply({
+        operationId: "gate-c-automation-claim",
+        intent: {
+          kind: "claim_due",
+          limit: 3,
+          lease_duration_ms: 60_000,
+        },
+      }),
+    );
+    const claimedLease = claimedAutomation.value.claimed_leases.find(
+      (lease) => lease.automation_id === oracleImportedAutomation.id,
+    );
+    expect(claimedLease).toMatchObject({
+      automation_id: oracleImportedAutomation.id,
+      attempt: 1,
+      status: "claimed",
+      scheduled_for_ms: 0,
+    });
+    if (!claimedLease) throw new Error("Expected imported Automation lease");
+
+    const oracleDispatchedAutomation = recordCodexScheduledAutomationRunDispatched(
+      oracleImportedAutomation.id,
+    );
+    if (!oracleDispatchedAutomation) {
+      throw new Error("TypeScript Automation disappeared before dispatch");
+    }
+    const completedAutomation = await stage(
+      "Automation complete durable lease",
+      candidate.automationApply({
+        operationId: "gate-c-automation-complete",
+        intent: {
+          kind: "complete_lease",
+          lease_id: claimedLease.lease_id,
+        },
+      }),
+    );
+    const completedDefinition = completedAutomation.value.definitions.find(
+      (definition) => definition.automation_id === oracleImportedAutomation.id,
+    );
+    expect(completedDefinition?.next_run_at_ms).toBe(
+      oracleDispatchedAutomation.nextRunAt,
+    );
+    expect(completedDefinition?.last_run_at_ms).toBeGreaterThanOrEqual(
+      (oracleDispatchedAutomation.lastRunAt ?? 0) - 5_000,
+    );
+    expect(completedDefinition?.last_run_at_ms).toBeLessThanOrEqual(
+      (oracleDispatchedAutomation.lastRunAt ?? 0) + 5_000,
+    );
+    const completedReplay = await stage(
+      "Automation replay durable lease completion",
+      candidate.automationApply({
+        operationId: "gate-c-automation-complete",
+        intent: {
+          kind: "complete_lease",
+          lease_id: claimedLease.lease_id,
+        },
+      }),
+    );
+    expect(completedReplay.event_sequence).toBe(completedAutomation.event_sequence);
+    expect(completedReplay.receipt.duplicate).toBe(true);
+
+    expect(deleteCodexScheduledAutomation(oracleImportedAutomation.id)).toBe(true);
+    await stage(
+      "Automation delete definition",
+      candidate.automationApply({
+        operationId: "gate-c-automation-delete",
+        intent: {
+          kind: "delete_definition",
+          automation_id: oracleImportedAutomation.id,
+          expected_revision: 1,
+        },
+      }),
+    );
+    const remainingAutomations = await stage(
+      "Automation definitions after delete",
+      candidate.automationRead({ kind: "definitions", include_deleted: false }),
+    );
+    if (remainingAutomations.value.kind !== "definitions") {
+      throw new Error("Expected Automation definitions after delete");
+    }
+    expect(
+      remainingAutomations.value.items.some(
+        (automation) => automation.automation_id === oracleImportedAutomation.id,
+      ),
+    ).toBe(false);
+    expect(
+      listCodexScheduledAutomations().some(
+        (automation) => automation.id === oracleImportedAutomation.id,
+      ),
+    ).toBe(false);
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);

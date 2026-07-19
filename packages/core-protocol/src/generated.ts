@@ -266,23 +266,79 @@ export interface components {
     schemas: {
         readonly AutomationApplyRequest: components["schemas"]["ModuleApplyRequest_AutomationIntent"];
         readonly AutomationApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt"];
+        readonly AutomationDefinition: {
+            readonly automation_id: string;
+            /** Format: int64 */
+            readonly created_at_ms: number;
+            readonly cwds: readonly string[];
+            /** Format: int64 */
+            readonly definition_revision: number;
+            readonly execution_environment: components["schemas"]["AutomationExecutionEnvironment"];
+            readonly kind: components["schemas"]["AutomationDefinitionKind"];
+            /** Format: int64 */
+            readonly last_run_at_ms?: number | null;
+            readonly local_environment_config_path?: string | null;
+            readonly model?: string | null;
+            readonly name: string;
+            /** Format: int64 */
+            readonly next_run_at_ms?: number | null;
+            readonly prompt: string;
+            readonly reasoning_effort?: null | components["schemas"]["AutomationReasoningEffort"];
+            readonly rrule: string;
+            readonly status: components["schemas"]["AutomationDefinitionStatus"];
+            readonly target_thread_id?: string | null;
+            /** Format: int64 */
+            readonly updated_at_ms: number;
+        };
+        readonly AutomationDefinitionInput: {
+            readonly cwds?: readonly string[] | null;
+            readonly execution_environment?: null | components["schemas"]["AutomationExecutionEnvironment"];
+            readonly kind: components["schemas"]["AutomationDefinitionKind"];
+            readonly local_environment_config_path?: string | null;
+            readonly model?: string | null;
+            readonly name: string;
+            readonly prompt?: string | null;
+            readonly reasoning_effort?: null | components["schemas"]["AutomationReasoningEffort"];
+            readonly rrule?: string | null;
+            readonly target_thread_id?: string | null;
+        };
+        /** @enum {string} */
+        readonly AutomationDefinitionKind: "cron" | "heartbeat";
+        /** @enum {string} */
+        readonly AutomationDefinitionStatus: "ACTIVE" | "PAUSED" | "DELETED";
         readonly AutomationEvent: {
             readonly automation_ids: readonly string[];
             readonly kind: components["schemas"]["AutomationEventKind"];
             readonly lease_ids: readonly string[];
-            readonly occurrence_ids: readonly string[];
         };
         /** @enum {string} */
         readonly AutomationEventKind: "automation_changed";
+        /** @enum {string} */
+        readonly AutomationExecutionEnvironment: "local" | "worktree";
         readonly AutomationLease: {
             /** Format: int32 */
             readonly attempt: number;
             readonly automation_id: string;
-            readonly expires_at: string;
+            /** Format: int64 */
+            readonly claimed_at_ms: number;
+            /** Format: int64 */
+            readonly expires_at_ms: number;
             readonly lease_id: string;
+            readonly reason_code?: string | null;
+            /** Format: int64 */
+            readonly retry_at_ms?: number | null;
+            /** Format: int64 */
+            readonly scheduled_for_ms: number;
+            /** Format: int64 */
+            readonly settled_at_ms?: number | null;
+            readonly status: components["schemas"]["AutomationLeaseStatus"];
         };
+        /** @enum {string} */
+        readonly AutomationLeaseStatus: "claimed" | "completed" | "failed" | "cancelled";
         readonly AutomationReadRequest: components["schemas"]["ModuleReadRequest_AutomationRead"];
         readonly AutomationReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue"];
+        /** @enum {string} */
+        readonly AutomationReasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
         readonly BackupRecord: {
             readonly backup_id: string;
             /** Format: int64 */
@@ -557,6 +613,7 @@ export interface components {
         };
         readonly HandshakeRequest: {
             readonly client: components["schemas"]["ClientIdentity"];
+            readonly connection_id: string;
             readonly expected_profile_id?: string | null;
             readonly expected_start_nonce?: string | null;
             /** Format: int32 */
@@ -566,6 +623,7 @@ export interface components {
         };
         readonly HandshakeResponse: {
             readonly build_id: string;
+            readonly connection_binding: string;
             /** Format: int64 */
             readonly event_head: number;
             readonly library_id: string;
@@ -1006,19 +1064,25 @@ export interface components {
         readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_compaction" | "history_retention" | "block_retention";
         readonly ModuleApplyRequest_AutomationIntent: {
             readonly intent: {
-                readonly definition: unknown;
+                readonly automation_id: string;
+                readonly definition: components["schemas"]["AutomationDefinitionInput"];
                 /** @enum {string} */
                 readonly kind: "create_definition";
             } | {
-                readonly definition: unknown;
+                readonly automation_id: string;
+                readonly definition: components["schemas"]["AutomationDefinitionInput"];
+                /** Format: int64 */
+                readonly expected_revision: number;
                 /** @enum {string} */
                 readonly kind: "update_definition";
+                readonly status: components["schemas"]["AutomationDefinitionStatus"];
             } | {
                 readonly automation_id: string;
+                /** Format: int64 */
+                readonly expected_revision: number;
                 /** @enum {string} */
                 readonly kind: "delete_definition";
             } | {
-                readonly due_before: string;
                 /** @enum {string} */
                 readonly kind: "claim_due";
                 /** Format: int64 */
@@ -1026,35 +1090,16 @@ export interface components {
                 /** Format: int32 */
                 readonly limit: number;
             } | {
-                readonly completed_at: string;
                 /** @enum {string} */
                 readonly kind: "complete_lease";
                 readonly lease_id: string;
             } | {
-                readonly failed_at: string;
                 /** @enum {string} */
                 readonly kind: "fail_lease";
                 readonly lease_id: string;
                 readonly reason_code: string;
-                readonly retry_at?: string | null;
-            } | {
-                /** @enum {string} */
-                readonly kind: "complete_occurrence";
-                readonly request: unknown;
-            } | {
-                /** @enum {string} */
-                readonly kind: "update_occurrence";
-                readonly request: unknown;
-            } | {
-                readonly consumed_at: string;
-                /** @enum {string} */
-                readonly kind: "consume_reminder";
-                readonly reminder_id: string;
-            } | {
-                /** @enum {string} */
-                readonly kind: "snooze_reminder";
-                readonly reminder_id: string;
-                readonly wake_at: string;
+                /** Format: int64 */
+                readonly retry_delay_ms?: number | null;
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -1505,16 +1550,12 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "definition";
             } | {
+                readonly automation_id?: string | null;
+                readonly include_settled?: boolean | null;
                 /** @enum {string} */
-                readonly kind: "runs_inbox";
+                readonly kind: "leases";
                 /** Format: int32 */
                 readonly limit?: number | null;
-            } | {
-                /** @enum {string} */
-                readonly kind: "occurrences";
-                readonly project_id: string;
-                readonly window_end: string;
-                readonly window_start: string;
             };
             /** Format: int32 */
             readonly version: number;
@@ -2063,13 +2104,13 @@ export interface components {
                 readonly event_sequence: number;
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_automation_ids: readonly string[];
-                    readonly affected_occurrence_ids: readonly string[];
+                    readonly affected_lease_ids: readonly string[];
                 };
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly affected_automation_ids: readonly string[];
-                    readonly affected_occurrence_ids: readonly string[];
                     readonly claimed_leases: readonly components["schemas"]["AutomationLease"][];
+                    readonly definitions: readonly components["schemas"]["AutomationDefinition"][];
                 };
             };
             /** @enum {string} */
@@ -2214,21 +2255,17 @@ export interface components {
                 readonly event_head: number;
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
-                    readonly items: readonly unknown[];
+                    readonly items: readonly components["schemas"]["AutomationDefinition"][];
                     /** @enum {string} */
                     readonly kind: "definitions";
                 } | {
-                    readonly item: unknown;
+                    readonly item?: null | components["schemas"]["AutomationDefinition"];
                     /** @enum {string} */
                     readonly kind: "definition";
                 } | {
+                    readonly items: readonly components["schemas"]["AutomationLease"][];
                     /** @enum {string} */
-                    readonly kind: "runs_inbox";
-                    readonly leases: readonly components["schemas"]["AutomationLease"][];
-                } | {
-                    /** @enum {string} */
-                    readonly kind: "occurrences";
-                    readonly occurrence_ids: readonly string[];
+                    readonly kind: "leases";
                 };
                 /** Format: int32 */
                 readonly version: number;

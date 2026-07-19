@@ -1,4 +1,8 @@
 import type {
+  AutomationApplyInput,
+  AutomationCommittedValue,
+  AutomationRead,
+  AutomationReadSnapshot,
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventSubscription,
@@ -31,6 +35,8 @@ import type {
 } from "../../../shared/block-documents/document-sync";
 
 export class FakeCoreClient implements CoreClientPort {
+  readonly automationReads: AutomationRead[] = [];
+  readonly automationApplies: AutomationApplyInput[] = [];
   readonly reads: LibraryRead[] = [];
   readonly applies: LibraryApplyInput[] = [];
   readonly databaseReads: DatabaseRead[] = [];
@@ -46,6 +52,8 @@ export class FakeCoreClient implements CoreClientPort {
   readonly documentUpdateApplies: DocumentSyncApplyRequest[] = [];
   readonly awarenessPublishes: DocumentAwarenessPublishRequest[] = [];
   readonly #readResults: LibraryReadSnapshot[] = [];
+  readonly #automationReadResults: AutomationReadSnapshot[] = [];
+  readonly #automationApplyResults: AutomationCommittedValue[] = [];
   readonly #applyResults: LibraryCommittedValue[] = [];
   readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
   readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
@@ -60,6 +68,14 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueRead(result: LibraryReadSnapshot): void {
     this.#readResults.push(result);
+  }
+
+  enqueueAutomationRead(result: AutomationReadSnapshot): void {
+    this.#automationReadResults.push(result);
+  }
+
+  enqueueAutomationApply(result: AutomationCommittedValue): void {
+    this.#automationApplyResults.push(result);
   }
 
   enqueueApply(result: LibraryCommittedValue): void {
@@ -106,6 +122,20 @@ export class FakeCoreClient implements CoreClientPort {
     this.reads.push(read);
     const result = this.#readResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Library read");
+    return result;
+  }
+
+  async automationRead(read: AutomationRead): Promise<AutomationReadSnapshot> {
+    this.automationReads.push(read);
+    const result = this.#automationReadResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Automation read");
+    return result;
+  }
+
+  async automationApply(input: AutomationApplyInput): Promise<AutomationCommittedValue> {
+    this.automationApplies.push(input);
+    const result = this.#automationApplyResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Automation apply");
     return result;
   }
 

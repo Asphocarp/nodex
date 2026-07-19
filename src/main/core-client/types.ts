@@ -49,9 +49,23 @@ export type ProjectWorkspaceIntent = ProjectWorkspaceApplyRequest["intent"];
 export type ProjectWorkspaceApplyResponse = components["schemas"]["ProjectWorkspaceApplyResponse"];
 export type ProjectWorkspaceCommittedValue = SuccessfulPayload<ProjectWorkspaceApplyResponse>;
 
+export type AutomationReadRequest = components["schemas"]["AutomationReadRequest"];
+export type AutomationRead = AutomationReadRequest["read"];
+export type AutomationReadResponse = components["schemas"]["AutomationReadResponse"];
+export type AutomationReadSnapshot = SuccessfulPayload<AutomationReadResponse>;
+export type AutomationApplyRequest = components["schemas"]["AutomationApplyRequest"];
+export type AutomationIntent = AutomationApplyRequest["intent"];
+export type AutomationApplyResponse = components["schemas"]["AutomationApplyResponse"];
+export type AutomationCommittedValue = SuccessfulPayload<AutomationApplyResponse>;
+
 export interface ProjectWorkspaceApplyInput {
   readonly operationId: string;
   readonly intent: ProjectWorkspaceIntent;
+}
+
+export interface AutomationApplyInput {
+  readonly operationId: string;
+  readonly intent: AutomationIntent;
 }
 
 export type OwnedDocumentReadRequest = components["schemas"]["OwnedDocumentReadRequest"];
@@ -99,6 +113,8 @@ export interface CoreClientPort {
   databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue>;
   workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot>;
   workspaceApply(input: ProjectWorkspaceApplyInput): Promise<ProjectWorkspaceCommittedValue>;
+  automationRead(read: AutomationRead): Promise<AutomationReadSnapshot>;
+  automationApply(input: AutomationApplyInput): Promise<AutomationCommittedValue>;
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,

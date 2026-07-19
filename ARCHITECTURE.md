@@ -71,7 +71,10 @@ fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;
 hosts authenticated HTTP/1.1 over a Profile-private Unix socket. The thin
 `src/main/core-client/` Adapter validates runtime ownership and permissions,
 performs the version/nonce/Profile handshake, uses bounded codecs, and parses
-committed SSE events incrementally.
+committed SSE events incrementally. The handshake also binds its declared
+Electron Host, native CLI, or test Adapter kind to a generated connection ID;
+every Module and Document request must present the resulting per-start binding
+capability, so a client cannot accidentally cross an Adapter policy boundary.
 
 The native Library and Database Modules now cover their complete Milestone 5
 semantic surface behind those fixed `read`/`apply` pairs. Whole-Page copy is a
@@ -90,9 +93,9 @@ execution context, root/child Thread collection, managed-worktree set, durable
 sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Automation and Store
-Administration remain migration work, so their unavailable operations do not
-fall back to direct native SQL.
+bindings and cross-Library rows fail closed. Store Administration and the
+Automation run/occurrence/reminder slices remain migration work; unavailable
+semantics do not fall back to direct native SQL.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and
@@ -194,6 +197,26 @@ only for an empty or browser-only Session and atomically rewrites the Session,
 every browser tab's owner/config, and any linked Codex Thread before publishing
 one Workspace receipt/event. Deletion cascades the panel/tab and Thread-link
 aggregate without deleting the independently owned Codex Thread.
+
+The native Automation Module now owns Scheduled Automation definitions and due
+work leases in SQLite. v83 adds an optimistic definition revision, imports the
+former profile jitter salt once, and retains the old TOML tree only as legacy
+rollback/export evidence; native mutations never reconcile two writable
+definition authorities. Typed create/update/delete intents validate cron versus
+heartbeat shape, canonical absolute execution paths, target Thread existence,
+RRULE bounds, and the one-active-heartbeat-per-Thread invariant. Core computes
+the next local-calendar occurrence and deterministic profile jitter on its own
+clock. A trusted Electron Host may claim bounded due work without advancing the
+definition, and receives a durable expiring lease; completion advances
+`last_run_at` and the next occurrence, failure records a bounded reason and
+optional retry, and an expired lease can be reclaimed with a higher attempt.
+Without a Host claim, due work remains durably pending. Every transition shares
+the normal store-epoch, exact-receipt, change-event, and same-transaction
+boundary. The authenticated UDS handshake binds the connection's Adapter kind,
+and a native CLI connection is rejected before any claim or settlement logic.
+Electron still performs Codex execution, and Automation runs,
+scheduled Page occurrences, reminders, and snoozes remain to be absorbed before
+the Module is complete.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit

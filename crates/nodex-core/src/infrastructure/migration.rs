@@ -24,7 +24,9 @@ use super::sqlite::{
 const CORE_SCHEMA_OWNER: &str = "rust_core";
 const LEGACY_WRITABLE_ROOTS_IMPORT_KEY: &str = "codex_thread_writable_roots_v1";
 const LEGACY_WRITABLE_ROOTS_FILE_NAME: &str = "codex-thread-writable-roots-v1.json";
+const AUTOMATION_JITTER_SALT_FILE: &str = "automations/.run-jitter-salt";
 const MAX_LEGACY_WRITABLE_ROOTS_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_AUTOMATION_JITTER_SALT_BYTES: u64 = 512;
 const MAX_WRITABLE_ROOTS_PER_THREAD: usize = 128;
 const MAX_WRITABLE_ROOT_BYTES: usize = 16_384;
 const V83_SCHEMA_SQL: &str = r#"
@@ -143,6 +145,47 @@ CREATE TABLE IF NOT EXISTS codex_thread_writable_roots (
   CHECK (length(thread_id) BETWEEN 1 AND 512),
   CHECK (length(root) BETWEEN 1 AND 16384)
 ) WITHOUT ROWID, STRICT;
+
+CREATE TABLE IF NOT EXISTS core_automation_runtime_metadata (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  jitter_salt TEXT NOT NULL,
+  created_at_unix_ms INTEGER NOT NULL CHECK (created_at_unix_ms >= 0),
+  CHECK (length(jitter_salt) BETWEEN 1 AND 512)
+) STRICT;
+
+CREATE TABLE IF NOT EXISTS core_automation_leases (
+  lease_id TEXT PRIMARY KEY,
+  automation_id TEXT NOT NULL REFERENCES codex_scheduled_automations(automation_id)
+    ON DELETE CASCADE,
+  scheduled_for_ms INTEGER NOT NULL CHECK (scheduled_for_ms >= 0),
+  attempt INTEGER NOT NULL CHECK (attempt BETWEEN 1 AND 4294967295),
+  status TEXT NOT NULL CHECK (status IN ('claimed', 'completed', 'failed', 'cancelled')),
+  claimed_at_ms INTEGER NOT NULL CHECK (claimed_at_ms >= 0),
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > claimed_at_ms),
+  settled_at_ms INTEGER,
+  retry_at_ms INTEGER,
+  reason_code TEXT,
+  UNIQUE (automation_id, scheduled_for_ms, attempt),
+  CHECK (length(lease_id) BETWEEN 1 AND 512),
+  CHECK (settled_at_ms IS NULL OR settled_at_ms >= claimed_at_ms),
+  CHECK (retry_at_ms IS NULL OR retry_at_ms >= 0),
+  CHECK (reason_code IS NULL OR length(reason_code) BETWEEN 1 AND 128),
+  CHECK (
+    (status = 'claimed' AND settled_at_ms IS NULL)
+    OR (status <> 'claimed' AND settled_at_ms IS NOT NULL)
+  )
+) WITHOUT ROWID, STRICT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_core_automation_leases_active_occurrence
+  ON core_automation_leases(automation_id, scheduled_for_ms)
+  WHERE status = 'claimed';
+
+CREATE INDEX IF NOT EXISTS idx_core_automation_leases_inbox
+  ON core_automation_leases(status, expires_at_ms, scheduled_for_ms, lease_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_scheduled_automations_active_heartbeat
+  ON codex_scheduled_automations(target_thread_id)
+  WHERE kind = 'heartbeat' AND status = 'ACTIVE' AND target_thread_id IS NOT NULL;
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -459,8 +502,10 @@ fn publish_v83(
     with_immediate_transaction(connection, |transaction| {
         transaction.execute_batch(V83_SCHEMA_SQL)?;
         transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        ensure_automation_definition_revision(transaction)?;
         write_v83_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
-        import_legacy_writable_roots(transaction, profile_home, now)
+        import_legacy_writable_roots(transaction, profile_home, now)?;
+        import_automation_jitter_salt(transaction, profile_home, now)
     })
 }
 
@@ -473,8 +518,10 @@ fn create_fresh_v83(
         transaction.execute_batch(v82_schema_objects_sql())?;
         transaction.execute_batch(V83_SCHEMA_SQL)?;
         transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        ensure_automation_definition_revision(transaction)?;
         write_v83_metadata(transaction, None, None, now, &[])?;
-        import_legacy_writable_roots(transaction, profile_home, now)
+        import_legacy_writable_roots(transaction, profile_home, now)?;
+        import_automation_jitter_salt(transaction, profile_home, now)
     })
 }
 
@@ -485,8 +532,92 @@ fn ensure_v83_execution_schema(
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
         transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
-        import_legacy_writable_roots(transaction, profile_home, now)
+        ensure_automation_definition_revision(transaction)?;
+        import_legacy_writable_roots(transaction, profile_home, now)?;
+        import_automation_jitter_salt(transaction, profile_home, now)
     })
+}
+
+fn ensure_automation_definition_revision(connection: &Connection) -> Result<(), StoreError> {
+    let revision_column: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('codex_scheduled_automations') \
+         WHERE name = 'definition_revision'",
+        [],
+        |row| row.get(0),
+    )?;
+    if revision_column == 1 {
+        return Ok(());
+    }
+    if revision_column != 0 {
+        return Err(corrupt(
+            "Scheduled Automation definition revision schema is ambiguous",
+        ));
+    }
+    connection.execute(
+        "ALTER TABLE codex_scheduled_automations \
+         ADD COLUMN definition_revision INTEGER NOT NULL DEFAULT 1 \
+         CHECK (definition_revision >= 1)",
+        [],
+    )?;
+    Ok(())
+}
+
+fn import_automation_jitter_salt(
+    connection: &Connection,
+    profile_home: &Path,
+    now: u64,
+) -> Result<(), StoreError> {
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM core_automation_runtime_metadata WHERE id = 1",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if exists {
+        return Ok(());
+    }
+
+    let salt = read_legacy_automation_jitter_salt(profile_home);
+    let now = i64::try_from(now).map_err(|_| {
+        StoreError::new(
+            StoreErrorCode::Internal,
+            "Automation jitter salt import time exceeds SQLite integer range",
+            false,
+        )
+    })?;
+    if let Some(salt) = salt {
+        connection.execute(
+            "INSERT INTO core_automation_runtime_metadata(id, jitter_salt, created_at_unix_ms) \
+             VALUES (1, ?1, ?2)",
+            params![salt, now],
+        )?;
+        return Ok(());
+    }
+    connection.execute(
+        "INSERT INTO core_automation_runtime_metadata(id, jitter_salt, created_at_unix_ms) \
+         VALUES (1, lower(hex(randomblob(16))), ?1)",
+        [now],
+    )?;
+    Ok(())
+}
+
+fn read_legacy_automation_jitter_salt(profile_home: &Path) -> Option<String> {
+    let path = profile_home.join(AUTOMATION_JITTER_SALT_FILE);
+    let metadata = fs::symlink_metadata(&path).ok()?;
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > MAX_AUTOMATION_JITTER_SALT_BYTES
+    {
+        return None;
+    }
+    let salt = fs::read_to_string(path).ok()?;
+    let salt = salt.trim();
+    if salt.is_empty() || salt.len() > MAX_AUTOMATION_JITTER_SALT_BYTES as usize {
+        return None;
+    }
+    Some(salt.to_owned())
 }
 
 fn import_legacy_writable_roots(
@@ -1067,6 +1198,70 @@ mod tests {
             })
             .expect("repaired writable root table");
         assert_eq!(repaired_root, "/workspace/stale");
+    }
+
+    #[test]
+    fn automation_runtime_schema_imports_jitter_salt_once() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_v82_page(&home);
+        let connection = Connection::open(home.join("nodex.db")).expect("v82 store");
+        connection
+            .execute(
+                "INSERT INTO codex_scheduled_automations(\
+                   automation_id, kind, status, name, prompt, rrule, cwds_json, \
+                   execution_environment, created_at, updated_at\
+                 ) VALUES ('legacy-automation', 'cron', 'ACTIVE', 'Legacy', '', \
+                   'FREQ=DAILY;BYHOUR=9;BYMINUTE=0', '[\"/workspace\"]', 'worktree', 1, 1)",
+                [],
+            )
+            .expect("legacy Automation mirror");
+        drop(connection);
+        fs::create_dir_all(home.join("automations")).expect("Automation directory");
+        fs::write(
+            home.join(AUTOMATION_JITTER_SALT_FILE),
+            "legacy-jitter-salt\n",
+        )
+        .expect("legacy jitter salt");
+
+        let kernel = SqliteStoreKernel::open(&home).expect("migrate Automation runtime");
+        let runtime = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT automation.definition_revision, metadata.jitter_salt \
+                         FROM codex_scheduled_automations automation \
+                         CROSS JOIN core_automation_runtime_metadata metadata \
+                         WHERE automation.automation_id = 'legacy-automation' AND metadata.id = 1",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("Automation runtime state");
+        assert_eq!(runtime, (1, "legacy-jitter-salt".to_owned()));
+        drop(kernel);
+
+        fs::write(
+            home.join(AUTOMATION_JITTER_SALT_FILE),
+            "stale-jitter-salt\n",
+        )
+        .expect("stale jitter salt");
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen Automation runtime");
+        let salt = reopened
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT jitter_salt FROM core_automation_runtime_metadata WHERE id = 1",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("persisted jitter salt");
+        assert_eq!(salt, "legacy-jitter-salt");
     }
 
     #[test]

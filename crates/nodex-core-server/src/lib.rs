@@ -20,6 +20,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fs2::FileExt;
+use nodex_core::automation::AutomationModule;
 use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
@@ -34,13 +35,14 @@ use nodex_core_contracts::{
     CoreModuleEventPayload, LibraryId, ProfileId, ProjectId, StoreEpoch,
 };
 use nodex_core_protocol::{
-    DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
-    EventEnvelope, HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest,
-    LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
-    OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
-    PROTOCOL_MIN, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
-    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
-    ShutdownResponse, ShutdownStatus,
+    AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
+    ClientKind, DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest,
+    DatabaseReadResponse, EventEnvelope, HandshakeRequest, HandshakeResponse, HealthResponse,
+    LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse,
+    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
+    OwnedDocumentReadResponse, PROTOCOL_MAX, PROTOCOL_MIN, ProjectWorkspaceApplyRequest,
+    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
+    ResponseEnvelope, RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -57,6 +59,7 @@ const STARTUP_WAIT: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const PROJECT_HEADER: &str = "x-nodex-project-id";
 const CONNECTION_HEADER: &str = "x-nodex-connection-id";
+const CONNECTION_BINDING_HEADER: &str = "x-nodex-connection-binding";
 const DOCUMENT_HEADER: &str = "x-nodex-document-id";
 const CLIENT_SESSION_HEADER: &str = "x-nodex-client-session-id";
 
@@ -89,6 +92,7 @@ struct ServerState {
     library: LibraryModule,
     database: DatabaseModule,
     workspace: ProjectWorkspaceModule,
+    automation: AutomationModule,
     document: OwnedDocumentModule,
     document_realtime: OwnedDocumentRealtimeAdapter,
     _store: SqliteStoreKernel,
@@ -185,6 +189,18 @@ async fn handshake(
             "protocol or identity mismatch",
         ));
     }
+    if !valid_binding(&request.connection_id) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "connection identity is invalid",
+        ));
+    }
+    let adapter = match request.client.kind {
+        ClientKind::ElectronHost => AdapterKind::ElectronHost,
+        ClientKind::NativeCli => AdapterKind::NativeCli,
+        ClientKind::Test => AdapterKind::Test,
+    };
+    let connection_binding = connection_binding(&state, &request.connection_id, &adapter);
 
     Ok(Json(HandshakeResponse {
         protocol_version: PROTOCOL_MAX,
@@ -193,6 +209,7 @@ async fn handshake(
         start_nonce: state.descriptor.start_nonce.clone(),
         profile_id: state.descriptor.profile_id.clone(),
         library_id: state.library_id.clone(),
+        connection_binding,
         store_epoch: state.descriptor.store_epoch.clone(),
         schema_version: state.schema_version,
         event_head: state
@@ -307,6 +324,41 @@ async fn workspace_apply(
         Err(error) => ResponseEnvelope::Error(error),
     };
     Json(ProjectWorkspaceApplyResponse(response))
+}
+
+async fn automation_read(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(AutomationReadRequest(request)): Json<AutomationReadRequest>,
+) -> Json<AutomationReadResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.automation.read(&context, request) {
+            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(AutomationReadResponse(response))
+}
+
+async fn automation_apply(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(AutomationApplyRequest(request)): Json<AutomationApplyRequest>,
+) -> Json<AutomationApplyResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.automation.apply(&context, request) {
+            Ok(outcome) => {
+                if let Some(event) = outcome.event {
+                    publish_event(&state, event);
+                }
+                ResponseEnvelope::Ok(outcome.committed)
+            }
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(AutomationApplyResponse(response))
 }
 
 async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
@@ -705,11 +757,8 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/modules/database/apply", post(database_apply))
         .route("/core/v1/modules/workspace/read", post(workspace_read))
         .route("/core/v1/modules/workspace/apply", post(workspace_apply))
-        .route("/core/v1/modules/automation/read", post(unavailable_module))
-        .route(
-            "/core/v1/modules/automation/apply",
-            post(unavailable_module),
-        )
+        .route("/core/v1/modules/automation/read", post(automation_read))
+        .route("/core/v1/modules/automation/apply", post(automation_apply))
         .route(
             "/core/v1/modules/administration/read",
             post(unavailable_module),
@@ -736,13 +785,14 @@ fn module_context(
     state: &ServerState,
     headers: &HeaderMap,
 ) -> Result<BoundModuleContext, CoreError> {
+    let connection_id = required_header(headers, CONNECTION_HEADER, "Connection")?;
+    let adapter = bound_adapter(state, headers, &connection_id)?;
     Ok(BoundModuleContext {
         profile_id: ProfileId(state.descriptor.profile_id.clone()),
         library_id: LibraryId(state.library_id.clone()),
         project_id: optional_header(headers, PROJECT_HEADER, "Project")?.map(ProjectId),
-        connection_id: optional_header(headers, CONNECTION_HEADER, "Connection")?
-            .unwrap_or_else(|| state.descriptor.start_nonce.clone()),
-        adapter: AdapterKind::ElectronHost,
+        connection_id,
+        adapter,
     })
 }
 
@@ -818,6 +868,8 @@ fn document_context(
     state: &ServerState,
     headers: &HeaderMap,
 ) -> Result<BoundModuleContext, CoreError> {
+    let connection_id = required_header(headers, CONNECTION_HEADER, "Connection")?;
+    let adapter = bound_adapter(state, headers, &connection_id)?;
     Ok(BoundModuleContext {
         profile_id: ProfileId(state.descriptor.profile_id.clone()),
         library_id: LibraryId(state.library_id.clone()),
@@ -826,9 +878,62 @@ fn document_context(
             PROJECT_HEADER,
             "Project",
         )?)),
-        connection_id: required_header(headers, CONNECTION_HEADER, "Connection")?,
-        adapter: AdapterKind::ElectronHost,
+        connection_id,
+        adapter,
     })
+}
+
+fn bound_adapter(
+    state: &ServerState,
+    headers: &HeaderMap,
+    connection_id: &str,
+) -> Result<AdapterKind, CoreError> {
+    let binding = required_header(headers, CONNECTION_BINDING_HEADER, "Connection binding")?;
+    for adapter in [
+        AdapterKind::ElectronHost,
+        AdapterKind::NativeCli,
+        AdapterKind::Test,
+    ] {
+        let expected = connection_binding(state, connection_id, &adapter);
+        if constant_time_equal(binding.as_bytes(), expected.as_bytes()) {
+            return Ok(adapter);
+        }
+    }
+    Err(CoreError {
+        code: CoreErrorCode::Unauthorized,
+        message: "Connection is not bound by a compatible Core handshake".to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    })
+}
+
+fn connection_binding(state: &ServerState, connection_id: &str, adapter: &AdapterKind) -> String {
+    let adapter = match adapter {
+        AdapterKind::ElectronHost => "electron_host",
+        AdapterKind::NativeCli => "native_cli",
+        AdapterKind::Test => "test",
+        AdapterKind::LoopbackHttp => "loopback_http",
+        AdapterKind::Agent => "agent",
+    };
+    let mut digest = Sha256::new();
+    digest.update(state.auth_header.as_bytes());
+    digest.update(b"\0connection-binding-v1\0");
+    digest.update(connection_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(adapter.as_bytes());
+    hex::encode(digest.finalize())
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 fn required_header(
@@ -867,6 +972,10 @@ fn optional_header(
         });
     }
     Ok(Some(value.to_owned()))
+}
+
+fn valid_binding(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 512 && value.trim() == value
 }
 
 fn api_core_error(error: CoreError) -> ApiError {
@@ -1202,6 +1311,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
+    let automation = AutomationModule::new(&identity.profile_id, &identity.library_id, &store);
     let document = OwnedDocumentModule::new(
         descriptor.profile_id.clone(),
         identity.library_id.clone(),
@@ -1213,6 +1323,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         library,
         database,
         workspace,
+        automation,
         document_realtime: OwnedDocumentRealtimeAdapter::new(document.clone()),
         document,
         _store: store,

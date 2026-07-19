@@ -481,12 +481,199 @@
       "AutomationApplyResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt"
       },
+      "AutomationDefinition": {
+        "type": "object",
+        "required": [
+          "automation_id",
+          "definition_revision",
+          "kind",
+          "status",
+          "name",
+          "prompt",
+          "rrule",
+          "cwds",
+          "execution_environment",
+          "created_at_ms",
+          "updated_at_ms"
+        ],
+        "properties": {
+          "automation_id": {
+            "type": "string"
+          },
+          "created_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cwds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "definition_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "execution_environment": {
+            "$ref": "#/components/schemas/AutomationExecutionEnvironment"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AutomationDefinitionKind"
+          },
+          "last_run_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "local_environment_config_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_run_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "reasoning_effort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AutomationReasoningEffort"
+              }
+            ]
+          },
+          "rrule": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AutomationDefinitionStatus"
+          },
+          "target_thread_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AutomationDefinitionInput": {
+        "type": "object",
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "cwds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "execution_environment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AutomationExecutionEnvironment"
+              }
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AutomationDefinitionKind"
+          },
+          "local_environment_config_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reasoning_effort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AutomationReasoningEffort"
+              }
+            ]
+          },
+          "rrule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_thread_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AutomationDefinitionKind": {
+        "type": "string",
+        "enum": [
+          "cron",
+          "heartbeat"
+        ]
+      },
+      "AutomationDefinitionStatus": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "PAUSED",
+          "DELETED"
+        ]
+      },
       "AutomationEvent": {
         "type": "object",
         "required": [
           "kind",
           "automation_ids",
-          "occurrence_ids",
           "lease_ids"
         ],
         "properties": {
@@ -504,12 +691,6 @@
             "items": {
               "type": "string"
             }
-          },
-          "occurrence_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         }
       },
@@ -519,13 +700,23 @@
           "automation_changed"
         ]
       },
+      "AutomationExecutionEnvironment": {
+        "type": "string",
+        "enum": [
+          "local",
+          "worktree"
+        ]
+      },
       "AutomationLease": {
         "type": "object",
         "required": [
           "lease_id",
           "automation_id",
+          "scheduled_for_ms",
           "attempt",
-          "expires_at"
+          "status",
+          "claimed_at_ms",
+          "expires_at_ms"
         ],
         "properties": {
           "attempt": {
@@ -536,19 +727,72 @@
           "automation_id": {
             "type": "string"
           },
-          "expires_at": {
-            "type": "string"
+          "claimed_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "format": "int64"
           },
           "lease_id": {
             "type": "string"
+          },
+          "reason_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retry_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "scheduled_for_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "settled_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AutomationLeaseStatus"
           }
         }
+      },
+      "AutomationLeaseStatus": {
+        "type": "string",
+        "enum": [
+          "claimed",
+          "completed",
+          "failed",
+          "cancelled"
+        ]
       },
       "AutomationReadRequest": {
         "$ref": "#/components/schemas/ModuleReadRequest_AutomationRead"
       },
       "AutomationReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue"
+      },
+      "AutomationReasoningEffort": {
+        "type": "string",
+        "enum": [
+          "none",
+          "minimal",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
       },
       "BackupRecord": {
         "type": "object",
@@ -1706,11 +1950,15 @@
         "required": [
           "protocol_min",
           "protocol_max",
-          "client"
+          "client",
+          "connection_id"
         ],
         "properties": {
           "client": {
             "$ref": "#/components/schemas/ClientIdentity"
+          },
+          "connection_id": {
+            "type": "string"
           },
           "expected_profile_id": {
             "type": [
@@ -1745,12 +1993,16 @@
           "start_nonce",
           "profile_id",
           "library_id",
+          "connection_binding",
           "store_epoch",
           "schema_version",
           "event_head"
         ],
         "properties": {
           "build_id": {
+            "type": "string"
+          },
+          "connection_binding": {
             "type": "string"
           },
           "event_head": {
@@ -3529,11 +3781,17 @@
               {
                 "type": "object",
                 "required": [
+                  "automation_id",
                   "definition",
                   "kind"
                 ],
                 "properties": {
-                  "definition": {},
+                  "automation_id": {
+                    "type": "string"
+                  },
+                  "definition": {
+                    "$ref": "#/components/schemas/AutomationDefinitionInput"
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -3545,16 +3803,31 @@
               {
                 "type": "object",
                 "required": [
+                  "automation_id",
+                  "expected_revision",
+                  "status",
                   "definition",
                   "kind"
                 ],
                 "properties": {
-                  "definition": {},
+                  "automation_id": {
+                    "type": "string"
+                  },
+                  "definition": {
+                    "$ref": "#/components/schemas/AutomationDefinitionInput"
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [
                       "update_definition"
                     ]
+                  },
+                  "status": {
+                    "$ref": "#/components/schemas/AutomationDefinitionStatus"
                   }
                 }
               },
@@ -3562,11 +3835,16 @@
                 "type": "object",
                 "required": [
                   "automation_id",
+                  "expected_revision",
                   "kind"
                 ],
                 "properties": {
                   "automation_id": {
                     "type": "string"
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
                   },
                   "kind": {
                     "type": "string",
@@ -3579,15 +3857,11 @@
               {
                 "type": "object",
                 "required": [
-                  "due_before",
                   "limit",
                   "lease_duration_ms",
                   "kind"
                 ],
                 "properties": {
-                  "due_before": {
-                    "type": "string"
-                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -3610,13 +3884,9 @@
                 "type": "object",
                 "required": [
                   "lease_id",
-                  "completed_at",
                   "kind"
                 ],
                 "properties": {
-                  "completed_at": {
-                    "type": "string"
-                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -3632,14 +3902,10 @@
                 "type": "object",
                 "required": [
                   "lease_id",
-                  "failed_at",
                   "reason_code",
                   "kind"
                 ],
                 "properties": {
-                  "failed_at": {
-                    "type": "string"
-                  },
                   "kind": {
                     "type": "string",
                     "enum": [
@@ -3652,87 +3918,13 @@
                   "reason_code": {
                     "type": "string"
                   },
-                  "retry_at": {
+                  "retry_delay_ms": {
                     "type": [
-                      "string",
+                      "integer",
                       "null"
-                    ]
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "request",
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "complete_occurrence"
-                    ]
-                  },
-                  "request": {}
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "request",
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "update_occurrence"
-                    ]
-                  },
-                  "request": {}
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "reminder_id",
-                  "consumed_at",
-                  "kind"
-                ],
-                "properties": {
-                  "consumed_at": {
-                    "type": "string"
-                  },
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "consume_reminder"
-                    ]
-                  },
-                  "reminder_id": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "reminder_id",
-                  "wake_at",
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "snooze_reminder"
-                    ]
-                  },
-                  "reminder_id": {
-                    "type": "string"
-                  },
-                  "wake_at": {
-                    "type": "string"
+                    ],
+                    "format": "int64",
+                    "minimum": 0
                   }
                 }
               }
@@ -5655,10 +5847,22 @@
                   "kind"
                 ],
                 "properties": {
+                  "automation_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "include_settled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [
-                      "runs_inbox"
+                      "leases"
                     ]
                   },
                   "limit": {
@@ -5668,32 +5872,6 @@
                     ],
                     "format": "int32",
                     "minimum": 0
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "project_id",
-                  "window_start",
-                  "window_end",
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "occurrences"
-                    ]
-                  },
-                  "project_id": {
-                    "type": "string"
-                  },
-                  "window_end": {
-                    "type": "string"
-                  },
-                  "window_start": {
-                    "type": "string"
                   }
                 }
               }
@@ -8116,7 +8294,7 @@
                         "type": "object",
                         "required": [
                           "affected_automation_ids",
-                          "affected_occurrence_ids"
+                          "affected_lease_ids"
                         ],
                         "properties": {
                           "affected_automation_ids": {
@@ -8125,7 +8303,7 @@
                               "type": "string"
                             }
                           },
-                          "affected_occurrence_ids": {
+                          "affected_lease_ids": {
                             "type": "array",
                             "items": {
                               "type": "string"
@@ -8142,7 +8320,7 @@
                     "type": "object",
                     "required": [
                       "affected_automation_ids",
-                      "affected_occurrence_ids",
+                      "definitions",
                       "claimed_leases"
                     ],
                     "properties": {
@@ -8152,16 +8330,16 @@
                           "type": "string"
                         }
                       },
-                      "affected_occurrence_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
                       "claimed_leases": {
                         "type": "array",
                         "items": {
                           "$ref": "#/components/schemas/AutomationLease"
+                        }
+                      },
+                      "definitions": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/AutomationDefinition"
                         }
                       }
                     }
@@ -8836,7 +9014,9 @@
                         "properties": {
                           "items": {
                             "type": "array",
-                            "items": {}
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationDefinition"
+                            }
                           },
                           "kind": {
                             "type": "string",
@@ -8849,11 +9029,19 @@
                       {
                         "type": "object",
                         "required": [
-                          "item",
                           "kind"
                         ],
                         "properties": {
-                          "item": {},
+                          "item": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/AutomationDefinition"
+                              }
+                            ]
+                          },
                           "kind": {
                             "type": "string",
                             "enum": [
@@ -8865,42 +9053,21 @@
                       {
                         "type": "object",
                         "required": [
-                          "leases",
+                          "items",
                           "kind"
                         ],
                         "properties": {
-                          "kind": {
-                            "type": "string",
-                            "enum": [
-                              "runs_inbox"
-                            ]
-                          },
-                          "leases": {
+                          "items": {
                             "type": "array",
                             "items": {
                               "$ref": "#/components/schemas/AutomationLease"
                             }
-                          }
-                        }
-                      },
-                      {
-                        "type": "object",
-                        "required": [
-                          "occurrence_ids",
-                          "kind"
-                        ],
-                        "properties": {
+                          },
                           "kind": {
                             "type": "string",
                             "enum": [
-                              "occurrences"
+                              "leases"
                             ]
-                          },
-                          "occurrence_ids": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
                           }
                         }
                       }

@@ -5,7 +5,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { describe, expect, test } from "vitest";
 
-import { CoreClient } from "./core-client";
+import { CoreClient, CoreModuleResponseError } from "./core-client";
 import { readCoreRuntimeConnection } from "./runtime-descriptor";
 import type {
   CoreEventEnvelope,
@@ -214,6 +214,70 @@ describe("CoreClient over a Unix socket", () => {
             dynamic_tool_catalogs: [{ namespace: "nodex_app", toolset_revision: 5 }],
           },
         },
+      });
+      const automationInput = {
+        operationId: "node-automation-create-1",
+        intent: {
+          kind: "create_definition" as const,
+          automation_id: "node-daily-report",
+          definition: {
+            kind: "cron" as const,
+            name: "Node daily report",
+            prompt: "Prepare the report",
+            rrule: "FREQ=MINUTELY;INTERVAL=5",
+            cwds: [path.join(nodexHome, "workspace")],
+            execution_environment: "worktree" as const,
+          },
+        },
+      };
+      const automationCommitted = await client.automationApply(automationInput);
+      expect(automationCommitted.value.definitions).toMatchObject([
+        {
+          automation_id: "node-daily-report",
+          definition_revision: 1,
+          status: "ACTIVE",
+          next_run_at_ms: expect.any(Number),
+        },
+      ]);
+      const automationReplay = await client.automationApply(automationInput);
+      expect(automationReplay.event_sequence).toBe(automationCommitted.event_sequence);
+      expect(automationReplay.receipt.duplicate).toBe(true);
+      const automations = await client.automationRead({
+        kind: "definitions",
+        include_deleted: false,
+      });
+      expect(automations.value).toMatchObject({
+        kind: "definitions",
+        items: [{ automation_id: "node-daily-report" }],
+      });
+      const noDueWork = await client.automationApply({
+        operationId: "node-automation-claim-1",
+        intent: {
+          kind: "claim_due",
+          limit: 3,
+          lease_duration_ms: 60_000,
+        },
+      });
+      expect(noDueWork.value.claimed_leases).toEqual([]);
+      const nativeCli = await CoreClient.connect({
+        nodexHome,
+        clientKind: "native_cli",
+        buildId: "node-native-cli-test",
+        projectId: "project:default",
+      });
+      const unauthorizedClaim = nativeCli.automationApply({
+        operationId: "node-native-cli-automation-claim-1",
+        intent: {
+          kind: "claim_due",
+          limit: 1,
+          lease_duration_ms: 60_000,
+        },
+      });
+      await expect(unauthorizedClaim).rejects.toBeInstanceOf(
+        CoreModuleResponseError,
+      );
+      await expect(unauthorizedClaim).rejects.toMatchObject({
+        coreError: { code: "unauthorized" },
       });
       const workspaceInput = {
         operationId: "node-workspace-create-1",

@@ -62,6 +62,7 @@ pub struct HandshakeRequest {
     pub protocol_min: u32,
     pub protocol_max: u32,
     pub client: ClientIdentity,
+    pub connection_id: String,
     pub expected_profile_id: Option<String>,
     pub expected_start_nonce: Option<String>,
 }
@@ -74,6 +75,7 @@ pub struct HandshakeResponse {
     pub start_nonce: String,
     pub profile_id: String,
     pub library_id: String,
+    pub connection_binding: String,
     pub store_epoch: String,
     pub schema_version: u32,
     pub event_head: i64,
