@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, test } from "vitest";
 
 import {
@@ -56,16 +58,33 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
   authorizeLibrary: async () => {
     throw new Error("TypeScript authorization must not run");
   },
+  getOwnedDocumentDescriptor: async () => {
+    throw new Error("TypeScript descriptor reader must not run");
+  },
+  prepareOwnedBlockDocument: async () => {
+    throw new Error("TypeScript Document preparation must not run");
+  },
+  prepareLibraryOwnedBlockDocument: async () => {
+    throw new Error("TypeScript Library Document preparation must not run");
+  },
 });
 
 const rustRuntime = (
   rootClient: FakeCoreClient,
   projectClient: FakeCoreClient = rootClient,
-): RustDataAuthorityRuntime => ({
-  backend: "rust",
-  rootClient,
-  clientForProject: () => projectClient,
-} as unknown as RustDataAuthorityRuntime);
+): RustDataAuthorityRuntime => {
+  Object.assign(rootClient, {
+    handshake: {
+      store_epoch: "epoch:test",
+      connection_binding: "binding:test",
+    },
+  });
+  return {
+    backend: "rust",
+    rootClient,
+    clientForProject: () => projectClient,
+  } as unknown as RustDataAuthorityRuntime;
+};
 
 const subscribeRequest = {
   documentId: "document:one",
@@ -104,6 +123,58 @@ const canvasSyncSnapshot = () => ({
       materializePortableCanvasScene({ elements: [] }),
     ))],
     scene_hash: "a".repeat(64),
+  },
+});
+
+const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
+  version: 1 as const,
+  store_epoch: "epoch:test",
+  event_head: 2,
+  value: {
+    kind: "descriptor" as const,
+    descriptor: {
+      version: 2,
+      projectId,
+      ownerBlockId: "page:one",
+      ownerType: "page",
+      ownerLifecycle: "active",
+      documentId: "document:one",
+      storeEpoch: "epoch:test",
+      generation: 1,
+      headSeq: 1,
+      schemaKey: "nodex.page",
+      schemaVersion: 1,
+      readiness: "ready",
+      sync: { kind: "yjs", stateVector: [] },
+    },
+  },
+});
+
+const prepareOperationId = (scope: string): string =>
+  `electron:prepare-owner:${createHash("sha256")
+    .update(JSON.stringify([
+      scope,
+      "page:one",
+      "epoch:test",
+      "binding:test",
+    ]))
+    .digest("hex")}`;
+
+const preparedDocumentCommit = (operationId: string) => ({
+  store_epoch: "epoch:test",
+  event_sequence: 2,
+  value: {
+    document_id: "document:one",
+    generation: 1,
+    head_seq: 1,
+    outcome: "no_change" as const,
+  },
+  receipt: {
+    operation_id: operationId,
+    duplicate: false,
+    document_id: "document:one",
+    generation: 1,
+    head_seq: 1,
   },
 });
 
@@ -194,6 +265,66 @@ describe("Desktop Document sync bridge", () => {
     });
     expect(rootClient.documentSyncs).toHaveLength(1);
     expect(projectClient.documentSyncs).toHaveLength(0);
+  });
+
+  test("reads and prepares Project and Library owners through their exact clients", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
+
+    await expect(bridge.getOwnedDocumentDescriptor(
+      "project:one",
+      "page:one",
+    )).resolves.toMatchObject({
+      projectId: "project:one",
+      ownerBlockId: "page:one",
+      documentId: "document:one",
+    });
+
+    projectClient.enqueueDocumentApply(preparedDocumentCommit(
+      prepareOperationId("project:project:one"),
+    ));
+    projectClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot());
+    await expect(bridge.prepareOwnedBlockDocument(
+      "project:one",
+      "page:one",
+    )).resolves.toMatchObject({
+      ok: true,
+      value: { projectId: "project:one", documentId: "document:one" },
+    });
+    expect(rootClient.documentApplies).toHaveLength(0);
+    expect(projectClient.documentApplies[0]).toMatchObject({
+      clientSessionId: "electron:owned-document:prepare",
+      intent: { kind: "prepare_owner", owner_block_id: "page:one" },
+    });
+    expect(projectClient.documentApplies[0]?.operationId).toMatch(
+      /^electron:prepare-owner:[a-f0-9]{64}$/u,
+    );
+
+    rootClient.enqueueDocumentApply(preparedDocumentCommit(
+      prepareOperationId("library"),
+    ));
+    rootClient.enqueueDocumentRead(ownedDocumentDescriptorSnapshot(
+      "project:compatibility-storage",
+    ));
+    const libraryPrepared = await bridge.prepareLibraryOwnedBlockDocument(
+      "page:one",
+    );
+    expect(libraryPrepared).toEqual({
+      ok: true,
+      value: expect.objectContaining({
+        accessContext: { kind: "library" },
+        ownerBlockId: "page:one",
+        documentId: "document:one",
+      }),
+    });
+    if (!libraryPrepared.ok) throw new Error("Expected Library preparation");
+    expect("projectId" in libraryPrepared.value).toBe(false);
+    expect(rootClient.documentApplies).toHaveLength(1);
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

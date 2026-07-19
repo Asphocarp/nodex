@@ -350,6 +350,26 @@ describe("Electron native data authority", () => {
           duplicate: false,
         },
       });
+      const libraryDocuments = createCoreDocumentSyncAdapter(
+        runtime.rootClient,
+      );
+      const preparedLibraryDocument = await libraryDocuments.prepareOwner({
+        ownerBlockId: "page:electron-library-adapter",
+        operationId: "electron-library-owner-prepare",
+        clientSessionId: "renderer:electron-library-owner-prepare",
+      });
+      if (!preparedLibraryDocument.ok) {
+        throw new Error(
+          `Core Library Document preparation failed: ${preparedLibraryDocument.error.code}: ${preparedLibraryDocument.error.message}`,
+        );
+      }
+      expect(preparedLibraryDocument.value).toMatchObject({
+        ownerBlockId: "page:electron-library-adapter",
+        documentId: "document:electron-library-adapter",
+        ownerType: "page",
+        readiness: "ready",
+        sync: { kind: "yjs" },
+      });
       const firstDocument = new Y.Doc({
         guid: "document:electron-library-adapter",
       });
@@ -359,7 +379,7 @@ describe("Electron native data authority", () => {
       const firstProvider = new NodexYProvider({
         documentId: firstDocument.guid,
         document: firstDocument,
-        adapter: createCoreDocumentSyncAdapter(runtime.rootClient),
+        adapter: libraryDocuments,
         clientSessionId: "renderer:electron-authority:first",
         autoConnect: false,
         localCheckpointStore: null,

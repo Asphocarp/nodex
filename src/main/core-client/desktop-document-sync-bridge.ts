@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   CanvasSceneMutationCommandResult,
   CanvasSceneMutationError,
@@ -7,6 +9,11 @@ import type {
   CanvasSceneSyncCommandResult,
   CanvasSceneSyncRequest,
 } from "../../shared/block-documents/canvas-scene-sync";
+import {
+  toLibraryOwnedDocumentDescriptor,
+  type LibraryOwnedDocumentDescriptor,
+  type OwnedDocumentDescriptor,
+} from "../../shared/block-documents/contracts";
 import type {
   DocumentAccessAck,
   DocumentAccessKind,
@@ -23,7 +30,6 @@ import type {
   DocumentSyncSubscribeRequest,
   DocumentSyncSubscriptionAck,
   DocumentSyncUnsubscribeAck,
-  DocumentSyncAdapter,
   LibraryDocumentAccessAck,
 } from "../../shared/block-documents/document-sync";
 import { documentSyncUnauthorized } from "../document-sync-hub";
@@ -38,6 +44,7 @@ import {
   type CoreCanvasSceneAdapter,
 } from "./core-canvas-scene-adapter";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
+import type { CoreDocumentSyncAdapter } from "./document-sync-adapter";
 
 const DOCUMENT_SYNC_EVENT_CHANNEL = "document-sync:event";
 
@@ -46,6 +53,17 @@ export type DesktopDocumentSyncScope =
   | { readonly kind: "library" };
 
 export interface DesktopDocumentSyncPort {
+  getOwnedDocumentDescriptor(
+    projectId: string,
+    ownerBlockId: string,
+  ): Promise<OwnedDocumentDescriptor>;
+  prepareOwnedBlockDocument(
+    projectId: string,
+    ownerBlockId: string,
+  ): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
+  prepareLibraryOwnedBlockDocument(
+    ownerBlockId: string,
+  ): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
   subscribe(
     scope: DesktopDocumentSyncScope,
     target: DocumentSyncClientTarget,
@@ -119,6 +137,17 @@ export interface DesktopDocumentSyncBridgeInput {
       readonly documentId: string;
       readonly access: DocumentAccessKind;
     }): Promise<DocumentSyncCommandResult<LibraryDocumentAccessAck>>;
+    getOwnedDocumentDescriptor(
+      projectId: string,
+      ownerBlockId: string,
+    ): Promise<OwnedDocumentDescriptor>;
+    prepareOwnedBlockDocument(
+      projectId: string,
+      ownerBlockId: string,
+    ): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
+    prepareLibraryOwnedBlockDocument(
+      ownerBlockId: string,
+    ): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
   };
 }
 
@@ -158,6 +187,26 @@ const canvasSceneSubscriptionKey = (
 const bindingKey = (
   request: Pick<DocumentSyncSubscribeRequest, "clientSessionId">,
 ): string => request.clientSessionId;
+
+const ownerCommandIdentity = (
+  scope: DesktopDocumentSyncScope,
+  ownerBlockId: string,
+  storeEpoch: string,
+  connectionBinding: string,
+): { readonly clientSessionId: string; readonly operationId: string } => {
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify([
+      scopeKey(scope),
+      ownerBlockId,
+      storeEpoch,
+      connectionBinding,
+    ]))
+    .digest("hex");
+  return {
+    clientSessionId: "electron:owned-document:prepare",
+    operationId: `electron:prepare-owner:${fingerprint}`,
+  };
+};
 
 const transportUnavailable = <Value>(
   error: unknown,
@@ -220,7 +269,7 @@ const hasCanvasSceneIdentity = (
 export function createDesktopDocumentSyncBridge(
   input: DesktopDocumentSyncBridgeInput,
 ): DesktopDocumentSyncPort {
-  const adapters = new Map<string, DocumentSyncAdapter>();
+  const adapters = new Map<string, CoreDocumentSyncAdapter>();
   const canvasSceneAdapters = new Map<string, CoreCanvasSceneAdapter>();
   const subscriptions = new Map<string, NativeSubscription>();
   const bindings = new Map<string, string>();
@@ -229,7 +278,7 @@ export function createDesktopDocumentSyncBridge(
   const adapterFor = (
     runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
     scope: DesktopDocumentSyncScope,
-  ): DocumentSyncAdapter => {
+  ): CoreDocumentSyncAdapter => {
     const key = scopeKey(scope);
     let adapter = adapters.get(key);
     if (adapter) return adapter;
@@ -335,6 +384,66 @@ export function createDesktopDocumentSyncBridge(
   };
 
   return {
+    getOwnedDocumentDescriptor: async (projectId, ownerBlockId) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.getOwnedDocumentDescriptor(
+          projectId,
+          ownerBlockId,
+        );
+      }
+      const descriptor = await adapterFor(runtime, { kind: "project", projectId })
+        .readDescriptor({
+          ownerBlockId,
+          clientSessionId: "electron:owned-document:descriptor",
+        });
+      if (descriptor.projectId === projectId) return descriptor;
+      throw new Error("Core Owned Document descriptor escaped its Project boundary");
+    },
+    prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
+      await withRuntime(async (runtime) => {
+        if (runtime.backend === "typescript") {
+          return await input.typescript.prepareOwnedBlockDocument(
+            projectId,
+            ownerBlockId,
+          );
+        }
+        const scope = { kind: "project", projectId } as const;
+        const prepared = await adapterFor(runtime, scope).prepareOwner({
+          ownerBlockId,
+          ...ownerCommandIdentity(
+            scope,
+            ownerBlockId,
+            runtime.rootClient.handshake.store_epoch,
+            runtime.rootClient.handshake.connection_binding,
+          ),
+        });
+        if (!prepared.ok || prepared.value.projectId === projectId) return prepared;
+        return documentSyncUnauthorized();
+      }),
+    prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
+      await withRuntime(async (runtime) => {
+        if (runtime.backend === "typescript") {
+          return await input.typescript.prepareLibraryOwnedBlockDocument(
+            ownerBlockId,
+          );
+        }
+        const scope = { kind: "library" } as const;
+        const prepared = await adapterFor(runtime, scope).prepareOwner({
+          ownerBlockId,
+          ...ownerCommandIdentity(
+            scope,
+            ownerBlockId,
+            runtime.rootClient.handshake.store_epoch,
+            runtime.rootClient.handshake.connection_binding,
+          ),
+        });
+        if (!prepared.ok) return prepared;
+        return {
+          ok: true,
+          value: toLibraryOwnedDocumentDescriptor(prepared.value),
+        };
+      }),
     subscribe: async (scope, target, request) => await withRuntime(async (runtime) => {
       if (runtime.backend === "typescript") {
         const blocked = await authorizeTypeScript(

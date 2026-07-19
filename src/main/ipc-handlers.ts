@@ -1048,26 +1048,48 @@ export function registerIpcHandlers(
   );
   registerHandle(
     "block-document:owned:get",
-    async (_, projectId, ownerBlockId) =>
-      (
+    async (_, projectId, ownerBlockId) => {
+      if (options.documentSync) {
+        return await options.documentSync.getOwnedDocumentDescriptor(
+          projectId,
+          ownerBlockId,
+        );
+      }
+      return (
         await blockMutationWriter.getOwnedDocumentDescriptor(
           projectId,
           ownerBlockId,
         )
-      ).result,
+      ).result;
+    },
   );
   registerHandle(
     "block-document:owned:prepare",
-    async (_, projectId, ownerBlockId) =>
-      await blockMutationWriter.prepareOwnedBlockDocument(
+    async (_, projectId, ownerBlockId) => {
+      if (options.documentSync) {
+        return await options.documentSync.prepareOwnedBlockDocument(
+          projectId,
+          ownerBlockId,
+        );
+      }
+      return await blockMutationWriter.prepareOwnedBlockDocument(
         projectId,
         ownerBlockId,
-      ),
+      );
+    },
   );
   registerHandle(
     "library-block-document:owned:prepare",
-    async (_, ownerBlockId) =>
-      await blockMutationWriter.prepareLibraryOwnedBlockDocument(ownerBlockId),
+    async (_, ownerBlockId) => {
+      if (options.documentSync) {
+        return await options.documentSync.prepareLibraryOwnedBlockDocument(
+          ownerBlockId,
+        );
+      }
+      return await blockMutationWriter.prepareLibraryOwnedBlockDocument(
+        ownerBlockId,
+      );
+    },
   );
   registerHandle("document-sync:unsubscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);

@@ -95,7 +95,10 @@ that boundary. Tab-only calls resolve their owning Session through an exact
 Workspace read instead of scanning repositories, while delete and move carry
 the Adapter-compiled final layout into the same native aggregate as the tab
 mutation. Thread metadata upsert plus Session attach and guarded detach also
-cross this boundary as one native aggregate. Project-scoped live Yjs subscribe,
+cross this boundary as one native aggregate. Owned Document descriptor reads
+and owner preparation select the same Project or trusted Library Core scope as
+subsequent synchronization; Library results remove the compatibility storage
+Project before crossing IPC. Project-scoped live Yjs subscribe,
 sync, update, and Awareness IPC use a lifecycle-aware Owned Document bridge;
 each native subscription is bound to its Electron target, Project, Document,
 and client session and is closed with the target. Library-scoped live Page

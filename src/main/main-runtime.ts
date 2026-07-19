@@ -1504,6 +1504,22 @@ export async function runMainAppStartup(
           await blockMutationWriter.authorizeDocumentAccess(input),
         authorizeLibrary: async (input) =>
           await blockMutationWriter.authorizeLibraryDocumentAccess(input),
+        getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
+          (
+            await blockMutationWriter.getOwnedDocumentDescriptor(
+              projectId,
+              ownerBlockId,
+            )
+          ).result,
+        prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
+          await blockMutationWriter.prepareOwnedBlockDocument(
+            projectId,
+            ownerBlockId,
+          ),
+        prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
+          await blockMutationWriter.prepareLibraryOwnedBlockDocument(
+            ownerBlockId,
+          ),
       },
     }),
     projectWorkspace: createDesktopProjectWorkspaceBridge({

@@ -1,4 +1,9 @@
 import type {
+  OwnedDocumentDescriptor,
+} from "../../shared/block-documents/contracts";
+import { decodeOwnedDocumentDescriptorHttp } from "../../shared/block-documents/http-contract";
+import { documentBytesToBase64 } from "../../shared/block-documents/http-wire";
+import type {
   DocumentAwarenessPublishRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -22,13 +27,54 @@ interface ActiveSubscription {
   close(): void;
 }
 
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const decodeCoreOwnedDocumentDescriptor = (
+  value: unknown,
+): OwnedDocumentDescriptor => {
+  if (!isRecord(value) || !isRecord(value.sync)) {
+    throw new Error("Core Owned Document descriptor is invalid");
+  }
+  if (value.sync.kind !== "yjs") {
+    return decodeOwnedDocumentDescriptorHttp(JSON.stringify(value));
+  }
+  const stateVector = value.sync.stateVector;
+  if (
+    !Array.isArray(stateVector)
+    || stateVector.some((byte) =>
+      !Number.isInteger(byte) || byte < 0 || byte > 255)
+  ) {
+    throw new Error("Core Owned Document state vector is invalid");
+  }
+  return decodeOwnedDocumentDescriptorHttp(JSON.stringify({
+    ...value,
+    sync: {
+      kind: "yjs",
+      stateVector: documentBytesToBase64(Uint8Array.from(stateVector)),
+    },
+  }));
+};
+
+export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
+  readDescriptor(input: {
+    readonly ownerBlockId: string;
+    readonly clientSessionId: string;
+  }): Promise<OwnedDocumentDescriptor>;
+  prepareOwner(input: {
+    readonly ownerBlockId: string;
+    readonly operationId: string;
+    readonly clientSessionId: string;
+  }): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
+}
+
 const subscriptionKey = (
   request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
 ): string => JSON.stringify([request.clientSessionId, request.documentId]);
 
 export const createCoreDocumentSyncAdapter = (
   client: CoreClientPort,
-): DocumentSyncAdapter => {
+): CoreDocumentSyncAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
   const lastSequences = new Map<string, number>();
 
@@ -62,6 +108,26 @@ export const createCoreDocumentSyncAdapter = (
     } catch (error) {
       return failure(error);
     }
+  };
+
+  const readDescriptor = async (input: {
+    readonly ownerBlockId: string;
+    readonly clientSessionId: string;
+  }): Promise<OwnedDocumentDescriptor> => {
+    const snapshot = await client.documentRead(input.clientSessionId, {
+      kind: "descriptor",
+      owner_block_id: input.ownerBlockId,
+    });
+    if (snapshot.value.kind !== "descriptor") {
+      throw new Error("Core returned a non-descriptor Document read value");
+    }
+    const descriptor = decodeCoreOwnedDocumentDescriptor(
+      snapshot.value.descriptor,
+    );
+    if (descriptor.ownerBlockId !== input.ownerBlockId) {
+      throw new Error("Core Owned Document descriptor escaped its owner boundary");
+    }
+    return descriptor;
   };
 
   const subscribe = (
@@ -134,6 +200,33 @@ export const createCoreDocumentSyncAdapter = (
   };
 
   return {
+    readDescriptor,
+    prepareOwner: async (input) => {
+      try {
+        const committed = await client.documentApply({
+          operationId: input.operationId,
+          clientSessionId: input.clientSessionId,
+          intent: {
+            kind: "prepare_owner",
+            owner_block_id: input.ownerBlockId,
+          },
+        });
+        const descriptor = await readDescriptor(input);
+        if (
+          committed.receipt.operation_id !== input.operationId
+          || committed.receipt.document_id !== descriptor.documentId
+          || committed.value.document_id !== descriptor.documentId
+          || committed.value.generation !== descriptor.generation
+          || committed.value.head_seq > descriptor.headSeq
+          || committed.store_epoch !== descriptor.storeEpoch
+        ) {
+          throw new Error("Core Owned Document preparation escaped its owner boundary");
+        }
+        return success(descriptor);
+      } catch (error) {
+        return failure(error);
+      }
+    },
     sync,
     applyUpdate,
     subscribe,
