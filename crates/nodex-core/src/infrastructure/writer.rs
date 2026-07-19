@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
@@ -16,6 +16,7 @@ use super::sqlite::{
 pub const DEFAULT_WRITER_QUEUE_CAPACITY: usize = 64;
 pub const DEFAULT_READ_CONNECTIONS: usize = 4;
 const READER_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+static NEXT_WRITER_COMMAND_ID: AtomicU64 = AtomicU64::new(1);
 
 type WriterJob = Box<dyn FnOnce(&mut Connection) + Send + 'static>;
 
@@ -535,12 +536,47 @@ impl StoreWriter {
     ) -> Result<T, StoreError> {
         let (endpoint, _lease) = self.control.acquire_writer()?;
         let started_at = Instant::now();
+        let writer_command_id = format!(
+            "writer:{}:{}",
+            std::process::id(),
+            NEXT_WRITER_COMMAND_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let parent = tracing::Span::current();
+        let command_span = tracing::debug_span!(
+            parent: &parent,
+            "sqlite_writer_command",
+            writerCommandId = %writer_command_id,
+        );
+        let rejected_span = command_span.clone();
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let queued_jobs = Arc::clone(&endpoint.queued_jobs);
+        let queued_at = Instant::now();
         let job = Box::new(move |connection: &mut Connection| {
-            queued_jobs.fetch_sub(1, Ordering::AcqRel);
-            let result = with_mut_query_budget(connection, budget, &cancellation, operation);
-            let _ = result_sender.send(result);
+            command_span.in_scope(|| {
+                queued_jobs.fetch_sub(1, Ordering::AcqRel);
+                let queue_wait_ms =
+                    u64::try_from(queued_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let operation_started_at = Instant::now();
+                let result = with_mut_query_budget(connection, budget, &cancellation, operation);
+                let duration_ms =
+                    u64::try_from(operation_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+                match &result {
+                    Ok(_) => tracing::debug!(
+                        queueWaitMs = queue_wait_ms,
+                        durationMs = duration_ms,
+                        status = "ok",
+                        "SQLite writer command completed"
+                    ),
+                    Err(error) => tracing::debug!(
+                        queueWaitMs = queue_wait_ms,
+                        durationMs = duration_ms,
+                        status = "error",
+                        errorCode = store_error_code_name(error.code),
+                        "SQLite writer command completed"
+                    ),
+                }
+                let _ = result_sender.send(result);
+            });
         });
         endpoint.queued_jobs.fetch_add(1, Ordering::AcqRel);
         endpoint
@@ -548,14 +584,22 @@ impl StoreWriter {
             .try_send(WriterMessage::Run(job))
             .map_err(|error| {
                 endpoint.queued_jobs.fetch_sub(1, Ordering::AcqRel);
-                match error {
+                let error = match error {
                     TrySendError::Full(_) => StoreError::new(
                         StoreErrorCode::WriterQueueFull,
                         "SQLite writer queue is full",
                         true,
                     ),
                     TrySendError::Disconnected(_) => writer_closed(),
-                }
+                };
+                rejected_span.in_scope(|| {
+                    tracing::warn!(
+                        status = "rejected",
+                        errorCode = store_error_code_name(error.code),
+                        "SQLite writer command rejected"
+                    );
+                });
+                error
             })?;
         let result = result_receiver.recv().map_err(|_| {
             StoreError::new(
@@ -579,6 +623,35 @@ impl StoreWriter {
             .map_or(0, |writer| {
                 writer.endpoint.queued_jobs.load(Ordering::Acquire)
             })
+    }
+}
+
+fn store_error_code_name(code: StoreErrorCode) -> &'static str {
+    match code {
+        StoreErrorCode::AlreadyOwned => "already_owned",
+        StoreErrorCode::Conflict => "conflict",
+        StoreErrorCode::GenerationConflict => "generation_conflict",
+        StoreErrorCode::HeadConflict => "head_conflict",
+        StoreErrorCode::IdempotencyKeyReused => "idempotency_key_reused",
+        StoreErrorCode::InvalidInput => "invalid_input",
+        StoreErrorCode::InvalidProfile => "invalid_profile",
+        StoreErrorCode::MissingDependencies => "missing_dependencies",
+        StoreErrorCode::NotFound => "not_found",
+        StoreErrorCode::RevisionConflict => "revision_conflict",
+        StoreErrorCode::StaleStoreEpoch => "stale_store_epoch",
+        StoreErrorCode::Unauthorized => "unauthorized",
+        StoreErrorCode::ResourceExhausted => "resource_exhausted",
+        StoreErrorCode::WriterQueueFull => "writer_queue_full",
+        StoreErrorCode::WriterClosed => "writer_closed",
+        StoreErrorCode::ReaderPoolTimeout => "reader_pool_timeout",
+        StoreErrorCode::QueryCancelled => "query_cancelled",
+        StoreErrorCode::SqliteBusy => "sqlite_busy",
+        StoreErrorCode::SqliteFailure => "sqlite_failure",
+        StoreErrorCode::RuntimeIncompatible => "runtime_incompatible",
+        StoreErrorCode::UnsupportedSchema => "unsupported_schema",
+        StoreErrorCode::StoreCorrupt => "store_corrupt",
+        StoreErrorCode::MaintenanceInProgress => "maintenance_in_progress",
+        StoreErrorCode::Internal => "internal",
     }
 }
 

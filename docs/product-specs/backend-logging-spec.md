@@ -15,7 +15,10 @@ The backend logger exists to make local debugging fast and reliable, especially 
 - reminder and backup scheduler failures
 - main-process startup and shutdown problems
 
-The logger is implemented in [src/main/logging/logger.ts](src/main/logging/logger.ts).
+The Electron logger is implemented in
+[src/main/logging/logger.ts](../../src/main/logging/logger.ts). The native Core
+uses the same policy through
+[crates/nodex-core-server/src/logging.rs](../../crates/nodex-core-server/src/logging.rs).
 
 ## Design Goals
 
@@ -34,16 +37,23 @@ When file logging is enabled, backend logs are written under:
 
 `$NODEX_HOME/logs`
 
-Default file naming:
+Default file naming separates concurrently running producers:
 
 - `backend-YYYY-MM-DD-SSS.log`, where `SSS` is a monotonically increasing segment number
+- `core-<profile-hash>-YYYY-MM-DD-SSS.log` for the native Core; the bounded
+  Profile hash keeps custom shared log directories collision-free without
+  exposing the Profile path
 
 Important properties:
 
 - One JSON object per line.
 - Files rotate at 10 MiB by default.
-- Backend segments are bounded by both a 14-day retention policy and a 100 MiB global budget.
-- A bounded asynchronous queue respects writable-stream backpressure. Queue pressure discards trace/debug/info before warn/error and emits a structured dropped-record summary.
+- Each producer's segments are bounded by both a 14-day retention policy and a
+  100 MiB budget. A producer never rotates or unlinks another live producer's
+  active segment.
+- Bounded asynchronous queues isolate file and terminal I/O from business work. Queue
+  pressure discards trace/debug/info before warn/error and emits one structured
+  dropped-record summary for the accumulated pressure interval.
 - Files are created with mode `0600`; a newly created log directory uses mode `0700`.
 - Stream failures disable only the file sink, emit one emergency terminal error, and never fail application work.
 - The active profile is determined by the same `NODEX_HOME` resolution used elsewhere in the app.
@@ -111,6 +121,7 @@ Supported variables:
   - maximum pending serialized bytes; default: `8388608` (8 MiB)
 - `NODEX_LOG_STREAM_BUFFER_BYTES`
   - writable-stream high-water mark; default: `1048576` (1 MiB)
+  - Electron backend only; Core uses its dedicated blocking writer thread
 - `NODEX_LOG_FLUSH_TIMEOUT_MS`
   - per-stream shutdown/rotation flush bound; default: `2000`
 - `NODEX_LOG_MAX_STRING_LENGTH`
@@ -121,6 +132,11 @@ Supported variables:
   - default: `40`
 - `NODEX_LOG_MAX_DEPTH`
   - default: `6`
+
+The array/object/depth settings apply to the Electron logger's arbitrary-object
+serializer. Core instrumentation accepts only explicitly named scalar fields,
+so those three limits are unnecessary there. Core shares the sink, level,
+directory, retention, file/queue byte, string, and flush settings.
 
 Example:
 
@@ -154,6 +170,24 @@ Most entries also include child logger bindings and call-specific fields. Typica
 - `durationMs`
 - `status`
 - `error`
+
+Native Core request chains use the same camel-case query vocabulary:
+
+- `requestId`
+- `connectionId`
+- `adapter`
+- `module`
+- `operationId`
+- `receiptKey` (`<module>:<operation-id-hash>`)
+- `writerCommandId`
+- `eventSequence`
+- `queueWaitMs`
+- `transactionMicros`
+
+Caller-provided `connectionId`, `operationId`, and safe resource identities are
+stored as bounded `sha256:<prefix>` correlation values. They remain stable
+within a Profile/process diagnostic chain without persisting arbitrary caller
+strings.
 
 Block/Document mutation acknowledgement logs may also include:
 
@@ -228,6 +262,30 @@ Rules:
 This is intentional. Logs are for diagnosis, not full-fidelity archival.
 
 ## Current Instrumentation Coverage
+
+### Native Core
+
+[crates/nodex-core-server/src/lib.rs](../../crates/nodex-core-server/src/lib.rs)
+and the shared SQLite writer seams log:
+
+- startup readiness, explicit/idle/signal/version-handoff drain, and shutdown
+- one completion record for every authenticated or rejected UDS request, using
+  a fixed allowlisted route label without query parameters; unknown paths use
+  the literal `unmatched`
+- successful connection binding and Adapter identity
+- Module operation/receipt correlation, including exact duplicate receipts
+- writer queue wait and command duration through a child span that survives the
+  dedicated SQLite writer thread
+- actual `IMMEDIATE` transaction completion or rollback duration
+- committed event publication by Module and durable sequence
+- replay range and explicit resynchronization boundaries
+- bounded domain failure codes without error messages or recovery payloads
+
+Core never logs request bodies, document bodies, Yjs/Canvas/Awareness bytes,
+SQL text or values, prepared-operation tokens, bearer capabilities, runtime
+socket paths, or local source paths. The authenticated health response exposes
+the process-local cumulative `dropped_log_records` count so queue loss remains
+observable even if the file sink is under pressure.
 
 ### App Lifecycle
 

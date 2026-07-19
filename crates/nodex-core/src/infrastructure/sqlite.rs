@@ -278,6 +278,20 @@ pub fn with_immediate_transaction<T>(
     TRANSACTION_DURATION
         .get_or_init(DurationMetric::default)
         .record(started_at.elapsed());
+    let transaction_micros = u64::try_from(started_at.elapsed().as_micros()).unwrap_or(u64::MAX);
+    if result.is_ok() {
+        tracing::debug!(
+            transactionMicros = transaction_micros,
+            status = "committed",
+            "SQLite immediate transaction completed"
+        );
+    } else {
+        tracing::debug!(
+            transactionMicros = transaction_micros,
+            status = "rolled_back",
+            "SQLite immediate transaction completed"
+        );
+    }
     result
 }
 

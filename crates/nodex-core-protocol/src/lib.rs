@@ -120,6 +120,8 @@ pub struct CoreHealthMetrics {
     pub active_document_subscriptions: u64,
     pub active_awareness_clients: u64,
     pub active_prepared_agent_operations: u64,
+    #[serde(default)]
+    pub dropped_log_records: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

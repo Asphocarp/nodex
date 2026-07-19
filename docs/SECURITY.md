@@ -53,6 +53,18 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   rollback releases the lease for a bounded retry, concurrent use fails, and
   store replacement or process restart invalidates every outstanding token.
   Tokens are omitted from logs and durable receipts.
+- Native Core JSONL logging accepts only explicit scalar metadata and applies
+  the shared sensitive-key redaction and string bound before either sink. It
+  records request/connection/Module/receipt/writer/event correlation but never
+  request or Document bodies, Yjs/Canvas/Awareness bytes, SQL text or values,
+  prepared tokens, bearer capabilities, runtime socket paths, or local source
+  paths. Caller-provided connection, operation, receipt, and resource identities
+  are logged only as bounded hashes; unknown request paths use a fixed
+  `unmatched` label. The log directory and Core segments must be
+  current-user-owned regular entries with exact modes 0700 and 0600. Core
+  creates and exclusively locks a new Profile-family segment, refuses symlink
+  segments, and removes only segments it can lock; an unsafe or failed file sink
+  disables itself without weakening Core availability.
 - Nodex resource consent exists only in main and is independent of Codex filesystem/command approval modes. One-call consent binds the exact call and prepared footprint. Task consent binds app session, verified root task, Project, Library, store epoch, and canonical resource roots; it is not owned by the renderer that presented it. Project consent is the only choice that persists `project_resource_grants`, and exact-Turn authority is revalidated before that write. Canonical conversation-state ownership and renderer fields cannot grant or elevate Nodex authority. Denial, timeout, task archive, Project/store change, shutdown, restart, or a headless first prompt withholds or invalidates transient authority without mutation.
 - Full-access Library authority is an ephemeral overlay and never creates or expands `project_resource_grants`. Cross-compatibility-owner structure writes validate actor/source/target in one Library, move the complete ownership closure in one deferred-FK transaction, rebuild derived projections, require a clean `foreign_key_check`, and publish immutable source/final owner members. Store restore changes the epoch and invalidates prior Turn authority and broker grants.
 - Authorization responses travel through the targeted active-view renderer route and use random occurrence identities, preventing another renderer or an equal app-server call ID from satisfying the request. The renderer validates the bound Project/task, presents the request as a local overlay, and cannot publish it into or elevate canonical owner/follower state. Exact durable call replay bypasses authorization only after its request fingerprint and prior compact result are verified; same-call/different-input collisions fail closed.

@@ -572,6 +572,8 @@ export interface components {
             readonly document_cache_state_bytes: number;
             readonly document_reconstruction_duration: components["schemas"]["HealthDurationMetric"];
             /** Format: int64 */
+            readonly dropped_log_records?: number;
+            /** Format: int64 */
             readonly event_head: number;
             /** Format: int64 */
             readonly event_replay_lag: number;

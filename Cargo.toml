@@ -32,12 +32,14 @@ hyper-util = { version = "0.1.20", features = ["tokio"] }
 regex = "1.13.1"
 rrule = "=0.14.0"
 rusqlite = { version = "=0.40.1", default-features = false, features = ["backup", "bundled", "hooks", "limits", "trace"] }
-rustix = { version = "=1.1.4", features = ["process"] }
+rustix = { version = "=1.1.4", features = ["fs", "process"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.10.9"
 thiserror = "2.0.17"
 tokio = { version = "1.52.0", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"
 utoipa = "=5.5.0"
 unicode-segmentation = "1.13.3"
 yrs = { version = "=0.27.3", features = ["sync", "small-client"] }

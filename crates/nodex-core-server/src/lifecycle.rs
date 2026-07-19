@@ -177,6 +177,7 @@ pub(crate) async fn monitor_idle(
             continue;
         }
         if coordinator.try_begin_idle_drain(generation) {
+            tracing::info!(reason = "idle_timeout", "Core drain began");
             return;
         }
         idle_since = None;

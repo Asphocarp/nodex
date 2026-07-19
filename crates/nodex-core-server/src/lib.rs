@@ -3,6 +3,7 @@
 mod connections;
 mod document_wire;
 mod lifecycle;
+mod logging;
 mod metrics;
 mod runtime_files;
 mod transport_bounds;
@@ -12,8 +13,9 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use axum::body::to_bytes;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Query, Request, State};
@@ -63,6 +65,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
+use tracing::Instrument;
 
 use connections::{
     BoundConnection, ConnectionActivity, ConnectionRegistry, ConnectionRegistryError,
@@ -80,6 +83,7 @@ const CONNECTION_HEADER: &str = "x-nodex-connection-id";
 const CONNECTION_BINDING_HEADER: &str = "x-nodex-connection-binding";
 const DOCUMENT_HEADER: &str = "x-nodex-document-id";
 const CLIENT_SESSION_HEADER: &str = "x-nodex-client-session-id";
+static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 struct ServerState {
     auth_header: String,
@@ -102,6 +106,7 @@ struct ServerState {
     event_sender: broadcast::Sender<EventEnvelope>,
     document_sender: broadcast::Sender<DocumentTransportPublication>,
     metrics: ServerMetrics,
+    logging: logging::LoggingHandle,
 }
 
 fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
@@ -175,6 +180,81 @@ async fn authenticate(
     next.run(request).await
 }
 
+async fn trace_request(request: Request, next: Next) -> Response {
+    let request_id = format!(
+        "core:{}:{}",
+        std::process::id(),
+        NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed)
+    );
+    let method = match request.method().as_str() {
+        "GET" => "GET",
+        "POST" => "POST",
+        _ => "OTHER",
+    };
+    let (path, module) = route_observability(request.uri().path());
+    let span = tracing::info_span!(
+        "core_request",
+        requestId = %request_id,
+        method = %method,
+        path = %path,
+        module,
+        connectionId = tracing::field::Empty,
+        adapter = tracing::field::Empty,
+        operationId = tracing::field::Empty,
+        receiptKey = tracing::field::Empty,
+    );
+    async move {
+        let started_at = Instant::now();
+        let response = next.run(request).await;
+        let status = response.status().as_u16();
+        let duration_ms = u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        if status >= 500 {
+            tracing::error!(status, durationMs = duration_ms, "Core request completed");
+        } else if status >= 400 {
+            tracing::warn!(status, durationMs = duration_ms, "Core request completed");
+        } else if duration_ms >= 1_000 {
+            tracing::info!(status, durationMs = duration_ms, "Core request completed");
+        } else {
+            tracing::debug!(status, durationMs = duration_ms, "Core request completed");
+        }
+        response
+    }
+    .instrument(span)
+    .await
+}
+
+fn route_observability(path: &str) -> (&'static str, &'static str) {
+    match path {
+        "/core/v1/health" => ("/core/v1/health", "health"),
+        "/core/v1/handshake" => ("/core/v1/handshake", "lifecycle"),
+        "/core/v1/admin/shutdown" => ("/core/v1/admin/shutdown", "lifecycle"),
+        "/core/v1/events" => ("/core/v1/events", "lifecycle"),
+        "/core/v1/modules/library/read" => ("/core/v1/modules/library/read", "library"),
+        "/core/v1/modules/library/apply" => ("/core/v1/modules/library/apply", "library"),
+        "/core/v1/modules/database/read" => ("/core/v1/modules/database/read", "database"),
+        "/core/v1/modules/database/apply" => ("/core/v1/modules/database/apply", "database"),
+        "/core/v1/modules/workspace/read" => {
+            ("/core/v1/modules/workspace/read", "project_workspace")
+        }
+        "/core/v1/modules/workspace/apply" => {
+            ("/core/v1/modules/workspace/apply", "project_workspace")
+        }
+        "/core/v1/modules/automation/read" => ("/core/v1/modules/automation/read", "automation"),
+        "/core/v1/modules/automation/apply" => ("/core/v1/modules/automation/apply", "automation"),
+        "/core/v1/modules/administration/read" => (
+            "/core/v1/modules/administration/read",
+            "store_administration",
+        ),
+        "/core/v1/modules/administration/apply" => (
+            "/core/v1/modules/administration/apply",
+            "store_administration",
+        ),
+        "/core/v1/modules/document/read" => ("/core/v1/modules/document/read", "owned_document"),
+        "/core/v1/modules/document/apply" => ("/core/v1/modules/document/apply", "owned_document"),
+        _ => ("unmatched", "unmatched"),
+    }
+}
+
 async fn bind_connection(
     State(state): State<Arc<ServerState>>,
     ConnectInfo(peer): ConnectInfo<PeerIdentity>,
@@ -191,8 +271,21 @@ async fn bind_connection(
     if !state.lifecycle.record_activity() {
         return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Core is draining").into_response();
     }
+    let connection_id = log_identity(&bound.id);
+    tracing::Span::current().record("connectionId", connection_id.as_str());
+    tracing::Span::current().record("adapter", adapter_name(&bound.adapter));
     request.extensions_mut().insert(bound);
     next.run(request).await
+}
+
+fn adapter_name(adapter: &AdapterKind) -> &'static str {
+    match adapter {
+        AdapterKind::ElectronHost => "electron_host",
+        AdapterKind::LoopbackHttp => "loopback_http",
+        AdapterKind::NativeCli => "native_cli",
+        AdapterKind::Agent => "agent",
+        AdapterKind::Test => "test",
+    }
 }
 
 fn bind_authenticated_connection(
@@ -287,6 +380,7 @@ fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
             active_document_subscriptions: usize_to_u64(realtime.subscriptions),
             active_awareness_clients: usize_to_u64(realtime.awareness_clients),
             active_prepared_agent_operations: usize_to_u64(prepared_operations.unwrap_or_default()),
+            dropped_log_records: state.logging.dropped_records(),
         },
     )
 }
@@ -369,12 +463,15 @@ async fn handshake(
         .register(
             &request.connection_id,
             connection_binding.clone(),
-            adapter,
+            adapter.clone(),
             &peer,
             &request.client.build_id,
             protocol_version.expect("compatible protocol was selected"),
         )
         .map_err(connection_registry_error)?;
+    let connection_id = log_identity(&request.connection_id);
+    tracing::Span::current().record("connectionId", connection_id.as_str());
+    tracing::Span::current().record("adapter", adapter_name(&adapter));
     if !state.lifecycle.record_activity() {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -419,9 +516,9 @@ async fn library_read(
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.library.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(LibraryReadResponse(response))
 }
@@ -432,17 +529,22 @@ async fn library_apply(
     headers: HeaderMap,
     Json(LibraryApplyRequest(request)): Json<LibraryApplyRequest>,
 ) -> Json<LibraryApplyResponse> {
+    record_operation("library", &request.operation_id);
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.library.apply(&context, request) {
             Ok(outcome) => {
+                record_commit(
+                    outcome.committed.event_sequence,
+                    outcome.committed.receipt.mutation.duplicate,
+                );
                 if let Some(event) = outcome.event {
                     publish_event(&state, event);
                 }
                 ResponseEnvelope::Ok(outcome.committed)
             }
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(LibraryApplyResponse(response))
 }
@@ -456,9 +558,9 @@ async fn database_read(
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.database.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(DatabaseReadResponse(response))
 }
@@ -469,17 +571,22 @@ async fn database_apply(
     headers: HeaderMap,
     Json(DatabaseApplyRequest(request)): Json<DatabaseApplyRequest>,
 ) -> Json<DatabaseApplyResponse> {
+    record_operation("database", &request.operation_id);
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.database.apply(&context, request) {
             Ok(outcome) => {
+                record_commit(
+                    outcome.committed.event_sequence,
+                    outcome.committed.receipt.mutation.duplicate,
+                );
                 if let Some(event) = outcome.event {
                     publish_event(&state, event);
                 }
                 ResponseEnvelope::Ok(outcome.committed)
             }
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(DatabaseApplyResponse(response))
 }
@@ -493,9 +600,9 @@ async fn workspace_read(
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.workspace.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(ProjectWorkspaceReadResponse(response))
 }
@@ -506,17 +613,22 @@ async fn workspace_apply(
     headers: HeaderMap,
     Json(ProjectWorkspaceApplyRequest(request)): Json<ProjectWorkspaceApplyRequest>,
 ) -> Json<ProjectWorkspaceApplyResponse> {
+    record_operation("project_workspace", &request.operation_id);
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.workspace.apply(&context, request) {
             Ok(outcome) => {
+                record_commit(
+                    outcome.committed.event_sequence,
+                    outcome.committed.receipt.mutation.duplicate,
+                );
                 if let Some(event) = outcome.event {
                     publish_event(&state, event);
                 }
                 ResponseEnvelope::Ok(outcome.committed)
             }
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(ProjectWorkspaceApplyResponse(response))
 }
@@ -530,9 +642,9 @@ async fn automation_read(
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.automation.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(AutomationReadResponse(response))
 }
@@ -543,17 +655,22 @@ async fn automation_apply(
     headers: HeaderMap,
     Json(AutomationApplyRequest(request)): Json<AutomationApplyRequest>,
 ) -> Json<AutomationApplyResponse> {
+    record_operation("automation", &request.operation_id);
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.automation.apply(&context, request) {
             Ok(outcome) => {
+                record_commit(
+                    outcome.committed.event_sequence,
+                    outcome.committed.receipt.mutation.duplicate,
+                );
                 if let Some(event) = outcome.event {
                     publish_event(&state, event);
                 }
                 ResponseEnvelope::Ok(outcome.committed)
             }
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(AutomationApplyResponse(response))
 }
@@ -567,9 +684,9 @@ async fn administration_read(
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.administration.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(StoreAdministrationReadResponse(response))
 }
@@ -580,6 +697,7 @@ async fn administration_apply(
     headers: HeaderMap,
     Json(StoreAdministrationApplyRequest(request)): Json<StoreAdministrationApplyRequest>,
 ) -> Json<StoreAdministrationApplyResponse> {
+    record_operation("store_administration", &request.operation_id);
     let backup_started_at = matches!(
         &request.intent,
         StoreAdministrationIntent::CreateBackup { .. }
@@ -588,14 +706,18 @@ async fn administration_apply(
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.administration.apply(&context, request) {
             Ok(outcome) => {
+                record_commit(
+                    outcome.committed.event_sequence,
+                    outcome.committed.receipt.mutation.duplicate,
+                );
                 if let Some(event) = outcome.event {
                     publish_event(&state, event);
                 }
                 ResponseEnvelope::Ok(outcome.committed)
             }
-            Err(error) => ResponseEnvelope::Error(error),
+            Err(error) => ResponseEnvelope::Error(record_core_error(error)),
         },
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     if let Some(started_at) = backup_started_at {
         state.metrics.record_backup_duration(started_at.elapsed());
@@ -622,6 +744,9 @@ async fn document_read(State(state): State<Arc<ServerState>>, request: Request) 
         Ok(request) => request,
         Err(_) => return json_document_read_error(invalid("Document read request is invalid")),
     };
+    if let OwnedDocumentRead::PrepareAgentSemanticMutation { operation_id, .. } = &request.read {
+        record_operation("owned_document", operation_id);
+    }
     let response = match document_context(&state, &headers, &bound) {
         Ok(context) => {
             let result = match &request.read {
@@ -657,10 +782,10 @@ async fn document_read(State(state): State<Arc<ServerState>>, request: Request) 
             };
             match result {
                 Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
-                Err(error) => ResponseEnvelope::Error(error),
+                Err(error) => ResponseEnvelope::Error(record_core_error(error)),
             }
         }
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(OwnedDocumentReadResponse(response)).into_response()
 }
@@ -686,6 +811,7 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
         Ok(request) => request,
         Err(_) => return json_document_apply_error(invalid("Document apply request is invalid")),
     };
+    record_operation("owned_document", &request.operation_id);
     let response = match document_context(&state, &headers, &bound) {
         Ok(context) => {
             let realtime_bound = matches!(
@@ -705,15 +831,19 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
             };
             match result {
                 Ok(outcome) => {
+                    record_commit(
+                        outcome.committed.event_sequence,
+                        outcome.committed.receipt.mutation.duplicate,
+                    );
                     for event in outcome.events {
                         publish_event(&state, event);
                     }
                     ResponseEnvelope::Ok(outcome.committed)
                 }
-                Err(error) => ResponseEnvelope::Error(error),
+                Err(error) => ResponseEnvelope::Error(record_core_error(error)),
             }
         }
-        Err(error) => ResponseEnvelope::Error(error),
+        Err(error) => ResponseEnvelope::Error(record_core_error(error)),
     };
     Json(OwnedDocumentApplyResponse(response)).into_response()
 }
@@ -781,6 +911,7 @@ fn binary_document_apply(
                     "store epoch",
                 )?;
                 let update_id = metadata.update_id.clone();
+                record_operation("owned_document", &update_id);
                 let outcome = state.document_realtime.apply(
                     &context,
                     &metadata.client_session_id,
@@ -798,6 +929,10 @@ fn binary_document_apply(
                         },
                     },
                 )?;
+                record_commit(
+                    outcome.committed.event_sequence,
+                    outcome.committed.receipt.mutation.duplicate,
+                );
                 for event in outcome.events.iter().cloned() {
                     publish_event(state, event);
                 }
@@ -1006,6 +1141,22 @@ async fn events(
     state
         .metrics
         .record_event_replay_lag(replay_head, query.after);
+    let replay_count = u64::try_from(replay.len()).unwrap_or(u64::MAX);
+    if core_resync.is_some() || document_resync.is_some() {
+        tracing::warn!(
+            requestedAfter = query.after,
+            eventHead = replay_head,
+            replayCount = replay_count,
+            "Core event subscription requires resynchronization"
+        );
+    } else {
+        tracing::debug!(
+            requestedAfter = query.after,
+            eventHead = replay_head,
+            replayCount = replay_count,
+            "Core event subscription opened"
+        );
+    }
     let event_log = state.event_log.clone();
     let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
     let stream = async_stream::stream! {
@@ -1113,7 +1264,12 @@ async fn shutdown(
             "connection role cannot control Core lifecycle",
         ));
     }
-    state.lifecycle.begin_drain();
+    let connection_id = log_identity(&bound.id);
+    tracing::Span::current().record("connectionId", connection_id.as_str());
+    tracing::Span::current().record("adapter", adapter_name(&bound.adapter));
+    if state.lifecycle.begin_drain() {
+        tracing::info!(reason = "explicit", "Core drain began");
+    }
     Ok(Json(ShutdownResponse {
         status: ShutdownStatus::Draining,
         runtime: None,
@@ -1134,6 +1290,11 @@ fn version_handoff(
     }
     let runtime = Some(RuntimeGenerationIdentity::from(&descriptor));
     if state.lifecycle.is_draining() {
+        tracing::debug!(
+            reason = "version_handoff",
+            status = "already_draining",
+            "Core handoff evaluated"
+        );
         return Ok(Json(ShutdownResponse {
             status: ShutdownStatus::Draining,
             runtime,
@@ -1143,12 +1304,22 @@ fn version_handoff(
     if state.lifecycle.try_begin_idle_drain_if(|| {
         descriptor_snapshot(state) == descriptor && server_is_idle(state)
     }) {
+        tracing::info!(
+            reason = "version_handoff",
+            status = "accepted",
+            "Core drain began"
+        );
         return Ok(Json(ShutdownResponse {
             status: ShutdownStatus::Draining,
             runtime,
             retry_after_ms: None,
         }));
     }
+    tracing::debug!(
+        reason = "version_handoff",
+        status = "busy",
+        "Core handoff evaluated"
+    );
     Ok(Json(ShutdownResponse {
         status: ShutdownStatus::Busy,
         runtime,
@@ -1210,6 +1381,7 @@ fn router(state: Arc<ServerState>) -> Router {
             Arc::clone(&state),
             authenticate,
         ))
+        .layer(middleware::from_fn(trace_request))
         .with_state(state)
 }
 
@@ -1240,11 +1412,17 @@ fn binary_response(frame: Vec<u8>) -> Response {
 }
 
 fn json_document_read_error(error: CoreError) -> Response {
-    Json(OwnedDocumentReadResponse(ResponseEnvelope::Error(error))).into_response()
+    Json(OwnedDocumentReadResponse(ResponseEnvelope::Error(
+        record_core_error(error),
+    )))
+    .into_response()
 }
 
 fn json_document_apply_error(error: CoreError) -> Response {
-    Json(OwnedDocumentApplyResponse(ResponseEnvelope::Error(error))).into_response()
+    Json(OwnedDocumentApplyResponse(ResponseEnvelope::Error(
+        record_core_error(error),
+    )))
+    .into_response()
 }
 
 fn require_wire_version(version: u32) -> Result<(), CoreError> {
@@ -1273,6 +1451,55 @@ fn invalid(message: &str) -> CoreError {
         retryable: false,
         recovery: CoreErrorRecovery::None,
     }
+}
+
+fn record_core_error(error: CoreError) -> CoreError {
+    let code = match &error.code {
+        CoreErrorCode::InvalidInput => "invalid_input",
+        CoreErrorCode::Unauthorized => "unauthorized",
+        CoreErrorCode::NotFound => "not_found",
+        CoreErrorCode::Ambiguous => "ambiguous",
+        CoreErrorCode::StaleStoreEpoch => "stale_store_epoch",
+        CoreErrorCode::RevisionConflict => "revision_conflict",
+        CoreErrorCode::GenerationConflict => "generation_conflict",
+        CoreErrorCode::HeadConflict => "head_conflict",
+        CoreErrorCode::IdempotencyKeyReused => "idempotency_key_reused",
+        CoreErrorCode::DocumentUpdateMissingDependencies => "document_update_missing_dependencies",
+        CoreErrorCode::InvalidDocumentSchema => "invalid_document_schema",
+        CoreErrorCode::MaintenanceInProgress => "maintenance_in_progress",
+        CoreErrorCode::SchemaUnsupported => "schema_unsupported",
+        CoreErrorCode::StoreCorrupt => "store_corrupt",
+        CoreErrorCode::ProtocolIncompatible => "protocol_incompatible",
+        CoreErrorCode::EventReplayUnavailable => "event_replay_unavailable",
+        CoreErrorCode::ResourceExhausted => "resource_exhausted",
+        CoreErrorCode::CoreUnavailable => "core_unavailable",
+    };
+    match &error.code {
+        CoreErrorCode::StoreCorrupt | CoreErrorCode::CoreUnavailable => {
+            tracing::error!(
+                errorCode = code,
+                retryable = error.retryable,
+                "Core operation failed"
+            );
+        }
+        CoreErrorCode::MaintenanceInProgress
+        | CoreErrorCode::EventReplayUnavailable
+        | CoreErrorCode::ResourceExhausted => {
+            tracing::warn!(
+                errorCode = code,
+                retryable = error.retryable,
+                "Core operation failed"
+            );
+        }
+        _ => {
+            tracing::debug!(
+                errorCode = code,
+                retryable = error.retryable,
+                "Core operation failed"
+            );
+        }
+    }
+    error
 }
 
 struct DisconnectGuard {
@@ -1470,12 +1697,193 @@ fn publish_document_transport(state: &ServerState, publication: AwarenessPublica
     });
 }
 
+fn record_operation(module: &str, operation_id: &str) {
+    let operation_id = log_identity(operation_id);
+    let receipt_key = format!("{module}:{operation_id}");
+    let span = tracing::Span::current();
+    span.record("operationId", operation_id.as_str());
+    span.record("receiptKey", receipt_key.as_str());
+}
+
+fn log_identity(identity: &str) -> String {
+    let digest = Sha256::digest(identity.as_bytes());
+    format!("sha256:{}", &hex::encode(digest)[..32])
+}
+
+fn record_commit(event_sequence: i64, duplicate: bool) {
+    tracing::debug!(
+        eventSequence = event_sequence,
+        duplicate,
+        "Core mutation receipt resolved"
+    );
+}
+
 fn publish_event(state: &ServerState, event: nodex_core_contracts::CommittedCoreModuleEvent) {
+    let (module, event_kind, resource_id, resource_count, generation, head_sequence) =
+        event_log_metadata(&event.payload);
+    let operation_id = event.operation_id.as_deref().map(log_identity);
+    let resource_id = resource_id.map(log_identity);
+    tracing::debug!(
+        module,
+        eventKind = event_kind,
+        eventSequence = event.sequence,
+        operationId = operation_id.as_deref().unwrap_or("none"),
+        resourceIdHash = resource_id.as_deref().unwrap_or("none"),
+        resourceCount = resource_count,
+        generation = generation.unwrap_or_default(),
+        headSequence = head_sequence.unwrap_or_default(),
+        "Core event published"
+    );
     let envelope = EventEnvelope {
         protocol_version: PROTOCOL_MAX,
         event,
     };
     let _ = state.event_sender.send(envelope);
+}
+
+fn event_log_metadata(
+    payload: &CoreModuleEventPayload,
+) -> (
+    &'static str,
+    &'static str,
+    Option<&str>,
+    u64,
+    Option<i64>,
+    Option<i64>,
+) {
+    match payload {
+        CoreModuleEventPayload::Library(event) => (
+            "library",
+            "library_changed",
+            event
+                .page_ids
+                .first()
+                .or_else(|| event.database_ids.first())
+                .or_else(|| event.parent_keys.first())
+                .map(String::as_str),
+            collection_count(&[
+                event.page_ids.len(),
+                event.database_ids.len(),
+                event.parent_keys.len(),
+            ]),
+            None,
+            None,
+        ),
+        CoreModuleEventPayload::Database(event) => (
+            "database",
+            "database_changed",
+            event
+                .database_ids
+                .first()
+                .or_else(|| event.data_source_ids.first())
+                .or_else(|| event.page_ids.first())
+                .or_else(|| event.view_ids.first())
+                .map(String::as_str),
+            collection_count(&[
+                event.database_ids.len(),
+                event.data_source_ids.len(),
+                event.page_ids.len(),
+                event.view_ids.len(),
+            ]),
+            None,
+            None,
+        ),
+        CoreModuleEventPayload::OwnedDocument(event) => match event {
+            nodex_core_contracts::document::OwnedDocumentEvent::DocumentUpdated {
+                document_id,
+                generation,
+                head_seq,
+                ..
+            } => (
+                "owned_document",
+                "document_updated",
+                Some(document_id),
+                1,
+                Some(*generation),
+                Some(*head_seq),
+            ),
+            nodex_core_contracts::document::OwnedDocumentEvent::CanvasUpdated {
+                document_id,
+                generation,
+                head_seq,
+                ..
+            } => (
+                "owned_document",
+                "canvas_updated",
+                Some(document_id),
+                1,
+                Some(*generation),
+                Some(*head_seq),
+            ),
+            nodex_core_contracts::document::OwnedDocumentEvent::DocumentInvalidated {
+                document_id,
+                ..
+            } => (
+                "owned_document",
+                "document_invalidated",
+                Some(document_id),
+                1,
+                None,
+                None,
+            ),
+        },
+        CoreModuleEventPayload::ProjectWorkspace(event) => (
+            "project_workspace",
+            "workspace_changed",
+            event
+                .project_ids
+                .first()
+                .or_else(|| event.session_ids.first())
+                .or_else(|| event.thread_ids.first())
+                .map(String::as_str),
+            collection_count(&[
+                event.project_ids.len(),
+                event.session_ids.len(),
+                event.thread_ids.len(),
+            ]),
+            None,
+            None,
+        ),
+        CoreModuleEventPayload::Automation(event) => (
+            "automation",
+            "automation_changed",
+            event
+                .automation_ids
+                .first()
+                .or_else(|| event.lease_ids.first())
+                .or_else(|| event.run_ids.first())
+                .or_else(|| event.reminder_lease_ids.first())
+                .or_else(|| event.page_ids.first())
+                .or_else(|| event.document_ids.first())
+                .or_else(|| event.database_ids.first())
+                .map(String::as_str),
+            collection_count(&[
+                event.automation_ids.len(),
+                event.lease_ids.len(),
+                event.run_ids.len(),
+                event.reminder_lease_ids.len(),
+                event.snooze_ids.len(),
+                event.page_ids.len(),
+                event.document_ids.len(),
+                event.database_ids.len(),
+            ]),
+            None,
+            None,
+        ),
+        CoreModuleEventPayload::StoreAdministration(event) => (
+            "store_administration",
+            "store_administration_changed",
+            event.backup_ids.first().map(String::as_str),
+            collection_count(&[event.backup_ids.len()]),
+            None,
+            None,
+        ),
+    }
+}
+
+fn collection_count(lengths: &[usize]) -> u64 {
+    let count = lengths.iter().copied().fold(0_usize, usize::saturating_add);
+    u64::try_from(count).unwrap_or(u64::MAX)
 }
 
 fn sse_event(envelope: &EventEnvelope) -> Event {
@@ -1620,6 +2028,13 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     paths.remove_stale_socket()?;
+    let (logging_guard, logging_handle) = logging::install(&home);
+    tracing::info!(
+        subsystem = "lifecycle",
+        protocolMin = PROTOCOL_MIN,
+        protocolMax = PROTOCOL_MAX,
+        "Core startup began"
+    );
 
     let auth = random_hex(32)?;
     let start_nonce = random_hex(16)?;
@@ -1649,6 +2064,11 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         format!("{}\n", serde_json::to_string(&descriptor)?).as_bytes(),
     )?;
     println!("{}", serde_json::to_string(&descriptor)?);
+    tracing::info!(
+        subsystem = "lifecycle",
+        readinessGeneration = descriptor.readiness_generation,
+        "Core is ready"
+    );
 
     let descriptor = Arc::new(Mutex::new(descriptor));
     let event_log = CoreEventLog::new(store.readers());
@@ -1737,6 +2157,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         event_sender,
         document_sender,
         metrics: ServerMetrics::default(),
+        logging: logging_handle,
     });
     let idle_task = idle_timeout.map(|timeout| {
         let idle_state = Arc::clone(&state);
@@ -1755,6 +2176,11 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         idle_task.abort();
         let _ = idle_task.await;
     }
+    match &result {
+        Ok(()) => tracing::info!(subsystem = "lifecycle", "Core server stopped"),
+        Err(_) => tracing::error!(subsystem = "lifecycle", "Core server stopped with an error"),
+    }
+    logging_guard.shutdown();
     paths.cleanup(&start_nonce);
     drop(lock);
     result.map_err(Into::into)
@@ -1803,7 +2229,9 @@ async fn shutdown_signal(lifecycle: LifecycleCoordinator) {
     tokio::select! {
         () = lifecycle.wait_for_drain() => {}
         () = operating_system_shutdown_signal() => {
-            lifecycle.begin_drain();
+            if lifecycle.begin_drain() {
+                tracing::info!(reason = "operating_system_signal", "Core drain began");
+            }
         }
     }
 }

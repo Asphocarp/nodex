@@ -9,7 +9,13 @@ use nodex_core_protocol::{
     ClientIdentity, ClientKind, HandshakeRequest, PROTOCOL_MAX, PROTOCOL_MIN, RuntimeDescriptor,
     RuntimeGenerationIdentity, ShutdownRequest, VersionHandoffRequest,
 };
+use sha2::{Digest, Sha256};
 use tempfile::tempdir;
+
+fn log_identity(identity: &str) -> String {
+    let digest = Sha256::digest(identity.as_bytes());
+    format!("sha256:{}", &hex::encode(digest)[..32])
+}
 
 fn read_ready_descriptor(child: &mut Child) -> RuntimeDescriptor {
     let stdout = child.stdout.take().expect("captured stdout");
@@ -144,6 +150,9 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         .map(|_| {
             Command::new(executable)
                 .args(["--home", home.to_str().expect("UTF-8 home")])
+                .env("NODEX_LOG_FILE", "true")
+                .env("NODEX_LOG_CONSOLE", "false")
+                .env("NODEX_LOG_FILE_LEVEL", "debug")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
@@ -184,6 +193,13 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(
         unauthorized.starts_with("HTTP/1.1 401"),
         "unexpected unauthorized response: {unauthorized:?}"
+    );
+    const PRIVATE_PATH_SENTINEL: &str = "PRIVATE_PATH_MUST_NOT_REACH_CORE_LOGS";
+    let unknown_path = format!("/{PRIVATE_PATH_SENTINEL}");
+    let unknown = request(&expected.socket_path, "wrong", "GET", &unknown_path, "");
+    assert!(
+        unknown.starts_with("HTTP/1.1 401"),
+        "unexpected unknown-path response: {unknown:?}"
     );
     let health = request(&expected.socket_path, &auth, "GET", "/core/v1/health", "");
     assert!(health.starts_with("HTTP/1.1 200"));
@@ -314,6 +330,35 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         .expect("Page event sequence");
     assert!(page_event_sequence >= 1);
     assert_eq!(apply_json["payload"]["receipt"]["duplicate"], false);
+
+    const PRIVATE_LOG_SENTINEL: &str = "PRIVATE_TITLE_MUST_NOT_REACH_CORE_LOGS";
+    const LOG_OPERATION_ID: &str = "logging-correlation-operation";
+    let logged_apply_body = serde_json::json!({
+        "version": 1,
+        "operation_id": LOG_OPERATION_ID,
+        "store_epoch": expected.store_epoch,
+        "intent": {
+            "kind": "create_page",
+            "page_id": "page:logging-correlation",
+            "document_id": "document:logging-correlation",
+            "title": PRIVATE_LOG_SENTINEL,
+            "parent": { "kind": "library", "before": null }
+        }
+    })
+    .to_string();
+    let logged_apply = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/library/apply",
+        &logged_apply_body,
+        &module_headers,
+    );
+    let logged_apply = response_json(&logged_apply);
+    assert_eq!(logged_apply["status"], "ok");
+    let logged_event_sequence = logged_apply["payload"]["event_sequence"]
+        .as_i64()
+        .expect("logged event sequence");
 
     let replay = request_with_headers(
         &expected.socket_path,
@@ -530,6 +575,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
             .unwrap()
             <= 1_000_000
     );
+    assert_eq!(health["metrics"]["dropped_log_records"], 0);
 
     let shutdown = request_with_headers(
         &expected.socket_path,
@@ -558,6 +604,93 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     assert!(!runtime.join("core.sock").exists());
     assert!(!runtime.join("core.json").exists());
     assert!(!runtime.join("core.auth").exists());
+
+    let log_directory = home.join("logs");
+    assert_eq!(
+        fs::metadata(&log_directory)
+            .expect("Core log directory")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    let mut log_entries = Vec::new();
+    let mut raw_logs = String::new();
+    for entry in fs::read_dir(&log_directory).expect("Core log directory entries") {
+        let entry = entry.expect("Core log entry");
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("core-") || !name.ends_with(".log") {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(entry.path()).expect("Core log metadata");
+        assert!(metadata.file_type().is_file());
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        let contents = fs::read_to_string(entry.path()).expect("Core log contents");
+        raw_logs.push_str(&contents);
+        for line in contents.lines().filter(|line| !line.is_empty()) {
+            log_entries
+                .push(serde_json::from_str::<serde_json::Value>(line).expect("Core JSONL record"));
+        }
+    }
+    assert!(!log_entries.is_empty(), "Core emitted no JSONL records");
+    let logged_operation_id = log_identity(LOG_OPERATION_ID);
+    let correlated = log_entries
+        .iter()
+        .filter(|entry| entry["operationId"] == logged_operation_id)
+        .collect::<Vec<_>>();
+    assert!(
+        !correlated.is_empty(),
+        "operation has no correlated records"
+    );
+    let request_ids = correlated
+        .iter()
+        .filter_map(|entry| entry["requestId"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        request_ids.len(),
+        1,
+        "one operation must have one request chain"
+    );
+    assert!(correlated.iter().any(|entry| {
+        entry["writerCommandId"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("writer:"))
+    }));
+    assert!(
+        correlated
+            .iter()
+            .any(|entry| { entry["receiptKey"] == format!("library:{logged_operation_id}") })
+    );
+    assert!(
+        correlated
+            .iter()
+            .any(|entry| { entry["eventSequence"].as_i64() == Some(logged_event_sequence) })
+    );
+    assert!(correlated.iter().all(|entry| entry["module"] == "library"));
+    assert!(correlated.iter().all(|entry| entry["adapter"] == "test"));
+    assert!(log_entries.iter().any(|entry| {
+        entry["eventKind"] == "library_changed"
+            && entry["resourceIdHash"] == log_identity("page:logging-correlation")
+            && entry["resourceCount"]
+                .as_u64()
+                .is_some_and(|count| count > 0)
+    }));
+    for forbidden in [
+        auth.as_str(),
+        PRIVATE_LOG_SENTINEL,
+        PRIVATE_PATH_SENTINEL,
+        LOG_OPERATION_ID,
+        "connection:lifecycle",
+        "page:logging-correlation",
+        home.to_str().expect("UTF-8 home"),
+        expected.socket_path.as_str(),
+    ] {
+        assert!(
+            !raw_logs.contains(forbidden),
+            "Core logs leaked {forbidden}"
+        );
+    }
 }
 
 #[test]

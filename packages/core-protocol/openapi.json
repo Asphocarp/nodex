@@ -1728,6 +1728,11 @@
           "document_reconstruction_duration": {
             "$ref": "#/components/schemas/HealthDurationMetric"
           },
+          "dropped_log_records": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "event_head": {
             "type": "integer",
             "format": "int64"
