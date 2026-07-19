@@ -51,6 +51,9 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
     unsubscribeCanvasScene: () => { throw new Error("TypeScript Hub must not run"); },
     syncCanvasScene: async () => { throw new Error("TypeScript Hub must not run"); },
     applyCanvasSceneMutation: async () => { throw new Error("TypeScript Hub must not run"); },
+    applyAdditionalDocumentCommand: async () => {
+      throw new Error("TypeScript Hub must not run");
+    },
   },
   authorizeProject: async () => {
     throw new Error("TypeScript authorization must not run");
@@ -325,6 +328,70 @@ describe("Desktop Document sync bridge", () => {
     if (!libraryPrepared.ok) throw new Error("Expected Library preparation");
     expect("projectId" in libraryPrepared.value).toBe(false);
     expect(rootClient.documentApplies).toHaveLength(1);
+  });
+
+  test("routes Additional Document commands through the exact Project authority", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+    projectClient.enqueueDocumentApply({
+      store_epoch: "epoch:test",
+      event_sequence: 8,
+      value: {
+        document_id: "document:source",
+        generation: 1,
+        head_seq: 1,
+        outcome: "committed",
+        committed_at: "2026-07-19T21:05:00.000Z",
+        owner_effect: {
+          created_block_ids: ["block:source", "block:content"],
+          preserved_block_ids: [],
+          deleted_block_ids: [],
+          document_heads: [{
+            document_id: "document:source",
+            generation: 1,
+            head_seq: 1,
+          }],
+        },
+      },
+      receipt: {
+        operation_id: "owner:create",
+        duplicate: false,
+        document_id: "document:source",
+        generation: 1,
+        head_seq: 1,
+      },
+    });
+
+    await expect(bridge.applyAdditionalDocumentCommand({
+      version: 1,
+      operationId: "owner:create",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      clientSessionId: "renderer:one",
+      actor: { kind: "electron_renderer" },
+      coordination: { kind: "fifo_only" },
+      operation: {
+        kind: "create_synced_source",
+        sourceBlockId: "block:source",
+        documentId: "document:source",
+        initialBlocks: [{
+          id: "block:content",
+          type: "paragraph",
+          props: {},
+          children: [],
+        }],
+        placement: { kind: "space" },
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { operationId: "owner:create", projectId: "project:one" },
+    });
+    expect(rootClient.documentApplies).toHaveLength(0);
+    expect(projectClient.documentApplies).toHaveLength(1);
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

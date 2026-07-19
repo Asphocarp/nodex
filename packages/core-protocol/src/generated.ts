@@ -509,6 +509,7 @@ export interface components {
             readonly store_epoch: components["schemas"]["StoreEpoch"];
             readonly value: {
                 readonly canvas?: unknown;
+                readonly committed_at?: string | null;
                 readonly document_id: string;
                 /** Format: int64 */
                 readonly generation: number;
@@ -2726,6 +2727,7 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly canvas?: unknown;
+                    readonly committed_at?: string | null;
                     readonly document_id: string;
                     /** Format: int64 */
                     readonly generation: number;

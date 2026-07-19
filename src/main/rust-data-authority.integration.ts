@@ -341,6 +341,76 @@ describe("Electron native data authority", () => {
           },
         },
       });
+      const projectDocuments = createCoreDocumentSyncAdapter(
+        runtime.clientForProject(projectId),
+      );
+      const nativeSourceBlockId = "01981e00-0000-7000-8000-000000000001";
+      const nativeSourceDocumentId = "01981e00-0000-7000-8000-000000000002";
+      const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
+      const createSyncedSource = {
+        version: 1 as const,
+        operationId: "electron-document-create-synced-source",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        clientSessionId: "renderer:electron-document-owner",
+        actor: {
+          kind: "electron_renderer",
+          clientId: "renderer:electron-document-owner",
+        },
+        coordination: { kind: "fifo_only" as const },
+        operation: {
+          kind: "create_synced_source" as const,
+          sourceBlockId: nativeSourceBlockId,
+          documentId: nativeSourceDocumentId,
+          initialBlocks: [{
+            id: nativeContentBlockId,
+            type: "paragraph",
+            props: {},
+            content: [{
+              type: "text",
+              text: "Native Additional Document command",
+              styles: {},
+            }],
+            children: [],
+          }],
+          placement: { kind: "space" as const },
+        },
+      };
+      const createdSyncedSource = await projectDocuments
+        .applyAdditionalDocumentCommand(createSyncedSource);
+      if (!createdSyncedSource.ok) {
+        throw new Error(
+          `Core Additional Document command failed: ${createdSyncedSource.error.code}: ${createdSyncedSource.error.message}`,
+        );
+      }
+      expect(createdSyncedSource).toMatchObject({
+        ok: true,
+        value: {
+          operationId: createSyncedSource.operationId,
+          projectId,
+          duplicate: false,
+          effect: {
+            createdBlockIds: expect.arrayContaining([
+              nativeSourceBlockId,
+              nativeContentBlockId,
+            ]),
+            documentHeads: [{
+              documentId: nativeSourceDocumentId,
+              generation: 1,
+              headSeq: 1,
+            }],
+          },
+        },
+      });
+      await expect(projectDocuments.applyAdditionalDocumentCommand(
+        createSyncedSource,
+      )).resolves.toMatchObject({
+        ok: true,
+        value: {
+          operationId: createSyncedSource.operationId,
+          duplicate: true,
+        },
+      });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);

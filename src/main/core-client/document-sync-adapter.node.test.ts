@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
+import { CoreModuleResponseError } from "./core-client";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
 
@@ -118,5 +119,209 @@ describe("Core Document sync adapter", () => {
       ok: true,
       value: { documentId: second.documentId },
     });
+  });
+
+  test("maps Additional Document owner commands and durable receipts", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    client.enqueueDocumentApply({
+      store_epoch: "epoch:test",
+      event_sequence: 12,
+      value: {
+        document_id: "document:source",
+        generation: 1,
+        head_seq: 1,
+        outcome: "committed",
+        committed_at: "2026-07-19T21:00:00.000Z",
+        owner_effect: {
+          created_block_ids: ["block:source", "block:content"],
+          preserved_block_ids: [],
+          deleted_block_ids: [],
+          document_heads: [{
+            document_id: "document:source",
+            generation: 1,
+            head_seq: 1,
+          }],
+        },
+      },
+      receipt: {
+        operation_id: "owner:create",
+        duplicate: false,
+        document_id: "document:source",
+        generation: 1,
+        head_seq: 1,
+      },
+    });
+
+    const result = await adapter.applyAdditionalDocumentCommand({
+      version: 1,
+      operationId: "owner:create",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      clientSessionId: "renderer:one",
+      actor: { kind: "electron_renderer" },
+      coordination: { kind: "fifo_only" },
+      operation: {
+        kind: "create_synced_source",
+        sourceBlockId: "block:source",
+        documentId: "document:source",
+        initialBlocks: [{
+          id: "block:content",
+          type: "paragraph",
+          props: {},
+          children: [],
+        }],
+        placement: { kind: "space" },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        operationId: "owner:create",
+        projectId: "project:one",
+        duplicate: false,
+        changeLogSeq: 12,
+        committedAt: "2026-07-19T21:00:00.000Z",
+        semanticHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        effect: {
+          createdBlockIds: ["block:source", "block:content"],
+          documentHeads: [{
+            documentId: "document:source",
+            generation: 1,
+            headSeq: 1,
+          }],
+        },
+      },
+    });
+    expect(client.documentApplies).toEqual([{
+      operationId: "owner:create",
+      clientSessionId: "renderer:one",
+      intent: {
+        kind: "apply_owner_command",
+        command: {
+          kind: "create_synced_source",
+          source_block_id: "block:source",
+          document_id: "document:source",
+          initial_blocks: [{
+            id: "block:content",
+            type: "paragraph",
+            props: {},
+            children: [],
+          }],
+          before: undefined,
+        },
+      },
+    }]);
+  });
+
+  test("uses a placeholder execution head only for durable owner receipt replay", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    client.enqueueDocumentApply({
+      store_epoch: "epoch:test",
+      event_sequence: 15,
+      value: {
+        document_id: "document:source",
+        generation: 1,
+        head_seq: 7,
+        outcome: "committed",
+        committed_at: "2026-07-19T21:02:00.000Z",
+        owner_effect: {
+          created_block_ids: [],
+          preserved_block_ids: ["block:content"],
+          deleted_block_ids: ["block:source"],
+          document_heads: [{
+            document_id: "document:source",
+            generation: 1,
+            head_seq: 7,
+          }],
+        },
+      },
+      receipt: {
+        operation_id: "owner:delete",
+        duplicate: true,
+        document_id: "document:source",
+        generation: 1,
+        head_seq: 7,
+      },
+    });
+
+    await expect(adapter.applyAdditionalDocumentCommand({
+      version: 1,
+      operationId: "owner:delete",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      clientSessionId: "renderer:reconnected",
+      actor: { kind: "electron_renderer" },
+      coordination: { kind: "receipt_replay" },
+      operation: {
+        kind: "delete_owned_source",
+        ownerKind: "synced_block",
+        owner: {
+          ownerBlockId: "block:source",
+          documentId: "document:source",
+          generation: 1,
+          metadataRevision: 2,
+          locationRevision: 3,
+        },
+        referencePolicy: "require_unreferenced",
+      },
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { operationId: "owner:delete", duplicate: true },
+    });
+    expect(client.documentApplies[0]?.intent).toMatchObject({
+      kind: "apply_owner_command",
+      command: {
+        kind: "delete_owned_source",
+        owner: { head_seq: 0 },
+      },
+    });
+  });
+
+  test("preserves domain-specific owner command conflicts", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    vi.spyOn(client, "documentApply").mockRejectedValueOnce(
+      new CoreModuleResponseError({
+        code: "core_unavailable",
+        message: "Identity already exists in blocks: block:source",
+        retryable: false,
+        recovery: { kind: "none" },
+      }),
+    );
+    const request = {
+      version: 1 as const,
+      operationId: "owner:create-conflict",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      clientSessionId: "renderer:one",
+      actor: { kind: "electron_renderer" },
+      coordination: { kind: "fifo_only" as const },
+      operation: {
+        kind: "create_synced_source" as const,
+        sourceBlockId: "block:source",
+        documentId: "document:source",
+        initialBlocks: [{
+          id: "block:content",
+          type: "paragraph",
+          props: {},
+          children: [],
+        }],
+        placement: { kind: "space" as const },
+      },
+    };
+
+    await expect(adapter.applyAdditionalDocumentCommand(request)).resolves
+      .toMatchObject({
+        ok: false,
+        error: {
+          code: "identity_conflict",
+          operationId: request.operationId,
+          operationKind: request.operation.kind,
+          retryable: false,
+        },
+      });
   });
 });

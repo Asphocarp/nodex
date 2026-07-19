@@ -244,6 +244,8 @@ pub struct OwnedDocumentCommitValue {
     pub head_seq: i64,
     pub outcome: DocumentCommitOutcome,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canvas: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_effect: Option<DocumentOwnerEffect>,

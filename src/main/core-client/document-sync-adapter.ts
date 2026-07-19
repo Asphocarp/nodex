@@ -1,3 +1,15 @@
+import { createHash } from "node:crypto";
+
+import {
+  encodeAdditionalDocumentCommandSemanticHashInput,
+  parseAdditionalDocumentCommandRequest,
+  parseAdditionalDocumentCommandResult,
+  type AdditionalDocumentCommandErrorCode,
+  type AdditionalDocumentCommandRequest,
+  type AdditionalDocumentCommandResult,
+  type AdditionalDocumentHeadRevision,
+  type AdditionalDocumentSpacePlacement,
+} from "../../shared/additional-document-commands";
 import type {
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
@@ -20,7 +32,13 @@ import type {
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventSubscription,
+  OwnedDocumentIntent,
 } from "./types";
+
+type CoreDocumentOwnerCommand = Extract<
+  OwnedDocumentIntent,
+  { readonly kind: "apply_owner_command" }
+>["command"];
 
 interface ActiveSubscription {
   readonly ready: Promise<void>;
@@ -66,7 +84,212 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
     readonly operationId: string;
     readonly clientSessionId: string;
   }): Promise<DocumentSyncCommandResult<OwnedDocumentDescriptor>>;
+  applyAdditionalDocumentCommand(
+    request: AdditionalDocumentCommandRequest,
+  ): Promise<AdditionalDocumentCommandResult>;
 }
+
+const executionHead = (
+  request: AdditionalDocumentCommandRequest,
+  revision: { readonly documentId: string; readonly generation: number },
+): AdditionalDocumentHeadRevision => {
+  if (request.coordination.kind === "receipt_replay") {
+    return { ...revision, headSeq: 0 };
+  }
+  if (request.coordination.kind !== "hub_lease") {
+    throw new TypeError(
+      `Additional Document command is missing an execution head for ${revision.documentId}`,
+    );
+  }
+  const head = request.coordination.documents.find(
+    (candidate) => candidate.documentId === revision.documentId,
+  );
+  if (head?.generation === revision.generation) return head;
+  throw new TypeError(
+    `Additional Document command crossed the generation of ${revision.documentId}`,
+  );
+};
+
+const coreHead = (
+  request: AdditionalDocumentCommandRequest,
+  revision: { readonly documentId: string; readonly generation: number },
+) => {
+  const head = executionHead(request, revision);
+  return {
+    document_id: head.documentId,
+    generation: head.generation,
+    head_seq: head.headSeq,
+  };
+};
+
+const coreSpaceAnchor = (placement: AdditionalDocumentSpacePlacement) => {
+  const before = placement.before;
+  return before
+    ? {
+        block_id: before.blockId,
+        expected_location_revision: before.expectedLocationRevision,
+      }
+    : undefined;
+};
+
+const coreOwnerCommand = (
+  request: AdditionalDocumentCommandRequest,
+): CoreDocumentOwnerCommand => {
+  const operation = request.operation;
+  switch (operation.kind) {
+    case "create_synced_source":
+      return {
+        kind: operation.kind,
+        source_block_id: operation.sourceBlockId,
+        document_id: operation.documentId,
+        initial_blocks: operation.initialBlocks,
+        before: coreSpaceAnchor(operation.placement),
+      };
+    case "promote_synced_source":
+      return {
+        kind: operation.kind,
+        host: coreHead(request, operation.host),
+        root_block_id: operation.rootBlockId,
+        reference_block_id: operation.referenceBlockId,
+        source_block_id: operation.sourceBlockId,
+        source_document_id: operation.sourceDocumentId,
+      };
+    case "demote_synced_source":
+      return {
+        kind: operation.kind,
+        host: coreHead(request, operation.host),
+        source: coreHead(request, operation.source),
+        reference_block_id: operation.referenceBlockId,
+        source_block_id: operation.sourceBlockId,
+      };
+    case "create_template":
+      return {
+        kind: operation.kind,
+        source_block_id: operation.sourceBlockId,
+        document_id: operation.documentId,
+        display_name: operation.displayName,
+        initial_blocks: operation.initialBlocks,
+        before: coreSpaceAnchor(operation.placement),
+      };
+    case "instantiate_template":
+      return {
+        kind: operation.kind,
+        source_block_id: operation.sourceBlockId,
+        source: coreHead(request, operation.source),
+        target: coreHead(request, operation.target),
+        parent_block_id: operation.parentBlockId,
+        before_block_id: operation.beforeBlockId,
+      };
+    case "delete_owned_source": {
+      const ownerHead = coreHead(request, operation.owner);
+      return {
+        kind: operation.kind,
+        owner_kind: operation.ownerKind,
+        owner: {
+          owner_block_id: operation.owner.ownerBlockId,
+          document_id: operation.owner.documentId,
+          generation: operation.owner.generation,
+          head_seq: ownerHead.head_seq,
+          metadata_revision: operation.owner.metadataRevision,
+          location_revision: operation.owner.locationRevision,
+        },
+      };
+    }
+    case "create_canvas_owner":
+      return {
+        kind: operation.kind,
+        block_id: operation.blockId,
+        document_id: operation.documentId,
+        display_name: operation.displayName,
+        before: coreSpaceAnchor(operation.placement),
+      };
+    case "delete_canvas_owner": {
+      const ownerHead = coreHead(request, operation.owner);
+      return {
+        kind: operation.kind,
+        owner: {
+          owner_block_id: operation.owner.ownerBlockId,
+          document_id: operation.owner.documentId,
+          generation: operation.owner.generation,
+          head_seq: ownerHead.head_seq,
+          metadata_revision: operation.owner.metadataRevision,
+          location_revision: operation.owner.locationRevision,
+        },
+      };
+    }
+  }
+};
+
+const additionalDocumentErrorCode = (
+  error: unknown,
+): { readonly code: AdditionalDocumentCommandErrorCode; readonly retryable: boolean } => {
+  if (!(error instanceof CoreModuleResponseError)) {
+    return { code: "unknown", retryable: true };
+  }
+  const message = error.message.toLowerCase();
+  switch (error.coreError.code) {
+    case "invalid_input":
+      return { code: "invalid_request", retryable: false };
+    case "unauthorized":
+      return { code: "project_not_found", retryable: false };
+    case "not_found":
+      if (message.includes("bound project")) {
+        return { code: "project_not_found", retryable: false };
+      }
+      if (message.includes("reference") || message.includes("instance")) {
+        return { code: "reference_not_found", retryable: false };
+      }
+      return { code: "source_not_found", retryable: false };
+    case "stale_store_epoch":
+      return { code: "store_epoch_mismatch", retryable: false };
+    case "revision_conflict":
+      if (message.includes("still referenced")) {
+        return { code: "source_referenced", retryable: false };
+      }
+      if (message.includes("sole instance")) {
+        return { code: "source_shared", retryable: false };
+      }
+      return { code: "block_revision_conflict", retryable: false };
+    case "generation_conflict":
+      return { code: "document_generation_mismatch", retryable: false };
+    case "head_conflict":
+      return { code: "document_head_conflict", retryable: false };
+    case "idempotency_key_reused":
+      return { code: "operation_id_collision", retryable: false };
+    case "invalid_document_schema":
+    case "store_corrupt":
+      return { code: "document_state_corrupt", retryable: false };
+    case "maintenance_in_progress":
+      return { code: "unknown", retryable: true };
+    case "core_unavailable":
+      if (
+        message.includes("identity already exists")
+        || message.includes("cannot be reused")
+        || message.includes("cannot be deleted")
+      ) {
+        return { code: "identity_conflict", retryable: false };
+      }
+      return { code: "unknown", retryable: true };
+    default:
+      return { code: "unknown", retryable: error.coreError.retryable };
+  }
+};
+
+const additionalDocumentFailure = (
+  request: AdditionalDocumentCommandRequest,
+  error: unknown,
+): AdditionalDocumentCommandResult => {
+  const mapped = additionalDocumentErrorCode(error);
+  return parseAdditionalDocumentCommandResult({
+    ok: false,
+    error: {
+      ...mapped,
+      message: error instanceof Error ? error.message : String(error),
+      operationId: request.operationId,
+      operationKind: request.operation.kind,
+    },
+  });
+};
 
 const subscriptionKey = (
   request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
@@ -225,6 +448,65 @@ export const createCoreDocumentSyncAdapter = (
         return success(descriptor);
       } catch (error) {
         return failure(error);
+      }
+    },
+    applyAdditionalDocumentCommand: async (rawRequest) => {
+      let request: AdditionalDocumentCommandRequest;
+      try {
+        request = parseAdditionalDocumentCommandRequest(rawRequest);
+      } catch (error) {
+        return additionalDocumentFailure(rawRequest, error);
+      }
+      try {
+        const committed = await client.documentApply({
+          operationId: request.operationId,
+          clientSessionId: request.clientSessionId,
+          intent: {
+            kind: "apply_owner_command",
+            command: coreOwnerCommand(request),
+          },
+        });
+        const effect = committed.value.owner_effect;
+        const committedAt = committed.value.committed_at;
+        if (
+          committed.store_epoch !== request.storeEpoch
+          || committed.receipt.operation_id !== request.operationId
+          || !effect
+          || !committedAt
+        ) {
+          throw new Error(
+            "Core Additional Document receipt escaped its operation or Store boundary",
+          );
+        }
+        const semanticHash = createHash("sha256")
+          .update(encodeAdditionalDocumentCommandSemanticHashInput(request))
+          .digest("hex");
+        return parseAdditionalDocumentCommandResult({
+          ok: true,
+          value: {
+            version: 1,
+            operationId: request.operationId,
+            projectId: request.projectId,
+            storeEpoch: committed.store_epoch,
+            operationKind: request.operation.kind,
+            semanticHash,
+            duplicate: committed.receipt.duplicate,
+            effect: {
+              createdBlockIds: effect.created_block_ids,
+              preservedBlockIds: effect.preserved_block_ids,
+              deletedBlockIds: effect.deleted_block_ids,
+              documentHeads: effect.document_heads.map((head) => ({
+                documentId: head.document_id,
+                generation: head.generation,
+                headSeq: head.head_seq,
+              })),
+            },
+            changeLogSeq: committed.event_sequence,
+            committedAt,
+          },
+        });
+      } catch (error) {
+        return additionalDocumentFailure(request, error);
       }
     },
     sync,

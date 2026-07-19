@@ -1597,7 +1597,9 @@ export function registerIpcHandlers(
       };
     },
     applyCommand: (request) =>
-      documentSyncHub.applyAdditionalDocumentCommand(request),
+      options.documentSync
+        ? options.documentSync.applyAdditionalDocumentCommand(request)
+        : documentSyncHub.applyAdditionalDocumentCommand(request),
   });
 
   registerBlockTransferIpcHandler({

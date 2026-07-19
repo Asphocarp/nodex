@@ -1488,6 +1488,12 @@
             ],
             "properties": {
               "canvas": {},
+              "committed_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "document_id": {
                 "type": "string"
               },
@@ -10886,6 +10892,12 @@
                     ],
                     "properties": {
                       "canvas": {},
+                      "committed_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "document_id": {
                         "type": "string"
                       },

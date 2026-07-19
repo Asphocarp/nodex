@@ -112,6 +112,16 @@ same bridge and exact-target lifecycle but remain Project-only. Canvas and Yjs
 share one client-session ownership fence, while durable Canvas events carry the
 actual pre-commit authority head so replayed scene deltas retain their causal
 boundary even when a stale non-conflicting intent merges.
+Additional Document owner commands for Synced Blocks, Reusable Templates, and
+non-primary Canvas owners use that same authority-selected Owned Document
+bridge. The Rust branch submits one deep owner command to the exact Project
+client and maps the native mutation effect, event sequence, and persisted
+commit time back into the established receipt; it does not ask the TypeScript
+Hub to coordinate or write SQLite. Renewable Document heads and connection
+identity are execution evidence rather than semantic retry identity, so a
+durable receipt can replay after a provider flush or Electron reconnect while
+all owner, generation, placement, and content coordinates remain collision
+fenced.
 Project-scoped Page History reads also use the Library Module Adapter: the
 renderer request selects the exact Project client, Core evaluates recursive
 resource access in one read snapshot, and the Adapter maps the typed native
@@ -511,7 +521,7 @@ or the Electron client from reaching the local store.
 - `library-module-ipc.ts`, `library-module-http.ts`, and the Library event stream: equivalent trusted adapters and resource-addressed post-commit invalidation for Project-independent Library windows. Library events are hints to refetch authority, not content payloads, and remain useful when every Project is archived.
 - `document-sync-hub.ts`, `document-sync-runtime.ts`, and `document-sync-http.ts`: one targeted realtime plane shared by Electron and browser clients. It requires subscribe-before-sync, evaluates current Project resource access, fans out durable engine-discriminated updates, keeps Yjs Awareness ephemeral, and repairs Canvas gaps with canonical full-scene sync. `BlockTransfer`, Additional Document commands, and identity-destructive Agent operations reuse one short per-surface flush/freeze lease. Editability changes in place without remounting parent EditorViews/nested participants; an accepted provider lease may drain headlessly past visual teardown. Post-commit resync dispatches through the registered engine.
 - `block-transfer-ipc.ts` and `block-transfer-http.ts`: equivalent trusted Adapters for logical same-Library parent Move/Copy. They replace caller audit/scope identity, evaluate Project access to source and target, and return binary Document commits natively over IPC or as bounded base64 over HTTP.
-- `additional-document-command-ipc.ts` and `additional-document-command-http.ts`: equivalent public adapters over the Hub's Additional Document command. They reject unavailable capabilities, validate route scope and bounded JSON, replace caller attribution with trusted host identity, and preserve typed HTTP/IPC outcomes.
+- `additional-document-command-ipc.ts` and `additional-document-command-http.ts`: equivalent public boundaries for Additional Document commands. They reject unavailable capabilities, validate route scope and bounded JSON, replace caller attribution with trusted host identity, and preserve typed outcomes. Desktop IPC selects the Owned Document Module bridge under the Rust authority; the loopback HTTP path continues through the TypeScript Hub until its Core client boundary is enabled.
 - `ipc-safe-send.ts`: centralized one-way renderer notification helper for main-process IPC fanout. It checks `BrowserWindow`/`webContents` lifetime before sending, treats disposed-frame races as debug-only lifecycle skips, and rate-limits unexpected send warnings.
 - `codex/renderer-client-router.ts` and `codex/codex-renderer-view-registry.ts`: main-process renderer-client boundaries for Codex thread coordination. The router assigns stable client ids per `webContents`, sends targeted main-to-renderer requests, validates responses against the target `webContents`, rejects pending requests on timeout/destroy, reports disposed clients to Codex owner/follower coordination, and provides registry-backed Codex host-message fanout. The view registry independently tracks which renderers are actively presenting each task and selects the most recently activated client for local-only request UI; presentation never adopts canonical conversation-state ownership.
 - `clipboard-paste-inspector.ts`: best-effort Electron clipboard inspection for pasted absolute file/folder paths across supported native formats.

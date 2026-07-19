@@ -763,8 +763,14 @@ impl OwnedDocumentModule {
         expected_store_epoch: StoreEpoch,
         command: DocumentOwnerCommand,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
-        let fingerprint = serde_json::to_vec(&(context, expected_store_epoch.clone(), &command))
-            .map_err(|_| invalid("Document owner command cannot be fingerprinted"))?;
+        let fingerprint = serde_json::to_vec(&(
+            &context.profile_id,
+            &context.library_id,
+            &context.project_id,
+            expected_store_epoch.clone(),
+            semantic_owner_command(&command),
+        ))
+        .map_err(|_| invalid("Document owner command cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
         let context = context.clone();
         let cache = Arc::clone(&self.cache);
@@ -810,12 +816,19 @@ impl OwnedDocumentModule {
                     &command,
                     &assets_root,
                 )?;
+                let committed_at = executed
+                    .events
+                    .iter()
+                    .find(|event| event.sequence == executed.event_sequence)
+                    .map(|event| event.committed_at.clone())
+                    .ok_or_else(corrupt_receipt)?;
                 let committed = CommittedModuleValue {
                     value: OwnedDocumentCommitValue {
                         document_id: executed.primary_document_id.clone(),
                         generation: executed.generation,
                         head_seq: executed.head_seq,
                         outcome: DocumentCommitOutcome::Committed,
+                        committed_at: Some(committed_at),
                         canvas: None,
                         owner_effect: Some(executed.effect),
                     },
@@ -2429,6 +2442,7 @@ fn committed_value(
             generation: authority.head.generation,
             head_seq,
             outcome,
+            committed_at: None,
             canvas: None,
             owner_effect: None,
         },
@@ -2457,6 +2471,31 @@ fn owner_command_kind(command: &DocumentOwnerCommand) -> &'static str {
         DocumentOwnerCommand::CreateCanvasOwner { .. } => "create_canvas_owner",
         DocumentOwnerCommand::DeleteCanvasOwner { .. } => "delete_canvas_owner",
     }
+}
+
+fn semantic_owner_command(command: &DocumentOwnerCommand) -> DocumentOwnerCommand {
+    let mut command = command.clone();
+    match &mut command {
+        DocumentOwnerCommand::PromoteSyncedSource { host, .. } => {
+            host.head_seq = 0;
+        }
+        DocumentOwnerCommand::DemoteSyncedSource { host, source, .. } => {
+            host.head_seq = 0;
+            source.head_seq = 0;
+        }
+        DocumentOwnerCommand::InstantiateTemplate { source, target, .. } => {
+            source.head_seq = 0;
+            target.head_seq = 0;
+        }
+        DocumentOwnerCommand::DeleteOwnedSource { owner, .. }
+        | DocumentOwnerCommand::DeleteCanvasOwner { owner } => {
+            owner.head_seq = 0;
+        }
+        DocumentOwnerCommand::CreateSyncedSource { .. }
+        | DocumentOwnerCommand::CreateTemplate { .. }
+        | DocumentOwnerCommand::CreateCanvasOwner { .. } => {}
+    }
+    command
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4391,6 +4430,7 @@ mod tests {
             .apply(&context(), create.clone())
             .expect("create Synced Block source");
         assert_eq!(created.committed.value.head_seq, 1);
+        assert!(created.committed.value.committed_at.is_some());
         assert_eq!(created.events.len(), 1);
         assert_eq!(
             created
@@ -4406,12 +4446,18 @@ mod tests {
             ]
         );
 
+        let mut reconnected_context = context();
+        reconnected_context.connection_id = "connection:reconnected".to_owned();
         let duplicate = seeded
             .module
-            .apply(&context(), create)
+            .apply(&reconnected_context, create)
             .expect("exact owner retry");
         assert!(duplicate.committed.receipt.mutation.duplicate);
         assert!(duplicate.events.is_empty());
+        assert_eq!(
+            duplicate.committed.value.committed_at,
+            created.committed.value.committed_at
+        );
 
         seeded
             .kernel
@@ -4492,10 +4538,18 @@ mod tests {
                 ..
             })
         ));
+        let mut renewed_delete = delete;
+        let OwnedDocumentIntent::ApplyOwnerCommand {
+            command: DocumentOwnerCommand::DeleteOwnedSource { owner, .. },
+        } = &mut renewed_delete.intent
+        else {
+            panic!("expected delete owner command")
+        };
+        owner.head_seq = 99;
         let delete_retry = seeded
             .module
-            .apply(&context(), delete)
-            .expect("exact delete retry");
+            .apply(&context(), renewed_delete)
+            .expect("delete retry with renewed execution head");
         assert!(delete_retry.committed.receipt.mutation.duplicate);
         assert!(delete_retry.events.is_empty());
 

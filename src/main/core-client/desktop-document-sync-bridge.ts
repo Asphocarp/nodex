@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
 import type {
+  AdditionalDocumentCommandRequest,
+  AdditionalDocumentCommandResult,
+} from "../../shared/additional-document-commands";
+import type {
   CanvasSceneMutationCommandResult,
   CanvasSceneMutationError,
   CanvasSceneMutationRequest,
@@ -110,6 +114,9 @@ export interface DesktopDocumentSyncPort {
     target: DocumentSyncClientTarget,
     request: CanvasSceneMutationRequest,
   ): Promise<CanvasSceneMutationCommandResult>;
+  applyAdditionalDocumentCommand(
+    request: AdditionalDocumentCommandRequest,
+  ): Promise<AdditionalDocumentCommandResult>;
 }
 
 export interface DesktopDocumentSyncBridgeInput {
@@ -127,6 +134,7 @@ export interface DesktopDocumentSyncBridgeInput {
       | "unsubscribeCanvasScene"
       | "syncCanvasScene"
       | "applyCanvasSceneMutation"
+      | "applyAdditionalDocumentCommand"
     >;
     authorizeProject(input: {
       readonly projectId: string;
@@ -635,5 +643,15 @@ export function createDesktopDocumentSyncBridge(
         return await canvasSceneAdapterFor(runtime, request.projectId)
           .applyMutation(request);
       }, request.mutationId),
+    applyAdditionalDocumentCommand: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.hub.applyAdditionalDocumentCommand(request);
+      }
+      return await adapterFor(runtime, {
+        kind: "project",
+        projectId: request.projectId,
+      }).applyAdditionalDocumentCommand(request);
+    },
   };
 }
