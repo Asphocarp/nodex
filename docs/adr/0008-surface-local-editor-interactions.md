@@ -54,7 +54,7 @@ The manager scopes itself to the current Card body `Y.XmlFragment` and tracks on
 
 A selected panel leaf still renders only one tab body. For a durable Page Stage tab, the stable ProjectSession/tab identity owns a window-local model session containing the Block Document runtime, Y.Doc/provider, BlockNote editor, and UndoManager. React receives a generation-fenced view lease from that session. Unmounting the tab body detaches the EditorView and its NodeViews, clears local Awareness, and gives pending updates a bounded background persist opportunity; it does not destroy the model or require a new SQLite/state-vector bootstrap when the user returns.
 
-Before the EditorView detaches, the model captures its selection as Yjs-relative anchor/head positions. After a later mount reconciles the current Y.Doc into the new EditorView, those relative positions resolve against the new document shape and restore the logical cursor or selection. Numeric ProseMirror positions are not retained because remote edits may shift them while the view is absent. Scroll state uses the same PageTab identity so two tabs showing one Page do not overwrite each other's viewport.
+Before the EditorView detaches, the model captures its selection as Yjs-relative anchor/head positions. After a later mount reconciles the current Y.Doc into the new EditorView, those relative positions resolve against the new document shape and restore the logical cursor or selection. The PageTab separately remembers whether its main NFM editor was the last-focused region: returning reactivates the DOM caret only in that case, so title, property, search, nested-editor, and toolbar focus are not stolen. Numeric ProseMirror positions are not retained because remote edits may shift them while the view is absent. Scroll state uses the same PageTab identity so two tabs showing one Page do not overwrite each other's viewport.
 
 The session is disposed only when its durable tab closes, its owning ProjectSession is archived, or its prepared descriptor changes across a store epoch, Document generation, schema, or owner identity fence. Descriptor replacement closes the old runtime before connecting its successor, and generation-fenced view releases cannot tear down a newer mount. An unpromoted Page preview disposes the same model seam with its final view; promotion preserves its stable tab/model identity and enables durable retention without a remount. Other embedded or standalone Document surfaces keep their ordinary React-owned runtime lifetime; retention is a PageTab capability, not a global hidden-editor cache.
 
@@ -93,6 +93,7 @@ The vendored BlockNote changes are narrow upstream-quality lifecycle and integra
 15. An inactive durable PageTab retains its collaborative model but no EditorView, NodeView, DOM, or local Awareness state.
 16. Cursor restoration across PageTab view mounts uses Yjs-relative positions rather than stale ProseMirror offsets.
 17. Tab close, ProjectSession archive, or descriptor identity replacement destroys the retained editor/provider exactly once.
+18. Restoring a PageTab reactivates its main NFM editor only when that editor, rather than another Page control or nested editor, owned the last focus intent.
 
 ## Alternatives Rejected
 

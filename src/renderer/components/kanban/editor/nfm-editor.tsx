@@ -2014,6 +2014,22 @@ function NfmEditorInstance({
       ref={containerRef}
       className={cn("nfm-editor relative", className)}
       spellCheck={spellcheck}
+      onFocusCapture={(event) => {
+        if (!editorSession) return;
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const ownsFocusedEditor = target.closest(".nfm-editor")
+          === event.currentTarget
+          && target.closest(".ProseMirror") !== null;
+        editorSession.setShouldRestoreEditorFocus(ownsFocusedEditor);
+      }}
+      onBlurCapture={(event) => {
+        if (!editorSession) return;
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Element)) return;
+        if (!nextTarget.closest('[data-page-stage-surface="true"]')) return;
+        editorSession.setShouldRestoreEditorFocus(false);
+      }}
     >
       {searchOpen && (
         <div className="pointer-events-none sticky top-2 z-90 flex h-0 justify-end">

@@ -58,6 +58,7 @@ export class PageEditorSession {
   private editor: RetainedBlockNoteEditor | null = null;
   private editorKey: string | null = null;
   private selectionBookmark: CollaborativeSelectionBookmark | null = null;
+  private shouldRestoreEditorFocus = false;
   private nextViewGeneration = 0;
   private activeViewGeneration = 0;
   private disposed = false;
@@ -150,6 +151,11 @@ export class PageEditorSession {
     this.selectionBookmark = captureCollaborativeSelection(editor);
   }
 
+  setShouldRestoreEditorFocus(value: boolean): void {
+    if (this.disposed) return;
+    this.shouldRestoreEditorFocus = value;
+  }
+
   restoreSelection<
     BSchema extends BlockSchema,
     ISchema extends InlineContentSchema,
@@ -158,7 +164,9 @@ export class PageEditorSession {
     if (this.disposed || editor !== this.editor || !this.selectionBookmark) {
       return false;
     }
-    return restoreCollaborativeSelection(editor, this.selectionBookmark);
+    const restored = restoreCollaborativeSelection(editor, this.selectionBookmark);
+    if (this.shouldRestoreEditorFocus) editor.focus();
+    return restored;
   }
 
   dispose(): Promise<void> {
@@ -171,6 +179,7 @@ export class PageEditorSession {
     this.editor = null;
     this.editorKey = null;
     this.selectionBookmark = null;
+    this.shouldRestoreEditorFocus = false;
     editor?._tiptapEditor.destroy();
 
     this.disposePromise = this.connectBarrier

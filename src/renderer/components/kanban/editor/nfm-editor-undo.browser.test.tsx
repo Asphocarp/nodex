@@ -1,8 +1,5 @@
 import {
   BlockNoteEditor,
-  captureCollaborativeSelection,
-  restoreCollaborativeSelection,
-  type CollaborativeSelectionBookmark,
 } from "@blocknote/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { BlockNoteViewRaw, useCreateBlockNote } from "@blocknote/react";
@@ -12,6 +9,8 @@ import { describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 
 import { createPageDocumentGenesis } from "../../../../shared/block-documents/block-document-codec";
+import type { BlockDocumentSurfaceRuntime } from "../../../lib/block-document-surface-runtime";
+import { PageEditorSession } from "../../../lib/page-editor-session-registry";
 import { createNfmEditorModeOptions } from "./nfm-editor-source";
 
 const settleEditor = async () => {
@@ -53,7 +52,7 @@ describe("collaborative NFM undo in Chromium", () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
-  test("restores the inline cursor after remote edits while the EditorView is unmounted", async () => {
+  test("restores the inline cursor and editor focus after remote edits while the EditorView is unmounted", async () => {
     const genesis = createPageDocumentGenesis({
       documentId: "document:relative-cursor-browser",
       title: "Relative cursor",
@@ -86,7 +85,25 @@ describe("collaborative NFM undo in Chromium", () => {
     const remoteHost = globalThis.document.createElement("div");
     globalThis.document.body.append(remoteHost);
     remoteEditor.mount(remoteHost);
-    let bookmark: CollaborativeSelectionBookmark | null = null;
+    const editorSession = new PageEditorSession({
+      key: "session-browser\u0000tab-relative-cursor",
+      descriptor: {
+        projectId: "project-browser",
+        ownerBlockId: "page-relative-cursor",
+        ownerType: "page",
+        ownerLifecycle: "active",
+        documentId: document.guid,
+        storeEpoch: "epoch-relative-cursor",
+        generation: 1,
+        headSeq: 1,
+        schemaKey: "nodex.page",
+        schemaVersion: 1,
+        readiness: "ready",
+        sync: { kind: "yjs", stateVector: new Uint8Array() },
+      },
+      runtime: {} as BlockDocumentSurfaceRuntime,
+    });
+    editorSession.getOrCreateEditor("editor-relative-cursor", () => localEditor);
     const viewProps = {
       editor: localEditor,
       formattingToolbar: false as const,
@@ -95,10 +112,10 @@ describe("collaborative NFM undo in Chromium", () => {
       sideMenu: false as const,
       tableHandles: false as const,
       onEditorViewMount: () => {
-        if (bookmark) restoreCollaborativeSelection(localEditor, bookmark);
+        editorSession.restoreSelection(localEditor);
       },
       onEditorViewUnmount: () => {
-        bookmark = captureCollaborativeSelection(localEditor);
+        editorSession.captureSelection(localEditor);
       },
     };
     const firstView = render(<BlockNoteViewRaw {...viewProps} />);
@@ -119,9 +136,13 @@ describe("collaborative NFM undo in Chromium", () => {
             TextSelection.create(localEditor.prosemirrorState.doc, initialCursor),
           ),
         );
+        editorSession.setShouldRestoreEditorFocus(true);
+        localEditor.focus();
       });
+      expect(globalThis.document.activeElement).toBe(
+        localEditor.prosemirrorView.dom,
+      );
       firstView.unmount();
-      expect(bookmark).not.toBeNull();
 
       let alphaPosition: number | null = null;
       remoteEditor.prosemirrorState.doc.descendants((node, position) => {
@@ -147,8 +168,27 @@ describe("collaborative NFM undo in Chromium", () => {
         expect(localEditor.prosemirrorState.selection.head).toBe(
           initialCursor + "REMOTE ".length,
         );
+        expect(globalThis.document.activeElement).toBe(
+          localEditor.prosemirrorView.dom,
+        );
       } finally {
         secondView.unmount();
+      }
+
+      const otherPageControl = globalThis.document.createElement("button");
+      globalThis.document.body.append(otherPageControl);
+      otherPageControl.focus();
+      editorSession.setShouldRestoreEditorFocus(false);
+      const thirdView = render(<BlockNoteViewRaw {...viewProps} />);
+      try {
+        await act(settleEditor);
+        expect(localEditor.prosemirrorState.selection.head).toBe(
+          initialCursor + "REMOTE ".length,
+        );
+        expect(globalThis.document.activeElement).toBe(otherPageControl);
+      } finally {
+        thirdView.unmount();
+        otherPageControl.remove();
       }
     } finally {
       remoteEditor.unmount();
