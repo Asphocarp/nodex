@@ -89,9 +89,9 @@ active Project execution contexts and non-archived startup Sessions, or resolves
 an exact Project, Session panel state, thread owner, or managed-worktree set.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Workspace writes, full Session/tab
-and Codex launch metadata, Automation, and Store Administration remain migration
-work, so their unavailable operations do not fall back to direct native SQL.
+bindings and cross-Library rows fail closed. Full Session/tab writes and Codex
+launch metadata, Automation, and Store Administration remain migration work, so
+their unavailable operations do not fall back to direct native SQL.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and
@@ -103,6 +103,16 @@ does not compose public Module calls or publish collaborator events. A user
 creation publishes one Workspace receipt/event with exact replay, while a fresh
 Profile bootstrap uses the same record aggregate before the server advertises
 readiness so no half-bound default Project can exist.
+
+The same Workspace writer owns Project metadata/source replacement, lifecycle,
+sidebar order, and pinned order. Each operation validates Library ownership and
+bounded canonical input, writes one receipt/event with exact replay, and keeps
+the compatibility binding row synchronized through the v82 import triggers.
+Metadata replacement fences the Project binding revision; lifecycle transitions
+advance it, remove archived Projects from sidebar/pinned order, and append a
+restored Project without renumbering surviving gaps. Multi-Project reorder events
+use a deterministic Project anchor for the non-null change ledger coordinate
+while carrying the complete affected order in the Workspace event.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit

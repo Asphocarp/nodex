@@ -24,7 +24,14 @@ import { primaryCanvasBlockId } from "../shared/block-documents";
 import { createUuidV7 } from "../shared/uuid-v7";
 import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
 import { createPage } from "./local-store/database-pages";
-import { createProject, listProjects } from "./local-store/projects";
+import {
+  createProject,
+  listProjects,
+  reorderProjects,
+  setProjectLifecycle,
+  setProjectPinned,
+  updateProject,
+} from "./local-store/projects";
 import {
   getProjectSession,
   listProjectSessionSummaries,
@@ -2738,6 +2745,158 @@ describe("TypeScript/Rust content Module differential", () => {
       readiness: oracleCanvas.readiness,
       sync: oracleCanvas.sync,
     });
+
+    const updatedWorkspaceRoot = path.join(tmpdir(), "nodex-gate-c-workspace-updated");
+    const oracleUpdatedProject = updateProject(oracleCreatedProject.id, {
+      name: "Gate C renamed workspace",
+      description: "Updated Project metadata",
+      icon: "Plan 🧩 work",
+      sources: [updatedWorkspaceRoot, updatedWorkspaceRoot],
+    });
+    if (!oracleUpdatedProject) throw new Error("TypeScript Project update disappeared");
+    const candidateUpdatedProject = await stage(
+      "Project Workspace update Project",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-update-project",
+        intent: {
+          kind: "update_project",
+          project_id: candidateProjectId,
+          expected_binding_revision: 1,
+          name: "Gate C renamed workspace",
+          description: "Updated Project metadata",
+          icon: "Plan 🧩 work",
+          source_roots: [updatedWorkspaceRoot, updatedWorkspaceRoot],
+        },
+      }),
+    );
+    expect(candidateUpdatedProject.value).toMatchObject({
+      affected_project_ids: [candidateProjectId],
+      affected_session_ids: [],
+      affected_thread_ids: [],
+    });
+
+    setProjectPinned(oracleCreatedProject.id, { pinned: true });
+    await stage(
+      "Project Workspace pin Project",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-pin-project",
+        intent: {
+          kind: "set_project_pinned",
+          project_id: candidateProjectId,
+          pinned: true,
+        },
+      }),
+    );
+    const oracleSecondProject = createProject({ name: "Gate C secondary workspace" });
+    const candidateSecondProjectId = createUuidV7();
+    await stage(
+      "Project Workspace create secondary Project",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-create-secondary",
+        intent: {
+          kind: "create_project",
+          project_id: candidateSecondProjectId,
+          name: "Gate C secondary workspace",
+          description: "",
+          icon: null,
+          source_roots: [],
+        },
+      }),
+    );
+    reorderProjects({
+      orderedProjectIds: [
+        oracleCreatedProject.id,
+        coordinates.projectId,
+        oracleSecondProject.id,
+      ],
+    });
+    await stage(
+      "Project Workspace reorder Projects",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-reorder-projects",
+        intent: {
+          kind: "reorder_projects",
+          project_ids: [
+            candidateProjectId,
+            coordinates.projectId,
+            candidateSecondProjectId,
+          ],
+        },
+      }),
+    );
+    setProjectLifecycle(oracleSecondProject.id, { lifecycle: "inactive" });
+    await stage(
+      "Project Workspace inactivate Project",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-inactivate-project",
+        intent: {
+          kind: "set_project_lifecycle",
+          project_id: candidateSecondProjectId,
+          lifecycle: "inactive",
+        },
+      }),
+    );
+    setProjectLifecycle(oracleCreatedProject.id, { lifecycle: "archived" });
+    await stage(
+      "Project Workspace archive Project",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-archive-project",
+        intent: {
+          kind: "set_project_lifecycle",
+          project_id: candidateProjectId,
+          lifecycle: "archived",
+        },
+      }),
+    );
+    setProjectLifecycle(oracleCreatedProject.id, { lifecycle: "active" });
+    await stage(
+      "Project Workspace restore Project",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-restore-project",
+        intent: {
+          kind: "set_project_lifecycle",
+          project_id: candidateProjectId,
+          lifecycle: "active",
+        },
+      }),
+    );
+    const candidateMutatedWorkspace = await stage(
+      "Project Workspace mutated startup snapshot",
+      candidate.workspaceRead({ kind: "startup" }),
+    );
+    if (candidateMutatedWorkspace.value.kind !== "startup") {
+      throw new Error("Expected mutated Project Workspace startup snapshot");
+    }
+    const comparableProjectState = (
+      project: {
+        readonly lifecycle: string;
+        readonly binding_revision?: number;
+        readonly bindingRevision?: number;
+        readonly name: string;
+        readonly description: string;
+        readonly icon?: string | null;
+        readonly sources: readonly { readonly root: string; readonly order: number }[];
+        readonly primary_workspace_root?: string | null;
+        readonly primaryWorkspaceRoot?: string | null;
+        readonly pinned: boolean;
+        readonly pinned_order?: number | null;
+        readonly pinnedOrder?: number | null;
+      },
+    ) => ({
+      lifecycle: project.lifecycle,
+      bindingRevision: project.binding_revision ?? project.bindingRevision,
+      name: project.name,
+      description: project.description,
+      icon: project.icon || null,
+      sources: project.sources,
+      primaryWorkspaceRoot:
+        project.primary_workspace_root ?? project.primaryWorkspaceRoot ?? null,
+      pinned: project.pinned,
+      pinnedOrder: project.pinned_order ?? project.pinnedOrder ?? null,
+    });
+    expect(candidateMutatedWorkspace.value.projects.map(comparableProjectState)).toEqual(
+      listProjects().map(comparableProjectState),
+    );
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);
