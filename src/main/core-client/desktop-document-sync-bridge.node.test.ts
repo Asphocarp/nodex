@@ -70,6 +70,15 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
   prepareLibraryOwnedBlockDocument: async () => {
     throw new Error("TypeScript Library Document preparation must not run");
   },
+  createCheckpoint: async () => {
+    throw new Error("TypeScript Document history must not run");
+  },
+  listVersions: async () => {
+    throw new Error("TypeScript Document history must not run");
+  },
+  getVersion: async () => {
+    throw new Error("TypeScript Document history must not run");
+  },
 });
 
 const rustRuntime = (
@@ -151,6 +160,32 @@ const ownedDocumentDescriptorSnapshot = (projectId = "project:one") => ({
       sync: { kind: "yjs", stateVector: [] },
     },
   },
+});
+
+const documentVersionSummary = () => ({
+  versionId: `document-version:${"d".repeat(64)}`,
+  documentId: "document:one",
+  projectId: "project:one",
+  generation: 1,
+  baseHeadSeq: 1,
+  schemaKey: "nodex.page",
+  schemaVersion: 1,
+  cause: "manual",
+  label: "Bridge checkpoint",
+  actor: { kind: "electron_renderer" },
+  revisionKind: "manual",
+  sourceMutationId: null,
+  sourceChangeSeq: null,
+  pinned: true,
+  checkpointHash: "e".repeat(64),
+  materializationHash: "f".repeat(64),
+  byteLength: 64,
+  materializationKind: "page",
+  title: "Bridge",
+  preview: "Bridge",
+  blockCount: 1,
+  createdAt: "2026-07-19T21:15:00.000Z",
+  checkpointMetadata: { format: "block_tree_snapshot_v2" },
 });
 
 const prepareOperationId = (scope: string): string =>
@@ -392,6 +427,41 @@ describe("Desktop Document sync bridge", () => {
     });
     expect(rootClient.documentApplies).toHaveLength(0);
     expect(projectClient.documentApplies).toHaveLength(1);
+  });
+
+  test("routes Document history reads through the exact Project authority", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+    projectClient.enqueueDocumentRead({
+      version: 1,
+      store_epoch: "epoch:test",
+      event_head: 4,
+      value: {
+        kind: "versions",
+        items: [documentVersionSummary()],
+        next: null,
+      },
+    });
+
+    await expect(bridge.listVersions({
+      projectId: "project:one",
+      documentId: "document:one",
+      limit: 20,
+    })).resolves.toEqual({ ok: true, value: [documentVersionSummary()] });
+    expect(rootClient.documentReads).toHaveLength(0);
+    expect(projectClient.documentReads).toEqual([{
+      clientSessionId: "electron:document-history",
+      read: {
+        kind: "list_versions",
+        document_id: "document:one",
+        before: undefined,
+        limit: 20,
+      },
+    }]);
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

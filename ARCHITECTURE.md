@@ -122,6 +122,17 @@ identity are execution evidence rather than semantic retry identity, so a
 durable receipt can replay after a provider flush or Electron reconnect while
 all owner, generation, placement, and content coordinates remain collision
 fenced.
+Immutable Owned Document checkpoint creation plus version list/detail reads use
+the same exact-Project bridge. Core persists the trusted actor, revision kind,
+optional mutation evidence, and materialization/checkpoint hashes in one
+immutable version identity; a checkpoint receipt returns the complete public
+summary and distinguishes operation replay from an already-existing identical
+version. Pagination carries the full `(baseHeadSeq, createdAt, versionId)`
+cursor and Core verifies all three coordinates against the retained row before
+reading the next page. The Adapter validates every returned summary against its
+Project, Document, metadata, and materialization boundary. Forward restore is
+still on the semantic Document-mutation migration inventory, so this history
+slice alone does not complete the Rust desktop workflow.
 Project-scoped Page History reads also use the Library Module Adapter: the
 renderer request selects the exact Project client, Core evaluates recursive
 resource access in one read snapshot, and the Adapter maps the typed native

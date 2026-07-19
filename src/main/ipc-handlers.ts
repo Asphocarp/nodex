@@ -1670,9 +1670,14 @@ export function registerIpcHandlers(
       };
     },
     createCheckpoint: (request) =>
+      options.documentSync?.createCheckpoint(request) ??
       blockMutationWriter.createDocumentVersionCheckpoint(request),
-    listVersions: (request) => blockMutationWriter.listDocumentVersions(request),
-    getVersion: (request) => blockMutationWriter.getDocumentVersion(request),
+    listVersions: (request) =>
+      options.documentSync?.listVersions(request) ??
+      blockMutationWriter.listDocumentVersions(request),
+    getVersion: (request) =>
+      options.documentSync?.getVersion(request) ??
+      blockMutationWriter.getDocumentVersion(request),
     restoreVersion: (request) =>
       documentSyncHub.applyDocumentMutation(request),
   });

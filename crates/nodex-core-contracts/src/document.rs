@@ -30,7 +30,7 @@ pub enum OwnedDocumentRead {
     },
     ListVersions {
         document_id: String,
-        before_version_id: Option<String>,
+        before: Option<DocumentVersionCursor>,
         limit: Option<u32>,
     },
     GetVersion {
@@ -62,7 +62,7 @@ pub enum OwnedDocumentReadValue {
     },
     Versions {
         items: Vec<Value>,
-        next_version_id: Option<String>,
+        next: Option<DocumentVersionCursor>,
     },
     Version {
         value: Value,
@@ -111,6 +111,10 @@ pub enum OwnedDocumentIntent {
         expected_head_seq: i64,
         cause: String,
         label: Option<String>,
+        actor: Value,
+        revision_kind: Option<DocumentRevisionKind>,
+        source_mutation_id: Option<String>,
+        source_change_seq: Option<i64>,
     },
     RestoreVersion {
         document_id: String,
@@ -121,6 +125,23 @@ pub enum OwnedDocumentIntent {
     ApplyOwnerCommand {
         command: DocumentOwnerCommand,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentVersionCursor {
+    pub base_head_seq: i64,
+    pub created_at: String,
+    pub version_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentRevisionKind {
+    Automatic,
+    Manual,
+    Operation,
+    Restore,
+    Safety,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -249,6 +270,14 @@ pub struct OwnedDocumentCommitValue {
     pub canvas: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_effect: Option<DocumentOwnerEffect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_effect: Option<DocumentCheckpointEffect>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentCheckpointEffect {
+    pub checkpoint: Value,
+    pub duplicate: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

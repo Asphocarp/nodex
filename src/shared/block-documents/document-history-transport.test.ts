@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   bindTrustedDocumentVersionCheckpoint,
   DocumentHistoryContractError,
+  parseDocumentVersionSummary,
   parseListDocumentVersions,
 } from "./document-history-transport";
 import {
@@ -92,5 +93,78 @@ describe("Document history transport contracts", () => {
     }
     expect(cursorError instanceof DocumentHistoryContractError).toBe(true);
     expect(scopeError instanceof DocumentHistoryContractError).toBe(true);
+  });
+
+  test("rejects inconsistent checkpoint evidence and summary metadata", () => {
+    expect(() => bindTrustedDocumentVersionCheckpoint(
+      {
+        version: 1,
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        documentId: "document-1",
+        expectedGeneration: 2,
+        expectedHeadSeq: 9,
+        cause: "manual",
+        actor: {},
+        revisionKind: "manual",
+        sourceMutationId: "mutation-1",
+      },
+      "project-1",
+      "document-1",
+      {},
+    )).toThrow(DocumentHistoryContractError);
+    expect(() => parseDocumentVersionSummary({
+      versionId: `document-version:${"a".repeat(64)}`,
+      documentId: "document-1",
+      projectId: "project-1",
+      generation: 1,
+      baseHeadSeq: 1,
+      schemaKey: "nodex.canvas",
+      schemaVersion: 1,
+      cause: "manual",
+      label: null,
+      actor: {},
+      revisionKind: "manual",
+      sourceMutationId: null,
+      sourceChangeSeq: null,
+      pinned: true,
+      checkpointHash: "b".repeat(64),
+      materializationHash: "c".repeat(64),
+      byteLength: 16,
+      materializationKind: "canvas_scene",
+      title: null,
+      preview: "Canvas",
+      blockCount: 1,
+      createdAt: "2026-07-19T21:20:00.000Z",
+      checkpointMetadata: { format: "block_tree_snapshot_v2" },
+    })).toThrow(DocumentHistoryContractError);
+  });
+
+  test("accepts an empty Page checkpoint as a valid immutable projection", () => {
+    expect(parseDocumentVersionSummary({
+      versionId: `document-version:${"d".repeat(64)}`,
+      documentId: "document-1",
+      projectId: "project-1",
+      generation: 1,
+      baseHeadSeq: 0,
+      schemaKey: "nodex.page",
+      schemaVersion: 2,
+      cause: "manual",
+      label: null,
+      actor: {},
+      revisionKind: "manual",
+      sourceMutationId: null,
+      sourceChangeSeq: null,
+      pinned: true,
+      checkpointHash: "e".repeat(64),
+      materializationHash: "f".repeat(64),
+      byteLength: 16,
+      materializationKind: "page",
+      title: "",
+      preview: "",
+      blockCount: 0,
+      createdAt: "2026-07-19T21:30:00.000Z",
+      checkpointMetadata: { format: "block_tree_snapshot_v2" },
+    })).toMatchObject({ title: "", preview: "", blockCount: 0 });
   });
 });

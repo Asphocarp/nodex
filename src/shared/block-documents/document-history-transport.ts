@@ -1,5 +1,12 @@
 import { stableStringifyBlockPropertyJson } from "../block-property-mutations";
-import type { BlockTreeValue } from "./block-document-codec";
+import type {
+  BlockDocumentAssetReference,
+  BlockDocumentReference,
+  BlockTreeNode,
+  BlockTreeValue,
+} from "./block-document-codec";
+import { parsePortableCanvasScene } from "./canvas-scene";
+import type { RegisteredOwnedDocumentMaterialization } from "./document-schema-adapters";
 import {
   DOCUMENT_VERSION_CONTRACT_VERSION,
   MAX_DOCUMENT_VERSION_CAUSE_LENGTH,
@@ -7,9 +14,12 @@ import {
   MAX_DOCUMENT_VERSION_LABEL_LENGTH,
   type CreateDocumentVersionCheckpoint,
   type DocumentVersionActor,
+  type DocumentVersionDetail,
+  type DocumentVersionSummary,
   type GetDocumentVersion,
   type ListDocumentVersions,
 } from "./document-history";
+import { canonicalizePortableRichText } from "./portable-rich-text";
 
 const MAX_SCOPE_ID_LENGTH = 512;
 
@@ -181,6 +191,24 @@ export const parseCreateDocumentVersionCheckpoint = (
   const sourceChangeSeq = record.sourceChangeSeq === undefined
     ? undefined
     : readInteger(record, "sourceChangeSeq", label, 1);
+  const effectiveRevisionKind = revisionKind ?? "manual";
+  const linksMutation =
+    effectiveRevisionKind === "operation" || effectiveRevisionKind === "restore";
+  if (sourceChangeSeq !== undefined && sourceMutationId === undefined) {
+    throw new DocumentHistoryContractError(
+      `${label}.sourceChangeSeq requires sourceMutationId`,
+    );
+  }
+  if (linksMutation && sourceMutationId === undefined) {
+    throw new DocumentHistoryContractError(
+      `${label}.${effectiveRevisionKind} requires sourceMutationId`,
+    );
+  }
+  if (!linksMutation && sourceMutationId !== undefined) {
+    throw new DocumentHistoryContractError(
+      `${label}.${effectiveRevisionKind} cannot link mutation evidence`,
+    );
+  }
   return {
     version: DOCUMENT_VERSION_CONTRACT_VERSION,
     projectId: readString(record, "projectId", label),
@@ -255,6 +283,363 @@ export const parseGetDocumentVersion = (
     projectId: readString(record, "projectId", label),
     documentId: readString(record, "documentId", label),
     versionId: readString(record, "versionId", label),
+  };
+};
+
+const readNullableString = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  label: string,
+  allowEmpty = false,
+): string | null => {
+  if (record[key] === null) return null;
+  if (allowEmpty) return readPossiblyEmptyString(record, key, label);
+  return readString(record, key, label, 2_000_000);
+};
+
+const readPossiblyEmptyString = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  label: string,
+): string => {
+  const value = record[key];
+  if (typeof value === "string" && value.length <= 2_000_000) return value;
+  throw new DocumentHistoryContractError(
+    `${label}.${key} must be a bounded string`,
+  );
+};
+
+const readNullableInteger = (
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  label: string,
+): number | null => {
+  if (record[key] === null) return null;
+  return readInteger(record, key, label, 1);
+};
+
+export const parseDocumentVersionSummary = (
+  value: unknown,
+): DocumentVersionSummary => {
+  const label = "documentVersionSummary";
+  const summary = readRecord(value, label);
+  assertExactKeys(summary, label, [
+    "versionId",
+    "documentId",
+    "projectId",
+    "generation",
+    "baseHeadSeq",
+    "schemaKey",
+    "schemaVersion",
+    "cause",
+    "label",
+    "actor",
+    "revisionKind",
+    "sourceMutationId",
+    "sourceChangeSeq",
+    "pinned",
+    "checkpointHash",
+    "materializationHash",
+    "byteLength",
+    "materializationKind",
+    "title",
+    "preview",
+    "blockCount",
+    "createdAt",
+    "checkpointMetadata",
+  ]);
+  const revisionKind = summary.revisionKind;
+  if (
+    revisionKind !== "automatic" &&
+    revisionKind !== "manual" &&
+    revisionKind !== "operation" &&
+    revisionKind !== "restore" &&
+    revisionKind !== "safety"
+  ) {
+    throw new DocumentHistoryContractError(
+      `${label}.revisionKind is not supported`,
+    );
+  }
+  const materializationKind = summary.materializationKind;
+  if (
+    materializationKind !== "page" &&
+    materializationKind !== "synced_block" &&
+    materializationKind !== "reusable_template" &&
+    materializationKind !== "canvas_scene"
+  ) {
+    throw new DocumentHistoryContractError(
+      `${label}.materializationKind is not supported`,
+    );
+  }
+  const pinned = summary.pinned;
+  if (typeof pinned !== "boolean") {
+    throw new DocumentHistoryContractError(`${label}.pinned must be a boolean`);
+  }
+  const checkpointHash = readString(summary, "checkpointHash", label, 64);
+  const materializationHash = readString(
+    summary,
+    "materializationHash",
+    label,
+    64,
+  );
+  for (const [key, hash] of [
+    ["checkpointHash", checkpointHash],
+    ["materializationHash", materializationHash],
+  ] as const) {
+    if (!/^[a-f0-9]{64}$/u.test(hash)) {
+      throw new DocumentHistoryContractError(
+        `${label}.${key} must be lowercase SHA-256 hex`,
+      );
+    }
+  }
+  const checkpointMetadata = readRecord(
+    summary.checkpointMetadata,
+    `${label}.checkpointMetadata`,
+  );
+  let parsedCheckpointMetadata: DocumentVersionSummary["checkpointMetadata"];
+  if (checkpointMetadata.format === "yjs_update_v1") {
+    assertExactKeys(checkpointMetadata, `${label}.checkpointMetadata`, [
+      "format",
+      "stateVectorHash",
+    ]);
+    if (
+      typeof checkpointMetadata.stateVectorHash !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(checkpointMetadata.stateVectorHash)
+    ) {
+      throw new DocumentHistoryContractError(
+        `${label}.checkpointMetadata.stateVectorHash must be lowercase SHA-256 hex`,
+      );
+    }
+    parsedCheckpointMetadata = {
+      format: "yjs_update_v1",
+      stateVectorHash: checkpointMetadata.stateVectorHash,
+    };
+  } else if (checkpointMetadata.format === "block_tree_snapshot_v2") {
+    assertExactKeys(checkpointMetadata, `${label}.checkpointMetadata`, ["format"]);
+    parsedCheckpointMetadata = { format: "block_tree_snapshot_v2" };
+  } else if (checkpointMetadata.format === "canvas_scene_json_v1") {
+    assertExactKeys(checkpointMetadata, `${label}.checkpointMetadata`, ["format"]);
+    parsedCheckpointMetadata = { format: "canvas_scene_json_v1" };
+  } else {
+    throw new DocumentHistoryContractError(
+      `${label}.checkpointMetadata.format is not supported`,
+    );
+  }
+  const sourceMutationId = readNullableString(
+    summary,
+    "sourceMutationId",
+    label,
+  );
+  const sourceChangeSeq = readNullableInteger(
+    summary,
+    "sourceChangeSeq",
+    label,
+  );
+  const linksMutation = revisionKind === "operation" || revisionKind === "restore";
+  if (sourceChangeSeq !== null && sourceMutationId === null) {
+    throw new DocumentHistoryContractError(
+      `${label}.sourceChangeSeq requires sourceMutationId`,
+    );
+  }
+  if (linksMutation !== (sourceMutationId !== null)) {
+    throw new DocumentHistoryContractError(
+      `${label}.revisionKind and sourceMutationId do not agree`,
+    );
+  }
+  const title = readNullableString(summary, "title", label, true);
+  if ((materializationKind === "page") !== (title !== null)) {
+    throw new DocumentHistoryContractError(
+      `${label}.title does not agree with materializationKind`,
+    );
+  }
+  if (
+    (materializationKind === "canvas_scene") !==
+    (parsedCheckpointMetadata.format === "canvas_scene_json_v1")
+  ) {
+    throw new DocumentHistoryContractError(
+      `${label}.checkpointMetadata does not agree with materializationKind`,
+    );
+  }
+  const versionId = readString(summary, "versionId", label);
+  if (!/^document-version:[a-f0-9]{64}$/u.test(versionId)) {
+    throw new DocumentHistoryContractError(
+      `${label}.versionId must be a canonical Document version identity`,
+    );
+  }
+  const createdAt = readString(summary, "createdAt", label, 256);
+  const parsedCreatedAt = new Date(createdAt);
+  if (
+    Number.isNaN(parsedCreatedAt.valueOf()) ||
+    parsedCreatedAt.toISOString() !== createdAt
+  ) {
+    throw new DocumentHistoryContractError(
+      `${label}.createdAt must be a canonical ISO timestamp`,
+    );
+  }
+  return {
+    versionId,
+    documentId: readString(summary, "documentId", label),
+    projectId: readString(summary, "projectId", label),
+    generation: readInteger(summary, "generation", label, 1),
+    baseHeadSeq: readInteger(summary, "baseHeadSeq", label, 0),
+    schemaKey: readString(summary, "schemaKey", label),
+    schemaVersion: readInteger(summary, "schemaVersion", label, 1),
+    cause: readString(summary, "cause", label, MAX_DOCUMENT_VERSION_CAUSE_LENGTH),
+    label: readNullableString(summary, "label", label),
+    actor: readActor(summary.actor, `${label}.actor`),
+    revisionKind,
+    sourceMutationId,
+    sourceChangeSeq,
+    pinned,
+    checkpointHash,
+    materializationHash,
+    byteLength: readInteger(summary, "byteLength", label, 1),
+    materializationKind,
+    title,
+    preview: readPossiblyEmptyString(summary, "preview", label),
+    blockCount: readInteger(summary, "blockCount", label, 0),
+    createdAt,
+    checkpointMetadata: parsedCheckpointMetadata,
+  };
+};
+
+export const parseDocumentVersionDetail = (
+  value: unknown,
+): DocumentVersionDetail => {
+  const label = "documentVersionDetail";
+  const detail = readRecord(value, label);
+  assertExactKeys(detail, label, ["summary", "materialization"]);
+  const summary = parseDocumentVersionSummary(detail.summary);
+  const materialization = readRecord(
+    detail.materialization,
+    `${label}.materialization`,
+  );
+  if (materialization.kind !== summary.materializationKind) {
+    throw new DocumentHistoryContractError(
+      `${label}.materialization.kind does not match its summary`,
+    );
+  }
+  let parsedMaterialization: RegisteredOwnedDocumentMaterialization;
+  if (summary.materializationKind === "canvas_scene") {
+    try {
+      parsedMaterialization = parsePortableCanvasScene(materialization);
+    } catch (error) {
+      throw new DocumentHistoryContractError(
+        `${label}.materialization is not a canonical Canvas scene: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  } else {
+    const portableArray = <Value>(key: string): readonly Value[] => {
+      const candidate = materialization[key];
+      if (!Array.isArray(candidate)) {
+        throw new DocumentHistoryContractError(
+          `${label}.materialization.${key} must be an array`,
+        );
+      }
+      try {
+        return JSON.parse(
+          stableStringifyBlockPropertyJson(candidate),
+        ) as readonly Value[];
+      } catch (error) {
+        throw new DocumentHistoryContractError(
+          `${label}.materialization.${key} must be bounded portable JSON: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    };
+    const common = {
+      schemaVersion: readInteger(
+        materialization,
+        "schemaVersion",
+        `${label}.materialization`,
+        1,
+      ),
+      blockTree: portableArray<BlockTreeNode>("blockTree"),
+      nfm: readPossiblyEmptyString(
+        materialization,
+        "nfm",
+        `${label}.materialization`,
+      ),
+      plainText: readPossiblyEmptyString(
+        materialization,
+        "plainText",
+        `${label}.materialization`,
+      ),
+      preview: readPossiblyEmptyString(
+        materialization,
+        "preview",
+        `${label}.materialization`,
+      ),
+      references: portableArray<BlockDocumentReference>("references"),
+      assetRefs: portableArray<BlockDocumentAssetReference>("assetRefs"),
+    };
+    if (summary.materializationKind === "page") {
+      let richTitle;
+      try {
+        richTitle = canonicalizePortableRichText(materialization.richTitle);
+      } catch (error) {
+        throw new DocumentHistoryContractError(
+          `${label}.materialization.richTitle is invalid: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (
+        stableStringifyBlockPropertyJson(richTitle) !==
+        stableStringifyBlockPropertyJson(materialization.richTitle)
+      ) {
+        throw new DocumentHistoryContractError(
+          `${label}.materialization.richTitle is not canonical`,
+        );
+      }
+      parsedMaterialization = {
+        kind: "page",
+        title: readPossiblyEmptyString(
+          materialization,
+          "title",
+          `${label}.materialization`,
+        ),
+        richTitle,
+        ...common,
+      };
+    } else {
+      parsedMaterialization = {
+        kind: summary.materializationKind,
+        ...common,
+      };
+    }
+  }
+  const countBlockTree = (nodes: readonly unknown[]): number =>
+    nodes.reduce<number>((count, node, index) => {
+      const record = readRecord(
+        node,
+        `${label}.materialization.blockTree[${index}]`,
+      );
+      if (
+        typeof record.id !== "string" ||
+        typeof record.type !== "string" ||
+        !isRecord(record.props) ||
+        !Array.isArray(record.children)
+      ) {
+        throw new DocumentHistoryContractError(
+          `${label}.materialization.blockTree[${index}] has invalid field shapes`,
+        );
+      }
+      return count + 1 + countBlockTree(record.children);
+    }, 0);
+  const parsedBlockCount = parsedMaterialization.kind === "canvas_scene"
+    ? parsedMaterialization.elements.length
+    : countBlockTree(parsedMaterialization.blockTree);
+  if (
+    parsedMaterialization.preview !== summary.preview ||
+    parsedBlockCount !== summary.blockCount ||
+    (parsedMaterialization.kind === "page" &&
+      parsedMaterialization.title !== summary.title)
+  ) {
+    throw new DocumentHistoryContractError(
+      `${label}.materialization does not match its summary projection`,
+    );
+  }
+  return {
+    summary,
+    materialization: parsedMaterialization,
   };
 };
 

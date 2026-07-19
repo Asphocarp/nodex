@@ -10,9 +10,10 @@ use nodex_core_contracts::agent::{
     AgentResourceKind, AgentResourceTarget, AgentTurnProvenance,
 };
 use nodex_core_contracts::document::{
-    AgentDocumentSemanticMutation, DocumentCommitOutcome, DocumentInvalidationReason,
-    DocumentOwnerCommand, DocumentSemanticCommand, OwnedDocumentCommitValue, OwnedDocumentEvent,
-    OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    AgentDocumentSemanticMutation, DocumentCheckpointEffect, DocumentCommitOutcome,
+    DocumentInvalidationReason, DocumentOwnerCommand, DocumentRevisionKind,
+    DocumentSemanticCommand, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
+    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -105,7 +106,7 @@ enum AgentSemanticPreparationResult {
         store_epoch: String,
         event_head: i64,
         footprint: AgentOperationFootprint,
-        committed: CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+        committed: Box<CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>>,
     },
 }
 
@@ -265,7 +266,7 @@ impl OwnedDocumentModule {
             }
             OwnedDocumentRead::ListVersions {
                 document_id,
-                before_version_id,
+                before,
                 limit,
             } => self
                 .readers
@@ -273,20 +274,13 @@ impl OwnedDocumentModule {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
                     authorize_owned_document(context, &authority, DocumentAccessKind::Read)?;
-                    let (items, next_version_id) = list_document_versions(
-                        connection,
-                        &authority,
-                        before_version_id.as_deref(),
-                        limit,
-                    )?;
+                    let (items, next) =
+                        list_document_versions(connection, &authority, before.as_ref(), limit)?;
                     Ok(ModuleReadSnapshot {
                         version: CORE_CONTRACT_VERSION,
                         store_epoch: StoreEpoch(read_store_epoch(connection)?),
                         event_head: read_event_head(connection)?,
-                        value: OwnedDocumentReadValue::Versions {
-                            items,
-                            next_version_id,
-                        },
+                        value: OwnedDocumentReadValue::Versions { items, next },
                     })
                 })
                 .map_err(core_error),
@@ -431,6 +425,10 @@ impl OwnedDocumentModule {
                 expected_head_seq,
                 cause,
                 label,
+                actor,
+                revision_kind,
+                source_mutation_id,
+                source_change_seq,
             } => self.create_checkpoint(
                 context,
                 request.operation_id,
@@ -440,6 +438,10 @@ impl OwnedDocumentModule {
                 expected_head_seq,
                 cause,
                 label,
+                actor,
+                revision_kind,
+                source_mutation_id,
+                source_change_seq,
             ),
             OwnedDocumentIntent::RestoreVersion {
                 document_id,
@@ -592,7 +594,7 @@ impl OwnedDocumentModule {
                         store_epoch,
                         event_head,
                         footprint,
-                        committed,
+                        committed: Box::new(committed),
                     });
                 }
 
@@ -684,7 +686,7 @@ impl OwnedDocumentModule {
                         token: None,
                         expires_at_unix_ms: None,
                     },
-                    committed: Some(Box::new(committed)),
+                    committed: Some(committed),
                 },
             }),
             AgentSemanticPreparationResult::Prepared {
@@ -821,7 +823,7 @@ impl OwnedDocumentModule {
                     .iter()
                     .find(|event| event.sequence == executed.event_sequence)
                     .map(|event| event.committed_at.clone())
-                    .ok_or_else(corrupt_receipt)?;
+                    .map_or_else(|| sqlite_now(&transaction), Ok)?;
                 let committed = CommittedModuleValue {
                     value: OwnedDocumentCommitValue {
                         document_id: executed.primary_document_id.clone(),
@@ -831,6 +833,7 @@ impl OwnedDocumentModule {
                         committed_at: Some(committed_at),
                         canvas: None,
                         owner_effect: Some(executed.effect),
+                        checkpoint_effect: None,
                     },
                     receipt: OwnedDocumentReceipt {
                         mutation: ModuleMutationReceipt {
@@ -1585,15 +1588,25 @@ impl OwnedDocumentModule {
         expected_head_seq: i64,
         cause: String,
         label: Option<String>,
+        actor: Value,
+        revision_kind: Option<DocumentRevisionKind>,
+        source_mutation_id: Option<String>,
+        source_change_seq: Option<i64>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let fingerprint = serde_json::to_vec(&(
-            context,
+            &context.profile_id,
+            &context.library_id,
+            &context.project_id,
             expected_store_epoch.clone(),
             &document_id,
             generation,
             expected_head_seq,
             &cause,
             &label,
+            &actor,
+            revision_kind,
+            &source_mutation_id,
+            source_change_seq,
         ))
         .map_err(|_| invalid("Document checkpoint request cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
@@ -1635,16 +1648,21 @@ impl OwnedDocumentModule {
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
                 let now = sqlite_now(&transaction)?;
+                let revision_kind = revision_kind
+                    .map(document_revision_kind_name)
+                    .unwrap_or("manual");
                 let checkpoint = NewDocumentCheckpoint {
                     operation_id: &operation_id,
                     cause: &cause,
                     label: label.as_deref(),
-                    revision_kind: "manual",
-                    source_change_seq: None,
+                    revision_kind,
+                    source_mutation_id: source_mutation_id.as_deref(),
+                    source_change_seq,
+                    actor: Some(&actor),
                     context: &context,
                     now: &now,
                 };
-                let yjs_engine = match authority.head.sync_engine {
+                let (yjs_engine, inserted_checkpoint) = match authority.head.sync_engine {
                     DocumentSyncEngine::Yjs => {
                         authorize_yjs(&context, &authority, DocumentAccessKind::Write)?;
                         let engine = cache
@@ -1653,28 +1671,28 @@ impl OwnedDocumentModule {
                             .clone_engine(&transaction, &authority.head)?;
                         let schema = registered_yjs_schema(&authority)?;
                         let materialization = materialize_engine(&engine, schema)?;
-                        insert_document_checkpoint(
+                        let inserted = insert_document_checkpoint(
                             &transaction,
                             &authority,
                             &materialization,
                             checkpoint,
                         )?;
-                        Some(engine)
+                        (Some(engine), inserted)
                     }
                     DocumentSyncEngine::CanvasScene => {
                         authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
                         let loaded = load_canvas_scene(&transaction, &authority)?;
-                        insert_canvas_checkpoint(
+                        let inserted = insert_canvas_checkpoint(
                             &transaction,
                             &authority,
                             &loaded.scene,
                             checkpoint,
                         )?;
-                        None
+                        (None, inserted)
                     }
                 };
                 let event_head = read_event_head(&transaction)?;
-                let committed = committed_value(
+                let mut committed = committed_value(
                     &operation_id,
                     &store_epoch,
                     &authority,
@@ -1682,6 +1700,10 @@ impl OwnedDocumentModule {
                     DocumentCommitOutcome::Committed,
                     event_head,
                 );
+                committed.value.checkpoint_effect = Some(DocumentCheckpointEffect {
+                    checkpoint: inserted_checkpoint.version.summary,
+                    duplicate: inserted_checkpoint.duplicate,
+                });
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -1790,7 +1812,6 @@ impl OwnedDocumentModule {
                     return Ok(PreparedUpdate::NoChange);
                 };
                 let now = sqlite_now(connection)?;
-                let event_head = read_event_head(connection)?;
                 let safety_label = format!("Before restoring {version_id}");
                 insert_document_checkpoint(
                     connection,
@@ -1801,7 +1822,9 @@ impl OwnedDocumentModule {
                         cause: "before_restore",
                         label: Some(&safety_label),
                         revision_kind: "safety",
-                        source_change_seq: (event_head > 0).then_some(event_head),
+                        source_mutation_id: None,
+                        source_change_seq: None,
+                        actor: None,
                         context: &checkpoint_context,
                         now: &now,
                     },
@@ -1921,7 +1944,6 @@ impl OwnedDocumentModule {
                     });
                 };
                 let now = sqlite_now(&transaction)?;
-                let event_head = read_event_head(&transaction)?;
                 let safety_label = format!("Before restoring {version_id}");
                 insert_canvas_checkpoint(
                     &transaction,
@@ -1932,7 +1954,9 @@ impl OwnedDocumentModule {
                         cause: "before_restore",
                         label: Some(&safety_label),
                         revision_kind: "safety",
-                        source_change_seq: (event_head > 0).then_some(event_head),
+                        source_mutation_id: None,
+                        source_change_seq: None,
+                        actor: None,
                         context: &context,
                         now: &now,
                     },
@@ -1962,7 +1986,9 @@ impl OwnedDocumentModule {
                         cause: "after_restore",
                         label: Some("Restored Document state"),
                         revision_kind: "restore",
+                        source_mutation_id: Some(&operation_id),
                         source_change_seq: Some(persisted.event_sequence),
+                        actor: None,
                         context: &context,
                         now: &persisted.committed_at,
                     },
@@ -2302,7 +2328,9 @@ impl OwnedDocumentModule {
                             cause: "after_restore",
                             label: Some("Restored Document state"),
                             revision_kind: "restore",
+                            source_mutation_id: Some(&job.operation_id),
                             source_change_seq: Some(persisted.event_sequence),
+                            actor: None,
                             context: &job.context,
                             now: &persisted.committed_at,
                         },
@@ -2445,6 +2473,7 @@ fn committed_value(
             committed_at: None,
             canvas: None,
             owner_effect: None,
+            checkpoint_effect: None,
         },
         receipt: OwnedDocumentReceipt {
             mutation: ModuleMutationReceipt {
@@ -2470,6 +2499,16 @@ fn owner_command_kind(command: &DocumentOwnerCommand) -> &'static str {
         DocumentOwnerCommand::DeleteOwnedSource { .. } => "delete_owned_source",
         DocumentOwnerCommand::CreateCanvasOwner { .. } => "create_canvas_owner",
         DocumentOwnerCommand::DeleteCanvasOwner { .. } => "delete_canvas_owner",
+    }
+}
+
+fn document_revision_kind_name(kind: DocumentRevisionKind) -> &'static str {
+    match kind {
+        DocumentRevisionKind::Automatic => "automatic",
+        DocumentRevisionKind::Manual => "manual",
+        DocumentRevisionKind::Operation => "operation",
+        DocumentRevisionKind::Restore => "restore",
+        DocumentRevisionKind::Safety => "safety",
     }
 }
 
@@ -3427,7 +3466,7 @@ mod tests {
     use nodex_core_contracts::document::{
         AgentDocumentSemanticMutation, DeletableOwnedSourceKind, DocumentCommitOutcome,
         DocumentHeadRevision, DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticCommand,
-        OwnedDocumentIntent, OwnedDocumentRead,
+        DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
     };
     use nodex_core_contracts::workspace::{
         ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
@@ -4103,6 +4142,10 @@ mod tests {
                         expected_head_seq: 1,
                         cause: "manual".to_owned(),
                         label: Some("Canvas checkpoint".to_owned()),
+                        actor: serde_json::json!({ "kind": "test" }),
+                        revision_kind: Some(DocumentRevisionKind::Manual),
+                        source_mutation_id: None,
+                        source_change_seq: None,
                     },
                 },
             )
@@ -4115,7 +4158,7 @@ mod tests {
                     version: CORE_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
-                        before_version_id: None,
+                        before: None,
                         limit: None,
                     },
                 },
@@ -5507,6 +5550,10 @@ mod tests {
                 expected_head_seq: 1,
                 cause: "manual".to_owned(),
                 label: Some("Initial Page".to_owned()),
+                actor: serde_json::json!({ "kind": "test" }),
+                revision_kind: Some(DocumentRevisionKind::Manual),
+                source_mutation_id: None,
+                source_change_seq: None,
             },
         };
         let checkpoint = seeded
@@ -5515,6 +5562,15 @@ mod tests {
             .expect("checkpoint");
         assert_eq!(checkpoint.committed.value.head_seq, 1);
         assert!(checkpoint.events.is_empty());
+        let checkpoint_effect = checkpoint
+            .committed
+            .value
+            .checkpoint_effect
+            .as_ref()
+            .expect("public checkpoint effect");
+        assert!(!checkpoint_effect.duplicate);
+        assert_eq!(checkpoint_effect.checkpoint["actor"]["kind"], "test");
+        assert_eq!(checkpoint_effect.checkpoint["revisionKind"], "manual");
         assert!(
             seeded
                 .module
@@ -5533,22 +5589,60 @@ mod tests {
                     version: CORE_CONTRACT_VERSION,
                     read: OwnedDocumentRead::ListVersions {
                         document_id: DOCUMENT_ID.to_owned(),
-                        before_version_id: None,
+                        before: None,
                         limit: Some(50),
                     },
                 },
             )
             .expect("history list");
-        let OwnedDocumentReadValue::Versions {
-            items,
-            next_version_id,
-        } = versions.value
-        else {
+        let OwnedDocumentReadValue::Versions { items, next } = versions.value else {
             panic!("expected history list")
         };
         assert_eq!(items.len(), 1);
-        assert!(next_version_id.is_none());
+        assert!(next.is_none());
         let version_id = items[0]["versionId"].as_str().unwrap().to_owned();
+        let cursor = DocumentVersionCursor {
+            base_head_seq: items[0]["baseHeadSeq"].as_i64().unwrap(),
+            created_at: items[0]["createdAt"].as_str().unwrap().to_owned(),
+            version_id: version_id.clone(),
+        };
+        let before = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::ListVersions {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        before: Some(cursor.clone()),
+                        limit: Some(50),
+                    },
+                },
+            )
+            .expect("history cursor");
+        let OwnedDocumentReadValue::Versions { items, .. } = before.value else {
+            panic!("expected cursor history list")
+        };
+        assert!(items.is_empty());
+        let tampered_cursor = DocumentVersionCursor {
+            created_at: "2026-07-19T00:00:00.000Z".to_owned(),
+            ..cursor
+        };
+        let error = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::ListVersions {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        before: Some(tampered_cursor),
+                        limit: Some(50),
+                    },
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.code, CoreErrorCode::NotFound);
         let version = seeded
             .module
             .read(
@@ -5642,6 +5736,83 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn history_pagination_returns_and_verifies_the_exact_last_row_cursor() {
+        let seeded = seeded_module();
+        for (operation_id, label) in [
+            ("checkpoint:cursor-a", "Cursor A"),
+            ("checkpoint:cursor-b", "Cursor B"),
+        ] {
+            seeded
+                .module
+                .apply(
+                    &context(),
+                    ModuleApplyRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        intent: OwnedDocumentIntent::CreateCheckpoint {
+                            document_id: DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            expected_head_seq: 1,
+                            cause: "manual".to_owned(),
+                            label: Some(label.to_owned()),
+                            actor: serde_json::json!({ "kind": "test" }),
+                            revision_kind: Some(DocumentRevisionKind::Manual),
+                            source_mutation_id: None,
+                            source_change_seq: None,
+                        },
+                    },
+                )
+                .expect("cursor checkpoint");
+        }
+        let first = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::ListVersions {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        before: None,
+                        limit: Some(1),
+                    },
+                },
+            )
+            .expect("first history page");
+        let OwnedDocumentReadValue::Versions { items, next } = first.value else {
+            panic!("expected first history page")
+        };
+        assert_eq!(items.len(), 1);
+        let next = next.expect("exact next cursor");
+        assert_eq!(
+            next.base_head_seq,
+            items[0]["baseHeadSeq"].as_i64().unwrap()
+        );
+        assert_eq!(next.created_at, items[0]["createdAt"].as_str().unwrap());
+        assert_eq!(next.version_id, items[0]["versionId"].as_str().unwrap());
+
+        let second = seeded
+            .module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::ListVersions {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        before: Some(next),
+                        limit: Some(1),
+                    },
+                },
+            )
+            .expect("second history page");
+        let OwnedDocumentReadValue::Versions { items, next } = second.value else {
+            panic!("expected second history page")
+        };
+        assert_eq!(items.len(), 1);
+        assert!(next.is_none());
     }
 
     #[test]
@@ -5746,6 +5917,10 @@ mod tests {
                         expected_head_seq: 1,
                         cause: "manual".to_owned(),
                         label: None,
+                        actor: serde_json::json!({ "kind": "test" }),
+                        revision_kind: Some(DocumentRevisionKind::Manual),
+                        source_mutation_id: None,
+                        source_change_seq: None,
                     },
                 },
             )
@@ -5794,6 +5969,10 @@ mod tests {
                         expected_head_seq: 1,
                         cause: "manual".to_owned(),
                         label: Some("Retention boundary".to_owned()),
+                        actor: serde_json::json!({ "kind": "test" }),
+                        revision_kind: Some(DocumentRevisionKind::Manual),
+                        source_mutation_id: None,
+                        source_change_seq: None,
                     },
                 },
             )

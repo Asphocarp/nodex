@@ -1689,6 +1689,12 @@ export async function runMainAppStartup(
           await blockMutationWriter.prepareLibraryOwnedBlockDocument(
             ownerBlockId,
           ),
+        createCheckpoint: async (request) =>
+          await blockMutationWriter.createDocumentVersionCheckpoint(request),
+        listVersions: async (request) =>
+          await blockMutationWriter.listDocumentVersions(request),
+        getVersion: async (request) =>
+          await blockMutationWriter.getDocumentVersion(request),
       },
     }),
     projectWorkspace: createDesktopProjectWorkspaceBridge({

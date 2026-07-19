@@ -1488,6 +1488,16 @@
             ],
             "properties": {
               "canvas": {},
+              "checkpoint_effect": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentCheckpointEffect"
+                  }
+                ]
+              },
               "committed_at": {
                 "type": [
                   "string",
@@ -2182,6 +2192,19 @@
           "reusable_template"
         ]
       },
+      "DocumentCheckpointEffect": {
+        "type": "object",
+        "required": [
+          "checkpoint",
+          "duplicate"
+        ],
+        "properties": {
+          "checkpoint": {},
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
       "DocumentCommitOutcome": {
         "type": "string",
         "enum": [
@@ -2548,6 +2571,16 @@
           }
         }
       },
+      "DocumentRevisionKind": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual",
+          "operation",
+          "restore",
+          "safety"
+        ]
+      },
       "DocumentSemanticCommand": {
         "oneOf": [
           {
@@ -2679,6 +2712,26 @@
           "expected_location_revision": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "DocumentVersionCursor": {
+        "type": "object",
+        "required": [
+          "base_head_seq",
+          "created_at",
+          "version_id"
+        ],
+        "properties": {
+          "base_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "version_id": {
+            "type": "string"
           }
         }
       },
@@ -5733,9 +5786,11 @@
                   "generation",
                   "expected_head_seq",
                   "cause",
+                  "actor",
                   "kind"
                 ],
                 "properties": {
+                  "actor": {},
                   "cause": {
                     "type": "string"
                   },
@@ -5757,6 +5812,29 @@
                     ]
                   },
                   "label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "revision_kind": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentRevisionKind"
+                      }
+                    ]
+                  },
+                  "source_change_seq": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64"
+                  },
+                  "source_mutation_id": {
                     "type": [
                       "string",
                       "null"
@@ -7910,10 +7988,14 @@
                   "kind"
                 ],
                 "properties": {
-                  "before_version_id": {
-                    "type": [
-                      "string",
-                      "null"
+                  "before": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/DocumentVersionCursor"
+                      }
                     ]
                   },
                   "document_id": {
@@ -10892,6 +10974,16 @@
                     ],
                     "properties": {
                       "canvas": {},
+                      "checkpoint_effect": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/DocumentCheckpointEffect"
+                          }
+                        ]
+                      },
                       "committed_at": {
                         "type": [
                           "string",
@@ -12010,10 +12102,14 @@
                               "versions"
                             ]
                           },
-                          "next_version_id": {
-                            "type": [
-                              "string",
-                              "null"
+                          "next": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/DocumentVersionCursor"
+                              }
                             ]
                           }
                         }

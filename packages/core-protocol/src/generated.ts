@@ -509,6 +509,7 @@ export interface components {
             readonly store_epoch: components["schemas"]["StoreEpoch"];
             readonly value: {
                 readonly canvas?: unknown;
+                readonly checkpoint_effect?: null | components["schemas"]["DocumentCheckpointEffect"];
                 readonly committed_at?: string | null;
                 readonly document_id: string;
                 /** Format: int64 */
@@ -685,6 +686,10 @@ export interface components {
         };
         /** @enum {string} */
         readonly DeletableOwnedSourceKind: "synced_block" | "reusable_template";
+        readonly DocumentCheckpointEffect: {
+            readonly checkpoint: unknown;
+            readonly duplicate: boolean;
+        };
         /** @enum {string} */
         readonly DocumentCommitOutcome: "committed" | "no_change";
         readonly DocumentHeadRevision: {
@@ -769,6 +774,8 @@ export interface components {
             readonly metadata_revision: number;
             readonly owner_block_id: string;
         };
+        /** @enum {string} */
+        readonly DocumentRevisionKind: "automatic" | "manual" | "operation" | "restore" | "safety";
         readonly DocumentSemanticCommand: {
             readonly expected_etag: string;
             readonly inline_markdown: string;
@@ -799,6 +806,12 @@ export interface components {
             readonly block_id: string;
             /** Format: int64 */
             readonly expected_location_revision: number;
+        };
+        readonly DocumentVersionCursor: {
+            /** Format: int64 */
+            readonly base_head_seq: number;
+            readonly created_at: string;
+            readonly version_id: string;
         };
         readonly EventEnvelope: {
             readonly event: components["schemas"]["CommittedCoreModuleEvent"];
@@ -1560,6 +1573,7 @@ export interface components {
                 readonly kind: "apply_canvas_mutation";
                 readonly mutation: unknown;
             } | {
+                readonly actor: unknown;
                 readonly cause: string;
                 readonly document_id: string;
                 /** Format: int64 */
@@ -1569,6 +1583,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "create_checkpoint";
                 readonly label?: string | null;
+                readonly revision_kind?: null | components["schemas"]["DocumentRevisionKind"];
+                /** Format: int64 */
+                readonly source_change_seq?: number | null;
+                readonly source_mutation_id?: string | null;
             } | {
                 readonly document_id: string;
                 /** Format: int64 */
@@ -2048,7 +2066,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "sync_canvas";
             } | {
-                readonly before_version_id?: string | null;
+                readonly before?: null | components["schemas"]["DocumentVersionCursor"];
                 readonly document_id: string;
                 /** @enum {string} */
                 readonly kind: "list_versions";
@@ -2727,6 +2745,7 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly canvas?: unknown;
+                    readonly checkpoint_effect?: null | components["schemas"]["DocumentCheckpointEffect"];
                     readonly committed_at?: string | null;
                     readonly document_id: string;
                     /** Format: int64 */
@@ -2972,7 +2991,7 @@ export interface components {
                     readonly items: readonly unknown[];
                     /** @enum {string} */
                     readonly kind: "versions";
-                    readonly next_version_id?: string | null;
+                    readonly next?: null | components["schemas"]["DocumentVersionCursor"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "version";

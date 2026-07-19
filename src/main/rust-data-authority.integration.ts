@@ -411,6 +411,74 @@ describe("Electron native data authority", () => {
           duplicate: true,
         },
       });
+      const checkpointRequest = {
+        version: 1 as const,
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        documentId: nativeSourceDocumentId,
+        expectedGeneration: 1,
+        expectedHeadSeq: 1,
+        cause: "manual",
+        label: "Native history checkpoint",
+        actor: {
+          kind: "electron_renderer",
+          clientId: "renderer:electron-document-owner",
+        },
+        revisionKind: "manual" as const,
+      };
+      const checkpoint = await projectDocuments.createCheckpoint(
+        checkpointRequest,
+      );
+      if (!checkpoint.ok) {
+        throw new Error(
+          `Core Document checkpoint failed: ${checkpoint.error.code}: ${checkpoint.error.message}`,
+        );
+      }
+      expect(checkpoint).toMatchObject({
+        ok: true,
+        value: {
+          duplicate: false,
+          checkpoint: {
+            projectId,
+            documentId: nativeSourceDocumentId,
+            generation: 1,
+            baseHeadSeq: 1,
+            actor: checkpointRequest.actor,
+            revisionKind: "manual",
+            materializationKind: "synced_block",
+          },
+        },
+      });
+      await expect(
+        projectDocuments.createCheckpoint(checkpointRequest),
+      ).resolves.toMatchObject({
+        ok: true,
+        value: { duplicate: true },
+      });
+      const listedVersions = await projectDocuments.listVersions({
+        projectId,
+        documentId: nativeSourceDocumentId,
+        limit: 20,
+      });
+      expect(listedVersions).toMatchObject({
+        ok: true,
+        value: [{ versionId: checkpoint.value.checkpoint.versionId }],
+      });
+      const versionDetail = await projectDocuments.getVersion({
+        projectId,
+        documentId: nativeSourceDocumentId,
+        versionId: checkpoint.value.checkpoint.versionId,
+      });
+      expect(versionDetail).toMatchObject({
+        ok: true,
+        value: {
+          summary: { versionId: checkpoint.value.checkpoint.versionId },
+          materialization: {
+            kind: "synced_block",
+            preview: "Native Additional Document command",
+          },
+        },
+      });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);

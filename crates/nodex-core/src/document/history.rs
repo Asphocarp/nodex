@@ -1,4 +1,5 @@
 use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::document::DocumentVersionCursor;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -11,7 +12,7 @@ use crate::domain::rich_text::{RichTextItem, rich_text_to_delta};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::canvas_scene::{CanvasScene, parse_canvas_scene};
-use super::persistence::{DocumentAuthorityRow, sha256};
+use super::persistence::{DocumentAuthorityRow, read_store_epoch, sha256};
 use super::{
     BlockDocumentKind, BlockDocumentSchema, DocumentMaterialization,
     PreparedDocumentOperationUpdate, YrsDocumentEngine, decode_block_document,
@@ -29,18 +30,24 @@ pub(crate) struct NewDocumentCheckpoint<'a> {
     pub(crate) cause: &'a str,
     pub(crate) label: Option<&'a str>,
     pub(crate) revision_kind: &'a str,
+    pub(crate) source_mutation_id: Option<&'a str>,
     pub(crate) source_change_seq: Option<i64>,
+    pub(crate) actor: Option<&'a Value>,
     pub(crate) context: &'a BoundModuleContext,
     pub(crate) now: &'a str,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct StoredDocumentVersion {
-    pub(crate) version_id: String,
     pub(crate) summary: Value,
     pub(crate) materialization: Value,
     pub(crate) block_materialization: Option<DocumentMaterialization>,
     pub(crate) canvas_scene: Option<CanvasScene>,
+}
+
+pub(crate) struct InsertedDocumentCheckpoint {
+    pub(crate) version: StoredDocumentVersion,
+    pub(crate) duplicate: bool,
 }
 
 #[derive(Debug)]
@@ -90,7 +97,7 @@ pub(crate) fn insert_document_checkpoint(
     authority: &DocumentAuthorityRow,
     materialization: &DocumentMaterialization,
     input: NewDocumentCheckpoint<'_>,
-) -> Result<StoredDocumentVersion, StoreError> {
+) -> Result<InsertedDocumentCheckpoint, StoreError> {
     validate_checkpoint_input(&input)?;
     let snapshot = BlockTreeSnapshotV2 {
         format_version: 2,
@@ -106,29 +113,33 @@ pub(crate) fn insert_document_checkpoint(
         .map_err(|_| internal("Document checkpoint could not be encoded"))?;
     let checkpoint_bytes = canonical_json_bytes(snapshot_value)?;
     let checkpoint_hash = sha256(&checkpoint_bytes);
-    let actor = json!({
-        "adapter": input.context.adapter,
-        "connectionId": input.context.connection_id,
-    });
+    let actor = checkpoint_actor(&input)?;
     let actor_json = String::from_utf8(canonical_json_bytes(actor.clone())?)
         .map_err(|_| internal("Checkpoint actor encoding is invalid"))?;
     let links_mutation = matches!(input.revision_kind, "operation" | "restore");
-    let source_mutation_id = links_mutation.then_some(input.operation_id);
+    let source_mutation_id = links_mutation.then_some(input.source_mutation_id).flatten();
     let source_change_seq = links_mutation.then_some(input.source_change_seq).flatten();
     let pinned = i64::from(matches!(input.revision_kind, "manual" | "restore"));
+    let materialization_hash = block_materialization_hash(materialization)?;
     let identity = json!({
+        "version": 1,
         "documentId": authority.head.id,
         "projectId": authority.head.project_id,
+        "storeEpoch": read_store_epoch(connection)?,
         "generation": authority.head.generation,
         "baseHeadSeq": authority.head.head_seq,
         "schemaKey": authority.head.schema_key,
         "schemaVersion": authority.head.schema_version,
         "cause": input.cause,
         "label": input.label,
+        "actor": actor,
         "revisionKind": input.revision_kind,
         "sourceMutationId": source_mutation_id,
         "sourceChangeSeq": source_change_seq,
+        "pinned": pinned == 1,
         "checkpointHash": checkpoint_hash,
+        "checkpointMetadata": { "format": CHECKPOINT_FORMAT },
+        "materializationHash": materialization_hash,
     });
     let version_id = format!(
         "document-version:{}",
@@ -136,7 +147,7 @@ pub(crate) fn insert_document_checkpoint(
     );
     let byte_length = i64::try_from(checkpoint_bytes.len())
         .map_err(|_| internal("Checkpoint byte length overflowed"))?;
-    connection.execute(
+    let inserted = connection.execute(
         "INSERT INTO document_versions (\
            version_id, document_id, project_id, generation, base_head_seq, schema_key, \
            schema_version, cause, label, actor_json, revision_kind, source_mutation_id, \
@@ -179,6 +190,12 @@ pub(crate) fn insert_document_checkpoint(
         || stored.checkpoint_hash != checkpoint_hash
         || stored.cause != input.cause
         || stored.label.as_deref() != input.label
+        || stored.actor_json != actor_json
+        || stored.revision_kind != input.revision_kind
+        || stored.source_mutation_id.as_deref() != source_mutation_id
+        || stored.source_change_seq != source_change_seq
+        || stored.pinned != pinned
+        || stored.checkpoint_format != CHECKPOINT_FORMAT
     {
         return Err(StoreError::new(
             StoreErrorCode::IdempotencyKeyReused,
@@ -188,7 +205,10 @@ pub(crate) fn insert_document_checkpoint(
     }
     let version = decode_document_version(stored)?;
     prune_document_history(connection, &authority.head.id, input.now)?;
-    Ok(version)
+    Ok(InsertedDocumentCheckpoint {
+        version,
+        duplicate: inserted == 0,
+    })
 }
 
 pub(crate) fn insert_canvas_checkpoint(
@@ -196,33 +216,36 @@ pub(crate) fn insert_canvas_checkpoint(
     authority: &DocumentAuthorityRow,
     scene: &CanvasScene,
     input: NewDocumentCheckpoint<'_>,
-) -> Result<StoredDocumentVersion, StoreError> {
+) -> Result<InsertedDocumentCheckpoint, StoreError> {
     validate_checkpoint_input(&input)?;
     let checkpoint_bytes = canonical_json_bytes(scene.canonical_value())?;
     let checkpoint_hash = sha256(&checkpoint_bytes);
-    let actor = json!({
-        "adapter": input.context.adapter,
-        "connectionId": input.context.connection_id,
-    });
-    let actor_json = String::from_utf8(canonical_json_bytes(actor)?)
+    let actor = checkpoint_actor(&input)?;
+    let actor_json = String::from_utf8(canonical_json_bytes(actor.clone())?)
         .map_err(|_| internal("Checkpoint actor encoding is invalid"))?;
     let links_mutation = matches!(input.revision_kind, "operation" | "restore");
-    let source_mutation_id = links_mutation.then_some(input.operation_id);
+    let source_mutation_id = links_mutation.then_some(input.source_mutation_id).flatten();
     let source_change_seq = links_mutation.then_some(input.source_change_seq).flatten();
     let pinned = i64::from(matches!(input.revision_kind, "manual" | "restore"));
     let identity = json!({
+        "version": 1,
         "documentId": authority.head.id,
         "projectId": authority.head.project_id,
+        "storeEpoch": read_store_epoch(connection)?,
         "generation": authority.head.generation,
         "baseHeadSeq": authority.head.head_seq,
         "schemaKey": authority.head.schema_key,
         "schemaVersion": authority.head.schema_version,
         "cause": input.cause,
         "label": input.label,
+        "actor": actor,
         "revisionKind": input.revision_kind,
         "sourceMutationId": source_mutation_id,
         "sourceChangeSeq": source_change_seq,
+        "pinned": pinned == 1,
         "checkpointHash": checkpoint_hash,
+        "checkpointMetadata": { "format": CANVAS_CHECKPOINT_FORMAT },
+        "materializationHash": checkpoint_hash,
     });
     let version_id = format!(
         "document-version:{}",
@@ -230,7 +253,7 @@ pub(crate) fn insert_canvas_checkpoint(
     );
     let byte_length = i64::try_from(checkpoint_bytes.len())
         .map_err(|_| internal("Checkpoint byte length overflowed"))?;
-    connection.execute(
+    let inserted = connection.execute(
         "INSERT INTO document_versions (\
            version_id, document_id, project_id, generation, base_head_seq, schema_key, \
            schema_version, cause, label, actor_json, revision_kind, source_mutation_id, \
@@ -274,6 +297,11 @@ pub(crate) fn insert_canvas_checkpoint(
         || stored.checkpoint_format != CANVAS_CHECKPOINT_FORMAT
         || stored.cause != input.cause
         || stored.label.as_deref() != input.label
+        || stored.actor_json != actor_json
+        || stored.revision_kind != input.revision_kind
+        || stored.source_mutation_id.as_deref() != source_mutation_id
+        || stored.source_change_seq != source_change_seq
+        || stored.pinned != pinned
     {
         return Err(StoreError::new(
             StoreErrorCode::IdempotencyKeyReused,
@@ -283,7 +311,10 @@ pub(crate) fn insert_canvas_checkpoint(
     }
     let version = decode_document_version(stored)?;
     prune_document_history(connection, &authority.head.id, input.now)?;
-    Ok(version)
+    Ok(InsertedDocumentCheckpoint {
+        version,
+        duplicate: inserted == 0,
+    })
 }
 
 pub(crate) fn get_document_version(
@@ -305,24 +336,27 @@ pub(crate) fn get_document_version(
 pub(crate) fn list_document_versions(
     connection: &Connection,
     authority: &DocumentAuthorityRow,
-    before_version_id: Option<&str>,
+    before: Option<&DocumentVersionCursor>,
     limit: Option<u32>,
-) -> Result<(Vec<Value>, Option<String>), StoreError> {
+) -> Result<(Vec<Value>, Option<DocumentVersionCursor>), StoreError> {
     let limit = limit.unwrap_or(DEFAULT_HISTORY_LIMIT);
     if limit == 0 || limit > MAX_HISTORY_LIMIT {
         return Err(invalid(format!(
             "Document history limit must be between 1 and {MAX_HISTORY_LIMIT}"
         )));
     }
-    let before = before_version_id
-        .map(|version_id| {
-            validate_identity(version_id, "before_version_id")?;
+    let before = before
+        .map(|cursor| {
+            validate_identity(&cursor.version_id, "before.version_id")?;
             read_document_version(
                 connection,
                 &authority.head.project_id,
                 &authority.head.id,
-                version_id,
+                &cursor.version_id,
             )?
+            .filter(|row| {
+                row.base_head_seq == cursor.base_head_seq && row.created_at == cursor.created_at
+            })
             .map(|row| (row.base_head_seq, row.created_at, row.version_id))
             .ok_or_else(|| not_found("Document history cursor was not found"))
         })
@@ -358,11 +392,20 @@ pub(crate) fn list_document_versions(
     let rows = rows
         .into_iter()
         .take(usize::try_from(limit).unwrap_or_default())
+        .collect::<Vec<_>>();
+    let next = has_more
+        .then(|| {
+            rows.last().map(|row| DocumentVersionCursor {
+                base_head_seq: row.base_head_seq,
+                created_at: row.created_at.clone(),
+                version_id: row.version_id.clone(),
+            })
+        })
+        .flatten();
+    let rows = rows
+        .into_iter()
         .map(decode_document_version)
         .collect::<Result<Vec<_>, _>>()?;
-    let next = has_more
-        .then(|| rows.last().map(|version| version.version_id.clone()))
-        .flatten();
     Ok((
         rows.into_iter().map(|version| version.summary).collect(),
         next,
@@ -504,7 +547,9 @@ fn prepare_revision(
                     cause: "idle_edit",
                     label: None,
                     revision_kind: "automatic",
+                    source_mutation_id: None,
                     source_change_seq: None,
+                    actor: None,
                     context,
                     now,
                 },
@@ -545,7 +590,9 @@ fn prepare_revision(
             cause: "before_edit_burst",
             label: None,
             revision_kind: "safety",
+            source_mutation_id: None,
             source_change_seq: None,
+            actor: None,
             context,
             now,
         },
@@ -804,7 +851,18 @@ fn decode_document_version(row: StoredVersionRow) -> Result<StoredDocumentVersio
         .ok()
         .filter(Value::is_object)
         .ok_or_else(|| corrupt("Document version actor JSON is invalid"))?;
-    let materialization_hash = sha256(&canonical_json_bytes(materialization.clone())?);
+    let materialization_hash = match block_materialization.as_ref() {
+        Some(block) => block_materialization_hash(block)?,
+        None => sha256(&canonical_json_bytes(materialization.clone())?),
+    };
+    let checkpoint_metadata = if row.checkpoint_format == "yjs_update_v1" {
+        json!({
+            "format": row.checkpoint_format,
+            "stateVectorHash": sha256(&row.state_vector),
+        })
+    } else {
+        json!({ "format": row.checkpoint_format })
+    };
     let summary = json!({
         "versionId": row.version_id,
         "documentId": row.document_id,
@@ -821,7 +879,7 @@ fn decode_document_version(row: StoredVersionRow) -> Result<StoredDocumentVersio
         "sourceChangeSeq": row.source_change_seq,
         "pinned": row.pinned == 1,
         "checkpointHash": row.checkpoint_hash,
-        "checkpointMetadata": { "format": row.checkpoint_format },
+        "checkpointMetadata": checkpoint_metadata,
         "materializationHash": materialization_hash,
         "byteLength": row.byte_length,
         "materializationKind": kind,
@@ -831,7 +889,6 @@ fn decode_document_version(row: StoredVersionRow) -> Result<StoredDocumentVersio
         "createdAt": row.created_at,
     });
     Ok(StoredDocumentVersion {
-        version_id: summary["versionId"].as_str().unwrap_or_default().to_owned(),
         summary,
         materialization,
         block_materialization,
@@ -939,13 +996,20 @@ fn validate_stored_version(row: &StoredVersionRow) -> Result<(), StoreError> {
 
 fn validate_checkpoint_input(input: &NewDocumentCheckpoint<'_>) -> Result<(), StoreError> {
     validate_identity(input.operation_id, "operation_id")?;
+    let links_mutation = matches!(input.revision_kind, "operation" | "restore");
     if input.cause.is_empty()
         || input.cause.len() > 128
-        || input.label.is_some_and(|label| label.len() > 512)
+        || input
+            .label
+            .is_some_and(|label| label.is_empty() || label.len() > 512)
         || !matches!(
             input.revision_kind,
             "automatic" | "manual" | "operation" | "restore" | "safety"
         )
+        || (!links_mutation
+            && (input.source_mutation_id.is_some() || input.source_change_seq.is_some()))
+        || (links_mutation && input.source_mutation_id.is_none())
+        || (input.source_change_seq.is_some() && input.source_mutation_id.is_none())
         || input.source_change_seq.is_some_and(|sequence| sequence < 1)
         || input.now.is_empty()
     {
@@ -953,7 +1017,49 @@ fn validate_checkpoint_input(input: &NewDocumentCheckpoint<'_>) -> Result<(), St
             "Document checkpoint metadata is invalid".to_owned(),
         ));
     }
+    checkpoint_actor(input)?;
     Ok(())
+}
+
+fn checkpoint_actor(input: &NewDocumentCheckpoint<'_>) -> Result<Value, StoreError> {
+    let actor = input.actor.cloned().unwrap_or_else(|| {
+        json!({
+            "adapter": input.context.adapter,
+            "connectionId": input.context.connection_id,
+        })
+    });
+    if !actor.is_object() || canonical_json_bytes(actor.clone())?.len() > 64 * 1024 {
+        return Err(invalid(
+            "Document checkpoint actor must be a bounded portable object".to_owned(),
+        ));
+    }
+    Ok(actor)
+}
+
+fn block_materialization_hash(
+    materialization: &DocumentMaterialization,
+) -> Result<String, StoreError> {
+    let mut semantic = json!({
+        "schemaVersion": materialization.schema_version,
+        "kind": materialization.kind,
+        "blockTree": materialization.block_tree,
+        "nfm": materialization.nfm,
+        "plainText": materialization.plain_text,
+        "preview": materialization.preview,
+        "references": materialization.references,
+        "assetRefs": materialization.asset_refs,
+    });
+    if materialization.kind == BlockDocumentKind::Page {
+        semantic
+            .as_object_mut()
+            .ok_or_else(|| internal("Checkpoint materialization identity is invalid"))?
+            .insert(
+                "richTitle".to_owned(),
+                serde_json::to_value(&materialization.rich_title)
+                    .map_err(|_| internal("Checkpoint rich title could not be encoded"))?,
+            );
+    }
+    Ok(sha256(&canonical_json_bytes(semantic)?))
 }
 
 pub(super) fn prune_document_history(

@@ -10,6 +10,22 @@ import {
   type AdditionalDocumentHeadRevision,
   type AdditionalDocumentSpacePlacement,
 } from "../../shared/additional-document-commands";
+import { stableStringifyBlockPropertyJson } from "../../shared/block-property-mutations";
+import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+} from "../../shared/block-documents/document-history";
+import {
+  DocumentHistoryContractError,
+  documentHistoryFailure,
+  parseDocumentVersionDetail,
+  parseDocumentVersionSummary,
+  type DocumentHistoryCommandResult,
+} from "../../shared/block-documents/document-history-transport";
 import type {
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
@@ -87,6 +103,15 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   applyAdditionalDocumentCommand(
     request: AdditionalDocumentCommandRequest,
   ): Promise<AdditionalDocumentCommandResult>;
+  createCheckpoint(
+    request: CreateDocumentVersionCheckpoint,
+  ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
+  listVersions(
+    request: ListDocumentVersions,
+  ): Promise<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>>;
+  getVersion(
+    request: GetDocumentVersion,
+  ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
 }
 
 const executionHead = (
@@ -257,6 +282,7 @@ const additionalDocumentErrorCode = (
     case "idempotency_key_reused":
       return { code: "operation_id_collision", retryable: false };
     case "invalid_document_schema":
+    case "schema_unsupported":
     case "store_corrupt":
       return { code: "document_state_corrupt", retryable: false };
     case "maintenance_in_progress":
@@ -289,6 +315,123 @@ const additionalDocumentFailure = (
       operationKind: request.operation.kind,
     },
   });
+};
+
+const historyFailure = <Value>(
+  error: unknown,
+  expected: {
+    readonly generation?: number;
+    readonly headSeq?: number;
+  } = {},
+): DocumentHistoryCommandResult<Value> => {
+  if (error instanceof DocumentHistoryContractError) {
+    return {
+      ok: false,
+      error: documentHistoryFailure("document_history_corrupt", error.message),
+    };
+  }
+  if (!(error instanceof CoreModuleResponseError)) {
+    return {
+      ok: false,
+      error: documentHistoryFailure(
+        "unknown",
+        error instanceof Error ? error.message : String(error),
+        { retryable: true },
+      ),
+    };
+  }
+  const recovery = error.coreError.recovery;
+  switch (error.coreError.code) {
+    case "invalid_input":
+      return {
+        ok: false,
+        error: documentHistoryFailure(
+          "invalid_document_history_request",
+          error.message,
+        ),
+      };
+    case "unauthorized":
+      return {
+        ok: false,
+        error: documentHistoryFailure("project_scope_mismatch", error.message),
+      };
+    case "not_found":
+      return {
+        ok: false,
+        error: documentHistoryFailure(
+          error.message.toLowerCase().includes("version") ||
+              error.message.toLowerCase().includes("cursor")
+            ? "document_version_not_found"
+            : "document_not_found",
+          error.message,
+        ),
+      };
+    case "stale_store_epoch":
+      return {
+        ok: false,
+        error: documentHistoryFailure("store_epoch_mismatch", error.message),
+      };
+    case "generation_conflict":
+      return {
+        ok: false,
+        error: documentHistoryFailure(
+          "document_generation_conflict",
+          error.message,
+          {
+            expectedGeneration: expected.generation,
+            ...(recovery.kind === "current_document_head"
+              ? { actualGeneration: recovery.generation }
+              : {}),
+          },
+        ),
+      };
+    case "head_conflict":
+      return {
+        ok: false,
+        error: documentHistoryFailure("document_head_conflict", error.message, {
+          expectedHeadSeq: expected.headSeq,
+          ...(recovery.kind === "current_document_head"
+            ? { actualHeadSeq: recovery.head_seq }
+            : {}),
+        }),
+      };
+    case "invalid_document_schema":
+    case "schema_unsupported":
+      return {
+        ok: false,
+        error: documentHistoryFailure(
+          "document_version_schema_mismatch",
+          error.message,
+        ),
+      };
+    case "store_corrupt":
+      return {
+        ok: false,
+        error: documentHistoryFailure("document_history_corrupt", error.message),
+      };
+    default:
+      return {
+        ok: false,
+        error: documentHistoryFailure("unknown", error.message, {
+          retryable: error.coreError.retryable,
+        }),
+      };
+  }
+};
+
+const assertHistoryScope = (
+  summary: DocumentVersionSummary,
+  request: { readonly projectId: string; readonly documentId: string },
+): DocumentVersionSummary => {
+  if (
+    summary.projectId === request.projectId &&
+    summary.documentId === request.documentId
+  ) {
+    return summary;
+  }
+  throw new DocumentHistoryContractError(
+    "Core Document version escaped its Project or Document boundary",
+  );
 };
 
 const subscriptionKey = (
@@ -507,6 +650,130 @@ export const createCoreDocumentSyncAdapter = (
         });
       } catch (error) {
         return additionalDocumentFailure(request, error);
+      }
+    },
+    createCheckpoint: async (request) => {
+      const operationId = `electron:document-checkpoint:${createHash("sha256")
+        .update(stableStringifyBlockPropertyJson(request))
+        .digest("hex")}`;
+      try {
+        const committed = await client.documentApply({
+          operationId,
+          clientSessionId: "electron:document-history",
+          intent: {
+            kind: "create_checkpoint",
+            document_id: request.documentId,
+            generation: request.expectedGeneration,
+            expected_head_seq: request.expectedHeadSeq,
+            cause: request.cause,
+            label: request.label,
+            actor: request.actor,
+            revision_kind: request.revisionKind,
+            source_mutation_id: request.sourceMutationId,
+            source_change_seq: request.sourceChangeSeq,
+          },
+        });
+        const effect = committed.value.checkpoint_effect;
+        if (
+          committed.store_epoch !== request.storeEpoch ||
+          committed.receipt.operation_id !== operationId ||
+          committed.receipt.document_id !== request.documentId ||
+          committed.receipt.generation !== request.expectedGeneration ||
+          committed.receipt.head_seq !== request.expectedHeadSeq ||
+          !effect
+        ) {
+          throw new DocumentHistoryContractError(
+            "Core checkpoint receipt escaped its request boundary",
+          );
+        }
+        return {
+          ok: true,
+          value: {
+            checkpoint: assertHistoryScope(
+              parseDocumentVersionSummary(effect.checkpoint),
+              request,
+            ),
+            duplicate: committed.receipt.duplicate || effect.duplicate,
+          },
+        };
+      } catch (error) {
+        return historyFailure(error, {
+          generation: request.expectedGeneration,
+          headSeq: request.expectedHeadSeq,
+        });
+      }
+    },
+    listVersions: async (request) => {
+      try {
+        const snapshot = await client.documentRead(
+          "electron:document-history",
+          {
+            kind: "list_versions",
+            document_id: request.documentId,
+            before: request.before
+              ? {
+                  base_head_seq: request.before.baseHeadSeq,
+                  created_at: request.before.createdAt,
+                  version_id: request.before.versionId,
+                }
+              : undefined,
+            limit: request.limit,
+          },
+        );
+        if (snapshot.value.kind !== "versions") {
+          throw new DocumentHistoryContractError(
+            "Core returned a non-list Document history snapshot",
+          );
+        }
+        const items = snapshot.value.items.map((item) =>
+          assertHistoryScope(parseDocumentVersionSummary(item), request)
+        );
+        const next = snapshot.value.next;
+        const last = items.at(-1);
+        if (
+          next &&
+          (!last ||
+            next.base_head_seq !== last.baseHeadSeq ||
+            next.created_at !== last.createdAt ||
+            next.version_id !== last.versionId)
+        ) {
+          throw new DocumentHistoryContractError(
+            "Core Document history cursor escaped its last returned version",
+          );
+        }
+        return {
+          ok: true,
+          value: items,
+        };
+      } catch (error) {
+        return historyFailure(error);
+      }
+    },
+    getVersion: async (request) => {
+      try {
+        const snapshot = await client.documentRead(
+          "electron:document-history",
+          {
+            kind: "get_version",
+            document_id: request.documentId,
+            version_id: request.versionId,
+          },
+        );
+        if (snapshot.value.kind !== "version") {
+          throw new DocumentHistoryContractError(
+            "Core returned a non-detail Document history snapshot",
+          );
+        }
+        const detail = parseDocumentVersionDetail(snapshot.value.value);
+        assertHistoryScope(detail.summary, request);
+        if (detail.summary.versionId !== request.versionId) {
+          throw new DocumentHistoryContractError(
+            "Core Document version detail escaped its version boundary",
+          );
+        }
+        return { ok: true, value: detail };
+      } catch (error) {
+        return historyFailure(error);
       }
     },
     sync,

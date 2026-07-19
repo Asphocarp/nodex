@@ -105,7 +105,9 @@ pub(crate) fn finalize_idle_document_revisions(
                 cause: "idle_edit",
                 label: None,
                 revision_kind: "automatic",
+                source_mutation_id: None,
                 source_change_seq: None,
+                actor: None,
                 context,
                 now: &now,
             };
@@ -270,6 +272,11 @@ mod tests {
         kernel
             .writer()
             .call(|connection| {
+                connection.execute(
+                    "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                     VALUES (1, 'epoch:revision-maintenance', ?1, ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
                 connection.execute(
                     "INSERT INTO profiles(id, created_at, updated_at) \
                      VALUES ('profile:revision-maintenance', ?1, ?1)",

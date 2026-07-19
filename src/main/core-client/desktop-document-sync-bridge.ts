@@ -5,6 +5,17 @@ import type {
   AdditionalDocumentCommandResult,
 } from "../../shared/additional-document-commands";
 import type {
+  CreateDocumentVersionCheckpoint,
+  CreatedDocumentVersionSummary,
+  DocumentVersionDetail,
+  DocumentVersionSummary,
+  GetDocumentVersion,
+  ListDocumentVersions,
+} from "../../shared/block-documents/document-history";
+import type {
+  DocumentHistoryCommandResult,
+} from "../../shared/block-documents/document-history-transport";
+import type {
   CanvasSceneMutationCommandResult,
   CanvasSceneMutationError,
   CanvasSceneMutationRequest,
@@ -117,6 +128,15 @@ export interface DesktopDocumentSyncPort {
   applyAdditionalDocumentCommand(
     request: AdditionalDocumentCommandRequest,
   ): Promise<AdditionalDocumentCommandResult>;
+  createCheckpoint(
+    request: CreateDocumentVersionCheckpoint,
+  ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
+  listVersions(
+    request: ListDocumentVersions,
+  ): Promise<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>>;
+  getVersion(
+    request: GetDocumentVersion,
+  ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
 }
 
 export interface DesktopDocumentSyncBridgeInput {
@@ -156,6 +176,15 @@ export interface DesktopDocumentSyncBridgeInput {
     prepareLibraryOwnedBlockDocument(
       ownerBlockId: string,
     ): Promise<DocumentSyncCommandResult<LibraryOwnedDocumentDescriptor>>;
+    createCheckpoint(
+      request: CreateDocumentVersionCheckpoint,
+    ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
+    listVersions(
+      request: ListDocumentVersions,
+    ): Promise<DocumentHistoryCommandResult<readonly DocumentVersionSummary[]>>;
+    getVersion(
+      request: GetDocumentVersion,
+    ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
   };
 }
 
@@ -652,6 +681,36 @@ export function createDesktopDocumentSyncBridge(
         kind: "project",
         projectId: request.projectId,
       }).applyAdditionalDocumentCommand(request);
+    },
+    createCheckpoint: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.createCheckpoint(request);
+      }
+      return await adapterFor(runtime, {
+        kind: "project",
+        projectId: request.projectId,
+      }).createCheckpoint(request);
+    },
+    listVersions: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.listVersions(request);
+      }
+      return await adapterFor(runtime, {
+        kind: "project",
+        projectId: request.projectId,
+      }).listVersions(request);
+    },
+    getVersion: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.getVersion(request);
+      }
+      return await adapterFor(runtime, {
+        kind: "project",
+        projectId: request.projectId,
+      }).getVersion(request);
     },
   };
 }

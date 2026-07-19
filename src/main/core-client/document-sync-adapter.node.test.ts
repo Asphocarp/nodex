@@ -28,6 +28,54 @@ const descriptorSnapshot = () => ({
   },
 });
 
+const documentVersionSummary = () => ({
+  versionId: `document-version:${"a".repeat(64)}`,
+  documentId: "document:one",
+  projectId: "project:one",
+  generation: 1,
+  baseHeadSeq: 2,
+  schemaKey: "nodex.page",
+  schemaVersion: 1,
+  cause: "manual",
+  label: "Before refactor",
+  actor: { kind: "electron_renderer", clientId: "renderer:history" },
+  revisionKind: "manual",
+  sourceMutationId: null,
+  sourceChangeSeq: null,
+  pinned: true,
+  checkpointHash: "b".repeat(64),
+  materializationHash: "c".repeat(64),
+  byteLength: 128,
+  materializationKind: "page",
+  title: "History",
+  preview: "Checkpoint preview",
+  blockCount: 1,
+  createdAt: "2026-07-19T21:10:00.000Z",
+  checkpointMetadata: { format: "block_tree_snapshot_v2" },
+});
+
+const documentVersionDetail = () => ({
+  summary: documentVersionSummary(),
+  materialization: {
+    kind: "page",
+    schemaVersion: 1,
+    title: "History",
+    richTitle: [{ type: "text", text: "History", styles: {} }],
+    blockTree: [{
+      id: "block:history",
+      type: "paragraph",
+      props: {},
+      content: [],
+      children: [],
+    }],
+    nfm: "Checkpoint preview",
+    plainText: "Checkpoint preview",
+    preview: "Checkpoint preview",
+    references: [],
+    assetRefs: [],
+  },
+});
+
 describe("Core Document sync adapter", () => {
   test("reads and prepares an exact Owned Document descriptor", async () => {
     const client = new FakeCoreClient();
@@ -213,6 +261,125 @@ describe("Core Document sync adapter", () => {
         },
       },
     }]);
+  });
+
+  test("maps checkpoint creation and exact history pagination through Core", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    const checkpointRequest = {
+      version: 1 as const,
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      documentId: "document:one",
+      expectedGeneration: 1,
+      expectedHeadSeq: 2,
+      cause: "manual",
+      label: "Before refactor",
+      actor: {
+        kind: "electron_renderer",
+        clientId: "renderer:history",
+      },
+      revisionKind: "manual" as const,
+    };
+    const apply = vi.spyOn(client, "documentApply").mockImplementationOnce(
+      async (input) => ({
+        store_epoch: "epoch:test",
+        event_sequence: 8,
+        value: {
+          document_id: checkpointRequest.documentId,
+          generation: checkpointRequest.expectedGeneration,
+          head_seq: checkpointRequest.expectedHeadSeq,
+          outcome: "no_change",
+          checkpoint_effect: {
+            checkpoint: documentVersionSummary(),
+            duplicate: false,
+          },
+        },
+        receipt: {
+          operation_id: input.operationId,
+          duplicate: false,
+          document_id: checkpointRequest.documentId,
+          generation: checkpointRequest.expectedGeneration,
+          head_seq: checkpointRequest.expectedHeadSeq,
+        },
+      }),
+    );
+
+    await expect(adapter.createCheckpoint(checkpointRequest)).resolves.toEqual({
+      ok: true,
+      value: {
+        checkpoint: documentVersionSummary(),
+        duplicate: false,
+      },
+    });
+    expect(apply).toHaveBeenCalledWith({
+      operationId: expect.stringMatching(
+        /^electron:document-checkpoint:[a-f0-9]{64}$/u,
+      ),
+      clientSessionId: "electron:document-history",
+      intent: {
+        kind: "create_checkpoint",
+        document_id: checkpointRequest.documentId,
+        generation: 1,
+        expected_head_seq: 2,
+        cause: "manual",
+        label: "Before refactor",
+        actor: checkpointRequest.actor,
+        revision_kind: "manual",
+        source_mutation_id: undefined,
+        source_change_seq: undefined,
+      },
+    });
+    const before = {
+      baseHeadSeq: 2,
+      createdAt: "2026-07-19T21:10:00.000Z",
+      versionId: documentVersionSummary().versionId,
+    };
+    client.enqueueDocumentRead({
+      version: 1,
+      store_epoch: "epoch:test",
+      event_head: 8,
+      value: {
+        kind: "versions",
+        items: [documentVersionSummary()],
+        next: {
+          base_head_seq: before.baseHeadSeq,
+          created_at: before.createdAt,
+          version_id: before.versionId,
+        },
+      },
+    });
+    await expect(adapter.listVersions({
+      projectId: "project:one",
+      documentId: "document:one",
+      before,
+      limit: 25,
+    })).resolves.toEqual({ ok: true, value: [documentVersionSummary()] });
+    expect(client.documentReads[0]).toEqual({
+      clientSessionId: "electron:document-history",
+      read: {
+        kind: "list_versions",
+        document_id: "document:one",
+        before: {
+          base_head_seq: before.baseHeadSeq,
+          created_at: before.createdAt,
+          version_id: before.versionId,
+        },
+        limit: 25,
+      },
+    });
+
+    client.enqueueDocumentRead({
+      version: 1,
+      store_epoch: "epoch:test",
+      event_head: 8,
+      value: { kind: "version", value: documentVersionDetail() },
+    });
+    await expect(adapter.getVersion({
+      projectId: "project:one",
+      documentId: "document:one",
+      versionId: documentVersionSummary().versionId,
+    })).resolves.toEqual({ ok: true, value: documentVersionDetail() });
   });
 
   test("uses a placeholder execution head only for durable owner receipt replay", async () => {
