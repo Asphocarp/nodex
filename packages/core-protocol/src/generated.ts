@@ -1999,7 +1999,7 @@ export interface components {
                 } | {
                     /** @enum {string} */
                     readonly kind: "session";
-                    readonly panel_layout: unknown;
+                    readonly panels: unknown;
                     readonly session: components["schemas"]["ProjectWorkspaceSessionSummary"];
                 } | {
                     /** @enum {string} */

@@ -49,6 +49,9 @@ import type {
   OwnedDocumentRead,
   OwnedDocumentReadResponse,
   OwnedDocumentReadSnapshot,
+  ProjectWorkspaceRead,
+  ProjectWorkspaceReadResponse,
+  ProjectWorkspaceReadSnapshot,
 } from "./types";
 import { UdsHttpTransport } from "./uds-http";
 
@@ -169,6 +172,19 @@ export class CoreClient implements CoreClientPort {
         intent: input.intent,
       },
       this.#moduleHeaders(true),
+    );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async workspaceRead(
+    read: ProjectWorkspaceRead,
+  ): Promise<ProjectWorkspaceReadSnapshot> {
+    const response = await this.#transport.requestJson<ProjectWorkspaceReadResponse>(
+      "POST",
+      "/core/v1/modules/workspace/read",
+      { version: PROTOCOL_MAX, read },
+      this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);

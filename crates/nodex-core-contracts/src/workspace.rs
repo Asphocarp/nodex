@@ -41,7 +41,7 @@ pub enum ProjectWorkspaceReadValue {
     },
     Session {
         session: ProjectWorkspaceSessionSummary,
-        panel_layout: Value,
+        panels: Value,
     },
     Thread {
         thread_id: String,

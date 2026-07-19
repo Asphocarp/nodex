@@ -15,6 +15,8 @@ import type {
   OwnedDocumentCommittedValue,
   OwnedDocumentRead,
   OwnedDocumentReadSnapshot,
+  ProjectWorkspaceRead,
+  ProjectWorkspaceReadSnapshot,
 } from "../types";
 import type {
   DocumentAwarenessPublishAck,
@@ -31,6 +33,7 @@ export class FakeCoreClient implements CoreClientPort {
   readonly applies: LibraryApplyInput[] = [];
   readonly databaseReads: DatabaseRead[] = [];
   readonly databaseApplies: DatabaseApplyInput[] = [];
+  readonly workspaceReads: ProjectWorkspaceRead[] = [];
   readonly documentReads: Array<{
     readonly clientSessionId: string;
     readonly read: OwnedDocumentRead;
@@ -43,6 +46,7 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #applyResults: LibraryCommittedValue[] = [];
   readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
   readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
+  readonly #workspaceReadResults: ProjectWorkspaceReadSnapshot[] = [];
   readonly #documentReadResults: OwnedDocumentReadSnapshot[] = [];
   readonly #documentApplyResults: OwnedDocumentCommittedValue[] = [];
   readonly #documentSyncResults: DocumentSyncResponse[] = [];
@@ -64,6 +68,10 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueDatabaseApply(result: DatabaseCommittedValue): void {
     this.#databaseApplyResults.push(result);
+  }
+
+  enqueueWorkspaceRead(result: ProjectWorkspaceReadSnapshot): void {
+    this.#workspaceReadResults.push(result);
   }
 
   enqueueDocumentRead(result: OwnedDocumentReadSnapshot): void {
@@ -111,6 +119,15 @@ export class FakeCoreClient implements CoreClientPort {
     this.databaseApplies.push(input);
     const result = this.#databaseApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Database apply");
+    return result;
+  }
+
+  async workspaceRead(
+    read: ProjectWorkspaceRead,
+  ): Promise<ProjectWorkspaceReadSnapshot> {
+    this.workspaceReads.push(read);
+    const result = this.#workspaceReadResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Project Workspace read");
     return result;
   }
 

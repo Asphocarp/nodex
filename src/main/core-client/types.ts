@@ -40,6 +40,11 @@ export type DatabaseApplyResponse = components["schemas"]["DatabaseApplyResponse
 export type DatabaseReadSnapshot = SuccessfulPayload<DatabaseReadResponse>;
 export type DatabaseCommittedValue = SuccessfulPayload<DatabaseApplyResponse>;
 
+export type ProjectWorkspaceReadRequest = components["schemas"]["ProjectWorkspaceReadRequest"];
+export type ProjectWorkspaceRead = ProjectWorkspaceReadRequest["read"];
+export type ProjectWorkspaceReadResponse = components["schemas"]["ProjectWorkspaceReadResponse"];
+export type ProjectWorkspaceReadSnapshot = SuccessfulPayload<ProjectWorkspaceReadResponse>;
+
 export type OwnedDocumentReadRequest = components["schemas"]["OwnedDocumentReadRequest"];
 export type OwnedDocumentRead = OwnedDocumentReadRequest["read"];
 export type OwnedDocumentReadResponse = components["schemas"]["OwnedDocumentReadResponse"];
@@ -83,6 +88,7 @@ export interface CoreClientPort {
   libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue>;
   databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue>;
+  workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot>;
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,

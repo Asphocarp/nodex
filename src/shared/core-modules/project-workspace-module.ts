@@ -1,5 +1,7 @@
 import type {
+  PanelId,
   ProjectSessionPanelLayout,
+  ProjectSessionPanelState,
   ProjectSessionTabConfig,
 } from "../types";
 import type {
@@ -67,7 +69,7 @@ export type ProjectWorkspaceReadValue =
   | {
       readonly kind: "session";
       readonly session: ProjectWorkspaceSessionSummary;
-      readonly panelLayout: ProjectSessionPanelLayout;
+      readonly panels: Readonly<Record<PanelId, ProjectSessionPanelState>>;
     }
   | {
       readonly kind: "thread";

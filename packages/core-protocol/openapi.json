@@ -7817,7 +7817,7 @@
                         "type": "object",
                         "required": [
                           "session",
-                          "panel_layout",
+                          "panels",
                           "kind"
                         ],
                         "properties": {
@@ -7827,7 +7827,7 @@
                               "session"
                             ]
                           },
-                          "panel_layout": {},
+                          "panels": {},
                           "session": {
                             "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
                           }

@@ -23,6 +23,12 @@ import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../shared/block-documents/doc
 import { createUuidV7 } from "../shared/uuid-v7";
 import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
 import { createPage } from "./local-store/database-pages";
+import { listProjects } from "./local-store/projects";
+import {
+  getProjectSession,
+  listProjectSessionSummaries,
+  listProjectlessSessionSummaries,
+} from "./local-store/project-sessions";
 import {
   applyDatabaseModuleV2,
   readDatabaseModuleV2,
@@ -281,6 +287,100 @@ describe("TypeScript/Rust content Module differential", () => {
       store_epoch: coordinates.storeEpoch,
       schema_version: 83,
     });
+
+    const oracleWorkspaceProjects = listProjects();
+    const oracleWorkspaceSessions = [
+      ...listProjectlessSessionSummaries(),
+      ...oracleWorkspaceProjects.flatMap((project) =>
+        listProjectSessionSummaries(project.id),
+      ),
+    ];
+    const candidateWorkspace = await stage(
+      "Project Workspace startup",
+      candidate.workspaceRead({ kind: "startup" }),
+    );
+    if (candidateWorkspace.value.kind !== "startup") {
+      throw new Error("Expected Project Workspace startup snapshot");
+    }
+    expect(candidateWorkspace.value.projects).toEqual(
+      oracleWorkspaceProjects.map((project) => ({
+        id: project.id,
+        library_id: project.libraryId,
+        database_id: project.databaseId,
+        lifecycle: project.lifecycle,
+        binding_revision: project.bindingRevision,
+        name: project.name,
+        description: project.description,
+        icon: project.icon || null,
+        sources: project.sources,
+        primary_workspace_root: project.primaryWorkspaceRoot,
+        pinned: project.pinned,
+        pinned_order: project.pinnedOrder,
+        created_at: project.created.toISOString(),
+        updated_at: project.updated.toISOString(),
+      })),
+    );
+    const comparableSessions = (
+      sessions: readonly {
+        readonly id: string;
+        readonly project_id?: string | null;
+        readonly display_title: string;
+        readonly order: number;
+        readonly pinned: boolean;
+        readonly archived: boolean;
+        readonly unread: boolean;
+        readonly thread_id?: string | null;
+        readonly updated_at: string;
+      }[],
+    ) => sessions
+      .map((session) => ({
+        ...session,
+        project_id: session.project_id ?? null,
+        thread_id: session.thread_id ?? null,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    expect(comparableSessions(candidateWorkspace.value.sessions)).toEqual(
+      comparableSessions(oracleWorkspaceSessions.map((session) => ({
+        id: session.id,
+        project_id: session.projectId,
+        display_title: session.displayTitle,
+        order: session.order,
+        pinned: session.pinned,
+        archived: session.archived,
+        unread: session.unread,
+        thread_id: session.thread?.threadId ?? null,
+        updated_at: session.updatedAt,
+      }))),
+    );
+    const oracleWorkspaceSession = oracleWorkspaceSessions[0];
+    if (oracleWorkspaceSession) {
+      const oracleSession = getProjectSession(oracleWorkspaceSession.id);
+      if (!oracleSession) throw new Error("Oracle Project Session disappeared");
+      const candidateSession = await stage(
+        "Project Workspace Session",
+        candidate.workspaceRead({
+          kind: "session",
+          session_id: oracleWorkspaceSession.id,
+        }),
+      );
+      if (candidateSession.value.kind !== "session") {
+        throw new Error("Expected Project Workspace Session snapshot");
+      }
+      expect(candidateSession.value.session).toEqual(
+        comparableSessions([{
+          id: oracleSession.id,
+          project_id: oracleSession.projectId,
+          display_title: oracleSession.displayTitle,
+          order: oracleSession.order,
+          pinned: oracleSession.pinned,
+          archived: oracleSession.archived,
+          unread: oracleSession.unread,
+          thread_id: oracleSession.thread?.threadId ?? null,
+          updated_at: oracleSession.updatedAt,
+        }])[0],
+      );
+      expect(candidateSession.value.panels).toEqual(oracleSession.panels);
+    }
 
     const oracleImportedDetail = readLibraryPageDetailInDatabase(
       getDb(),

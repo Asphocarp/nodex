@@ -83,6 +83,17 @@ cross-Project compatibility rehome reuse Database internals inside that same
 SQLite transaction rather than composing public Module calls, so one durable
 Library receipt and event represent the operation.
 
+The first Project Workspace migration slice serves coherent store-backed read
+snapshots through the fixed Workspace `read` route. One read boundary returns
+active Project execution contexts and non-archived startup Sessions, or resolves
+an exact Project, Session panel state, thread owner, or managed-worktree set.
+Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
+JSON bounds, store epoch, and event head are validated by the Module; incomplete
+bindings and cross-Library rows fail closed. Workspace writes, full Session/tab
+and Codex launch metadata, Project atomic creation, Automation, and Store
+Administration remain migration work, so their unavailable routes do not fall
+back to direct native SQL.
+
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit
 Profile cutover milestone; neither normal startup nor renderer behavior depends

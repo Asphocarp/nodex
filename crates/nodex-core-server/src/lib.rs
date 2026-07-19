@@ -27,6 +27,7 @@ use nodex_core::document::{
 use nodex_core::infrastructure::sqlite::with_immediate_transaction;
 use nodex_core::infrastructure::store::SqliteStoreKernel;
 use nodex_core::library::LibraryModule;
+use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery,
@@ -37,7 +38,8 @@ use nodex_core_protocol::{
     EventEnvelope, HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest,
     LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
     OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
-    PROTOCOL_MIN, ResponseEnvelope, RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
+    PROTOCOL_MIN, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope,
+    RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -85,6 +87,7 @@ struct ServerState {
     library_id: String,
     library: LibraryModule,
     database: DatabaseModule,
+    workspace: ProjectWorkspaceModule,
     document: OwnedDocumentModule,
     document_realtime: OwnedDocumentRealtimeAdapter,
     _store: SqliteStoreKernel,
@@ -268,6 +271,21 @@ async fn database_apply(
         Err(error) => ResponseEnvelope::Error(error),
     };
     Json(DatabaseApplyResponse(response))
+}
+
+async fn workspace_read(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(ProjectWorkspaceReadRequest(request)): Json<ProjectWorkspaceReadRequest>,
+) -> Json<ProjectWorkspaceReadResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.workspace.read(&context, request) {
+            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(ProjectWorkspaceReadResponse(response))
 }
 
 async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
@@ -664,7 +682,7 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/modules/library/apply", post(library_apply))
         .route("/core/v1/modules/database/read", post(database_read))
         .route("/core/v1/modules/database/apply", post(database_apply))
-        .route("/core/v1/modules/workspace/read", post(unavailable_module))
+        .route("/core/v1/modules/workspace/read", post(workspace_read))
         .route("/core/v1/modules/workspace/apply", post(unavailable_module))
         .route("/core/v1/modules/automation/read", post(unavailable_module))
         .route(
@@ -1169,6 +1187,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
+    let workspace = ProjectWorkspaceModule::new(&identity.profile_id, &identity.library_id, &store);
     let document = OwnedDocumentModule::new(
         descriptor.profile_id.clone(),
         identity.library_id.clone(),
@@ -1179,6 +1198,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         library_id: identity.library_id,
         library,
         database,
+        workspace,
         document_realtime: OwnedDocumentRealtimeAdapter::new(document.clone()),
         document,
         _store: store,
