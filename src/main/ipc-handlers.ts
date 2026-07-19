@@ -133,6 +133,7 @@ import {
 } from "./project-session-browser-ownership";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
+import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -226,10 +227,7 @@ import {
 import {
   registerDatabaseModuleIpcHandlers,
 } from "./database-module-ipc";
-import {
-  registerLibraryModuleIpcHandler,
-  type LibraryModuleIpcDependencies,
-} from "./library-module-ipc";
+import { registerLibraryModuleIpcHandler } from "./library-module-ipc";
 import { registerLibraryDatabaseModuleIpcHandler } from "./library-database-module-ipc";
 import { registerPageDetailIpcHandler } from "./page-detail-ipc";
 import { registerLibraryPageDetailIpcHandler } from "./library-page-detail-ipc";
@@ -572,7 +570,13 @@ interface RegisterIpcHandlersOptions {
     input: CodexHeartbeatAutomationThreadStateChangedInput,
     rendererClientId: string | null,
   ) => void;
-  libraryModule?: Pick<LibraryModuleIpcDependencies, "apply" | "read">;
+  libraryModule?: Pick<
+    DesktopLibraryModuleBridge,
+    | "apply"
+    | "read"
+    | "readProjectPageDetail"
+    | "readLibraryPageDetail"
+  >;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
 }
@@ -1480,8 +1484,9 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: async (projectId, pageId) =>
-      (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+    read: options.libraryModule?.readProjectPageDetail ??
+      (async (projectId, pageId) =>
+        (await blockMutationWriter.readPageDetail(projectId, pageId)).result),
   });
 
   registerLibraryPageDetailIpcHandler({
@@ -1490,9 +1495,14 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: async (pageId) =>
-      (await blockMutationWriter.readLibraryPageDetail(pageId, "app_window"))
-        .result,
+    read: options.libraryModule?.readLibraryPageDetail ??
+      (async (pageId) =>
+        (
+          await blockMutationWriter.readLibraryPageDetail(
+            pageId,
+            "app_window",
+          )
+        ).result),
   });
 
   registerPageLifecyclePreflightIpcHandler({

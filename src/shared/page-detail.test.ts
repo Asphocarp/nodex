@@ -107,6 +107,31 @@ const memberResult = (): PageDetailResult => ({
 });
 
 describe("Page Detail contract", () => {
+  test("accepts nullable string and JSON intrinsic values", () => {
+    const result = memberResult();
+    if (!result.ok) throw new Error("Expected Page Detail fixture");
+    const parsed = parsePageDetailResult({
+      ...result,
+      value: {
+        ...result.value,
+        intrinsicProperties: [
+          { key: "description", valueType: "string", value: null, revision: 1 },
+          { key: "metadata", valueType: "json", value: null, revision: 2 },
+        ],
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        intrinsicProperties: [
+          { key: "description", valueType: "string", value: null },
+          { key: "metadata", valueType: "json", value: null },
+        ],
+      },
+    });
+  });
+
   test("accepts one coherent Page → Data Source → Database ownership chain", () => {
     const parsed = parsePageDetailResult(memberResult());
     expect(parsed.ok && parsed.value.page.parent).toEqual({

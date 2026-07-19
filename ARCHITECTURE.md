@@ -78,8 +78,9 @@ and disconnecting Electron does not terminate the detached Core. Electron
 Module adapters still need to replace the TypeScript stores before the Rust
 development selector can serve the full desktop workflow. The first active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
-IPC pair and the Project catalog boundary. Library reads use the Library
-connection, writes derive the actor Project from the trusted invoking window,
+IPC pair, Project/Library Page Detail, and the Project catalog boundary.
+Library reads use the Library connection, writes derive the actor Project from
+the trusted invoking window,
 and committed Core events become renderer Library or Workspace invalidations.
 The event bridge is backend-neutral and active for both authority choices, so
 Rust Session and Project receipts refresh existing renderer subscriptions.
@@ -111,7 +112,7 @@ same bridge and exact-target lifecycle but remain Project-only. Canvas and Yjs
 share one client-session ownership fence, while durable Canvas events carry the
 actual pre-commit authority head so replayed scene deltas retain their causal
 boundary even when a stale non-conflicting intent merges.
-Page detail/content/search/history and the remaining deep Module adapters stay
+Page content/search/history and the remaining deep Module adapters stay
 on the migration inventory and must fail closed rather than fall back in the
 Rust branch.
 `nodex-core-contracts` owns six

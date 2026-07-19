@@ -17,6 +17,13 @@ import type {
   LibraryRouteTarget,
   LibraryWriteParent,
 } from "../../shared/library-module";
+import {
+  parseLibraryPageDetailResult,
+  parsePageDetailResult,
+  type LibraryPageDetailResult,
+  type PageDetailError,
+  type PageDetailResult,
+} from "../../shared/page-detail";
 import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
@@ -36,6 +43,11 @@ export interface CoreLibraryModuleAdapterInput {
 export interface CoreLibraryModuleAdapter {
   read(request: LibraryModuleReadRequest): Promise<LibraryModuleReadResult>;
   apply(request: LibraryModuleApplyRequest): Promise<LibraryModuleApplyResult>;
+  readProjectPageDetail(
+    projectId: string,
+    pageId: string,
+  ): Promise<PageDetailResult>;
+  readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
 }
 
 const toCoreRouteTarget = (target: LibraryRouteTarget) => {
@@ -158,6 +170,10 @@ type CoreNavigationParent = Extract<
   LibraryReadSnapshot["value"],
   { kind: "children" }
 >["parent"];
+type CorePageDetail = Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "page_detail" }
+>["value"];
 
 const fromCoreRouteTarget = (
   target: CoreRouteTarget,
@@ -272,6 +288,45 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
   }
 };
 
+const mapPageDataSourceContext = (
+  context: CorePageDetail["data_source_context"],
+): unknown => {
+  if (context.kind === "standalone") return { kind: "standalone" };
+  return {
+    kind: "member",
+    membership: {
+      membershipId: context.membership.membership_id,
+      dataSourceId: context.membership.data_source_id,
+      revision: context.membership.revision,
+      createdAt: context.membership.created_at,
+    },
+    database: context.database,
+    dataSource: context.data_source,
+    properties: context.properties,
+    values: context.values,
+  };
+};
+
+const mapPageDetail = (detail: CorePageDetail): Readonly<Record<string, unknown>> => ({
+  version: detail.version,
+  libraryId: detail.library_id,
+  storeEpoch: detail.store_epoch,
+  changeLogSeq: detail.change_log_seq,
+  page: detail.page,
+  document: {
+    readiness: detail.document.readiness,
+    schemaKey: detail.document.schema_key,
+    schemaVersion: detail.document.schema_version,
+  },
+  intrinsicProperties: detail.intrinsic_properties.map((property) => ({
+    key: property.key,
+    valueType: property.value_type,
+    value: property.value,
+    revision: property.revision,
+  })),
+  dataSourceContext: mapPageDataSourceContext(detail.data_source_context),
+});
+
 const mapCoreError = (error: CoreModuleError): LibraryModuleError => {
   const code = (() => {
     switch (error.code) {
@@ -311,6 +366,36 @@ const failure = (error: unknown): { readonly ok: false; readonly error: LibraryM
   };
 };
 
+const pageDetailError = (error: unknown): PageDetailError => {
+  if (error instanceof CoreModuleResponseError) {
+    const code = (() => {
+      switch (error.coreError.code) {
+        case "invalid_input":
+          return "invalid_request";
+        case "not_found":
+          return "page_not_found";
+        case "unauthorized":
+          return "authorization_denied";
+        case "store_corrupt":
+        case "invalid_document_schema":
+          return "page_detail_corrupt";
+        default:
+          return "unknown";
+      }
+    })() satisfies PageDetailError["code"];
+    return {
+      code,
+      message: error.message,
+      retryable: error.coreError.retryable,
+    };
+  }
+  return {
+    code: "unknown",
+    message: error instanceof Error ? error.message : String(error),
+    retryable: true,
+  };
+};
+
 const fromCoreCreatedTarget = (
   target: NonNullable<
     Extract<LibraryIntent, { kind: "archive_resource" }>["target"]
@@ -322,66 +407,112 @@ const fromCoreCreatedTarget = (
 
 export const createCoreLibraryModuleAdapter = (
   input: CoreLibraryModuleAdapterInput,
-): CoreLibraryModuleAdapter => ({
-  read: async (request) => {
-    try {
-      const snapshot = await input.client.libraryRead(toCoreRead(request));
-      return {
-        ok: true,
-        value: {
-          version: request.version,
-          profileId: input.profileId,
-          libraryId: input.libraryId,
-          storeEpoch: snapshot.store_epoch,
-          changeLogSeq: snapshot.event_head,
-          value: mapReadValue(snapshot),
-        },
-      };
-    } catch (error) {
-      return failure(error);
+): CoreLibraryModuleAdapter => {
+  const readPageDetail = async (pageId: string): Promise<CorePageDetail> => {
+    const snapshot = await input.client.libraryRead({
+      kind: "page_detail",
+      page_id: pageId,
+    });
+    if (snapshot.value.kind !== "page_detail") {
+      throw new Error("Core returned a non-Page-detail Library read value");
     }
-  },
-  apply: async (request) => {
-    if (request.storeEpoch !== input.storeEpoch) {
-      return {
-        ok: false,
-        error: {
-          code: "store_epoch_mismatch",
-          message: "Library operation targets a stale Store epoch",
-          retryable: false,
-        },
-      };
+    const detail = snapshot.value.value;
+    if (
+      detail.library_id !== input.libraryId
+      || detail.store_epoch !== snapshot.store_epoch
+      || detail.change_log_seq !== snapshot.event_head
+    ) {
+      throw new Error("Core Page Detail escaped its Library snapshot boundary");
     }
-    try {
-      const committed = await input.client.libraryApply({
-        operationId: request.operationId,
-        intent: toCoreIntent(request.operation),
-      });
-      const receipt = committed.receipt;
-      return {
-        ok: true,
-        value: {
-          version: request.version,
-          operationId: receipt.operation_id,
-          storeEpoch: committed.store_epoch,
-          libraryId: input.libraryId,
-          operationKind: request.operation.kind,
-          duplicate: receipt.duplicate,
-          didMutate: receipt.did_mutate,
-          createdTarget: receipt.created_target
-            ? fromCoreCreatedTarget(receipt.created_target)
-            : null,
-          affectedParentKeys: receipt.affected_parent_keys,
-          affectedPageIds: receipt.affected_page_ids,
-          affectedDatabaseIds: receipt.affected_database_ids.map(parseDatabaseId),
-          affectedViewIds: receipt.affected_view_ids.map(parseDatabaseViewId),
-          committedRevisions: receipt.committed_revisions,
-          changeLogSeq: receipt.change_log_seq,
-          committedAt: receipt.committed_at,
-        },
-      };
-    } catch (error) {
-      return failure(error);
-    }
-  },
-});
+    return detail;
+  };
+
+  return {
+    read: async (request) => {
+      try {
+        const snapshot = await input.client.libraryRead(toCoreRead(request));
+        return {
+          ok: true,
+          value: {
+            version: request.version,
+            profileId: input.profileId,
+            libraryId: input.libraryId,
+            storeEpoch: snapshot.store_epoch,
+            changeLogSeq: snapshot.event_head,
+            value: mapReadValue(snapshot),
+          },
+        };
+      } catch (error) {
+        return failure(error);
+      }
+    },
+    apply: async (request) => {
+      if (request.storeEpoch !== input.storeEpoch) {
+        return {
+          ok: false,
+          error: {
+            code: "store_epoch_mismatch",
+            message: "Library operation targets a stale Store epoch",
+            retryable: false,
+          },
+        };
+      }
+      try {
+        const committed = await input.client.libraryApply({
+          operationId: request.operationId,
+          intent: toCoreIntent(request.operation),
+        });
+        const receipt = committed.receipt;
+        return {
+          ok: true,
+          value: {
+            version: request.version,
+            operationId: receipt.operation_id,
+            storeEpoch: committed.store_epoch,
+            libraryId: input.libraryId,
+            operationKind: request.operation.kind,
+            duplicate: receipt.duplicate,
+            didMutate: receipt.did_mutate,
+            createdTarget: receipt.created_target
+              ? fromCoreCreatedTarget(receipt.created_target)
+              : null,
+            affectedParentKeys: receipt.affected_parent_keys,
+            affectedPageIds: receipt.affected_page_ids,
+            affectedDatabaseIds: receipt.affected_database_ids.map(
+              parseDatabaseId,
+            ),
+            affectedViewIds: receipt.affected_view_ids.map(parseDatabaseViewId),
+            committedRevisions: receipt.committed_revisions,
+            changeLogSeq: receipt.change_log_seq,
+            committedAt: receipt.committed_at,
+          },
+        };
+      } catch (error) {
+        return failure(error);
+      }
+    },
+    readProjectPageDetail: async (projectId, pageId) => {
+      try {
+        return parsePageDetailResult({
+          ok: true,
+          value: { ...mapPageDetail(await readPageDetail(pageId)), projectId },
+        });
+      } catch (error) {
+        return { ok: false, error: pageDetailError(error) };
+      }
+    },
+    readLibraryPageDetail: async (pageId) => {
+      try {
+        return parseLibraryPageDetailResult({
+          ok: true,
+          value: {
+            ...mapPageDetail(await readPageDetail(pageId)),
+            accessContext: { kind: "library" },
+          },
+        });
+      } catch (error) {
+        return { ok: false, error: pageDetailError(error) };
+      }
+    },
+  };
+};

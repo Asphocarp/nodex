@@ -350,6 +350,39 @@ describe("Electron native data authority", () => {
           duplicate: false,
         },
       });
+      await expect(library.readProjectPageDetail(
+        projectId,
+        "page:electron-library-adapter",
+      )).resolves.toMatchObject({
+        ok: true,
+        value: {
+          projectId,
+          libraryId: runtime.rootClient.handshake.library_id,
+          page: {
+            pageId: "page:electron-library-adapter",
+            title: "Electron Library Adapter",
+          },
+          document: { readiness: "ready" },
+        },
+      });
+      const rootLibrary = createCoreLibraryModuleAdapter({
+        client: runtime.rootClient,
+        libraryId: runtime.rootClient.handshake.library_id,
+        profileId: runtime.rootClient.handshake.profile_id,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+      });
+      const libraryPageDetail = await rootLibrary.readLibraryPageDetail(
+        "page:electron-library-adapter",
+      );
+      expect(libraryPageDetail).toMatchObject({
+        ok: true,
+        value: {
+          accessContext: { kind: "library" },
+          page: { pageId: "page:electron-library-adapter" },
+        },
+      });
+      if (!libraryPageDetail.ok) throw new Error("Expected Library Page Detail");
+      expect("projectId" in libraryPageDetail.value).toBe(false);
       const libraryDocuments = createCoreDocumentSyncAdapter(
         runtime.rootClient,
       );

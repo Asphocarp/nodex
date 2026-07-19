@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 
+import { plainTextToPortableRichText } from "../../shared/block-documents";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
   createDesktopLibraryModuleBridge,
   mapCoreLibraryEvent,
+  type DesktopLibraryModuleBridgeInput,
 } from "./desktop-library-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 
@@ -15,7 +17,155 @@ const identity = {
   storeEpoch: "epoch:test",
 } as const;
 
+const pageDetailSnapshot = () => ({
+  version: 1 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 9,
+  value: {
+    kind: "page_detail" as const,
+    value: {
+      version: 2,
+      library_id: identity.libraryId,
+      store_epoch: identity.storeEpoch,
+      change_log_seq: 9,
+      page: {
+        pageId: "page:one",
+        libraryId: identity.libraryId,
+        parent: { kind: "library", libraryId: identity.libraryId },
+        lifecycle: "active",
+        parentRevision: 1,
+        metadataRevision: 1,
+        documentId: "document:one",
+        documentGeneration: 1,
+        documentHeadSeq: 1,
+        title: "Page One",
+        richTitle: plainTextToPortableRichText("Page One"),
+        preview: "",
+        plainText: "",
+        createdAt: "2026-07-19T18:00:00.000Z",
+        updatedAt: "2026-07-19T18:00:00.000Z",
+      },
+      document: {
+        readiness: "ready",
+        schema_key: "nodex.page",
+        schema_version: 1,
+      },
+      intrinsic_properties: [{
+        key: "description",
+        value_type: "string",
+        value: null,
+        revision: 1,
+      }],
+      data_source_context: { kind: "standalone" as const },
+      access_context: { kind: "library" as const },
+    },
+  },
+});
+
+const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
+  read: async () => {
+    throw new Error("TypeScript read must not run");
+  },
+  apply: async () => {
+    throw new Error("TypeScript apply must not run");
+  },
+  readProjectPageDetail: async () => {
+    throw new Error("TypeScript Project Page Detail must not run");
+  },
+  readLibraryPageDetail: async () => {
+    throw new Error("TypeScript Library Page Detail must not run");
+  },
+});
+
 describe("Core Library Module Adapter", () => {
+  test("maps strict Project and Library Page Detail snapshots", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+    client.enqueueRead(pageDetailSnapshot());
+
+    await expect(adapter.readProjectPageDetail(
+      "project:test",
+      "page:one",
+    )).resolves.toMatchObject({
+      ok: true,
+      value: {
+        projectId: "project:test",
+        libraryId: identity.libraryId,
+        changeLogSeq: 9,
+        page: { pageId: "page:one", title: "Page One" },
+        intrinsicProperties: [{
+          key: "description",
+          valueType: "string",
+          value: null,
+        }],
+        dataSourceContext: { kind: "standalone" },
+      },
+    });
+
+    client.enqueueRead(pageDetailSnapshot());
+    const libraryDetail = await adapter.readLibraryPageDetail("page:one");
+    expect(libraryDetail).toMatchObject({
+      ok: true,
+      value: {
+        accessContext: { kind: "library" },
+        libraryId: identity.libraryId,
+        page: { pageId: "page:one" },
+      },
+    });
+    if (!libraryDetail.ok) throw new Error("Expected Library Page Detail");
+    expect("projectId" in libraryDetail.value).toBe(false);
+    expect(client.reads).toEqual([
+      { kind: "page_detail", page_id: "page:one" },
+      { kind: "page_detail", page_id: "page:one" },
+    ]);
+  });
+
+  test("selects the Project client or trusted root client for Page Detail", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    rootClient.enqueueRead(pageDetailSnapshot());
+    projectClient.enqueueRead(pageDetailSnapshot());
+    const requestedProjects: string[] = [];
+    const runtime = {
+      backend: "rust",
+      rootClient: Object.assign(rootClient, {
+        handshake: {
+          library_id: identity.libraryId,
+          profile_id: identity.profileId,
+          store_epoch: identity.storeEpoch,
+        },
+      }),
+      clientForProject: (projectId: string) => {
+        requestedProjects.push(projectId);
+        return projectClient;
+      },
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopLibraryModuleBridge({
+      authority: Promise.resolve(runtime),
+      resolveProjectId: () => null,
+      typescript: neverTypeScript(),
+    });
+
+    await expect(bridge.readProjectPageDetail(
+      "project:test",
+      "page:one",
+    )).resolves.toMatchObject({
+      ok: true,
+      value: { projectId: "project:test", page: { pageId: "page:one" } },
+    });
+    await expect(bridge.readLibraryPageDetail("page:one")).resolves
+      .toMatchObject({
+        ok: true,
+        value: {
+          accessContext: { kind: "library" },
+          page: { pageId: "page:one" },
+        },
+      });
+    expect(requestedProjects).toEqual(["project:test"]);
+    expect(projectClient.reads).toHaveLength(1);
+    expect(rootClient.reads).toHaveLength(1);
+  });
+
   test("maps one complete catalog read without exposing transport shapes", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead({
@@ -162,9 +312,7 @@ describe("Core Library Module Adapter", () => {
       authority: Promise.resolve(runtime),
       resolveProjectId: () => null,
       typescript: {
-        read: async () => {
-          throw new Error("TypeScript read must not run");
-        },
+        ...neverTypeScript(),
         apply: async () => {
           typescriptApplyCalled = true;
           throw new Error("TypeScript apply must not run");

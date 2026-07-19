@@ -1628,6 +1628,15 @@ export async function runMainAppStartup(
           (await blockMutationWriter.readLibraryModule(request)).result,
         apply: async (request) =>
           (await blockMutationWriter.applyLibraryModule(request)).result,
+        readProjectPageDetail: async (projectId, pageId) =>
+          (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+        readLibraryPageDetail: async (pageId) =>
+          (
+            await blockMutationWriter.readLibraryPageDetail(
+              pageId,
+              "app_window",
+            )
+          ).result,
       },
     }),
     rendererClientRouter,

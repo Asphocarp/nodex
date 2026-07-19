@@ -644,7 +644,13 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
       (intrinsicValueType === "null" && intrinsicValue !== null) ||
       (intrinsicValueType === "boolean" && typeof intrinsicValue !== "boolean") ||
       (intrinsicValueType === "number" && typeof intrinsicValue !== "number") ||
-      (intrinsicValueType === "string" && typeof intrinsicValue !== "string") ||
+      (intrinsicValueType === "string" &&
+        intrinsicValue !== null &&
+        typeof intrinsicValue !== "string") ||
+      (intrinsicValueType === "json" &&
+        intrinsicValue !== null &&
+        !Array.isArray(intrinsicValue) &&
+        typeof intrinsicValue !== "object") ||
       (intrinsicValueType !== "null" &&
         intrinsicValueType !== "boolean" &&
         intrinsicValueType !== "number" &&

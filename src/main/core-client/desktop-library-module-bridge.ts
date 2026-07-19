@@ -6,6 +6,10 @@ import type {
   LibraryModuleReadRequest,
   LibraryModuleReadResult,
 } from "../../shared/library-module";
+import type {
+  LibraryPageDetailResult,
+  PageDetailResult,
+} from "../../shared/page-detail";
 import type { CoreEventEnvelope } from "./types";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
@@ -19,6 +23,11 @@ export interface DesktopLibraryModuleBridgeInput {
   readonly typescript: {
     read(request: LibraryModuleReadRequest): Promise<LibraryModuleReadResult>;
     apply(request: LibraryModuleApplyRequest): Promise<LibraryModuleApplyResult>;
+    readProjectPageDetail(
+      projectId: string,
+      pageId: string,
+    ): Promise<PageDetailResult>;
+    readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
   };
 }
 
@@ -28,6 +37,11 @@ export interface DesktopLibraryModuleBridge {
     request: LibraryModuleApplyRequest,
     event: unknown,
   ): Promise<LibraryModuleApplyResult>;
+  readProjectPageDetail(
+    projectId: string,
+    pageId: string,
+  ): Promise<PageDetailResult>;
+  readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
 }
 
 export function createDesktopLibraryModuleBridge(
@@ -46,6 +60,16 @@ export function createDesktopLibraryModuleBridge(
     profileId: runtime.rootClient.handshake.profile_id,
     storeEpoch: runtime.rootClient.handshake.store_epoch,
   });
+  const projectCoreAdapter = (
+    runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
+    projectId: string,
+  ): CoreLibraryModuleAdapter => {
+    let adapter = projectCoreAdapters.get(projectId);
+    if (adapter) return adapter;
+    adapter = coreAdapter(runtime, projectId);
+    projectCoreAdapters.set(projectId, adapter);
+    return adapter;
+  };
 
   return {
     read: async (request) => {
@@ -72,12 +96,23 @@ export function createDesktopLibraryModuleBridge(
           },
         };
       }
-      let adapter = projectCoreAdapters.get(projectId);
-      if (!adapter) {
-        adapter = coreAdapter(runtime, projectId);
-        projectCoreAdapters.set(projectId, adapter);
+      return await projectCoreAdapter(runtime, projectId).apply(request);
+    },
+    readProjectPageDetail: async (projectId, pageId) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.readProjectPageDetail(projectId, pageId);
       }
-      return await adapter.apply(request);
+      return await projectCoreAdapter(runtime, projectId)
+        .readProjectPageDetail(projectId, pageId);
+    },
+    readLibraryPageDetail: async (pageId) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.readLibraryPageDetail(pageId);
+      }
+      rootCoreAdapter ??= coreAdapter(runtime);
+      return await rootCoreAdapter.readLibraryPageDetail(pageId);
     },
   };
 }
