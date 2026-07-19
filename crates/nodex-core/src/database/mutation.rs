@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent, DatabasePagePosition,
-    DatabasePageValue, DatabaseReceipt,
+    DatabasePageValue, DatabaseReceipt, DatabaseTransferTarget,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -390,9 +390,22 @@ fn apply_intent(
             now,
             effects,
         ),
-        DatabaseIntent::TransferPage { .. } => Err(invalid(
-            "Database Page transfer is not implemented by this mutation slice",
-        )),
+        DatabaseIntent::TransferPage {
+            page_id,
+            expected_parent_revision,
+            expected_active_membership_revision,
+            target,
+        } => transfer_page(
+            connection,
+            library_id,
+            project_id,
+            page_id,
+            *expected_parent_revision,
+            *expected_active_membership_revision,
+            target,
+            now,
+            effects,
+        ),
     }
 }
 
@@ -832,6 +845,705 @@ fn add_remove_value(
         },
         now,
         effects,
+    )
+}
+
+struct ActiveMembership {
+    id: String,
+    data_source_id: String,
+    revision: i64,
+}
+
+struct CompatibilityValues {
+    values: Map<String, Value>,
+    revisions: Map<String, Value>,
+}
+
+struct PreferredViewPlacement {
+    view_id: Option<String>,
+    group_key: Option<String>,
+    rank_key: Option<String>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transfer_page(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    page_id: &str,
+    expected_parent_revision: i64,
+    expected_active_membership_revision: i64,
+    target: &DatabaseTransferTarget,
+    now: &str,
+    effects: &mut MutationEffects,
+) -> Result<(), StoreError> {
+    validate_id(page_id, "page_id", MAX_ID_LENGTH)?;
+    let page = connection
+        .query_row(
+            "SELECT page.library_id, page.parent_kind, page.parent_id, page.parent_revision, \
+               block.project_id FROM pages page JOIN blocks block ON block.id = page.block_id \
+             WHERE page.block_id = ?1 AND page.lifecycle <> 'deleted'",
+            [page_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Page is unavailable"))?;
+    let (page_library_id, parent_kind, _, parent_revision, page_project_id) = page;
+    if page_library_id != library_id || page_project_id != project_id {
+        return Err(unauthorized(
+            "Bound Project cannot transfer this Page authority",
+        ));
+    }
+    if parent_kind == "page" || matches!(target, DatabaseTransferTarget::Page { .. }) {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Page-parent transitions require Library Block/Document authority",
+            false,
+        ));
+    }
+    require_revision(
+        expected_parent_revision,
+        parent_revision,
+        "Page parent revision changed",
+    )?;
+    let active_membership = connection
+        .query_row(
+            "SELECT id, data_source_id, revision FROM data_source_page_memberships \
+             WHERE page_block_id = ?1 AND removed_at IS NULL",
+            [page_id],
+            |row| {
+                Ok(ActiveMembership {
+                    id: row.get(0)?,
+                    data_source_id: row.get(1)?,
+                    revision: row.get(2)?,
+                })
+            },
+        )
+        .optional()?;
+    require_revision(
+        expected_active_membership_revision,
+        active_membership
+            .as_ref()
+            .map_or(0, |membership| membership.revision),
+        "Page active membership revision changed",
+    )?;
+    let previous_source = active_membership
+        .as_ref()
+        .map(|membership| require_source(connection, library_id, &membership.data_source_id))
+        .transpose()?;
+    if let Some(source) = &previous_source {
+        authorize_write(connection, project_id, &source.database_id)?;
+    }
+    let positioned_views = connection
+        .prepare("SELECT view_id FROM database_view_page_positions WHERE page_block_id = ?1")?
+        .query_map([page_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if let Some(membership) = &active_membership {
+        connection.execute(
+            "UPDATE data_source_page_memberships SET removed_at = ?1, revision = revision + 1 \
+             WHERE id = ?2 AND removed_at IS NULL",
+            params![now, membership.id],
+        )?;
+    }
+    connection.execute(
+        "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
+        [page_id],
+    )?;
+    effects.view_ids.extend(positioned_views);
+
+    let (target_membership_id, target_data_source_id) = match target {
+        DatabaseTransferTarget::Library {
+            library_id: target_library_id,
+        } => {
+            if target_library_id != library_id {
+                return Err(unauthorized("A Page cannot transfer to another Library"));
+            }
+            connection.execute(
+                "UPDATE blocks SET location_kind = 'space', containing_document_id = NULL, \
+                   containing_database_id = NULL, location_revision = location_revision + 1, \
+                   metadata_revision = metadata_revision + 1, updated_at = ?1 WHERE id = ?2",
+                params![now, page_id],
+            )?;
+            append_top_level_placement(connection, project_id, page_id, now)?;
+            let rank_key = connection.query_row(
+                "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
+                [page_id],
+                |row| row.get::<_, String>(0),
+            )?;
+            connection.execute(
+                "INSERT INTO library_block_placements(\
+                   block_id, library_id, rank_key, revision, created_at, updated_at\
+                 ) VALUES (?1, ?2, ?3, 1, ?4, ?4) \
+                 ON CONFLICT(block_id) DO UPDATE SET library_id = excluded.library_id, \
+                   rank_key = excluded.rank_key, revision = library_block_placements.revision + 1, \
+                   updated_at = excluded.updated_at",
+                params![page_id, library_id, rank_key, now],
+            )?;
+            (None, None)
+        }
+        DatabaseTransferTarget::DataSource { data_source_id } => {
+            let target_source = require_source(connection, library_id, data_source_id)?;
+            authorize_write(connection, project_id, &target_source.database_id)?;
+            let target_project_id = connection
+                .query_row(
+                    "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database'",
+                    [&target_source.database_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .ok_or_else(|| corrupt("Target Data Source has no Database Block authority"))?;
+            if target_project_id != project_id {
+                return Err(unauthorized(
+                    "A Page cannot transfer across Project ownership",
+                ));
+            }
+            if active_membership
+                .as_ref()
+                .is_some_and(|membership| membership.data_source_id == *data_source_id)
+            {
+                return Err(invalid("Page already belongs to the target Data Source"));
+            }
+            let history = connection
+                .query_row(
+                    "SELECT id, revision, created_at FROM data_source_page_memberships \
+                     WHERE data_source_id = ?1 AND page_block_id = ?2",
+                    params![data_source_id, page_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            let membership_id = history.as_ref().map_or_else(
+                || deterministic_membership_id(data_source_id, page_id),
+                |(id, _, _)| id.clone(),
+            );
+            if history.is_none() {
+                let collision = connection
+                    .query_row(
+                        "SELECT 1 FROM data_source_page_memberships WHERE id = ?1",
+                        [&membership_id],
+                        |_| Ok(()),
+                    )
+                    .optional()?;
+                if collision.is_some() {
+                    return Err(StoreError::new(
+                        StoreErrorCode::AlreadyOwned,
+                        "Deterministic membership identity is already owned",
+                        false,
+                    ));
+                }
+            }
+            let revision = history.as_ref().map_or(1, |(_, revision, _)| revision + 1);
+            connection.execute(
+                "DELETE FROM top_level_block_placements WHERE block_id = ?1",
+                [page_id],
+            )?;
+            connection.execute(
+                "DELETE FROM library_block_placements WHERE block_id = ?1",
+                [page_id],
+            )?;
+            connection.execute(
+                "UPDATE blocks SET location_kind = 'database', containing_document_id = NULL, \
+                   containing_database_id = ?1, location_revision = location_revision + 1, \
+                   metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE id = ?3",
+                params![target_source.database_id, now, page_id],
+            )?;
+            connection.execute(
+                "INSERT INTO data_source_page_memberships(\
+                   id, data_source_id, page_block_id, revision, created_at, removed_at\
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, NULL) \
+                 ON CONFLICT(id) DO UPDATE SET data_source_id = excluded.data_source_id, \
+                   page_block_id = excluded.page_block_id, revision = excluded.revision, \
+                   removed_at = NULL",
+                params![
+                    membership_id,
+                    data_source_id,
+                    page_id,
+                    revision,
+                    history
+                        .as_ref()
+                        .map_or(now, |(_, _, created_at)| created_at),
+                ],
+            )?;
+            ensure_transferred_built_in_values(
+                connection,
+                active_membership.as_ref(),
+                &membership_id,
+                data_source_id,
+                now,
+            )?;
+            effects.database_ids.insert(target_source.database_id);
+            effects.data_source_ids.insert(data_source_id.clone());
+            (Some(membership_id), Some(data_source_id.clone()))
+        }
+        DatabaseTransferTarget::Page { .. } => unreachable!("Page target rejected above"),
+    };
+    let (parent_kind, parent_id) = match target {
+        DatabaseTransferTarget::Library { library_id } => ("library", library_id.as_str()),
+        DatabaseTransferTarget::DataSource { data_source_id } => {
+            ("data_source", data_source_id.as_str())
+        }
+        DatabaseTransferTarget::Page { .. } => unreachable!("Page target rejected above"),
+    };
+    let updated = connection.execute(
+        "UPDATE pages SET parent_kind = ?1, parent_id = ?2, \
+           parent_revision = parent_revision + 1, metadata_revision = metadata_revision + 1, \
+           updated_at = ?3 WHERE block_id = ?4 AND parent_revision = ?5",
+        params![
+            parent_kind,
+            parent_id,
+            now,
+            page_id,
+            expected_parent_revision
+        ],
+    )?;
+    if updated != 1 {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Page parent authority changed during transfer",
+            true,
+        ));
+    }
+    refresh_transferred_page_projection(
+        connection,
+        page_id,
+        target_membership_id.as_deref(),
+        target_data_source_id.as_deref(),
+        now,
+    )?;
+    if let Some(source) = previous_source {
+        touch_source(effects, &source);
+    }
+    effects.page_ids.insert(page_id.to_owned());
+    Ok(())
+}
+
+fn ensure_transferred_built_in_values(
+    connection: &Connection,
+    source_membership: Option<&ActiveMembership>,
+    target_membership_id: &str,
+    target_data_source_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    let properties = connection
+        .prepare(
+            "SELECT id, value_type, config_json, rank_key, lifecycle, schema_revision, created_at \
+             FROM data_source_properties WHERE data_source_id = ?1 AND lifecycle = 'active' \
+             ORDER BY id",
+        )?
+        .query_map([target_data_source_id], |row| {
+            Ok(PropertyRow {
+                id: row.get(0)?,
+                value_type: row.get(1)?,
+                config_json: row.get(2)?,
+                rank_key: row.get(3)?,
+                lifecycle: row.get(4)?,
+                revision: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for target_property in properties {
+        if !is_built_in_property(&target_property.id) {
+            continue;
+        }
+        let existing = connection
+            .query_row(
+                "SELECT 1 FROM data_source_property_values WHERE data_source_id = ?1 \
+                 AND membership_id = ?2 AND property_id = ?3",
+                params![
+                    target_data_source_id,
+                    target_membership_id,
+                    target_property.id
+                ],
+                |_| Ok(()),
+            )
+            .optional()?;
+        if existing.is_some() {
+            continue;
+        }
+        let value = transfer_value(connection, source_membership, &target_property)?;
+        connection.execute(
+            "INSERT INTO data_source_property_values(\
+               data_source_id, membership_id, property_id, value_type, value_json, revision, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+            params![
+                target_data_source_id,
+                target_membership_id,
+                target_property.id,
+                target_property.value_type,
+                serde_json::to_string(&value).map_err(|_| internal("Transferred value"))?,
+                now,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn transfer_value(
+    connection: &Connection,
+    source_membership: Option<&ActiveMembership>,
+    target_property: &PropertyRow,
+) -> Result<Value, StoreError> {
+    let fallback = default_built_in_value(target_property)?;
+    let Some(source_membership) = source_membership else {
+        return Ok(fallback);
+    };
+    let Some(source_property) = property_row(
+        connection,
+        &source_membership.data_source_id,
+        &target_property.id,
+    )?
+    else {
+        return Ok(fallback);
+    };
+    if source_property.lifecycle != "active"
+        || source_property.value_type != target_property.value_type
+    {
+        return Ok(fallback);
+    }
+    let source_value = connection
+        .query_row(
+            "SELECT value_json FROM data_source_property_values WHERE data_source_id = ?1 \
+             AND membership_id = ?2 AND property_id = ?3",
+            params![
+                source_membership.data_source_id,
+                source_membership.id,
+                target_property.id,
+            ],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|value| parse_json(&value, "Transferred source value"))
+        .transpose()?;
+    let Some(source_value) = source_value else {
+        return Ok(fallback);
+    };
+    if target_property.id == "tags" {
+        return map_tags_between_properties(&source_property, &source_value, target_property);
+    }
+    match normalize_value(target_property, &source_value) {
+        Ok(value) => Ok(value),
+        Err(error) if error.code == StoreErrorCode::InvalidInput => Ok(fallback),
+        Err(error) => Err(error),
+    }
+}
+
+fn default_built_in_value(property: &PropertyRow) -> Result<Value, StoreError> {
+    if property.id == "tags" {
+        return Ok(Value::Array(Vec::new()));
+    }
+    if property.id == "status" {
+        let config = option_config(property)?;
+        if config.options.iter().any(|option| option.id == "triage") {
+            return Ok(Value::String("triage".to_owned()));
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn map_tags_between_properties(
+    source_property: &PropertyRow,
+    source_value: &Value,
+    target_property: &PropertyRow,
+) -> Result<Value, StoreError> {
+    let source_value = normalize_value(source_property, source_value)?;
+    let source = option_config(source_property)?;
+    let target = option_config(target_property)?;
+    let source_names = source
+        .options
+        .iter()
+        .map(|option| (option.id.as_str(), option.name.as_str()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let target_ids = target
+        .options
+        .iter()
+        .map(|option| (option.name.as_str(), option.id.as_str()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mapped = source_value
+        .as_array()
+        .ok_or_else(|| corrupt("Canonical source tags value is not an array"))?
+        .iter()
+        .filter_map(|value| {
+            value
+                .as_str()
+                .and_then(|option_id| source_names.get(option_id))
+                .and_then(|name| target_ids.get(name))
+                .map(|option_id| Value::String((*option_id).to_owned()))
+        })
+        .collect::<Vec<_>>();
+    Ok(Value::Array(mapped))
+}
+
+fn refresh_transferred_page_projection(
+    connection: &Connection,
+    page_id: &str,
+    target_membership_id: Option<&str>,
+    target_data_source_id: Option<&str>,
+    now: &str,
+) -> Result<(), StoreError> {
+    let authority = connection
+        .query_row(
+            "SELECT block.project_id, block.lifecycle, block.location_kind, \
+               block.containing_document_id, block.containing_database_id, \
+               block.location_revision, block.metadata_revision, placement.rank_key \
+             FROM blocks block LEFT JOIN top_level_block_placements placement \
+               ON placement.block_id = block.id WHERE block.id = ?1 AND block.type = 'page'",
+            [page_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Transferred Page authority disappeared"))?;
+    let compatibility = match (target_membership_id, target_data_source_id) {
+        (Some(membership_id), Some(data_source_id)) => {
+            read_compatibility_values(connection, data_source_id, membership_id)?
+        }
+        (None, None) => CompatibilityValues {
+            values: Map::new(),
+            revisions: Map::new(),
+        },
+        _ => {
+            return Err(corrupt(
+                "Transferred Page membership projection is incomplete",
+            ));
+        }
+    };
+    let placement = match target_data_source_id {
+        Some(data_source_id) => preferred_view_placement(connection, data_source_id, page_id)?,
+        None => PreferredViewPlacement {
+            view_id: None,
+            group_key: None,
+            rank_key: None,
+        },
+    };
+    let property_revisions_json = connection
+        .query_row(
+            "SELECT property_revisions_json FROM page_read_model WHERE page_block_id = ?1",
+            [page_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Transferred Page has no read projection"))?;
+    let mut property_revisions = json_object(
+        &property_revisions_json,
+        "Transferred Page Property revisions",
+    )?;
+    property_revisions.insert(
+        "database".to_owned(),
+        Value::Object(compatibility.revisions),
+    );
+    connection.execute(
+        "UPDATE page_read_model SET project_id = ?1, lifecycle = ?2, location_kind = ?3, \
+           containing_document_id = ?4, containing_database_id = ?5, top_level_rank_key = ?6, \
+           location_revision = ?7, metadata_revision = ?8, membership_id = ?9, \
+           database_block_id = ?5, view_id = ?10, view_group_key = ?11, view_rank_key = ?12, \
+           database_values_json = ?13, property_revisions_json = ?14, \
+           projection_version = projection_version + 1, updated_at = ?15 WHERE page_block_id = ?16",
+        params![
+            authority.0,
+            authority.1,
+            authority.2,
+            authority.3,
+            authority.4,
+            authority.7,
+            authority.5,
+            authority.6,
+            target_membership_id,
+            placement.view_id,
+            placement.group_key,
+            placement.rank_key,
+            serde_json::to_string(&compatibility.values)
+                .map_err(|_| internal("Transferred Page values"))?,
+            serde_json::to_string(&property_revisions)
+                .map_err(|_| internal("Transferred Page revisions"))?,
+            now,
+            page_id,
+        ],
+    )?;
+    let scheduled_start = compatibility
+        .values
+        .get("scheduled_start")
+        .and_then(Value::as_str);
+    let scheduled_end = compatibility
+        .values
+        .get("scheduled_end")
+        .and_then(Value::as_str);
+    connection.execute(
+        "UPDATE scheduled_page_index SET lifecycle = ?1, scheduled_start = ?2, \
+           scheduled_end = ?3, is_all_day = CASE WHEN ?2 IS NOT NULL AND ?3 IS NOT NULL \
+             THEN is_all_day ELSE 0 END, source_metadata_revision = ?4, updated_at = ?5 \
+         WHERE page_block_id = ?6",
+        params![
+            authority.1,
+            scheduled_start,
+            scheduled_end,
+            authority.6,
+            now,
+            page_id,
+        ],
+    )?;
+    Ok(())
+}
+
+fn read_compatibility_values(
+    connection: &Connection,
+    data_source_id: &str,
+    membership_id: &str,
+) -> Result<CompatibilityValues, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT property.id, property.value_type, property.config_json, property.rank_key, \
+               property.lifecycle, property.schema_revision, property.created_at, \
+               value.value_json, value.revision FROM data_source_properties property \
+             LEFT JOIN data_source_property_values value ON value.data_source_id = property.data_source_id \
+               AND value.property_id = property.id AND value.membership_id = ?1 \
+             WHERE property.data_source_id = ?2 AND property.lifecycle = 'active' ORDER BY property.id",
+        )?
+        .query_map(params![membership_id, data_source_id], |row| {
+            Ok((
+                PropertyRow {
+                    id: row.get(0)?,
+                    value_type: row.get(1)?,
+                    config_json: row.get(2)?,
+                    rank_key: row.get(3)?,
+                    lifecycle: row.get(4)?,
+                    revision: row.get(5)?,
+                    created_at: row.get(6)?,
+                },
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut values = Map::new();
+    let mut revisions = Map::new();
+    for (property, value, revision) in rows {
+        if !is_built_in_property(&property.id) {
+            continue;
+        }
+        let (Some(value), Some(revision)) = (value, revision) else {
+            continue;
+        };
+        let value = parse_json(&value, "Transferred compatibility value")?;
+        let value = if property.id == "tags" {
+            tag_compatibility_value(&property, &value)?
+        } else {
+            value
+        };
+        values.insert(property.id.clone(), value);
+        revisions.insert(property.id, Value::from(revision));
+    }
+    Ok(CompatibilityValues { values, revisions })
+}
+
+fn preferred_view_placement(
+    connection: &Connection,
+    data_source_id: &str,
+    page_id: &str,
+) -> Result<PreferredViewPlacement, StoreError> {
+    let view_id = connection
+        .query_row(
+            "SELECT view.id FROM data_sources source \
+             JOIN database_containers container ON container.block_id = source.home_database_block_id \
+             JOIN database_views view ON view.database_block_id = container.block_id \
+               AND view.data_source_id = source.id AND view.lifecycle = 'active' \
+             WHERE source.id = ?1 ORDER BY CASE WHEN view.id = container.default_view_id \
+               THEN 0 ELSE 1 END, view.rank_key, view.id LIMIT 1",
+            [data_source_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(view_id) = view_id else {
+        return Ok(PreferredViewPlacement {
+            view_id: None,
+            group_key: None,
+            rank_key: None,
+        });
+    };
+    let position = connection
+        .query_row(
+            "SELECT group_key, rank_key FROM database_view_page_positions \
+             WHERE view_id = ?1 AND page_block_id = ?2",
+            params![view_id, page_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    Ok(PreferredViewPlacement {
+        view_id: Some(view_id),
+        group_key: position.as_ref().and_then(|(group, _)| group.clone()),
+        rank_key: position.map(|(_, rank)| rank),
+    })
+}
+
+fn append_top_level_placement(
+    connection: &Connection,
+    project_id: &str,
+    page_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    let mut ids = connection
+        .prepare(
+            "SELECT block_id FROM top_level_block_placements \
+             WHERE project_id = ?1 ORDER BY rank_key, block_id",
+        )?
+        .query_map([project_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    ids.retain(|id| id != page_id);
+    ids.push(page_id.to_owned());
+    let total = ids.len();
+    for (index, id) in ids.into_iter().enumerate() {
+        let rank = fractional_rank(index + 1, total);
+        connection.execute(
+            "INSERT INTO top_level_block_placements(\
+               block_id, project_id, rank_key, created_at, updated_at\
+             ) VALUES (?1, ?2, ?3, ?4, ?4) ON CONFLICT(block_id) DO UPDATE SET \
+               project_id = excluded.project_id, rank_key = excluded.rank_key, \
+               updated_at = excluded.updated_at",
+            params![id, project_id, rank, now],
+        )?;
+    }
+    Ok(())
+}
+
+fn deterministic_membership_id(data_source_id: &str, page_id: &str) -> String {
+    let fingerprint = format!("{data_source_id}\0{page_id}");
+    format!("membership:{}", sha256(fingerprint.as_bytes()))
+}
+
+fn is_built_in_property(property_id: &str) -> bool {
+    matches!(
+        property_id,
+        "status"
+            | "priority"
+            | "estimate"
+            | "tags"
+            | "due_date"
+            | "scheduled_start"
+            | "scheduled_end"
+            | "assignee"
     )
 }
 

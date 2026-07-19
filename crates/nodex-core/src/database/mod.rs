@@ -193,7 +193,9 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::database::{DatabaseIntent, DatabaseReadMode, DatabaseTarget};
+    use nodex_core_contracts::database::{
+        DatabaseIntent, DatabaseReadMode, DatabaseTarget, DatabaseTransferTarget,
+    };
     use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
     use nodex_core_contracts::{
         AdapterKind, LibraryId, ModuleApplyRequest, ProfileId, ProjectId, StoreEpoch,
@@ -686,6 +688,107 @@ mod tests {
         assert_eq!(old_view["lifecycle"], "deleted");
         assert_eq!(old_view["revision"], 2);
 
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-row-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::TransferPage {
+                        page_id: "page:database-row".to_owned(),
+                        expected_parent_revision: 1,
+                        expected_active_membership_revision: 1,
+                        target: DatabaseTransferTarget::Library {
+                            library_id: "library-1".to_owned(),
+                        },
+                    }],
+                },
+            )
+            .expect("transfer a Database row back to the Library");
+        let empty_source = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("read source after row transfer");
+        let DatabaseReadValue::DataSourceQuery {
+            value: empty_source,
+        } = empty_source.value
+        else {
+            panic!("Data Source query snapshot");
+        };
+        assert_eq!(empty_source["rows"].as_array().map(Vec::len), Some(0));
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-row-return".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::TransferPage {
+                        page_id: "page:database-row".to_owned(),
+                        expected_parent_revision: 2,
+                        expected_active_membership_revision: 0,
+                        target: DatabaseTransferTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                    }],
+                },
+            )
+            .expect("restore the historical Data Source membership");
+        let returned = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("read restored Database row");
+        let DatabaseReadValue::DataSourceQuery { value: returned } = returned.value else {
+            panic!("Data Source query snapshot");
+        };
+        assert_eq!(returned["rows"][0]["membership"]["revision"], 3);
+        assert_eq!(returned["rows"][0]["values"]["risk"]["value"], "high");
+        let page_parent_rejection = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-page-parent-rejected".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::TransferPage {
+                        page_id: "page:database-row".to_owned(),
+                        expected_parent_revision: 3,
+                        expected_active_membership_revision: 3,
+                        target: DatabaseTransferTarget::Page {
+                            page_id: "page:database-row".to_owned(),
+                        },
+                    }],
+                },
+            )
+            .expect_err("Page-parent transfers require Document authority");
+        assert_eq!(page_parent_rejection.code, CoreErrorCode::InvalidInput);
+
         let database_events = kernel
             .writer()
             .call(|connection| {
@@ -698,6 +801,6 @@ mod tests {
                     .map_err(StoreError::from)
             })
             .expect("count Database events");
-        assert_eq!(database_events, 4);
+        assert_eq!(database_events, 6);
     }
 }
