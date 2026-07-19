@@ -130,6 +130,10 @@ import {
   useLocalConversationConnection,
 } from "@/features/local-conversation";
 import { createThreadStageActions } from "@/features/local-conversation/thread-action-controller";
+import {
+  makePageEditorSessionKey,
+  pageEditorSessionRegistry,
+} from "@/lib/page-editor-session-registry";
 import { copyConversationMarkdown } from "@/features/local-conversation/copy-conversation-markdown";
 import {
   buildThreadSummaryPanelBrowserRow,
@@ -3659,18 +3663,22 @@ export function WorkbenchShell({
   ) => {
     try {
       await invoke("project-sessions:archive", session.id);
-      const sessions = await refreshProjectSessions(session.projectId);
-      await refreshSidebarThreadSnapshot();
-      if (activeSessionId === session.id) {
-        const fallbackSession = sessions[0]
-          ?? (session.projectId === null
-            ? activeSessions[0] ?? null
-            : null);
-        if (fallbackSession) {
-          selectSession(fallbackSession);
-        } else {
-          setActiveSessionId(null);
+      try {
+        const sessions = await refreshProjectSessions(session.projectId);
+        await refreshSidebarThreadSnapshot();
+        if (activeSessionId === session.id) {
+          const fallbackSession = sessions[0]
+            ?? (session.projectId === null
+              ? activeSessions[0] ?? null
+              : null);
+          if (fallbackSession) {
+            selectSession(fallbackSession);
+          } else {
+            setActiveSessionId(null);
+          }
         }
+      } finally {
+        await pageEditorSessionRegistry.disposeProjectSession(session.id);
       }
       return true;
     } catch {
@@ -4564,6 +4572,9 @@ export function WorkbenchShell({
   } = {}) => {
     if (!activeSession) return;
     const closingTab = activeSession.tabs.find((tab) => tab.id === tabId) ?? null;
+    const closingPageEditorSessionKey = closingTab?.kind === "page_stage"
+      ? makePageEditorSessionKey(activeSession.id, closingTab.id)
+      : null;
     if (
       options.closeTerminalRuntime !== false
       && closingTab?.kind === "terminal"
@@ -4588,7 +4599,13 @@ export function WorkbenchShell({
       "project-session-tabs:delete",
       hasDeleteOptions ? deleteInput : tabId,
     );
-    await refreshProjectSessions(activeSession.projectId);
+    try {
+      await refreshProjectSessions(activeSession.projectId);
+    } finally {
+      if (closingPageEditorSessionKey) {
+        await pageEditorSessionRegistry.dispose(closingPageEditorSessionKey);
+      }
+    }
   }, [activeSession, refreshProjectSessions]);
 
   const closeExitedTerminalTab = useEffectEvent(async (terminalSessionId: string) => {
@@ -13600,7 +13617,10 @@ function PageStageSessionTab({
   onToggleHistoryPanel,
   isActivePanelTab,
 }: {
-  tab: ProjectSessionTab & { config: ProjectSessionPageStageTabConfig };
+  tab: ProjectSessionTab & {
+    config: ProjectSessionPageStageTabConfig;
+    preview?: true;
+  };
   project: Project | null;
   closeRef: React.RefObject<(() => Promise<void>) | null>;
   persistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
@@ -13828,6 +13848,8 @@ function PageStageSessionTab({
 
         return (
           <PageStage
+            editorSessionKey={makePageEditorSessionKey(sessionId, tab.id)}
+            retainEditorSession={tab.preview !== true}
             documentAuthority={documentAuthority}
             page={page}
             projectId={tab.config.projectId}

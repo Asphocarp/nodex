@@ -13,7 +13,11 @@ import {
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { NfmEditor } from "./editor/nfm-editor";
-import { BlockDocumentSurface } from "@/components/block-documents/block-document-surface";
+import {
+  BlockDocumentSurface,
+  type BlockDocumentSurfaceValue,
+} from "@/components/block-documents/block-document-surface";
+import { PageEditorSessionSurface } from "@/components/block-documents/page-editor-session-surface";
 import { BlockDocumentSyncStatus } from "@/components/block-documents/block-document-sync-status";
 import { CollaborativePageTitle } from "@/components/block-documents/collaborative-page-title";
 import { PageStageInlinePropertyStrip } from "./page-stage/inline-property-strip";
@@ -27,6 +31,7 @@ import { toast } from "@/components/ui/toast";
 import { buildPageDeepLink } from "@/lib/page-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import type { BlockDocumentSurfaceRuntime } from "@/lib/block-document-surface-runtime";
+import type { PageEditorSession } from "@/lib/page-editor-session-registry";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { materializePageDocument } from "../../../shared/block-documents/block-document-codec";
 
@@ -74,6 +79,7 @@ interface PageStageDescriptionEditorProps {
   readonly isActivePanelTab: boolean;
   readonly headingRailPortalElement: HTMLElement | null;
   readonly scrollContainerRef: RefObject<HTMLDivElement | null>;
+  readonly editorSession?: PageEditorSession;
 }
 
 const useLivePageDocumentNfm = (document: Y.Doc): string => {
@@ -124,6 +130,7 @@ const PageStageDescriptionEditor = memo(
     isActivePanelTab,
     headingRailPortalElement,
     scrollContainerRef,
+    editorSession,
   }: PageStageDescriptionEditorProps) {
     if (showRawContent) {
       return <CollaborativePageStageRawContent document={document} />;
@@ -161,6 +168,7 @@ const PageStageDescriptionEditor = memo(
           scrollContainerRef,
         }}
         placeholder="Add a description..."
+        editorSession={editorSession}
       />
     );
   },
@@ -286,6 +294,84 @@ export function PageStage(props: PageStageProps) {
 
   if (!controller.page) return null;
   const page = controller.page;
+  const renderDocumentSurface = (
+    surface: BlockDocumentSurfaceValue,
+    editorSession?: PageEditorSession,
+  ): ReactNode => (
+    <PageStageContent
+      controller={controller}
+      title={
+        <PageStageDocumentTitle
+          title={surface.title}
+          surfaceWriteFence={surface.runtime}
+          onValueChange={controller.handleDocumentTitleChange}
+          onTitleSourceDispose={props.onTitleSourceDispose}
+          autoFocus={props.autoFocusTitle}
+        />
+      }
+      syncStatus={
+        <BlockDocumentSyncStatus
+          runtime={surface.runtime}
+          status={surface.status.provider}
+        />
+      }
+      description={
+        <PageStageDescriptionEditor
+          projectId={props.projectId}
+          projectName={props.projectName}
+          projectWorkspacePath={props.projectWorkspacePath}
+          pageId={page.id}
+          showRawContent={controller.showRawContent}
+          documentId={surface.documentId}
+          generation={surface.descriptor.generation}
+          document={surface.document}
+          body={surface.body}
+          awareness={surface.awareness}
+          surfaceWriteFence={surface.runtime}
+          sessionId={props.sessionId}
+          sessionThread={props.sessionThread}
+          canStartThreadInSession={props.canStartThreadInSession}
+          linkedCodexThreads={props.linkedCodexThreads}
+          onOpenCodexThread={props.onOpenCodexThread}
+          onOpenPage={props.onOpenPage}
+          onOpenDatabase={props.onOpenDatabase}
+          onStartNewSessionThreadFromEditor={
+            props.onStartNewSessionThreadFromEditor
+          }
+          onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
+          isActivePanelTab={props.isActivePanelTab ?? true}
+          headingRailPortalElement={headingRailPortalElement}
+          scrollContainerRef={controller.scrollContainerRef}
+          editorSession={editorSession}
+        />
+      }
+    />
+  );
+  const surfaceProps = {
+    projectId: props.projectId,
+    descriptor: props.documentAuthority.descriptor,
+    isActive: props.isActivePanelTab ?? true,
+    runtimeRef: documentRuntimeRef,
+    onReload: props.documentAuthority.reload,
+    dependencies: props.documentAuthority.surfaceDependencies,
+    pendingFallback: <PageStageContentSkeleton titleSnapshot={page.title} />,
+    localAwarenessState: {
+      user: { name: "You", color: "#3b82f6" },
+    },
+  } as const;
+  const documentSurface = props.editorSessionKey ? (
+    <PageEditorSessionSurface
+      {...surfaceProps}
+      sessionKey={props.editorSessionKey}
+      retainModelOnUnmount={props.retainEditorSession !== false}
+    >
+      {renderDocumentSurface}
+    </PageEditorSessionSurface>
+  ) : (
+    <BlockDocumentSurface {...surfaceProps}>
+      {(surface) => renderDocumentSurface(surface)}
+    </BlockDocumentSurface>
+  );
 
   return (
     <div
@@ -333,72 +419,7 @@ export function PageStage(props: PageStageProps) {
               controller.limitMainContentWidth ? "constrained" : "full"
             }
           >
-            <BlockDocumentSurface
-              projectId={props.projectId}
-              descriptor={props.documentAuthority.descriptor}
-              isActive={props.isActivePanelTab ?? true}
-              runtimeRef={documentRuntimeRef}
-              onReload={props.documentAuthority.reload}
-              dependencies={props.documentAuthority.surfaceDependencies}
-              pendingFallback={
-                <PageStageContentSkeleton titleSnapshot={page.title} />
-              }
-              localAwarenessState={{
-                user: { name: "You", color: "#3b82f6" },
-              }}
-            >
-              {(surface) => (
-                <PageStageContent
-                  controller={controller}
-                  title={
-                    <PageStageDocumentTitle
-                      title={surface.title}
-                      surfaceWriteFence={surface.runtime}
-                      onValueChange={controller.handleDocumentTitleChange}
-                      onTitleSourceDispose={props.onTitleSourceDispose}
-                      autoFocus={props.autoFocusTitle}
-                    />
-                  }
-                  syncStatus={
-                    <BlockDocumentSyncStatus
-                      runtime={surface.runtime}
-                      status={surface.status.provider}
-                    />
-                  }
-                  description={
-                    <PageStageDescriptionEditor
-                      projectId={props.projectId}
-                      projectName={props.projectName}
-                      projectWorkspacePath={props.projectWorkspacePath}
-                      pageId={page.id}
-                      showRawContent={controller.showRawContent}
-                      documentId={surface.documentId}
-                      generation={surface.descriptor.generation}
-                      document={surface.document}
-                      body={surface.body}
-                      awareness={surface.awareness}
-                      surfaceWriteFence={surface.runtime}
-                      sessionId={props.sessionId}
-                      sessionThread={props.sessionThread}
-                      canStartThreadInSession={props.canStartThreadInSession}
-                      linkedCodexThreads={props.linkedCodexThreads}
-                      onOpenCodexThread={props.onOpenCodexThread}
-                      onOpenPage={props.onOpenPage}
-                      onOpenDatabase={props.onOpenDatabase}
-                      onStartNewSessionThreadFromEditor={
-                        props.onStartNewSessionThreadFromEditor
-                      }
-                      onSendThreadSectionPrompt={
-                        props.onSendThreadSectionPrompt
-                      }
-                      isActivePanelTab={props.isActivePanelTab ?? true}
-                      headingRailPortalElement={headingRailPortalElement}
-                      scrollContainerRef={controller.scrollContainerRef}
-                    />
-                  }
-                />
-              )}
-            </BlockDocumentSurface>
+            {documentSurface}
           </div>
         </div>
       </div>

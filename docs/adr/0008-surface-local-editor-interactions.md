@@ -50,6 +50,14 @@ Unregistering the Yjs undo extension, switching the collaboration fragment, or d
 
 The manager scopes itself to the current Card body `Y.XmlFragment` and tracks only the surface's local y-prosemirror origin. Provider-applied remote updates and another window's client origin never enter the local stack. Title undo remains the title binding's separate surface-local scope; this ADR does not combine title and body into one undo item.
 
+### A durable PageTab owns a model session across view teardown
+
+A selected panel leaf still renders only one tab body. For a durable Page Stage tab, the stable ProjectSession/tab identity owns a window-local model session containing the Block Document runtime, Y.Doc/provider, BlockNote editor, and UndoManager. React receives a generation-fenced view lease from that session. Unmounting the tab body detaches the EditorView and its NodeViews, clears local Awareness, and gives pending updates a bounded background persist opportunity; it does not destroy the model or require a new SQLite/state-vector bootstrap when the user returns.
+
+Before the EditorView detaches, the model captures its selection as Yjs-relative anchor/head positions. After a later mount reconciles the current Y.Doc into the new EditorView, those relative positions resolve against the new document shape and restore the logical cursor or selection. Numeric ProseMirror positions are not retained because remote edits may shift them while the view is absent. Scroll state uses the same PageTab identity so two tabs showing one Page do not overwrite each other's viewport.
+
+The session is disposed only when its durable tab closes, its owning ProjectSession is archived, or its prepared descriptor changes across a store epoch, Document generation, schema, or owner identity fence. Descriptor replacement closes the old runtime before connecting its successor, and generation-fenced view releases cannot tear down a newer mount. An unpromoted Page preview disposes the same model seam with its final view; promotion preserves its stable tab/model identity and enables durable retention without a remount. Other embedded or standalone Document surfaces keep their ordinary React-owned runtime lifetime; retention is a PageTab capability, not a global hidden-editor cache.
+
 ### A write fence changes capability, not editor or participant identity
 
 Relocation preparation makes every affected surface temporarily non-editable. That capability change is applied to the existing BlockNote/Tiptap EditorView in place. It must not change the React callback-ref identity or call `editor.unmount()`: remounting the parent EditorView destroys its React NodeViews, and an expanded `card`/`cardRef` NodeView owns an independently synchronized participant required by the same relocation quorum.
@@ -82,6 +90,9 @@ The vendored BlockNote changes are narrow upstream-quality lifecycle and integra
 12. An accepted provider lease outlives visual React teardown until terminal synchronization; only an unacknowledged participant departure invalidates preparation.
 13. Exactly one semantic target owns feedback and drop for a pointer location; in nested editors that owner is the deepest registered/eligible surface.
 14. A nested Pragmatic drop executes exactly one authority command even though the adapter notifies every target in its inner-to-outer stack.
+15. An inactive durable PageTab retains its collaborative model but no EditorView, NodeView, DOM, or local Awareness state.
+16. Cursor restoration across PageTab view mounts uses Yjs-relative positions rather than stale ProseMirror offsets.
+17. Tab close, ProjectSession archive, or descriptor identity replacement destroys the retained editor/provider exactly once.
 
 ## Alternatives Rejected
 
@@ -96,6 +107,8 @@ Disabling nested event isolation was rejected because the parent editor would re
 Disabling React StrictMode was rejected because it would hide the lifetime bug and leave real detach/reattach paths unsafe.
 
 Recreating an UndoManager on every EditorView mount was rejected because a visual remount would erase the user's local undo history. Never destroying it was rejected because collaboration-fragment switches and disposed editors would retain Yjs observers.
+
+Keeping inactive Page editors mounted in hidden DOM was rejected because it ties application state to React/DOM survival and retains NodeViews, observers, layout work, and browser memory for invisible tabs. Recreating the full provider and editor on every tab switch was rejected because it repeats synchronization and loses local undo and selection continuity. Retaining numeric cursor offsets was rejected because concurrent edits make them refer to different content.
 
 Treating nested participant loss during a parent write fence as an ordinary drag failure was rejected because the parent itself caused that loss by remounting its EditorView. Ignoring all participant disconnects was also rejected: a surface that leaves before durable flush/ACK has supplied no safe fence proof.
 

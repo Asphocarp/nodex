@@ -9809,6 +9809,9 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(state.__mockPageStageMountsByPageId?.["card-2"] ?? 0).toBe(0);
     expect(state.__mockPageStageUnmountsByPageId?.["card-1"] ?? 0).toBe(0);
     expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockPageStagePropsByPageId?.["card-1"]?.editorSessionKey).toBe(
+      `${session.id}\u0000${firstPageTab.id}`,
+    );
     expect(screen.container.querySelector('[aria-label="Mock editor card-2"]')).toBe(null);
 
     const firstEditor = screen.container.querySelector('[aria-label="Mock editor card-1"]');
@@ -9840,6 +9843,9 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(state.__mockPageStageUnmountsByPageId?.["card-1"]).toBe(1);
     expect(state.__mockPageStageUnmountsByPageId?.["card-2"] ?? 0).toBe(0);
     expect(state.__mockPageStagePropsByPageId?.["card-2"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockPageStagePropsByPageId?.["card-2"]?.editorSessionKey).toBe(
+      `${session.id}\u0000${secondPageTab.id}`,
+    );
     expect(screen.container.querySelector('[aria-label="Mock editor card-1"]')).toBe(null);
 
     const secondEditor = screen.container.querySelector('[aria-label="Mock editor card-2"]');
@@ -9871,6 +9877,9 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(state.__mockPageStageUnmountsByPageId?.["card-1"]).toBe(1);
     expect(state.__mockPageStageUnmountsByPageId?.["card-2"]).toBe(1);
     expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockPageStagePropsByPageId?.["card-1"]?.editorSessionKey).toBe(
+      `${session.id}\u0000${firstPageTab.id}`,
+    );
     expect(screen.container.querySelector('[aria-label="Mock editor card-2"]')).toBe(null);
   });
 
@@ -10836,6 +10845,13 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(typeof previewTabId).toBe("string");
     expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
     expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
+    const previewPageStageProps = (globalThis as {
+      __lastPageStageProps?: Record<string, unknown>;
+    }).__lastPageStageProps;
+    expect(previewPageStageProps?.editorSessionKey).toBe(
+      `session:alpha:database-view\u0000${previewTabId ?? ""}`,
+    );
+    expect(previewPageStageProps?.retainEditorSession).toBe(false);
 
     invokeCalls = [];
     await act(async () => {
@@ -10859,6 +10875,13 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
     expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
     expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
+    const durablePageStageProps = (globalThis as {
+      __lastPageStageProps?: Record<string, unknown>;
+    }).__lastPageStageProps;
+    expect(durablePageStageProps?.editorSessionKey).toBe(
+      previewPageStageProps?.editorSessionKey,
+    );
+    expect(durablePageStageProps?.retainEditorSession).toBe(true);
   });
 
   test("page-stage preview close control does not pin before closing", async () => {

@@ -258,6 +258,7 @@ export function usePageStageController(
 ): UsePageStageControllerResult {
   const {
     onClose,
+    editorSessionKey,
     onLeavePage,
     onTitleChange,
     closeRef,
@@ -489,14 +490,14 @@ export function usePageStageController(
   const rememberScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
     if (!pageId) return;
     lastKnownScrollTopRef.current = { pageId, scrollTop };
-    rememberScrollPosition(projectId, pageId, scrollTop);
-  }, [projectId]);
+    rememberScrollPosition(projectId, pageId, scrollTop, editorSessionKey);
+  }, [editorSessionKey, projectId]);
 
   const saveScrollTopForPage = useCallback((pageId: string | null, scrollTop: number) => {
     if (!pageId) return;
     lastKnownScrollTopRef.current = { pageId, scrollTop };
-    saveScrollPosition(projectId, pageId, scrollTop);
-  }, [projectId]);
+    saveScrollPosition(projectId, pageId, scrollTop, editorSessionKey);
+  }, [editorSessionKey, projectId]);
 
   const readCurrentScrollTopForPage = useCallback((pageId: string, element: HTMLDivElement | null) => {
     if (element && elementHasLayoutBox(element)) {
@@ -527,7 +528,7 @@ export function usePageStageController(
 
     scrollRestoreVersionRef.current += 1;
     const restoreVersion = scrollRestoreVersionRef.current;
-    const saved = loadScrollPosition(projectId, pageId);
+    const saved = loadScrollPosition(projectId, pageId, editorSessionKey);
     if (saved === null) {
       if (options.resetWhenMissing) element.scrollTop = 0;
       return;
@@ -550,7 +551,7 @@ export function usePageStageController(
       if (remainingFrames > 0) requestAnimationFrame(retryRestore);
     };
     requestAnimationFrame(retryRestore);
-  }, [projectId]);
+  }, [editorSessionKey, projectId]);
 
   const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
     const previousNode = scrollContainerRef.current;

@@ -80,6 +80,12 @@ export type BlockNoteViewProps<
     BlockNoteEditor<BSchema, ISchema, SSchema>["onChange"]
   >[0];
 
+  /** Runs synchronously after the EditorView has mounted and reconciled. */
+  onEditorViewMount?: () => void;
+
+  /** Runs synchronously before the mounted EditorView is detached. */
+  onEditorViewUnmount?: () => void;
+
   /**
    * Whether to render the editor element itself.
    * When `false`, you're responsible for rendering the editor yourself using the {@link BlockNoteViewEditor} component.
@@ -120,6 +126,8 @@ function BlockNoteViewComponent<
     editable,
     onSelectionChange,
     onChange,
+    onEditorViewMount,
+    onEditorViewUnmount,
     formattingToolbar,
     linkToolbar,
     slashMenu,
@@ -224,11 +232,21 @@ function BlockNoteViewComponent<
         autoFocus,
         contentEditableProps,
         editable,
+        onEditorViewMount,
+        onEditorViewUnmount,
         portalTarget,
       },
       defaultUIProps,
     };
-  }, [autoFocus, contentEditableProps, editable, defaultUIProps, portalTarget]);
+  }, [
+    autoFocus,
+    contentEditableProps,
+    editable,
+    defaultUIProps,
+    onEditorViewMount,
+    onEditorViewUnmount,
+    portalTarget,
+  ]);
 
   return (
     <BlockNoteContext.Provider value={blockNoteContext}>
@@ -305,6 +323,10 @@ export const BlockNoteViewEditor = (props: { children?: ReactNode }) => {
   const editor = useBlockNoteEditor();
   const editableRef = useRef(ctx.editorProps.editable !== false);
   editableRef.current = ctx.editorProps.editable !== false;
+  const onEditorViewMountRef = useRef(ctx.editorProps.onEditorViewMount);
+  const onEditorViewUnmountRef = useRef(ctx.editorProps.onEditorViewUnmount);
+  onEditorViewMountRef.current = ctx.editorProps.onEditorViewMount;
+  onEditorViewUnmountRef.current = ctx.editorProps.onEditorViewUnmount;
 
   const portalManager = useMemo(() => {
     return getContentComponent();
@@ -332,7 +354,9 @@ export const BlockNoteViewEditor = (props: { children?: ReactNode }) => {
       editor._tiptapEditor.contentComponent = portalManager;
       if (element) {
         editor.mount(element, { portalTarget });
+        onEditorViewMountRef.current?.();
       } else {
+        onEditorViewUnmountRef.current?.();
         editor.unmount();
       }
     },

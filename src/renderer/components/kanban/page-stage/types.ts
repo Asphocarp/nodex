@@ -52,6 +52,10 @@ export interface PageStageDocumentAuthority {
 
 export interface PageStageProps {
   onClose: () => void;
+  /** Stable PageTab identity whose editor model may outlive this React view. */
+  editorSessionKey?: string;
+  /** False for an unpromoted preview whose model ends with this view. */
+  retainEditorSession?: boolean;
   /** Optional route-level navigation control for standalone Page surfaces. */
   onNavigateBack?: () => void;
   onLeavePage?: (snapshot: PageStageSessionSnapshot) => void;

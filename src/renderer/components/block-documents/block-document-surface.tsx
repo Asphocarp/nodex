@@ -319,7 +319,7 @@ const useSurfaceAwareness = (
   }, [descriptor, isActive, projectId, runtime]);
 };
 
-interface ReadySurfaceProps {
+export interface OwnedBlockDocumentRuntimeSurfaceProps {
   readonly runtime: BlockDocumentSurfaceRuntime;
   readonly projectId: string;
   readonly descriptor: PrimaryOwnedBlockDocumentDescriptor;
@@ -332,7 +332,7 @@ interface ReadySurfaceProps {
   readonly children: OwnedBlockDocumentSurfaceProps["children"];
 }
 
-function ReadySurface({
+export function OwnedBlockDocumentRuntimeSurface({
   runtime,
   projectId,
   descriptor,
@@ -343,7 +343,7 @@ function ReadySurface({
   pendingFallback,
   failureFallback,
   children,
-}: ReadySurfaceProps) {
+}: OwnedBlockDocumentRuntimeSurfaceProps) {
   const status = useSyncExternalStore(
     runtime.subscribe,
     runtime.getStatus,
@@ -546,7 +546,7 @@ function RuntimeOwner({
   };
 
   return (
-    <ReadySurface
+    <OwnedBlockDocumentRuntimeSurface
       runtime={runtime}
       projectId={projectId}
       descriptor={descriptor}
@@ -558,7 +558,7 @@ function RuntimeOwner({
       failureFallback={failureFallback}
     >
       {children}
-    </ReadySurface>
+    </OwnedBlockDocumentRuntimeSurface>
   );
 }
 

@@ -13,6 +13,7 @@ import {
   type LinkToolbarProps,
   useCreateBlockNote,
 } from "@blocknote/react";
+import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/shadcn";
 import {
   ChevronDown,
@@ -168,6 +169,7 @@ import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import type { BlockDocumentSurfaceWriteFence } from "@/lib/block-document-surface-runtime";
+import type { PageEditorSession } from "@/lib/page-editor-session-registry";
 import { useBlockDocumentSurfaceWriteFrozen } from "@/lib/use-block-document-surface-write-fence";
 import {
   useCodexAppServerControl,
@@ -237,6 +239,8 @@ interface NfmEditorCommonProps {
     navigationRef: Ref<NfmEditorBoundaryHandle>;
     onBoundaryArrow: (direction: VerticalArrowDirection) => boolean;
   };
+  /** Optional PageTab-owned model whose lifetime exceeds this React view. */
+  editorSession?: PageEditorSession;
 }
 
 export interface NfmEditorBoundaryHandle {
@@ -397,6 +401,7 @@ function NfmEditorInstance({
   className,
   surfaceWriteFence,
   embeddedBoundary,
+  editorSession,
 }: NfmEditorInstanceProps) {
   const writeFrozen = useBlockDocumentSurfaceWriteFrozen(surfaceWriteFence);
   const parentBlockReferenceRuntime = useBlockReferenceHostRuntime();
@@ -521,31 +526,37 @@ function NfmEditorInstance({
 
   const editorModeOptions = createNfmEditorModeOptions(source);
 
-  const editor = useCreateBlockNote(
-    {
-      schema: nfmSchema,
-      ...editorModeOptions,
-      generateBlockId: createUuidV7,
-      tabBehavior: "prefer-indent",
-      placeholders: {
-        default: placeholder,
-      },
-      uploadFile,
-      resolveFileUrl,
-      pasteHandler,
-      tables: {
-        headers: true,
-        cellBackgroundColor: true,
-        cellTextColor: false,
-        splitCells: false,
-      },
-      disableExtensions: [...NFM_DISABLED_EXTENSIONS, "link"],
-      extensions,
-      _tiptapOptions: {
-        extensions: tiptapExtensions,
-      },
+  const editorOptions = {
+    schema: nfmSchema,
+    ...editorModeOptions,
+    generateBlockId: createUuidV7,
+    tabBehavior: "prefer-indent" as const,
+    placeholders: {
+      default: placeholder,
     },
+    uploadFile,
+    resolveFileUrl,
+    pasteHandler,
+    tables: {
+      headers: true,
+      cellBackgroundColor: true,
+      cellTextColor: false,
+      splitCells: false,
+    },
+    disableExtensions: [...NFM_DISABLED_EXTENSIONS, "link"],
+    extensions,
+    _tiptapOptions: {
+      extensions: tiptapExtensions,
+    },
+  };
+  const retainedEditor = editorSession?.getOrCreateEditor(
+    editorInstanceKey,
+    () => BlockNoteEditor.create(editorOptions),
+  );
+  const editor = useCreateBlockNote(
+    editorOptions,
     [editorInstanceKey],
+    retainedEditor,
   );
 
   const resolveThreadMention = useCallback(
@@ -2188,6 +2199,12 @@ function NfmEditorInstance({
                 <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
                   <BlockNoteView
                     editor={editor}
+                    onEditorViewMount={() => {
+                      editorSession?.restoreSelection(editor);
+                    }}
+                    onEditorViewUnmount={() => {
+                      editorSession?.captureSelection(editor);
+                    }}
                     editable={!writeFrozen}
                     onChange={handleChange}
                     theme={themeMode}

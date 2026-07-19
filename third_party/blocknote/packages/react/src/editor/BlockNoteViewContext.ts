@@ -6,6 +6,8 @@ export type BlockNoteViewContextValue = {
     autoFocus?: boolean;
     contentEditableProps?: Record<string, any>;
     editable?: boolean;
+    onEditorViewMount?: () => void;
+    onEditorViewUnmount?: () => void;
     /**
      * Resolved portal target for `editor.portalElement` — passed to
      * `editor.mount()`. Comes from `portalElements.default` on

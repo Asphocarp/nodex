@@ -135,8 +135,10 @@ second writable owner.
 
 ADR 0008 remains intact: a remounted editor surface receives fresh surface-local
 view identity, while editor and collaboration lifecycle remains with its owning
-Module. Retained scopes never retain an editor instance, DOM, Y.Doc,
-UndoManager, provider, or relocation participant.
+Module. Maitai retained scopes never retain an editor instance, DOM, Y.Doc,
+UndoManager, provider, or relocation participant. A durable PageTab may instead
+own those non-DOM model objects through its dedicated deep runtime registry;
+Maitai and React carry only its stable identity and short-lived view lease.
 
 ADR 0009 remains intact: Block disclosure keeps stable occurrence identity,
 restart persistence, same-renderer duplicate synchronization, and no live

@@ -47,6 +47,7 @@ export const useCreateBlockNote = <
 >(
   options: Options = {} as Options,
   deps: DependencyList = [],
+  externalEditor?: BlockNoteEditor<any, any, any>,
 ): Options extends {
   schema: CustomBlockNoteSchema<infer BSchema, infer ISchema, infer SSchema>;
 }
@@ -57,15 +58,18 @@ export const useCreateBlockNote = <
       DefaultStyleSchema
     > => {
   const editor = useMemo(() => {
-    const editor = BlockNoteEditor.create(options) as any;
+    const editor = externalEditor ?? BlockNoteEditor.create(options) as any;
     if (window) {
       // for testing / dev purposes
       (window as any).ProseMirror = editor._tiptapEditor;
     }
     return editor;
-  }, deps); //eslint-disable-line react-hooks/exhaustive-deps
+  }, [externalEditor, ...deps]); //eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => retainEditor(editor), [editor]);
+  useEffect(() => {
+    if (externalEditor) return;
+    return retainEditor(editor);
+  }, [editor, externalEditor]);
 
   return editor;
 };

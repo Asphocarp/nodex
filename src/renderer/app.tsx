@@ -30,6 +30,7 @@ import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import type { CommandMenuMode, CommandMenuOpenRequest } from "@/lib/command-palette";
 import { invoke } from "@/lib/api";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
+import { pageEditorSessionRegistry } from "@/lib/page-editor-session-registry";
 import {
   readNavigationHistoryState,
   recordNavigationTransition,
@@ -359,6 +360,7 @@ function WorkbenchApp({
         layoutSaveTimerRef.current = null;
       }
       await pageStagePersistRef.current?.();
+      await pageEditorSessionRegistry.persistAll();
       await flushWindowSessionLayout();
     });
   }, [
