@@ -7930,6 +7930,24 @@
               {
                 "type": "object",
                 "required": [
+                  "tab_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "session_tab"
+                    ]
+                  },
+                  "tab_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "thread_id",
                   "kind"
                 ],
@@ -8792,6 +8810,14 @@
                 "enum": [
                   "update_tab"
                 ]
+              },
+              "state": {},
+              "state_key": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64"
               },
               "tab_id": {
                 "type": "string"
@@ -11958,6 +11984,24 @@
                             "items": {
                               "$ref": "#/components/schemas/ProjectWorkspaceSessionTab"
                             }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "tab",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "session_tab"
+                            ]
+                          },
+                          "tab": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceSessionTab"
                           }
                         }
                       },

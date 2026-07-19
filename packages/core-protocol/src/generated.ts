@@ -2051,6 +2051,10 @@ export interface components {
                 readonly session_id: string;
             } | {
                 /** @enum {string} */
+                readonly kind: "session_tab";
+                readonly tab_id: string;
+            } | {
+                /** @enum {string} */
                 readonly kind: "thread";
                 readonly thread_id: string;
             } | {
@@ -2244,6 +2248,9 @@ export interface components {
             readonly config?: unknown;
             /** @enum {string} */
             readonly kind: "update_tab";
+            readonly state?: unknown;
+            /** Format: int64 */
+            readonly state_key?: number | null;
             readonly tab_id: string;
             readonly title?: string | null;
         } | {
@@ -2952,6 +2959,10 @@ export interface components {
                     readonly panels: unknown;
                     readonly session: components["schemas"]["ProjectWorkspaceSessionSummary"];
                     readonly tabs: readonly components["schemas"]["ProjectWorkspaceSessionTab"][];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "session_tab";
+                    readonly tab: components["schemas"]["ProjectWorkspaceSessionTab"];
                 } | {
                     /** @enum {string} */
                     readonly kind: "thread";

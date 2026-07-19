@@ -20,6 +20,9 @@ pub enum ProjectWorkspaceRead {
     Session {
         session_id: String,
     },
+    SessionTab {
+        tab_id: String,
+    },
     Thread {
         thread_id: String,
     },
@@ -76,6 +79,9 @@ pub enum ProjectWorkspaceReadValue {
         session: ProjectWorkspaceSessionSummary,
         panels: Value,
         tabs: Vec<ProjectWorkspaceSessionTab>,
+    },
+    SessionTab {
+        tab: ProjectWorkspaceSessionTab,
     },
     Thread {
         thread: Box<ProjectWorkspaceThread>,
@@ -749,6 +755,18 @@ pub enum ProjectSessionIntent {
             skip_serializing_if = "Option::is_none"
         )]
         config: Option<Value>,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        state_key: Option<i64>,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        state: Option<Value>,
     },
     ReplaceTabState {
         tab_id: String,

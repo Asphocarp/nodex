@@ -266,4 +266,159 @@ describe("Core Project Workspace adapter", () => {
       },
     ]);
   });
+
+  test("creates a browser tab through one Session aggregate", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:create-tab",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+      },
+      event_sequence: 7,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 7,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "session",
+        session: sessionSummary({ thread_id: null }),
+        panels: {
+          right: emptyPanel("right:root"),
+          bottom: emptyPanel("bottom:root"),
+        },
+        tabs: [{
+          id: "tab:browser",
+          session_id: "session:one",
+          project_id: "project:one",
+          browser_tab_id: "browser:one",
+          panel_id: "right",
+          kind: "browser",
+          title: "Browser",
+          order: 0,
+          config: { projectId: "project:one", url: "https://example.test" },
+          state_key: 0,
+          state: {},
+          created_at: "2026-07-19T15:02:00.000Z",
+          updated_at: "2026-07-19T15:02:00.000Z",
+        }],
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.createProjectSessionTab({
+      sessionId: "session:one",
+      projectId: "project:one",
+      panelId: "right",
+      clientTabId: "tab:browser",
+      browserTabId: "browser:one",
+      kind: "browser",
+      title: "Browser",
+      config: { projectId: "project:one", url: "https://example.test" },
+    })).resolves.toMatchObject({
+      id: "tab:browser",
+      browserTabId: "browser:one",
+      config: { projectId: "project:one" },
+    });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "mutate_session",
+        session_id: "session:one",
+        intent: {
+          kind: "create_tab",
+          tab_id: "tab:browser",
+          panel_id: "right",
+          target_leaf_id: null,
+          browser_tab_id: "browser:one",
+          tab_kind: "browser",
+          title: "Browser",
+          config: { projectId: "project:one", url: "https://example.test" },
+        },
+      },
+    }]);
+  });
+
+  test("updates tab metadata and state in one native aggregate", async () => {
+    const client = new FakeCoreClient();
+    const coreTab = (overrides: Record<string, unknown> = {}) => ({
+      id: "tab:browser",
+      session_id: "session:one",
+      project_id: "project:one",
+      browser_tab_id: "browser:one",
+      panel_id: "right" as const,
+      kind: "browser" as const,
+      title: "Browser",
+      order: 0,
+      config: { projectId: "project:one" },
+      state_key: 0,
+      state: {},
+      created_at: "2026-07-19T15:02:00.000Z",
+      updated_at: "2026-07-19T15:02:00.000Z",
+      ...overrides,
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 7,
+      store_epoch: "epoch:test",
+      value: { kind: "session_tab", tab: coreTab() },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:update-tab",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+      },
+      event_sequence: 8,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 8,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "session_tab",
+        tab: coreTab({ title: "Updated", state_key: 2, state: { scrollY: 4 } }),
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.updateProjectSessionTab("tab:browser", {
+      title: "Updated",
+      stateKey: 2,
+      state: { scrollY: 4 },
+    })).resolves.toMatchObject({
+      title: "Updated",
+      stateKey: 2,
+      state: { scrollY: 4 },
+    });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "mutate_session",
+        session_id: "session:one",
+        intent: {
+          kind: "update_tab",
+          tab_id: "tab:browser",
+          title: "Updated",
+          state_key: 2,
+          state: { scrollY: 4 },
+        },
+      },
+    }]);
+  });
 });

@@ -105,6 +105,46 @@ describe("Electron native data authority", () => {
           expect.objectContaining({ id: createdSession.id, pinnedOrder: 0 }),
         ]),
       );
+      const firstBrowserTab = await workspace.createProjectSessionTab({
+        sessionId: createdSession.id,
+        projectId: createdProject.id,
+        panelId: "right",
+        kind: "browser",
+        title: "Browser One",
+        config: { projectId: createdProject.id, url: "https://example.test/one" },
+      });
+      const secondBrowserTab = await workspace.createProjectSessionTab({
+        sessionId: createdSession.id,
+        projectId: createdProject.id,
+        panelId: "right",
+        kind: "browser",
+        title: "Browser Two",
+        config: { projectId: createdProject.id, url: "https://example.test/two" },
+      });
+      await expect(workspace.updateProjectSessionTab(firstBrowserTab.id, {
+        title: "Browser One Updated",
+        stateKey: 1,
+        state: { scrollY: 24 },
+      })).resolves.toMatchObject({
+        title: "Browser One Updated",
+        stateKey: 1,
+        state: { scrollY: 24 },
+      });
+      const tabbedSession = await workspace.getProjectSession(createdSession.id);
+      if (!tabbedSession) throw new Error("Created Session disappeared");
+      const splitSession = await workspace.splitProjectSessionPanelGroup({
+        sessionId: createdSession.id,
+        panelId: "right",
+        leafId: tabbedSession.panels.right.layout.activeLeafId,
+        side: "right",
+        tabId: secondBrowserTab.id,
+      });
+      expect(splitSession?.tabs.map((tab) => tab.id)).toEqual(
+        expect.arrayContaining([firstBrowserTab.id, secondBrowserTab.id]),
+      );
+      expect(
+        splitSession?.panels.right.layout.root.type,
+      ).toBe("split");
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];

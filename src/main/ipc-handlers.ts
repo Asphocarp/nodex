@@ -681,6 +681,32 @@ export function registerIpcHandlers(
         projectSessionService.unarchiveProjectSession(sessionId),
       markProjectSessionUnread: async (sessionId, input) =>
         projectSessionService.markProjectSessionUnread(sessionId, input),
+      createProjectSessionTab: async (input) =>
+        projectSessionService.createProjectSessionTab(input),
+      splitProjectSessionPanelGroup: async (input) =>
+        projectSessionService.splitProjectSessionPanelGroup(input),
+      ensureProjectSessionPanelLeafToRight: async (input) =>
+        projectSessionService.ensureProjectSessionPanelLeafToRight(input),
+      mergeProjectSessionPanelGroup: async (input) =>
+        projectSessionService.mergeProjectSessionPanelGroup(input),
+      activateProjectSessionPanelGroup: async (input) =>
+        projectSessionService.activateProjectSessionPanelGroup(input),
+      resizeProjectSessionPanelGroup: async (input) =>
+        projectSessionService.resizeProjectSessionPanelGroup(input),
+      maximizeProjectSessionPanelGroup: async (input) =>
+        projectSessionService.maximizeProjectSessionPanelGroup(input),
+      reorderProjectSessionTabs: async (input) =>
+        projectSessionService.reorderProjectSessionTabs(input),
+      getProjectSessionTab: async (tabId) =>
+        projectSessionService.getProjectSessionTab(tabId),
+      updateProjectSessionTab: async (tabId, input) =>
+        projectSessionService.updateProjectSessionTab(tabId, input),
+      updateProjectSessionTabState: async (tabId, stateKey, state) =>
+        projectSessionService.updateProjectSessionTabState(
+          tabId,
+          stateKey,
+          state,
+        ),
     };
 
   const gitBranchWatches = new Map<
@@ -1806,12 +1832,12 @@ export function registerIpcHandlers(
     },
   );
 
-  registerHandle("project-session-tabs:create", (_, input) =>
-    projectSessionService.createProjectSessionTab(input),
+  registerHandle("project-session-tabs:create", async (_, input) =>
+    await projectWorkspace.createProjectSessionTab(input),
   );
 
-  registerHandle("project-session-tabs:update", (_, tabId: string, input) =>
-    projectSessionService.updateProjectSessionTab(tabId, input),
+  registerHandle("project-session-tabs:update", async (_, tabId: string, input) =>
+    await projectWorkspace.updateProjectSessionTab(tabId, input),
   );
 
   registerHandle(
@@ -1824,34 +1850,34 @@ export function registerIpcHandlers(
       ),
   );
 
-  registerHandle("project-session-panels:split", (_, input) =>
-    projectSessionService.splitProjectSessionPanelGroup(input),
+  registerHandle("project-session-panels:split", async (_, input) =>
+    await projectWorkspace.splitProjectSessionPanelGroup(input),
   );
 
-  registerHandle("project-session-panels:ensure-right-leaf", (_, input) =>
-    projectSessionService.ensureProjectSessionPanelLeafToRight(input),
+  registerHandle("project-session-panels:ensure-right-leaf", async (_, input) =>
+    await projectWorkspace.ensureProjectSessionPanelLeafToRight(input),
   );
 
-  registerHandle("project-session-panels:merge", (_, input) =>
-    projectSessionService.mergeProjectSessionPanelGroup(input),
+  registerHandle("project-session-panels:merge", async (_, input) =>
+    await projectWorkspace.mergeProjectSessionPanelGroup(input),
   );
 
-  registerHandle("project-session-panels:activate", (_, input) =>
-    projectSessionService.activateProjectSessionPanelGroup(input),
+  registerHandle("project-session-panels:activate", async (_, input) =>
+    await projectWorkspace.activateProjectSessionPanelGroup(input),
   );
 
-  registerHandle("project-session-panels:resize", (_, input) =>
-    projectSessionService.resizeProjectSessionPanelGroup(input),
+  registerHandle("project-session-panels:resize", async (_, input) =>
+    await projectWorkspace.resizeProjectSessionPanelGroup(input),
   );
 
-  registerHandle("project-session-panels:maximize", (_, input) =>
-    projectSessionService.maximizeProjectSessionPanelGroup(input),
+  registerHandle("project-session-panels:maximize", async (_, input) =>
+    await projectWorkspace.maximizeProjectSessionPanelGroup(input),
   );
 
   registerHandle(
     "project-session-tabs:state:update",
-    (_, tabId: string, stateKey: number, state) =>
-      projectSessionService.updateProjectSessionTabState(
+    async (_, tabId: string, stateKey: number, state) =>
+      await projectWorkspace.updateProjectSessionTabState(
         tabId,
         stateKey,
         state,
@@ -1862,8 +1888,8 @@ export function registerIpcHandlers(
     await deleteProjectSessionTabWithBrowserCleanup(input, browserSidebarService),
   );
 
-  registerHandle("project-session-tabs:reorder", (_, input) =>
-    projectSessionService.reorderProjectSessionTabs(input),
+  registerHandle("project-session-tabs:reorder", async (_, input) =>
+    await projectWorkspace.reorderProjectSessionTabs(input),
   );
 
   registerHandle("project-session-tabs:move", (_, input) =>

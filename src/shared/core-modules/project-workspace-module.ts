@@ -246,6 +246,7 @@ export type ProjectWorkspaceRead =
       readonly includeArchived?: boolean;
     }
   | { readonly kind: "session"; readonly sessionId: string }
+  | { readonly kind: "session_tab"; readonly tabId: string }
   | { readonly kind: "thread"; readonly threadId: string }
   | {
       readonly kind: "threads";
@@ -292,6 +293,7 @@ export type ProjectWorkspaceReadValue =
       readonly panels: Readonly<Record<PanelId, ProjectSessionPanelState>>;
       readonly tabs: readonly ProjectWorkspaceSessionTab[];
     }
+  | { readonly kind: "session_tab"; readonly tab: ProjectWorkspaceSessionTab }
   | {
       readonly kind: "thread";
       readonly thread: ProjectWorkspaceThread;
@@ -372,6 +374,8 @@ export type ProjectSessionIntent =
       readonly tabId: string;
       readonly title?: string;
       readonly config?: ProjectSessionTabConfig;
+      readonly stateKey?: number;
+      readonly state?: unknown;
     }
   | {
       readonly kind: "replace_tab_state";

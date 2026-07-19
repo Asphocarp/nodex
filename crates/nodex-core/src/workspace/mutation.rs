@@ -2746,6 +2746,8 @@ mod tests {
                             "projectId": "project-native",
                             "terminalSessionId": "terminal-session-2"
                         })),
+                        state_key: Some(4),
+                        state: Some(json!({ "cwd": "/workspace/native" })),
                     },
                 ),
             )
@@ -2806,6 +2808,8 @@ mod tests {
                             "pageId": "page:cross-project",
                             "titleSnapshot": "Updated"
                         })),
+                        state_key: None,
+                        state: None,
                     },
                 ),
             )
@@ -2846,6 +2850,8 @@ mod tests {
                             "projectId": "project:default",
                             "terminalSessionId": "wrong-owner"
                         })),
+                        state_key: None,
+                        state: None,
                     },
                 ),
             )

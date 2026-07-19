@@ -86,10 +86,14 @@ and archival all pass through one Workspace Adapter. Its Session startup/list
 and exact-snapshot reads hydrate the existing camel-cased IPC model from Core
 without opening SQLite in Electron; Session creation/deletion, ordinary and
 pinned ordering, pin, archive/restore, and unread transitions use the same
-Adapter and one native aggregate each. Composite Session view, panel, tab, and
-Thread-link mutations, Page detail/content/search/history, and the remaining
-deep Module adapters stay on the migration inventory and must fail closed
-rather than fall back in the Rust branch.
+Adapter and one native aggregate each. Tab creation, metadata/state replacement,
+panel split/ensure/merge/activation/resize/maximize, and leaf-local tab reorder
+also cross that boundary; tab-only calls resolve their owning Session through
+an exact Workspace read instead of scanning repositories. Composite Session
+view updates, tab delete/cross-panel move, Thread-link mutations, Page
+detail/content/search/history, and the remaining deep Module adapters stay on
+the migration inventory and must fail closed rather than fall back in the Rust
+branch.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

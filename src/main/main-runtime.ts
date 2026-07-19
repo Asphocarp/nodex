@@ -1495,6 +1495,32 @@ export async function runMainAppStartup(
           projectSessionService.unarchiveProjectSession(sessionId),
         markProjectSessionUnread: async (sessionId, input) =>
           projectSessionService.markProjectSessionUnread(sessionId, input),
+        createProjectSessionTab: async (input) =>
+          projectSessionService.createProjectSessionTab(input),
+        splitProjectSessionPanelGroup: async (input) =>
+          projectSessionService.splitProjectSessionPanelGroup(input),
+        ensureProjectSessionPanelLeafToRight: async (input) =>
+          projectSessionService.ensureProjectSessionPanelLeafToRight(input),
+        mergeProjectSessionPanelGroup: async (input) =>
+          projectSessionService.mergeProjectSessionPanelGroup(input),
+        activateProjectSessionPanelGroup: async (input) =>
+          projectSessionService.activateProjectSessionPanelGroup(input),
+        resizeProjectSessionPanelGroup: async (input) =>
+          projectSessionService.resizeProjectSessionPanelGroup(input),
+        maximizeProjectSessionPanelGroup: async (input) =>
+          projectSessionService.maximizeProjectSessionPanelGroup(input),
+        reorderProjectSessionTabs: async (input) =>
+          projectSessionService.reorderProjectSessionTabs(input),
+        getProjectSessionTab: async (tabId) =>
+          projectSessionService.getProjectSessionTab(tabId),
+        updateProjectSessionTab: async (tabId, input) =>
+          projectSessionService.updateProjectSessionTab(tabId, input),
+        updateProjectSessionTabState: async (tabId, stateKey, state) =>
+          projectSessionService.updateProjectSessionTabState(
+            tabId,
+            stateKey,
+            state,
+          ),
       },
     }),
     libraryModule: createDesktopLibraryModuleBridge({

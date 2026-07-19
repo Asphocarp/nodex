@@ -106,6 +106,28 @@ pub(super) fn read(
                 tabs,
             })
         }
+        ProjectWorkspaceRead::SessionTab { tab_id } => {
+            validate_id("tab_id", &tab_id)?;
+            let session_id = connection
+                .query_row(
+                    "SELECT tab.session_id FROM project_session_tabs tab \
+                     JOIN project_sessions session ON session.id = tab.session_id \
+                     LEFT JOIN projects project ON project.id = session.project_id \
+                     WHERE tab.id = ?1 \
+                       AND (session.project_id IS NULL OR project.library_id = ?2)",
+                    params![tab_id, library_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .ok_or_else(|| not_found("Project Session tab is unavailable"))?;
+            let session = read_session(connection, library_id, &session_id)?
+                .ok_or_else(|| corrupt("Project Session tab owner is unavailable"))?;
+            let tab = read_session_tabs(connection, &session_id, session.project_id.as_deref())?
+                .into_iter()
+                .find(|tab| tab.id == tab_id)
+                .ok_or_else(|| corrupt("Project Session tab disappeared during its read"))?;
+            Ok(ProjectWorkspaceReadValue::SessionTab { tab })
+        }
         ProjectWorkspaceRead::Thread { thread_id } => {
             validate_id("thread_id", &thread_id)?;
             Ok(ProjectWorkspaceReadValue::Thread {
@@ -697,6 +719,14 @@ mod tests {
                             '2026-07-19T03:33:00.000Z', '2026-07-19T03:33:00.000Z'), \
                            ('session-projectless', NULL, 'Projectless', 0, 0, NULL, 0, NULL, 0, 0, \
                             '{}', '2026-07-19T03:30:00.000Z', '2026-07-19T03:30:00.000Z'); \
+                         INSERT INTO project_session_tabs( \
+                           id, session_id, project_id, browser_tab_id, panel_id, kind, title, \
+                           config_json, state_key, state_json, \"order\", created_at, updated_at \
+                         ) VALUES ( \
+                           'tab-1', 'session-project', 'project-1', 'browser-1', 'right', \
+                           'browser', 'Browser', '{\"projectId\":\"project-1\"}', 0, '{}', 0, \
+                           '2026-07-19T03:32:00.000Z', '2026-07-19T03:32:00.000Z' \
+                         ); \
                          INSERT INTO codex_threads( \
                            thread_id, project_id, thread_name, thread_preview, model_provider, \
                            managed_worktree_path, status_type, status_active_flags_json, archived, \
@@ -829,7 +859,19 @@ mod tests {
         assert_eq!(session.display_title, "Thread preview");
         assert_eq!(panels["right"]["layout"]["version"], 2);
         assert_eq!(panels["right"]["layout"]["root"]["id"], "main");
-        assert!(tabs.is_empty());
+        assert_eq!(tabs.len(), 1);
+        assert_eq!(tabs[0].id, "tab-1");
+
+        let ProjectWorkspaceReadValue::SessionTab { tab } = read(
+            &module,
+            ProjectWorkspaceRead::SessionTab {
+                tab_id: "tab-1".to_owned(),
+            },
+        ) else {
+            panic!("session tab snapshot");
+        };
+        assert_eq!(tab.session_id, "session-project");
+        assert_eq!(tab.browser_tab_id.as_deref(), Some("browser-1"));
 
         let ProjectWorkspaceReadValue::Thread { thread } = read(
             &module,

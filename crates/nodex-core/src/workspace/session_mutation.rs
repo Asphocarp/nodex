@@ -203,6 +203,8 @@ pub(super) fn mutate_session(
             tab_id,
             title,
             config,
+            state_key,
+            state,
         } => update_tab(
             connection,
             library_id,
@@ -215,6 +217,8 @@ pub(super) fn mutate_session(
             tab_id,
             title.as_deref(),
             config.as_ref(),
+            *state_key,
+            state.as_ref(),
         ),
         ProjectSessionIntent::ReplaceTabState {
             tab_id,
@@ -624,10 +628,17 @@ fn update_tab(
     tab_id: &str,
     title: Option<&str>,
     config: Option<&Value>,
+    state_key: Option<i64>,
+    state: Option<&Value>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_tab_id(tab_id)?;
-    if title.is_none() && config.is_none() {
+    if title.is_none() && config.is_none() && state_key.is_none() && state.is_none() {
         return Err(invalid("Project Session tab update is empty"));
+    }
+    if state_key.is_some_and(|value| value < 0) {
+        return Err(invalid(
+            "Project Session tab state key must be non-negative",
+        ));
     }
     let (tab_kind, tab_project_id) = require_tab_kind(connection, session_id, tab_id)?;
     if tab_project_id != authority.project_id {
@@ -674,12 +685,31 @@ fn update_tab(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|_| internal("Project Session tab config cannot be encoded"))?;
+    let state_json = state
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|_| invalid("Project Session tab state cannot be encoded"))?;
+    if state_json
+        .as_ref()
+        .is_some_and(|encoded| encoded.len() > MAX_TAB_JSON_BYTES)
+    {
+        return Err(invalid("Project Session tab state exceeds its bound"));
+    }
     let now = sqlite_now(connection)?;
     let changed = connection.execute(
         "UPDATE project_session_tabs SET title = COALESCE(?1, title), \
-           config_json = COALESCE(?2, config_json), updated_at = ?3 \
-         WHERE id = ?4 AND session_id = ?5",
-        params![title, config_json, now, tab_id, session_id],
+           config_json = COALESCE(?2, config_json), \
+           state_key = COALESCE(?3, state_key), state_json = COALESCE(?4, state_json), \
+           updated_at = ?5 WHERE id = ?6 AND session_id = ?7",
+        params![
+            title,
+            config_json,
+            state_key,
+            state_json,
+            now,
+            tab_id,
+            session_id
+        ],
     )?;
     if changed != 1 {
         return Err(corrupt("Project Session tab disappeared during update"));

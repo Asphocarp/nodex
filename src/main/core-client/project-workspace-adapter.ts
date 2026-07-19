@@ -12,16 +12,49 @@ import type {
   ProjectSessionListOptions,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
+  ProjectSessionPanelActivateInput,
+  ProjectSessionPanelEnsureRightLeafInput,
+  ProjectSessionPanelEnsureRightLeafResult,
+  ProjectSessionPanelMaximizeInput,
+  ProjectSessionPanelMergeInput,
+  ProjectSessionPanelResizeInput,
+  ProjectSessionPanelSplitInput,
   ProjectSessionSummary,
   ProjectSessionTab,
+  ProjectSessionTabCreateInput,
+  ProjectSessionTabReorderInput,
+  ProjectSessionTabUpdateInput,
   ProjectSessionThreadLink,
   ProjectSessionUnreadInput,
   ProjectUpdateInput,
 } from "../../shared/types";
 import {
+  ProjectSessionPanelActivateInputSchema,
+  ProjectSessionPanelEnsureRightLeafInputSchema,
+  ProjectSessionPanelMaximizeInputSchema,
+  ProjectSessionPanelMergeInputSchema,
+  ProjectSessionPanelResizeInputSchema,
+  ProjectSessionPanelSplitInputSchema,
+  ProjectSessionTabCreateInputSchema,
+  ProjectSessionTabReorderInputSchema,
   ProjectSessionPanelsSchema,
   parseProjectSessionTabConfig,
 } from "../../shared/schemas/project-sessions";
+import {
+  activateProjectSessionPanelLeaf,
+  findNearestProjectSessionPanelLeafToRight,
+  findProjectSessionPanelLeaf,
+  getProjectSessionPanelActiveLeaf,
+  insertProjectSessionPanelLeaf,
+  listProjectSessionPanelLeaves,
+  mergeProjectSessionPanelLeaf,
+  normalizeProjectSessionPanelLayout,
+  pruneEmptyProjectSessionPanelLeaves,
+  reorderProjectSessionPanelLeafTabs,
+  setProjectSessionPanelBranchRatio,
+  setProjectSessionPanelMaximizedLeaf,
+  splitProjectSessionPanelLeaf,
+} from "../../shared/project-session-panel-layout";
 import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
@@ -89,6 +122,40 @@ export interface DesktopProjectWorkspacePort {
     sessionId: string,
     input: ProjectSessionUnreadInput,
   ): Promise<ProjectSession | null>;
+  createProjectSessionTab(
+    input: ProjectSessionTabCreateInput,
+  ): Promise<ProjectSessionTab>;
+  splitProjectSessionPanelGroup(
+    input: ProjectSessionPanelSplitInput,
+  ): Promise<ProjectSession | null>;
+  ensureProjectSessionPanelLeafToRight(
+    input: ProjectSessionPanelEnsureRightLeafInput,
+  ): Promise<ProjectSessionPanelEnsureRightLeafResult | null>;
+  mergeProjectSessionPanelGroup(
+    input: ProjectSessionPanelMergeInput,
+  ): Promise<ProjectSession | null>;
+  activateProjectSessionPanelGroup(
+    input: ProjectSessionPanelActivateInput,
+  ): Promise<ProjectSession | null>;
+  resizeProjectSessionPanelGroup(
+    input: ProjectSessionPanelResizeInput,
+  ): Promise<ProjectSession | null>;
+  maximizeProjectSessionPanelGroup(
+    input: ProjectSessionPanelMaximizeInput,
+  ): Promise<ProjectSession | null>;
+  reorderProjectSessionTabs(
+    input: ProjectSessionTabReorderInput,
+  ): Promise<ProjectSession | null>;
+  getProjectSessionTab(tabId: string): Promise<ProjectSessionTab | null>;
+  updateProjectSessionTab(
+    tabId: string,
+    input: ProjectSessionTabUpdateInput,
+  ): Promise<ProjectSessionTab | null>;
+  updateProjectSessionTabState(
+    tabId: string,
+    stateKey: number,
+    state: unknown,
+  ): Promise<ProjectSessionTab | null>;
 }
 
 const isNotFound = (error: unknown): boolean =>
@@ -227,6 +294,23 @@ export function createCoreProjectWorkspaceAdapter(
     };
   };
 
+  const readTab = async (tabId: string): Promise<ProjectSessionTab | null> => {
+    let snapshot: ProjectWorkspaceReadSnapshot;
+    try {
+      snapshot = await client.workspaceRead({
+        kind: "session_tab",
+        tab_id: tabId,
+      });
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+    if (snapshot.value.kind !== "session_tab") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    return fromCoreTab(snapshot.value.tab);
+  };
+
   const listSummaries = async (
     projectId: string | null,
     options?: ProjectSessionListOptions,
@@ -258,6 +342,45 @@ export function createCoreProjectWorkspaceAdapter(
     intent: Parameters<CoreClientPort["workspaceApply"]>[0]["intent"],
   ): Promise<void> => {
     await client.workspaceApply({ operationId: randomUUID(), intent });
+  };
+
+  const replacePanelLayout = async (
+    sessionId: string,
+    panelId: PanelId,
+    layout: ProjectSession["panels"][PanelId]["layout"],
+  ): Promise<ProjectSession | null> => {
+    await apply({
+      kind: "mutate_session",
+      session_id: sessionId,
+      intent: {
+        kind: "replace_panel_layout",
+        panel_id: panelId,
+        layout,
+      },
+    });
+    return await readSession(sessionId);
+  };
+
+  const cleanupPanelLayout = (
+    layout: ProjectSession["panels"][PanelId]["layout"],
+    tabIds: readonly string[],
+    options: {
+      readonly preserveEmptyLeafIds?: readonly string[];
+      readonly preferredActiveLeafId?: string | null;
+      readonly preferredActiveTabId?: string | null;
+    } = {},
+  ) => {
+    const normalizeOptions = {
+      preferredActiveLeafId: options.preferredActiveLeafId,
+      preferredActiveTabId: options.preferredActiveTabId,
+    };
+    return pruneEmptyProjectSessionPanelLeaves(
+      normalizeProjectSessionPanelLayout(layout, tabIds, normalizeOptions),
+      {
+        ...normalizeOptions,
+        preserveLeafIds: options.preserveEmptyLeafIds,
+      },
+    );
   };
 
   const getProject = async (projectId: string): Promise<Project | null> => {
@@ -438,6 +561,225 @@ export function createCoreProjectWorkspaceAdapter(
         intent: { kind: "set_unread", unread: input.unread },
       });
       return await readSession(sessionId);
+    },
+    createProjectSessionTab: async (input) => {
+      const parsed = ProjectSessionTabCreateInputSchema.parse(input);
+      const tabId = parsed.clientTabId ?? randomUUID();
+      await apply({
+        kind: "mutate_session",
+        session_id: parsed.sessionId,
+        intent: {
+          kind: "create_tab",
+          tab_id: tabId,
+          panel_id: parsed.panelId,
+          target_leaf_id: parsed.targetLeafId ?? null,
+          browser_tab_id: parsed.browserTabId ?? null,
+          tab_kind: parsed.kind,
+          title: parsed.title,
+          config: parsed.config,
+        },
+      });
+      const session = await readSession(parsed.sessionId);
+      const exact = session?.tabs.find((tab) => tab.id === tabId);
+      if (exact) return exact;
+      const equivalent = session?.tabs.find((tab) => {
+        if (tab.kind === parsed.kind && (parsed.kind === "review")) return true;
+        if (tab.kind !== "db_view" || parsed.kind !== "db_view") return false;
+        return "databaseViewId" in tab.config &&
+          "databaseViewId" in parsed.config &&
+          tab.config.databaseViewId === parsed.config.databaseViewId;
+      });
+      if (!equivalent) {
+        throw new Error(`Created Project Session tab not found: ${tabId}`);
+      }
+      return equivalent;
+    },
+    splitProjectSessionPanelGroup: async (input) => {
+      const parsed = ProjectSessionPanelSplitInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) return null;
+      if (
+        parsed.tabId &&
+        !session.tabs.some(
+          (tab) => tab.id === parsed.tabId && tab.panelId === parsed.panelId,
+        )
+      ) {
+        throw new Error("Tab does not belong to the target panel");
+      }
+      const panelTabIds = session.tabs
+        .filter((tab) => tab.panelId === parsed.panelId)
+        .map((tab) => tab.id);
+      const layout = cleanupPanelLayout(
+        splitProjectSessionPanelLeaf(session.panels[parsed.panelId].layout, {
+          leafId: parsed.leafId,
+          side: parsed.side,
+          tabId: parsed.tabId,
+          newLeafId: randomUUID(),
+          newBranchId: randomUUID(),
+        }),
+        panelTabIds,
+        {
+          preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
+          preferredActiveLeafId: parsed.leafId,
+          preferredActiveTabId: parsed.tabId ?? null,
+        },
+      );
+      return await replacePanelLayout(parsed.sessionId, parsed.panelId, layout);
+    },
+    ensureProjectSessionPanelLeafToRight: async (input) => {
+      const parsed = ProjectSessionPanelEnsureRightLeafInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) return null;
+      const panelTabIds = session.tabs
+        .filter((tab) => tab.panelId === parsed.panelId)
+        .map((tab) => tab.id);
+      const layout = normalizeProjectSessionPanelLayout(
+        session.panels[parsed.panelId].layout,
+        panelTabIds,
+        { preferredActiveLeafId: parsed.sourceLeafId },
+      );
+      const sourceLeaf = findProjectSessionPanelLeaf(
+        layout,
+        parsed.sourceLeafId,
+      );
+      if (!sourceLeaf) return null;
+      const existingLeafId = findNearestProjectSessionPanelLeafToRight(
+        layout,
+        sourceLeaf.id,
+      );
+      if (existingLeafId) {
+        return { session, leafId: existingLeafId, created: false };
+      }
+      const leafId = randomUUID();
+      const next = await replacePanelLayout(
+        parsed.sessionId,
+        parsed.panelId,
+        insertProjectSessionPanelLeaf(layout, {
+          leafId: sourceLeaf.id,
+          side: "right",
+          newLeafId: leafId,
+          newBranchId: randomUUID(),
+        }),
+      );
+      return next ? { session: next, leafId, created: true } : null;
+    },
+    mergeProjectSessionPanelGroup: async (input) => {
+      const parsed = ProjectSessionPanelMergeInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) return null;
+      return await replacePanelLayout(
+        parsed.sessionId,
+        parsed.panelId,
+        mergeProjectSessionPanelLeaf(
+          session.panels[parsed.panelId].layout,
+          parsed.leafId,
+        ),
+      );
+    },
+    activateProjectSessionPanelGroup: async (input) => {
+      const parsed = ProjectSessionPanelActivateInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) return null;
+      return await replacePanelLayout(
+        parsed.sessionId,
+        parsed.panelId,
+        activateProjectSessionPanelLeaf(
+          session.panels[parsed.panelId].layout,
+          parsed.leafId,
+          parsed.tabId,
+        ),
+      );
+    },
+    resizeProjectSessionPanelGroup: async (input) => {
+      const parsed = ProjectSessionPanelResizeInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) return null;
+      return await replacePanelLayout(
+        parsed.sessionId,
+        parsed.panelId,
+        setProjectSessionPanelBranchRatio(
+          session.panels[parsed.panelId].layout,
+          parsed.branchId,
+          parsed.ratio,
+        ),
+      );
+    },
+    maximizeProjectSessionPanelGroup: async (input) => {
+      const parsed = ProjectSessionPanelMaximizeInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) return null;
+      return await replacePanelLayout(
+        parsed.sessionId,
+        parsed.panelId,
+        setProjectSessionPanelMaximizedLeaf(
+          session.panels[parsed.panelId].layout,
+          parsed.leafId,
+        ),
+      );
+    },
+    reorderProjectSessionTabs: async (input) => {
+      const parsed = ProjectSessionTabReorderInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) return null;
+      const panelTabs = session.tabs.filter(
+        (tab) => tab.panelId === parsed.panelId,
+      );
+      const layout = normalizeProjectSessionPanelLayout(
+        session.panels[parsed.panelId].layout,
+        panelTabs.map((tab) => tab.id),
+      );
+      const selected = new Set(parsed.orderedTabIds);
+      const targetLeaf = parsed.leafId
+        ? findProjectSessionPanelLeaf(layout, parsed.leafId)
+        : panelTabs.length === parsed.orderedTabIds.length
+          ? getProjectSessionPanelActiveLeaf(layout)
+          : listProjectSessionPanelLeaves(layout).find((leaf) =>
+              leaf.tabIds.some((tabId) => selected.has(tabId)),
+            ) ?? null;
+      const leafId = targetLeaf?.id ?? getProjectSessionPanelActiveLeaf(layout).id;
+      return await replacePanelLayout(
+        parsed.sessionId,
+        parsed.panelId,
+        reorderProjectSessionPanelLeafTabs(
+          layout,
+          leafId,
+          parsed.orderedTabIds,
+        ),
+      );
+    },
+    getProjectSessionTab: readTab,
+    updateProjectSessionTab: async (tabId, input) => {
+      const current = await readTab(tabId);
+      if (!current) return null;
+      const hasState = Object.prototype.hasOwnProperty.call(input, "state");
+      await apply({
+        kind: "mutate_session",
+        session_id: current.sessionId,
+        intent: {
+          kind: "update_tab",
+          tab_id: tabId,
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.config !== undefined ? { config: input.config } : {}),
+          ...(input.stateKey !== undefined ? { state_key: input.stateKey } : {}),
+          ...(hasState ? { state: input.state } : {}),
+        },
+      });
+      return await readTab(tabId);
+    },
+    updateProjectSessionTabState: async (tabId, stateKey, state) => {
+      const current = await readTab(tabId);
+      if (!current) return null;
+      await apply({
+        kind: "mutate_session",
+        session_id: current.sessionId,
+        intent: {
+          kind: "replace_tab_state",
+          tab_id: tabId,
+          state_key: stateKey,
+          state,
+        },
+      });
+      return await readTab(tabId);
     },
   };
 }
