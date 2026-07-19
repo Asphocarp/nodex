@@ -12,6 +12,7 @@ import {
 import type { DocumentSyncRealtimeEvent } from "../../shared/block-documents/document-sync";
 import type {
   CoreEventEnvelope,
+  CoreEventReplayRequired,
   CoreEventSubscription,
   DocumentResyncRequired,
 } from "./types";
@@ -32,6 +33,13 @@ export class CoreHttpError extends Error {
   ) {
     super(message);
     this.name = "CoreHttpError";
+  }
+}
+
+export class CoreEventReplayError extends Error {
+  constructor(readonly boundary: CoreEventReplayRequired) {
+    super("Core event replay requires fresh reads");
+    this.name = "CoreEventReplayError";
   }
 }
 
@@ -177,6 +185,7 @@ export class UdsHttpTransport {
     requestHeaders: Readonly<Record<string, string>> = {},
     onResyncRequired?: (event: DocumentResyncRequired) => void,
     onDocumentRealtime?: (event: DocumentSyncRealtimeEvent) => void,
+    onCoreResyncRequired?: (event: CoreEventReplayRequired) => void,
   ): Promise<CoreEventSubscription> {
     if (!Number.isSafeInteger(after) || after < 0) {
       return Promise.reject(new Error("Event sequence must be a non-negative integer"));
@@ -228,32 +237,38 @@ export class UdsHttpTransport {
             response.destroy();
             rejectDone?.(error);
           };
+          const processFrame = (frame: { readonly event: string; readonly data: string }): void => {
+            if (frame.event === "module") {
+              onEvent(parseEventEnvelope(frame.data));
+              return;
+            }
+            if (frame.event === "document-resync-required") {
+              onResyncRequired?.(parseDocumentResync(frame.data));
+              return;
+            }
+            if (frame.event === "document-realtime") {
+              onDocumentRealtime?.(decodeDocumentRealtimeSseEvent(frame.data));
+              return;
+            }
+            if (frame.event !== "core-resync-required") return;
+
+            const boundary = parseCoreResync(frame.data);
+            if (onCoreResyncRequired) {
+              onCoreResyncRequired(boundary);
+              return;
+            }
+            throw new CoreEventReplayError(boundary);
+          };
           response.on("data", (chunk: Buffer) => {
             try {
-              for (const frame of parser.push(chunk)) {
-                if (frame.event === "module") {
-                  onEvent(parseEventEnvelope(frame.data));
-                } else if (frame.event === "document-resync-required") {
-                  onResyncRequired?.(parseDocumentResync(frame.data));
-                } else if (frame.event === "document-realtime") {
-                  onDocumentRealtime?.(decodeDocumentRealtimeSseEvent(frame.data));
-                }
-              }
+              for (const frame of parser.push(chunk)) processFrame(frame);
             } catch (error) {
               fail(error);
             }
           });
           response.on("end", () => {
             try {
-              for (const frame of parser.finish()) {
-                if (frame.event === "module") {
-                  onEvent(parseEventEnvelope(frame.data));
-                } else if (frame.event === "document-resync-required") {
-                  onResyncRequired?.(parseDocumentResync(frame.data));
-                } else if (frame.event === "document-realtime") {
-                  onDocumentRealtime?.(decodeDocumentRealtimeSseEvent(frame.data));
-                }
-              }
+              for (const frame of parser.finish()) processFrame(frame);
               if (!closed) resolveDone?.();
               closed = true;
             } catch (error) {
@@ -370,3 +385,27 @@ const parseDocumentResync = (json: string): DocumentResyncRequired => {
   }
   return value as DocumentResyncRequired;
 };
+
+const parseCoreResync = (json: string): CoreEventReplayRequired => {
+  const value = decodeBoundedJson<unknown>(
+    Buffer.from(json, "utf8"),
+    MAX_EVENT_FRAME_BYTES,
+    "Core resync event",
+  );
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("requested_after" in value) ||
+    !isNonNegativeSafeInteger(value.requested_after) ||
+    !("oldest_available" in value) ||
+    !isNonNegativeSafeInteger(value.oldest_available) ||
+    !("event_head" in value) ||
+    !isNonNegativeSafeInteger(value.event_head)
+  ) {
+    throw new Error("Core resync event is invalid");
+  }
+  return value as CoreEventReplayRequired;
+};
+
+const isNonNegativeSafeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;

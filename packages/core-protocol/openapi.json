@@ -2224,6 +2224,28 @@
           }
         }
       },
+      "EventReplayRequired": {
+        "type": "object",
+        "required": [
+          "requested_after",
+          "oldest_available",
+          "event_head"
+        ],
+        "properties": {
+          "event_head": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "oldest_available": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requested_after": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "HandshakeRequest": {
         "type": "object",
         "required": [

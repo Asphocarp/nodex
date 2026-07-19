@@ -27,6 +27,7 @@ import { readCoreRuntimeConnection } from "./runtime-descriptor";
 import type {
   CoreClientPort,
   CoreEventEnvelope,
+  CoreEventReplayRequired,
   CoreEventSubscription,
   CoreHandshakeResponse,
   CoreModuleError,
@@ -402,11 +403,15 @@ export class CoreClient implements CoreClientPort {
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    onResyncRequired?: (event: CoreEventReplayRequired) => void,
   ): Promise<CoreEventSubscription> {
     return this.#transport.openEventStream(
       after,
       onEvent,
       this.#moduleHeaders(),
+      undefined,
+      undefined,
+      onResyncRequired,
     );
   }
 

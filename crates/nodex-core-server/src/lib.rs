@@ -29,6 +29,7 @@ use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
 };
+use nodex_core::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
 use nodex_core::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use nodex_core::infrastructure::store::SqliteStoreKernel;
 use nodex_core::library::LibraryModule;
@@ -41,13 +42,13 @@ use nodex_core_contracts::{
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
     ClientKind, DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest,
-    DatabaseReadResponse, EventEnvelope, HandshakeRequest, HandshakeResponse, HealthResponse,
-    LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse,
-    OwnedDocumentApplyRequest, OwnedDocumentApplyResponse, OwnedDocumentReadRequest,
-    OwnedDocumentReadResponse, PROTOCOL_MAX, PROTOCOL_MIN, ProjectWorkspaceApplyRequest,
-    ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
-    ResponseEnvelope, RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
-    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    DatabaseReadResponse, EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse,
+    HealthResponse, LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest,
+    LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
+    OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX, PROTOCOL_MIN,
+    ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest,
+    ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor, ShutdownResponse,
+    ShutdownStatus, StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
     StoreAdministrationReadRequest, StoreAdministrationReadResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -84,7 +85,7 @@ struct ServerState {
     document: OwnedDocumentModule,
     document_realtime: OwnedDocumentRealtimeAdapter,
     _store: SqliteStoreKernel,
-    events: Arc<Mutex<Vec<EventEnvelope>>>,
+    event_log: CoreEventLog,
     event_sender: broadcast::Sender<EventEnvelope>,
     document_sender: broadcast::Sender<DocumentTransportPublication>,
     shutdown: Notify,
@@ -265,6 +266,12 @@ async fn handshake(
         )
         .map_err(|message| ApiError::new(StatusCode::CONFLICT, message))?;
 
+    let event_head = state.event_log.head().map_err(|error| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("Core event head is unavailable: {}", error.message),
+        )
+    })?;
     Ok(Json(HandshakeResponse {
         protocol_version: PROTOCOL_MAX,
         build_id: descriptor.build_id,
@@ -275,12 +282,7 @@ async fn handshake(
         connection_binding,
         store_epoch: descriptor.store_epoch,
         schema_version: state.schema_version,
-        event_head: state
-            .events
-            .lock()
-            .expect("event mutex poisoned")
-            .last()
-            .map_or(0, |event| event.event.sequence),
+        event_head,
     }))
 }
 
@@ -729,89 +731,144 @@ async fn events(
     let mut document_receiver = state.document_sender.subscribe();
     let requested_document_id =
         optional_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
-    let (replay, replay_head, resync, initial_awareness, connection_id, disconnect) =
-        if let Some(document_id) = requested_document_id.as_ref() {
-            let context = document_context(&state, &headers, &bound).map_err(api_core_error)?;
-            let client_session_id =
-                required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
-                    .map_err(api_core_error)?;
-            let subscription = state
-                .document_realtime
-                .subscribe(&context, document_id.clone(), client_session_id.clone())
+    let (
+        replay,
+        replay_head,
+        core_resync,
+        document_resync,
+        document_boundary,
+        initial_awareness,
+        connection_id,
+        disconnect,
+    ) = if let Some(document_id) = requested_document_id.as_ref() {
+        let context = document_context(&state, &headers, &bound).map_err(api_core_error)?;
+        let client_session_id =
+            required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
                 .map_err(api_core_error)?;
-            let replay = state
-                .document_realtime
-                .replay(
-                    &context.connection_id,
-                    &client_session_id,
-                    query.after,
-                    None,
-                )
-                .map_err(api_core_error)?;
-            let mut committed = Vec::new();
-            let mut resync = None;
-            for event in replay.events {
-                match event {
-                    DocumentRealtimeEvent::Committed(event) => committed.push(EventEnvelope {
+        let subscription = state
+            .document_realtime
+            .subscribe(&context, document_id.clone(), client_session_id.clone())
+            .map_err(api_core_error)?;
+        let replay = state
+            .document_realtime
+            .replay(
+                &context.connection_id,
+                &client_session_id,
+                query.after,
+                None,
+            )
+            .map_err(api_core_error)?;
+        let document_boundary = serde_json::json!({
+            "document_id": subscription.document_id,
+            "store_epoch": subscription.store_epoch,
+            "generation": subscription.generation,
+            "head_seq": subscription.head_seq,
+            "event_head": replay.event_head,
+        });
+        let mut committed = Vec::new();
+        let mut resync = None;
+        for event in replay.events {
+            match event {
+                DocumentRealtimeEvent::Committed(event) => committed.push(EventEnvelope {
+                    protocol_version: PROTOCOL_MAX,
+                    event,
+                }),
+                DocumentRealtimeEvent::ResyncRequired {
+                    document_id,
+                    store_epoch,
+                    generation,
+                    head_seq,
+                    event_head,
+                } => {
+                    resync = Some(serde_json::json!({
+                        "document_id": document_id,
+                        "store_epoch": store_epoch,
+                        "generation": generation,
+                        "head_seq": head_seq,
+                        "event_head": event_head,
+                    }));
+                }
+                DocumentRealtimeEvent::Awareness { .. } => {}
+            }
+        }
+        (
+            committed,
+            replay.event_head,
+            None,
+            resync,
+            Some(document_boundary),
+            subscription
+                .awareness_update
+                .map(|update| DocumentRealtimeEvent::Awareness {
+                    document_id: subscription.document_id,
+                    store_epoch: subscription.store_epoch,
+                    generation: subscription.generation,
+                    client_session_id: "core:awareness-snapshot".to_owned(),
+                    update,
+                }),
+            Some(context.connection_id.clone()),
+            Some(DisconnectGuard {
+                adapter: state.document_realtime.clone(),
+                connection_id: context.connection_id,
+                sender: state.document_sender.clone(),
+            }),
+        )
+    } else {
+        match state.event_log.replay(query.after, None).map_err(|error| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                format!("Core event replay is unavailable: {}", error.message),
+            )
+        })? {
+            CoreEventReplay::Events { events, event_head } => (
+                events
+                    .into_iter()
+                    .map(|event| EventEnvelope {
                         protocol_version: PROTOCOL_MAX,
                         event,
-                    }),
-                    DocumentRealtimeEvent::ResyncRequired {
-                        document_id,
-                        store_epoch,
-                        generation,
-                        head_seq,
-                        event_head,
-                    } => {
-                        resync = Some(serde_json::json!({
-                            "document_id": document_id,
-                            "store_epoch": store_epoch,
-                            "generation": generation,
-                            "head_seq": head_seq,
-                            "event_head": event_head,
-                        }));
-                    }
-                    DocumentRealtimeEvent::Awareness { .. } => {}
-                }
-            }
-            (
-                committed,
-                replay.event_head,
-                resync,
-                subscription
-                    .awareness_update
-                    .map(|update| DocumentRealtimeEvent::Awareness {
-                        document_id: subscription.document_id,
-                        store_epoch: subscription.store_epoch,
-                        generation: subscription.generation,
-                        client_session_id: "core:awareness-snapshot".to_owned(),
-                        update,
-                    }),
-                Some(context.connection_id.clone()),
-                Some(DisconnectGuard {
-                    adapter: state.document_realtime.clone(),
-                    connection_id: context.connection_id,
-                    sender: state.document_sender.clone(),
+                    })
+                    .collect(),
+                event_head,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            CoreEventReplay::ResyncRequired {
+                requested_after,
+                oldest_available,
+                event_head,
+            } => (
+                Vec::new(),
+                event_head,
+                Some(EventReplayRequired {
+                    requested_after,
+                    oldest_available,
+                    event_head,
                 }),
-            )
-        } else {
-            let events = state.events.lock().expect("event mutex poisoned");
-            let replay = events
-                .iter()
-                .filter(|event| event.event.sequence > query.after)
-                .cloned()
-                .collect::<Vec<_>>();
-            let replay_head = replay
-                .last()
-                .map_or(query.after, |event| event.event.sequence);
-            (replay, replay_head, None, None, None, None)
-        };
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        }
+    };
+    let event_log = state.event_log.clone();
     let stream = async_stream::stream! {
         let _disconnect = disconnect;
+        let mut last_delivered = query.after;
         for envelope in replay {
+            last_delivered = envelope.event.sequence;
             yield Ok(sse_event(&envelope));
         }
-        if let Some(resync) = resync {
+        if let Some(resync) = core_resync {
+            yield Ok(sse_core_resync(&resync));
+            return;
+        }
+        if let Some(resync) = document_resync {
             yield Ok(Event::default()
                 .event("document-resync-required")
                 .data(serde_json::to_string(&resync).expect("resync event serializes")));
@@ -831,9 +888,24 @@ async fn events(
                         {
                             continue;
                         }
+                        last_delivered = envelope.event.sequence;
                         yield Ok(sse_event(&envelope));
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => break,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        if let Some(boundary) = document_boundary.as_ref() {
+                            yield Ok(Event::default()
+                                .event("document-resync-required")
+                                .data(serde_json::to_string(boundary).expect("resync event serializes")));
+                        } else {
+                            let event_head = event_log.head().unwrap_or(last_delivered);
+                            yield Ok(sse_core_resync(&EventReplayRequired {
+                                requested_after: last_delivered,
+                                oldest_available: last_delivered.saturating_add(1),
+                                event_head,
+                            }));
+                        }
+                        break;
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 },
                 received = document_receiver.recv() => match received {
@@ -851,7 +923,14 @@ async fn events(
                         }
                         yield Ok(sse_document_realtime_event(&publication.event));
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        if let Some(boundary) = document_boundary.as_ref() {
+                            yield Ok(Event::default()
+                                .event("document-resync-required")
+                                .data(serde_json::to_string(boundary).expect("resync event serializes")));
+                        }
+                        break;
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -1178,11 +1257,6 @@ fn publish_event(state: &ServerState, event: nodex_core_contracts::CommittedCore
         protocol_version: PROTOCOL_MAX,
         event,
     };
-    state
-        .events
-        .lock()
-        .expect("event mutex poisoned")
-        .push(envelope.clone());
     let _ = state.event_sender.send(envelope);
 }
 
@@ -1191,6 +1265,12 @@ fn sse_event(envelope: &EventEnvelope) -> Event {
         .event("module")
         .id(envelope.event.sequence.to_string())
         .data(serde_json::to_string(envelope).expect("event envelope serializes"))
+}
+
+fn sse_core_resync(resync: &EventReplayRequired) -> Event {
+    Event::default()
+        .event("core-resync-required")
+        .data(serde_json::to_string(resync).expect("Core resync event serializes"))
 }
 
 fn sse_document_realtime_event(event: &DocumentRealtimeEvent) -> Event {
@@ -1328,7 +1408,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", serde_json::to_string(&descriptor)?);
 
     let descriptor = Arc::new(Mutex::new(descriptor));
-    let events = Arc::new(Mutex::new(Vec::new()));
+    let event_log = CoreEventLog::new(store.readers());
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
@@ -1343,7 +1423,6 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let replacement_document = document.clone();
     let replacement_realtime = document_realtime.clone();
     let replacement_descriptor = Arc::clone(&descriptor);
-    let replacement_events = Arc::clone(&events);
     let replacement_paths = paths.clone();
     let administration =
         StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store)
@@ -1358,13 +1437,6 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                     StoreError::new(
                         StoreErrorCode::Internal,
                         "Core runtime descriptor lock failed during Store replacement",
-                        false,
-                    )
-                })?;
-                let mut events = replacement_events.lock().map_err(|_| {
-                    StoreError::new(
-                        StoreErrorCode::Internal,
-                        "Core event replay lock failed during Store replacement",
                         false,
                     )
                 })?;
@@ -1397,7 +1469,6 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                             false,
                         )
                     })?;
-                events.clear();
                 *descriptor = next;
                 Ok(())
             });
@@ -1418,7 +1489,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         _store: store,
         schema_version,
         descriptor,
-        events,
+        event_log,
         event_sender,
         document_sender,
         shutdown: Notify::new(),

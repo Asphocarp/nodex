@@ -674,6 +674,14 @@ export interface components {
             /** Format: int32 */
             readonly protocol_version: number;
         };
+        readonly EventReplayRequired: {
+            /** Format: int64 */
+            readonly event_head: number;
+            /** Format: int64 */
+            readonly oldest_available: number;
+            /** Format: int64 */
+            readonly requested_after: number;
+        };
         readonly HandshakeRequest: {
             readonly client: components["schemas"]["ClientIdentity"];
             readonly connection_id: string;

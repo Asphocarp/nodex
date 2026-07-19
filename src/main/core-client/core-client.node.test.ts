@@ -80,6 +80,7 @@ describe("CoreClient over a Unix socket", () => {
     const children = [spawnCore(nodexHome), spawnCore(nodexHome)];
     let subscription: CoreEventSubscription | undefined;
     let documentSubscription: CoreEventSubscription | undefined;
+    let restartedSubscription: CoreEventSubscription | undefined;
 
     try {
       const descriptors = await Promise.all(children.map(readDescriptor));
@@ -577,7 +578,47 @@ describe("CoreClient over a Unix socket", () => {
       expect(existsSync(path.join(nodexHome, "run/core/core.sock"))).toBe(false);
       expect(existsSync(path.join(nodexHome, "run/core/core.json"))).toBe(false);
       expect(existsSync(path.join(nodexHome, "run/core/core.auth"))).toBe(false);
+
+      const restartedChild = spawnCore(nodexHome);
+      children.push(restartedChild);
+      const restartedDescriptor = await readDescriptor(restartedChild);
+      expect(restartedDescriptor.start_nonce).not.toBe(descriptors[0]?.start_nonce);
+      const restartedClient = await CoreClient.connect({
+        nodexHome,
+        clientKind: "test",
+        buildId: "node-restart-replay-test",
+        projectId: "project:default",
+      });
+      let resolveReplayedEvent: ((event: CoreEventEnvelope) => void) | undefined;
+      const replayedEvent = new Promise<CoreEventEnvelope>((resolve) => {
+        resolveReplayedEvent = resolve;
+      });
+      restartedSubscription = await restartedClient.openEventStream(0, (candidate) => {
+        if (candidate.event.operation_id !== applyInput.operationId) return;
+        resolveReplayedEvent?.(candidate);
+      });
+      await expect(
+        withTimeout(replayedEvent, "Core did not replay a durable event after restart"),
+      ).resolves.toMatchObject({
+        event: {
+          sequence: committed.event_sequence,
+          operation_id: applyInput.operationId,
+          payload: {
+            module: "library",
+            event: { kind: "library_changed" },
+          },
+        },
+      });
+      restartedSubscription.close();
+      await restartedSubscription.done;
+      restartedSubscription = undefined;
+      await expect(restartedClient.shutdown()).resolves.toEqual({ status: "draining" });
+      await expect(waitForExit(restartedChild)).resolves.toBe(0);
+      expect(existsSync(path.join(nodexHome, "run/core/core.sock"))).toBe(false);
+      expect(existsSync(path.join(nodexHome, "run/core/core.json"))).toBe(false);
+      expect(existsSync(path.join(nodexHome, "run/core/core.auth"))).toBe(false);
     } finally {
+      restartedSubscription?.close();
       documentSubscription?.close();
       subscription?.close();
       for (const child of children) {

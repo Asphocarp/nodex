@@ -100,9 +100,9 @@
   writer/pool generation is published before the fence reopens, so existing
   Modules cannot retain a connection to a replaced database. The store remains
   fenced if reopen fails. Native restore resets the Document runtime cache,
-  subscriptions, replay, and Awareness state; atomically republishes the runtime
-  descriptor with the new epoch/readiness generation; and clears the old
-  process-local event replay before the fence reopens.
+  subscriptions, and Awareness state; atomically republishes the runtime
+  descriptor with the new epoch/readiness generation; and makes the installed
+  Store's durable change log the new replay authority before the fence reopens.
 - Native Core startup serializes on one mode-restricted lifetime lock. A losing
   launcher does not trust descriptor JSON or its PID: it validates the fixed
   runtime directory, descriptor, auth file, and Unix socket ownership/type/mode,
@@ -120,6 +120,15 @@
   responses before publication. Oversized, deeply nested, container-heavy, and
   invalid-UTF-8 inputs fail before Module work; the connection is closed after
   a transport-bound rejection so unread request bytes cannot poison reuse.
+- Native global Module events are reconstructed from the durable SQLite change
+  log in one read transaction after the broadcast receiver is installed. The
+  fixed catch-up window is bounded and never returns a partial prefix: a
+  retention hole or an oversized replay emits `core-resync-required` with the
+  requested cursor, oldest available sequence, and durable head. Live broadcast
+  or Document/Awareness lag emits the corresponding Core- or Document-specific
+  resync boundary and closes that subscription. A reconnect after process
+  restart therefore replays retained typed events; a slow or stale consumer is
+  forced onto fresh authoritative reads instead of silently skipping changes.
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before

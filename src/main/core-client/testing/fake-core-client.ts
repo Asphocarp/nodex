@@ -5,6 +5,7 @@ import type {
   AutomationReadSnapshot,
   CoreClientPort,
   CoreEventEnvelope,
+  CoreEventReplayRequired,
   CoreEventSubscription,
   DatabaseApplyInput,
   DatabaseCommittedValue,
@@ -274,7 +275,9 @@ export class FakeCoreClient implements CoreClientPort {
   async openEventStream(
     _after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    _onResyncRequired?: (event: CoreEventReplayRequired) => void,
   ): Promise<CoreEventSubscription> {
+    void _onResyncRequired;
     this.#eventConsumers.add(onEvent);
     let finish: (() => void) | undefined;
     const done = new Promise<void>((resolve) => {

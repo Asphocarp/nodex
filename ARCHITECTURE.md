@@ -71,7 +71,13 @@ fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;
 hosts authenticated HTTP/1.1 over a Profile-private Unix socket. The thin
 `src/main/core-client/` Adapter validates runtime ownership and permissions,
 performs the version/nonce/Profile handshake, uses bounded codecs, and parses
-committed SSE events incrementally. The handshake also binds its declared
+committed SSE events incrementally. Global Module replay is reconstructed from
+the durable SQLite change log in one read snapshot, so a process restart does
+not reset the cursor. The replay window and live broadcast are bounded; a
+retention gap, oversized catch-up window, or lagged subscriber receives an
+explicit `core-resync-required` boundary and must refresh Module snapshots.
+Document subscribers receive their existing document-specific resync boundary.
+The handshake also binds its declared
 Electron Host, native CLI, or test Adapter kind to a generated connection ID;
 every Module and Document request must present the resulting per-start binding
 capability. Core registers that logical connection against the authenticated
@@ -114,7 +120,8 @@ semantically validates the complete v83 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
-old in-memory event replay before committing its receipt/event. Backup deletion
+old live subscriptions before committing its receipt/event; subsequent replay
+is read from the installed Store's durable change log. Backup deletion
 and automatic-retention pruning commit a durable logical tombstone before
 best-effort physical cleanup, so a crash cannot make a deleted backup visible or
 restorable and an exact retry finishes cleanup. Maintenance normalizes task

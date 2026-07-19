@@ -12,6 +12,7 @@ import type {
 export type CoreRuntimeDescriptor = components["schemas"]["RuntimeDescriptor"];
 export type CoreHandshakeResponse = components["schemas"]["HandshakeResponse"];
 export type CoreEventEnvelope = components["schemas"]["EventEnvelope"];
+export type CoreEventReplayRequired = components["schemas"]["EventReplayRequired"];
 export type CoreModuleError = components["schemas"]["CoreError"];
 
 export type LibraryReadRequest = components["schemas"]["LibraryReadRequest"];
@@ -164,5 +165,6 @@ export interface CoreClientPort {
   openEventStream(
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
+    onResyncRequired?: (event: CoreEventReplayRequired) => void,
   ): Promise<CoreEventSubscription>;
 }

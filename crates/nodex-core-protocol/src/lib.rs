@@ -121,6 +121,13 @@ pub struct EventEnvelope {
     pub event: CommittedCoreModuleEvent,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct EventReplayRequired {
+    pub requested_after: i64,
+    pub oldest_available: i64,
+    pub event_head: i64,
+}
+
 macro_rules! define_module_transport {
     (
         $read_request:ident,
@@ -358,6 +365,7 @@ mod api {
         HealthResponse,
         ShutdownResponse,
         EventEnvelope,
+        EventReplayRequired,
         LibraryReadRequest,
         LibraryReadResponse,
         LibraryApplyRequest,

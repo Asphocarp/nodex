@@ -27,14 +27,14 @@ pub enum DocumentEventReplay {
 }
 
 #[derive(Debug)]
-struct ChangeLogRow {
-    sequence: i64,
-    project_id: String,
-    store_epoch: String,
-    kind: String,
-    operation_id: Option<String>,
-    payload_json: String,
-    committed_at: String,
+pub(crate) struct ChangeLogRow {
+    pub(crate) sequence: i64,
+    pub(crate) project_id: String,
+    pub(crate) store_epoch: String,
+    pub(crate) kind: String,
+    pub(crate) operation_id: Option<String>,
+    pub(crate) payload_json: String,
+    pub(crate) committed_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -131,7 +131,7 @@ pub(crate) fn replay_document_events(
     })
 }
 
-fn reconstruct_document_event(
+pub(crate) fn reconstruct_document_event(
     connection: &Connection,
     row: &ChangeLogRow,
 ) -> Result<Option<CommittedCoreModuleEvent>, StoreError> {
@@ -257,7 +257,7 @@ fn reconstruct_document_event(
     }))
 }
 
-fn validate_change_log_row(
+pub(crate) fn validate_change_log_row(
     row: &ChangeLogRow,
     previous: i64,
     event_head: i64,

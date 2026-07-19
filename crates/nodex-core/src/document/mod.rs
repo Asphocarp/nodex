@@ -2,7 +2,7 @@ mod block_document;
 mod canvas;
 mod canvas_scene;
 mod compaction;
-mod event_log;
+pub(crate) mod event_log;
 mod genesis;
 mod history;
 mod maintenance;
