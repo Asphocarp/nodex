@@ -2448,6 +2448,212 @@
           }
         }
       },
+      "LibraryPageCopyDestination": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPlacementAnchor"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "library"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "expected_document_generation",
+              "expected_document_head_seq",
+              "kind"
+            ],
+            "properties": {
+              "before": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPlacementAnchor"
+                  }
+                ]
+              },
+              "expected_document_generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "expected_document_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data_source_id",
+              "expected_data_source_revision",
+              "values",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "expected_data_source_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageCopyValue"
+                }
+              },
+              "view": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LibraryPageCopyViewPlacement"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryPageCopyPositionAnchor": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "expected_position_revision"
+        ],
+        "properties": {
+          "expected_position_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageCopyResult": {
+        "type": "object",
+        "required": [
+          "source_page_id",
+          "page_id",
+          "document_id",
+          "block_ids",
+          "document_ids"
+        ],
+        "properties": {
+          "block_ids": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "document_ids": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "source_page_id": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageCopyValue": {
+        "type": "object",
+        "required": [
+          "property_id",
+          "value"
+        ],
+        "properties": {
+          "property_id": {
+            "type": "string"
+          },
+          "value": {}
+        }
+      },
+      "LibraryPageCopyViewPlacement": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "expected_view_revision"
+        ],
+        "properties": {
+          "before": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LibraryPageCopyPositionAnchor"
+              }
+            ]
+          },
+          "expected_view_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "view_id": {
+            "type": "string"
+          }
+        }
+      },
       "LibraryPageDataSourceContext": {
         "oneOf": [
           {
@@ -3591,6 +3797,53 @@
                     "$ref": "#/components/schemas/LibraryWriteParent"
                   },
                   "view_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "source_page_id",
+                  "expected_location_revision",
+                  "expected_parent_revision",
+                  "expected_active_membership_revision",
+                  "expected_document_generation",
+                  "expected_document_head_seq",
+                  "destination",
+                  "kind"
+                ],
+                "properties": {
+                  "destination": {
+                    "$ref": "#/components/schemas/LibraryPageCopyDestination"
+                  },
+                  "expected_active_membership_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expected_document_generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expected_document_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expected_location_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "expected_parent_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "copy_page"
+                    ]
+                  },
+                  "source_page_id": {
                     "type": "string"
                   }
                 }
@@ -6330,6 +6583,16 @@
                         "items": {
                           "type": "string"
                         }
+                      },
+                      "page_copy": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryPageCopyResult"
+                          }
+                        ]
                       }
                     }
                   }

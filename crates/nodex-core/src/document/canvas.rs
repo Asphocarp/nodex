@@ -240,6 +240,56 @@ pub(crate) fn ensure_canvas_scene(
     ))
 }
 
+pub(crate) fn clone_canvas_genesis(
+    connection: &Connection,
+    source_authority: &DocumentAuthorityRow,
+    target_authority: &DocumentAuthorityRow,
+    assets_root: &Path,
+) -> Result<i64, StoreError> {
+    let source = load_canvas_scene(connection, source_authority)?;
+    let (_, created) = ensure_canvas_scene(connection, target_authority, assets_root)?;
+    if !created {
+        return Err(corrupt("Canvas clone target already has scene authority"));
+    }
+    validate_page_references(connection, target_authority, &source.scene)?;
+    let changed_element_ids = source
+        .scene
+        .elements
+        .iter()
+        .map(|element| element.id.clone())
+        .collect::<Vec<_>>();
+    let added_file_ids = source.scene.files.keys().cloned().collect::<Vec<_>>();
+    let changed = !changed_element_ids.is_empty()
+        || !added_file_ids.is_empty()
+        || !source.scene.app_state.is_empty();
+    if !changed {
+        return Ok(0);
+    }
+    let applied = AppliedCanvasMutation {
+        scene: source.scene,
+        changed_element_ids,
+        applied_app_state_keys: Vec::new(),
+        skipped_app_state_keys: Vec::new(),
+        added_file_ids,
+        removed_file_ids: Vec::new(),
+        app_state_changed: true,
+        event_delta: json!({}),
+    };
+    let scene_hash = sha256(applied.scene.fingerprint()?.as_bytes());
+    let now = sqlite_now(connection)?;
+    persist_changed_scene(
+        connection,
+        target_authority,
+        &applied.scene,
+        &applied,
+        1,
+        &scene_hash,
+        &now,
+        assets_root,
+    )?;
+    Ok(1)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn persist_canvas_mutation(
     connection: &Connection,

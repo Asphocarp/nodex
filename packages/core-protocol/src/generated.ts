@@ -750,6 +750,55 @@ export interface components {
             /** Format: int32 */
             readonly version: number;
         };
+        readonly LibraryPageCopyDestination: {
+            readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
+            /** @enum {string} */
+            readonly kind: "library";
+        } | {
+            readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
+            /** Format: int64 */
+            readonly expected_document_generation: number;
+            /** Format: int64 */
+            readonly expected_document_head_seq: number;
+            /** @enum {string} */
+            readonly kind: "page";
+            readonly page_id: string;
+        } | {
+            readonly data_source_id: string;
+            /** Format: int64 */
+            readonly expected_data_source_revision: number;
+            /** @enum {string} */
+            readonly kind: "data_source";
+            readonly values: readonly components["schemas"]["LibraryPageCopyValue"][];
+            readonly view?: null | components["schemas"]["LibraryPageCopyViewPlacement"];
+        };
+        readonly LibraryPageCopyPositionAnchor: {
+            /** Format: int64 */
+            readonly expected_position_revision: number;
+            readonly page_id: string;
+        };
+        readonly LibraryPageCopyResult: {
+            readonly block_ids: {
+                readonly [key: string]: string;
+            };
+            readonly document_id: string;
+            readonly document_ids: {
+                readonly [key: string]: string;
+            };
+            readonly page_id: string;
+            readonly source_page_id: string;
+        };
+        readonly LibraryPageCopyValue: {
+            readonly property_id: string;
+            readonly value: unknown;
+        };
+        readonly LibraryPageCopyViewPlacement: {
+            readonly before?: null | components["schemas"]["LibraryPageCopyPositionAnchor"];
+            /** Format: int64 */
+            readonly expected_view_revision: number;
+            readonly group_key?: string | null;
+            readonly view_id: string;
+        };
         readonly LibraryPageDataSourceContext: {
             /** @enum {string} */
             readonly kind: "standalone";
@@ -1022,6 +1071,21 @@ export interface components {
                 readonly name: string;
                 readonly parent: components["schemas"]["LibraryWriteParent"];
                 readonly view_id: string;
+            } | {
+                readonly destination: components["schemas"]["LibraryPageCopyDestination"];
+                /** Format: int64 */
+                readonly expected_active_membership_revision: number;
+                /** Format: int64 */
+                readonly expected_document_generation: number;
+                /** Format: int64 */
+                readonly expected_document_head_seq: number;
+                /** Format: int64 */
+                readonly expected_location_revision: number;
+                /** Format: int64 */
+                readonly expected_parent_revision: number;
+                /** @enum {string} */
+                readonly kind: "copy_page";
+                readonly source_page_id: string;
             } | {
                 /** Format: int64 */
                 readonly expected_location_revision: number;
@@ -1655,6 +1719,7 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly affected_resource_ids: readonly string[];
+                    readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                 };
             };
             /** @enum {string} */

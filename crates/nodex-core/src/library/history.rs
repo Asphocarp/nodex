@@ -100,6 +100,65 @@ struct RelocationEvidence {
     moved_block_count: u32,
 }
 
+pub(super) fn require_page_read_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    page_id: &str,
+) -> Result<(), StoreError> {
+    require_page_access(connection, library_id, project_id, page_id, false)
+}
+
+pub(super) fn require_page_write_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    page_id: &str,
+) -> Result<(), StoreError> {
+    require_page_access(connection, library_id, project_id, page_id, true)
+}
+
+fn require_page_access(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    page_id: &str,
+    write_required: bool,
+) -> Result<(), StoreError> {
+    let project: Option<Option<String>> = connection
+        .query_row(
+            "SELECT database_block_id FROM projects WHERE id = ?1 AND library_id = ?2",
+            params![project_id, library_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?;
+    let Some(primary_database_id) = project else {
+        return Err(not_found("Page is not available to the bound Project"));
+    };
+    let storage_project_id = connection
+        .query_row(
+            "SELECT block.project_id FROM pages page \
+             JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+             WHERE page.block_id = ?1 AND page.library_id = ?2",
+            params![page_id, library_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let database_id = owning_database(connection, library_id, page_id)?;
+    if page_is_authorized(
+        connection,
+        project_id,
+        page_id,
+        storage_project_id.as_deref(),
+        primary_database_id.as_deref(),
+        database_id.as_deref(),
+        write_required,
+    )? {
+        return Ok(());
+    }
+    Err(not_found("Page is not available to the bound Project"))
+}
+
 pub(super) fn page_history(
     connection: &Connection,
     library_id: &str,
@@ -190,8 +249,10 @@ fn read_scope(
         connection,
         project_id,
         page_id,
+        None,
         primary_database_id.as_deref(),
         database_id.as_deref(),
+        false,
     )? {
         return Err(not_found("Page is not available to the bound Project"));
     }
@@ -255,9 +316,14 @@ fn page_is_authorized(
     connection: &Connection,
     project_id: &str,
     page_id: &str,
+    storage_project_id: Option<&str>,
     primary_database_id: Option<&str>,
     database_id: Option<&str>,
+    write_required: bool,
 ) -> Result<bool, StoreError> {
+    if storage_project_id == Some(project_id) {
+        return Ok(true);
+    }
     if database_id.is_some() && database_id == primary_database_id {
         return Ok(true);
     }
@@ -265,8 +331,9 @@ fn page_is_authorized(
         let direct = connection
             .query_row(
                 "SELECT 1 FROM project_resource_grants WHERE project_id = ?1 \
-                 AND root_kind = 'database' AND root_id = ?2 AND lifecycle = 'active'",
-                params![project_id, database_id],
+                 AND root_kind = 'database' AND root_id = ?2 AND lifecycle = 'active' \
+                 AND (?3 = 0 OR access = 'read_write')",
+                params![project_id, database_id, i64::from(write_required)],
                 |_| Ok(()),
             )
             .optional()?;
@@ -285,8 +352,9 @@ fn page_is_authorized(
              SELECT 1 FROM project_resource_grants grant_row JOIN ancestors \
                ON grant_row.root_id = ancestors.page_id \
              WHERE grant_row.project_id = ?1 AND grant_row.root_kind = 'page' \
-               AND grant_row.lifecycle = 'active' LIMIT 1",
-            params![project_id, page_id],
+               AND grant_row.lifecycle = 'active' \
+               AND (?3 = 0 OR grant_row.access = 'read_write') LIMIT 1",
+            params![project_id, page_id, i64::from(write_required)],
             |_| Ok(()),
         )
         .optional()?;

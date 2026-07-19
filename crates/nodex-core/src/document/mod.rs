@@ -49,7 +49,8 @@ pub use yrs_engine::{
     has_pending_dependencies,
 };
 
-pub(crate) use genesis::prepare_page_yjs_genesis;
+pub(crate) use canvas::clone_canvas_genesis;
+pub(crate) use genesis::{prepare_page_yjs_genesis, prepare_yjs_clone_genesis};
 pub(crate) use persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
     persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,

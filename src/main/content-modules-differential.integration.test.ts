@@ -36,6 +36,11 @@ import { readLibraryPageDetailInDatabase } from "./local-store/page-detail";
 import { listPageHistory } from "./local-store/page-history";
 import { createDocumentVersionCheckpoint } from "./local-store/document-versions";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
+import { DuplicatePageV3InputSchema } from "../shared/nodex-agent-tools";
+import {
+  executeNodexAgentDuplicatePage,
+  prepareNodexAgentDuplicatePage,
+} from "./agent-tools/transfer-service";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const tempDirectories: string[] = [];
@@ -184,7 +189,7 @@ const readOraclePageContent = (
     preview: row.preview,
     references: JSON.parse(row.referencesJson) as unknown,
     asset_refs: JSON.parse(row.assetRefsJson) as unknown,
-    access_context: { kind: "library" },
+    access_context: { kind: "library" as const },
   };
 };
 
@@ -2181,6 +2186,199 @@ describe("TypeScript/Rust content Module differential", () => {
       name: CoreModuleResponseError.name,
       coreError: { code: "revision_conflict" },
     });
+
+    const sourceCopyEvidence = getDb().prepare(`
+      SELECT block.location_revision AS locationRevision,
+        page.parent_revision AS parentRevision,
+        COALESCE((
+          SELECT membership.revision
+          FROM data_source_page_memberships membership
+          WHERE membership.page_block_id = page.block_id
+            AND membership.removed_at IS NULL
+        ), 0) AS activeMembershipRevision,
+        document.generation AS documentGeneration,
+        document.head_seq AS documentHeadSeq
+      FROM pages page
+      INNER JOIN blocks block ON block.id = page.block_id AND block.type = 'page'
+      INNER JOIN documents document ON document.id = page.document_id
+      WHERE page.block_id = ?
+    `).get(sourcePage.id) as {
+      readonly locationRevision: number;
+      readonly parentRevision: number;
+      readonly activeMembershipRevision: number;
+      readonly documentGeneration: number;
+      readonly documentHeadSeq: number;
+    } | undefined;
+    if (!sourceCopyEvidence) throw new Error("Imported Page copy evidence is unavailable");
+
+    const copyOperationId = "gate-c-library-copy-page";
+    const copyInput = DuplicatePageV3InputSchema.parse({
+      pageId: sourcePage.id,
+      destination: { kind: "library" },
+      return: ["block_map"],
+    });
+    const preparedOracleCopy = prepareNodexAgentDuplicatePage(getDb(), {
+      threadId: "gate-c-library-copy-thread",
+      callId: copyOperationId,
+      projectId: coordinates.projectId,
+      input: copyInput,
+    });
+    if (!preparedOracleCopy.ok || preparedOracleCopy.value.kind !== "prepared") {
+      throw new Error(`TypeScript Page copy was not prepared: ${JSON.stringify(preparedOracleCopy)}`);
+    }
+    const oracleCopy = executeNodexAgentDuplicatePage(
+      getDb(),
+      preparedOracleCopy.value.command,
+    );
+    if (!oracleCopy.ok) throw new Error(oracleCopy.error.message);
+    const oracleCopiedPageId = oracleCopy.value.output.data.pageId;
+    const oracleBlockMap = oracleCopy.value.output.data.blockMap;
+    if (!oracleBlockMap) throw new Error("TypeScript Page copy omitted its Block map");
+
+    const candidateCopy = await stage("Library copy complete Page", candidate.libraryApply({
+      operationId: copyOperationId,
+      intent: {
+        kind: "copy_page",
+        source_page_id: sourcePage.id,
+        expected_location_revision: sourceCopyEvidence.locationRevision,
+        expected_parent_revision: sourceCopyEvidence.parentRevision,
+        expected_active_membership_revision: sourceCopyEvidence.activeMembershipRevision,
+        expected_document_generation: sourceCopyEvidence.documentGeneration,
+        expected_document_head_seq: sourceCopyEvidence.documentHeadSeq,
+        destination: { kind: "library", before: null },
+      },
+    }));
+    const candidateCopyResult = candidateCopy.value.page_copy;
+    if (!candidateCopyResult) throw new Error("Rust Page copy omitted its identity map");
+    expect(candidateCopy.receipt).toMatchObject({
+      duplicate: false,
+      operation_kind: "copy_page",
+      did_mutate: true,
+      affected_page_ids: expect.arrayContaining([candidateCopyResult.page_id]),
+    });
+    expect(candidateCopyResult).toMatchObject({
+      source_page_id: sourcePage.id,
+      page_id: candidateCopyResult.block_ids[sourcePage.id],
+    });
+    expect(Object.keys(candidateCopyResult.block_ids).sort()).toEqual(
+      Object.keys(oracleBlockMap).sort(),
+    );
+
+    const oracleCopiedContent = readOraclePageContent(getDb(), oracleCopiedPageId);
+    const candidateCopiedContent = await stage(
+      "Library copied Page content",
+      candidate.libraryRead({
+        kind: "page_content",
+        page_id: candidateCopyResult.page_id,
+      }),
+    );
+    if (candidateCopiedContent.value.kind !== "page_content") {
+      throw new Error("Expected copied Rust Page content");
+    }
+    const comparableCopiedContent = ({
+      schema_key,
+      schema_version,
+      title,
+      rich_title,
+      body_nfm,
+      plain_text,
+      preview,
+      references,
+      asset_refs,
+      access_context,
+    }: {
+      readonly schema_key: string;
+      readonly schema_version: number;
+      readonly title: string;
+      readonly rich_title: unknown;
+      readonly body_nfm: string;
+      readonly plain_text: string;
+      readonly preview: string;
+      readonly references: unknown;
+      readonly asset_refs: unknown;
+      readonly access_context: unknown;
+    }) => ({
+      schema_key,
+      schema_version,
+      title,
+      rich_title,
+      body_nfm,
+      plain_text,
+      preview,
+      references,
+      asset_refs,
+      access_context,
+    });
+    expect(comparableCopiedContent(candidateCopiedContent.value.value)).toEqual(
+      comparableCopiedContent(oracleCopiedContent),
+    );
+
+    const oracleCopiedPath = oracleLibraryRead({
+      mode: "path",
+      target: { kind: "page", pageId: oracleCopiedPageId },
+    });
+    const candidateCopiedPath = await stage(
+      "Library copied Page path",
+      candidate.libraryRead({
+        kind: "path",
+        target: { kind: "page", page_id: candidateCopyResult.page_id },
+      }),
+    );
+    if (
+      oracleCopiedPath.value.kind !== "path"
+      || candidateCopiedPath.value.kind !== "path"
+    ) {
+      throw new Error("Expected copied Page paths from both Library authorities");
+    }
+    const oracleCopiedNode = oracleCopiedPath.value.nodes.at(-1);
+    const candidateCopiedNode = candidateCopiedPath.value.nodes.at(-1);
+    if (oracleCopiedNode?.kind !== "page" || candidateCopiedNode?.kind !== "page") {
+      throw new Error("Expected copied Page path nodes");
+    }
+    expect(candidateCopiedPath.value.nodes.map((node) => node.kind)).toEqual(
+      oracleCopiedPath.value.nodes.map((node) => node.kind),
+    );
+    expect(candidateCopiedNode).toMatchObject({
+      kind: "page",
+      title: oracleCopiedNode.title,
+      has_children: oracleCopiedNode.hasChildren,
+      parent_revision: oracleCopiedNode.parentRevision,
+      metadata_revision: oracleCopiedNode.metadataRevision,
+      document_generation: oracleCopiedNode.documentGeneration,
+      document_head_seq: oracleCopiedNode.documentHeadSeq,
+    });
+
+    const replayedOracleCopy = prepareNodexAgentDuplicatePage(getDb(), {
+      threadId: "gate-c-library-copy-thread",
+      callId: copyOperationId,
+      projectId: coordinates.projectId,
+      input: copyInput,
+    });
+    if (!replayedOracleCopy.ok || replayedOracleCopy.value.kind !== "completed") {
+      throw new Error("TypeScript Page copy did not replay its durable result");
+    }
+    const replayedCandidateCopy = await stage(
+      "Library replay copied Page",
+      candidate.libraryApply({
+        operationId: copyOperationId,
+        intent: {
+          kind: "copy_page",
+          source_page_id: sourcePage.id,
+          expected_location_revision: sourceCopyEvidence.locationRevision,
+          expected_parent_revision: sourceCopyEvidence.parentRevision,
+          expected_active_membership_revision: sourceCopyEvidence.activeMembershipRevision,
+          expected_document_generation: sourceCopyEvidence.documentGeneration,
+          expected_document_head_seq: sourceCopyEvidence.documentHeadSeq,
+          destination: { kind: "library", before: null },
+        },
+      }),
+    );
+    expect(replayedOracleCopy.value.output).toEqual(oracleCopy.value.output);
+    expect(replayedCandidateCopy.receipt).toMatchObject({
+      duplicate: true,
+      did_mutate: true,
+    });
+    expect(replayedCandidateCopy.value.page_copy).toEqual(candidateCopyResult);
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -43,6 +44,7 @@ pub struct LibraryModule {
     state: Mutex<LibraryState>,
     readers: Option<StoreReaders>,
     writer: Option<StoreWriter>,
+    assets_root: Option<PathBuf>,
 }
 
 impl LibraryModule {
@@ -54,6 +56,7 @@ impl LibraryModule {
             state: Mutex::new(LibraryState::default()),
             readers: None,
             writer: None,
+            assets_root: None,
         }
     }
 
@@ -69,6 +72,13 @@ impl LibraryModule {
             state: Mutex::new(LibraryState::default()),
             readers: Some(kernel.readers()),
             writer: Some(kernel.writer()),
+            assets_root: Some(
+                kernel
+                    .database_path()
+                    .parent()
+                    .expect("Profile database has a parent")
+                    .join("assets"),
+            ),
         }
     }
 
@@ -163,8 +173,17 @@ impl LibraryModule {
             return Err(invalid_input("unsupported Library contract version"));
         }
         if let Some(writer) = &self.writer {
-            return mutation::apply(writer, &self.profile_id, &self.library_id, context, request)
-                .map_err(core_error);
+            return mutation::apply(
+                writer,
+                &self.profile_id,
+                &self.library_id,
+                context,
+                request,
+                self.assets_root
+                    .as_ref()
+                    .expect("persistent Library has an assets root"),
+            )
+            .map_err(core_error);
         }
         if request.store_epoch != self.store_epoch {
             return Err(CoreError {
@@ -258,6 +277,7 @@ impl LibraryModule {
         let committed = CommittedModuleValue {
             value: LibraryCommitValue {
                 affected_resource_ids: vec![resource_id],
+                page_copy: None,
             },
             receipt,
             event_sequence,
@@ -751,3 +771,4 @@ mod cursor;
 mod history;
 mod mutation;
 mod navigation;
+mod page_copy;

@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use nodex_core_contracts::library::{
     LibraryAccess, LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent,
-    LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
+    LibraryPageCopyResult, LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -33,33 +34,34 @@ const MODULE_NAME: &str = "library";
 const MAX_ID_LENGTH: usize = 512;
 const MAX_PAGE_TITLE_LENGTH: usize = 10_000;
 
-struct MutationEffects {
-    project_id: String,
-    operation_kind: &'static str,
-    did_mutate: bool,
-    created_target: Option<LibraryResourceTarget>,
-    affected_parent_keys: Vec<String>,
-    affected_page_ids: Vec<String>,
-    affected_database_ids: Vec<String>,
-    affected_view_ids: Vec<String>,
-    affected_document_ids: Vec<String>,
-    committed_revisions: BTreeMap<String, i64>,
-    committed_at: String,
+pub(super) struct MutationEffects {
+    pub(super) project_id: String,
+    pub(super) operation_kind: &'static str,
+    pub(super) did_mutate: bool,
+    pub(super) created_target: Option<LibraryResourceTarget>,
+    pub(super) affected_parent_keys: Vec<String>,
+    pub(super) affected_page_ids: Vec<String>,
+    pub(super) affected_database_ids: Vec<String>,
+    pub(super) affected_view_ids: Vec<String>,
+    pub(super) affected_document_ids: Vec<String>,
+    pub(super) committed_revisions: BTreeMap<String, i64>,
+    pub(super) page_copy: Option<LibraryPageCopyResult>,
+    pub(super) committed_at: String,
 }
 
-struct ResolvedWriteParent {
-    parent_key: String,
-    page_id: Option<String>,
-    project_id: String,
-    document: Option<ResolvedParentDocument>,
-    before_block_id: Option<String>,
+pub(super) struct ResolvedWriteParent {
+    pub(super) parent_key: String,
+    pub(super) page_id: Option<String>,
+    pub(super) project_id: String,
+    pub(super) document: Option<ResolvedParentDocument>,
+    pub(super) before_block_id: Option<String>,
 }
 
-struct ResolvedParentDocument {
-    authority: DocumentAuthorityRow,
-    engine: YrsDocumentEngine,
-    base_materialization: DocumentMaterialization,
-    schema: BlockDocumentSchema,
+pub(super) struct ResolvedParentDocument {
+    pub(super) authority: DocumentAuthorityRow,
+    pub(super) engine: YrsDocumentEngine,
+    pub(super) base_materialization: DocumentMaterialization,
+    pub(super) schema: BlockDocumentSchema,
 }
 
 struct ResourceAuthority {
@@ -80,10 +82,12 @@ pub(super) fn apply(
     library_id: &str,
     context: &BoundModuleContext,
     request: ModuleApplyRequest<LibraryIntent>,
+    assets_root: &Path,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let profile_id = profile_id.to_owned();
     let library_id = library_id.to_owned();
     let context = context.clone();
+    let assets_root = assets_root.to_path_buf();
     writer.call(move |connection| {
         with_immediate_transaction(connection, |transaction| {
             assert_identity(transaction, &profile_id, &library_id)?;
@@ -160,6 +164,30 @@ pub(super) fn apply(
                     view_id,
                     name,
                     parent,
+                ),
+                LibraryIntent::CopyPage {
+                    source_page_id,
+                    expected_location_revision,
+                    expected_parent_revision,
+                    expected_active_membership_revision,
+                    expected_document_generation,
+                    expected_document_head_seq,
+                    destination,
+                } => super::page_copy::copy_page(
+                    transaction,
+                    &context,
+                    &store_epoch,
+                    &library_id,
+                    &request.operation_id,
+                    &request_hash,
+                    source_page_id,
+                    *expected_location_revision,
+                    *expected_parent_revision,
+                    *expected_active_membership_revision,
+                    *expected_document_generation,
+                    *expected_document_head_seq,
+                    destination,
+                    &assets_root,
                 ),
                 LibraryIntent::ArchiveResource {
                     target,
@@ -256,7 +284,8 @@ fn move_block(
             "A Data Source row Page must move through the Database Module",
         ));
     }
-    let resolved_parent = resolve_write_parent(connection, library_id, parent)?;
+    let resolved_parent =
+        resolve_write_parent(connection, library_id, bound_project_id(context)?, parent)?;
     if authority.resource_kind == "page"
         && let Some(target_page_id) = &resolved_parent.page_id
     {
@@ -518,6 +547,7 @@ fn move_block(
             affected_view_ids: Vec::new(),
             affected_document_ids,
             committed_revisions,
+            page_copy: None,
             committed_at: now,
         },
     )
@@ -704,6 +734,7 @@ fn change_resource_lifecycle(
                     )
                 })),
             ),
+            page_copy: None,
             committed_at: now,
         },
     )
@@ -843,6 +874,7 @@ fn grant_project_access(
                 .map(|revision| (format!("projectGrant:{project_id}"), revision))
                 .into_iter()
                 .collect(),
+            page_copy: None,
             committed_at: now,
         },
     )
@@ -920,9 +952,10 @@ fn resource_parent_key(
         .ok_or_else(|| corrupt("Containing Document has no Page owner"))
 }
 
-fn resolve_write_parent(
+pub(super) fn resolve_write_parent(
     connection: &Connection,
     library_id: &str,
+    requesting_project_id: &str,
     parent: &LibraryWriteParent,
 ) -> Result<ResolvedWriteParent, StoreError> {
     let LibraryWriteParent::Page {
@@ -938,10 +971,11 @@ fn resolve_write_parent(
         if let Some(anchor) = before {
             validate_library_anchor(connection, library_id, anchor)?;
         }
+        require_project_in_library(connection, requesting_project_id, library_id)?;
         return Ok(ResolvedWriteParent {
             parent_key: "library".to_owned(),
             page_id: None,
-            project_id: preferred_project_id(connection, library_id)?,
+            project_id: requesting_project_id.to_owned(),
             document: None,
             before_block_id: before.as_ref().map(|anchor| anchor.block_id.clone()),
         });
@@ -971,6 +1005,12 @@ fn resolve_write_parent(
     if lifecycle != "active" {
         return Err(invalid("Target Page is unavailable"));
     }
+    super::history::require_page_write_access(
+        connection,
+        library_id,
+        requesting_project_id,
+        page_id,
+    )?;
     let authority = read_document_authority(connection, &document_id)?
         .ok_or_else(|| corrupt("Target Page has no Document authority"))?;
     if authority.owner_block_id != *page_id
@@ -1085,7 +1125,7 @@ fn normalize_ids(ids: &mut Vec<String>) {
     ids.dedup();
 }
 
-fn persist_parent_insert(
+pub(super) fn persist_parent_insert(
     connection: &Connection,
     store_epoch: &str,
     operation_id: &str,
@@ -1187,7 +1227,8 @@ fn create_database(
             "Database name must contain between 1 and 256 characters",
         ));
     }
-    let resolved_parent = resolve_write_parent(connection, library_id, parent)?;
+    let resolved_parent =
+        resolve_write_parent(connection, library_id, bound_project_id(context)?, parent)?;
     if connection
         .query_row(
             "SELECT 1 WHERE EXISTS (SELECT 1 FROM blocks WHERE id = ?1) \
@@ -1310,6 +1351,7 @@ fn create_database(
                     },
                 )),
             ),
+            page_copy: None,
             committed_at: now,
         },
     )
@@ -1334,7 +1376,8 @@ fn create_page(
     if title.len() > MAX_PAGE_TITLE_LENGTH {
         return Err(invalid("Page title exceeds its bound"));
     }
-    let resolved_parent = resolve_write_parent(connection, library_id, parent)?;
+    let resolved_parent =
+        resolve_write_parent(connection, library_id, bound_project_id(context)?, parent)?;
     if connection
         .query_row(
             "SELECT 1 WHERE EXISTS (SELECT 1 FROM blocks WHERE id = ?1) \
@@ -1540,12 +1583,13 @@ fn create_page(
                     },
                 )),
             ),
+            page_copy: None,
             committed_at: now,
         },
     )
 }
 
-fn finish_mutation(
+pub(super) fn finish_mutation(
     connection: &Connection,
     context: &BoundModuleContext,
     store_epoch: &str,
@@ -1606,6 +1650,7 @@ fn finish_mutation(
     let committed = CommittedModuleValue {
         value: LibraryCommitValue {
             affected_resource_ids: block_ids,
+            page_copy: effects.page_copy,
         },
         receipt,
         event_sequence,
@@ -1817,20 +1862,38 @@ fn assert_identity(
     ))
 }
 
-fn preferred_project_id(connection: &Connection, library_id: &str) -> Result<String, StoreError> {
-    connection
-        .query_row(
-            "SELECT id FROM projects WHERE library_id = ?1 \
-             ORDER BY CASE lifecycle WHEN 'active' THEN 0 WHEN 'inactive' THEN 1 ELSE 2 END, \
-               created, id LIMIT 1",
-            [library_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .ok_or_else(|| corrupt("Library has no compatibility Project owner"))
+fn bound_project_id(context: &BoundModuleContext) -> Result<&str, StoreError> {
+    context
+        .project_id
+        .as_ref()
+        .map(|project_id| project_id.0.as_str())
+        .ok_or_else(|| unauthorized("Library mutation requires a bound Project"))
 }
 
-fn append_rank(connection: &Connection, table: &str, scope_id: &str) -> Result<String, StoreError> {
+pub(super) fn require_project_in_library(
+    connection: &Connection,
+    project_id: &str,
+    library_id: &str,
+) -> Result<(), StoreError> {
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM projects WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
+            params![project_id, library_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if exists {
+        return Ok(());
+    }
+    Err(unauthorized("Bound Project is unavailable in this Library"))
+}
+
+pub(super) fn append_rank(
+    connection: &Connection,
+    table: &str,
+    scope_id: &str,
+) -> Result<String, StoreError> {
     let sql = match table {
         "top_level_block_placements" => {
             "SELECT rank_key FROM top_level_block_placements WHERE project_id = ?1 \
@@ -1848,7 +1911,7 @@ fn append_rank(connection: &Connection, table: &str, scope_id: &str) -> Result<S
     Ok(previous.map_or_else(|| "a".to_owned(), |rank| format!("{rank}~")))
 }
 
-fn insert_library_placement(
+pub(super) fn insert_library_placement(
     connection: &Connection,
     library_id: &str,
     block_id: &str,
@@ -1930,7 +1993,7 @@ fn validate_library_anchor(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn insert_page_read_model(
+pub(super) fn insert_page_read_model(
     connection: &Connection,
     page_id: &str,
     project_id: &str,
@@ -2027,7 +2090,7 @@ fn embedded_resource_block(block_id: &str, block_type: &str) -> MaterializedBloc
     }
 }
 
-fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
+pub(super) fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
     connection
         .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
             row.get::<_, String>(0)
@@ -2037,6 +2100,10 @@ fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
 
 fn invalid(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
+}
+
+fn unauthorized(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
 }
 
 fn corrupt(message: &str) -> StoreError {

@@ -92,6 +92,20 @@ pub(crate) fn prepare_yjs_genesis_with_blocks(
     prepare_encoded_genesis(document_id, owner_type, schema, document)
 }
 
+pub(crate) fn prepare_yjs_clone_genesis(
+    document_id: &str,
+    owner_type: &str,
+    schema: BlockDocumentSchema,
+    title: Option<&[TextDelta]>,
+    blocks: &[MaterializedBlockNode],
+) -> Result<PreparedYjsGenesis, StoreError> {
+    let tree = dematerialize_block_tree(blocks)
+        .map_err(|error| invalid(format!("Document clone Blocks are invalid: {error}")))?;
+    let document = encode_block_document(document_id, schema, title, &tree)
+        .map_err(|error| invalid(format!("Document clone is invalid: {error}")))?;
+    prepare_encoded_genesis(document_id, owner_type, schema, document)
+}
+
 fn prepare_encoded_genesis(
     document_id: &str,
     owner_type: &str,

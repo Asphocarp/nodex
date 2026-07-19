@@ -1,6 +1,11 @@
 mod mutation;
 pub(crate) mod read;
 
+pub(crate) use mutation::{
+    PageCopyDataSourceDestination, PageCopyPositionAnchor, PageCopyValueDraft,
+    PageCopyViewPlacement, place_copied_page_in_data_source, resolve_page_copy_data_source_project,
+};
+
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
 };

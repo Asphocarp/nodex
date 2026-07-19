@@ -73,6 +73,16 @@ hosts authenticated HTTP/1.1 over a Profile-private Unix socket. The thin
 performs the version/nonce/Profile handshake, uses bounded codecs, and parses
 committed SSE events incrementally.
 
+The native Library and Database Modules now cover their complete Milestone 5
+semantic surface behind those fixed `read`/`apply` pairs. Whole-Page copy is a
+single Library writer aggregate: it fences source location, parent, membership,
+and Document authority; recursively clones owned Page/Synced/Template/Canvas
+Documents with fresh deterministic identities; and lands the result in Library,
+Page, or Data Source ownership. Data Source value/View placement and
+cross-Project compatibility rehome reuse Database internals inside that same
+SQLite transaction rather than composing public Module calls, so one durable
+Library receipt and event represent the operation.
+
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit
 Profile cutover milestone; neither normal startup nor renderer behavior depends

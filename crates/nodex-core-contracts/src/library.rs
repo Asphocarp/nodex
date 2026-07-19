@@ -52,6 +52,46 @@ pub enum LibraryWriteParent {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageCopyDestination {
+    Library {
+        before: Option<LibraryPlacementAnchor>,
+    },
+    Page {
+        page_id: String,
+        expected_document_generation: i64,
+        expected_document_head_seq: i64,
+        before: Option<LibraryPlacementAnchor>,
+    },
+    DataSource {
+        data_source_id: String,
+        expected_data_source_revision: i64,
+        values: Vec<LibraryPageCopyValue>,
+        view: Option<LibraryPageCopyViewPlacement>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageCopyValue {
+    pub property_id: String,
+    pub value: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageCopyViewPlacement {
+    pub view_id: String,
+    pub expected_view_revision: i64,
+    pub group_key: Option<String>,
+    pub before: Option<LibraryPageCopyPositionAnchor>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageCopyPositionAnchor {
+    pub page_id: String,
+    pub expected_position_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryRead {
     Metadata,
     Children {
@@ -519,6 +559,15 @@ pub enum LibraryIntent {
         name: String,
         parent: LibraryWriteParent,
     },
+    CopyPage {
+        source_page_id: String,
+        expected_location_revision: i64,
+        expected_parent_revision: i64,
+        expected_active_membership_revision: i64,
+        expected_document_generation: i64,
+        expected_document_head_seq: i64,
+        destination: LibraryPageCopyDestination,
+    },
     MoveBlock {
         target: LibraryResourceTarget,
         expected_location_revision: i64,
@@ -565,6 +614,16 @@ pub struct LibraryReceipt {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryCommitValue {
     pub affected_resource_ids: Vec<String>,
+    pub page_copy: Option<LibraryPageCopyResult>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageCopyResult {
+    pub source_page_id: String,
+    pub page_id: String,
+    pub document_id: String,
+    pub block_ids: std::collections::BTreeMap<String, String>,
+    pub document_ids: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
