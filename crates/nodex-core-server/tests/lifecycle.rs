@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use nodex_core_protocol::{
     ClientIdentity, ClientKind, HandshakeRequest, PROTOCOL_MAX, PROTOCOL_MIN, RuntimeDescriptor,
+    RuntimeGenerationIdentity, ShutdownRequest, VersionHandoffRequest,
 };
 use tempfile::tempdir;
 
@@ -53,18 +54,22 @@ fn request_bytes_with_headers(
     );
     if write_result.is_ok() {
         let _ = stream.write_all(body).inspect_err(|error| {
-            assert_eq!(
-                error.kind(),
-                std::io::ErrorKind::BrokenPipe,
-                "write request body: {error}"
+            assert!(
+                matches!(
+                    error.kind(),
+                    std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::NotConnected
+                ),
+                "unexpected request-body write error: {error}"
             );
         });
     }
     if let Err(error) = write_result {
-        assert_eq!(
-            error.kind(),
-            std::io::ErrorKind::BrokenPipe,
-            "write request: {error}"
+        assert!(
+            matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::NotConnected
+            ),
+            "unexpected request write error: {error}"
         );
     }
     let mut response = String::new();
@@ -112,6 +117,22 @@ fn open_sse(
 fn response_json(response: &str) -> serde_json::Value {
     let (_, body) = response.split_once("\r\n\r\n").expect("HTTP response body");
     serde_json::from_str(body).expect("JSON response")
+}
+
+fn version_handoff_request(
+    descriptor: &RuntimeDescriptor,
+    protocol_min: u32,
+    protocol_max: u32,
+) -> String {
+    serde_json::to_string(&ShutdownRequest {
+        version_handoff: Some(VersionHandoffRequest {
+            protocol_min,
+            protocol_max,
+            build_id: "future-core-test".to_owned(),
+            expected: RuntimeGenerationIdentity::from(descriptor),
+        }),
+    })
+    .expect("version handoff JSON")
 }
 
 #[test]
@@ -444,6 +465,30 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
     assert!(deep_json.starts_with("HTTP/1.1 400"));
 
+    let handoff = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        &version_handoff_request(expected, 2, 2),
+    );
+    assert!(handoff.starts_with("HTTP/1.1 200"));
+    let handoff = response_json(&handoff);
+    assert_eq!(handoff["status"], "busy");
+    assert_eq!(handoff["retry_after_ms"], 250);
+    assert_eq!(handoff["runtime"]["start_nonce"], expected.start_nonce);
+
+    let mut forged_descriptor = expected.clone();
+    forged_descriptor.start_nonce = "f".repeat(32);
+    let forged_handoff = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        &version_handoff_request(&forged_descriptor, 2, 2),
+    );
+    assert!(forged_handoff.starts_with("HTTP/1.1 409"));
+
     let unbound_shutdown = request(
         &expected.socket_path,
         &auth,
@@ -524,4 +569,94 @@ fn core_idle_exits_after_startup_clients_are_gone() {
     assert!(!runtime.join("core.sock").exists());
     assert!(!runtime.join("core.json").exists());
     assert!(!runtime.join("core.auth").exists());
+}
+
+#[test]
+fn incompatible_idle_core_drains_before_a_replacement_starts() {
+    let directory = tempdir().expect("disposable Core home");
+    let home = directory.path().canonicalize().expect("absolute home");
+    let executable = env!("CARGO_BIN_EXE_nodex-core");
+    let spawn = || {
+        Command::new(executable)
+            .args(["--home", home.to_str().expect("UTF-8 home")])
+            .env("NODEX_CORE_IDLE_TIMEOUT_MS", "0")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn Core")
+    };
+    let mut incumbent = spawn();
+    let incumbent_descriptor = read_ready_descriptor(&mut incumbent);
+    let runtime = home.join("run/core");
+    let auth = fs::read_to_string(runtime.join("core.auth"))
+        .expect("incumbent auth")
+        .trim()
+        .to_owned();
+    let handoff = request(
+        &incumbent_descriptor.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        &version_handoff_request(&incumbent_descriptor, 2, 2),
+    );
+    assert!(handoff.starts_with("HTTP/1.1 200"));
+    assert_eq!(response_json(&handoff)["status"], "draining");
+    let mut replacements = [spawn(), spawn()];
+    let replacement_descriptors = replacements
+        .iter_mut()
+        .map(read_ready_descriptor)
+        .collect::<Vec<_>>();
+    let replacement_descriptor = replacement_descriptors
+        .first()
+        .expect("replacement descriptor");
+    assert!(replacement_descriptors.iter().all(|descriptor| {
+        descriptor.pid == replacement_descriptor.pid
+            && descriptor.start_nonce == replacement_descriptor.start_nonce
+    }));
+    assert!(
+        incumbent
+            .wait()
+            .expect("wait for incumbent drain")
+            .success()
+    );
+    assert_ne!(
+        replacement_descriptor.start_nonce,
+        incumbent_descriptor.start_nonce
+    );
+    assert_eq!(
+        replacement_descriptor.profile_id,
+        incumbent_descriptor.profile_id
+    );
+    assert_eq!(
+        replacement_descriptor.store_epoch,
+        incumbent_descriptor.store_epoch
+    );
+    for contender in replacements
+        .iter_mut()
+        .filter(|contender| contender.id() != replacement_descriptor.pid)
+    {
+        assert!(
+            contender
+                .wait()
+                .expect("wait for replacement contender")
+                .success()
+        );
+    }
+    let replacement_auth = fs::read_to_string(runtime.join("core.auth"))
+        .expect("replacement auth")
+        .trim()
+        .to_owned();
+    let replacement_handoff = request(
+        &replacement_descriptor.socket_path,
+        &replacement_auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        &version_handoff_request(replacement_descriptor, 2, 2),
+    );
+    assert_eq!(response_json(&replacement_handoff)["status"], "draining");
+    let replacement = replacements
+        .iter_mut()
+        .find(|replacement| replacement.id() == replacement_descriptor.pid)
+        .expect("replacement Core process");
+    assert!(replacement.wait().expect("wait for replacement").success());
 }

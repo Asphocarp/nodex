@@ -98,14 +98,60 @@ pub enum CoreReadiness {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct RuntimeGenerationIdentity {
+    pub protocol_min: u32,
+    pub protocol_max: u32,
+    pub build_id: String,
+    pub pid: u32,
+    pub start_nonce: String,
+    pub profile_id: String,
+    pub store_epoch: String,
+    pub readiness_generation: u64,
+}
+
+impl From<&RuntimeDescriptor> for RuntimeGenerationIdentity {
+    fn from(descriptor: &RuntimeDescriptor) -> Self {
+        Self {
+            protocol_min: descriptor.protocol_min,
+            protocol_max: descriptor.protocol_max,
+            build_id: descriptor.build_id.clone(),
+            pid: descriptor.pid,
+            start_nonce: descriptor.start_nonce.clone(),
+            profile_id: descriptor.profile_id.clone(),
+            store_epoch: descriptor.store_epoch.clone(),
+            readiness_generation: descriptor.readiness_generation,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct VersionHandoffRequest {
+    pub protocol_min: u32,
+    pub protocol_max: u32,
+    pub build_id: String,
+    pub expected: RuntimeGenerationIdentity,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ShutdownRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_handoff: Option<VersionHandoffRequest>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct ShutdownResponse {
     pub status: ShutdownStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<RuntimeGenerationIdentity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ShutdownStatus {
     Draining,
+    Busy,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -257,6 +303,7 @@ mod api {
     #[utoipa::path(
         post,
         path = "/core/v1/admin/shutdown",
+        request_body = ShutdownRequest,
         responses((status = 200, body = ShutdownResponse))
     )]
     pub(super) fn shutdown() {}
@@ -363,7 +410,10 @@ mod api {
         HandshakeRequest,
         HandshakeResponse,
         HealthResponse,
+        ShutdownRequest,
         ShutdownResponse,
+        VersionHandoffRequest,
+        RuntimeGenerationIdentity,
         EventEnvelope,
         EventReplayRequired,
         LibraryReadRequest,

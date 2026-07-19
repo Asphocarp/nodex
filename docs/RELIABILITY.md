@@ -126,6 +126,17 @@
   idle expiry, SIGINT, and SIGTERM signal SSE streams to end, stop new socket
   acceptance, and then rely on Axum to wait for already admitted ordinary
   requests; an active transaction is never cancelled to accelerate exit.
+- Core reuse is build-independent inside the overlap of the client and server
+  protocol ranges; handshake selects their highest common version. A launcher
+  facing an incompatible range may request handoff only by authenticating over
+  the fixed UDS and echoing the complete descriptor generation (protocol/build,
+  PID/start nonce, Profile/store epoch, and readiness generation). Core returns
+  `busy` plus a bounded retry delay while any idle-preventing lease remains. An
+  accepted handoff enters the normal drain, and the contender keeps retrying the
+  already-open advisory lock until the incumbent has cleaned up and released it
+  before starting a replacement. Failure to verify or complete that protocol
+  is terminal; startup never kills a PID, deletes an unproven path, opens a
+  second SQLite writer, or silently falls back to another backend.
 - One native transport guard surrounds every private route. It enforces the
   route-specific body cap even when a handler would otherwise ignore its body,
   validates JSON UTF-8 and structural budgets before typed extraction, rebuilds

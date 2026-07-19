@@ -23,9 +23,14 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   capability and same-UID Unix peer credentials. Handshake registers the
   logical connection against peer PID/UID, client build, protocol, Adapter
   kind, and start nonce; later Module, event, and lifecycle requests require
-  that exact connection binding. Core process reuse requires a live
-  authenticated handshake matching the fixed-path descriptor, so a stale
-  descriptor or recycled PID is never process authority.
+  that exact connection binding. The only pre-handshake lifecycle exception is
+  incompatible-version handoff: it still requires the bearer capability,
+  same-UID/PID UDS credentials, genuinely disjoint protocol ranges, and an
+  exact match for every descriptor-generation identity field, and it can drain
+  only an otherwise idle Core. Compatible process reuse requires a live
+  authenticated handshake matching the fixed-path descriptor. Neither a stale
+  descriptor, recycled PID, self-declared build, nor failed/legacy handoff is
+  process authority, and the launcher never kills the claimed process.
 - The native Core transport rejects declared or streamed body overflow before
   domain decoding. JSON is required to be valid UTF-8 and is bounded by bytes,
   nesting depth, total nodes, array length, object fields, key length, and

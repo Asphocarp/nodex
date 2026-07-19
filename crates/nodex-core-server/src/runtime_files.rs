@@ -5,10 +5,10 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use nodex_core::infrastructure::schema::CORE_SCHEMA_VERSION;
 use nodex_core_protocol::{
     ClientIdentity, ClientKind, HandshakeRequest, HandshakeResponse, PROTOCOL_MAX, PROTOCOL_MIN,
-    RuntimeDescriptor,
+    RuntimeDescriptor, RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse,
+    ShutdownStatus, VersionHandoffRequest,
 };
 
 pub(crate) const RUNTIME_DIRECTORY_MODE: u32 = 0o700;
@@ -17,7 +17,15 @@ const MAX_DESCRIPTOR_BYTES: u64 = 16 * 1024;
 const MAX_AUTH_BYTES: u64 = 128;
 const MAX_PROBE_RESPONSE_BYTES: usize = 64 * 1024;
 const STARTUP_WAIT: Duration = Duration::from_secs(5);
+const HANDOFF_EXIT_WAIT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ExistingCore {
+    LockAcquired,
+    Reuse(RuntimeDescriptor),
+    HandoffAccepted(RuntimeDescriptor),
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimePaths {
@@ -161,16 +169,30 @@ impl RuntimePaths {
         Ok(auth.to_owned())
     }
 
-    pub(crate) fn wait_for_running_core(&self) -> io::Result<RuntimeDescriptor> {
+    pub(crate) fn wait_for_running_core(&self, lock: &File) -> io::Result<ExistingCore> {
         let deadline = Instant::now() + STARTUP_WAIT;
         loop {
+            match fs2::FileExt::try_lock_exclusive(lock) {
+                Ok(()) => return Ok(ExistingCore::LockAcquired),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(error),
+            }
             let error = match self
                 .read_descriptor()
-                .and_then(|descriptor| self.probe_running_core(descriptor))
+                .and_then(|descriptor| self.probe_or_handoff_running_core(descriptor))
             {
-                Ok(descriptor) => return Ok(descriptor),
+                Ok(existing) => return Ok(existing),
                 Err(error) => error,
             };
+            if matches!(
+                error.kind(),
+                io::ErrorKind::WouldBlock
+                    | io::ErrorKind::Unsupported
+                    | io::ErrorKind::PermissionDenied
+                    | io::ErrorKind::InvalidData
+            ) {
+                return Err(error);
+            }
             if Instant::now() >= deadline {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
@@ -181,12 +203,12 @@ impl RuntimePaths {
         }
     }
 
-    fn probe_running_core(&self, descriptor: RuntimeDescriptor) -> io::Result<RuntimeDescriptor> {
+    fn probe_or_handoff_running_core(
+        &self,
+        descriptor: RuntimeDescriptor,
+    ) -> io::Result<ExistingCore> {
         if descriptor.protocol_min > PROTOCOL_MAX || descriptor.protocol_max < PROTOCOL_MIN {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "running Core protocol is incompatible",
-            ));
+            return self.request_version_handoff(descriptor);
         }
         checked_owned_entry(
             &self.socket,
@@ -219,13 +241,95 @@ impl RuntimePaths {
             || response.start_nonce != descriptor.start_nonce
             || response.profile_id != descriptor.profile_id
             || response.store_epoch != descriptor.store_epoch
-            || i64::from(response.schema_version) != CORE_SCHEMA_VERSION
+            || response.schema_version == 0
         {
             return Err(invalid_data(
                 "running Core handshake does not match its runtime descriptor",
             ));
         }
-        Ok(descriptor)
+        Ok(ExistingCore::Reuse(descriptor))
+    }
+
+    fn request_version_handoff(&self, descriptor: RuntimeDescriptor) -> io::Result<ExistingCore> {
+        checked_owned_entry(
+            &self.socket,
+            self.owner_uid()?,
+            EntryKind::Socket,
+            Some(PRIVATE_FILE_MODE),
+        )?;
+        let auth = self.read_auth()?;
+        let expected = RuntimeGenerationIdentity::from(&descriptor);
+        let response = request_json::<_, ShutdownResponse>(
+            &self.socket,
+            &auth,
+            "/core/v1/admin/shutdown",
+            &ShutdownRequest {
+                version_handoff: Some(VersionHandoffRequest {
+                    protocol_min: PROTOCOL_MIN,
+                    protocol_max: PROTOCOL_MAX,
+                    build_id: env!("CARGO_PKG_VERSION").to_owned(),
+                    expected: expected.clone(),
+                }),
+            },
+        )?;
+        if response.runtime.as_ref() != Some(&expected) {
+            return Err(invalid_data(
+                "running Core handoff response does not match its runtime descriptor",
+            ));
+        }
+        match response.status {
+            ShutdownStatus::Draining => Ok(ExistingCore::HandoffAccepted(descriptor)),
+            ShutdownStatus::Busy => {
+                let retry_after_ms = response.retry_after_ms.unwrap_or(250).clamp(10, 60_000);
+                Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    format!(
+                        "running Core is busy and cannot hand off this Profile; retry after {retry_after_ms} ms"
+                    ),
+                ))
+            }
+        }
+    }
+
+    pub(crate) fn wait_for_handoff_completion(
+        &self,
+        lock: &File,
+        incumbent: &RuntimeDescriptor,
+    ) -> io::Result<ExistingCore> {
+        let deadline = Instant::now() + HANDOFF_EXIT_WAIT;
+        loop {
+            match fs2::FileExt::try_lock_exclusive(lock) {
+                Ok(()) => return Ok(ExistingCore::LockAcquired),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(error),
+            }
+            match self.read_descriptor() {
+                Ok(descriptor) if descriptor.start_nonce != incumbent.start_nonce => {
+                    if descriptor.protocol_min > PROTOCOL_MAX
+                        || descriptor.protocol_max < PROTOCOL_MIN
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::Unsupported,
+                            "replacement Core published an incompatible protocol range",
+                        ));
+                    }
+                    return self.probe_or_handoff_running_core(descriptor);
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!(
+                        "Core {} accepted version handoff but did not release the Profile lock",
+                        incumbent.pid
+                    ),
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     pub(crate) fn cleanup(&self, start_nonce: &str) {
@@ -389,14 +493,22 @@ fn request_json<Request: serde::Serialize, Response: serde::de::DeserializeOwned
         .ok_or_else(|| invalid_data("Core startup probe response is malformed"))?;
     let headers = std::str::from_utf8(&response[..split])
         .map_err(|_| invalid_data("Core startup probe headers are invalid"))?;
-    if !headers
+    let status = headers
         .lines()
         .next()
-        .is_some_and(|line| line.starts_with("HTTP/1.1 200 ") || line == "HTTP/1.1 200")
-    {
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse::<u16>().ok())
+        .ok_or_else(|| invalid_data("Core startup probe status is invalid"))?;
+    if status != 200 {
+        let kind = match status {
+            401 | 403 => io::ErrorKind::PermissionDenied,
+            404 | 405 => io::ErrorKind::Unsupported,
+            409 => io::ErrorKind::InvalidData,
+            _ => io::ErrorKind::ConnectionRefused,
+        };
         return Err(io::Error::new(
-            io::ErrorKind::ConnectionRefused,
-            "Core startup probe was rejected",
+            kind,
+            format!("Core startup probe was rejected with HTTP {status}"),
         ));
     }
     serde_json::from_slice(&response[split + 4..])
@@ -481,7 +593,7 @@ mod tests {
             .expect("auth file");
 
         let error = paths
-            .probe_running_core(descriptor)
+            .probe_or_handoff_running_core(descriptor)
             .expect_err("PID alone cannot prove a running Core");
         assert!(matches!(
             error.kind(),

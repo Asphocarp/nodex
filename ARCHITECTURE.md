@@ -109,6 +109,17 @@ accepting sockets and waits for ordinary in-flight requests/transactions, while
 Core signals long-lived SSE streams to finish so graceful shutdown cannot wait
 forever on a subscription.
 
+Launchers reuse any running Core whose declared protocol range overlaps their
+own, selecting the highest common version rather than requiring equal build
+identities. If the ranges do not overlap, the contender authenticates to the
+fixed UDS and submits an exact descriptor-generation handoff through the
+existing lifecycle route. Core drains only when the same atomic idle predicate
+passes; otherwise it returns a bounded busy/retry result. An accepted contender
+waits for the incumbent to clean up and release the Profile store lock before
+removing stale runtime entries or opening SQLite, so upgrade races cannot create
+a second writer. A rejected, unverified, or legacy handoff never falls back to
+process killing or stale-file deletion.
+
 The native Library and Database Modules now cover their complete Milestone 5
 semantic surface behind those fixed `read`/`apply` pairs. Whole-Page copy is a
 single Library writer aggregate: it fences source location, parent, membership,

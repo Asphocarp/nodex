@@ -80,6 +80,16 @@ impl LifecycleCoordinator {
         self.begin_drain_locked()
     }
 
+    pub(crate) fn try_begin_idle_drain_if(&self, is_idle: impl FnOnce() -> bool) -> bool {
+        let Ok(_generation) = self.inner.activity_generation.lock() else {
+            return false;
+        };
+        if self.is_draining() || !is_idle() {
+            return false;
+        }
+        self.begin_drain_locked()
+    }
+
     fn begin_drain_locked(&self) -> bool {
         if self
             .inner

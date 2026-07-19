@@ -2995,6 +2995,20 @@ export interface components {
             readonly start_nonce: string;
             readonly store_epoch: string;
         };
+        readonly RuntimeGenerationIdentity: {
+            readonly build_id: string;
+            /** Format: int32 */
+            readonly pid: number;
+            readonly profile_id: string;
+            /** Format: int32 */
+            readonly protocol_max: number;
+            /** Format: int32 */
+            readonly protocol_min: number;
+            /** Format: int64 */
+            readonly readiness_generation: number;
+            readonly start_nonce: string;
+            readonly store_epoch: string;
+        };
         readonly ScheduledPageOccurrence: {
             readonly archived: boolean;
             readonly assignee?: string | null;
@@ -3033,11 +3047,17 @@ export interface components {
         };
         /** @enum {string} */
         readonly SchemaOwner: "type_script" | "rust";
+        readonly ShutdownRequest: {
+            readonly version_handoff?: null | components["schemas"]["VersionHandoffRequest"];
+        };
         readonly ShutdownResponse: {
+            /** Format: int64 */
+            readonly retry_after_ms?: number | null;
+            readonly runtime?: null | components["schemas"]["RuntimeGenerationIdentity"];
             readonly status: components["schemas"]["ShutdownStatus"];
         };
         /** @enum {string} */
-        readonly ShutdownStatus: "draining";
+        readonly ShutdownStatus: "draining" | "busy";
         readonly StoreAdministrationApplyRequest: components["schemas"]["ModuleApplyRequest_StoreAdministrationIntent"];
         readonly StoreAdministrationApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_StoreAdministrationCommitValue_StoreAdministrationReceipt"];
         readonly StoreAdministrationEvent: {
@@ -3055,6 +3075,14 @@ export interface components {
         readonly StoreIntegrity: "unknown" | "ok" | "failed";
         /** @enum {string} */
         readonly StoreReadiness: "starting" | "ready" | "maintenance" | "failed";
+        readonly VersionHandoffRequest: {
+            readonly build_id: string;
+            readonly expected: components["schemas"]["RuntimeGenerationIdentity"];
+            /** Format: int32 */
+            readonly protocol_max: number;
+            /** Format: int32 */
+            readonly protocol_min: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -3071,7 +3099,11 @@ export interface operations {
             readonly path?: never;
             readonly cookie?: never;
         };
-        readonly requestBody?: never;
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ShutdownRequest"];
+            };
+        };
         readonly responses: {
             readonly 200: {
                 headers: {

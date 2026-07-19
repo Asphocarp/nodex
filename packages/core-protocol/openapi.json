@@ -16,6 +16,16 @@
           "api"
         ],
         "operationId": "shutdown",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShutdownRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "",
@@ -12198,6 +12208,53 @@
           }
         }
       },
+      "RuntimeGenerationIdentity": {
+        "type": "object",
+        "required": [
+          "protocol_min",
+          "protocol_max",
+          "build_id",
+          "pid",
+          "start_nonce",
+          "profile_id",
+          "store_epoch",
+          "readiness_generation"
+        ],
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "profile_id": {
+            "type": "string"
+          },
+          "protocol_max": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol_min": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "readiness_generation": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "start_nonce": {
+            "type": "string"
+          },
+          "store_epoch": {
+            "type": "string"
+          }
+        }
+      },
       "ScheduledPageOccurrence": {
         "type": "object",
         "required": [
@@ -12366,12 +12423,45 @@
           "rust"
         ]
       },
+      "ShutdownRequest": {
+        "type": "object",
+        "properties": {
+          "version_handoff": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VersionHandoffRequest"
+              }
+            ]
+          }
+        }
+      },
       "ShutdownResponse": {
         "type": "object",
         "required": [
           "status"
         ],
         "properties": {
+          "retry_after_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "runtime": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RuntimeGenerationIdentity"
+              }
+            ]
+          },
           "status": {
             "$ref": "#/components/schemas/ShutdownStatus"
           }
@@ -12380,7 +12470,8 @@
       "ShutdownStatus": {
         "type": "string",
         "enum": [
-          "draining"
+          "draining",
+          "busy"
         ]
       },
       "StoreAdministrationApplyRequest": {
@@ -12446,6 +12537,33 @@
           "maintenance",
           "failed"
         ]
+      },
+      "VersionHandoffRequest": {
+        "type": "object",
+        "required": [
+          "protocol_min",
+          "protocol_max",
+          "build_id",
+          "expected"
+        ],
+        "properties": {
+          "build_id": {
+            "type": "string"
+          },
+          "expected": {
+            "$ref": "#/components/schemas/RuntimeGenerationIdentity"
+          },
+          "protocol_max": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol_min": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       }
     }
   }

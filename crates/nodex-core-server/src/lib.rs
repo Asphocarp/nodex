@@ -49,9 +49,10 @@ use nodex_core_protocol::{
     LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
     OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX, PROTOCOL_MIN,
     ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest,
-    ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor, ShutdownResponse,
-    ShutdownStatus, StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
-    StoreAdministrationReadRequest, StoreAdministrationReadResponse,
+    ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity,
+    ShutdownRequest, ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
+    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
+    StoreAdministrationReadResponse, VersionHandoffRequest,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -64,7 +65,7 @@ use connections::{
 };
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
 use lifecycle::{LifecycleCoordinator, configured_idle_timeout, monitor_idle};
-use runtime_files::{PRIVATE_FILE_MODE, RuntimePaths, random_hex};
+use runtime_files::{ExistingCore, PRIVATE_FILE_MODE, RuntimePaths, random_hex};
 use transport_bounds::{MAX_DOCUMENT_REQUEST_BYTES, MAX_JSON_REQUEST_BYTES};
 
 const EVENT_CHANNEL_CAPACITY: usize = 64;
@@ -173,32 +174,33 @@ async fn bind_connection(
     mut request: Request,
     next: Next,
 ) -> Response {
-    if state.lifecycle.is_draining() && request.uri().path() != "/core/v1/admin/shutdown" {
+    if state.lifecycle.is_draining() {
         return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Core is draining").into_response();
     }
-    let connection_id = match required_header(request.headers(), CONNECTION_HEADER, "Connection") {
-        Ok(value) => value,
-        Err(error) => return api_core_error(error).into_response(),
-    };
-    let binding = match required_header(
-        request.headers(),
-        CONNECTION_BINDING_HEADER,
-        "Connection binding",
-    ) {
-        Ok(value) => value,
-        Err(error) => return api_core_error(error).into_response(),
-    };
-    let bound = match state.connections.bind(&connection_id, &binding, &peer) {
+    let bound = match bind_authenticated_connection(&state, request.headers(), &peer) {
         Ok(bound) => bound,
-        Err(error) => {
-            return connection_registry_error(error).into_response();
-        }
+        Err(error) => return error.into_response(),
     };
     if !state.lifecycle.record_activity() {
         return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Core is draining").into_response();
     }
     request.extensions_mut().insert(bound);
     next.run(request).await
+}
+
+fn bind_authenticated_connection(
+    state: &ServerState,
+    headers: &HeaderMap,
+    peer: &PeerIdentity,
+) -> Result<BoundConnection, ApiError> {
+    let connection_id =
+        required_header(headers, CONNECTION_HEADER, "Connection").map_err(api_core_error)?;
+    let binding = required_header(headers, CONNECTION_BINDING_HEADER, "Connection binding")
+        .map_err(api_core_error)?;
+    state
+        .connections
+        .bind(&connection_id, &binding, peer)
+        .map_err(connection_registry_error)
 }
 
 async fn health(State(state): State<Arc<ServerState>>) -> Json<HealthResponse> {
@@ -222,10 +224,8 @@ async fn handshake(
         ));
     }
     let descriptor = descriptor_snapshot(&state);
-    let compatible = request.protocol_min >= 1
-        && request.protocol_min <= request.protocol_max
-        && request.protocol_min <= PROTOCOL_MAX
-        && request.protocol_max >= PROTOCOL_MIN
+    let protocol_version = negotiate_protocol(request.protocol_min, request.protocol_max);
+    let compatible = protocol_version.is_some()
         && request
             .expected_profile_id
             .as_ref()
@@ -270,7 +270,7 @@ async fn handshake(
             adapter,
             &peer,
             &request.client.build_id,
-            PROTOCOL_MAX,
+            protocol_version.expect("compatible protocol was selected"),
         )
         .map_err(connection_registry_error)?;
     if !state.lifecycle.record_activity() {
@@ -287,7 +287,7 @@ async fn handshake(
         )
     })?;
     Ok(Json(HandshakeResponse {
-        protocol_version: PROTOCOL_MAX,
+        protocol_version: protocol_version.expect("compatible protocol was selected"),
         build_id: descriptor.build_id,
         pid: descriptor.pid,
         start_nonce: descriptor.start_nonce,
@@ -298,6 +298,14 @@ async fn handshake(
         schema_version: state.schema_version,
         event_head,
     }))
+}
+
+fn negotiate_protocol(client_min: u32, client_max: u32) -> Option<u32> {
+    if client_min == 0 || client_min > client_max {
+        return None;
+    }
+    let selected = PROTOCOL_MAX.min(client_max);
+    (selected >= PROTOCOL_MIN && selected >= client_min).then_some(selected)
 }
 
 async fn library_read(
@@ -975,8 +983,14 @@ async fn events(
 
 async fn shutdown(
     State(state): State<Arc<ServerState>>,
-    Extension(bound): Extension<BoundConnection>,
+    ConnectInfo(peer): ConnectInfo<PeerIdentity>,
+    headers: HeaderMap,
+    Json(request): Json<ShutdownRequest>,
 ) -> Result<Json<ShutdownResponse>, ApiError> {
+    if let Some(handoff) = request.version_handoff {
+        return version_handoff(&state, handoff);
+    }
+    let bound = bind_authenticated_connection(&state, &headers, &peer)?;
     if !matches!(
         bound.adapter,
         AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
@@ -989,16 +1003,63 @@ async fn shutdown(
     state.lifecycle.begin_drain();
     Ok(Json(ShutdownResponse {
         status: ShutdownStatus::Draining,
+        runtime: None,
+        retry_after_ms: None,
     }))
+}
+
+fn version_handoff(
+    state: &Arc<ServerState>,
+    request: VersionHandoffRequest,
+) -> Result<Json<ShutdownResponse>, ApiError> {
+    let descriptor = descriptor_snapshot(state);
+    if !valid_version_handoff(&request, &descriptor) {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "version handoff identity or protocol range is invalid",
+        ));
+    }
+    let runtime = Some(RuntimeGenerationIdentity::from(&descriptor));
+    if state.lifecycle.is_draining() {
+        return Ok(Json(ShutdownResponse {
+            status: ShutdownStatus::Draining,
+            runtime,
+            retry_after_ms: None,
+        }));
+    }
+    if state.lifecycle.try_begin_idle_drain_if(|| {
+        descriptor_snapshot(state) == descriptor && server_is_idle(state)
+    }) {
+        return Ok(Json(ShutdownResponse {
+            status: ShutdownStatus::Draining,
+            runtime,
+            retry_after_ms: None,
+        }));
+    }
+    Ok(Json(ShutdownResponse {
+        status: ShutdownStatus::Busy,
+        runtime,
+        retry_after_ms: Some(250),
+    }))
+}
+
+fn valid_version_handoff(request: &VersionHandoffRequest, descriptor: &RuntimeDescriptor) -> bool {
+    request.protocol_min >= 1
+        && request.protocol_min <= request.protocol_max
+        && negotiate_protocol(request.protocol_min, request.protocol_max).is_none()
+        && !request.build_id.is_empty()
+        && request.build_id.len() <= 128
+        && request.build_id.trim() == request.build_id
+        && request.expected == RuntimeGenerationIdentity::from(descriptor)
 }
 
 fn router(state: Arc<ServerState>) -> Router {
     let infrastructure_routes = Router::new()
         .route("/core/v1/health", get(health))
-        .route("/core/v1/handshake", post(handshake));
+        .route("/core/v1/handshake", post(handshake))
+        .route("/core/v1/admin/shutdown", post(shutdown));
     let connected_routes = Router::new()
         .route("/core/v1/events", get(events))
-        .route("/core/v1/admin/shutdown", post(shutdown))
         .route("/core/v1/modules/library/read", post(library_read))
         .route("/core/v1/modules/library/apply", post(library_apply))
         .route("/core/v1/modules/database/read", post(database_read))
@@ -1415,10 +1476,34 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let paths = RuntimePaths::prepare(&home)?;
     let owner_uid = paths.owner_uid()?;
     let lock = paths.open_lock()?;
-    if lock.try_lock_exclusive().is_err() {
-        let descriptor = paths.wait_for_running_core()?;
-        println!("{}", serde_json::to_string(&descriptor)?);
-        return Ok(());
+    match lock.try_lock_exclusive() {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            match paths.wait_for_running_core(&lock)? {
+                ExistingCore::LockAcquired => {}
+                ExistingCore::Reuse(descriptor) => {
+                    println!("{}", serde_json::to_string(&descriptor)?);
+                    return Ok(());
+                }
+                ExistingCore::HandoffAccepted(descriptor) => {
+                    match paths.wait_for_handoff_completion(&lock, &descriptor)? {
+                        ExistingCore::LockAcquired => {}
+                        ExistingCore::Reuse(descriptor) => {
+                            println!("{}", serde_json::to_string(&descriptor)?);
+                            return Ok(());
+                        }
+                        ExistingCore::HandoffAccepted(_) => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "replacement Core published another incompatible generation",
+                            )
+                            .into());
+                        }
+                    }
+                }
+            }
+        }
+        Err(error) => return Err(error.into()),
     }
 
     paths.remove_stale_socket()?;
