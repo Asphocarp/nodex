@@ -1,5 +1,7 @@
 mod mutation;
+mod occurrence;
 mod read;
+mod reminder;
 mod run;
 mod schedule;
 
@@ -58,21 +60,25 @@ impl AutomationModule {
         };
         let profile_id = self.profile_id.clone();
         let library_id = self.library_id.clone();
+        let context = context.clone();
         readers
             .read_default(move |connection| {
-                assert_identity(connection, &profile_id, &library_id)?;
-                let (store_epoch, event_head) = connection.query_row(
+                let transaction = connection.unchecked_transaction()?;
+                assert_identity(&transaction, &profile_id, &library_id)?;
+                let (store_epoch, event_head) = transaction.query_row(
                     "SELECT metadata.store_epoch, (SELECT COALESCE(max(seq), 0) FROM change_log) \
                      FROM block_store_metadata metadata WHERE metadata.id = 1",
                     [],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
                 )?;
-                Ok(ModuleReadSnapshot {
+                let snapshot = ModuleReadSnapshot {
                     version: CORE_CONTRACT_VERSION,
                     store_epoch: StoreEpoch(store_epoch),
                     event_head,
-                    value: read::read(connection, request.read)?,
-                })
+                    value: read::read(&transaction, &library_id, &context, request.read)?,
+                };
+                transaction.commit()?;
+                Ok(snapshot)
             })
             .map_err(core_error)
     }

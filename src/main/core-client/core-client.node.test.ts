@@ -259,6 +259,44 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
       expect(noDueWork.value.claimed_leases).toEqual([]);
+      const noScheduledOccurrences = await client.automationRead({
+        kind: "occurrences",
+        window_start_ms: Date.now() - 60_000,
+        window_end_ms: Date.now() + 60_000,
+        search_query: null,
+        limit: 10,
+      });
+      expect(noScheduledOccurrences.value).toEqual({
+        kind: "occurrences",
+        items: [],
+      });
+      const noDueReminders = await client.automationApply({
+        operationId: "node-reminder-claim-1",
+        intent: {
+          kind: "claim_due_reminders",
+          limit: 3,
+          lease_duration_ms: 60_000,
+        },
+      });
+      expect(noDueReminders.value.reminder_leases).toEqual([]);
+      const reminderLeases = await client.automationRead({
+        kind: "reminder_leases",
+        include_settled: true,
+        limit: 10,
+      });
+      expect(reminderLeases.value).toEqual({
+        kind: "reminder_leases",
+        items: [],
+      });
+      const reminderSnoozes = await client.automationRead({
+        kind: "reminder_snoozes",
+        include_consumed: true,
+        limit: 10,
+      });
+      expect(reminderSnoozes.value).toEqual({
+        kind: "reminder_snoozes",
+        items: [],
+      });
       const begunRun = await client.automationApply({
         operationId: "node-automation-run-begin-1",
         intent: {
@@ -346,6 +384,17 @@ describe("CoreClient over a Unix socket", () => {
         CoreModuleResponseError,
       );
       await expect(unauthorizedClaim).rejects.toMatchObject({
+        coreError: { code: "unauthorized" },
+      });
+      const unauthorizedReminderClaim = nativeCli.automationApply({
+        operationId: "node-native-cli-reminder-claim-1",
+        intent: {
+          kind: "claim_due_reminders",
+          limit: 1,
+          lease_duration_ms: 60_000,
+        },
+      });
+      await expect(unauthorizedReminderClaim).rejects.toMatchObject({
         coreError: { code: "unauthorized" },
       });
       const workspaceInput = {

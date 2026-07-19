@@ -5,7 +5,7 @@ use nodex_core_contracts::automation::{
     AutomationCommitValue, AutomationDefinition, AutomationDefinitionInput,
     AutomationDefinitionKind, AutomationDefinitionStatus, AutomationEvent, AutomationEventKind,
     AutomationExecutionEnvironment, AutomationIntent, AutomationLease, AutomationLeaseStatus,
-    AutomationReceipt, AutomationRun, AutomationRunBulkResult,
+    AutomationReceipt, AutomationRun, AutomationRunBulkResult, ReminderLease, ReminderSnooze,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -65,6 +65,10 @@ struct MutationEffects {
     deleted_run_ids: Vec<String>,
     run_ids: Vec<String>,
     run_bulk: Option<AutomationRunBulkResult>,
+    reminder_leases: Vec<ReminderLease>,
+    reminder_snoozes: Vec<ReminderSnooze>,
+    reminder_lease_ids: Vec<String>,
+    snooze_ids: Vec<i64>,
     committed_at: String,
 }
 
@@ -210,6 +214,42 @@ pub(super) fn apply(
                     *retry_delay_ms,
                     Some(reason_code),
                 ),
+                intent @ (AutomationIntent::SnoozeReminder { .. }
+                | AutomationIntent::ClaimDueReminders { .. }
+                | AutomationIntent::CompleteReminderLease { .. }
+                | AutomationIntent::FailReminderLease { .. }) => {
+                    let effects = super::reminder::apply(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &request.operation_id,
+                        intent,
+                    )?;
+                    finish_mutation(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        MutationEffects {
+                            operation_kind: effects.operation_kind,
+                            automation_ids: Vec::new(),
+                            definitions: Vec::new(),
+                            claimed_leases: Vec::new(),
+                            lease_ids: Vec::new(),
+                            runs: Vec::new(),
+                            deleted_run_ids: Vec::new(),
+                            run_ids: Vec::new(),
+                            run_bulk: None,
+                            reminder_leases: effects.leases,
+                            reminder_snoozes: effects.snoozes,
+                            reminder_lease_ids: effects.lease_ids,
+                            snooze_ids: effects.snooze_ids,
+                            committed_at: effects.committed_at,
+                        },
+                    )
+                }
                 intent @ (AutomationIntent::BeginRun { .. }
                 | AutomationIntent::ReplacePendingRunThread { .. }
                 | AutomationIntent::SetRunThreadTitle { .. }
@@ -240,6 +280,10 @@ pub(super) fn apply(
                             deleted_run_ids: effects.deleted_run_ids,
                             run_ids: effects.run_ids,
                             run_bulk: effects.bulk,
+                            reminder_leases: Vec::new(),
+                            reminder_snoozes: Vec::new(),
+                            reminder_lease_ids: Vec::new(),
+                            snooze_ids: Vec::new(),
                             committed_at: effects.committed_at,
                         },
                     )
@@ -316,6 +360,10 @@ fn create_definition(
             deleted_run_ids: Vec::new(),
             run_ids: Vec::new(),
             run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            reminder_lease_ids: Vec::new(),
+            snooze_ids: Vec::new(),
             committed_at,
         },
     )
@@ -421,6 +469,10 @@ fn update_definition(
             deleted_run_ids: Vec::new(),
             run_ids: Vec::new(),
             run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            reminder_lease_ids: Vec::new(),
+            snooze_ids: Vec::new(),
             committed_at,
         },
     )
@@ -478,6 +530,10 @@ fn delete_definition(
             run_ids: deleted_run_ids.clone(),
             deleted_run_ids,
             run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            reminder_lease_ids: Vec::new(),
+            snooze_ids: Vec::new(),
             committed_at,
         },
     )
@@ -615,6 +671,10 @@ fn claim_due(
             deleted_run_ids: Vec::new(),
             run_ids: Vec::new(),
             run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            reminder_lease_ids: Vec::new(),
+            snooze_ids: Vec::new(),
             committed_at,
         },
     )
@@ -715,6 +775,10 @@ fn settle_lease(
             deleted_run_ids: Vec::new(),
             run_ids: Vec::new(),
             run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            reminder_lease_ids: Vec::new(),
+            snooze_ids: Vec::new(),
             committed_at,
         },
     )
@@ -738,6 +802,8 @@ fn finish_mutation(
         "automationIds": effects.automation_ids,
         "leaseIds": effects.lease_ids,
         "runIds": effects.run_ids,
+        "reminderLeaseIds": effects.reminder_lease_ids,
+        "snoozeIds": effects.snooze_ids,
     });
     connection.execute(
         "INSERT INTO change_log(\
@@ -762,6 +828,8 @@ fn finish_mutation(
             runs: effects.runs,
             deleted_run_ids: effects.deleted_run_ids,
             run_bulk: effects.run_bulk,
+            reminder_leases: effects.reminder_leases,
+            reminder_snoozes: effects.reminder_snoozes,
         },
         receipt: AutomationReceipt {
             mutation: ModuleMutationReceipt {
@@ -771,6 +839,8 @@ fn finish_mutation(
             affected_automation_ids: effects.automation_ids.clone(),
             affected_lease_ids: effects.lease_ids.clone(),
             affected_run_ids: effects.run_ids.clone(),
+            affected_reminder_lease_ids: effects.reminder_lease_ids.clone(),
+            affected_snooze_ids: effects.snooze_ids.clone(),
         },
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
@@ -804,6 +874,8 @@ fn finish_mutation(
                 automation_ids: effects.automation_ids,
                 lease_ids: effects.lease_ids,
                 run_ids: effects.run_ids,
+                reminder_lease_ids: effects.reminder_lease_ids,
+                snooze_ids: effects.snooze_ids,
             }),
         }),
     })
@@ -1154,6 +1226,9 @@ fn require_trusted_host(
             | AutomationIntent::UnarchiveRun { .. }
             | AutomationIntent::DeleteRun { .. }
             | AutomationIntent::SettleInterruptedRuns
+            | AutomationIntent::ClaimDueReminders { .. }
+            | AutomationIntent::CompleteReminderLease { .. }
+            | AutomationIntent::FailReminderLease { .. }
     ) || matches!(
         context.adapter,
         AdapterKind::ElectronHost | AdapterKind::Test
@@ -1215,19 +1290,26 @@ fn internal(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{Duration, Utc};
     use nodex_core_contracts::automation::{
         AutomationDefinitionInput, AutomationDefinitionKind, AutomationDefinitionStatus,
         AutomationIntent, AutomationLeaseStatus, AutomationRead, AutomationReadValue,
-        AutomationRunStatus,
+        AutomationRunStatus, ReminderLeaseStatus,
     };
+    use nodex_core_contracts::database::{DatabaseIntent, DatabaseTransferTarget};
+    use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
-        ModuleReadRequest, ProfileId, StoreEpoch,
+        ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
     };
+    use rusqlite::params;
+    use serde_json::json;
     use tempfile::{TempDir, tempdir};
 
     use crate::automation::AutomationModule;
+    use crate::database::DatabaseModule;
     use crate::infrastructure::store::SqliteStoreKernel;
+    use crate::library::LibraryModule;
     use crate::workspace::ProjectWorkspaceModule;
 
     struct Harness {
@@ -1308,6 +1390,163 @@ mod tests {
                 intent,
             },
         )
+    }
+
+    fn project_context(harness: &Harness) -> BoundModuleContext {
+        BoundModuleContext {
+            project_id: Some(ProjectId("project:default".to_owned())),
+            ..harness.context.clone()
+        }
+    }
+
+    fn apply_with_context(
+        harness: &Harness,
+        context: &BoundModuleContext,
+        operation_id: &str,
+        intent: AutomationIntent,
+    ) -> Result<crate::automation::AutomationApplyOutcome, nodex_core_contracts::CoreError> {
+        harness.module.apply(
+            context,
+            ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: operation_id.to_owned(),
+                store_epoch: harness.store_epoch.clone(),
+                intent,
+            },
+        )
+    }
+
+    fn seed_scheduled_page(
+        harness: &Harness,
+        page_id: &str,
+        title: &str,
+        start: chrono::DateTime<Utc>,
+        end: chrono::DateTime<Utc>,
+        recurrence: serde_json::Value,
+        reminders: serde_json::Value,
+    ) {
+        let context = project_context(harness);
+        LibraryModule::new("profile-1", "library-1", &harness.kernel)
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: format!("create:{page_id}"),
+                    store_epoch: harness.store_epoch.clone(),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: page_id.to_owned(),
+                        document_id: format!("document:{page_id}"),
+                        title: title.to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create scheduled Page");
+        let data_source_id = harness
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT source.id FROM data_sources source \
+                         JOIN project_database_bindings binding \
+                           ON binding.database_block_id = source.home_database_block_id \
+                         WHERE binding.project_id = 'project:default' \
+                           AND binding.lifecycle = 'active' LIMIT 1",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("default Data Source");
+        DatabaseModule::new("profile-1", "library-1", &harness.kernel)
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: format!("transfer:{page_id}"),
+                    store_epoch: harness.store_epoch.clone(),
+                    intent: vec![DatabaseIntent::TransferPage {
+                        page_id: page_id.to_owned(),
+                        expected_parent_revision: 1,
+                        expected_active_membership_revision: 0,
+                        target: DatabaseTransferTarget::DataSource {
+                            data_source_id: data_source_id.clone(),
+                        },
+                    }],
+                },
+            )
+            .expect("transfer Page to default Data Source");
+        let page_id = page_id.to_owned();
+        let start = start.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let end = end.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        harness
+            .kernel
+            .writer()
+            .call(move |connection| {
+                let membership_id = connection.query_row(
+                    "SELECT id FROM data_source_page_memberships \
+                     WHERE page_block_id = ?1 AND removed_at IS NULL",
+                    [&page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                for (property_id, value) in [
+                    ("scheduled_start", json!(start)),
+                    ("scheduled_end", json!(end)),
+                ] {
+                    connection.execute(
+                        "UPDATE data_source_property_values SET value_json = ?1, \
+                           revision = revision + 1, updated_at = '2026-07-18T00:00:00.000Z' \
+                         WHERE membership_id = ?2 AND data_source_id = ?3 AND property_id = ?4",
+                        params![value.to_string(), membership_id, data_source_id, property_id],
+                    )?;
+                }
+                let intrinsic = [
+                    ("run.target", "string", json!("localProject")),
+                    ("run.localPath", "string", serde_json::Value::Null),
+                    ("run.baseBranch", "string", serde_json::Value::Null),
+                    ("run.worktreePath", "string", serde_json::Value::Null),
+                    ("run.environmentPath", "string", serde_json::Value::Null),
+                    ("schedule.isAllDay", "boolean", json!(false)),
+                    ("schedule.timezone", "string", json!("UTC")),
+                    ("recurrence.config", "json", recurrence.clone()),
+                    ("reminders.config", "json", reminders.clone()),
+                ];
+                for (key, value_type, value) in intrinsic {
+                    connection.execute(
+                        "INSERT INTO block_properties( \
+                           block_id, project_id, property_key, value_type, value_json, revision, updated_at \
+                         ) VALUES (?1, 'project:default', ?2, ?3, ?4, 1, \
+                           '2026-07-18T00:00:00.000Z')",
+                        params![page_id, key, value_type, value.to_string()],
+                    )?;
+                }
+                let metadata_revision = connection.query_row(
+                    "UPDATE blocks SET metadata_revision = metadata_revision + 1, \
+                       updated_at = '2026-07-18T00:00:00.000Z' \
+                     WHERE id = ?1 RETURNING metadata_revision",
+                    [&page_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                connection.execute(
+                    "INSERT INTO scheduled_page_index( \
+                       page_block_id, project_id, lifecycle, scheduled_start, scheduled_end, \
+                       is_all_day, recurrence_json, reminders_json, schedule_timezone, \
+                       source_metadata_revision, updated_at \
+                     ) VALUES (?1, 'project:default', 'active', ?2, ?3, 0, ?4, ?5, 'UTC', ?6, \
+                       '2026-07-18T00:00:00.000Z')",
+                    params![
+                        page_id,
+                        start,
+                        end,
+                        recurrence.to_string(),
+                        reminders.to_string(),
+                        metadata_revision,
+                    ],
+                )?;
+                Ok(())
+            })
+            .expect("seed scheduled Page properties");
     }
 
     fn create(harness: &Harness) {
@@ -2031,5 +2270,291 @@ mod tests {
             deleted.committed.receipt.affected_run_ids,
             deleted.committed.value.deleted_run_ids
         );
+    }
+
+    #[test]
+    fn scheduled_page_occurrences_are_authorized_current_head_snapshots() {
+        let harness = harness();
+        seed_scheduled_page(
+            &harness,
+            "page:calendar",
+            "Calendar authority",
+            "2026-07-17T09:00:00Z".parse().expect("start"),
+            "2026-07-17T10:00:00Z".parse().expect("end"),
+            json!({ "frequency": "daily", "interval": 1 }),
+            json!([{ "offsetMinutes": 30 }]),
+        );
+        let context = project_context(&harness);
+        let snapshot = harness
+            .module
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: AutomationRead::Occurrences {
+                        window_start_ms: "2026-07-18T00:00:00Z"
+                            .parse::<chrono::DateTime<Utc>>()
+                            .expect("window start")
+                            .timestamp_millis(),
+                        window_end_ms: "2026-07-20T00:00:00Z"
+                            .parse::<chrono::DateTime<Utc>>()
+                            .expect("window end")
+                            .timestamp_millis(),
+                        search_query: Some("calendar authority".to_owned()),
+                        limit: None,
+                    },
+                },
+            )
+            .expect("read occurrences");
+        let AutomationReadValue::Occurrences { items } = snapshot.value else {
+            panic!("occurrence snapshot");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].title, "Calendar authority");
+        assert_eq!(items[0].status, "triage");
+        assert_eq!(items[0].status_name, "Triage");
+        assert_eq!(items[0].reminders[0].offset_minutes, 30);
+        assert!(items[0].is_recurring);
+        assert!(!items[0].this_and_future_equivalent_to_all);
+
+        harness
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE documents SET head_seq = head_seq + 1 \
+                     WHERE id = 'document:page:calendar'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("make materialization stale");
+        let stale = harness
+            .module
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: AutomationRead::Occurrences {
+                        window_start_ms: "2026-07-18T00:00:00Z"
+                            .parse::<chrono::DateTime<Utc>>()
+                            .expect("window start")
+                            .timestamp_millis(),
+                        window_end_ms: "2026-07-20T00:00:00Z"
+                            .parse::<chrono::DateTime<Utc>>()
+                            .expect("window end")
+                            .timestamp_millis(),
+                        search_query: None,
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect_err("stale materialization is rejected");
+        assert_eq!(
+            stale.code,
+            nodex_core_contracts::CoreErrorCode::StoreCorrupt
+        );
+    }
+
+    #[test]
+    fn reminder_delivery_uses_reclaimable_leases_and_atomic_receipts() {
+        let harness = harness();
+        let now = Utc::now();
+        let occurrence_start = now - Duration::minutes(5);
+        seed_scheduled_page(
+            &harness,
+            "page:reminder",
+            "Durable reminder",
+            occurrence_start,
+            occurrence_start + Duration::hours(1),
+            serde_json::Value::Null,
+            json!([{ "offsetMinutes": 0 }]),
+        );
+
+        let first = apply(
+            &harness,
+            "claim-reminder-1",
+            AutomationIntent::ClaimDueReminders {
+                limit: 10,
+                lease_duration_ms: 60_000,
+            },
+        )
+        .expect("claim due reminder");
+        assert_eq!(first.committed.value.reminder_leases.len(), 1);
+        let first_lease = first.committed.value.reminder_leases[0].clone();
+        assert_eq!(first_lease.attempt, 1);
+        assert_eq!(first_lease.status, ReminderLeaseStatus::Claimed);
+        assert_eq!(first_lease.title, "Durable reminder");
+        let replay = apply(
+            &harness,
+            "claim-reminder-1",
+            AutomationIntent::ClaimDueReminders {
+                limit: 10,
+                lease_duration_ms: 60_000,
+            },
+        )
+        .expect("replay reminder claim");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replay.committed.value.reminder_leases,
+            vec![first_lease.clone()]
+        );
+
+        harness
+            .kernel
+            .writer()
+            .call({
+                let lease_id = first_lease.lease_id.clone();
+                move |connection| {
+                    connection.execute(
+                        "UPDATE core_reminder_leases SET claimed_at_ms = 0, expires_at_ms = 1 \
+                         WHERE lease_id = ?1",
+                        [lease_id],
+                    )?;
+                    Ok(())
+                }
+            })
+            .expect("expire reminder lease");
+        let reclaimed = apply(
+            &harness,
+            "claim-reminder-2",
+            AutomationIntent::ClaimDueReminders {
+                limit: 10,
+                lease_duration_ms: 60_000,
+            },
+        )
+        .expect("reclaim reminder");
+        let second_lease = reclaimed.committed.value.reminder_leases[0].clone();
+        assert_eq!(second_lease.attempt, 2);
+        assert!(
+            reclaimed
+                .committed
+                .receipt
+                .affected_reminder_lease_ids
+                .contains(&first_lease.lease_id)
+        );
+        apply(
+            &harness,
+            "complete-reminder-2",
+            AutomationIntent::CompleteReminderLease {
+                lease_id: second_lease.lease_id,
+            },
+        )
+        .expect("complete reminder lease");
+        let no_duplicate = apply(
+            &harness,
+            "claim-reminder-after-complete",
+            AutomationIntent::ClaimDueReminders {
+                limit: 10,
+                lease_duration_ms: 60_000,
+            },
+        )
+        .expect("completed reminder is suppressed");
+        assert!(no_duplicate.committed.value.reminder_leases.is_empty());
+
+        let context = project_context(&harness);
+        let snoozed = apply_with_context(
+            &harness,
+            &context,
+            "snooze-reminder",
+            AutomationIntent::SnoozeReminder {
+                page_id: "page:reminder".to_owned(),
+                occurrence_start_ms: occurrence_start.timestamp_millis(),
+                snooze_minutes: 1,
+            },
+        )
+        .expect("snooze reminder");
+        let snooze_id = snoozed.committed.value.reminder_snoozes[0].snooze_id;
+        harness
+            .kernel
+            .writer()
+            .call(move |connection| {
+                connection.execute(
+                    "UPDATE reminder_snoozes SET due_at = \
+                       strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second') WHERE id = ?1",
+                    [snooze_id],
+                )?;
+                Ok(())
+            })
+            .expect("make snooze due");
+        let snooze_claim = apply(
+            &harness,
+            "claim-snooze-1",
+            AutomationIntent::ClaimDueReminders {
+                limit: 10,
+                lease_duration_ms: 60_000,
+            },
+        )
+        .expect("claim due snooze");
+        let snooze_lease = snooze_claim
+            .committed
+            .value
+            .reminder_leases
+            .iter()
+            .find(|lease| lease.reminder_offset_minutes == -1)
+            .expect("snooze lease")
+            .clone();
+        apply(
+            &harness,
+            "fail-snooze-1",
+            AutomationIntent::FailReminderLease {
+                lease_id: snooze_lease.lease_id,
+                retry_delay_ms: Some(0),
+                reason_code: "notification_unavailable".to_owned(),
+            },
+        )
+        .expect("fail snooze delivery");
+        let retried = apply(
+            &harness,
+            "claim-snooze-2",
+            AutomationIntent::ClaimDueReminders {
+                limit: 10,
+                lease_duration_ms: 60_000,
+            },
+        )
+        .expect("retry snooze delivery");
+        let retried_snooze = retried
+            .committed
+            .value
+            .reminder_leases
+            .iter()
+            .find(|lease| lease.reminder_offset_minutes == -1)
+            .expect("retried snooze")
+            .clone();
+        assert_eq!(retried_snooze.attempt, 2);
+        let completed = apply(
+            &harness,
+            "complete-snooze-2",
+            AutomationIntent::CompleteReminderLease {
+                lease_id: retried_snooze.lease_id,
+            },
+        )
+        .expect("complete snooze");
+        assert!(
+            completed
+                .committed
+                .value
+                .reminder_snoozes
+                .iter()
+                .all(|snooze| snooze.consumed_at_ms.is_some())
+        );
+
+        let lease_snapshot = harness
+            .module
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: AutomationRead::ReminderLeases {
+                        include_settled: Some(true),
+                        limit: Some(20),
+                    },
+                },
+            )
+            .expect("read reminder leases");
+        let AutomationReadValue::ReminderLeases { items } = lease_snapshot.value else {
+            panic!("reminder lease snapshot");
+        };
+        assert_eq!(items.len(), 4);
     }
 }

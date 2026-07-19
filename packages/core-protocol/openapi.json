@@ -675,7 +675,9 @@
           "kind",
           "automation_ids",
           "lease_ids",
-          "run_ids"
+          "run_ids",
+          "reminder_lease_ids",
+          "snooze_ids"
         ],
         "properties": {
           "automation_ids": {
@@ -693,10 +695,23 @@
               "type": "string"
             }
           },
+          "reminder_lease_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "run_ids": {
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "snooze_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
             }
           }
         }
@@ -4495,6 +4510,109 @@
                     ]
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "occurrence_start_ms",
+                  "snooze_minutes",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "snooze_reminder"
+                    ]
+                  },
+                  "occurrence_start_ms": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "page_id": {
+                    "type": "string"
+                  },
+                  "snooze_minutes": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "limit",
+                  "lease_duration_ms",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "claim_due_reminders"
+                    ]
+                  },
+                  "lease_duration_ms": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "lease_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "complete_reminder_lease"
+                    ]
+                  },
+                  "lease_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "lease_id",
+                  "reason_code",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fail_reminder_lease"
+                    ]
+                  },
+                  "lease_id": {
+                    "type": "string"
+                  },
+                  "reason_code": {
+                    "type": "string"
+                  },
+                  "retry_delay_ms": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64",
+                    "minimum": 0
+                  }
+                }
               }
             ]
           },
@@ -6516,6 +6634,100 @@
                     "minimum": 0
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "window_start_ms",
+                  "window_end_ms",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "occurrences"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "search_query": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "window_end_ms": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "window_start_ms": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "include_settled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reminder_leases"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "include_consumed": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reminder_snoozes"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
               }
             ]
           },
@@ -7459,6 +7671,98 @@
       },
       "OwnedDocumentReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"
+      },
+      "PageRecurrenceConfig": {
+        "type": "object",
+        "required": [
+          "frequency",
+          "interval"
+        ],
+        "properties": {
+          "byWeekdays": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "endCondition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PageRecurrenceEndCondition"
+              }
+            ]
+          },
+          "frequency": {
+            "$ref": "#/components/schemas/PageRecurrenceFrequency"
+          },
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PageRecurrenceEndCondition": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "never"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "untilDate",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "untilDate"
+                ]
+              },
+              "untilDate": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "PageRecurrenceFrequency": {
+        "type": "string",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly",
+          "yearly"
+        ]
+      },
+      "PageReminderConfig": {
+        "type": "object",
+        "required": [
+          "offsetMinutes"
+        ],
+        "properties": {
+          "offsetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "ProjectLifecycle": {
         "type": "string",
@@ -8905,6 +9209,146 @@
           }
         }
       },
+      "ReminderLease": {
+        "type": "object",
+        "required": [
+          "lease_id",
+          "project_id",
+          "receipt_project_id",
+          "page_id",
+          "occurrence_start_ms",
+          "reminder_offset_minutes",
+          "due_at_ms",
+          "title",
+          "attempt",
+          "status",
+          "claimed_at_ms",
+          "expires_at_ms"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "claimed_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "due_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lease_id": {
+            "type": "string"
+          },
+          "occurrence_start_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "reason_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receipt_project_id": {
+            "type": "string"
+          },
+          "reminder_offset_minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retry_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "settled_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "snooze_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReminderLeaseStatus"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ReminderLeaseStatus": {
+        "type": "string",
+        "enum": [
+          "claimed",
+          "completed",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "ReminderSnooze": {
+        "type": "object",
+        "required": [
+          "snooze_id",
+          "project_id",
+          "page_id",
+          "occurrence_start_ms",
+          "due_at_ms",
+          "created_at_ms"
+        ],
+        "properties": {
+          "consumed_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "created_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "due_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "occurrence_start_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "snooze_id": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt": {
         "oneOf": [
           {
@@ -8937,7 +9381,9 @@
                         "required": [
                           "affected_automation_ids",
                           "affected_lease_ids",
-                          "affected_run_ids"
+                          "affected_run_ids",
+                          "affected_reminder_lease_ids",
+                          "affected_snooze_ids"
                         ],
                         "properties": {
                           "affected_automation_ids": {
@@ -8952,10 +9398,23 @@
                               "type": "string"
                             }
                           },
+                          "affected_reminder_lease_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
                           "affected_run_ids": {
                             "type": "array",
                             "items": {
                               "type": "string"
+                            }
+                          },
+                          "affected_snooze_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "format": "int64"
                             }
                           }
                         }
@@ -8972,7 +9431,9 @@
                       "definitions",
                       "claimed_leases",
                       "runs",
-                      "deleted_run_ids"
+                      "deleted_run_ids",
+                      "reminder_leases",
+                      "reminder_snoozes"
                     ],
                     "properties": {
                       "affected_automation_ids": {
@@ -8997,6 +9458,18 @@
                         "type": "array",
                         "items": {
                           "type": "string"
+                        }
+                      },
+                      "reminder_leases": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/ReminderLease"
+                        }
+                      },
+                      "reminder_snoozes": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/ReminderSnooze"
                         }
                       },
                       "run_bulk": {
@@ -9811,6 +10284,69 @@
                           },
                           "unread_counts": {
                             "$ref": "#/components/schemas/AutomationRunUnreadCounts"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ScheduledPageOccurrence"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "occurrences"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ReminderLease"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "reminder_leases"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ReminderSnooze"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "reminder_snoozes"
+                            ]
                           }
                         }
                       }
@@ -11018,6 +11554,167 @@
             "type": "string"
           },
           "store_epoch": {
+            "type": "string"
+          }
+        }
+      },
+      "ScheduledPageOccurrence": {
+        "type": "object",
+        "required": [
+          "occurrence_id",
+          "page_id",
+          "status",
+          "status_name",
+          "archived",
+          "title",
+          "rich_title",
+          "description",
+          "tags",
+          "occurrence_start_ms",
+          "occurrence_end_ms",
+          "is_all_day",
+          "reminders",
+          "metadata_revision",
+          "created_at",
+          "updated_at",
+          "order",
+          "is_recurring",
+          "this_and_future_equivalent_to_all"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "due_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estimate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_all_day": {
+            "type": "boolean"
+          },
+          "is_recurring": {
+            "type": "boolean"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "occurrence_end_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "occurrence_id": {
+            "type": "string"
+          },
+          "occurrence_start_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "order": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PageRecurrenceConfig"
+              }
+            ]
+          },
+          "reminders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PageReminderConfig"
+            }
+          },
+          "rich_title": {},
+          "run_in_base_branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_in_environment_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_in_local_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_in_target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_in_worktree_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule_timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "this_and_future_equivalent_to_all": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
             "type": "string"
           }
         }

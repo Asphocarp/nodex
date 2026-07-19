@@ -769,6 +769,7 @@ mod tests {
 mod content;
 mod cursor;
 mod history;
+pub(crate) use history::require_page_read_access;
 mod mutation;
 mod navigation;
 mod page_copy;

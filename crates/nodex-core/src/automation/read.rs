@@ -1,3 +1,4 @@
+use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::automation::{
     AutomationDefinition, AutomationDefinitionKind, AutomationDefinitionStatus,
     AutomationExecutionEnvironment, AutomationLease, AutomationLeaseStatus, AutomationRead,
@@ -12,6 +13,8 @@ const MAX_LEASE_READ_LIMIT: u32 = 1_000;
 
 pub(super) fn read(
     connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
     request: AutomationRead,
 ) -> Result<AutomationReadValue, StoreError> {
     match request {
@@ -67,6 +70,53 @@ pub(super) fn read(
                 unread_counts,
             })
         }
+        AutomationRead::Occurrences {
+            window_start_ms,
+            window_end_ms,
+            search_query,
+            limit,
+        } => {
+            let project_id = context
+                .project_id
+                .as_ref()
+                .map(|value| value.0.as_str())
+                .ok_or_else(|| {
+                    unauthorized("Scheduled Page occurrences require a bound Project")
+                })?;
+            Ok(AutomationReadValue::Occurrences {
+                items: super::occurrence::read_occurrences(
+                    connection,
+                    library_id,
+                    project_id,
+                    window_start_ms,
+                    window_end_ms,
+                    search_query.as_deref(),
+                    limit.unwrap_or(20_000),
+                )?,
+            })
+        }
+        AutomationRead::ReminderLeases {
+            include_settled,
+            limit,
+        } => Ok(AutomationReadValue::ReminderLeases {
+            items: super::reminder::read_leases(
+                connection,
+                context.project_id.as_ref().map(|value| value.0.as_str()),
+                include_settled.unwrap_or(false),
+                limit.unwrap_or(100),
+            )?,
+        }),
+        AutomationRead::ReminderSnoozes {
+            include_consumed,
+            limit,
+        } => Ok(AutomationReadValue::ReminderSnoozes {
+            items: super::reminder::read_snoozes(
+                connection,
+                context.project_id.as_ref().map(|value| value.0.as_str()),
+                include_consumed.unwrap_or(false),
+                limit.unwrap_or(100),
+            )?,
+        }),
     }
 }
 
@@ -347,4 +397,8 @@ fn invalid(message: &str) -> StoreError {
 
 fn corrupt(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+fn unauthorized(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
 }

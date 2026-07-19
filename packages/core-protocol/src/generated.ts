@@ -310,7 +310,9 @@ export interface components {
             readonly automation_ids: readonly string[];
             readonly kind: components["schemas"]["AutomationEventKind"];
             readonly lease_ids: readonly string[];
+            readonly reminder_lease_ids: readonly string[];
             readonly run_ids: readonly string[];
+            readonly snooze_ids: readonly number[];
         };
         /** @enum {string} */
         readonly AutomationEventKind: "automation_changed";
@@ -1235,6 +1237,32 @@ export interface components {
             } | {
                 /** @enum {string} */
                 readonly kind: "settle_interrupted_runs";
+            } | {
+                /** @enum {string} */
+                readonly kind: "snooze_reminder";
+                /** Format: int64 */
+                readonly occurrence_start_ms: number;
+                readonly page_id: string;
+                /** Format: int32 */
+                readonly snooze_minutes: number;
+            } | {
+                /** @enum {string} */
+                readonly kind: "claim_due_reminders";
+                /** Format: int64 */
+                readonly lease_duration_ms: number;
+                /** Format: int32 */
+                readonly limit: number;
+            } | {
+                /** @enum {string} */
+                readonly kind: "complete_reminder_lease";
+                readonly lease_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "fail_reminder_lease";
+                readonly lease_id: string;
+                readonly reason_code: string;
+                /** Format: int64 */
+                readonly retry_delay_ms?: number | null;
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -1707,6 +1735,28 @@ export interface components {
                 readonly kind: "inbox";
                 /** Format: int32 */
                 readonly limit?: number | null;
+            } | {
+                /** @enum {string} */
+                readonly kind: "occurrences";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly search_query?: string | null;
+                /** Format: int64 */
+                readonly window_end_ms: number;
+                /** Format: int64 */
+                readonly window_start_ms: number;
+            } | {
+                readonly include_settled?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "reminder_leases";
+                /** Format: int32 */
+                readonly limit?: number | null;
+            } | {
+                readonly include_consumed?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "reminder_snoozes";
+                /** Format: int32 */
+                readonly limit?: number | null;
             };
             /** Format: int32 */
             readonly version: number;
@@ -1918,6 +1968,27 @@ export interface components {
         };
         readonly OwnedDocumentReadRequest: components["schemas"]["ModuleReadRequest_OwnedDocumentRead"];
         readonly OwnedDocumentReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"];
+        readonly PageRecurrenceConfig: {
+            readonly byWeekdays?: readonly number[];
+            readonly endCondition?: null | components["schemas"]["PageRecurrenceEndCondition"];
+            readonly frequency: components["schemas"]["PageRecurrenceFrequency"];
+            /** Format: int32 */
+            readonly interval: number;
+        };
+        readonly PageRecurrenceEndCondition: {
+            /** @enum {string} */
+            readonly type: "never";
+        } | {
+            /** @enum {string} */
+            readonly type: "untilDate";
+            readonly untilDate: string;
+        };
+        /** @enum {string} */
+        readonly PageRecurrenceFrequency: "daily" | "weekly" | "monthly" | "yearly";
+        readonly PageReminderConfig: {
+            /** Format: int32 */
+            readonly offsetMinutes: number;
+        };
         /** @enum {string} */
         readonly ProjectLifecycle: "active" | "inactive" | "archived";
         readonly ProjectSessionIntent: {
@@ -2249,6 +2320,49 @@ export interface components {
             readonly thread_id: string;
             readonly turn_id: string;
         };
+        readonly ReminderLease: {
+            /** Format: int32 */
+            readonly attempt: number;
+            /** Format: int64 */
+            readonly claimed_at_ms: number;
+            /** Format: int64 */
+            readonly due_at_ms: number;
+            /** Format: int64 */
+            readonly expires_at_ms: number;
+            readonly lease_id: string;
+            /** Format: int64 */
+            readonly occurrence_start_ms: number;
+            readonly page_id: string;
+            readonly project_id: string;
+            readonly reason_code?: string | null;
+            readonly receipt_project_id: string;
+            /** Format: int32 */
+            readonly reminder_offset_minutes: number;
+            /** Format: int64 */
+            readonly retry_at_ms?: number | null;
+            /** Format: int64 */
+            readonly settled_at_ms?: number | null;
+            /** Format: int64 */
+            readonly snooze_id?: number | null;
+            readonly status: components["schemas"]["ReminderLeaseStatus"];
+            readonly title: string;
+        };
+        /** @enum {string} */
+        readonly ReminderLeaseStatus: "claimed" | "completed" | "failed" | "cancelled";
+        readonly ReminderSnooze: {
+            /** Format: int64 */
+            readonly consumed_at_ms?: number | null;
+            /** Format: int64 */
+            readonly created_at_ms: number;
+            /** Format: int64 */
+            readonly due_at_ms: number;
+            /** Format: int64 */
+            readonly occurrence_start_ms: number;
+            readonly page_id: string;
+            readonly project_id: string;
+            /** Format: int64 */
+            readonly snooze_id: number;
+        };
         readonly ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt: {
             readonly payload: {
                 /** Format: int64 */
@@ -2256,7 +2370,9 @@ export interface components {
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_automation_ids: readonly string[];
                     readonly affected_lease_ids: readonly string[];
+                    readonly affected_reminder_lease_ids: readonly string[];
                     readonly affected_run_ids: readonly string[];
+                    readonly affected_snooze_ids: readonly number[];
                 };
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
@@ -2264,6 +2380,8 @@ export interface components {
                     readonly claimed_leases: readonly components["schemas"]["AutomationLease"][];
                     readonly definitions: readonly components["schemas"]["AutomationDefinition"][];
                     readonly deleted_run_ids: readonly string[];
+                    readonly reminder_leases: readonly components["schemas"]["ReminderLease"][];
+                    readonly reminder_snoozes: readonly components["schemas"]["ReminderSnooze"][];
                     readonly run_bulk?: null | components["schemas"]["AutomationRunBulkResult"];
                     readonly runs: readonly components["schemas"]["AutomationRun"][];
                 };
@@ -2434,6 +2552,18 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "inbox";
                     readonly unread_counts: components["schemas"]["AutomationRunUnreadCounts"];
+                } | {
+                    readonly items: readonly components["schemas"]["ScheduledPageOccurrence"][];
+                    /** @enum {string} */
+                    readonly kind: "occurrences";
+                } | {
+                    readonly items: readonly components["schemas"]["ReminderLease"][];
+                    /** @enum {string} */
+                    readonly kind: "reminder_leases";
+                } | {
+                    readonly items: readonly components["schemas"]["ReminderSnooze"][];
+                    /** @enum {string} */
+                    readonly kind: "reminder_snoozes";
                 };
                 /** Format: int32 */
                 readonly version: number;
@@ -2711,6 +2841,42 @@ export interface components {
             readonly socket_path: string;
             readonly start_nonce: string;
             readonly store_epoch: string;
+        };
+        readonly ScheduledPageOccurrence: {
+            readonly archived: boolean;
+            readonly assignee?: string | null;
+            readonly created_at: string;
+            readonly description: string;
+            readonly due_date?: string | null;
+            readonly estimate?: string | null;
+            readonly is_all_day: boolean;
+            readonly is_recurring: boolean;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            /** Format: int64 */
+            readonly occurrence_end_ms: number;
+            readonly occurrence_id: string;
+            /** Format: int64 */
+            readonly occurrence_start_ms: number;
+            /** Format: int64 */
+            readonly order: number;
+            readonly page_id: string;
+            readonly priority?: string | null;
+            readonly recurrence?: null | components["schemas"]["PageRecurrenceConfig"];
+            readonly reminders: readonly components["schemas"]["PageReminderConfig"][];
+            readonly rich_title: unknown;
+            readonly run_in_base_branch?: string | null;
+            readonly run_in_environment_path?: string | null;
+            readonly run_in_local_path?: string | null;
+            readonly run_in_target?: string | null;
+            readonly run_in_worktree_path?: string | null;
+            readonly schedule_timezone?: string | null;
+            readonly status: string;
+            readonly status_name: string;
+            readonly tags: readonly string[];
+            readonly this_and_future_equivalent_to_all: boolean;
+            readonly title: string;
+            readonly updated_at: string;
         };
         /** @enum {string} */
         readonly SchemaOwner: "type_script" | "rust";

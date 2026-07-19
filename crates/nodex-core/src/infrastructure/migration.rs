@@ -183,6 +183,45 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_core_automation_leases_active_occurrence
 CREATE INDEX IF NOT EXISTS idx_core_automation_leases_inbox
   ON core_automation_leases(status, expires_at_ms, scheduled_for_ms, lease_id);
 
+CREATE TABLE IF NOT EXISTS core_reminder_leases (
+  lease_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  receipt_project_id TEXT NOT NULL,
+  page_id TEXT NOT NULL,
+  occurrence_start_ms INTEGER NOT NULL CHECK (occurrence_start_ms >= 0),
+  reminder_offset_minutes INTEGER NOT NULL,
+  due_at_ms INTEGER NOT NULL CHECK (due_at_ms >= 0),
+  title TEXT NOT NULL,
+  snooze_id INTEGER REFERENCES reminder_snoozes(id) ON DELETE CASCADE,
+  attempt INTEGER NOT NULL CHECK (attempt BETWEEN 1 AND 4294967295),
+  status TEXT NOT NULL CHECK (status IN ('claimed', 'completed', 'failed', 'cancelled')),
+  claimed_at_ms INTEGER NOT NULL CHECK (claimed_at_ms >= 0),
+  expires_at_ms INTEGER NOT NULL CHECK (expires_at_ms > claimed_at_ms),
+  settled_at_ms INTEGER,
+  retry_at_ms INTEGER,
+  reason_code TEXT,
+  UNIQUE (receipt_project_id, page_id, occurrence_start_ms, reminder_offset_minutes, attempt),
+  FOREIGN KEY (page_id, receipt_project_id)
+    REFERENCES blocks(id, project_id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CHECK (length(lease_id) BETWEEN 1 AND 512),
+  CHECK (length(title) <= 16384),
+  CHECK (settled_at_ms IS NULL OR settled_at_ms >= claimed_at_ms),
+  CHECK (retry_at_ms IS NULL OR retry_at_ms >= 0),
+  CHECK (reason_code IS NULL OR length(reason_code) BETWEEN 1 AND 128),
+  CHECK (
+    (status = 'claimed' AND settled_at_ms IS NULL)
+    OR (status <> 'claimed' AND settled_at_ms IS NOT NULL)
+  )
+) WITHOUT ROWID, STRICT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_core_reminder_leases_active_coordinate
+  ON core_reminder_leases(
+    receipt_project_id, page_id, occurrence_start_ms, reminder_offset_minutes
+  ) WHERE status = 'claimed';
+
+CREATE INDEX IF NOT EXISTS idx_core_reminder_leases_inbox
+  ON core_reminder_leases(status, expires_at_ms, due_at_ms, lease_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_codex_scheduled_automations_active_heartbeat
   ON codex_scheduled_automations(target_thread_id)
   WHERE kind = 'heartbeat' AND status = 'ACTIVE' AND target_thread_id IS NOT NULL;
@@ -1290,19 +1329,44 @@ mod tests {
         )
         .expect("stale jitter salt");
         let reopened = SqliteStoreKernel::open(&home).expect("reopen Automation runtime");
-        let salt = reopened
+        let runtime = reopened
             .readers()
             .read_default(|connection| {
                 connection
                     .query_row(
-                        "SELECT jitter_salt FROM core_automation_runtime_metadata WHERE id = 1",
+                        "SELECT metadata.jitter_salt, EXISTS( \
+                           SELECT 1 FROM sqlite_schema \
+                           WHERE type = 'table' AND name = 'core_reminder_leases' \
+                         ) FROM core_automation_runtime_metadata metadata WHERE metadata.id = 1",
                         [],
-                        |row| row.get::<_, String>(0),
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
                     )
                     .map_err(StoreError::from)
             })
             .expect("persisted jitter salt");
-        assert_eq!(salt, "legacy-jitter-salt");
+        assert_eq!(runtime, ("legacy-jitter-salt".to_owned(), true));
+        drop(reopened);
+
+        let connection = Connection::open(home.join("nodex.db")).expect("early v83 store");
+        connection
+            .execute("DROP TABLE core_reminder_leases", [])
+            .expect("simulate early v83 reminder schema");
+        drop(connection);
+        let repaired = SqliteStoreKernel::open(&home).expect("repair reminder lease schema");
+        let repaired_table = repaired
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT 1 FROM sqlite_schema \
+                         WHERE type = 'table' AND name = 'core_reminder_leases'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("repaired reminder lease table");
+        assert_eq!(repaired_table, 1);
     }
 
     #[test]

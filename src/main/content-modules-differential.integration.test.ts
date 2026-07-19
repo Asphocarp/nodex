@@ -24,6 +24,9 @@ import { primaryCanvasBlockId } from "../shared/block-documents";
 import { createUuidV7 } from "../shared/uuid-v7";
 import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
 import { createPage } from "./local-store/database-pages";
+import { listPageOccurrences } from "./local-store/page-occurrences";
+import { applyAuthoritativePageSchedulePatchInTransaction } from "./local-store/page-schedule-authority";
+import { snoozeReminder } from "./local-store/reminders";
 import {
   createProject,
   listProjects,
@@ -328,6 +331,24 @@ describe("TypeScript/Rust content Module differential", () => {
     const anchorPage = await createPage(coordinates.projectId, "triage", {
       title: "Secondary imported row",
     });
+    const reminderOccurrenceStart = new Date(Date.now() - 5 * 60_000);
+    const scheduledPage = await createPage(coordinates.projectId, "triage", {
+      title: "Gate C scheduled authority",
+    });
+    oracle.transaction(() => {
+      applyAuthoritativePageSchedulePatchInTransaction(oracle, {
+        projectId: coordinates.projectId,
+        pageId: scheduledPage.id,
+        operationId: "gate-c-scheduled-page",
+        patch: {
+          scheduledStart: reminderOccurrenceStart,
+          scheduledEnd: new Date(reminderOccurrenceStart.getTime() + 60 * 60_000),
+          recurrence: { frequency: "daily", interval: 1 },
+          reminders: [{ offsetMinutes: 0 }, { offsetMinutes: 30 }],
+          scheduleTimezone: "UTC",
+        },
+      });
+    })();
     const oracleImportedAutomation = createCodexScheduledAutomation({
       kind: "cron",
       name: "Gate C Automation",
@@ -413,6 +434,73 @@ describe("TypeScript/Rust content Module differential", () => {
       created_at_ms: oracleImportedRuntime?.createdAt,
       updated_at_ms: oracleImportedRuntime?.updatedAt,
     });
+
+    const occurrenceWindowStart = new Date(reminderOccurrenceStart.getTime() - 60_000);
+    const occurrenceWindowEnd = new Date(reminderOccurrenceStart.getTime() + 2 * 24 * 60 * 60_000);
+    const oracleOccurrences = await listPageOccurrences(
+      coordinates.projectId,
+      occurrenceWindowStart,
+      occurrenceWindowEnd,
+      "scheduled authority",
+    );
+    const candidateOccurrences = await stage(
+      "Automation scheduled Page occurrence projection",
+      candidate.automationRead({
+        kind: "occurrences",
+        window_start_ms: occurrenceWindowStart.getTime(),
+        window_end_ms: occurrenceWindowEnd.getTime(),
+        search_query: "scheduled authority",
+        limit: 20,
+      }),
+    );
+    if (candidateOccurrences.value.kind !== "occurrences") {
+      throw new Error("Expected scheduled Page occurrence snapshot");
+    }
+    const comparableOccurrence = (occurrence: {
+      readonly pageId?: string;
+      readonly page_id?: string;
+      readonly title: string;
+      readonly status: string;
+      readonly statusName?: string;
+      readonly status_name?: string;
+      readonly occurrenceStart?: Date;
+      readonly occurrence_start_ms?: number;
+      readonly occurrenceEnd?: Date;
+      readonly occurrence_end_ms?: number;
+      readonly recurrence?: unknown;
+      readonly reminders?: readonly { readonly offsetMinutes?: number; readonly offset_minutes?: number }[];
+      readonly scheduleTimezone?: string;
+      readonly schedule_timezone?: string | null;
+      readonly revision?: number;
+      readonly metadata_revision?: number;
+      readonly isRecurring?: boolean;
+      readonly is_recurring?: boolean;
+      readonly thisAndFutureEquivalentToAll?: boolean;
+      readonly this_and_future_equivalent_to_all?: boolean;
+    }) => ({
+      pageId: occurrence.pageId ?? occurrence.page_id,
+      title: occurrence.title,
+      status: occurrence.status,
+      statusName: occurrence.statusName ?? occurrence.status_name,
+      occurrenceStartMs:
+        occurrence.occurrenceStart?.getTime() ?? occurrence.occurrence_start_ms,
+      occurrenceEndMs:
+        occurrence.occurrenceEnd?.getTime() ?? occurrence.occurrence_end_ms,
+      recurrence: occurrence.recurrence ?? null,
+      reminders: (occurrence.reminders ?? []).map((reminder) =>
+        reminder.offsetMinutes ?? reminder.offset_minutes
+      ),
+      scheduleTimezone:
+        occurrence.scheduleTimezone ?? occurrence.schedule_timezone ?? null,
+      revision: occurrence.revision ?? occurrence.metadata_revision,
+      isRecurring: occurrence.isRecurring ?? occurrence.is_recurring,
+      thisAndFutureEquivalentToAll:
+        occurrence.thisAndFutureEquivalentToAll
+        ?? occurrence.this_and_future_equivalent_to_all,
+    });
+    expect(candidateOccurrences.value.items.map(comparableOccurrence)).toEqual(
+      oracleOccurrences.map(comparableOccurrence),
+    );
 
     const oracleWorkspaceProjects = listProjects();
     const oracleWorkspaceSessions = [
@@ -5008,6 +5096,125 @@ describe("TypeScript/Rust content Module differential", () => {
       throw new Error("Expected Automation run snapshot");
     }
     expect(deletedCandidateRun.value.item).toBeNull();
+
+    const claimedReminders = await stage(
+      "Automation durable reminder claim",
+      candidate.automationApply({
+        operationId: "gate-c-reminder-claim",
+        intent: {
+          kind: "claim_due_reminders",
+          limit: 10,
+          lease_duration_ms: 60_000,
+        },
+      }),
+    );
+    const claimedReminder = claimedReminders.value.reminder_leases.find(
+      (lease) => lease.page_id === scheduledPage.id,
+    );
+    expect(claimedReminder).toMatchObject({
+      project_id: coordinates.projectId,
+      receipt_project_id: coordinates.projectId,
+      page_id: scheduledPage.id,
+      occurrence_start_ms: reminderOccurrenceStart.getTime(),
+      reminder_offset_minutes: 0,
+      status: "claimed",
+      attempt: 1,
+      title: "Gate C scheduled authority",
+    });
+    if (!claimedReminder) throw new Error("Expected scheduled Page reminder lease");
+    await stage(
+      "Automation complete durable reminder lease",
+      candidate.automationApply({
+        operationId: "gate-c-reminder-complete",
+        intent: {
+          kind: "complete_reminder_lease",
+          lease_id: claimedReminder.lease_id,
+        },
+      }),
+    );
+    const noDuplicateReminder = await stage(
+      "Automation suppress completed reminder",
+      candidate.automationApply({
+        operationId: "gate-c-reminder-claim-after-complete",
+        intent: {
+          kind: "claim_due_reminders",
+          limit: 10,
+          lease_duration_ms: 60_000,
+        },
+      }),
+    );
+    const fallbackReminder = noDuplicateReminder.value.reminder_leases.find(
+      (lease) => lease.page_id === scheduledPage.id
+        && lease.occurrence_start_ms === reminderOccurrenceStart.getTime(),
+    );
+    expect(fallbackReminder?.reminder_offset_minutes).toBe(30);
+    if (!fallbackReminder) throw new Error("Expected remaining overdue reminder");
+    await stage(
+      "Automation complete remaining reminder offset",
+      candidate.automationApply({
+        operationId: "gate-c-reminder-complete-fallback",
+        intent: {
+          kind: "complete_reminder_lease",
+          lease_id: fallbackReminder.lease_id,
+        },
+      }),
+    );
+    const drainedReminders = await stage(
+      "Automation drain completed reminder offsets",
+      candidate.automationApply({
+        operationId: "gate-c-reminder-claim-drained",
+        intent: {
+          kind: "claim_due_reminders",
+          limit: 10,
+          lease_duration_ms: 60_000,
+        },
+      }),
+    );
+    expect(
+      drainedReminders.value.reminder_leases.some(
+        (lease) => lease.page_id === scheduledPage.id
+          && lease.occurrence_start_ms === reminderOccurrenceStart.getTime(),
+      ),
+    ).toBe(false);
+
+    await snoozeReminder(
+      coordinates.projectId,
+      scheduledPage.id,
+      reminderOccurrenceStart.toISOString(),
+      5,
+    );
+    const oracleSnooze = getDb().prepare(`
+      SELECT due_at AS dueAt
+      FROM reminder_snoozes WHERE project_id = ? AND page_id = ?
+      ORDER BY id DESC LIMIT 1
+    `).get(coordinates.projectId, scheduledPage.id) as {
+      readonly dueAt: string;
+    };
+    const candidateSnooze = await stage(
+      "Automation snooze reminder",
+      candidate.automationApply({
+        operationId: "gate-c-reminder-snooze",
+        intent: {
+          kind: "snooze_reminder",
+          page_id: scheduledPage.id,
+          occurrence_start_ms: reminderOccurrenceStart.getTime(),
+          snooze_minutes: 5,
+        },
+      }),
+    );
+    const rustSnooze = candidateSnooze.value.reminder_snoozes[0];
+    expect(rustSnooze).toMatchObject({
+      project_id: coordinates.projectId,
+      page_id: scheduledPage.id,
+      occurrence_start_ms: reminderOccurrenceStart.getTime(),
+      consumed_at_ms: null,
+    });
+    expect(rustSnooze?.due_at_ms).toBeGreaterThanOrEqual(
+      new Date(oracleSnooze.dueAt).getTime() - 5_000,
+    );
+    expect(rustSnooze?.due_at_ms).toBeLessThanOrEqual(
+      new Date(oracleSnooze.dueAt).getTime() + 5_000,
+    );
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);

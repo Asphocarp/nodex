@@ -100,7 +100,7 @@ struct RelocationEvidence {
     moved_block_count: u32,
 }
 
-pub(super) fn require_page_read_access(
+pub(crate) fn require_page_read_access(
     connection: &Connection,
     library_id: &str,
     project_id: &str,
@@ -109,7 +109,7 @@ pub(super) fn require_page_read_access(
     require_page_access(connection, library_id, project_id, page_id, false)
 }
 
-pub(super) fn require_page_write_access(
+pub(crate) fn require_page_write_access(
     connection: &Connection,
     library_id: &str,
     project_id: &str,

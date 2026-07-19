@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
@@ -159,6 +160,116 @@ pub struct AutomationRunBulkResult {
     pub has_more: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PageRecurrenceFrequency {
+    Daily,
+    Weekly,
+    Monthly,
+    Yearly,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PageRecurrenceEndCondition {
+    Never,
+    UntilDate {
+        #[serde(rename = "untilDate")]
+        until_date: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRecurrenceConfig {
+    pub frequency: PageRecurrenceFrequency,
+    pub interval: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub by_weekdays: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_condition: Option<PageRecurrenceEndCondition>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PageReminderConfig {
+    pub offset_minutes: i32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ScheduledPageOccurrence {
+    pub occurrence_id: String,
+    pub page_id: String,
+    pub status: String,
+    pub status_name: String,
+    pub archived: bool,
+    pub title: String,
+    pub rich_title: Value,
+    pub description: String,
+    pub priority: Option<String>,
+    pub estimate: Option<String>,
+    pub tags: Vec<String>,
+    pub due_date: Option<String>,
+    pub occurrence_start_ms: i64,
+    pub occurrence_end_ms: i64,
+    pub is_all_day: bool,
+    pub recurrence: Option<PageRecurrenceConfig>,
+    pub reminders: Vec<PageReminderConfig>,
+    pub schedule_timezone: Option<String>,
+    pub assignee: Option<String>,
+    pub run_in_target: Option<String>,
+    pub run_in_local_path: Option<String>,
+    pub run_in_base_branch: Option<String>,
+    pub run_in_worktree_path: Option<String>,
+    pub run_in_environment_path: Option<String>,
+    pub metadata_revision: i64,
+    pub created_at: String,
+    pub updated_at: String,
+    pub order: i64,
+    pub is_recurring: bool,
+    pub this_and_future_equivalent_to_all: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReminderLeaseStatus {
+    Claimed,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ReminderLease {
+    pub lease_id: String,
+    pub project_id: String,
+    pub receipt_project_id: String,
+    pub page_id: String,
+    pub occurrence_start_ms: i64,
+    pub reminder_offset_minutes: i32,
+    pub due_at_ms: i64,
+    pub title: String,
+    pub snooze_id: Option<i64>,
+    pub attempt: u32,
+    pub status: ReminderLeaseStatus,
+    pub claimed_at_ms: i64,
+    pub expires_at_ms: i64,
+    pub settled_at_ms: Option<i64>,
+    pub retry_at_ms: Option<i64>,
+    pub reason_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ReminderSnooze {
+    pub snooze_id: i64,
+    pub project_id: String,
+    pub page_id: String,
+    pub occurrence_start_ms: i64,
+    pub due_at_ms: i64,
+    pub created_at_ms: i64,
+    pub consumed_at_ms: Option<i64>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AutomationRead {
@@ -184,6 +295,20 @@ pub enum AutomationRead {
     Inbox {
         limit: Option<u32>,
     },
+    Occurrences {
+        window_start_ms: i64,
+        window_end_ms: i64,
+        search_query: Option<String>,
+        limit: Option<u32>,
+    },
+    ReminderLeases {
+        include_settled: Option<bool>,
+        limit: Option<u32>,
+    },
+    ReminderSnoozes {
+        include_consumed: Option<bool>,
+        limit: Option<u32>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -207,6 +332,15 @@ pub enum AutomationReadValue {
     Inbox {
         items: Vec<AutomationInboxItem>,
         unread_counts: AutomationRunUnreadCounts,
+    },
+    Occurrences {
+        items: Vec<ScheduledPageOccurrence>,
+    },
+    ReminderLeases {
+        items: Vec<ReminderLease>,
+    },
+    ReminderSnoozes {
+        items: Vec<ReminderSnooze>,
     },
 }
 
@@ -293,6 +427,23 @@ pub enum AutomationIntent {
         expected_revision: i64,
     },
     SettleInterruptedRuns,
+    SnoozeReminder {
+        page_id: String,
+        occurrence_start_ms: i64,
+        snooze_minutes: u32,
+    },
+    ClaimDueReminders {
+        limit: u32,
+        lease_duration_ms: u64,
+    },
+    CompleteReminderLease {
+        lease_id: String,
+    },
+    FailReminderLease {
+        lease_id: String,
+        retry_delay_ms: Option<u64>,
+        reason_code: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -303,6 +454,8 @@ pub struct AutomationCommitValue {
     pub runs: Vec<AutomationRun>,
     pub deleted_run_ids: Vec<String>,
     pub run_bulk: Option<AutomationRunBulkResult>,
+    pub reminder_leases: Vec<ReminderLease>,
+    pub reminder_snoozes: Vec<ReminderSnooze>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -312,6 +465,8 @@ pub struct AutomationReceipt {
     pub affected_automation_ids: Vec<String>,
     pub affected_lease_ids: Vec<String>,
     pub affected_run_ids: Vec<String>,
+    pub affected_reminder_lease_ids: Vec<String>,
+    pub affected_snooze_ids: Vec<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -320,6 +475,8 @@ pub struct AutomationEvent {
     pub automation_ids: Vec<String>,
     pub lease_ids: Vec<String>,
     pub run_ids: Vec<String>,
+    pub reminder_lease_ids: Vec<String>,
+    pub snooze_ids: Vec<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -368,6 +525,22 @@ mod tests {
         })
         .expect("read transition serializes");
         assert!(read.get("read_at_ms").is_none());
+
+        let snooze = serde_json::to_value(AutomationIntent::SnoozeReminder {
+            page_id: "page-1".to_owned(),
+            occurrence_start_ms: 42,
+            snooze_minutes: 5,
+        })
+        .expect("snooze serializes");
+        assert!(snooze.get("due_at_ms").is_none());
+        assert!(snooze.get("created_at_ms").is_none());
+
+        let reminder_claim = serde_json::to_value(AutomationIntent::ClaimDueReminders {
+            limit: 3,
+            lease_duration_ms: 60_000,
+        })
+        .expect("reminder claim serializes");
+        assert!(reminder_claim.get("now_ms").is_none());
     }
 
     #[test]
@@ -379,6 +552,35 @@ mod tests {
         assert_eq!(
             serde_json::to_value(AutomationRunStatus::PendingReview).expect("run status"),
             "PENDING_REVIEW"
+        );
+    }
+
+    #[test]
+    fn page_recurrence_uses_the_existing_camel_case_shape_without_null_fillers() {
+        let recurrence = serde_json::to_value(PageRecurrenceConfig {
+            frequency: PageRecurrenceFrequency::Daily,
+            interval: 1,
+            by_weekdays: Vec::new(),
+            end_condition: None,
+        })
+        .expect("recurrence serializes");
+        assert_eq!(
+            recurrence,
+            serde_json::json!({
+                "frequency": "daily",
+                "interval": 1,
+            })
+        );
+        let until = serde_json::to_value(PageRecurrenceEndCondition::UntilDate {
+            until_date: "2026-07-31".to_owned(),
+        })
+        .expect("end condition serializes");
+        assert_eq!(
+            until,
+            serde_json::json!({
+                "type": "untilDate",
+                "untilDate": "2026-07-31",
+            })
         );
     }
 }

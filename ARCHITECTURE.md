@@ -94,7 +94,7 @@ sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed. Store Administration and the
-Automation occurrence/reminder slices remain migration work; unavailable
+Automation Scheduled Page mutation aggregate remain migration work; unavailable
 semantics do not fall back to direct native SQL.
 
 Project creation is the first native Workspace writer aggregate. One writer job
@@ -225,8 +225,21 @@ snapshot. Startup interruption recovery deterministically archives unresolved
 definition deletion removes its complete run collection in the same receipt and
 event. Electron remains the Codex executor and transcript observer, but it no
 longer owns run state or composes archive-message persistence with a separate
-lifecycle write. Scheduled Page occurrences, reminders, and snoozes remain to
-be absorbed before the Module is complete.
+lifecycle write.
+
+Scheduled Page occurrence reads and reminder delivery are now native Automation
+semantics. One SQLite snapshot validates recursive Project access, the schedule
+index revision, current Document generation/head/schema, Data Source property
+coordinates, and the exact materialized title/body before expanding bounded
+local-calendar occurrences. Recurrence preserves IANA wall-clock behavior across
+DST gaps/folds, inclusive end dates, exceptions, all-day date spans, and the
+established post-first-occurrence millisecond precision. Reminder claims are
+trusted-Host-only durable leases: claiming does not record delivery, expiry can
+be reclaimed, completion atomically records the existing unique reminder
+receipt and consumes due Project-owned snoozes, and failure retains bounded
+retry evidence. Recursive-grant duplicates collapse to one delivery coordinate
+and prefer the active content-owning Project. The complete/skip/update
+occurrence mutation aggregate remains TypeScript-owned until its native slice.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit
