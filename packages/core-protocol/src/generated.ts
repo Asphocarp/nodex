@@ -456,12 +456,24 @@ export interface components {
             readonly thread_id: string;
         };
         readonly BackupRecord: {
+            /** Format: int64 */
+            readonly assets_bytes: number;
             readonly backup_id: string;
             /** Format: int64 */
             readonly byte_length: number;
             readonly created_at: string;
+            /** Format: int64 */
+            readonly db_bytes: number;
+            readonly includes_assets: boolean;
             readonly label?: string | null;
+            /** Format: int64 */
+            readonly total_bytes: number;
+            readonly trigger: components["schemas"]["BackupTrigger"];
+            /** Format: int32 */
+            readonly version: number;
         };
+        /** @enum {string} */
+        readonly BackupTrigger: "manual" | "auto" | "pre-restore";
         readonly ClientIdentity: {
             readonly build_id: string;
             readonly kind: components["schemas"]["ClientKind"];
@@ -1748,6 +1760,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "create_backup";
                 readonly label?: string | null;
+                readonly trigger: components["schemas"]["BackupTrigger"];
             } | {
                 readonly backup_id: string;
                 readonly create_safety_backup: boolean;

@@ -19,6 +19,10 @@ import {
   createDesktopAutomationModuleBridge,
   type DesktopAutomationModulePort,
 } from "./core-client/desktop-automation-module-bridge";
+import {
+  createDesktopStoreAdministrationBridge,
+  type DesktopStoreAdministrationPort,
+} from "./core-client/desktop-store-administration-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { closeDatabase, getDb } from "./local-store/database";
@@ -63,6 +67,20 @@ const unavailableAutomationPort = (): DesktopAutomationModulePort => {
     readInbox: unavailable,
     setRunReadState: unavailable,
     markAllRunsRead: unavailable,
+  };
+};
+
+const unavailableStoreAdministrationPort = (): DesktopStoreAdministrationPort => {
+  const unavailable = async (): Promise<never> => {
+    throw new Error("TypeScript Store Administration fallback must not run");
+  };
+  return {
+    listBackups: unavailable,
+    createBackup: unavailable,
+    deleteBackup: unavailable,
+    restoreBackup: unavailable,
+    pruneBackups: unavailable,
+    runMaintenance: unavailable,
   };
 };
 
@@ -530,6 +548,30 @@ describe("Electron native data authority", () => {
         success: true,
         status: "deleted",
         deletedRunCount: 0,
+      });
+      const administration = createDesktopStoreAdministrationBridge({
+        authority: Promise.resolve(runtime),
+        typescript: unavailableStoreAdministrationPort(),
+      });
+      const nativeBackup = await administration.createBackup({
+        trigger: "manual",
+        label: "Electron native authority",
+      });
+      expect(nativeBackup).toMatchObject({
+        version: 2,
+        trigger: "manual",
+        label: "Electron native authority",
+        includesAssets: true,
+        dbBytes: expect.any(Number),
+      });
+      await expect(administration.listBackups()).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: nativeBackup.id }),
+        ]),
+      );
+      await expect(administration.deleteBackup(nativeBackup.id)).resolves.toEqual({
+        success: true,
+        deletedBackupId: nativeBackup.id,
       });
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(

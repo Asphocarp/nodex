@@ -56,10 +56,24 @@ pub enum StoreIntegrity {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct BackupRecord {
+    pub version: u32,
     pub backup_id: String,
+    pub trigger: BackupTrigger,
     pub label: Option<String>,
     pub created_at: String,
+    pub includes_assets: bool,
+    pub db_bytes: u64,
+    pub assets_bytes: u64,
+    pub total_bytes: u64,
     pub byte_length: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum BackupTrigger {
+    Manual,
+    Auto,
+    PreRestore,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -68,6 +82,7 @@ pub enum StoreAdministrationIntent {
     CreateBackup {
         label: Option<String>,
         include_assets: bool,
+        trigger: BackupTrigger,
     },
     RestoreBackup {
         backup_id: String,

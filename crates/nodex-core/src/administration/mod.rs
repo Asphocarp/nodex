@@ -276,7 +276,12 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no managed Profile home",
             ));
         };
-        let StoreAdministrationIntent::CreateBackup { include_assets, .. } = request.intent else {
+        let StoreAdministrationIntent::CreateBackup {
+            include_assets,
+            trigger,
+            ..
+        } = request.intent
+        else {
             unreachable!("apply validates the Store Administration intent")
         };
         let fingerprint = serde_json::to_vec(&(
@@ -286,6 +291,7 @@ impl StoreAdministrationModule {
             &request.store_epoch,
             &normalized_label,
             include_assets,
+            trigger,
         ))
         .map_err(|_| unavailable("Store Administration request cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
@@ -335,6 +341,7 @@ impl StoreAdministrationModule {
                     &request_hash,
                     normalized_label.as_deref(),
                     include_assets,
+                    trigger,
                 )?;
                 finish_backup_creation(
                     connection,

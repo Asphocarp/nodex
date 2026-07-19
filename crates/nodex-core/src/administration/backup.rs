@@ -2,7 +2,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use nodex_core_contracts::administration::BackupRecord;
+use nodex_core_contracts::administration::{BackupRecord, BackupTrigger};
 use rusqlite::{Connection, MAIN_DB, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -177,7 +177,13 @@ pub(super) fn create_backup(
     request_hash: &str,
     label: Option<&str>,
     include_assets: bool,
+    trigger: BackupTrigger,
 ) -> Result<BackupRecord, StoreError> {
+    let trigger = match trigger {
+        BackupTrigger::Manual => "manual",
+        BackupTrigger::Auto => "auto",
+        BackupTrigger::PreRestore => "pre-restore",
+    };
     create_backup_with_trigger(
         connection,
         profile_home,
@@ -186,7 +192,7 @@ pub(super) fn create_backup(
         request_hash,
         label,
         include_assets,
-        "manual",
+        trigger,
     )
 }
 
@@ -715,10 +721,21 @@ fn validate_manifest(manifest: &BackupManifest) -> Result<(), StoreError> {
 }
 
 fn to_record(manifest: &BackupManifest) -> BackupRecord {
+    let trigger = match manifest.trigger.as_str() {
+        "auto" => BackupTrigger::Auto,
+        "pre-restore" => BackupTrigger::PreRestore,
+        _ => BackupTrigger::Manual,
+    };
     BackupRecord {
+        version: manifest.version,
         backup_id: manifest.id.clone(),
+        trigger,
         label: manifest.label.clone(),
         created_at: manifest.created_at.clone(),
+        includes_assets: manifest.includes_assets,
+        db_bytes: manifest.db_bytes,
+        assets_bytes: manifest.assets_bytes,
+        total_bytes: manifest.total_bytes,
         byte_length: manifest.total_bytes,
     }
 }

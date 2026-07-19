@@ -5567,6 +5567,7 @@ describe("TypeScript/Rust content Module differential", () => {
           kind: "create_backup",
           label: "Gate C restore point",
           include_assets: false,
+          trigger: "manual",
         },
       }),
     );

@@ -448,6 +448,7 @@ describe("CoreClient over a Unix socket", () => {
           kind: "create_backup" as const,
           label: "Node integration backup",
           include_assets: false,
+          trigger: "manual" as const,
         },
       };
       const backupCommitted = await nativeCli.administrationApply(backupInput);

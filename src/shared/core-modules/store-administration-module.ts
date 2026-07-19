@@ -1,4 +1,4 @@
-import type { BackupRecord } from "../types";
+import type { BackupRecord, BackupTrigger } from "../types";
 import type {
   CommittedModuleValue,
   CoreModuleResult,
@@ -35,6 +35,7 @@ export type StoreAdministrationIntent =
       readonly kind: "create_backup";
       readonly label?: string;
       readonly includeAssets: boolean;
+      readonly trigger: BackupTrigger;
     }
   | {
       readonly kind: "restore_backup";

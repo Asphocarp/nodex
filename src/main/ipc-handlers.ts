@@ -13,7 +13,6 @@ import { performance } from "node:perf_hooks";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
-import * as backupService from "./local-store/backups";
 import * as boardReadModel from "./local-store/board-read-model";
 import * as pageOccurrences from "./local-store/page-occurrences";
 import * as pagesStore from "./local-store/database-pages";
@@ -136,6 +135,8 @@ import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-syn
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
+import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
+import { createTypeScriptStoreAdministrationPort } from "./core-client/typescript-store-administration-port";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -246,6 +247,7 @@ import {
   registerCodexPendingWorktreeIpcHandlers,
   type CodexPendingWorktreeIpcService,
 } from "./codex/codex-pending-worktree-ipc";
+import { registerStoreAdministrationIpcHandlers } from "./store-administration-ipc-handlers";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -586,6 +588,9 @@ interface RegisterIpcHandlersOptions {
     "read" | "apply" | "readLibrary" | "applyLibrary"
   >;
   automationModule?: DesktopAutomationModulePort;
+  storeAdministration?: DesktopStoreAdministrationPort;
+  onBackupSettingsChanged?: (settings: ReturnType<typeof getBackupSettings>) => void;
+  onStoreRestored?: () => void;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
 }
@@ -668,6 +673,8 @@ export function registerIpcHandlers(
   options: RegisterIpcHandlersOptions = {},
 ): void {
   const documentSyncHub = options.documentSyncHub ?? defaultDocumentSyncHub;
+  const storeAdministration = options.storeAdministration
+    ?? createTypeScriptStoreAdministrationPort();
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace ?? {
       listProjects: async () => projectsStore.listProjects(),
@@ -2232,30 +2239,17 @@ export function registerIpcHandlers(
     },
   );
 
-  // Backups
-  registerHandle("backup:list", () => backupService.listBackups());
-
-  registerHandle("backup:create", (_, input) =>
-    backupService.createBackup({ trigger: "manual", label: input?.label }),
-  );
-
-  registerHandle("backup:delete", (_, backupId: string) =>
-    backupService.deleteBackup(backupId),
-  );
-
-  registerHandle("backup:restore", (_, input) =>
-    backupService.restoreBackup(input),
-  );
+  registerStoreAdministrationIpcHandlers({
+    registerHandle,
+    administration: storeAdministration,
+    onStoreRestored: options.onStoreRestored,
+  });
 
   registerHandle("settings:backup:get", () => getBackupSettings());
 
   registerHandle("settings:backup:update", (_, input) => {
     const settings = updateBackupSettings(input);
-    backupService.configureAutoBackupScheduler({
-      enabled: settings.autoEnabled,
-      intervalHours: settings.intervalHours,
-      retentionCount: settings.retentionCount,
-    });
+    options.onBackupSettingsChanged?.(settings);
     return settings;
   });
 

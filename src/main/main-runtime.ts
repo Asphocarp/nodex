@@ -29,10 +29,6 @@ import { getDb, initializeDatabase } from "./local-store/database";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
 import { dbNotifier } from "./local-store/notifier";
-import {
-  configureAutoBackupScheduler,
-  stopAutoBackupScheduler,
-} from "./local-store/backups";
 import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
@@ -139,17 +135,25 @@ import {
   createDesktopLibraryModuleBridge,
   createDesktopDocumentSyncBridge,
   createDesktopProjectWorkspaceBridge,
+  createDesktopStoreAdministrationBridge,
   mapCoreAutomationEvent,
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
+  mapCoreStoreAdministrationEvent,
   type CoreEventEnvelope,
   type CoreEventSubscription,
   type DesktopAutomationModulePort,
   type DesktopDataAuthorityRuntime,
+  type DesktopStoreAdministrationPort,
 } from "./core-client";
 import { createTypeScriptAutomationModulePort } from "./core-client/typescript-automation-module-port";
+import { createTypeScriptStoreAdministrationPort } from "./core-client/typescript-store-administration-port";
+import {
+  startStoreAdministrationBackupScheduler,
+  type StoreAdministrationBackupScheduler,
+} from "./store-administration-backup-scheduler";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -183,7 +187,9 @@ let appPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
+let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
+let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
 const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
@@ -1074,12 +1080,7 @@ async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void>
 
   startHttpServer(serverPort);
 
-  const backupSettings = getBackupSettings();
-  configureAutoBackupScheduler({
-    enabled: backupSettings.autoEnabled,
-    intervalHours: backupSettings.intervalHours,
-    retentionCount: backupSettings.retentionCount,
-  });
+  configureRuntimeBackupScheduler(getBackupSettings());
 
   stopReminderScheduler = startReminderScheduler({
     onReminder: (payload) => {
@@ -1187,6 +1188,7 @@ async function initializeDesktopApp(
   });
   databaseReady = true;
   await resolvePendingSessionDeepLink();
+  configureRuntimeBackupScheduler(getBackupSettings());
   await codexService.synchronizeAutomationRuntime();
   startRuntimeScheduledAutomationScheduler();
   registerDesktopActivationHandler();
@@ -1196,6 +1198,8 @@ async function initializeDesktopApp(
 
 function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   if (desktopDataAuthorityRuntime?.backend !== "rust") return;
+  const administrationEvent = mapCoreStoreAdministrationEvent(envelope);
+  if (administrationEvent) return;
   const automationEvent = mapCoreAutomationEvent(envelope);
   if (automationEvent) {
     void codexService.synchronizeAutomationRuntime().catch((error) => {
@@ -1270,6 +1274,23 @@ function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
       sessionId,
     );
   }
+}
+
+function configureRuntimeBackupScheduler(settings: {
+  readonly autoEnabled: boolean;
+  readonly intervalHours: number;
+  readonly retentionCount: number;
+}): void {
+  storeAdministrationBackupScheduler?.dispose();
+  storeAdministrationBackupScheduler = null;
+  const administration = desktopStoreAdministration;
+  if (!administration) return;
+  storeAdministrationBackupScheduler = startStoreAdministrationBackupScheduler({
+    administration,
+    enabled: settings.autoEnabled,
+    intervalHours: settings.intervalHours,
+    retentionCount: settings.retentionCount,
+  });
 }
 
 let desktopActivationHandlerRegistered = false;
@@ -1373,7 +1394,8 @@ function beginMainRuntimeShutdown(): void {
   blockRetentionMaintenanceScheduler = null;
   documentRevisionMaintenanceScheduler?.dispose();
   documentRevisionMaintenanceScheduler = null;
-  stopAutoBackupScheduler();
+  storeAdministrationBackupScheduler?.dispose();
+  storeAdministrationBackupScheduler = null;
   if (stopReminderScheduler) {
     stopReminderScheduler();
     stopReminderScheduler = null;
@@ -1494,7 +1516,8 @@ function registerRuntimeLifecycleHandlers(): void {
 
   app.on("window-all-closed", () => {
     logger.info("All windows closed");
-    stopAutoBackupScheduler();
+    storeAdministrationBackupScheduler?.dispose();
+    storeAdministrationBackupScheduler = null;
     if (stopReminderScheduler) {
       stopReminderScheduler();
       stopReminderScheduler = null;
@@ -1564,6 +1587,11 @@ export async function runMainAppStartup(
   });
   desktopAutomationModule = automationModule;
   codexService.setAutomationModule(automationModule);
+  const storeAdministration = createDesktopStoreAdministrationBridge({
+    authority: dataAuthority,
+    typescript: createTypeScriptStoreAdministrationPort(),
+  });
+  desktopStoreAdministration = storeAdministration;
   appInitializationPromise = initializeDesktopApp(serverPort, dataAuthority);
 
   const serverUrl = `http://127.0.0.1:${serverPort}`;
@@ -1578,6 +1606,16 @@ export async function runMainAppStartup(
   }));
   registerIpcHandlers({
     automationModule,
+    storeAdministration,
+    onBackupSettingsChanged: configureRuntimeBackupScheduler,
+    onStoreRestored: () => {
+      if (desktopDataAuthorityRuntime?.backend !== "rust") return;
+      const restart = setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 250);
+      restart.unref?.();
+    },
     documentSync: createDesktopDocumentSyncBridge({
       authority: dataAuthority,
       typescript: {

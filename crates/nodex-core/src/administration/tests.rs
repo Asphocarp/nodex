@@ -4,8 +4,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use nodex_core_contracts::administration::{
-    MaintenanceTask, SchemaOwner, StoreAdministrationIntent, StoreAdministrationRead,
-    StoreAdministrationReadValue, StoreIntegrity, StoreReadiness,
+    BackupTrigger, MaintenanceTask, SchemaOwner, StoreAdministrationIntent,
+    StoreAdministrationRead, StoreAdministrationReadValue, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
@@ -114,6 +114,16 @@ impl Fixture {
         label: Option<&str>,
         include_assets: bool,
     ) -> super::StoreAdministrationApplyOutcome {
+        self.create_backup_with_trigger(operation_id, label, include_assets, BackupTrigger::Manual)
+    }
+
+    fn create_backup_with_trigger(
+        &self,
+        operation_id: &str,
+        label: Option<&str>,
+        include_assets: bool,
+        trigger: BackupTrigger,
+    ) -> super::StoreAdministrationApplyOutcome {
         self.module
             .apply(
                 &self.context(),
@@ -124,6 +134,7 @@ impl Fixture {
                     intent: StoreAdministrationIntent::CreateBackup {
                         label: label.map(str::to_owned),
                         include_assets,
+                        trigger,
                     },
                 },
             )
@@ -260,8 +271,13 @@ fn reports_rust_readiness_and_publishes_a_valid_exact_retry_backup() {
     };
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].backup_id, backup_id);
+    assert_eq!(items[0].version, 2);
+    assert_eq!(items[0].trigger, BackupTrigger::Manual);
     assert_eq!(items[0].label.as_deref(), Some("before refactor"));
-    assert!(items[0].byte_length > b"managed asset".len() as u64);
+    assert!(items[0].includes_assets);
+    assert!(items[0].db_bytes > 0);
+    assert_eq!(items[0].assets_bytes, b"managed asset".len() as u64);
+    assert_eq!(items[0].total_bytes, items[0].byte_length);
 
     assert_eq!(
         fixture.read(StoreAdministrationRead::Status),
@@ -308,6 +324,7 @@ fn rejects_request_collisions_and_symlinked_assets_without_a_receipt() {
                 intent: StoreAdministrationIntent::CreateBackup {
                     label: Some("different".to_owned()),
                     include_assets: false,
+                    trigger: BackupTrigger::Manual,
                 },
             },
         )
@@ -330,6 +347,7 @@ fn rejects_request_collisions_and_symlinked_assets_without_a_receipt() {
                 intent: StoreAdministrationIntent::CreateBackup {
                     label: None,
                     include_assets: true,
+                    trigger: BackupTrigger::Manual,
                 },
             },
         )
@@ -364,6 +382,7 @@ fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
         StoreEpoch(STORE_EPOCH.to_owned()),
         &label,
         false,
+        BackupTrigger::Manual,
     ))
     .expect("request fingerprint");
     let request_hash = super::sha256(&fingerprint);
@@ -381,6 +400,7 @@ fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
                 &request_hash,
                 label.as_deref(),
                 false,
+                BackupTrigger::Manual,
             )
         })
         .expect("published backup");
@@ -519,6 +539,7 @@ fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
                 intent: StoreAdministrationIntent::CreateBackup {
                     label: None,
                     include_assets: false,
+                    trigger: BackupTrigger::Manual,
                 },
             },
         )
@@ -934,13 +955,13 @@ fn prunes_only_automatic_backups_beyond_the_retention_count() {
     let fixture = Fixture::new();
     let mut automatic_ids = Vec::new();
     for index in 0..3 {
-        let created = fixture.create_backup(
+        let created = fixture.create_backup_with_trigger(
             &format!("administration:create-backup:auto-{index}"),
             Some(&format!("auto {index}")),
             false,
+            BackupTrigger::Auto,
         );
         let backup_id = created.committed.value.backup_id.expect("auto backup");
-        set_backup_trigger(fixture.home(), &backup_id, "auto");
         automatic_ids.push(backup_id);
     }
     let manual = fixture.create_backup(
@@ -1110,21 +1131,4 @@ fn failed_foreign_key_maintenance_marks_integrity_failed_without_a_receipt() {
         })
         .expect("failed maintenance receipt existence");
     assert_eq!(receipt_exists, 0);
-}
-
-fn set_backup_trigger(profile_home: &Path, backup_id: &str, trigger: &str) {
-    let manifest_path = profile_home
-        .join("backups")
-        .join(backup_id)
-        .join("manifest.json");
-    let mut manifest = serde_json::from_slice::<serde_json::Value>(
-        &fs::read(&manifest_path).expect("backup manifest"),
-    )
-    .expect("backup manifest JSON");
-    manifest["trigger"] = serde_json::Value::String(trigger.to_owned());
-    fs::write(
-        manifest_path,
-        serde_json::to_vec_pretty(&manifest).expect("encoded backup manifest"),
-    )
-    .expect("updated backup manifest");
 }

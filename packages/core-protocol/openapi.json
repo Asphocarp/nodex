@@ -1286,11 +1286,22 @@
       "BackupRecord": {
         "type": "object",
         "required": [
+          "version",
           "backup_id",
+          "trigger",
           "created_at",
+          "includes_assets",
+          "db_bytes",
+          "assets_bytes",
+          "total_bytes",
           "byte_length"
         ],
         "properties": {
+          "assets_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "backup_id": {
             "type": "string"
           },
@@ -1302,13 +1313,42 @@
           "created_at": {
             "type": "string"
           },
+          "db_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "includes_assets": {
+            "type": "boolean"
+          },
           "label": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/BackupTrigger"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
+      },
+      "BackupTrigger": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "auto",
+          "pre-restore"
+        ]
       },
       "ClientIdentity": {
         "type": "object",
@@ -6583,6 +6623,7 @@
                 "type": "object",
                 "required": [
                   "include_assets",
+                  "trigger",
                   "kind"
                 ],
                 "properties": {
@@ -6600,6 +6641,9 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "trigger": {
+                    "$ref": "#/components/schemas/BackupTrigger"
                   }
                 }
               },
