@@ -1604,6 +1604,12 @@ export interface components {
             /** @enum {string} */
             readonly kind: "set_archived";
         } | {
+            readonly bottom_panel?: null | components["schemas"]["ProjectSessionPanelStatePatch"];
+            /** @enum {string} */
+            readonly kind: "patch_view_state";
+            readonly left_pane_collapsed?: boolean | null;
+            readonly right_panel?: null | components["schemas"]["ProjectSessionPanelStatePatch"];
+        } | {
             /** @enum {string} */
             readonly kind: "replace_panel_layout";
             readonly layout: unknown;
@@ -1630,6 +1636,19 @@ export interface components {
             readonly tab_id: string;
             readonly target_leaf_id?: string | null;
         } | {
+            readonly config?: unknown;
+            /** @enum {string} */
+            readonly kind: "update_tab";
+            readonly tab_id: string;
+            readonly title?: string | null;
+        } | {
+            /** @enum {string} */
+            readonly kind: "replace_tab_state";
+            readonly state: unknown;
+            /** Format: int64 */
+            readonly state_key: number;
+            readonly tab_id: string;
+        } | {
             readonly expected_project_id?: string | null;
             /** @enum {string} */
             readonly kind: "link_thread";
@@ -1641,6 +1660,17 @@ export interface components {
         };
         /** @enum {string} */
         readonly ProjectSessionPanelId: "right" | "bottom";
+        readonly ProjectSessionPanelSizePatch: {
+            readonly full_width?: boolean | null;
+            /** Format: double */
+            readonly height_px?: number | null;
+            /** Format: double */
+            readonly width_px?: number | null;
+        };
+        readonly ProjectSessionPanelStatePatch: {
+            readonly collapsed?: boolean | null;
+            readonly size?: null | components["schemas"]["ProjectSessionPanelSizePatch"];
+        };
         /** @enum {string} */
         readonly ProjectSessionTabKind: "db_view" | "page_stage" | "terminal" | "browser" | "review" | "files";
         readonly ProjectSource: {

@@ -65,6 +65,17 @@ export interface ProjectWorkspaceSessionTab {
   readonly updatedAt: string;
 }
 
+export interface ProjectSessionPanelSizePatch {
+  readonly widthPx?: number;
+  readonly heightPx?: number;
+  readonly fullWidth?: boolean;
+}
+
+export interface ProjectSessionPanelStatePatch {
+  readonly collapsed?: boolean;
+  readonly size?: ProjectSessionPanelSizePatch;
+}
+
 export type ProjectWorkspaceRead =
   | { readonly kind: "startup" }
   | { readonly kind: "project"; readonly projectId: string }
@@ -111,6 +122,12 @@ export type ProjectSessionIntent =
   | { readonly kind: "set_unread"; readonly unread: boolean }
   | { readonly kind: "set_archived"; readonly archived: boolean }
   | {
+      readonly kind: "patch_view_state";
+      readonly leftPaneCollapsed?: boolean;
+      readonly rightPanel?: ProjectSessionPanelStatePatch;
+      readonly bottomPanel?: ProjectSessionPanelStatePatch;
+    }
+  | {
       readonly kind: "replace_panel_layout";
       readonly panelId: PanelId;
       readonly layout: ProjectSessionPanelLayout;
@@ -132,6 +149,18 @@ export type ProjectSessionIntent =
       readonly panelId: PanelId;
       readonly targetLeafId?: string;
       readonly beforeTabId?: string;
+    }
+  | {
+      readonly kind: "update_tab";
+      readonly tabId: string;
+      readonly title?: string;
+      readonly config?: ProjectSessionTabConfig;
+    }
+  | {
+      readonly kind: "replace_tab_state";
+      readonly tabId: string;
+      readonly stateKey: number;
+      readonly state: unknown;
     }
   | {
       readonly kind: "link_thread";

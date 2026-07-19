@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::workspace::{
-    ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionTabKind,
+    ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionPanelStatePatch,
+    ProjectSessionTabKind,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
@@ -21,7 +22,7 @@ const MAX_SESSION_TITLE_BYTES: usize = 8_000;
 const MAX_MANUAL_TITLE_UTF16: usize = 60;
 const MAX_TAB_ID_LENGTH: usize = 160;
 const MAX_TAB_JSON_BYTES: usize = 2 * 1024 * 1024;
-const MAX_TAB_TITLE_CHARS: usize = 2_000;
+const MAX_TAB_TITLE_UTF16: usize = 2_000;
 
 pub(super) struct SessionAuthority {
     pub(super) project_id: Option<String>,
@@ -87,6 +88,23 @@ pub(super) fn mutate_session(
             session_id,
             &authority,
             *archived,
+        ),
+        ProjectSessionIntent::PatchViewState {
+            left_pane_collapsed,
+            right_panel,
+            bottom_panel,
+        } => patch_view_state(
+            connection,
+            library_id,
+            context,
+            store_epoch,
+            operation_id,
+            request_hash,
+            session_id,
+            &authority,
+            *left_pane_collapsed,
+            right_panel.as_ref(),
+            bottom_panel.as_ref(),
         ),
         ProjectSessionIntent::LinkThread {
             thread_id,
@@ -181,7 +199,116 @@ pub(super) fn mutate_session(
             target_leaf_id.as_deref(),
             before_tab_id.as_deref(),
         ),
+        ProjectSessionIntent::UpdateTab {
+            tab_id,
+            title,
+            config,
+        } => update_tab(
+            connection,
+            library_id,
+            context,
+            store_epoch,
+            operation_id,
+            request_hash,
+            session_id,
+            &authority,
+            tab_id,
+            title.as_deref(),
+            config.as_ref(),
+        ),
+        ProjectSessionIntent::ReplaceTabState {
+            tab_id,
+            state_key,
+            state,
+        } => replace_tab_state(
+            connection,
+            library_id,
+            context,
+            store_epoch,
+            operation_id,
+            request_hash,
+            session_id,
+            &authority,
+            tab_id,
+            *state_key,
+            state,
+        ),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn patch_view_state(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    session_id: &str,
+    authority: &SessionAuthority,
+    left_pane_collapsed: Option<bool>,
+    right_panel: Option<&ProjectSessionPanelStatePatch>,
+    bottom_panel: Option<&ProjectSessionPanelStatePatch>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    if left_pane_collapsed.is_none() && right_panel.is_none() && bottom_panel.is_none() {
+        return Err(invalid("Project Session view patch is empty"));
+    }
+    for patch in [right_panel, bottom_panel].into_iter().flatten() {
+        if !panel_patch_has_value(patch) {
+            return Err(invalid("Project Session panel patch is empty"));
+        }
+    }
+    let panel_state_json = if right_panel.is_some() || bottom_panel.is_some() {
+        let tab_ids = read_tab_ids(connection, session_id)?;
+        let mut panels = read_panels(connection, session_id, &tab_ids)?;
+        if let Some(patch) = right_panel {
+            panels.patch_state(ProjectSessionPanelId::Right, patch)?;
+        }
+        if let Some(patch) = bottom_panel {
+            panels.patch_state(ProjectSessionPanelId::Bottom, patch)?;
+        }
+        Some(stringify_panels(panels)?)
+    } else {
+        None
+    };
+    let now = sqlite_now(connection)?;
+    let changed = connection.execute(
+        "UPDATE project_sessions SET \
+           left_pane_collapsed = CASE WHEN ?1 IS NULL THEN left_pane_collapsed ELSE ?1 END, \
+           panel_state_json = COALESCE(?2, panel_state_json), updated_at = ?3 \
+         WHERE id = ?4",
+        params![
+            left_pane_collapsed.map(i64::from),
+            panel_state_json,
+            now,
+            session_id
+        ],
+    )?;
+    if changed != 1 {
+        return Err(corrupt(
+            "Project Session disappeared during view-state patch",
+        ));
+    }
+    finish_session_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "patch_session_view_state",
+        session_id,
+        authority,
+        Vec::new(),
+        now,
+    )
+}
+
+fn panel_patch_has_value(patch: &ProjectSessionPanelStatePatch) -> bool {
+    patch.collapsed.is_some()
+        || patch.size.as_ref().is_some_and(|size| {
+            size.width_px.is_some() || size.height_px.is_some() || size.full_width.is_some()
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -484,6 +611,166 @@ fn move_tab(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
+fn update_tab(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    session_id: &str,
+    authority: &SessionAuthority,
+    tab_id: &str,
+    title: Option<&str>,
+    config: Option<&Value>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_tab_id(tab_id)?;
+    if title.is_none() && config.is_none() {
+        return Err(invalid("Project Session tab update is empty"));
+    }
+    let (tab_kind, tab_project_id) = require_tab_kind(connection, session_id, tab_id)?;
+    if tab_project_id != authority.project_id {
+        return Err(corrupt(
+            "Project Session tab Project differs from its owning Session",
+        ));
+    }
+    let title = title.map(normalize_tab_title).transpose()?;
+    let config = config
+        .map(|config| {
+            normalize_tab_config(
+                connection,
+                library_id,
+                authority.project_id.as_deref(),
+                tab_kind,
+                config,
+            )
+        })
+        .transpose()?;
+    if matches!(tab_kind, ProjectSessionTabKind::DbView)
+        && let Some(view_id) = config
+            .as_ref()
+            .and_then(|config| config.get("databaseViewId"))
+            .and_then(Value::as_str)
+        && connection
+            .query_row(
+                "SELECT 1 FROM project_session_tabs \
+                 WHERE session_id = ?1 AND id <> ?2 AND kind = 'db_view' \
+                   AND json_extract(config_json, '$.databaseViewId') = ?3 LIMIT 1",
+                params![session_id, tab_id, view_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some()
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Database View is already open in this Session",
+            false,
+        ));
+    }
+    let config_json = config
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|_| internal("Project Session tab config cannot be encoded"))?;
+    let now = sqlite_now(connection)?;
+    let changed = connection.execute(
+        "UPDATE project_session_tabs SET title = COALESCE(?1, title), \
+           config_json = COALESCE(?2, config_json), updated_at = ?3 \
+         WHERE id = ?4 AND session_id = ?5",
+        params![title, config_json, now, tab_id, session_id],
+    )?;
+    if changed != 1 {
+        return Err(corrupt("Project Session tab disappeared during update"));
+    }
+    finish_session_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "update_session_tab",
+        session_id,
+        authority,
+        Vec::new(),
+        now,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replace_tab_state(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    session_id: &str,
+    authority: &SessionAuthority,
+    tab_id: &str,
+    state_key: i64,
+    state: &Value,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_tab_id(tab_id)?;
+    if state_key < 0 {
+        return Err(invalid("Project Session tab state key must be nonnegative"));
+    }
+    let (_, tab_project_id) = require_tab_kind(connection, session_id, tab_id)?;
+    if tab_project_id != authority.project_id {
+        return Err(corrupt(
+            "Project Session tab Project differs from its owning Session",
+        ));
+    }
+    let state_json = serde_json::to_string(state)
+        .map_err(|_| invalid("Project Session tab state cannot be encoded"))?;
+    if state_json.len() > MAX_TAB_JSON_BYTES {
+        return Err(invalid("Project Session tab state exceeds its bound"));
+    }
+    let now = sqlite_now(connection)?;
+    let changed = connection.execute(
+        "UPDATE project_session_tabs SET state_key = ?1, state_json = ?2, updated_at = ?3 \
+         WHERE id = ?4 AND session_id = ?5",
+        params![state_key, state_json, now, tab_id, session_id],
+    )?;
+    if changed != 1 {
+        return Err(corrupt(
+            "Project Session tab disappeared during state replacement",
+        ));
+    }
+    finish_session_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "replace_session_tab_state",
+        session_id,
+        authority,
+        Vec::new(),
+        now,
+    )
+}
+
+fn require_tab_kind(
+    connection: &Connection,
+    session_id: &str,
+    tab_id: &str,
+) -> Result<(ProjectSessionTabKind, Option<String>), StoreError> {
+    let row = connection
+        .query_row(
+            "SELECT kind, project_id FROM project_session_tabs \
+             WHERE id = ?1 AND session_id = ?2",
+            params![tab_id, session_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Project Session tab is unavailable"))?;
+    Ok((parse_tab_kind(&row.0)?, row.1))
+}
+
 struct TabIds {
     right: Vec<String>,
     bottom: Vec<String>,
@@ -676,12 +963,12 @@ fn normalize_tab_config(
     let config = config
         .as_object()
         .ok_or_else(|| invalid("Project Session tab config must be an object"))?;
-    validate_config_project(config, project_id)?;
     if project_id.is_none() && !matches!(tab_kind, ProjectSessionTabKind::Browser) {
         return Err(invalid("Projectless Sessions can only own browser tabs"));
     }
     match tab_kind {
         ProjectSessionTabKind::DbView => {
+            validate_config_project(config, project_id)?;
             let project_id =
                 project_id.ok_or_else(|| invalid("Database View tabs require a Project"))?;
             let view = required_enum(
@@ -701,7 +988,10 @@ fn normalize_tab_config(
             }))
         }
         ProjectSessionTabKind::PageStage => {
-            let project_id = project_id.ok_or_else(|| invalid("Page tabs require a Project"))?;
+            let _owner_project_id =
+                project_id.ok_or_else(|| invalid("Page tabs require a Project"))?;
+            let project_id = required_string(config, "projectId", false)?;
+            require_config_project(connection, library_id, &project_id)?;
             let page_id = required_string(config, "pageId", true)?;
             let mut normalized = Map::from_iter([
                 ("projectId".to_owned(), json!(project_id)),
@@ -713,6 +1003,7 @@ fn normalize_tab_config(
             Ok(Value::Object(normalized))
         }
         ProjectSessionTabKind::Terminal => {
+            validate_config_project(config, project_id)?;
             let project_id =
                 project_id.ok_or_else(|| invalid("Terminal tabs require a Project"))?;
             let terminal_session_id = required_string(config, "terminalSessionId", true)?;
@@ -722,6 +1013,7 @@ fn normalize_tab_config(
             }))
         }
         ProjectSessionTabKind::Browser => {
+            validate_config_project(config, project_id)?;
             let mut normalized = Map::new();
             normalized.insert(
                 "projectId".to_owned(),
@@ -741,10 +1033,12 @@ fn normalize_tab_config(
             Ok(Value::Object(normalized))
         }
         ProjectSessionTabKind::Review => {
+            validate_config_project(config, project_id)?;
             let project_id = project_id.ok_or_else(|| invalid("Review tabs require a Project"))?;
             Ok(json!({ "projectId": project_id }))
         }
         ProjectSessionTabKind::Files => {
+            validate_config_project(config, project_id)?;
             let project_id = project_id.ok_or_else(|| invalid("Files tabs require a Project"))?;
             let host_id = config
                 .get("hostId")
@@ -771,6 +1065,28 @@ fn normalize_tab_config(
             Ok(Value::Object(normalized))
         }
     }
+}
+
+fn require_config_project(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+) -> Result<(), StoreError> {
+    validate_id("config_project_id", project_id)?;
+    if connection
+        .query_row(
+            "SELECT 1 FROM projects WHERE id = ?1 AND library_id = ?2",
+            params![project_id, library_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some()
+    {
+        return Ok(());
+    }
+    Err(not_found(
+        "Project Session tab content Project is unavailable",
+    ))
 }
 
 fn validate_config_project(
@@ -955,7 +1271,7 @@ fn validate_config_string(
 fn normalize_tab_title(value: &str) -> Result<String, StoreError> {
     let value = value.trim();
     if value.is_empty()
-        || value.chars().count() > MAX_TAB_TITLE_CHARS
+        || value.encode_utf16().count() > MAX_TAB_TITLE_UTF16
         || value.chars().any(char::is_control)
     {
         return Err(invalid("Project Session tab title is invalid"));
@@ -985,6 +1301,18 @@ fn tab_kind_sql(kind: ProjectSessionTabKind) -> &'static str {
         ProjectSessionTabKind::Browser => "browser",
         ProjectSessionTabKind::Review => "review",
         ProjectSessionTabKind::Files => "files",
+    }
+}
+
+pub(super) fn parse_tab_kind(value: &str) -> Result<ProjectSessionTabKind, StoreError> {
+    match value {
+        "db_view" => Ok(ProjectSessionTabKind::DbView),
+        "page_stage" => Ok(ProjectSessionTabKind::PageStage),
+        "terminal" => Ok(ProjectSessionTabKind::Terminal),
+        "browser" => Ok(ProjectSessionTabKind::Browser),
+        "review" => Ok(ProjectSessionTabKind::Review),
+        "files" => Ok(ProjectSessionTabKind::Files),
+        _ => Err(corrupt("Project Session tab kind is invalid")),
     }
 }
 

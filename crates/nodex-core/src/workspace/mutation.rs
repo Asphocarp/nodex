@@ -1152,7 +1152,8 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::workspace::{
-        ProjectLifecycle, ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionTabKind,
+        ProjectLifecycle, ProjectSessionIntent, ProjectSessionPanelId,
+        ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch, ProjectSessionTabKind,
         ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
     };
     use nodex_core_contracts::{
@@ -2332,6 +2333,213 @@ mod tests {
             })
             .expect("read invalid tab rollback");
         assert_eq!(rollback_counts, (0, 0, 0));
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-patch-view-state",
+                    &session_id,
+                    ProjectSessionIntent::PatchViewState {
+                        left_pane_collapsed: Some(true),
+                        right_panel: Some(ProjectSessionPanelStatePatch {
+                            collapsed: Some(false),
+                            size: Some(ProjectSessionPanelSizePatch {
+                                width_px: Some(720.0),
+                                height_px: None,
+                                full_width: Some(true),
+                            }),
+                        }),
+                        bottom_panel: Some(ProjectSessionPanelStatePatch {
+                            collapsed: Some(false),
+                            size: Some(ProjectSessionPanelSizePatch {
+                                width_px: None,
+                                height_px: Some(360.0),
+                                full_width: None,
+                            }),
+                        }),
+                    },
+                ),
+            )
+            .expect("patch Session view state");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-update-terminal",
+                    &session_id,
+                    ProjectSessionIntent::UpdateTab {
+                        tab_id: "terminal-tab".to_owned(),
+                        title: Some("  Updated shell  ".to_owned()),
+                        config: Some(json!({
+                            "projectId": "project-native",
+                            "terminalSessionId": "terminal-session-2"
+                        })),
+                    },
+                ),
+            )
+            .expect("update terminal tab metadata");
+        let replace_state = session_request(
+            "workspace-session-replace-terminal-state",
+            &session_id,
+            ProjectSessionIntent::ReplaceTabState {
+                tab_id: "terminal-tab".to_owned(),
+                state_key: 2,
+                state: json!({ "cwd": "/workspace/native" }),
+            },
+        );
+        let replaced = module
+            .apply(&context(), replace_state.clone())
+            .expect("replace terminal tab state");
+        let replayed = module
+            .apply(&context(), replace_state)
+            .expect("replay terminal tab state replacement");
+        assert!(replayed.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replayed.committed.event_sequence,
+            replaced.committed.event_sequence
+        );
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-create-cross-project-page-tab",
+                    &session_id,
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "cross-project-page".to_owned(),
+                        panel_id: ProjectSessionPanelId::Right,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::PageStage,
+                        title: "Cross-project Page".to_owned(),
+                        config: json!({
+                            "projectId": "project:default",
+                            "pageId": "page:cross-project",
+                            "titleSnapshot": "Initial"
+                        }),
+                    },
+                ),
+            )
+            .expect("create cross-Project Page tab");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-update-cross-project-page-tab",
+                    &session_id,
+                    ProjectSessionIntent::UpdateTab {
+                        tab_id: "cross-project-page".to_owned(),
+                        title: None,
+                        config: Some(json!({
+                            "projectId": "project:default",
+                            "pageId": "page:cross-project",
+                            "titleSnapshot": "Updated"
+                        })),
+                    },
+                ),
+            )
+            .expect("update cross-Project Page tab");
+
+        let invalid_patch = module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-invalid-panel-size",
+                    &session_id,
+                    ProjectSessionIntent::PatchViewState {
+                        left_pane_collapsed: None,
+                        right_panel: Some(ProjectSessionPanelStatePatch {
+                            collapsed: None,
+                            size: Some(ProjectSessionPanelSizePatch {
+                                width_px: Some(-1.0),
+                                height_px: None,
+                                full_width: None,
+                            }),
+                        }),
+                        bottom_panel: None,
+                    },
+                ),
+            )
+            .expect_err("reject invalid panel size");
+        assert_eq!(invalid_patch.code, CoreErrorCode::InvalidInput);
+        let invalid_config = module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-invalid-tab-update",
+                    &session_id,
+                    ProjectSessionIntent::UpdateTab {
+                        tab_id: "terminal-tab".to_owned(),
+                        title: None,
+                        config: Some(json!({
+                            "projectId": "project:default",
+                            "terminalSessionId": "wrong-owner"
+                        })),
+                    },
+                ),
+            )
+            .expect_err("reject mismatched terminal Project");
+        assert_eq!(invalid_config.code, CoreErrorCode::InvalidInput);
+
+        let final_snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Session {
+                        session_id: session_id.clone(),
+                    },
+                },
+            )
+            .expect("read updated Session view and tabs");
+        let ProjectWorkspaceReadValue::Session {
+            session,
+            panels,
+            tabs,
+        } = final_snapshot.value
+        else {
+            panic!("updated Session snapshot");
+        };
+        assert!(session.left_pane_collapsed);
+        assert_eq!(panels["right"]["collapsed"], false);
+        assert_eq!(panels["right"]["size"]["widthPx"], 720.0);
+        assert_eq!(panels["right"]["size"]["fullWidth"], true);
+        assert_eq!(panels["bottom"]["collapsed"], false);
+        assert_eq!(panels["bottom"]["size"]["heightPx"], 360.0);
+        let terminal = tabs
+            .iter()
+            .find(|tab| tab.id == "terminal-tab")
+            .expect("updated terminal tab");
+        assert_eq!(terminal.title, "Updated shell");
+        assert_eq!(terminal.config["terminalSessionId"], "terminal-session-2");
+        assert_eq!(terminal.state_key, 2);
+        assert_eq!(terminal.state, json!({ "cwd": "/workspace/native" }));
+        let page = tabs
+            .iter()
+            .find(|tab| tab.id == "cross-project-page")
+            .expect("cross-Project Page tab");
+        assert_eq!(page.project_id.as_deref(), Some("project-native"));
+        assert_eq!(page.config["projectId"], "project:default");
+        assert_eq!(page.config["titleSnapshot"], "Updated");
+        let failed_writes = kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT \
+                           (SELECT count(*) FROM core_module_receipts WHERE operation_id IN (\
+                             'workspace-session-invalid-panel-size', \
+                             'workspace-session-invalid-tab-update')), \
+                           (SELECT count(*) FROM change_log WHERE operation_id IN (\
+                             'workspace-session-invalid-panel-size', \
+                             'workspace-session-invalid-tab-update'))",
+                        [],
+                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("read failed view/tab mutation rollback");
+        assert_eq!(failed_writes, (0, 0));
     }
 
     #[test]

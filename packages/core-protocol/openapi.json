@@ -6069,6 +6069,46 @@
           {
             "type": "object",
             "required": [
+              "kind"
+            ],
+            "properties": {
+              "bottom_panel": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProjectSessionPanelStatePatch"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "patch_view_state"
+                ]
+              },
+              "left_pane_collapsed": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "right_panel": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProjectSessionPanelStatePatch"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "panel_id",
               "layout",
               "kind"
@@ -6185,6 +6225,56 @@
           {
             "type": "object",
             "required": [
+              "tab_id",
+              "kind"
+            ],
+            "properties": {
+              "config": {},
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "update_tab"
+                ]
+              },
+              "tab_id": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "tab_id",
+              "state_key",
+              "state",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "replace_tab_state"
+                ]
+              },
+              "state": {},
+              "state_key": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "tab_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "thread_id",
               "kind"
             ],
@@ -6232,6 +6322,52 @@
           "right",
           "bottom"
         ]
+      },
+      "ProjectSessionPanelSizePatch": {
+        "type": "object",
+        "properties": {
+          "full_width": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "height_px": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "width_px": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "ProjectSessionPanelStatePatch": {
+        "type": "object",
+        "properties": {
+          "collapsed": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "size": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectSessionPanelSizePatch"
+              }
+            ]
+          }
+        }
       },
       "ProjectSessionTabKind": {
         "type": "string",

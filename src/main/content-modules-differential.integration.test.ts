@@ -49,6 +49,8 @@ import {
   setProjectSessionPinned,
   unarchiveProjectSession,
   updateProjectSession,
+  updateProjectSessionTab,
+  updateProjectSessionTabState,
 } from "./local-store/project-sessions";
 import {
   applyDatabaseModuleV2,
@@ -2954,6 +2956,206 @@ describe("TypeScript/Rust content Module differential", () => {
       order: tab.order,
       stateKey: tab.stateKey,
     })));
+
+    const oracleViewState = updateProjectSession(oraclePanelSession.id, {
+      leftPaneCollapsed: true,
+      panels: {
+        right: {
+          collapsed: false,
+          size: { widthPx: 720, fullWidth: true },
+        },
+        bottom: {
+          collapsed: false,
+          size: { heightPx: 360 },
+        },
+      },
+    });
+    if (!oracleViewState) throw new Error("TypeScript Session view-state patch disappeared");
+    await stage(
+      "Project Workspace patch Session view state",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-patch-session-view-state",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "patch_view_state",
+            left_pane_collapsed: true,
+            right_panel: {
+              collapsed: false,
+              size: { width_px: 720, full_width: true },
+            },
+            bottom_panel: {
+              collapsed: false,
+              size: { height_px: 360 },
+            },
+          },
+        },
+      }),
+    );
+    const oracleUpdatedTerminal = updateProjectSessionTab("gate-c-terminal-tab", {
+      title: "Gate C updated shell",
+      config: {
+        projectId: oracleCreatedProject.id,
+        terminalSessionId: "gate-c-terminal-session-2",
+      },
+    });
+    if (!oracleUpdatedTerminal) throw new Error("TypeScript terminal update disappeared");
+    await stage(
+      "Project Workspace update terminal tab",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-update-terminal-tab",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "update_tab",
+            tab_id: "gate-c-terminal-tab",
+            title: "Gate C updated shell",
+            config: {
+              projectId: candidateProjectId,
+              terminalSessionId: "gate-c-terminal-session-2",
+            },
+          },
+        },
+      }),
+    );
+    const oracleStatefulTerminal = updateProjectSessionTabState(
+      "gate-c-terminal-tab",
+      2,
+      { cwd: "/tmp/gate-c" },
+    );
+    if (!oracleStatefulTerminal) throw new Error("TypeScript terminal state disappeared");
+    const candidateReplaceTabStateInput = {
+      operationId: "gate-c-workspace-replace-terminal-state",
+      intent: {
+        kind: "mutate_session" as const,
+        session_id: candidateCreatedSession.value.session.id,
+        intent: {
+          kind: "replace_tab_state" as const,
+          tab_id: "gate-c-terminal-tab",
+          state_key: 2,
+          state: { cwd: "/tmp/gate-c" },
+        },
+      },
+    };
+    const candidateStatefulTerminal = await stage(
+      "Project Workspace replace terminal tab state",
+      candidate.workspaceApply(candidateReplaceTabStateInput),
+    );
+    const candidateStatefulTerminalReplay = await stage(
+      "Project Workspace replay terminal tab state",
+      candidate.workspaceApply(candidateReplaceTabStateInput),
+    );
+    expect(candidateStatefulTerminalReplay.event_sequence).toBe(
+      candidateStatefulTerminal.event_sequence,
+    );
+    expect(candidateStatefulTerminalReplay.receipt.duplicate).toBe(true);
+
+    createProjectSessionTab({
+      sessionId: oraclePanelSession.id,
+      projectId: oracleCreatedProject.id,
+      panelId: "right",
+      clientTabId: "gate-c-cross-project-page-tab",
+      kind: "page_stage",
+      title: "Gate C cross-project Page",
+      config: {
+        projectId: coordinates.projectId,
+        pageId: "gate-c-cross-project-page",
+        titleSnapshot: "Initial",
+      },
+    });
+    await stage(
+      "Project Workspace create cross-Project Page tab",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-create-cross-project-page-tab",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "create_tab",
+            tab_id: "gate-c-cross-project-page-tab",
+            panel_id: "right",
+            target_leaf_id: null,
+            browser_tab_id: null,
+            tab_kind: "page_stage",
+            title: "Gate C cross-project Page",
+            config: {
+              projectId: coordinates.projectId,
+              pageId: "gate-c-cross-project-page",
+              titleSnapshot: "Initial",
+            },
+          },
+        },
+      }),
+    );
+    const oracleUpdatedPageTab = updateProjectSessionTab(
+      "gate-c-cross-project-page-tab",
+      {
+        config: {
+          projectId: coordinates.projectId,
+          pageId: "gate-c-cross-project-page",
+          titleSnapshot: "Updated",
+        },
+      },
+    );
+    if (!oracleUpdatedPageTab) throw new Error("TypeScript Page tab update disappeared");
+    await stage(
+      "Project Workspace update cross-Project Page tab",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-update-cross-project-page-tab",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "update_tab",
+            tab_id: "gate-c-cross-project-page-tab",
+            config: {
+              projectId: coordinates.projectId,
+              pageId: "gate-c-cross-project-page",
+              titleSnapshot: "Updated",
+            },
+          },
+        },
+      }),
+    );
+
+    const oracleUpdatedViewResult = getProjectSession(oraclePanelSession.id);
+    const candidateUpdatedViewResult = await stage(
+      "Project Workspace updated view and tab snapshot",
+      candidate.workspaceRead({
+        kind: "session",
+        session_id: candidateCreatedSession.value.session.id,
+      }),
+    );
+    if (!oracleUpdatedViewResult || candidateUpdatedViewResult.value.kind !== "session") {
+      throw new Error("Expected updated view and tab snapshots from both authorities");
+    }
+    expect(candidateUpdatedViewResult.value.session.left_pane_collapsed).toBe(
+      oracleUpdatedViewResult.leftPaneCollapsed,
+    );
+    expect(normalizePanelTabs(candidateUpdatedViewResult.value.panels)).toEqual(
+      normalizePanelTabs(oracleUpdatedViewResult.panels),
+    );
+    const candidateUpdatedTerminal = candidateUpdatedViewResult.value.tabs.find(
+      (tab) => tab.id === "gate-c-terminal-tab",
+    );
+    expect(candidateUpdatedTerminal).toMatchObject({
+      title: oracleStatefulTerminal.title,
+      state_key: oracleStatefulTerminal.stateKey,
+      state: oracleStatefulTerminal.state,
+      config: {
+        projectId: candidateProjectId,
+        terminalSessionId: "gate-c-terminal-session-2",
+      },
+    });
+    const candidateUpdatedPageTab = candidateUpdatedViewResult.value.tabs.find(
+      (tab) => tab.id === "gate-c-cross-project-page-tab",
+    );
+    expect(candidateUpdatedPageTab).toMatchObject({
+      project_id: candidateProjectId,
+      config: oracleUpdatedPageTab.config,
+    });
 
     const oracleLifecycleSessionA = createProjectSession({
       projectId: oracleCreatedProject.id,

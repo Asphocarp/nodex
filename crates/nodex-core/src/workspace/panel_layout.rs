@@ -1,6 +1,8 @@
 use std::collections::{BTreeSet, HashSet};
 
-use nodex_core_contracts::workspace::ProjectSessionPanelId;
+use nodex_core_contracts::workspace::{
+    ProjectSessionPanelId, ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -111,6 +113,25 @@ impl PanelStates {
         Ok(())
     }
 
+    pub(super) fn patch_state(
+        &mut self,
+        panel_id: ProjectSessionPanelId,
+        patch: &ProjectSessionPanelStatePatch,
+    ) -> Result<(), StoreError> {
+        let panel = self.panel_mut(panel_id);
+        if let Some(collapsed) = patch.collapsed {
+            panel.collapsed = collapsed;
+        }
+        let Some(size_patch) = &patch.size else {
+            return Ok(());
+        };
+        let size = panel
+            .size
+            .as_object_mut()
+            .ok_or_else(|| corrupt("Normalized Project Session panel size is invalid"))?;
+        patch_panel_size(size, size_patch)
+    }
+
     pub(super) fn add_tab(
         &mut self,
         panel_id: ProjectSessionPanelId,
@@ -177,6 +198,28 @@ impl PanelStates {
     pub(super) fn into_value(self) -> Result<Value, StoreError> {
         serde_json::to_value(self).map_err(|_| internal("Project Session panels cannot be encoded"))
     }
+}
+
+fn patch_panel_size(
+    size: &mut Map<String, Value>,
+    patch: &ProjectSessionPanelSizePatch,
+) -> Result<(), StoreError> {
+    for (key, value) in [("widthPx", patch.width_px), ("heightPx", patch.height_px)] {
+        let Some(value) = value else {
+            continue;
+        };
+        if !value.is_finite() || value <= 0.0 {
+            return Err(invalid("Project Session panel size must be positive"));
+        }
+        let value = serde_json::Number::from_f64(value)
+            .map(Value::Number)
+            .ok_or_else(|| invalid("Project Session panel size is invalid"))?;
+        size.insert(key.to_owned(), value);
+    }
+    if let Some(full_width) = patch.full_width {
+        size.insert("fullWidth".to_owned(), Value::Bool(full_width));
+    }
+    Ok(())
 }
 
 pub(super) fn panel_id_sql(panel_id: ProjectSessionPanelId) -> &'static str {

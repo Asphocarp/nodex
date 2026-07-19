@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
@@ -122,6 +122,44 @@ pub enum ProjectSessionTabKind {
     Files,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct ProjectSessionPanelSizePatch {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub width_px: Option<f64>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub height_px: Option<f64>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub full_width: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct ProjectSessionPanelStatePatch {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub collapsed: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub size: Option<ProjectSessionPanelSizePatch>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 pub struct ProjectWorkspaceSessionTab {
     pub id: String,
@@ -209,6 +247,26 @@ pub enum ProjectSessionIntent {
     SetArchived {
         archived: bool,
     },
+    PatchViewState {
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        left_pane_collapsed: Option<bool>,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        right_panel: Option<ProjectSessionPanelStatePatch>,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        bottom_panel: Option<ProjectSessionPanelStatePatch>,
+    },
     ReplacePanelLayout {
         panel_id: ProjectSessionPanelId,
         layout: Value,
@@ -231,6 +289,26 @@ pub enum ProjectSessionIntent {
         target_leaf_id: Option<String>,
         before_tab_id: Option<String>,
     },
+    UpdateTab {
+        tab_id: String,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        title: Option<String>,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        config: Option<Value>,
+    },
+    ReplaceTabState {
+        tab_id: String,
+        state_key: i64,
+        state: Value,
+    },
     LinkThread {
         thread_id: String,
         expected_project_id: Option<String>,
@@ -238,6 +316,14 @@ pub enum ProjectSessionIntent {
     UnlinkThread {
         thread_id: String,
     },
+}
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -280,4 +366,42 @@ impl VersionedModuleContract for ProjectWorkspaceContract {
 
     const VERSION: u32 = 1;
     const MODULE: ModuleName = ModuleName::ProjectWorkspace;
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::ProjectSessionIntent;
+
+    #[test]
+    fn optional_tab_updates_distinguish_absence_from_explicit_null() {
+        let absent = serde_json::from_value::<ProjectSessionIntent>(json!({
+            "kind": "update_tab",
+            "tab_id": "tab-1"
+        }))
+        .expect("absent optional tab fields");
+        let encoded = serde_json::to_value(absent).expect("tab update round trip");
+        assert!(encoded.get("title").is_none());
+        assert!(encoded.get("config").is_none());
+
+        assert!(
+            serde_json::from_value::<ProjectSessionIntent>(json!({
+                "kind": "update_tab",
+                "tab_id": "tab-1",
+                "title": null
+            }))
+            .is_err()
+        );
+        let explicit_null = serde_json::from_value::<ProjectSessionIntent>(json!({
+            "kind": "update_tab",
+            "tab_id": "tab-1",
+            "config": null
+        }))
+        .expect("explicit JSON null config");
+        let ProjectSessionIntent::UpdateTab { config, .. } = explicit_null else {
+            panic!("tab update intent");
+        };
+        assert_eq!(config, Some(serde_json::Value::Null));
+    }
 }

@@ -8,6 +8,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::panel_layout::{parse_panel_id, parse_panels};
+use super::session_mutation::parse_tab_kind;
 
 const MAX_ID_LENGTH: usize = 512;
 const MAX_TAB_JSON_BYTES: usize = 2 * 1024 * 1024;
@@ -468,18 +469,6 @@ fn read_session_tabs(
             },
         )
         .collect()
-}
-
-fn parse_tab_kind(value: &str) -> Result<ProjectSessionTabKind, StoreError> {
-    match value {
-        "db_view" => Ok(ProjectSessionTabKind::DbView),
-        "page_stage" => Ok(ProjectSessionTabKind::PageStage),
-        "terminal" => Ok(ProjectSessionTabKind::Terminal),
-        "browser" => Ok(ProjectSessionTabKind::Browser),
-        "review" => Ok(ProjectSessionTabKind::Review),
-        "files" => Ok(ProjectSessionTabKind::Files),
-        _ => Err(corrupt("Project Session tab kind is invalid")),
-    }
 }
 
 fn require_project(

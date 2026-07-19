@@ -131,7 +131,12 @@ normalizes bounded v2 split trees, and persists layout plus depth-first flat tab
 order in one receipt/event transaction. Create/focus, layout replacement,
 cross-panel move, and delete all keep each durable tab in exactly one leaf;
 delete/move prune non-final empty leaves while ordinary layout replacement may
-retain an explicitly visible empty leaf.
+retain an explicitly visible empty leaf. Typed view-state patches own left-pane
+collapse plus right/bottom collapse and size without rewriting tab timestamps.
+Tab metadata updates rerun kind-specific validation and Database View
+authorization, while opaque versioned tab state is replaced as one bounded
+`state_key`/JSON pair. Page Stage config retains its independent content Project
+instead of being rewritten to the owning Session Project.
 
 Session collection lifecycle is owned by the same Workspace boundary. Creation
 uses an explicit retry-stable identity and inserts at the head of the target
