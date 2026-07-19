@@ -100,6 +100,13 @@ are separate:
   other windows;
 - `none` hydrates and writes without a live subscription.
 
+The renderer `persisted-atom-store` remains the shared persistence substrate
+below that Adapter. It owns main synchronization, ordered mutation delivery,
+and the imperative read/write/subscribe API needed by bootstrap, migration,
+fixtures, and non-React runtime Modules. Ordinary React-facing drafts and
+preferences consume the Maitai persisted Adapter instead of rebuilding local
+`useState` hydration and subscription controllers over that substrate.
+
 Maitai may adapt an existing external store into a read-only atom when atom
 composition materially helps a view. The external Module remains the only
 writable authority and owns its runtime lifecycle.

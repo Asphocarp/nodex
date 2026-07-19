@@ -82,6 +82,9 @@ lifecycle; it is not task state.
 | Singular app-shell header content | Selected RouteScope | None | Route atom | Registrar layout cleanup or Route eviction |
 | Header actions | Mounted action ID and slot | None | Existing ordered keyed registry | Action unmount |
 | Rich Composer prompt | Composer identity plus optional `local:${threadId}` alias | `composer-prompt-drafts-v1`; eager hydration; `cross-window` | Maitai persisted App atom map | Successful submission or explicit clear; empty deletes aliases |
+| Composer prompt recall history | Conversation/thread/session/Project scope with global fallback | `prompt-history`; eager hydration; `cross-window`; legacy arrays decode as global history | Maitai persisted atom over the shared persistence substrate; Arrow-key traversal index remains component-local | Twenty entries per logical history scope |
+| Codex setup role choices | Renderer onboarding preference | `nodex:setup-codex-role-state:v1`; eager hydration; `cross-window` | Maitai persisted atom with a versioned codec | Replaced by the next submitted role choice |
+| Auto-review approval nudge | Permanent dismissal plus renderer-window counts keyed by Thread | Dismissal is eager `cross-window`; counts are not persisted | Maitai persisted dismissal atom plus App atom transient state | Dismissal clears all counts; enable/mode change clears the target Thread |
 | Completed Composer context and choices | ComposerScope identity | Renderer memory | Focused Composer atoms | Successful action or Composer eviction |
 | Composer upload/menu/hover/dictation/confirmation state | Current mounted form | None | React component | Unmount |
 | One-shot handoff/checkout Composer transfer | Server conversation ID | Renderer memory | App atom family | Consume once or conversation deletion |
@@ -101,6 +104,7 @@ read-only bridge only when scoped atom composition needs one.
 | Module or store | Authority | Disposition |
 | --- | --- | --- |
 | `local-conversation-store.ts` | Codex conversation, execution, requests, streaming, reconnect, and owner/follower coordination | Keep deep Module; never mirror writable snapshots |
+| `persisted-atom-store.ts` | Ordered renderer/main persistence synchronization plus imperative bootstrap/runtime access | Keep as the shared substrate; React-facing drafts/preferences normally consume it through Maitai persisted atoms |
 | `terminal-session-store.ts` / `use-terminal.ts` | PTY session, buffer, renderer attachment, resize/write/exit | Keep deep Module; view unmount detaches, explicit close destroys |
 | `browser-sidebar-webview-manager.ts` | Browser runtime identity and visible/hidden host claims | Keep deep Module; atoms may hold stable tab/runtime IDs only |
 | Block Document/Yjs/editor runtime | Y.Doc, provider, editor, UndoManager, write fences, relocation participants | Keep deep surface Modules per ADR 0008 |
@@ -139,6 +143,10 @@ Modules. Panel preview/side-surface controller records stay in the Workbench
 panel Adapter because they coordinate imperative open/close/promote commands
 across the two durable panel trees; they are renderer-only and are pruned by
 their explicit close/session cleanup paths, not treated as runtime authority.
+Direct `persisted-atom-store` access is not forbidden: it remains appropriate
+for non-React runtime, bootstrap, migration, and deterministic fixture seams.
+React components must not duplicate its hydration/subscription state machine
+when the Maitai persisted Adapter already expresses the same ownership.
 
 ## Prohibited retained or persisted values
 

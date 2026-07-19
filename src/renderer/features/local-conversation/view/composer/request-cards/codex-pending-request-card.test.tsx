@@ -11,7 +11,7 @@ import type {
   CodexSetupCodexStepRequest,
   NodexAgentAuthorizationRequest,
 } from "@/lib/types";
-import { render, settleAsyncRender } from "@/test/dom";
+import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
 import type {
   ThreadComposerShellPendingRequestModel,
   ThreadStageActions,

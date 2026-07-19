@@ -3,8 +3,7 @@ import { CodexSettingsAgentIcon } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
 import type { ThreadStageActions } from "../../thread-stage-types";
 import {
-  dismissAutoReviewApprovalNudges,
-  resolveAutoReviewApprovalNudge,
+  useAutoReviewApprovalNudgeActions,
 } from "../../auto-review-approval-nudge-state";
 
 const AUTO_REVIEW_LEARN_MORE_URL =
@@ -18,13 +17,17 @@ export function AutoReviewApprovalNudge({
   actions: Pick<ThreadStageActions, "onPermissionModeChange">;
 }) {
   const [isEnabling, setIsEnabling] = useState(false);
+  const {
+    dismissNudges,
+    resolveNudge,
+  } = useAutoReviewApprovalNudgeActions();
 
   const enableAutoReview = async () => {
     if (isEnabling) return;
     setIsEnabling(true);
     try {
       await actions.onPermissionModeChange("guardian-approvals");
-      resolveAutoReviewApprovalNudge(threadId);
+      resolveNudge(threadId);
     } catch {
       toast.danger("Could not enable Auto-review — try again");
     } finally {
@@ -67,7 +70,7 @@ export function AutoReviewApprovalNudge({
             disabled={isEnabling}
             className="border-token-border user-select-none no-drag cursor-interaction flex h-token-button-composer items-center gap-1 rounded-lg border bg-token-bg-fog px-2 py-0 text-base leading-[18px] whitespace-nowrap text-token-button-tertiary-foreground select-none focus:outline-none enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
             onClick={() => {
-              void dismissAutoReviewApprovalNudges();
+              void dismissNudges();
             }}
           >
             Keep manual approvals

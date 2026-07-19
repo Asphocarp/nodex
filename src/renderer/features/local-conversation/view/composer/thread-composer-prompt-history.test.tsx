@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { useEffect, useRef, useState } from "react";
-import { render, settleAsyncRender } from "@/test/dom";
+import { renderWithMaitai, settleAsyncRender } from "@/test/dom";
 import {
   clearPersistedAtomStoreForTests,
   writeAtom,
@@ -14,6 +14,7 @@ import {
   appendPromptToHistoryState,
   GLOBAL_PROMPT_HISTORY_SCOPE,
   MAX_PROMPT_HISTORY,
+  normalizePromptHistoryState,
   PROMPT_HISTORY_ATOM_KEY,
   readScopedPromptHistory,
   useThreadComposerPromptHistoryRecall,
@@ -162,6 +163,20 @@ describe("composer prompt history helpers", () => {
     expect(JSON.stringify(nextState)).toBe("{\"global\":[\"global prompt\"],\"thread-1\":[\"thread prompt\"]}");
   });
 
+  test("decodes the versioned persisted envelope", () => {
+    const state = normalizePromptHistoryState({
+      version: 1,
+      histories: {
+        global: ["global prompt"],
+        "thread-1": ["thread prompt"],
+      },
+    });
+
+    expect(JSON.stringify(readScopedPromptHistory(state, "thread-1"))).toBe(
+      "[\"thread prompt\"]",
+    );
+  });
+
   test("keeps keyed object history scoped per thread", () => {
     const nextState = appendPromptToHistoryState(
       { "thread-1": ["one"], "thread-2": ["other"] },
@@ -204,7 +219,7 @@ describe("useThreadComposerPromptHistoryRecall", () => {
     await writeAtom(PROMPT_HISTORY_ATOM_KEY, { "thread-1": ["older", "newer"] });
     const controllerRef: { current: FakeComposerController | null } = { current: null };
 
-    render(<PromptHistoryHarness controllerRef={controllerRef} />);
+    renderWithMaitai(<PromptHistoryHarness controllerRef={controllerRef} />);
     await settleAsyncRender();
 
     await act(async () => {
@@ -239,7 +254,7 @@ describe("useThreadComposerPromptHistoryRecall", () => {
     await writeAtom(PROMPT_HISTORY_ATOM_KEY, { "thread-1": ["history"] });
     const controllerRef: { current: FakeComposerController | null } = { current: null };
 
-    render(<PromptHistoryHarness controllerRef={controllerRef} initialText="draft" />);
+    renderWithMaitai(<PromptHistoryHarness controllerRef={controllerRef} initialText="draft" />);
     await settleAsyncRender();
 
     await act(async () => {
@@ -270,7 +285,7 @@ describe("useThreadComposerPromptHistoryRecall", () => {
     await writeAtom(PROMPT_HISTORY_ATOM_KEY, { "thread-1": ["older", "newer"] });
     const controllerRef: { current: FakeComposerController | null } = { current: null };
 
-    render(<PromptHistoryHarness controllerRef={controllerRef} />);
+    renderWithMaitai(<PromptHistoryHarness controllerRef={controllerRef} />);
     await settleAsyncRender();
 
     await act(async () => {
@@ -297,7 +312,7 @@ describe("useThreadComposerPromptHistoryRecall", () => {
     const controllerRef: { current: FakeComposerController | null } = { current: null };
     let queueSelections = 0;
 
-    render(
+    renderWithMaitai(
       <PromptHistoryHarness
         controllerRef={controllerRef}
         selectLatestQueuedFollowUp={() => {

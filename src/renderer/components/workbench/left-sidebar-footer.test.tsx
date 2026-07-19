@@ -86,7 +86,7 @@ describe("LeftSidebarFooter", () => {
 
     await waitFor(() => {
       const bodyText = textContent(view.container.ownerDocument.body);
-      if (!bodyText.includes("dev@example.com") || !bodyText.includes("Rate limits remaining")) {
+      if (!bodyText.includes("dev@example.com") || !bodyText.includes("Usage remaining")) {
         throw new Error(`Expected account tooltip details, saw: ${bodyText}`);
       }
       expect(refreshCount).toBe(1);
@@ -130,7 +130,7 @@ describe("LeftSidebarFooter", () => {
     const disclosures = await view.findAllByRole("button", { name: "2 available resets" });
     const disclosure = disclosures.at(-1);
     if (!disclosure) throw new Error("Expected quota-reset disclosure");
-    const rateLimitHeadings = await view.findAllByText("Rate limits remaining");
+    const rateLimitHeadings = await view.findAllByText("Usage remaining");
     const rateLimitSection = rateLimitHeadings.at(-1)?.parentElement;
     expect(rateLimitSection?.contains(disclosure)).toBe(true);
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");

@@ -23,7 +23,6 @@ import {
   useEffect,
   useLayoutEffect,
   useState,
-  useSyncExternalStore,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -68,11 +67,8 @@ import { ThreadGoalStatusRow } from "./local-conversation-thread-goal-status-row
 import { buildBackgroundAgentOpenContext } from "../../projection/background-subagent-open-context";
 import { SubagentAvatar } from "../shared/subagent-avatar";
 import {
-  getAutoReviewApprovalNudgeState,
-  hydrateAutoReviewApprovalNudgeState,
-  recordManualApprovalForAutoReviewNudge,
-  resolveAutoReviewApprovalNudge,
-  subscribeAutoReviewApprovalNudgeState,
+  useAutoReviewApprovalNudgeActions,
+  useAutoReviewApprovalNudgeState,
 } from "../../auto-review-approval-nudge-state";
 import { AutoReviewApprovalNudge } from "./auto-review-approval-nudge";
 import {
@@ -1039,21 +1035,18 @@ function ScopedLocalConversationComposerShell({
   hasFixedPortalContent = false,
 }: LocalConversationComposerShellProps) {
   const permissionState = model.permissionState;
-  const autoReviewNudgeState = useSyncExternalStore(
-    subscribeAutoReviewApprovalNudgeState,
-    getAutoReviewApprovalNudgeState,
-    getAutoReviewApprovalNudgeState,
-  );
-  useEffect(() => {
-    void hydrateAutoReviewApprovalNudgeState();
-  }, []);
+  const autoReviewNudgeState = useAutoReviewApprovalNudgeState();
+  const {
+    recordManualApproval: recordManualApprovalForNudge,
+    resolveNudge,
+  } = useAutoReviewApprovalNudgeActions();
   const autoReviewNudgeEligible = permissionState?.mode === "auto"
     && permissionState.autoReviewAvailable
     && permissionState.availableModes.includes("guardian-approvals");
   const hasAutoReviewNudge = Boolean(
     model.threadId
     && autoReviewNudgeEligible
-    && autoReviewNudgeState.activeThreadIds.has(model.threadId),
+    && autoReviewNudgeState.activeThreadIds[model.threadId] === true,
   );
   const replacementOwner = resolveComposerReplacementOwner({
     threadId: model.threadId,
@@ -1063,10 +1056,10 @@ function ScopedLocalConversationComposerShell({
   });
   useEffect(() => {
     if (!model.threadId || permissionState?.mode === "auto") return;
-    resolveAutoReviewApprovalNudge(model.threadId);
-  }, [model.threadId, permissionState?.mode]);
+    resolveNudge(model.threadId);
+  }, [model.threadId, permissionState?.mode, resolveNudge]);
   const recordManualApproval = async (conversationId: string) => {
-    await recordManualApprovalForAutoReviewNudge({
+    await recordManualApprovalForNudge({
       threadId: conversationId,
       eligible: autoReviewNudgeEligible,
     });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, within } from "@testing-library/react";
+import { useEffect } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
@@ -7,9 +8,7 @@ import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
 import {
-  getAutoReviewApprovalNudgeState,
-  recordManualApprovalForAutoReviewNudge,
-  resetAutoReviewApprovalNudgeStateForTests,
+  useAutoReviewApprovalNudgeActions,
 } from "../../auto-review-approval-nudge-state";
 import {
   buildThreadStageStorySurfaceModels,
@@ -179,6 +178,7 @@ function installComposerShellWindowApi(testInvoke?: (channel: string, ...args: u
 function renderComposerShell(
   model: ReturnType<typeof buildComposerShellModel>,
   actions: ThreadStageActions = buildActions(),
+  options: { readonly activateAutoReviewNudge?: boolean } = {},
 ) {
   return render(
     <TestQueryProvider>
@@ -186,6 +186,9 @@ function renderComposerShell(
         <TestThreadRouteScopePath>
           <TooltipProvider>
             <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
+              {options.activateAutoReviewNudge && model.threadId ? (
+                <AutoReviewApprovalNudgeActivator threadId={model.threadId} />
+              ) : null}
               <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
               <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
               <LocalConversationComposerShell
@@ -202,10 +205,24 @@ function renderComposerShell(
   );
 }
 
+function AutoReviewApprovalNudgeActivator({ threadId }: { readonly threadId: string }) {
+  const { recordManualApproval, resolveNudge } = useAutoReviewApprovalNudgeActions();
+
+  useEffect(() => {
+    void recordManualApproval({
+      threadId,
+      eligible: true,
+      threshold: 1,
+    });
+    return () => resolveNudge(threadId);
+  }, [recordManualApproval, resolveNudge, threadId]);
+
+  return null;
+}
+
 describe("LocalConversationComposerShell", () => {
   beforeEach(() => {
     clearPersistedAtomStoreForTests();
-    resetAutoReviewApprovalNudgeStateForTests();
   });
 
   test("resolves the exact composer replacement owner precedence", () => {
@@ -322,11 +339,6 @@ describe("LocalConversationComposerShell", () => {
     installComposerShellWindowApi();
     const baseModel = buildComposerShellModel();
     if (!baseModel.threadId) throw new Error("Expected a thread-backed story model");
-    await recordManualApprovalForAutoReviewNudge({
-      threadId: baseModel.threadId,
-      eligible: true,
-      threshold: 1,
-    });
     const changedModes: string[] = [];
     const view = renderComposerShell(
       {
@@ -338,6 +350,7 @@ describe("LocalConversationComposerShell", () => {
           changedModes.push(mode);
         },
       }),
+      { activateAutoReviewNudge: true },
     );
     await settleAsyncRender();
 
@@ -353,7 +366,6 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     expect(changedModes.join(",")).toBe("guardian-approvals");
-    expect(getAutoReviewApprovalNudgeState().activeThreadIds.has(baseModel.threadId)).toBe(false);
     expect(view.getByText("Background child wants to run the isolated request-card tests.") !== null).toBe(true);
     expect(view.getByText("Foreground thread wants to run lint before Storybook build.") !== null).toBe(true);
   });

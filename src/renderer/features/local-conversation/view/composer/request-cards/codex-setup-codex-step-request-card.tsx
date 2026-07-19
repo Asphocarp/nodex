@@ -20,7 +20,7 @@ import {
 } from "../../../setup-codex-onboarding";
 import {
   useCodexSetupRoleState,
-  writeCodexSetupRoles,
+  useSetCodexSetupRoles,
 } from "../../../setup-codex-role-state";
 import {
   buildCodexSetupSelectedSourceIds,
@@ -48,6 +48,7 @@ function CodexSetupRoleRequestCard({
   onRespond,
 }: CodexSetupCodexStepRequestCardProps) {
   const [roles] = useState<CodexSetupRoleId[]>(() => shuffleCodexSetupRoles());
+  const setSetupRoles = useSetCodexSetupRoles();
   const roleByLabel = new Map(roles.map((role) => [getCodexSetupRoleLabel(role), role]));
   const optionRequest: CodexOptionPickerRequest = {
     ...request,
@@ -74,7 +75,7 @@ function CodexSetupRoleRequestCard({
             })
           : [];
         if (response.action === "submit") {
-          await writeCodexSetupRoles(selectedRoles);
+          await setSetupRoles(selectedRoles);
         }
         await onRespond(requestId, {
           step: "role",

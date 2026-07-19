@@ -6,11 +6,7 @@ import type {
   CodexCanonicalSetupCodexStepResponse,
   CodexSetupCodexStepRequest,
 } from "@/lib/types";
-import { render, settleAsyncRender } from "@/test/dom";
-import {
-  clearCodexSetupRoleStateCacheForTests,
-  writeCodexSetupRoles,
-} from "../../../setup-codex-role-state";
+import { render, renderWithMaitai, settleAsyncRender } from "@/test/dom";
 import type { CodexSetupContextSource } from "../../../setup-codex-context-sources";
 import {
   CodexSetupCodexStepRequestCard,
@@ -33,12 +29,11 @@ function request(step: CodexSetupCodexStepRequest["step"]): CodexSetupCodexStepR
 describe("CodexSetupCodexStepRequestCard", () => {
   beforeEach(() => {
     clearPersistedAtomStoreForTests();
-    clearCodexSetupRoleStateCacheForTests();
   });
 
   test("maps shuffled role labels back to canonical ids before replying", async () => {
     const responses: CodexCanonicalSetupCodexStepResponse[] = [];
-    const view = render(
+    const view = renderWithMaitai(
       <CodexSetupCodexStepRequestCard
         request={request("role")}
         onRespond={async (_requestId, response) => {
@@ -65,9 +60,25 @@ describe("CodexSetupCodexStepRequestCard", () => {
   });
 
   test("builds the exact first_task wrapper from persisted role suggestions", async () => {
-    await writeCodexSetupRoles(["engineering"]);
+    const roleView = renderWithMaitai(
+      <CodexSetupCodexStepRequestCard
+        request={request("role")}
+        onRespond={async () => undefined}
+      />,
+    );
+    await settleAsyncRender();
+    await act(async () => {
+      fireEvent.click(roleView.getByRole("checkbox", { name: "Engineering" }));
+      await settleAsyncRender();
+    });
+    await act(async () => {
+      fireEvent.click(roleView.getByText("Continue"));
+      await settleAsyncRender();
+    });
+    roleView.unmount();
+
     const responses: CodexCanonicalSetupCodexStepResponse[] = [];
-    const view = render(
+    const view = renderWithMaitai(
       <TooltipProvider>
         <CodexSetupCodexStepRequestCard
           request={request("task")}

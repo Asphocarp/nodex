@@ -1,17 +1,13 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { ProtocolAppInfo } from "@/lib/types";
-import {
-  clearPersistedAtomStoreForTests,
-} from "@/lib/persisted-atom-store";
 import {
   CODEX_SETUP_ROLE_IDS,
   resolveCodexSetupTaskSuggestions,
   shuffleCodexSetupRoles,
 } from "./setup-codex-onboarding";
 import {
-  clearCodexSetupRoleStateCacheForTests,
-  readCodexSetupRoleState,
-  writeCodexSetupRoles,
+  DEFAULT_SETUP_CODEX_ROLE_STATE,
+  updateCodexSetupRoles,
 } from "./setup-codex-role-state";
 import {
   buildCodexSetupSelectedSourceIds,
@@ -38,11 +34,6 @@ function app(input: Partial<ProtocolAppInfo> & Pick<ProtocolAppInfo, "id" | "nam
 }
 
 describe("setup Codex onboarding model", () => {
-  beforeEach(() => {
-    clearPersistedAtomStoreForTests();
-    clearCodexSetupRoleStateCacheForTests();
-  });
-
   test("shuffles selectable roles once while keeping Something else last", () => {
     const roles = shuffleCodexSetupRoles(() => 0);
     expect(roles.length).toBe(CODEX_SETUP_ROLE_IDS.length);
@@ -65,10 +56,11 @@ describe("setup Codex onboarding model", () => {
     expect(fallback[0]?.title).toBe("Summarize updates");
   });
 
-  test("persists role state before the next task request reads it", async () => {
-    await writeCodexSetupRoles(["engineering", "product_management"]);
-    clearCodexSetupRoleStateCacheForTests();
-    const state = await readCodexSetupRoleState();
+  test("derives work mode while preserving the remaining role preferences", () => {
+    const state = updateCodexSetupRoles(
+      DEFAULT_SETUP_CODEX_ROLE_STATE,
+      ["engineering", "product_management"],
+    );
 
     expect(JSON.stringify(state.roles)).toBe(JSON.stringify([
       "engineering",

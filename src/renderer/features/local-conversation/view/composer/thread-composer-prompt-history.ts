@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import {
-  readAtom,
-  subscribeAtom,
-  writeAtom,
-} from "@/lib/persisted-atom-store";
+  persistedAtom,
+  preloadPersistedAtom,
+  useMaitaiStore,
+  usePersistedAtomValue,
+  useSetPersistedAtom,
+} from "@/lib/maitai";
 import type {
   ComposerPromptEditorHandle,
   ComposerPromptEditorKeyboardEvent,
@@ -14,6 +16,11 @@ export const GLOBAL_PROMPT_HISTORY_SCOPE = "global";
 export const MAX_PROMPT_HISTORY = 20;
 
 export type PromptHistoryState = string[] | Record<string, string[]>;
+
+interface PromptHistoryEnvelopeV1 {
+  readonly version: 1;
+  readonly histories: Record<string, string[]>;
+}
 
 interface UseThreadComposerPromptHistoryRecallInput {
   editorRef: RefObject<ComposerPromptEditorHandle | null>;
@@ -36,6 +43,14 @@ function resolveScopeKey(scopeKey: string | null): string {
 }
 
 export function normalizePromptHistoryState(value: unknown): PromptHistoryState {
+  if (
+    isRecord(value)
+    && value.version === 1
+    && isRecord(value.histories)
+  ) {
+    return normalizePromptHistoryState(value.histories);
+  }
+
   if (isStringArray(value)) {
     return [...value];
   }
@@ -53,6 +68,29 @@ export function normalizePromptHistoryState(value: unknown): PromptHistoryState 
 
   return next;
 }
+
+function encodePromptHistoryState(value: PromptHistoryState): PromptHistoryEnvelopeV1 {
+  return {
+    version: 1,
+    histories: Array.isArray(value)
+      ? { [GLOBAL_PROMPT_HISTORY_SCOPE]: [...value] }
+      : Object.fromEntries(
+          Object.entries(value).map(([scope, history]) => [scope, [...history]]),
+        ),
+  };
+}
+
+export const promptHistoryAtom = persistedAtom<PromptHistoryState>({
+  debugLabel: "thread-composer-prompt-history",
+  storageKey: PROMPT_HISTORY_ATOM_KEY,
+  defaultValue: [],
+  hydration: "eager",
+  synchronization: "cross-window",
+  optimistic: true,
+  writeFailure: "retain-and-error",
+  decode: normalizePromptHistoryState,
+  encode: encodePromptHistoryState,
+});
 
 export function readScopedPromptHistory(state: PromptHistoryState, scopeKey: string | null): string[] {
   const scope = resolveScopeKey(scopeKey);
@@ -102,34 +140,14 @@ export function useThreadComposerPromptHistoryRecall({
   selectLatestQueuedFollowUp,
 }: UseThreadComposerPromptHistoryRecallInput) {
   const scope = resolveScopeKey(scopeKey);
-  const [historyState, setHistoryState] = useState<PromptHistoryState>([]);
+  const store = useMaitaiStore();
+  const historyLoadable = usePersistedAtomValue(promptHistoryAtom);
+  const setHistoryState = useSetPersistedAtom(promptHistoryAtom);
+  const historyState = historyLoadable.value;
   const historyStateRef = useRef<PromptHistoryState>(historyState);
   const selectedIndexRef = useRef<number | null>(null);
 
   historyStateRef.current = historyState;
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void readAtom(PROMPT_HISTORY_ATOM_KEY, [])
-      .then((value) => {
-        if (cancelled) return;
-        setHistoryState(normalizePromptHistoryState(value));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setHistoryState([]);
-      });
-
-    const unsubscribe = subscribeAtom(PROMPT_HISTORY_ATOM_KEY, (value) => {
-      setHistoryState(normalizePromptHistoryState(value));
-    });
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
 
   useEffect(() => {
     selectedIndexRef.current = null;
@@ -155,15 +173,17 @@ export function useThreadComposerPromptHistoryRecall({
   }, []);
 
   const appendPromptToHistory = useCallback((text: string) => {
-    const currentState = historyStateRef.current;
-    const nextState = appendPromptToHistoryState(currentState, scope, text);
-    if (nextState === currentState) return;
+    if (text.trim().length === 0) return;
 
     selectedIndexRef.current = null;
-    historyStateRef.current = nextState;
-    setHistoryState(nextState);
-    void writeAtom(PROMPT_HISTORY_ATOM_KEY, nextState).catch(() => {});
-  }, [scope]);
+    void preloadPersistedAtom(store, promptHistoryAtom)
+      .then(() => setHistoryState((currentState) => {
+        const nextState = appendPromptToHistoryState(currentState, scope, text);
+        historyStateRef.current = nextState;
+        return nextState;
+      }))
+      .catch(() => undefined);
+  }, [scope, setHistoryState, store]);
 
   const restoreHistoryEntry = useCallback((index: number): boolean => {
     const editor = editorRef.current;

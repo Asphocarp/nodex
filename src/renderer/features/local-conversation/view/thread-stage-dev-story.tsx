@@ -24,12 +24,11 @@ import type {
   CodexMcpServerElicitationResponse,
   CodexProtocolRequestId,
 } from "@/lib/types";
-import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
 import {
-  recordManualApprovalForAutoReviewNudge,
-  resetAutoReviewApprovalNudgeStateForTests,
-  resolveAutoReviewApprovalNudge,
+  autoReviewApprovalNudgeDismissedAtom,
+  useAutoReviewApprovalNudgeActions,
 } from "../auto-review-approval-nudge-state";
+import { useSetPersistedAtom } from "@/lib/maitai";
 
 export interface ThreadStageDevStoryPageProps extends ThreadStageStoryControls {
   renderPreview?: boolean;
@@ -373,7 +372,13 @@ export function ThreadStageDevStoryPage({
     preset,
   ]);
   const [runtime, setRuntime] = useState<ThreadStageStoryRuntimeState>(scenario.runtime);
-  const [autoReviewNudgeRevision, setAutoReviewNudgeRevision] = useState(0);
+  const setAutoReviewNudgeDismissed = useSetPersistedAtom(
+    autoReviewApprovalNudgeDismissedAtom,
+  );
+  const {
+    recordManualApproval,
+    resolveNudge,
+  } = useAutoReviewApprovalNudgeActions();
   const previewRef = useRef<HTMLDivElement>(null);
   const lastAutoActionKeyRef = useRef<string | null>(null);
 
@@ -385,36 +390,33 @@ export function ThreadStageDevStoryPage({
     if (!scenario.activateAutoReviewNudge) return;
     const threadId = scenario.runtime.activeThreadId;
     if (!threadId) return;
-    let current = true;
-    clearPersistedAtomStoreForTests();
-    resetAutoReviewApprovalNudgeStateForTests();
-    void recordManualApprovalForAutoReviewNudge({
-      threadId,
-      eligible: true,
-      threshold: 1,
-    }).then(() => {
-      if (current) setAutoReviewNudgeRevision((revision) => revision + 1);
-    });
+    void setAutoReviewNudgeDismissed(false)
+      .then(() => recordManualApproval({
+        threadId,
+        eligible: true,
+        threshold: 1,
+      }));
     return () => {
-      current = false;
-      resolveAutoReviewApprovalNudge(threadId);
+      resolveNudge(threadId);
     };
-  }, [scenario.activateAutoReviewNudge, scenario.runtime.activeThreadId]);
+  }, [
+    recordManualApproval,
+    resolveNudge,
+    scenario.activateAutoReviewNudge,
+    scenario.runtime.activeThreadId,
+    setAutoReviewNudgeDismissed,
+  ]);
 
   const surfaceModels = useMemo(
-    () => {
-      void autoReviewNudgeRevision;
-      return buildThreadStageStorySurfaceModels(scenario, {
-        preset,
-        permissionMode,
-        authenticatedAccount,
-        isQueueingEnabled,
-        collapseAgentBody,
-      }, runtime);
-    },
+    () => buildThreadStageStorySurfaceModels(scenario, {
+      preset,
+      permissionMode,
+      authenticatedAccount,
+      isQueueingEnabled,
+      collapseAgentBody,
+    }, runtime),
     [
       authenticatedAccount,
-      autoReviewNudgeRevision,
       collapseAgentBody,
       isQueueingEnabled,
       permissionMode,
