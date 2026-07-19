@@ -17,7 +17,24 @@ export const CODEX_HEARTBEAT_AUTOMATION_RENDERER_STATE_TTL_MS = 2 * 60_000;
 export interface CodexScheduledAutomationRunContext {
   now: number;
   reason: "scheduled";
+  leaseId?: string;
   heartbeat?: CodexScheduledAutomationHeartbeatRunContext;
+}
+
+export interface CodexScheduledAutomationClaim {
+  readonly leaseId: string;
+  readonly definition: CodexScheduledAutomation;
+}
+
+export class CodexScheduledAutomationRetryError extends Error {
+  constructor(
+    message: string,
+    readonly retryDelayMs: number | null,
+    readonly reasonCode: string,
+  ) {
+    super(message);
+    this.name = "CodexScheduledAutomationRetryError";
+  }
 }
 
 export interface CodexScheduledAutomationHeartbeatRendererState {
@@ -70,11 +87,23 @@ export interface StartCodexScheduledAutomationSchedulerOptions {
     context: CodexScheduledAutomationRunContext,
   ) => Promise<void>;
   listDueAutomations?: (now: number, limit: number) => CodexScheduledAutomation[];
-  reconcileAutomations?: (now: number) => number;
+  claimDueAutomations?: (
+    limit: number,
+  ) => Promise<readonly CodexScheduledAutomationClaim[]>;
+  completeClaim?: (leaseId: string) => Promise<void>;
+  failClaim?: (
+    leaseId: string,
+    retryDelayMs: number | null,
+    reasonCode: string,
+  ) => Promise<void>;
+  reconcileAutomations?: (now: number) => number | Promise<number>;
   settleInterruptedRuns?: () => {
     archivedPendingCount: number;
     pendingReviewCount: number;
-  };
+  } | Promise<{
+    archivedPendingCount: number;
+    pendingReviewCount: number;
+  }>;
   onAutomationRunsUpdated?: () => void;
   setIntervalImpl?: (callback: () => void, ms: number) => SchedulerTimer;
   clearIntervalImpl?: (timer: SchedulerTimer) => void;
@@ -102,20 +131,74 @@ export function startCodexScheduledAutomationScheduler(
 
   logger.info("Starting scheduled automation scheduler", { intervalMs, maxPerTick });
 
-  try {
-    const settled = settleInterruptedRuns();
-    if (settled.archivedPendingCount > 0 || settled.pendingReviewCount > 0) {
-      options.onAutomationRunsUpdated?.();
+  const initialize = async (): Promise<void> => {
+    try {
+      const settled = await settleInterruptedRuns();
+      if (settled.archivedPendingCount > 0 || settled.pendingReviewCount > 0) {
+        options.onAutomationRunsUpdated?.();
+      }
+    } catch (error) {
+      logger.warn("Failed to settle interrupted scheduled automation runs", { error });
     }
-  } catch (error) {
-    logger.warn("Failed to settle interrupted scheduled automation runs", { error });
-  }
 
-  try {
-    reconcileAutomations(now());
-  } catch (error) {
-    logger.warn("Failed to reconcile scheduled automations", { error });
-  }
+    if (options.claimDueAutomations) return;
+    try {
+      await reconcileAutomations(now());
+    } catch (error) {
+      logger.warn("Failed to reconcile scheduled automations", { error });
+    }
+  };
+  const initialized = initialize();
+
+  const runClaim = async (
+    claim: CodexScheduledAutomationClaim,
+    tickNow: number,
+  ): Promise<void> => {
+    try {
+      await options.runAutomation(claim.definition, {
+        now: tickNow,
+        reason: "scheduled",
+        leaseId: claim.leaseId,
+        ...(claim.definition.kind === "heartbeat"
+          ? {
+              heartbeat: buildHeartbeatRunContext({
+                automation: claim.definition,
+                automationsEnabled: heartbeatAutomationsEnabled,
+                rendererStates: heartbeatThreadRendererStates,
+                collaborationModes: heartbeatThreadCollaborationModes,
+                permissions: heartbeatThreadPermissions,
+                now: tickNow,
+              }),
+            }
+          : {}),
+      });
+      await options.completeClaim?.(claim.leaseId);
+    } catch (error) {
+      const retry = error instanceof CodexScheduledAutomationRetryError
+        ? error
+        : null;
+      await options.failClaim?.(
+        claim.leaseId,
+        retry?.retryDelayMs ?? null,
+        retry?.reasonCode ?? "execution_failed",
+      ).catch((settlementError) => {
+        logger.warn("Scheduled automation lease settlement failed", {
+          automationId: claim.definition.id,
+          error: settlementError,
+        });
+      });
+      if (retry?.reasonCode === "heartbeat_disabled") {
+        logger.debug("Scheduled heartbeat deferred while disabled", {
+          automationId: claim.definition.id,
+        });
+      } else {
+        logger.warn("Scheduled automation run failed", {
+          automationId: claim.definition.id,
+          error,
+        });
+      }
+    }
+  };
 
   const tick = async (): Promise<void> => {
     if (disposed) return;
@@ -124,6 +207,12 @@ export function startCodexScheduledAutomationScheduler(
     running = true;
     const tickNow = now();
     try {
+      await initialized;
+      if (options.claimDueAutomations) {
+        const claims = await options.claimDueAutomations(maxPerTick);
+        await Promise.all(claims.map((claim) => runClaim(claim, tickNow)));
+        return;
+      }
       const dueAutomations = listDueAutomations(tickNow, maxPerTick);
       await Promise.all(dueAutomations.map(async (automation) => {
         try {

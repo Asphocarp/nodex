@@ -139,15 +139,17 @@ import {
   createDesktopLibraryModuleBridge,
   createDesktopDocumentSyncBridge,
   createDesktopProjectWorkspaceBridge,
+  mapCoreAutomationEvent,
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
   type CoreEventEnvelope,
   type CoreEventSubscription,
+  type DesktopAutomationModulePort,
   type DesktopDataAuthorityRuntime,
 } from "./core-client";
-import { createTypeScriptAutomationModulePort } from "./codex-scheduled-automation-ipc-handlers";
+import { createTypeScriptAutomationModulePort } from "./core-client/typescript-automation-module-port";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -180,6 +182,7 @@ let documentRevisionMaintenanceScheduler: DocumentRevisionMaintenanceScheduler |
 let appPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
+let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
@@ -1114,6 +1117,7 @@ async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void>
     },
   });
 
+  await codexService.synchronizeAutomationRuntime();
   startRuntimeScheduledAutomationScheduler();
 
   powerMonitor.on("resume", () => {
@@ -1183,6 +1187,8 @@ async function initializeDesktopApp(
   });
   databaseReady = true;
   await resolvePendingSessionDeepLink();
+  await codexService.synchronizeAutomationRuntime();
+  startRuntimeScheduledAutomationScheduler();
   registerDesktopActivationHandler();
   setAppInitializationStep({ phase: "done" });
   maybeStartAutomaticAppUpdateChecks();
@@ -1190,6 +1196,36 @@ async function initializeDesktopApp(
 
 function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   if (desktopDataAuthorityRuntime?.backend !== "rust") return;
+  const automationEvent = mapCoreAutomationEvent(envelope);
+  if (automationEvent) {
+    void codexService.synchronizeAutomationRuntime().catch((error) => {
+      logger.warn("Failed to refresh Automation runtime cache", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    for (const automationId of automationEvent.automationIds) {
+      codexService.notifyScheduledAutomationChanged({
+        automationId,
+        targetThreadId: null,
+        reason: "upsert",
+      });
+    }
+    if (
+      automationEvent.automationIds.length > 0
+      || automationEvent.runIds.length > 0
+    ) {
+      codexService.notifyAutomationRunsUpdated({
+        automationId: automationEvent.automationIds.length === 1
+          ? automationEvent.automationIds[0] ?? null
+          : null,
+        threadId: automationEvent.runIds.length === 1
+          ? automationEvent.runIds[0] ?? null
+          : null,
+        reason: "settle",
+      });
+    }
+    return;
+  }
   const databaseEvent = mapCoreDatabaseEvent(
     envelope,
     desktopDataAuthorityRuntime.rootClient.handshake.library_id,
@@ -1256,8 +1292,23 @@ function registerDesktopActivationHandler(): void {
 function startRuntimeScheduledAutomationScheduler(): void {
   if (runtimeShutdownStarted) return;
   if (scheduledAutomationScheduler) return;
+  const automationModule = desktopAutomationModule;
+  if (!automationModule) {
+    logger.warn("Scheduled automation scheduler deferred: module unavailable");
+    return;
+  }
 
   scheduledAutomationScheduler = startCodexScheduledAutomationScheduler({
+    claimDueAutomations: async (limit) =>
+      await automationModule.claimDueDefinitions(limit, 15 * 60_000),
+    completeClaim: async (leaseId) => {
+      await automationModule.completeLease(leaseId);
+    },
+    failClaim: async (leaseId, retryDelayMs, reasonCode) => {
+      await automationModule.failLease(leaseId, retryDelayMs, reasonCode);
+    },
+    settleInterruptedRuns: async () =>
+      await automationModule.settleInterruptedRuns(),
     runAutomation: async (automation, context) => {
       await codexService.runScheduledAutomation(automation, context);
     },
@@ -1507,6 +1558,12 @@ export async function runMainAppStartup(
     nodexHome: getNodexHome(),
     repositoryRoot: process.cwd(),
   });
+  const automationModule = createDesktopAutomationModuleBridge({
+    authority: dataAuthority,
+    typescript: createTypeScriptAutomationModulePort(),
+  });
+  desktopAutomationModule = automationModule;
+  codexService.setAutomationModule(automationModule);
   appInitializationPromise = initializeDesktopApp(serverPort, dataAuthority);
 
   const serverUrl = `http://127.0.0.1:${serverPort}`;
@@ -1520,10 +1577,7 @@ export async function runMainAppStartup(
       await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
   }));
   registerIpcHandlers({
-    automationModule: createDesktopAutomationModuleBridge({
-      authority: dataAuthority,
-      typescript: createTypeScriptAutomationModulePort(),
-    }),
+    automationModule,
     documentSync: createDesktopDocumentSyncBridge({
       authority: dataAuthority,
       typescript: {

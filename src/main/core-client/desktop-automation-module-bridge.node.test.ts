@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { CodexScheduledAutomationCreateInput } from "../../shared/types";
 import {
   createDesktopAutomationModuleBridge,
+  mapCoreAutomationEvent,
   type DesktopAutomationModulePort,
 } from "./desktop-automation-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
@@ -115,10 +116,22 @@ const createInput: CodexScheduledAutomationCreateInput = {
 
 const neverTypeScript = (): DesktopAutomationModulePort => ({
   listDefinitions: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  getDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   createDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   updateDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   deleteDefinition: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  dispatchDefinitionNow: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  claimDueDefinitions: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  completeLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  failLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  settleInterruptedRuns: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   getRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  beginRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  replacePendingRunThread: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  setRunThreadTitle: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  completeRunForReview: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  setRunInboxItem: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  acceptRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   archiveRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   deleteRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   unarchiveRun: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
@@ -128,6 +141,36 @@ const neverTypeScript = (): DesktopAutomationModulePort => ({
 });
 
 describe("Desktop Automation Module bridge", () => {
+  test("maps Automation events into authority-neutral invalidations", () => {
+    expect(mapCoreAutomationEvent({
+      protocol_version: 1,
+      event: {
+        version: 1,
+        sequence: 8,
+        store_epoch: "epoch:test",
+        operation_id: "operation:automation",
+        committed_at: "2026-07-19T15:02:00.000Z",
+        payload: {
+          module: "automation",
+          event: {
+            kind: "automation_changed",
+            automation_ids: ["daily-report"],
+            lease_ids: ["lease:daily-report"],
+            run_ids: ["thread:daily-report"],
+            reminder_lease_ids: [],
+            snooze_ids: [],
+            page_ids: [],
+            document_ids: [],
+            database_ids: [],
+          },
+        },
+      },
+    })).toEqual({
+      automationIds: ["daily-report"],
+      runIds: ["thread:daily-report"],
+    });
+  });
+
   test("maps Definition CRUD and preserves slug identities through Core", async () => {
     const client = new FakeCoreClient();
     const bridge = createDesktopAutomationModuleBridge({
@@ -232,6 +275,93 @@ describe("Desktop Automation Module bridge", () => {
       archived_user_message: "Generate the report.",
       archived_assistant_message: "Report complete.",
       archived_reason: "manual",
+    });
+  });
+
+  test("dispatches and claims definitions before revision-fenced Run lifecycle commits", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopAutomationModuleBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+      typescript: neverTypeScript(),
+    });
+
+    client.enqueueAutomationRead(readSnapshot({
+      kind: "definition",
+      item: definition(),
+    }));
+    client.enqueueAutomationApply(committed({
+      definitions: [definition({ last_run_at_ms: 150, next_run_at_ms: 250 })],
+    }));
+    await expect(bridge.dispatchDefinitionNow("daily-report")).resolves.toMatchObject({
+      id: "daily-report",
+      lastRunAt: 150,
+      nextRunAt: 250,
+    });
+    expect(client.automationApplies[0]?.intent).toEqual({
+      kind: "dispatch_now",
+      automation_id: "daily-report",
+    });
+
+    client.enqueueAutomationApply(committed({
+      definitions: [definition({ last_run_at_ms: 200, next_run_at_ms: 300 })],
+      claimed_leases: [{
+        lease_id: "lease:daily-report",
+        automation_id: "daily-report",
+        scheduled_for_ms: 200,
+        claimed_at_ms: 200,
+        expires_at_ms: 60_200,
+        attempt: 1,
+        status: "claimed",
+        settled_at_ms: null,
+        retry_at_ms: null,
+        reason_code: null,
+      }],
+    }));
+    await expect(bridge.claimDueDefinitions(3, 60_000)).resolves.toEqual([{
+      leaseId: "lease:daily-report",
+      scheduledFor: 200,
+      attempt: 1,
+      expiresAt: 60_200,
+      definition: expect.objectContaining({ id: "daily-report" }),
+    }]);
+    expect(client.automationApplies[1]?.intent).toEqual({
+      kind: "claim_due",
+      limit: 3,
+      lease_duration_ms: 60_000,
+    });
+
+    client.enqueueAutomationApply(committed({
+      runs: [run({ status: "IN_PROGRESS", run_revision: 1 })],
+    }));
+    await expect(bridge.beginRun({
+      threadId: "thread:daily-report",
+      automationId: "daily-report",
+      threadTitle: "Daily Report run",
+      sourceCwd: "/workspace",
+    })).resolves.toBe(true);
+    expect(client.automationApplies[2]?.intent).toEqual({
+      kind: "begin_run",
+      thread_id: "thread:daily-report",
+      automation_id: "daily-report",
+      thread_title: "Daily Report run",
+      source_cwd: "/workspace",
+    });
+
+    client.enqueueAutomationRead(readSnapshot({ kind: "run", item: run() }));
+    client.enqueueAutomationApply(committed({
+      runs: [run({ run_revision: 4 })],
+    }));
+    await expect(bridge.completeRunForReview({
+      threadId: "thread:daily-report",
+      inboxTitle: "Report ready",
+      inboxSummary: "Review the report.",
+    })).resolves.toBe(true);
+    expect(client.automationApplies[3]?.intent).toEqual({
+      kind: "complete_run_for_review",
+      thread_id: "thread:daily-report",
+      expected_revision: 3,
+      inbox_title: "Report ready",
+      inbox_summary: "Review the report.",
     });
   });
 

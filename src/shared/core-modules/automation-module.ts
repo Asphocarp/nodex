@@ -171,6 +171,10 @@ export type AutomationIntent =
       readonly expectedRevision: number;
     }
   | {
+      readonly kind: "dispatch_now";
+      readonly automationId: string;
+    }
+  | {
       readonly kind: "claim_due";
       readonly limit: number;
       readonly leaseDurationMs: number;

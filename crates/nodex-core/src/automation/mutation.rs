@@ -196,6 +196,15 @@ pub(super) fn apply(
                     automation_id,
                     *expected_revision,
                 ),
+                AutomationIntent::DispatchNow { automation_id } => dispatch_now(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    automation_id,
+                ),
                 AutomationIntent::ClaimDue {
                     limit,
                     lease_duration_ms,
@@ -371,6 +380,65 @@ pub(super) fn apply(
             }
         })
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dispatch_now(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    automation_id: &str,
+) -> Result<AutomationApplyOutcome, StoreError> {
+    validate_id("automation_id", automation_id)?;
+    let definition = read_definition(connection, automation_id)?
+        .ok_or_else(|| not_found("Scheduled Automation is unavailable"))?;
+    if definition.status == AutomationDefinitionStatus::Deleted {
+        return Err(not_found("Scheduled Automation is unavailable"));
+    }
+    let (now_ms, committed_at) = core_now(connection)?;
+    let next_run = if definition.status == AutomationDefinitionStatus::Active {
+        scheduled_next_for_stored(connection, &definition, now_ms)?
+    } else {
+        definition.next_run_at_ms
+    };
+    connection.execute(
+        "UPDATE codex_scheduled_automations SET next_run_at = ?1, last_run_at = ?2, \
+           updated_at = ?2 WHERE automation_id = ?3 AND status != 'DELETED'",
+        params![next_run, now_ms, automation_id],
+    )?;
+    let stored = read_definition(connection, automation_id)?
+        .ok_or_else(|| corrupt("Dispatched Scheduled Automation is unavailable"))?;
+    finish_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            operation_kind: "dispatch_now",
+            automation_ids: vec![automation_id.to_owned()],
+            definitions: vec![stored],
+            claimed_leases: Vec::new(),
+            lease_ids: Vec::new(),
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_ids: Vec::new(),
+            run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            reminder_lease_ids: Vec::new(),
+            snooze_ids: Vec::new(),
+            page_occurrence_mutation: None,
+            page_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
+            committed_at,
+        },
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1404,6 +1472,7 @@ fn require_trusted_host(
     if !matches!(
         intent,
         AutomationIntent::ClaimDue { .. }
+            | AutomationIntent::DispatchNow { .. }
             | AutomationIntent::CompleteLease { .. }
             | AutomationIntent::FailLease { .. }
             | AutomationIntent::BeginRun { .. }
@@ -1870,6 +1939,43 @@ mod tests {
             panic!("definitions snapshot");
         };
         assert_eq!(items, created.committed.value.definitions);
+    }
+
+    #[test]
+    fn trusted_host_manual_dispatch_advances_runtime_state_exactly_once() {
+        let harness = harness();
+        create(&harness);
+        let dispatched = apply(
+            &harness,
+            "dispatch-now",
+            AutomationIntent::DispatchNow {
+                automation_id: "daily-report".to_owned(),
+            },
+        )
+        .expect("dispatch Automation now");
+        let definition = &dispatched.committed.value.definitions[0];
+        assert_eq!(definition.definition_revision, 1);
+        assert!(definition.last_run_at_ms.is_some());
+        assert!(definition.next_run_at_ms.is_some());
+
+        let replay = apply(
+            &harness,
+            "dispatch-now",
+            AutomationIntent::DispatchNow {
+                automation_id: "daily-report".to_owned(),
+            },
+        )
+        .expect("replay manual dispatch");
+        assert_eq!(
+            replay.committed.event_sequence,
+            dispatched.committed.event_sequence
+        );
+        assert_eq!(
+            replay.committed.value.definitions,
+            dispatched.committed.value.definitions
+        );
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
     }
 
     #[test]

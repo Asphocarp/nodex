@@ -422,6 +422,9 @@ pub enum AutomationIntent {
         automation_id: String,
         expected_revision: i64,
     },
+    DispatchNow {
+        automation_id: String,
+    },
     ClaimDue {
         limit: u32,
         lease_duration_ms: u64,

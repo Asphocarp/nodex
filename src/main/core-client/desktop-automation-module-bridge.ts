@@ -17,6 +17,7 @@ import type {
   AutomationCommittedValue,
   AutomationReadSnapshot,
   CoreClientPort,
+  CoreEventEnvelope,
 } from "./types";
 
 type CoreAutomationDefinition = Extract<
@@ -44,8 +45,26 @@ export interface DesktopAutomationDefinitionDeleteResult
   readonly deletedRunCount: number;
 }
 
+export interface DesktopAutomationClaim {
+  readonly leaseId: string;
+  readonly scheduledFor: number;
+  readonly attempt: number;
+  readonly expiresAt: number;
+  readonly definition: CodexScheduledAutomation;
+}
+
+export interface DesktopAutomationRunMutationInput {
+  readonly threadId: string;
+  readonly automationId: string;
+  readonly threadTitle?: string | null;
+  readonly sourceCwd?: string | null;
+}
+
 export interface DesktopAutomationModulePort {
+  peekRunAutomationId?(threadId: string): string | null;
+  peekActiveHeartbeatAutomationId?(threadId: string): string | null;
   listDefinitions(): Promise<CodexScheduledAutomation[]>;
+  getDefinition(id: string): Promise<CodexScheduledAutomation | null>;
   createDefinition(
     input: CodexScheduledAutomationCreateInput,
   ): Promise<CodexScheduledAutomation>;
@@ -53,7 +72,42 @@ export interface DesktopAutomationModulePort {
     input: CodexScheduledAutomationUpdateInput,
   ): Promise<CodexScheduledAutomation | null>;
   deleteDefinition(id: string): Promise<DesktopAutomationDefinitionDeleteResult>;
+  dispatchDefinitionNow(id: string): Promise<CodexScheduledAutomation | null>;
+  claimDueDefinitions(
+    limit: number,
+    leaseDurationMs: number,
+  ): Promise<DesktopAutomationClaim[]>;
+  completeLease(leaseId: string): Promise<void>;
+  failLease(
+    leaseId: string,
+    retryDelayMs: number | null,
+    reasonCode: string,
+  ): Promise<void>;
+  settleInterruptedRuns(): Promise<{
+    readonly archivedPendingCount: number;
+    readonly pendingReviewCount: number;
+  }>;
   getRun(threadId: string): Promise<CodexAutomationRun | null>;
+  beginRun(input: DesktopAutomationRunMutationInput): Promise<boolean>;
+  replacePendingRunThread(input: {
+    readonly pendingThreadId: string;
+    readonly threadId: string;
+  }): Promise<boolean>;
+  setRunThreadTitle(
+    threadId: string,
+    threadTitle: string | null,
+  ): Promise<boolean>;
+  completeRunForReview(input: {
+    readonly threadId: string;
+    readonly inboxTitle?: string | null;
+    readonly inboxSummary?: string | null;
+  }): Promise<boolean>;
+  setRunInboxItem(input: {
+    readonly threadId: string;
+    readonly inboxTitle?: string | null;
+    readonly inboxSummary?: string | null;
+  }): Promise<boolean>;
+  acceptRun(threadId: string): Promise<boolean>;
   archiveRun(
     input: CodexAutomationRunArchiveInput,
     messages: AutomationArchiveMessages,
@@ -70,6 +124,22 @@ export interface DesktopAutomationModulePort {
 export interface DesktopAutomationModuleBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly typescript: DesktopAutomationModulePort;
+}
+
+export interface CoreAutomationInvalidation {
+  readonly automationIds: readonly string[];
+  readonly runIds: readonly string[];
+}
+
+export function mapCoreAutomationEvent(
+  envelope: CoreEventEnvelope,
+): CoreAutomationInvalidation | null {
+  const payload = envelope.event.payload;
+  if (payload.module !== "automation") return null;
+  return {
+    automationIds: payload.event.automation_ids,
+    runIds: payload.event.run_ids,
+  };
 }
 
 const mapDefinition = (
@@ -239,6 +309,10 @@ const createCoreAutomationPort = (
       }
       return snapshot.value.items.map(mapDefinition);
     },
+    getDefinition: async (id) => {
+      const item = await readDefinition(id);
+      return item ? mapDefinition(item) : null;
+    },
     createDefinition: async (input) => {
       const definitions = await client.automationRead({
         kind: "definitions",
@@ -311,10 +385,139 @@ const createCoreAutomationPort = (
         deletedRunCount: committed.value.deleted_run_ids.length,
       };
     },
+    dispatchDefinitionNow: async (id) => {
+      const current = await readDefinition(id);
+      if (!current) return null;
+      const committed = await client.automationApply({
+        operationId: operationId(`dispatch-now:${id}`),
+        intent: { kind: "dispatch_now", automation_id: id },
+      });
+      return mapDefinition(requireDefinition(committed, id));
+    },
+    claimDueDefinitions: async (limit, leaseDurationMs) => {
+      const committed = await client.automationApply({
+        operationId: operationId("claim-due"),
+        intent: {
+          kind: "claim_due",
+          limit,
+          lease_duration_ms: leaseDurationMs,
+        },
+      });
+      const definitions = new Map(
+        committed.value.definitions.map((item) => [
+          item.automation_id,
+          item,
+        ]),
+      );
+      return committed.value.claimed_leases.map((lease) => {
+        const claimedDefinition = definitions.get(lease.automation_id);
+        if (!claimedDefinition) {
+          throw new Error("Core Automation claim omitted its Definition");
+        }
+        return {
+          leaseId: lease.lease_id,
+          scheduledFor: lease.scheduled_for_ms,
+          attempt: lease.attempt,
+          expiresAt: lease.expires_at_ms,
+          definition: mapDefinition(claimedDefinition),
+        };
+      });
+    },
+    completeLease: async (leaseId) => {
+      await client.automationApply({
+        operationId: operationId(`complete-lease:${leaseId}`),
+        intent: { kind: "complete_lease", lease_id: leaseId },
+      });
+    },
+    failLease: async (leaseId, retryDelayMs, reasonCode) => {
+      await client.automationApply({
+        operationId: operationId(`fail-lease:${leaseId}`),
+        intent: {
+          kind: "fail_lease",
+          lease_id: leaseId,
+          retry_delay_ms: retryDelayMs,
+          reason_code: reasonCode,
+        },
+      });
+    },
+    settleInterruptedRuns: async () => {
+      const committed = await client.automationApply({
+        operationId: operationId("settle-interrupted-runs"),
+        intent: { kind: "settle_interrupted_runs" },
+      });
+      return {
+        archivedPendingCount:
+          committed.value.run_bulk?.archived_pending_count ?? 0,
+        pendingReviewCount:
+          committed.value.run_bulk?.pending_review_count ?? 0,
+      };
+    },
     getRun: async (threadId) => {
       const run = await readRun(threadId);
       return run ? mapRun(run) : null;
     },
+    beginRun: async (input) => {
+      const committed = await client.automationApply({
+        operationId: operationId(`begin-run:${input.threadId}`),
+        intent: {
+          kind: "begin_run",
+          thread_id: input.threadId,
+          automation_id: input.automationId,
+          thread_title: input.threadTitle ?? null,
+          source_cwd: input.sourceCwd ?? null,
+        },
+      });
+      return committed.value.runs.some((candidate) =>
+        candidate.thread_id === input.threadId
+      );
+    },
+    replacePendingRunThread: async (input) => {
+      const pending = await readRun(input.pendingThreadId);
+      if (!pending) return false;
+      const committed = await client.automationApply({
+        operationId: operationId(
+          `replace-run:${input.pendingThreadId}:${input.threadId}`,
+        ),
+        intent: {
+          kind: "replace_pending_run_thread",
+          pending_thread_id: input.pendingThreadId,
+          thread_id: input.threadId,
+          expected_revision: pending.run_revision,
+        },
+      });
+      return committed.value.runs.some((candidate) =>
+        candidate.thread_id === input.threadId
+      );
+    },
+    setRunThreadTitle: async (threadId, threadTitle) =>
+      (await applyRun(threadId, (current) => ({
+        kind: "set_run_thread_title",
+        thread_id: threadId,
+        expected_revision: current.run_revision,
+        thread_title: threadTitle,
+      }))) !== null,
+    completeRunForReview: async (input) =>
+      (await applyRun(input.threadId, (current) => ({
+        kind: "complete_run_for_review",
+        thread_id: input.threadId,
+        expected_revision: current.run_revision,
+        inbox_title: input.inboxTitle ?? null,
+        inbox_summary: input.inboxSummary ?? null,
+      }))) !== null,
+    setRunInboxItem: async (input) =>
+      (await applyRun(input.threadId, (current) => ({
+        kind: "set_run_inbox_item",
+        thread_id: input.threadId,
+        expected_revision: current.run_revision,
+        inbox_title: input.inboxTitle ?? null,
+        inbox_summary: input.inboxSummary ?? null,
+      }))) !== null,
+    acceptRun: async (threadId) =>
+      (await applyRun(threadId, (current) => ({
+        kind: "accept_run",
+        thread_id: threadId,
+        expected_revision: current.run_revision,
+      }))) !== null,
     archiveRun: async (input, messages) =>
       (await applyRun(input.threadId, (run) => ({
         kind: "archive_run",
@@ -405,12 +608,32 @@ export const createDesktopAutomationModuleBridge = (
   };
   return {
     listDefinitions: async () => (await port()).listDefinitions(),
+    getDefinition: async (id) => (await port()).getDefinition(id),
     createDefinition: async (definition) =>
       (await port()).createDefinition(definition),
     updateDefinition: async (definition) =>
       (await port()).updateDefinition(definition),
     deleteDefinition: async (id) => (await port()).deleteDefinition(id),
+    dispatchDefinitionNow: async (id) =>
+      (await port()).dispatchDefinitionNow(id),
+    claimDueDefinitions: async (limit, leaseDurationMs) =>
+      (await port()).claimDueDefinitions(limit, leaseDurationMs),
+    completeLease: async (leaseId) => (await port()).completeLease(leaseId),
+    failLease: async (leaseId, retryDelayMs, reasonCode) =>
+      (await port()).failLease(leaseId, retryDelayMs, reasonCode),
+    settleInterruptedRuns: async () =>
+      (await port()).settleInterruptedRuns(),
     getRun: async (threadId) => (await port()).getRun(threadId),
+    beginRun: async (runInput) => (await port()).beginRun(runInput),
+    replacePendingRunThread: async (runInput) =>
+      (await port()).replacePendingRunThread(runInput),
+    setRunThreadTitle: async (threadId, threadTitle) =>
+      (await port()).setRunThreadTitle(threadId, threadTitle),
+    completeRunForReview: async (runInput) =>
+      (await port()).completeRunForReview(runInput),
+    setRunInboxItem: async (runInput) =>
+      (await port()).setRunInboxItem(runInput),
+    acceptRun: async (threadId) => (await port()).acceptRun(threadId),
     archiveRun: async (archiveInput, messages) =>
       (await port()).archiveRun(archiveInput, messages),
     deleteRun: async (threadId) => (await port()).deleteRun(threadId),

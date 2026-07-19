@@ -41,10 +41,22 @@ const unavailableAutomationPort = (): DesktopAutomationModulePort => {
   };
   return {
     listDefinitions: unavailable,
+    getDefinition: unavailable,
     createDefinition: unavailable,
     updateDefinition: unavailable,
     deleteDefinition: unavailable,
+    dispatchDefinitionNow: unavailable,
+    claimDueDefinitions: unavailable,
+    completeLease: unavailable,
+    failLease: unavailable,
+    settleInterruptedRuns: unavailable,
     getRun: unavailable,
+    beginRun: unavailable,
+    replacePendingRunThread: unavailable,
+    setRunThreadTitle: unavailable,
+    completeRunForReview: unavailable,
+    setRunInboxItem: unavailable,
+    acceptRun: unavailable,
     archiveRun: unavailable,
     deleteRun: unavailable,
     unarchiveRun: unavailable,
@@ -456,34 +468,23 @@ describe("Electron native data authority", () => {
           expect.objectContaining({ id: automationDefinition.id }),
         ]),
       );
-      const begunAutomationRun = await runtime.rootClient.automationApply({
-        operationId: "electron-automation-run-begin",
-        intent: {
-          kind: "begin_run",
-          thread_id: "thread:electron-session",
-          automation_id: automationDefinition.id,
-          thread_title: "Electron Automation run",
-          source_cwd: nodexHome,
-        },
+      await expect(
+        automation.dispatchDefinitionNow(automationDefinition.id),
+      ).resolves.toMatchObject({
+        id: automationDefinition.id,
+        lastRunAt: expect.any(Number),
       });
-      const begunAutomationRunRevision =
-        begunAutomationRun.value.runs[0]?.run_revision;
-      if (!begunAutomationRunRevision) {
-        throw new Error("Core omitted the begun Automation Run");
-      }
-      const reviewAutomationRun = await runtime.rootClient.automationApply({
-        operationId: "electron-automation-run-review",
-        intent: {
-          kind: "complete_run_for_review",
-          thread_id: "thread:electron-session",
-          expected_revision: begunAutomationRunRevision,
-          inbox_title: "Native report ready",
-          inbox_summary: "Review the native Automation run.",
-        },
-      });
-      expect(reviewAutomationRun.value.runs[0]).toMatchObject({
-        status: "PENDING_REVIEW",
-      });
+      await expect(automation.beginRun({
+        threadId: "thread:electron-session",
+        automationId: automationDefinition.id,
+        threadTitle: "Electron Automation run",
+        sourceCwd: nodexHome,
+      })).resolves.toBe(true);
+      await expect(automation.completeRunForReview({
+        threadId: "thread:electron-session",
+        inboxTitle: "Native report ready",
+        inboxSummary: "Review the native Automation run.",
+      })).resolves.toBe(true);
       await expect(automation.readInbox(10)).resolves.toMatchObject({
         items: [{
           automationId: automationDefinition.id,

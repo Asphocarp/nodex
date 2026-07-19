@@ -1293,6 +1293,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "delete_definition";
             } | {
+                readonly automation_id: string;
+                /** @enum {string} */
+                readonly kind: "dispatch_now";
+            } | {
                 /** @enum {string} */
                 readonly kind: "claim_due";
                 /** Format: int64 */

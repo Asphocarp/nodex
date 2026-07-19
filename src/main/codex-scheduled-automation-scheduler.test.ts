@@ -3,6 +3,7 @@ import type { CodexScheduledAutomation } from "../shared/types";
 import {
   CODEX_SCHEDULED_AUTOMATION_SCHEDULER_INTERVAL_MS,
   CODEX_SCHEDULED_AUTOMATION_SCHEDULER_MAX_PER_TICK,
+  CodexScheduledAutomationRetryError,
   startCodexScheduledAutomationScheduler,
 } from "./codex-scheduled-automation-scheduler";
 
@@ -46,6 +47,75 @@ function logger() {
 }
 
 describe("codex scheduled automation scheduler", () => {
+  test("settles native claims after execution and preserves retry intent", async () => {
+    const completed: string[] = [];
+    const failed: Array<{
+      leaseId: string;
+      retryDelayMs: number | null;
+      reasonCode: string;
+    }> = [];
+    let claimCount = 0;
+    const scheduler = startCodexScheduledAutomationScheduler({
+      logger: logger(),
+      now: () => 500,
+      setIntervalImpl: () =>
+        ({ unref: () => undefined }) as unknown as ReturnType<typeof setInterval>,
+      clearIntervalImpl: () => undefined,
+      settleInterruptedRuns: async () => ({
+        archivedPendingCount: 0,
+        pendingReviewCount: 0,
+      }),
+      claimDueAutomations: async () => {
+        claimCount += 1;
+        if (claimCount > 1) return [];
+        return [
+          { leaseId: "lease:complete", definition: automation("complete") },
+          { leaseId: "lease:retry", definition: automation("retry") },
+          { leaseId: "lease:deferred", definition: automation("deferred") },
+        ];
+      },
+      completeClaim: async (leaseId) => {
+        completed.push(leaseId);
+      },
+      failClaim: async (leaseId, retryDelayMs, reasonCode) => {
+        failed.push({ leaseId, retryDelayMs, reasonCode });
+      },
+      runAutomation: async (item, context) => {
+        expect(context.leaseId).toBe(`lease:${item.id}`);
+        if (item.id === "retry") {
+          throw new CodexScheduledAutomationRetryError(
+            "Renderer owner is unavailable",
+            60_000,
+            "renderer_owner_unavailable",
+          );
+        }
+        if (item.id === "deferred") {
+          throw new CodexScheduledAutomationRetryError(
+            "Heartbeat automations are disabled",
+            null,
+            "heartbeat_disabled",
+          );
+        }
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(completed).toEqual(["lease:complete"]);
+    expect(failed).toEqual([
+      {
+        leaseId: "lease:retry",
+        retryDelayMs: 60_000,
+        reasonCode: "renderer_owner_unavailable",
+      },
+      {
+        leaseId: "lease:deferred",
+        retryDelayMs: null,
+        reasonCode: "heartbeat_disabled",
+      },
+    ]);
+    scheduler.dispose();
+  });
+
   test("settles startup state, reconciles automations, runs due items, and disposes the timer", async () => {
     const dueAutomations = [
       automation("first"),
@@ -166,7 +236,7 @@ describe("codex scheduled automation scheduler", () => {
       },
     });
 
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const initial = contexts[0] as {
       heartbeat?: { automationsEnabled?: boolean };
     };

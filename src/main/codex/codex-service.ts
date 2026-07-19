@@ -613,27 +613,11 @@ import {
   upsertCodexBackgroundProcess,
 } from "../local-store/codex-background-processes";
 import {
-  createCodexScheduledAutomation,
-  deleteActiveHeartbeatAutomationForTargetThread,
-  deleteCodexScheduledAutomationWithStatus,
-  getCodexScheduledAutomation,
-  listCodexScheduledAutomations,
   recordCodexScheduledAutomationNextRun,
   recordCodexScheduledAutomationNextScheduledRun,
-  recordCodexScheduledAutomationRunDispatched,
-  updateCodexScheduledAutomation,
 } from "../local-store/codex-scheduled-automations";
 import {
-  archiveCodexAutomationRun,
   captureCodexAutomationArchiveMessages,
-  deleteCodexAutomationRunsForAutomation,
-  getCodexAutomationRun,
-  insertCodexAutomationRunInProgress,
-  markCodexAutomationRunAccepted,
-  markCodexAutomationRunPendingReview,
-  replacePendingCodexAutomationRunThreadId,
-  setCodexAutomationRunInboxItem,
-  setCodexAutomationRunThreadTitle,
 } from "../local-store/codex-automation-runs";
 import {
   CODEX_AUTOMATION_DEVELOPER_INSTRUCTIONS,
@@ -644,6 +628,9 @@ import {
   resolveCodexScheduledAutomationModelSettings,
 } from "../codex-scheduled-automation-runtime";
 import { computeCodexScheduledAutomationIntervalMs } from "../local-store/codex-scheduled-automation-schedule";
+import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
+import { createTypeScriptAutomationModulePort } from "../core-client/typescript-automation-module-port";
+import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
 import {
   buildCodexNewConversationParams,
   parseCodexStoredShellEnvironment,
@@ -827,6 +814,8 @@ interface CodexScheduledAutomationHeartbeatRunContext {
 interface CodexScheduledAutomationRunContext {
   now?: number;
   reason?: "scheduled" | "run-now";
+  leaseId?: string;
+  scheduleDispatched?: boolean;
   heartbeat?: CodexScheduledAutomationHeartbeatRunContext;
 }
 
@@ -2857,6 +2846,11 @@ export class CodexService extends EventEmitter {
   private forkSidePanelTransferLifecycle:
     CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
+  private automationModule: DesktopAutomationModulePort =
+    createTypeScriptAutomationModulePort();
+  private readonly automationIdByRunThreadId = new Map<string, string>();
+  private readonly activeHeartbeatAutomationIdByThreadId =
+    new Map<string, string>();
   private readonly nodexAgentAuthorityRegistry = new CodexNodexAgentAuthorityRegistry();
 
   private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
@@ -3099,46 +3093,51 @@ export class CodexService extends EventEmitter {
     this.emitEvent({ type: "automationRunsUpdated", event });
   }
 
+  notifyScheduledAutomationChanged(
+    event: CodexScheduledAutomationChangedEvent,
+  ): void {
+    this.emitEvent({ type: "scheduledAutomationChanged", event });
+  }
+
   private notifyAutomationRunThreadUpdated(
     threadId: string,
     reason: CodexAutomationRunsUpdatedEvent["reason"],
   ): void {
-    const run = getCodexAutomationRun(threadId);
     this.notifyAutomationRunsUpdated({
-      automationId: run?.automationId ?? null,
+      automationId: this.resolveAutomationIdForRunThread(threadId),
       threadId,
       reason,
     });
   }
 
-  private isCommandOnlyAutomationThread(threadId: string): boolean {
-    if (this.getRendererConversationOwner(threadId)) return false;
-    try {
-      return getCodexAutomationRun(threadId) !== null;
-    } catch (error) {
-      if (!isUnavailableSqliteBindingError(error)) {
-        this.logger.warn("Failed to resolve scheduled automation command ownership", {
-          threadId,
-          error,
-        });
-      }
-      return false;
+  private resolveAutomationIdForRunThread(threadId: string): string | null {
+    const cached = this.automationIdByRunThreadId.get(threadId);
+    if (cached) return cached;
+    const resolved = this.automationModule.peekRunAutomationId?.(threadId) ?? null;
+    if (resolved) {
+      this.automationIdByRunThreadId.set(threadId, resolved);
     }
+    return resolved;
   }
 
-  private markAutomationRunAcceptedForUserContinuation(threadId: string): void {
+  private isCommandOnlyAutomationThread(threadId: string): boolean {
+    if (this.getRendererConversationOwner(threadId)) return false;
+    return this.resolveAutomationIdForRunThread(threadId) !== null;
+  }
+
+  private async markAutomationRunAcceptedForUserContinuation(
+    threadId: string,
+  ): Promise<void> {
     try {
-      const updated = markCodexAutomationRunAccepted(threadId);
+      const updated = await this.automationModule.acceptRun(threadId);
       if (updated) {
         this.notifyAutomationRunThreadUpdated(threadId, "accepted");
       }
     } catch (error) {
-      if (!isUnavailableSqliteBindingError(error)) {
-        this.logger.warn("Failed to mark scheduled automation run accepted", {
-          threadId,
-          error,
-        });
-      }
+      this.logger.warn("Failed to mark scheduled automation run accepted", {
+        threadId,
+        error,
+      });
     }
   }
 
@@ -4026,6 +4025,62 @@ export class CodexService extends EventEmitter {
   ): void {
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.nodexAgentAuthorizationBroker = broker;
+  }
+
+  setAutomationModule(module: DesktopAutomationModulePort): void {
+    this.automationModule = module;
+    this.automationIdByRunThreadId.clear();
+    this.activeHeartbeatAutomationIdByThreadId.clear();
+  }
+
+  async synchronizeAutomationRuntime(): Promise<void> {
+    const [definitions, inbox] = await Promise.all([
+      this.automationModule.listDefinitions(),
+      this.automationModule.readInbox(200),
+    ]);
+    this.activeHeartbeatAutomationIdByThreadId.clear();
+    for (const definition of definitions) {
+      if (
+        definition.kind !== "heartbeat"
+        || definition.status !== "ACTIVE"
+        || !definition.targetThreadId
+      ) {
+        continue;
+      }
+      this.activeHeartbeatAutomationIdByThreadId.set(
+        definition.targetThreadId,
+        definition.id,
+      );
+    }
+    this.automationIdByRunThreadId.clear();
+    for (const item of inbox.items) {
+      this.automationIdByRunThreadId.set(item.threadId, item.automationId);
+    }
+  }
+
+  private cacheAutomationDefinition(
+    definition: CodexScheduledAutomation,
+  ): void {
+    this.removeCachedAutomationDefinition(definition.id);
+    if (
+      definition.kind !== "heartbeat"
+      || definition.status !== "ACTIVE"
+      || !definition.targetThreadId
+    ) {
+      return;
+    }
+    this.activeHeartbeatAutomationIdByThreadId.set(
+      definition.targetThreadId,
+      definition.id,
+    );
+  }
+
+  private removeCachedAutomationDefinition(automationId: string): void {
+    for (const [threadId, cachedAutomationId] of
+      this.activeHeartbeatAutomationIdByThreadId) {
+      if (cachedAutomationId !== automationId) continue;
+      this.activeHeartbeatAutomationIdByThreadId.delete(threadId);
+    }
   }
 
   private rejectPendingDynamicToolCallsForThread(threadId: string, reason: unknown): void {
@@ -8862,7 +8917,7 @@ export class CodexService extends EventEmitter {
   ): Promise<void> {
     await this.ensureClientReady();
 
-    const automation = getCodexScheduledAutomation(input.id);
+    const automation = await this.automationModule.getDefinition(input.id);
     if (!automation) {
       throw new Error("Automation not found.");
     }
@@ -8904,28 +8959,43 @@ export class CodexService extends EventEmitter {
       await this.runHeartbeatScheduledAutomation(automation, {
         now: context.now ?? Date.now(),
         reason: context.reason ?? "scheduled",
+        leaseId: context.leaseId,
+        scheduleDispatched: context.scheduleDispatched,
         heartbeat: context.heartbeat,
       });
       return;
     }
 
-    await this.runCronScheduledAutomation(automation, context.now ?? Date.now());
+    await this.runCronScheduledAutomation(
+      automation,
+      context.now ?? Date.now(),
+      context.leaseId !== undefined || context.scheduleDispatched === true,
+    );
   }
 
   private async runHeartbeatScheduledAutomation(
     automation: CodexScheduledAutomation,
     context: Required<Pick<CodexScheduledAutomationRunContext, "now" | "reason">> & {
+      leaseId?: string;
+      scheduleDispatched?: boolean;
       heartbeat?: CodexScheduledAutomationHeartbeatRunContext;
     },
   ): Promise<void> {
     const targetThreadId = automation.targetThreadId?.trim() ?? "";
     if (!targetThreadId) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread not found.");
-      this.recordHeartbeatRetry(automation, context.now);
+      this.deferHeartbeatAutomation(automation, context, "heartbeat_thread_missing");
       return;
     }
 
     if (context.reason === "scheduled" && context.heartbeat?.automationsEnabled !== true) {
+      if (context.leaseId !== undefined) {
+        throw new CodexScheduledAutomationRetryError(
+          "Heartbeat automations are disabled.",
+          null,
+          "heartbeat_disabled",
+        );
+      }
       recordCodexScheduledAutomationNextScheduledRun(automation.id, context.now);
       this.logger.debug("Heartbeat automation skipped: feature disabled", {
         automationId: automation.id,
@@ -8937,7 +9007,7 @@ export class CodexService extends EventEmitter {
     const targetThreadResult = await this.readHeartbeatTargetThread(targetThreadId).catch(() => null);
     if (!targetThreadResult) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread not found.");
-      this.recordHeartbeatRetry(automation, context.now);
+      this.deferHeartbeatAutomation(automation, context, "heartbeat_thread_missing");
       this.logger.warn("Heartbeat automation skipped: thread missing", {
         automationId: automation.id,
         targetThreadId,
@@ -8952,7 +9022,7 @@ export class CodexService extends EventEmitter {
     );
     if (rendererBlockReason) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread is not eligible right now.");
-      this.recordHeartbeatRetry(automation, context.now);
+      this.deferHeartbeatAutomation(automation, context, rendererBlockReason);
       this.logger.debug("Heartbeat automation blocked by renderer state", {
         automationId: automation.id,
         targetThreadId,
@@ -8964,7 +9034,7 @@ export class CodexService extends EventEmitter {
     const collaborationMode = this.resolveHeartbeatCollaborationMode(context.heartbeat?.collaborationMode ?? null);
     if (!collaborationMode) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread mode is still loading.");
-      this.recordHeartbeatRetry(automation, context.now);
+      this.deferHeartbeatAutomation(automation, context, "heartbeat_mode_unavailable");
       this.logger.debug("Heartbeat automation waiting for renderer mode state", {
         automationId: automation.id,
         targetThreadId,
@@ -8978,7 +9048,7 @@ export class CodexService extends EventEmitter {
     );
     if (threadBlockReason) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread is busy right now.");
-      this.recordHeartbeatRetry(automation, context.now);
+      this.deferHeartbeatAutomation(automation, context, threadBlockReason);
       this.logger.debug("Heartbeat automation blocked by thread state", {
         automationId: automation.id,
         targetThreadId,
@@ -8989,6 +9059,13 @@ export class CodexService extends EventEmitter {
 
     const cooldownAt = this.resolveHeartbeatCooldownAt(automation, targetThread);
     if (context.reason === "scheduled" && cooldownAt !== null && cooldownAt > context.now) {
+      if (context.leaseId !== undefined) {
+        throw new CodexScheduledAutomationRetryError(
+          "Heartbeat automation is still cooling down.",
+          Math.max(1, cooldownAt - context.now),
+          "heartbeat_cooldown",
+        );
+      }
       recordCodexScheduledAutomationNextRun(automation.id, cooldownAt, context.now);
       this.logger.debug("Heartbeat automation skipped: not due yet", {
         automationId: automation.id,
@@ -8998,9 +9075,13 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    const dispatchedAutomation = recordCodexScheduledAutomationRunDispatched(automation.id, context.now);
-    if (!dispatchedAutomation) {
-      throw new Error("Automation not found.");
+    if (context.leaseId === undefined && context.scheduleDispatched !== true) {
+      const dispatchedAutomation = await this.automationModule.dispatchDefinitionNow(
+        automation.id,
+      );
+      if (!dispatchedAutomation) {
+        throw new Error("Automation not found.");
+      }
     }
 
     await this.startHeartbeatScheduledAutomationTurn({
@@ -9023,6 +9104,23 @@ export class CodexService extends EventEmitter {
       ? now + 60_000
       : Math.min(nextScheduled, now + 60_000);
     recordCodexScheduledAutomationNextRun(automation.id, retryAt, now);
+  }
+
+  private deferHeartbeatAutomation(
+    automation: CodexScheduledAutomation,
+    context: Pick<CodexScheduledAutomationRunContext, "leaseId" | "now"> & {
+      now: number;
+    },
+    reasonCode: string,
+  ): void {
+    if (context.leaseId !== undefined) {
+      throw new CodexScheduledAutomationRetryError(
+        "Heartbeat automation is temporarily blocked.",
+        60_000,
+        reasonCode,
+      );
+    }
+    this.recordHeartbeatRetry(automation, context.now);
   }
 
   private resolveHeartbeatRendererBlockReason(
@@ -9310,6 +9408,7 @@ export class CodexService extends EventEmitter {
   private async runCronScheduledAutomation(
     automation: CodexScheduledAutomation,
     now: number,
+    scheduleDispatched: boolean,
   ): Promise<void> {
     const cwds = automation.cwds
       .map((cwd) => cwd.trim())
@@ -9321,9 +9420,13 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    const dispatchedAutomation = recordCodexScheduledAutomationRunDispatched(automation.id, now);
-    if (!dispatchedAutomation) {
-      throw new Error("Automation not found.");
+    if (!scheduleDispatched) {
+      const dispatchedAutomation = await this.automationModule.dispatchDefinitionNow(
+        automation.id,
+      );
+      if (!dispatchedAutomation) {
+        throw new Error("Automation not found.");
+      }
     }
 
     let models: CodexModelOption[] = [];
@@ -9376,14 +9479,17 @@ export class CodexService extends EventEmitter {
     now: number;
   }): Promise<void> {
     const pendingThreadId = `pending:${randomUUID()}`;
-    const pendingInserted = insertCodexAutomationRunInProgress({
+    const pendingInserted = await this.automationModule.beginRun({
       threadId: pendingThreadId,
       automationId: input.automation.id,
       threadTitle: input.automation.name,
       sourceCwd: input.cwd,
-      now: input.now,
     });
     if (pendingInserted) {
+      this.automationIdByRunThreadId.set(
+        pendingThreadId,
+        input.automation.id,
+      );
       this.notifyAutomationRunsUpdated({
         automationId: input.automation.id,
         threadId: pendingThreadId,
@@ -9485,26 +9591,33 @@ export class CodexService extends EventEmitter {
           link.threadId,
           threadStartParams.dynamicTools,
         );
-        const replacedPendingRun = replacePendingCodexAutomationRunThreadId({
+        const replacedPendingRun = await this.automationModule.replacePendingRunThread({
           pendingThreadId,
           threadId: link.threadId,
-          now: input.now,
         });
         if (replacedPendingRun) {
+          this.automationIdByRunThreadId.delete(pendingThreadId);
+          this.automationIdByRunThreadId.set(
+            link.threadId,
+            input.automation.id,
+          );
           this.notifyAutomationRunsUpdated({
             automationId: input.automation.id,
             threadId: link.threadId,
             reason: "pending-replace",
           });
         } else {
-          const realRunInserted = insertCodexAutomationRunInProgress({
+          const realRunInserted = await this.automationModule.beginRun({
             threadId: link.threadId,
             automationId: input.automation.id,
             threadTitle: input.automation.name,
             sourceCwd: input.cwd,
-            now: input.now,
           });
           if (realRunInserted) {
+            this.automationIdByRunThreadId.set(
+              link.threadId,
+              input.automation.id,
+            );
             this.notifyAutomationRunsUpdated({
               automationId: input.automation.id,
               threadId: link.threadId,
@@ -9516,7 +9629,10 @@ export class CodexService extends EventEmitter {
       } finally {
         await this.endThreadStartNotificationDeferral();
       }
-      setCodexAutomationRunThreadTitle(link.threadId, input.automation.name, input.now);
+      await this.automationModule.setRunThreadTitle(
+        link.threadId,
+        input.automation.name,
+      );
 
       try {
         await this.client.request("thread/name/set", {
@@ -9548,7 +9664,16 @@ export class CodexService extends EventEmitter {
       await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
     } catch (error) {
       if (!link) {
-        const archived = archiveCodexAutomationRun(pendingThreadId, "auto", input.now);
+        const archived = await this.automationModule.archiveRun(
+          {
+            threadId: pendingThreadId,
+            archivedReason: "auto",
+          },
+          {
+            archivedUserMessage: null,
+            archivedAssistantMessage: null,
+          },
+        );
         if (archived) {
           this.notifyAutomationRunsUpdated({
             automationId: input.automation.id,
@@ -9692,20 +9817,12 @@ export class CodexService extends EventEmitter {
   }
 
   private hasActiveHeartbeatForThread(threadId: string): boolean {
-    try {
-      return listCodexScheduledAutomations().some((automation) =>
-        automation.kind === "heartbeat"
-        && automation.status === "ACTIVE"
-        && automation.targetThreadId === threadId);
-    } catch (error) {
-      if (!isUnavailableSqliteBindingError(error)) {
-        this.logger.warn("Failed to resolve heartbeat developer instructions", {
-          threadId,
-          error,
-        });
-      }
-      return false;
-    }
+    if (this.activeHeartbeatAutomationIdByThreadId.has(threadId)) return true;
+    const automationId =
+      this.automationModule.peekActiveHeartbeatAutomationId?.(threadId) ?? null;
+    if (!automationId) return false;
+    this.activeHeartbeatAutomationIdByThreadId.set(threadId, automationId);
+    return true;
   }
 
   private async resolveIsNonGitWorkspace(cwd: string): Promise<boolean> {
@@ -11925,50 +12042,41 @@ export class CodexService extends EventEmitter {
     return this.getMaybeConversationRecord(threadId)?.detail?.turns.find((turn) => turn.turnId === turnId) ?? null;
   }
 
-  private captureAutomationInboxItemFromProtocolTurn(threadId: string, turn: Turn): void {
+  private resolveAutomationInboxItemFromProtocolTurn(turn: Turn): {
+    readonly title: string;
+    readonly summary: string;
+  } | null {
     const markdown = [...(Array.isArray(turn.items) ? turn.items : [])]
       .reverse()
       .find((item) => item.type === "agentMessage")?.text.trim() ?? "";
-    if (!markdown) return;
+    if (!markdown) return null;
 
     const directive = parseCodexAutomationInboxItemDirective(markdown);
-    if (!directive) return;
+    if (!directive) return null;
+    return directive;
+  }
 
+  private async recordAutomationTurnCompleted(
+    threadId: string,
+    turn: Turn,
+  ): Promise<void> {
+    const directive = this.resolveAutomationInboxItemFromProtocolTurn(turn);
     try {
-      const updated = setCodexAutomationRunInboxItem({
+      const updated = await this.automationModule.completeRunForReview({
         threadId,
-        inboxTitle: directive.title,
-        inboxSummary: directive.summary,
+        inboxTitle: directive?.title ?? null,
+        inboxSummary: directive?.summary ?? null,
       });
       if (updated) {
         this.notifyAutomationRunThreadUpdated(threadId, "turn-completed");
       }
     } catch (error) {
-      if (!isUnavailableSqliteBindingError(error)) {
-        this.logger.warn("Failed to persist scheduled automation inbox item directive", {
-          threadId,
-          turnId: turn.id,
-          error,
-        });
-      }
+      this.logger.warn("Failed to complete scheduled automation run", {
+        threadId,
+        turnId: turn.id,
+        error,
+      });
     }
-  }
-
-  private recordAutomationTurnCompleted(threadId: string, turn: Turn): void {
-    try {
-      const updated = markCodexAutomationRunPendingReview(threadId);
-      if (updated) {
-        this.notifyAutomationRunThreadUpdated(threadId, "turn-completed");
-      }
-    } catch (error) {
-      if (!isUnavailableSqliteBindingError(error)) {
-        this.logger.warn("Failed to mark scheduled automation run pending review", {
-          threadId,
-          error,
-        });
-      }
-    }
-    this.captureAutomationInboxItemFromProtocolTurn(threadId, turn);
   }
 
   private isAssistantTextItem(
@@ -13992,7 +14100,7 @@ export class CodexService extends EventEmitter {
         rawDraft: input.threadGoalDraft ?? null,
       });
       if (runLocation.runInTarget === "newWorktree" && input.projectId !== null) {
-        this.createHeartbeatAutomationForStartedWorktreeThread({
+        await this.createHeartbeatAutomationForStartedWorktreeThread({
           projectId: input.projectId,
           sessionId: input.sessionId,
           threadId: link.threadId,
@@ -16085,13 +16193,26 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  private deleteHeartbeatAutomationForArchivedThread(threadId: string): void {
+  private async deleteHeartbeatAutomationForArchivedThread(
+    threadId: string,
+  ): Promise<void> {
+    const automationId =
+      this.activeHeartbeatAutomationIdByThreadId.get(threadId)
+      ?? this.automationModule.peekActiveHeartbeatAutomationId?.(threadId)
+      ?? null;
+    if (!automationId) return;
     try {
-      const deleted = deleteActiveHeartbeatAutomationForTargetThread(threadId);
-      if (!deleted) return;
+      const deleted = await this.automationModule.deleteDefinition(automationId);
+      if (!deleted.success) return;
+      this.removeCachedAutomationDefinition(automationId);
       this.logger.info("Deleted heartbeat automation for archived thread", {
-        automationId: deleted.id,
+        automationId,
         threadId,
+      });
+      this.emitScheduledAutomationChanged({
+        automationId,
+        targetThreadId: threadId,
+        reason: "delete",
       });
     } catch (error) {
       this.logger.warn("Failed to delete heartbeat automation for archived thread", {
@@ -16107,8 +16228,17 @@ export class CodexService extends EventEmitter {
     this.nodexAgentAuthorizationBroker?.revokeRoot(
       this.resolveNodexAgentRootThreadId(threadId),
     );
-    void this.captureAutomationArchiveMessages(threadId);
-    this.deleteHeartbeatAutomationForArchivedThread(threadId);
+    if (this.resolveAutomationIdForRunThread(threadId) !== null) {
+      const messages = await this.resolveAutomationArchiveMessages(threadId);
+      const archived = await this.automationModule.archiveRun(
+        { threadId, archivedReason: "auto" },
+        messages,
+      );
+      if (archived) {
+        this.notifyAutomationRunThreadUpdated(threadId, "archive");
+      }
+    }
+    await this.deleteHeartbeatAutomationForArchivedThread(threadId);
     this.setConversationUnreadState(threadId, false);
     updateCodexThreadArchived(threadId, true);
     setCodexThreadPinned(threadId, false);
@@ -16789,7 +16919,7 @@ export class CodexService extends EventEmitter {
       throw error;
     }
 
-    this.markAutomationRunAcceptedForUserContinuation(threadId);
+    await this.markAutomationRunAcceptedForUserContinuation(threadId);
     if (rendererOwnsState) return turnStartResult;
 
     const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
@@ -18162,21 +18292,21 @@ export class CodexService extends EventEmitter {
   }
 
   private emitScheduledAutomationChanged(event: CodexScheduledAutomationChangedEvent): void {
-    this.emitEvent({ type: "scheduledAutomationChanged", event });
+    this.notifyScheduledAutomationChanged(event);
   }
 
-  private createHeartbeatAutomationForStartedWorktreeThread(input: {
+  private async createHeartbeatAutomationForStartedWorktreeThread(input: {
     projectId: string;
     sessionId: string;
     threadId: string;
     heartbeatAutomation?: CodexThreadStartForSessionInput["heartbeatAutomation"];
     emitStartProgress?: boolean;
-  }): "not-requested" | "created" | "failed" {
+  }): Promise<"not-requested" | "created" | "failed"> {
     const seed = input.heartbeatAutomation;
     if (!seed) return "not-requested";
 
     try {
-      const automation = createCodexScheduledAutomation({
+      const automation = await this.automationModule.createDefinition({
         kind: "heartbeat",
         name: seed.name,
         prompt: seed.prompt,
@@ -18185,6 +18315,7 @@ export class CodexService extends EventEmitter {
         model: null,
         reasoningEffort: null,
       });
+      this.cacheAutomationDefinition(automation);
       this.emitScheduledAutomationChanged({
         automationId: automation.id,
         targetThreadId: automation.targetThreadId,
@@ -18267,9 +18398,10 @@ export class CodexService extends EventEmitter {
       }
 
       if (parsed.mode === "create") {
-        const automation = createCodexScheduledAutomation(
+        const automation = await this.automationModule.createDefinition(
           this.buildAutomationCreateInput(parsed, params.threadId),
         );
+        this.cacheAutomationDefinition(automation);
         this.emitScheduledAutomationChanged({
           automationId: automation.id,
           targetThreadId: automation.targetThreadId,
@@ -18283,12 +18415,13 @@ export class CodexService extends EventEmitter {
 
       if (parsed.mode === "update") {
         if (!parsed.id) throw new Error("id is required");
-        const automation = updateCodexScheduledAutomation(
+        const automation = await this.automationModule.updateDefinition(
           this.buildAutomationUpdateInput({ ...parsed, id: parsed.id }, params.threadId),
         );
         if (!automation) {
           throw new Error("Automation does not exist in the app and could not be updated. It may have been deleted manually by the user.");
         }
+        this.cacheAutomationDefinition(automation);
         this.emitScheduledAutomationChanged({
           automationId: automation.id,
           targetThreadId: automation.targetThreadId,
@@ -18302,19 +18435,13 @@ export class CodexService extends EventEmitter {
 
       if (parsed.mode === "delete") {
         const automationId = parsed.id;
-        let existing: CodexScheduledAutomation | null = null;
-        try {
-          existing = getCodexScheduledAutomation(automationId);
-        } catch {
-          existing = null;
-        }
-        const result = deleteCodexScheduledAutomationWithStatus(automationId);
-        const success = result.status === "deleted" || result.status === "not_found";
-        if (!success) {
+        const result = await this.automationModule.deleteDefinition(automationId);
+        if (!result.success) {
           return this.buildDynamicToolFailure(this.buildAutomationDeleteFailureMessage(result.status));
         }
-        const deletedRunCount = deleteCodexAutomationRunsForAutomation(automationId);
-        if (deletedRunCount > 0) {
+        const existing = result.item;
+        this.removeCachedAutomationDefinition(automationId);
+        if (result.deletedRunCount > 0) {
           this.notifyAutomationRunsUpdated({
             automationId: existing?.id ?? automationId,
             threadId: null,
@@ -19167,23 +19294,23 @@ export class CodexService extends EventEmitter {
         threadId: result.threadId,
         materializedGoal: result.materializedGoal,
       }),
-      Promise.resolve(this.createPendingWorktreeHeartbeat(entry, result.threadId)),
+      this.createPendingWorktreeHeartbeat(entry, result.threadId),
     ]);
     await this.cleanupPendingGoalSources(entry);
     return result;
   }
 
-  private createPendingWorktreeHeartbeat(
+  private async createPendingWorktreeHeartbeat(
     entry: Exclude<
       CodexPendingWorktreeEntry,
       { readonly launchMode: "create-stable-worktree" }
     >,
     threadId: string,
-  ): void {
+  ): Promise<void> {
     if (entry.launchMode !== "start-conversation") return;
     const projectId = entry.startConversationParamsInput.projectAssignment?.projectId;
     if (!entry.projectSessionId || !projectId) return;
-    const outcome = this.createHeartbeatAutomationForStartedWorktreeThread({
+    const outcome = await this.createHeartbeatAutomationForStartedWorktreeThread({
       projectId,
       sessionId: entry.projectSessionId,
       threadId,
@@ -21028,14 +21155,14 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private handleInboxItemsCreateRequest(params: unknown): {
+  private async handleInboxItemsCreateRequest(params: unknown): Promise<{
     items: Array<{
       id: string;
       title: string | null;
       description: string | null;
       threadId: string | null;
     }>;
-  } {
+  }> {
     const payload = asRecord(params);
     if (!payload || !Array.isArray(payload.items)) {
       return { items: [] };
@@ -21071,7 +21198,7 @@ export class CodexService extends EventEmitter {
         threadId,
       });
       try {
-        const updated = setCodexAutomationRunInboxItem({
+        const updated = await this.automationModule.setRunInboxItem({
           threadId,
           inboxTitle: title,
           inboxSummary: description,
@@ -21080,12 +21207,10 @@ export class CodexService extends EventEmitter {
           this.notifyAutomationRunThreadUpdated(threadId, "turn-completed");
         }
       } catch (error) {
-        if (!isUnavailableSqliteBindingError(error)) {
-          this.logger.warn("Failed to persist scheduled automation inbox item", {
-            threadId,
-            error,
-          });
-        }
+        this.logger.warn("Failed to persist scheduled automation inbox item", {
+          threadId,
+          error,
+        });
       }
     }
 
@@ -21982,7 +22107,7 @@ export class CodexService extends EventEmitter {
     const commandOnlyThreadId = this.resolveNotificationThreadId(notification);
     if (commandOnlyThreadId && this.isCommandOnlyAutomationThread(commandOnlyThreadId)) {
       if (method === "turn/completed") {
-        this.recordAutomationTurnCompleted(commandOnlyThreadId, params.turn);
+        await this.recordAutomationTurnCompleted(commandOnlyThreadId, params.turn);
       }
       if (method === "serverRequest/resolved") {
         const requestId = params.requestId;
@@ -22133,7 +22258,7 @@ export class CodexService extends EventEmitter {
       const metadata = createSidebarThreadSyncMetadata();
       if (updated) markSidebarSyncScopeChanged(metadata, updated.projectId);
       if (archived) {
-        this.deleteHeartbeatAutomationForArchivedThread(payload.threadId);
+        await this.deleteHeartbeatAutomationForArchivedThread(payload.threadId);
         this.commandPaletteThreadSearchService.removeThread(payload.threadId);
         setCodexThreadPinned(payload.threadId, false);
         const owners = projectSessionService.listProjectSessionThreadOwners(payload.threadId);
@@ -22324,7 +22449,7 @@ export class CodexService extends EventEmitter {
       const { threadId, turn: turnRecord } = payload;
 
       if (method === "turn/completed") {
-        this.recordAutomationTurnCompleted(threadId, turnRecord);
+        await this.recordAutomationTurnCompleted(threadId, turnRecord);
       }
 
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);

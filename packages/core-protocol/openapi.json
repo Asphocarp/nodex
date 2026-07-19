@@ -4660,6 +4660,24 @@
               {
                 "type": "object",
                 "required": [
+                  "automation_id",
+                  "kind"
+                ],
+                "properties": {
+                  "automation_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "dispatch_now"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "limit",
                   "lease_duration_ms",
                   "kind"

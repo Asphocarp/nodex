@@ -124,16 +124,22 @@ each Page's primary-Database or recursive grant authority, requires its current
 Data Source workflow status, and returns the established deduplicated command-
 palette projection. It is intentionally separate from Library-wide semantic
 content search, whose raw Block/Document evidence serves CLI and Agent use cases.
-Scheduled Automation definition CRUD and the renderer run inbox now use one
-authority-selected Automation port. In the Rust branch the trusted root client
-maps the established camel-cased IPC model to revision-fenced Core intents;
-definition deletion and its run cascade share one native commit, and archive
+Scheduled Automation definition CRUD, due dispatch, Codex run lifecycle, and
+the renderer run inbox use one authority-selected Automation port. In the Rust
+branch the trusted root client maps the established camel-cased host model to
+Core-owned revisions and receipts. The scheduler claims durable expiring leases
+before external execution and completes or fails that exact lease afterward;
+manual dispatch advances runtime schedule state through a separate trusted
+Core-clock intent. Pending-run creation, real-Thread replacement, title,
+review/inbox, acceptance, archive/restore/delete, startup interruption
+settlement, and definition-owned run cascade are native transitions. Archive
 messages resolved from Codex transcripts are submitted with the archive
-transition instead of being persisted first. The TypeScript implementation is
-an explicit fallback behind the same port. Electron remains responsible for
-external Codex execution and Thread archive/unarchive coordination; scheduler
-lease dispatch and the remaining Codex-host Automation persistence call sites
-are separate cutover work.
+transition instead of being persisted first. Durable Automation events refresh
+the host's command-only run and active-heartbeat caches and invalidate the
+established renderer queries. The TypeScript implementation is an explicit
+fallback behind the same port. Electron remains responsible only for external
+Codex execution, live renderer ownership evidence, transcript observation, and
+app-server Thread coordination.
 Project-scoped Database Module reads and writes select one cached Core client
 per Project. The Adapter translates only typed target/intent coordinates,
 preserves filter/sort/config/value domain JSON unchanged, and validates both
@@ -444,13 +450,13 @@ single Automation receipt/event commit or roll back together. Deterministic
 request failures persist as replayable rejected receipts without a change-log
 row, including across authenticated Adapter changes.
 
-The Automation definition/run boundary is active behind the Electron Rust
-development selector. Due-lease scheduling, Scheduled Page occurrence/reminder
-delivery, and the remaining Codex-host writers are still exercised through
-native probes until their Host adapters cut over. Generated protocol artifacts
-are byte-verified, and dependency audits prevent UDS routes from importing
-SQLite, deep Modules from importing transport code, or the Electron client from
-reaching the local store.
+The Automation definition/run Host boundary is active behind the Electron Rust
+development selector, including durable due-lease scheduling and committed
+event invalidation. Scheduled Page occurrence/reminder delivery remains on the
+native semantic surface pending its desktop Host adapter. Generated protocol
+artifacts are byte-verified, and dependency audits prevent UDS routes from
+importing SQLite, deep Modules from importing transport code, or the Electron
+client from reaching the local store.
 
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical product read models (`Page` detail payloads, internal full-board shapes, `PageSummary`/`BoardSummary` lightweight View projections, `Project`, and project session/tab/thread-link payloads). Page is a document-bearing Block and has no second storage identity; `Card` is reserved for visual components.

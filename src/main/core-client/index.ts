@@ -21,11 +21,15 @@ export {
 } from "./desktop-library-module-bridge";
 export {
   createDesktopAutomationModuleBridge,
+  mapCoreAutomationEvent,
   type AutomationArchiveMessages,
+  type CoreAutomationInvalidation,
+  type DesktopAutomationClaim,
   type DesktopAutomationDefinitionDeleteResult,
   type DesktopAutomationModuleBridgeInput,
   type DesktopAutomationModulePort,
 } from "./desktop-automation-module-bridge";
+export { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 export {
   createDesktopDatabaseModuleBridge,
   mapCoreDatabaseEvent,
