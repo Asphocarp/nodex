@@ -61,10 +61,19 @@ Modules.
 
 ## Codemap
 
-### Native Core migration boundary (not active authority)
+### Native Core migration and development-cutover boundary
 
 The repository includes an additive native-Core boundary that is deliberately
-not wired into normal Electron startup yet. `nodex-core-contracts` owns six
+not the default Electron authority yet. Bootstrap makes one process-lifetime
+choice from `NODEX_CORE_BACKEND=typescript|rust` before either database path can
+open; an invalid selector or attempted in-process change fails closed. Every
+legacy `better-sqlite3` entry point independently rejects access after the Rust
+choice. The detached Core launcher first authenticates and reuses a compatible
+runtime from the fixed Profile-private descriptor, or starts the validated
+development/app-bundle executable and polls the same handshake until readiness;
+it never interprets process output as authority. Electron Module adapters still
+need to replace the TypeScript stores before the Rust development selector can
+serve the full desktop workflow. `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;
 `nodex-core` contains vertical Module implementations; and `nodex-core-server`

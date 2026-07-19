@@ -12,6 +12,12 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Read-only SQL result-size cap to avoid large memory responses.
 - Electron preload bridge limits renderer access to a typed API surface.
 - Workspace-file IPC is available only to the top-level renderer frame of an owned app window. Directory browsing accepts canonical root-relative coordinates, verifies lexical and resolved-realpath containment, and omits directory symlinks that escape the selected root. Exact-file metadata/text/binary operations intentionally accept an absolute local path without a Project-root grant so user-visible agent outputs and patches remain openable outside the active source; this relies on the trusted-renderer boundary rather than path sandboxing. Write requests use an expected-modification-time CAS guard and never create missing parent directories implicitly.
+- Electron bootstrap freezes `NODEX_CORE_BACKEND=typescript|rust` before store
+  startup, and every TypeScript SQLite entry point refuses to open a Profile
+  after the Rust selection. Native launch validates a regular, executable,
+  non-symlinked Core binary, then trusts readiness only after the existing
+  descriptor, capability, UDS, and handshake checks succeed; failed startup
+  never falls back to the TypeScript authority.
 - The native Core runtime validates the Profile, `run`, and `run/core`
   ancestry without following symlinks; requires current-user ownership; and
   requires 0700 for `run/core` plus 0600 and the expected file type for the

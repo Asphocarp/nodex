@@ -9,6 +9,13 @@
 - Provide safe recovery paths for destructive operations.
 
 ## Data Durability Model
+- During the development cutover, Electron selects exactly one Profile data
+  authority at bootstrap. The TypeScript default preserves the v82 oracle; the
+  explicit Rust selector prevents all legacy SQLite opens. The accompanying
+  launcher can start or reuse a detached Core and waits for an authenticated
+  ready handshake; Electron adapter initialization is the remaining cutover
+  seam. The selection cannot change inside a process, and launch/readiness
+  failure is terminal rather than an implicit fallback or second writer.
 - SQLite runs in WAL mode (`local-store/database.ts`) for resilient write/read behavior.
 - SQLite schema version state is tracked in `PRAGMA user_version`.
 - The current SQLite schema is v80. It persists one Profile-owned Library, canonical Pages with exclusive `library | page | data_source` parents, Database Containers, deterministic initial Data Sources, Source-owned schema/memberships/values, View-to-Source targets, Project bindings/lifecycle/grants, exact-Turn Nodex authority provenance, authority-bound Agent receipts, and immutable compatibility-owner relocation evidence. Active projections are Page-named (`page_read_model`, `scheduled_page_index`, `canvas_page_references`); old Card names occur only inside ordered migration inputs and compatibility adapters. Block, engine-neutral Document, projection, and immutable evidence writes remain bounded typed transactions.

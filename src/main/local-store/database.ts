@@ -11,6 +11,7 @@ import {
   migrateShippedSchemaStoreToCurrent,
   type ShippedSchemaMigrationOptions,
 } from "./shipped-schema-migration";
+import { requireTypeScriptDataAuthority } from "../data-authority";
 
 let db: Database.Database | null = null;
 const DATABASE_MAINTENANCE_LEASE_ENV =
@@ -72,6 +73,7 @@ export function isDatabaseMaintenanceActive(): boolean {
 }
 
 export function getDb(): Database.Database {
+  requireTypeScriptDataAuthority();
   if (readDatabaseMaintenanceLease()) {
     throw new DatabaseMaintenanceInProgressError();
   }
@@ -99,6 +101,7 @@ export function closeDatabase(): void {
 export async function initializeDatabase(
   options?: ShippedSchemaMigrationOptions,
 ): Promise<void> {
+  requireTypeScriptDataAuthority();
   recoverInterruptedStoreRestore();
   migrateLegacyDatabaseFileName(getNodexHome());
   await migrateShippedSchemaStoreToCurrent(options);
