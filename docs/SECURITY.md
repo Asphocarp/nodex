@@ -12,6 +12,20 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Read-only SQL result-size cap to avoid large memory responses.
 - Electron preload bridge limits renderer access to a typed API surface.
 - Workspace-file IPC is available only to the top-level renderer frame of an owned app window. Directory browsing accepts canonical root-relative coordinates, verifies lexical and resolved-realpath containment, and omits directory symlinks that escape the selected root. Exact-file metadata/text/binary operations intentionally accept an absolute local path without a Project-root grant so user-visible agent outputs and patches remain openable outside the active source; this relies on the trusted-renderer boundary rather than path sandboxing. Write requests use an expected-modification-time CAS guard and never create missing parent directories implicitly.
+- The native Core runtime validates the Profile, `run`, and `run/core`
+  ancestry without following symlinks; requires current-user ownership; and
+  requires 0700 for `run/core` plus 0600 and the expected file type for the
+  lock, socket, descriptor, and bearer capability. It removes a stale socket
+  only after acquiring the lifetime lock and proving the existing entry is the
+  current user's Unix socket. Runtime cleanup similarly removes only the exact
+  start-nonce generation after validating every target.
+- Every native-Core HTTP request is authenticated by a fresh per-start
+  capability and same-UID Unix peer credentials. Handshake registers the
+  logical connection against peer PID/UID, client build, protocol, Adapter
+  kind, and start nonce; later Module, event, and lifecycle requests require
+  that exact connection binding. Core process reuse requires a live
+  authenticated handshake matching the fixed-path descriptor, so a stale
+  descriptor or recycled PID is never process authority.
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.
@@ -24,7 +38,9 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Optional Statsig telemetry is disabled by default, sends no `userID` or account data, and relies on Statsig's anonymous Stable ID plus safe app/runtime metadata. Statsig web analytics is a separate off-by-default opt-in that disables console-log capture, copy-text capture, and current-page URL attachment, then filters AutoCapture to low-risk technical events such as web vitals, performance, and session start. Click, copy, form, dead-click, rage-click, error, and page-view AutoCapture events are blocked by default. Nodex does not enable Statsig Session Replay.
 
 ## Current Gaps
-- No built-in authentication on the local HTTP API.
+- The public loopback HTTP API still has no built-in authentication; it is a
+  separate Electron adapter and never receives the native Core bearer
+  capability or private lifecycle routes.
 - No role-based access control model (single-user/local trust assumption).
 - Security logging/auditing is still local-first and not audit-grade. Backend logs redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records; optional Sentry crash diagnostics are for failure triage, not an audit trail.
 - `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@4` across the current Library, in addition to unrestricted Codex filesystem and network access.

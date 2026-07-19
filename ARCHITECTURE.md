@@ -74,7 +74,14 @@ performs the version/nonce/Profile handshake, uses bounded codecs, and parses
 committed SSE events incrementally. The handshake also binds its declared
 Electron Host, native CLI, or test Adapter kind to a generated connection ID;
 every Module and Document request must present the resulting per-start binding
-capability, so a client cannot accidentally cross an Adapter policy boundary.
+capability. Core registers that logical connection against the authenticated
+Unix-socket peer UID/PID, client build, negotiated protocol, and process-start
+nonce; a binding cannot be replayed by a different local process or rebound to
+another Adapter kind. Concurrent launchers treat `core.json` as a hint only:
+the losing launcher validates owner/type/mode for the fixed runtime entries and
+performs an authenticated matching handshake before reusing the winner. A PID
+or stale descriptor alone never proves process identity, and lifecycle control
+requires a registered Host, CLI, or test connection.
 
 The native Library and Database Modules now cover their complete Milestone 5
 semantic surface behind those fixed `read`/`apply` pairs. Whole-Page copy is a

@@ -403,11 +403,20 @@ export class CoreClient implements CoreClientPort {
     after: number,
     onEvent: (event: CoreEventEnvelope) => void,
   ): Promise<CoreEventSubscription> {
-    return this.#transport.openEventStream(after, onEvent);
+    return this.#transport.openEventStream(
+      after,
+      onEvent,
+      this.#moduleHeaders(),
+    );
   }
 
   shutdown(): Promise<ShutdownResponse> {
-    return this.#transport.requestJson("POST", "/core/v1/admin/shutdown", {});
+    return this.#transport.requestJson(
+      "POST",
+      "/core/v1/admin/shutdown",
+      {},
+      this.#moduleHeaders(),
+    );
   }
 
   #documentHeaders(

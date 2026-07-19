@@ -103,6 +103,16 @@
   subscriptions, replay, and Awareness state; atomically republishes the runtime
   descriptor with the new epoch/readiness generation; and clears the old
   process-local event replay before the fence reopens.
+- Native Core startup serializes on one mode-restricted lifetime lock. A losing
+  launcher does not trust descriptor JSON or its PID: it validates the fixed
+  runtime directory, descriptor, auth file, and Unix socket ownership/type/mode,
+  then proves readiness through an authenticated protocol/Profile/nonce/schema
+  handshake before returning the winner's descriptor. The winner removes only
+  an owned real socket after it holds the lock. Handshake connections are
+  registered against the UDS peer identity and cannot change role; shutdown
+  first enters drain state, rejects fresh connected work, stops accepting
+  sockets, and lets Axum finish in-flight requests before Store teardown and
+  exact-generation runtime-file cleanup.
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before

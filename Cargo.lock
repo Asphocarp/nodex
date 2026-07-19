@@ -694,6 +694,7 @@ dependencies = [
  "nodex-core",
  "nodex-core-contracts",
  "nodex-core-protocol",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",

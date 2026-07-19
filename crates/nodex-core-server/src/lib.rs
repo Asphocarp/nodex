@@ -1,17 +1,19 @@
 #![forbid(unsafe_code)]
 
+mod connections;
 mod document_wire;
+mod runtime_files;
 
 use std::convert::Infallible;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use axum::body::to_bytes;
-use axum::extract::{DefaultBodyLimit, Query, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Query, Request, State};
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
@@ -52,13 +54,12 @@ use sha2::{Digest, Sha256};
 use tokio::net::UnixListener;
 use tokio::sync::{Notify, broadcast};
 
+use connections::{BoundConnection, ConnectionRegistry, PeerIdentity};
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
+use runtime_files::{PRIVATE_FILE_MODE, RuntimePaths, random_hex};
 
-const RUNTIME_DIRECTORY_MODE: u32 = 0o700;
-const PRIVATE_FILE_MODE: u32 = 0o600;
 const MAX_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 const MAX_DOCUMENT_REQUEST_BYTES: usize = document_wire::MAX_DOCUMENT_FRAME_BYTES;
-const STARTUP_WAIT: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const PROJECT_HEADER: &str = "x-nodex-project-id";
 const CONNECTION_HEADER: &str = "x-nodex-connection-id";
@@ -66,29 +67,11 @@ const CONNECTION_BINDING_HEADER: &str = "x-nodex-connection-binding";
 const DOCUMENT_HEADER: &str = "x-nodex-document-id";
 const CLIENT_SESSION_HEADER: &str = "x-nodex-client-session-id";
 
-struct RuntimePaths {
-    directory: PathBuf,
-    lock: PathBuf,
-    socket: PathBuf,
-    descriptor: PathBuf,
-    auth: PathBuf,
-}
-
-impl RuntimePaths {
-    fn new(home: &Path) -> Self {
-        let directory = home.join("run/core");
-        Self {
-            lock: directory.join("core.lock"),
-            socket: directory.join("core.sock"),
-            descriptor: directory.join("core.json"),
-            auth: directory.join("core.auth"),
-            directory,
-        }
-    }
-}
-
 struct ServerState {
     auth_header: String,
+    owner_uid: u32,
+    connections: ConnectionRegistry,
+    draining: AtomicBool,
     descriptor: Arc<Mutex<RuntimeDescriptor>>,
     profile_id: String,
     schema_version: u32,
@@ -160,17 +143,52 @@ impl IntoResponse for ApiError {
 
 async fn authenticate(
     State(state): State<Arc<ServerState>>,
+    ConnectInfo(peer): ConnectInfo<PeerIdentity>,
     request: Request,
     next: Next,
 ) -> Response {
-    let authorized = request
+    let supplied = request
         .headers()
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        == Some(state.auth_header.as_str());
-    if !authorized {
+        .unwrap_or_default();
+    if peer.uid != state.owner_uid
+        || peer.pid.is_none()
+        || !constant_time_equal(supplied.as_bytes(), state.auth_header.as_bytes())
+    {
         return ApiError::new(StatusCode::UNAUTHORIZED, "unauthorized").into_response();
     }
+    next.run(request).await
+}
+
+async fn bind_connection(
+    State(state): State<Arc<ServerState>>,
+    ConnectInfo(peer): ConnectInfo<PeerIdentity>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if state.draining.load(Ordering::Acquire) && request.uri().path() != "/core/v1/admin/shutdown" {
+        return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Core is draining").into_response();
+    }
+    let connection_id = match required_header(request.headers(), CONNECTION_HEADER, "Connection") {
+        Ok(value) => value,
+        Err(error) => return api_core_error(error).into_response(),
+    };
+    let binding = match required_header(
+        request.headers(),
+        CONNECTION_BINDING_HEADER,
+        "Connection binding",
+    ) {
+        Ok(value) => value,
+        Err(error) => return api_core_error(error).into_response(),
+    };
+    let bound = match state.connections.bind(&connection_id, &binding, &peer) {
+        Ok(bound) => bound,
+        Err(message) => {
+            return ApiError::new(StatusCode::UNAUTHORIZED, message).into_response();
+        }
+    };
+    request.extensions_mut().insert(bound);
     next.run(request).await
 }
 
@@ -185,10 +203,19 @@ async fn health(State(state): State<Arc<ServerState>>) -> Json<HealthResponse> {
 
 async fn handshake(
     State(state): State<Arc<ServerState>>,
+    ConnectInfo(peer): ConnectInfo<PeerIdentity>,
     Json(request): Json<HandshakeRequest>,
 ) -> Result<Json<HandshakeResponse>, ApiError> {
+    if state.draining.load(Ordering::Acquire) {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Core is draining",
+        ));
+    }
     let descriptor = descriptor_snapshot(&state);
-    let compatible = request.protocol_min <= PROTOCOL_MAX
+    let compatible = request.protocol_min >= 1
+        && request.protocol_min <= request.protocol_max
+        && request.protocol_min <= PROTOCOL_MAX
         && request.protocol_max >= PROTOCOL_MIN
         && request
             .expected_profile_id
@@ -204,10 +231,14 @@ async fn handshake(
             "protocol or identity mismatch",
         ));
     }
-    if !valid_binding(&request.connection_id) {
+    if !valid_binding(&request.connection_id)
+        || request.client.build_id.is_empty()
+        || request.client.build_id.len() > 128
+        || request.client.build_id.trim() != request.client.build_id
+    {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
-            "connection identity is invalid",
+            "client or connection identity is invalid",
         ));
     }
     let adapter = match request.client.kind {
@@ -215,7 +246,24 @@ async fn handshake(
         ClientKind::NativeCli => AdapterKind::NativeCli,
         ClientKind::Test => AdapterKind::Test,
     };
-    let connection_binding = connection_binding(&state, &request.connection_id, &adapter);
+    let connection_binding = connection_binding(
+        &state,
+        &request.connection_id,
+        &adapter,
+        &peer,
+        &request.client.build_id,
+    );
+    state
+        .connections
+        .register(
+            &request.connection_id,
+            connection_binding.clone(),
+            adapter,
+            &peer,
+            &request.client.build_id,
+            PROTOCOL_MAX,
+        )
+        .map_err(|message| ApiError::new(StatusCode::CONFLICT, message))?;
 
     Ok(Json(HandshakeResponse {
         protocol_version: PROTOCOL_MAX,
@@ -238,10 +286,11 @@ async fn handshake(
 
 async fn library_read(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(LibraryReadRequest(request)): Json<LibraryReadRequest>,
 ) -> Json<LibraryReadResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.library.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
             Err(error) => ResponseEnvelope::Error(error),
@@ -253,10 +302,11 @@ async fn library_read(
 
 async fn library_apply(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(LibraryApplyRequest(request)): Json<LibraryApplyRequest>,
 ) -> Json<LibraryApplyResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.library.apply(&context, request) {
             Ok(outcome) => {
                 if let Some(event) = outcome.event {
@@ -273,10 +323,11 @@ async fn library_apply(
 
 async fn database_read(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(DatabaseReadRequest(request)): Json<DatabaseReadRequest>,
 ) -> Json<DatabaseReadResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.database.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
             Err(error) => ResponseEnvelope::Error(error),
@@ -288,10 +339,11 @@ async fn database_read(
 
 async fn database_apply(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(DatabaseApplyRequest(request)): Json<DatabaseApplyRequest>,
 ) -> Json<DatabaseApplyResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.database.apply(&context, request) {
             Ok(outcome) => {
                 if let Some(event) = outcome.event {
@@ -308,10 +360,11 @@ async fn database_apply(
 
 async fn workspace_read(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(ProjectWorkspaceReadRequest(request)): Json<ProjectWorkspaceReadRequest>,
 ) -> Json<ProjectWorkspaceReadResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.workspace.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
             Err(error) => ResponseEnvelope::Error(error),
@@ -323,10 +376,11 @@ async fn workspace_read(
 
 async fn workspace_apply(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(ProjectWorkspaceApplyRequest(request)): Json<ProjectWorkspaceApplyRequest>,
 ) -> Json<ProjectWorkspaceApplyResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.workspace.apply(&context, request) {
             Ok(outcome) => {
                 if let Some(event) = outcome.event {
@@ -343,10 +397,11 @@ async fn workspace_apply(
 
 async fn automation_read(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(AutomationReadRequest(request)): Json<AutomationReadRequest>,
 ) -> Json<AutomationReadResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.automation.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
             Err(error) => ResponseEnvelope::Error(error),
@@ -358,10 +413,11 @@ async fn automation_read(
 
 async fn automation_apply(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(AutomationApplyRequest(request)): Json<AutomationApplyRequest>,
 ) -> Json<AutomationApplyResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.automation.apply(&context, request) {
             Ok(outcome) => {
                 if let Some(event) = outcome.event {
@@ -378,10 +434,11 @@ async fn automation_apply(
 
 async fn administration_read(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(StoreAdministrationReadRequest(request)): Json<StoreAdministrationReadRequest>,
 ) -> Json<StoreAdministrationReadResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.administration.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
             Err(error) => ResponseEnvelope::Error(error),
@@ -393,10 +450,11 @@ async fn administration_read(
 
 async fn administration_apply(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Json(StoreAdministrationApplyRequest(request)): Json<StoreAdministrationApplyRequest>,
 ) -> Json<StoreAdministrationApplyResponse> {
-    let response = match module_context(&state, &headers) {
+    let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.administration.apply(&context, request) {
             Ok(outcome) => {
                 if let Some(event) = outcome.event {
@@ -414,18 +472,23 @@ async fn administration_apply(
 async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let headers = parts.headers;
+    let bound = parts
+        .extensions
+        .get::<BoundConnection>()
+        .cloned()
+        .expect("connection middleware binds Document requests");
     let bytes = match to_bytes(body, MAX_DOCUMENT_REQUEST_BYTES).await {
         Ok(bytes) => bytes,
         Err(_) => return json_document_read_error(invalid("Document read body exceeds its bound")),
     };
     if is_document_binary(&headers) {
-        return binary_document_read(&state, &headers, &bytes);
+        return binary_document_read(&state, &headers, &bound, &bytes);
     }
     let OwnedDocumentReadRequest(request) = match serde_json::from_slice(&bytes) {
         Ok(request) => request,
         Err(_) => return json_document_read_error(invalid("Document read request is invalid")),
     };
-    let response = match document_context(&state, &headers) {
+    let response = match document_context(&state, &headers, &bound) {
         Ok(context) => {
             let result = match &request.read {
                 OwnedDocumentRead::SyncYjs { .. } => {
@@ -471,6 +534,11 @@ async fn document_read(State(state): State<Arc<ServerState>>, request: Request) 
 async fn document_apply(State(state): State<Arc<ServerState>>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let headers = parts.headers;
+    let bound = parts
+        .extensions
+        .get::<BoundConnection>()
+        .cloned()
+        .expect("connection middleware binds Document requests");
     let bytes = match to_bytes(body, MAX_DOCUMENT_REQUEST_BYTES).await {
         Ok(bytes) => bytes,
         Err(_) => {
@@ -478,13 +546,13 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
         }
     };
     if is_document_binary(&headers) {
-        return binary_document_apply(&state, &headers, &bytes);
+        return binary_document_apply(&state, &headers, &bound, &bytes);
     }
     let OwnedDocumentApplyRequest(request) = match serde_json::from_slice(&bytes) {
         Ok(request) => request,
         Err(_) => return json_document_apply_error(invalid("Document apply request is invalid")),
     };
-    let response = match document_context(&state, &headers) {
+    let response = match document_context(&state, &headers, &bound) {
         Ok(context) => {
             let realtime_bound = matches!(
                 &request.intent,
@@ -516,12 +584,17 @@ async fn document_apply(State(state): State<Arc<ServerState>>, request: Request)
     Json(OwnedDocumentApplyResponse(response)).into_response()
 }
 
-fn binary_document_read(state: &ServerState, headers: &HeaderMap, bytes: &[u8]) -> Response {
+fn binary_document_read(
+    state: &ServerState,
+    headers: &HeaderMap,
+    bound: &BoundConnection,
+    bytes: &[u8],
+) -> Response {
     let result = (|| {
         if bytes.len() > document_wire::MAX_SYNC_FRAME_BYTES {
             return Err(invalid("Document sync frame exceeds its bound"));
         }
-        let context = document_context(state, headers)?;
+        let context = document_context(state, headers, bound)?;
         let document_id = required_header(headers, DOCUMENT_HEADER, "Document")?;
         let header_session =
             required_header(headers, CLIENT_SESSION_HEADER, "Document client session")?;
@@ -546,9 +619,14 @@ fn binary_document_read(state: &ServerState, headers: &HeaderMap, bytes: &[u8]) 
     }
 }
 
-fn binary_document_apply(state: &ServerState, headers: &HeaderMap, bytes: &[u8]) -> Response {
+fn binary_document_apply(
+    state: &ServerState,
+    headers: &HeaderMap,
+    bound: &BoundConnection,
+    bytes: &[u8],
+) -> Response {
     let result = (|| {
-        let context = document_context(state, headers)?;
+        let context = document_context(state, headers, bound)?;
         let document_id = required_header(headers, DOCUMENT_HEADER, "Document")?;
         let header_session =
             required_header(headers, CLIENT_SESSION_HEADER, "Document client session")?;
@@ -643,6 +721,7 @@ fn binary_document_apply(state: &ServerState, headers: &HeaderMap, bytes: &[u8])
 
 async fn events(
     State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
     headers: HeaderMap,
     Query(query): Query<EventQuery>,
 ) -> Result<Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>>, ApiError> {
@@ -652,7 +731,7 @@ async fn events(
         optional_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
     let (replay, replay_head, resync, initial_awareness, connection_id, disconnect) =
         if let Some(document_id) = requested_document_id.as_ref() {
-            let context = document_context(&state, &headers).map_err(api_core_error)?;
+            let context = document_context(&state, &headers, &bound).map_err(api_core_error)?;
             let client_session_id =
                 required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
                     .map_err(api_core_error)?;
@@ -781,17 +860,31 @@ async fn events(
     Ok(Sse::new(stream))
 }
 
-async fn shutdown(State(state): State<Arc<ServerState>>) -> Json<ShutdownResponse> {
+async fn shutdown(
+    State(state): State<Arc<ServerState>>,
+    Extension(bound): Extension<BoundConnection>,
+) -> Result<Json<ShutdownResponse>, ApiError> {
+    if !matches!(
+        bound.adapter,
+        AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+    ) {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "connection role cannot control Core lifecycle",
+        ));
+    }
+    state.draining.store(true, Ordering::Release);
     state.shutdown.notify_one();
-    Json(ShutdownResponse {
+    Ok(Json(ShutdownResponse {
         status: ShutdownStatus::Draining,
-    })
+    }))
 }
 
 fn router(state: Arc<ServerState>) -> Router {
-    let regular_routes = Router::new()
+    let infrastructure_routes = Router::new()
         .route("/core/v1/health", get(health))
-        .route("/core/v1/handshake", post(handshake))
+        .route("/core/v1/handshake", post(handshake));
+    let connected_routes = Router::new()
         .route("/core/v1/events", get(events))
         .route("/core/v1/admin/shutdown", post(shutdown))
         .route("/core/v1/modules/library/read", post(library_read))
@@ -810,12 +903,21 @@ fn router(state: Arc<ServerState>) -> Router {
             "/core/v1/modules/administration/apply",
             post(administration_apply),
         )
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&state),
+            bind_connection,
+        ))
         .layer(DefaultBodyLimit::max(MAX_JSON_REQUEST_BYTES));
     let document_routes = Router::new()
         .route("/core/v1/modules/document/read", post(document_read))
         .route("/core/v1/modules/document/apply", post(document_apply))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&state),
+            bind_connection,
+        ))
         .layer(DefaultBodyLimit::max(MAX_DOCUMENT_REQUEST_BYTES));
-    regular_routes
+    infrastructure_routes
+        .merge(connected_routes)
         .merge(document_routes)
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),
@@ -827,15 +929,14 @@ fn router(state: Arc<ServerState>) -> Router {
 fn module_context(
     state: &ServerState,
     headers: &HeaderMap,
+    bound: &BoundConnection,
 ) -> Result<BoundModuleContext, CoreError> {
-    let connection_id = required_header(headers, CONNECTION_HEADER, "Connection")?;
-    let adapter = bound_adapter(state, headers, &connection_id)?;
     Ok(BoundModuleContext {
         profile_id: ProfileId(state.profile_id.clone()),
         library_id: LibraryId(state.library_id.clone()),
         project_id: optional_header(headers, PROJECT_HEADER, "Project")?.map(ProjectId),
-        connection_id,
-        adapter,
+        connection_id: bound.id.clone(),
+        adapter: bound.adapter.clone(),
     })
 }
 
@@ -910,9 +1011,8 @@ impl Drop for DisconnectGuard {
 fn document_context(
     state: &ServerState,
     headers: &HeaderMap,
+    bound: &BoundConnection,
 ) -> Result<BoundModuleContext, CoreError> {
-    let connection_id = required_header(headers, CONNECTION_HEADER, "Connection")?;
-    let adapter = bound_adapter(state, headers, &connection_id)?;
     Ok(BoundModuleContext {
         profile_id: ProfileId(state.profile_id.clone()),
         library_id: LibraryId(state.library_id.clone()),
@@ -921,36 +1021,18 @@ fn document_context(
             PROJECT_HEADER,
             "Project",
         )?)),
-        connection_id,
-        adapter,
+        connection_id: bound.id.clone(),
+        adapter: bound.adapter.clone(),
     })
 }
 
-fn bound_adapter(
+fn connection_binding(
     state: &ServerState,
-    headers: &HeaderMap,
     connection_id: &str,
-) -> Result<AdapterKind, CoreError> {
-    let binding = required_header(headers, CONNECTION_BINDING_HEADER, "Connection binding")?;
-    for adapter in [
-        AdapterKind::ElectronHost,
-        AdapterKind::NativeCli,
-        AdapterKind::Test,
-    ] {
-        let expected = connection_binding(state, connection_id, &adapter);
-        if constant_time_equal(binding.as_bytes(), expected.as_bytes()) {
-            return Ok(adapter);
-        }
-    }
-    Err(CoreError {
-        code: CoreErrorCode::Unauthorized,
-        message: "Connection is not bound by a compatible Core handshake".to_owned(),
-        retryable: false,
-        recovery: CoreErrorRecovery::None,
-    })
-}
-
-fn connection_binding(state: &ServerState, connection_id: &str, adapter: &AdapterKind) -> String {
+    adapter: &AdapterKind,
+    peer: &PeerIdentity,
+    build_id: &str,
+) -> String {
     let adapter = match adapter {
         AdapterKind::ElectronHost => "electron_host",
         AdapterKind::NativeCli => "native_cli",
@@ -960,10 +1042,18 @@ fn connection_binding(state: &ServerState, connection_id: &str, adapter: &Adapte
     };
     let mut digest = Sha256::new();
     digest.update(state.auth_header.as_bytes());
-    digest.update(b"\0connection-binding-v1\0");
+    digest.update(b"\0connection-binding-v2\0");
+    digest.update(descriptor_snapshot(state).start_nonce.as_bytes());
+    digest.update(b"\0");
     digest.update(connection_id.as_bytes());
     digest.update(b"\0");
     digest.update(adapter.as_bytes());
+    digest.update(b"\0");
+    digest.update(peer.uid.to_be_bytes());
+    digest.update(peer.gid.to_be_bytes());
+    digest.update(peer.pid.unwrap_or_default().to_be_bytes());
+    digest.update(b"\0");
+    digest.update(build_id.as_bytes());
     hex::encode(digest.finalize())
 }
 
@@ -1108,119 +1198,9 @@ fn sse_document_realtime_event(event: &DocumentRealtimeEvent) -> Event {
         .data(document_wire::encode_realtime_event(event).expect("Document event serializes"))
 }
 
-fn validate_home(home: &Path) -> io::Result<()> {
-    if !home.is_absolute() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Core home must be absolute",
-        ));
-    }
-    if let Ok(metadata) = fs::symlink_metadata(home)
-        && metadata.file_type().is_symlink()
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Core home must not be a symlink",
-        ));
-    }
-    Ok(())
-}
-
-fn prepare_runtime_directory(paths: &RuntimePaths) -> io::Result<()> {
-    fs::create_dir_all(&paths.directory)?;
-    let metadata = fs::symlink_metadata(&paths.directory)?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Core runtime path must be a real directory",
-        ));
-    }
-    fs::set_permissions(
-        &paths.directory,
-        fs::Permissions::from_mode(RUNTIME_DIRECTORY_MODE),
-    )?;
-    Ok(())
-}
-
-fn open_lock(paths: &RuntimePaths) -> io::Result<File> {
-    let lock = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(&paths.lock)?;
-    fs::set_permissions(&paths.lock, fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
-    Ok(lock)
-}
-
-fn random_hex(bytes: usize) -> io::Result<String> {
-    let mut value = vec![0_u8; bytes];
-    getrandom::fill(&mut value)
-        .map_err(|error| io::Error::other(format!("getrandom failed: {error:?}")))?;
-    Ok(hex::encode(value))
-}
-
-fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid runtime file"))?;
-    let temporary = path.with_file_name(format!(".{file_name}.{}.tmp", std::process::id()));
-    let mut options = OpenOptions::new();
-    options.create_new(true).write(true).mode(PRIVATE_FILE_MODE);
-    let mut file = options.open(&temporary)?;
-    io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&temporary, path)?;
-    if let Some(parent) = path.parent() {
-        File::open(parent)?.sync_all()?;
-    }
-    Ok(())
-}
-
 fn profile_id(home: &Path) -> String {
     let digest = Sha256::digest(home.as_os_str().as_encoded_bytes());
     format!("profile-{}", hex::encode(&digest[..16]))
-}
-
-fn read_descriptor(path: &Path) -> io::Result<RuntimeDescriptor> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink()
-        || metadata.permissions().mode() & 0o777 != PRIVATE_FILE_MODE
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Core descriptor permissions are invalid",
-        ));
-    }
-    serde_json::from_slice(&fs::read(path)?).map_err(io::Error::other)
-}
-
-fn wait_for_descriptor(path: &Path) -> io::Result<RuntimeDescriptor> {
-    let deadline = Instant::now() + STARTUP_WAIT;
-    loop {
-        if let Ok(descriptor) = read_descriptor(path) {
-            return Ok(descriptor);
-        }
-        if Instant::now() >= deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "another Core holds the lock but did not become ready",
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn cleanup(paths: &RuntimePaths, start_nonce: &str) {
-    if read_descriptor(&paths.descriptor)
-        .is_ok_and(|descriptor| descriptor.start_nonce == start_nonce)
-    {
-        for path in [&paths.descriptor, &paths.auth, &paths.socket] {
-            let _ = fs::remove_file(path);
-        }
-    }
 }
 
 fn ensure_store_epoch(
@@ -1306,23 +1286,16 @@ fn ensure_local_identity(
 }
 
 pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    validate_home(&home)?;
-    let paths = RuntimePaths::new(&home);
-    prepare_runtime_directory(&paths)?;
-    let lock = open_lock(&paths)?;
+    let paths = RuntimePaths::prepare(&home)?;
+    let owner_uid = paths.owner_uid()?;
+    let lock = paths.open_lock()?;
     if lock.try_lock_exclusive().is_err() {
-        let descriptor = wait_for_descriptor(&paths.descriptor)?;
+        let descriptor = paths.wait_for_running_core()?;
         println!("{}", serde_json::to_string(&descriptor)?);
         return Ok(());
     }
 
-    if paths.socket.exists() {
-        let metadata = fs::symlink_metadata(&paths.socket)?;
-        if metadata.file_type().is_symlink() {
-            return Err("refusing to remove a symlinked stale Core socket".into());
-        }
-        fs::remove_file(&paths.socket)?;
-    }
+    paths.remove_stale_socket()?;
 
     let auth = random_hex(32)?;
     let start_nonce = random_hex(16)?;
@@ -1333,7 +1306,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let identity = ensure_local_identity(&store, proposed_profile_id)?;
     let workspace = ProjectWorkspaceModule::new(&identity.profile_id, &identity.library_id, &store)
         .map_err(|error| io::Error::other(error.message))?;
-    atomic_write(&paths.auth, format!("{auth}\n").as_bytes())?;
+    paths.atomic_write_private(&paths.auth, format!("{auth}\n").as_bytes())?;
     let listener = UnixListener::bind(&paths.socket)?;
     fs::set_permissions(&paths.socket, fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
     let descriptor = RuntimeDescriptor {
@@ -1347,7 +1320,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         store_epoch: store_epoch.clone(),
         readiness_generation: 1,
     };
-    atomic_write(
+    paths.atomic_write_private(
         &paths.descriptor,
         format!("{}\n", serde_json::to_string(&descriptor)?).as_bytes(),
     )?;
@@ -1370,7 +1343,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let replacement_realtime = document_realtime.clone();
     let replacement_descriptor = Arc::clone(&descriptor);
     let replacement_events = Arc::clone(&events);
-    let replacement_descriptor_path = paths.descriptor.clone();
+    let replacement_paths = paths.clone();
     let administration =
         StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store)
             .with_store_replacement_hook(move |store_epoch| {
@@ -1414,19 +1387,24 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                         )
                     })?
                 );
-                atomic_write(&replacement_descriptor_path, bytes.as_bytes()).map_err(|error| {
-                    StoreError::new(
-                        StoreErrorCode::Internal,
-                        format!("Core runtime descriptor could not be replaced: {error}"),
-                        false,
-                    )
-                })?;
+                replacement_paths
+                    .atomic_write_private(&replacement_paths.descriptor, bytes.as_bytes())
+                    .map_err(|error| {
+                        StoreError::new(
+                            StoreErrorCode::Internal,
+                            format!("Core runtime descriptor could not be replaced: {error}"),
+                            false,
+                        )
+                    })?;
                 events.clear();
                 *descriptor = next;
                 Ok(())
             });
     let state = Arc::new(ServerState {
         auth_header: format!("Bearer {auth}"),
+        owner_uid,
+        connections: ConnectionRegistry::new(),
+        draining: AtomicBool::new(false),
         profile_id: identity.profile_id,
         library_id: identity.library_id,
         library,
@@ -1445,12 +1423,15 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         shutdown: Notify::new(),
     });
     let shutdown_state = Arc::clone(&state);
-    let result = axum::serve(listener, router(Arc::clone(&state)))
-        .with_graceful_shutdown(async move {
-            shutdown_state.shutdown.notified().await;
-        })
-        .await;
-    cleanup(&paths, &start_nonce);
+    let result = axum::serve(
+        listener,
+        router(Arc::clone(&state)).into_make_service_with_connect_info::<PeerIdentity>(),
+    )
+    .with_graceful_shutdown(async move {
+        shutdown_state.shutdown.notified().await;
+    })
+    .await;
+    paths.cleanup(&start_nonce);
     drop(lock);
     result.map_err(Into::into)
 }

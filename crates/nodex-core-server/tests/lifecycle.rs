@@ -132,6 +132,48 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         .expect("connection binding")
         .to_owned();
 
+    let downgrade = serde_json::to_string(&HandshakeRequest {
+        protocol_min: 0,
+        protocol_max: 0,
+        client: ClientIdentity {
+            kind: ClientKind::Test,
+            build_id: "lifecycle-test".to_owned(),
+        },
+        connection_id: "connection:downgrade".to_owned(),
+        expected_profile_id: Some(expected.profile_id.clone()),
+        expected_start_nonce: Some(expected.start_nonce.clone()),
+    })
+    .expect("downgrade JSON");
+    let downgrade = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/handshake",
+        &downgrade,
+    );
+    assert!(downgrade.starts_with("HTTP/1.1 409"));
+
+    let rebound = serde_json::to_string(&HandshakeRequest {
+        protocol_min: PROTOCOL_MIN,
+        protocol_max: PROTOCOL_MAX,
+        client: ClientIdentity {
+            kind: ClientKind::NativeCli,
+            build_id: "different-client".to_owned(),
+        },
+        connection_id: "connection:lifecycle".to_owned(),
+        expected_profile_id: Some(expected.profile_id.clone()),
+        expected_start_nonce: Some(expected.start_nonce.clone()),
+    })
+    .expect("rebind JSON");
+    let rebound = request(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/handshake",
+        &rebound,
+    );
+    assert!(rebound.starts_with("HTTP/1.1 409"));
+
     let connection_headers = [
         ("x-nodex-connection-id", "connection:lifecycle"),
         ("x-nodex-connection-binding", connection_binding.as_str()),
@@ -319,12 +361,22 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
     assert!(oversized.starts_with("HTTP/1.1 413"));
 
-    let shutdown = request(
+    let unbound_shutdown = request(
         &expected.socket_path,
         &auth,
         "POST",
         "/core/v1/admin/shutdown",
         "{}",
+    );
+    assert!(unbound_shutdown.starts_with("HTTP/1.1 401"));
+
+    let shutdown = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/admin/shutdown",
+        "{}",
+        &connection_headers,
     );
     assert!(shutdown.starts_with("HTTP/1.1 200"));
 
