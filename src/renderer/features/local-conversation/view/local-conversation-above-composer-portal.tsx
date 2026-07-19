@@ -3,6 +3,7 @@ import {
   useCallback,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -80,6 +81,18 @@ function useMeasuredElementWidth() {
   };
 }
 
+function measureIntrinsicElementWidth(element: HTMLElement): number {
+  const previousMaxWidth = element.style.maxWidth;
+  element.style.maxWidth = "none";
+
+  try {
+    const borderWidth = Math.max(0, element.offsetWidth - element.clientWidth);
+    return Math.ceil(element.scrollWidth + borderWidth);
+  } finally {
+    element.style.maxWidth = previousMaxWidth;
+  }
+}
+
 export function LocalConversationAboveComposerPortalHost({
   conversationId,
   onContentPresenceChange,
@@ -135,30 +148,64 @@ export function LocalConversationAboveComposerQueuePortalHost({
 
 function AboveComposerMeasuredPill({ children }: { children: ReactNode }) {
   const reducedMotion = useReducedMotion();
-  const { elementRef, elementWidthPx } = useMeasuredElementWidth();
-  const animateWidth = !reducedMotion && elementWidthPx !== null
-    ? { width: elementWidthPx }
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [contentWidthPx, setContentWidthPx] = useState<number | null>(null);
+  const { elementRef: boundaryRef, elementWidthPx: availableWidthPx } = useMeasuredElementWidth();
+
+  useLayoutEffect(() => {
+    const contentElement = contentRef.current;
+    if (contentElement === null) return;
+
+    const updateContentWidth = () => {
+      const nextWidth = measureIntrinsicElementWidth(contentElement);
+      setContentWidthPx((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth));
+    };
+
+    updateContentWidth();
+
+    if (typeof MutationObserver === "undefined") return;
+    const mutationObserver = new MutationObserver(updateContentWidth);
+    mutationObserver.observe(contentElement, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => {
+      mutationObserver.disconnect();
+    };
+  }, []);
+
+  const targetWidthPx = contentWidthPx === null || availableWidthPx === null
+    ? contentWidthPx
+    : Math.min(contentWidthPx, availableWidthPx);
+  const animateWidth = !reducedMotion && targetWidthPx !== null
+    ? { width: targetWidthPx }
     : undefined;
-  const instantWidthStyle: CSSProperties | undefined = reducedMotion && elementWidthPx !== null
-    ? { width: elementWidthPx }
+  const instantWidthStyle: CSSProperties | undefined = reducedMotion && targetWidthPx !== null
+    ? { width: targetWidthPx }
     : undefined;
 
   return (
-    <motion.div
-      animate={animateWidth}
-      transition={reducedMotion ? { duration: 0 } : ABOVE_COMPOSER_PILL_WIDTH_TRANSITION}
-      className="relative z-10 w-fit max-w-[min(100%,var(--thread-content-max-width))] min-w-0 overflow-hidden rounded-3xl"
-      data-above-composer-fixed-pill="true"
-      style={instantWidthStyle}
+    <div
+      ref={boundaryRef}
+      className="flex w-full max-w-(--thread-content-max-width) min-w-0 justify-center"
     >
-      <div
-        ref={elementRef}
-        className="flex w-max max-w-full min-w-0 items-center gap-2 rounded-3xl border border-token-border/80 bg-token-input-background/70 px-3 py-1.5 text-token-foreground backdrop-blur-sm"
-        data-above-composer-fixed-pill-inner="true"
+      <motion.div
+        animate={animateWidth}
+        transition={reducedMotion ? { duration: 0 } : ABOVE_COMPOSER_PILL_WIDTH_TRANSITION}
+        className="relative z-10 max-w-full min-w-0 overflow-hidden rounded-3xl"
+        data-above-composer-fixed-pill="true"
+        style={instantWidthStyle}
       >
-        {children}
-      </div>
-    </motion.div>
+        <div
+          ref={contentRef}
+          className="flex w-max max-w-full min-w-0 items-center gap-2 rounded-3xl border border-token-border/80 bg-token-input-background/70 px-3 py-1.5 text-token-foreground backdrop-blur-sm"
+          data-above-composer-fixed-pill-inner="true"
+        >
+          {children}
+        </div>
+      </motion.div>
+    </div>
   );
 }
 
@@ -232,7 +279,7 @@ function AboveComposerFixedContentLayer({
                 {todoBlock ? (
                   <motion.div
                     key="todo"
-                    className="max-w-full min-w-0"
+                    className="max-w-full min-w-0 shrink-0"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}

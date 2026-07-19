@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
-import type { CodexConversationItem } from "../../../lib/types";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
 import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
 import {
   LocalConversationAboveComposerPortal,
   LocalConversationAboveComposerPortalHost,
 } from "./local-conversation-above-composer-portal";
+import {
+  buildAboveComposerTodoListBlock as buildTodoListBlock,
+  buildAboveComposerTurnDiffBlock as buildTurnDiffBlock,
+} from "./local-conversation-above-composer-portal.test-fixtures";
 
 const buildTurnDiffRowsCall = vi.hoisted(() => vi.fn());
 
@@ -21,79 +24,6 @@ vi.mock("./shared/turn-diff-model", async (importOriginal) => {
     },
   };
 });
-
-function buildTurnDiffBlock(): ThreadTranscriptBlockModel {
-  const entry: CodexConversationItem = {
-    threadId: "thread-portal",
-    turnId: "turn-1",
-    itemId: "turn-diff-live",
-    entryId: "turn-diff-live",
-    type: "turn_diff",
-    kind: "systemEvent",
-    semanticKind: "diff",
-    status: "inProgress",
-    rawItem: {
-      type: "turn-diff",
-      cwd: "/tmp/project",
-      unifiedDiff: [
-        "--- a/src/app.ts",
-        "+++ b/src/app.ts",
-        "@@ -1 +1 @@",
-        "-old",
-        "+new",
-      ].join("\n"),
-    },
-    createdAt: 1,
-    updatedAt: 2,
-  };
-
-  return {
-    id: "turn-diff-live",
-    turnId: "turn-1",
-    createdAt: 1,
-    updatedAt: 2,
-    searchableText: "1 file changed",
-    type: "turnDiff",
-    entry,
-  };
-}
-
-function buildTodoListBlock(): ThreadTranscriptBlockModel {
-  const entry: CodexConversationItem = {
-    threadId: "thread-portal",
-    turnId: "turn-1",
-    itemId: "todo-live",
-    entryId: "todo-live",
-    type: "plan",
-    kind: "plan",
-    semanticKind: "todoList",
-    status: "inProgress",
-    markdownText: [
-      "1. Inspect the portal",
-      "2. Patch the fixed shell",
-      "3. Verify tests",
-    ].join("\n"),
-    rawItem: {
-      plan: [
-        { step: "Inspect the portal", status: "completed" },
-        { step: "Patch the fixed shell", status: "in_progress" },
-        { step: "Verify tests", status: "pending" },
-      ],
-    },
-    createdAt: 1,
-    updatedAt: 2,
-  };
-
-  return {
-    id: "todo-live",
-    turnId: "turn-1",
-    createdAt: 1,
-    updatedAt: 2,
-    searchableText: "todo",
-    type: "todoList",
-    entry,
-  };
-}
 
 describe("LocalConversationAboveComposerPortal", () => {
   beforeEach(() => {

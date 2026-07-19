@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { buildCodexFileChangeMap } from "../../../../shared/codex-file-change";
 import { selectConversationTurnRequestsByTurnId } from "../conversation-request-helpers";
@@ -576,6 +576,30 @@ function RightPanelOverlayWideStory() {
   );
 }
 
+function DynamicPillWidthStory() {
+  const [showFileChanges, setShowFileChanges] = useState(false);
+  const model = showFileChanges
+    ? buildPortalTasksAndFileChangesModel()
+    : buildPortalTasksOnlyModel();
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        className="text-size-chat w-fit cursor-interaction rounded-lg bg-token-foreground/5 px-2 py-1 text-token-text-secondary hover:bg-token-foreground/10 hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none"
+        onClick={() => setShowFileChanges((current) => !current)}
+      >
+        {showFileChanges ? "Remove changed files" : "Add changed files"}
+      </button>
+      <AboveComposerStoryFrame
+        model={model}
+        title="Dynamic Pill Width"
+        description="Interactive regression fixture for the production sequence where todo progress appears first and changed-file content is added or removed later."
+      />
+    </div>
+  );
+}
+
 const meta = {
   title: "Workbench/Threads/Above Composer",
   component: AboveComposerStoryFrame,
@@ -639,6 +663,15 @@ export const FileChangesAndTasksInPortal: Story = {
       "Debug fixture for the Codex Electron portal shape where the active turn lifts both the todo/tasks card and the files-changed banner into the fixed above-composer portal while the queue lane stays empty.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const DynamicPillWidth: Story = {
+  args: {
+    title: "Dynamic Pill Width",
+    description:
+      "Interactive fixture for verifying that later changed-file content expands the existing todo pill without overlap.",
+  },
+  render: () => <DynamicPillWidthStory />,
 };
 
 export const QueueAndFileChangesInPortal: Story = {
