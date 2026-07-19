@@ -10,6 +10,7 @@ import {
   screen,
   shell,
   systemPreferences,
+  type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
 } from "electron";
 import { join, resolve } from "path";
@@ -126,6 +127,10 @@ import { buildWorkbenchViewMenu } from "./application-menu";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   initializeDesktopDataAuthority,
+  createDesktopLibraryModuleBridge,
+  mapCoreLibraryEvent,
+  type CoreEventEnvelope,
+  type CoreEventSubscription,
   type DesktopDataAuthorityRuntime,
 } from "./core-client";
 // macOS uses the packaged bundle icon from the app resources.
@@ -160,6 +165,7 @@ let documentRevisionMaintenanceScheduler: DocumentRevisionMaintenanceScheduler |
 let appPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
+let coreEventSubscription: CoreEventSubscription | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
 const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
@@ -1109,24 +1115,57 @@ async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void>
   maybeStartAutomaticAppUpdateChecks();
 }
 
-async function initializeDesktopApp(serverPort: number): Promise<void> {
-  setAppInitializationStep({ phase: "sqlite_waiting" });
-  desktopDataAuthorityRuntime = await initializeDesktopDataAuthority({
-    appResourcesPath: app.isPackaged ? process.resourcesPath : undefined,
-    buildId: `nodex-desktop/${app.getVersion()}`,
-    isPackaged: app.isPackaged,
-    nodexHome: getNodexHome(),
-    repositoryRoot: process.cwd(),
-  });
+async function initializeDesktopApp(
+  serverPort: number,
+  authority: Promise<DesktopDataAuthorityRuntime>,
+): Promise<void> {
+  desktopDataAuthorityRuntime = await authority;
   if (desktopDataAuthorityRuntime.backend === "typescript") {
     await initializeTypeScriptDesktopApp(serverPort);
     return;
   }
 
+  coreEventSubscription = await desktopDataAuthorityRuntime.rootClient.openEventStream(
+    desktopDataAuthorityRuntime.rootClient.handshake.event_head,
+    publishCoreModuleEvent,
+    (resync) => {
+      broadcastToWindows("library-navigation-changed", {
+        version: 1,
+        libraryId: desktopDataAuthorityRuntime?.backend === "rust"
+          ? desktopDataAuthorityRuntime.rootClient.handshake.library_id
+          : "",
+        storeEpoch: desktopDataAuthorityRuntime?.backend === "rust"
+          ? desktopDataAuthorityRuntime.rootClient.handshake.store_epoch
+          : null,
+        changeLogSeq: resync.event_head,
+        changeKind: "content",
+        affectedParentKeys: ["library", "catalog"],
+        affectedPageIds: [],
+        affectedDatabaseIds: [],
+        affectedViewIds: [],
+      });
+    },
+  );
+  void coreEventSubscription.done.catch((error) => {
+    if (runtimeShutdownStarted) return;
+    logger.warn("Native Core event stream ended", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   databaseReady = true;
   registerDesktopActivationHandler();
   setAppInitializationStep({ phase: "done" });
   maybeStartAutomaticAppUpdateChecks();
+}
+
+function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
+  if (desktopDataAuthorityRuntime?.backend !== "rust") return;
+  const event = mapCoreLibraryEvent(
+    envelope,
+    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+  );
+  if (!event) return;
+  broadcastToWindows("library-navigation-changed", event);
 }
 
 let desktopActivationHandlerRegistered = false;
@@ -1208,6 +1247,8 @@ function beginMainRuntimeShutdown(): void {
   appQuitRequested = true;
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
+  coreEventSubscription?.close();
+  coreEventSubscription = null;
   blockDocumentCompactionRuntime.dispose();
   blockRetentionMaintenanceScheduler?.dispose();
   blockRetentionMaintenanceScheduler = null;
@@ -1390,6 +1431,16 @@ export async function runMainAppStartup(
   appUpdateService.initialize();
 
   const serverPort = getPort();
+  setAppInitializationStep({ phase: "sqlite_waiting" });
+  const dataAuthority = initializeDesktopDataAuthority({
+    appResourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+    buildId: `nodex-desktop/${app.getVersion()}`,
+    isPackaged: app.isPackaged,
+    nodexHome: getNodexHome(),
+    repositoryRoot: process.cwd(),
+  });
+  appInitializationPromise = initializeDesktopApp(serverPort, dataAuthority);
+
   const serverUrl = `http://127.0.0.1:${serverPort}`;
   serverUrlForWindows = serverUrl;
   configureApplicationMenus();
@@ -1401,6 +1452,23 @@ export async function runMainAppStartup(
       await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
   }));
   registerIpcHandlers({
+    libraryModule: createDesktopLibraryModuleBridge({
+      authority: dataAuthority,
+      resolveProjectId: (rawEvent) => {
+        const event = rawEvent as IpcMainInvokeEvent;
+        const projectId = windowSessionState
+          ?.getSessionForWindow(event.sender.id)
+          ?.layout.dbProjectId.trim();
+        if (!projectId || projectId === "default") return null;
+        return projectId;
+      },
+      typescript: {
+        read: async (request) =>
+          (await blockMutationWriter.readLibraryModule(request)).result,
+        apply: async (request) =>
+          (await blockMutationWriter.applyLibraryModule(request)).result,
+      },
+    }),
     rendererClientRouter,
     desktopNotificationManager,
     onHeartbeatAutomationsEnabledChanged: (input) => {
@@ -1470,7 +1538,6 @@ export async function runMainAppStartup(
     void requestHostMicrophonePermission();
   });
 
-  appInitializationPromise = initializeDesktopApp(serverPort);
   const restorePolicy = getWindowRestoreSettings().policy;
   const startupSessions = windowSessionState.selectStartupSessions(restorePolicy);
   for (const session of startupSessions) {

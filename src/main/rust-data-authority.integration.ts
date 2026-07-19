@@ -6,7 +6,9 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
+import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
 import { closeDatabase, getDb } from "./local-store/database";
+import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -82,6 +84,50 @@ describe("Electron native data authority", () => {
           mode: "catalog",
         }),
       ).resolves.toMatchObject({ value: { kind: "catalog" } });
+
+      const library = createCoreLibraryModuleAdapter({
+        client: runtime.clientForProject(projectId),
+        libraryId: runtime.rootClient.handshake.library_id,
+        profileId: runtime.rootClient.handshake.profile_id,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+      });
+      await expect(library.read({
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        read: { mode: "metadata" },
+      })).resolves.toMatchObject({
+        ok: true,
+        value: {
+          libraryId: runtime.rootClient.handshake.library_id,
+          storeEpoch: runtime.rootClient.handshake.store_epoch,
+        },
+      });
+      const createdPage = await library.apply({
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: "electron-library-adapter-create",
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        operation: {
+          kind: "create_page",
+          pageId: "page:electron-library-adapter",
+          documentId: "document:electron-library-adapter",
+          title: "Electron Library Adapter",
+          parent: { kind: "library" },
+        },
+      });
+      if (!createdPage.ok) {
+        throw new Error(
+          `Core Library Adapter create failed: ${createdPage.error.code}: ${createdPage.error.message}`,
+        );
+      }
+      expect(createdPage).toMatchObject({
+        ok: true,
+        value: {
+          createdTarget: {
+            kind: "page",
+            pageId: "page:electron-library-adapter",
+          },
+          duplicate: false,
+        },
+      });
     } finally {
       if (runtime) {
         await runtime.rootClient.shutdown().catch(() => undefined);

@@ -28,6 +28,7 @@ export interface LibraryModuleIpcDependencies {
   ) => Promise<LibraryModuleReadResult>;
   readonly apply: (
     request: LibraryModuleApplyRequest,
+    event: unknown,
   ) => Promise<LibraryModuleApplyResult>;
 }
 
@@ -93,7 +94,7 @@ export const registerLibraryModuleIpcHandler = (
         );
       }
       try {
-        return await dependencies.apply(request);
+        return await dependencies.apply(request, event);
       } catch (error) {
         return {
           ok: false,

@@ -76,7 +76,13 @@ through that selection: the Rust branch skips the TypeScript database, worker,
 maintenance schedulers, public HTTP server, and revision-flush shutdown path,
 and disconnecting Electron does not terminate the detached Core. Electron
 Module adapters still need to replace the TypeScript stores before the Rust
-development selector can serve the full desktop workflow.
+development selector can serve the full desktop workflow. The first active
+proxy slice covers the established Library catalog/navigation `read`/`apply`
+IPC pair: reads use the Library connection, writes derive the actor Project
+from the trusted invoking window, and committed Core events become renderer
+Library invalidations. Page detail/content/search/history and the other deep
+Module adapters remain on the migration inventory rather than falling back in
+the Rust branch.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

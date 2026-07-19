@@ -223,7 +223,10 @@ import {
 import {
   registerDatabaseModuleIpcHandlers,
 } from "./database-module-ipc";
-import { registerLibraryModuleIpcHandler } from "./library-module-ipc";
+import {
+  registerLibraryModuleIpcHandler,
+  type LibraryModuleIpcDependencies,
+} from "./library-module-ipc";
 import { registerLibraryDatabaseModuleIpcHandler } from "./library-database-module-ipc";
 import { registerPageDetailIpcHandler } from "./page-detail-ipc";
 import { registerLibraryPageDetailIpcHandler } from "./library-page-detail-ipc";
@@ -552,6 +555,7 @@ interface RegisterIpcHandlersOptions {
     input: CodexHeartbeatAutomationThreadStateChangedInput,
     rendererClientId: string | null,
   ) => void;
+  libraryModule?: Pick<LibraryModuleIpcDependencies, "apply" | "read">;
 }
 
 function assertValidOccurrenceIpcInput(
@@ -1208,10 +1212,10 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: async (request) =>
-      (await blockMutationWriter.readLibraryModule(request)).result,
-    apply: async (request) =>
-      (await blockMutationWriter.applyLibraryModule(request)).result,
+    read: options.libraryModule?.read ?? (async (request) =>
+      (await blockMutationWriter.readLibraryModule(request)).result),
+    apply: options.libraryModule?.apply ?? (async (request) =>
+      (await blockMutationWriter.applyLibraryModule(request)).result),
   });
 
   registerLibraryDatabaseModuleIpcHandler({
