@@ -10,6 +10,8 @@ import type {
   LibraryPageDetailResult,
   PageDetailResult,
 } from "../../shared/page-detail";
+import type { ListPageHistoryRequest } from "../../shared/page-history";
+import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 import type { CoreEventEnvelope } from "./types";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
@@ -28,6 +30,9 @@ export interface DesktopLibraryModuleBridgeInput {
       pageId: string,
     ): Promise<PageDetailResult>;
     readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
+    listPageHistory(
+      request: ListPageHistoryRequest,
+    ): Promise<PageHistoryCommandResult>;
   };
 }
 
@@ -42,6 +47,9 @@ export interface DesktopLibraryModuleBridge {
     pageId: string,
   ): Promise<PageDetailResult>;
   readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
+  listPageHistory(
+    request: ListPageHistoryRequest,
+  ): Promise<PageHistoryCommandResult>;
 }
 
 export function createDesktopLibraryModuleBridge(
@@ -113,6 +121,14 @@ export function createDesktopLibraryModuleBridge(
       }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.readLibraryPageDetail(pageId);
+    },
+    listPageHistory: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.listPageHistory(request);
+      }
+      return await projectCoreAdapter(runtime, request.requestingProjectId)
+        .listPageHistory(request);
     },
   };
 }

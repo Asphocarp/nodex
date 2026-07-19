@@ -112,7 +112,11 @@ same bridge and exact-target lifecycle but remain Project-only. Canvas and Yjs
 share one client-session ownership fence, while durable Canvas events carry the
 actual pre-commit authority head so replayed scene deltas retain their causal
 boundary even when a stale non-conflicting intent merges.
-Page content/search/history and the remaining deep Module adapters stay
+Project-scoped Page History reads also use the Library Module Adapter: the
+renderer request selects the exact Project client, Core evaluates recursive
+resource access in one read snapshot, and the Adapter maps the typed native
+cursor/evidence/recovery graph through the established strict Page History
+parser before IPC. Page content/search and the remaining deep Module adapters stay
 on the migration inventory and must fail closed rather than fall back in the
 Rust branch.
 `nodex-core-contracts` owns six

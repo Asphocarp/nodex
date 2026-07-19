@@ -24,6 +24,13 @@ import {
   type PageDetailError,
   type PageDetailResult,
 } from "../../shared/page-detail";
+import type { ListPageHistoryRequest } from "../../shared/page-history";
+import {
+  pageHistoryFailure,
+  parsePageHistoryCommandResult,
+  type PageHistoryCommandError,
+  type PageHistoryCommandResult,
+} from "../../shared/page-history-transport";
 import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
@@ -48,6 +55,9 @@ export interface CoreLibraryModuleAdapter {
     pageId: string,
   ): Promise<PageDetailResult>;
   readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
+  listPageHistory(
+    request: ListPageHistoryRequest,
+  ): Promise<PageHistoryCommandResult>;
 }
 
 const toCoreRouteTarget = (target: LibraryRouteTarget) => {
@@ -174,6 +184,12 @@ type CorePageDetail = Extract<
   LibraryReadSnapshot["value"],
   { kind: "page_detail" }
 >["value"];
+type CorePageHistory = Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "page_history" }
+>["value"];
+type CorePageHistoryCursor = NonNullable<CorePageHistory["next_cursor"]>;
+type CorePageHistoryEntry = CorePageHistory["entries"][number];
 
 const fromCoreRouteTarget = (
   target: CoreRouteTarget,
@@ -327,6 +343,104 @@ const mapPageDetail = (detail: CorePageDetail): Readonly<Record<string, unknown>
   dataSourceContext: mapPageDataSourceContext(detail.data_source_context),
 });
 
+const mapPageHistoryCursor = (
+  cursor: CorePageHistoryCursor,
+): Readonly<Record<string, unknown>> => {
+  if (cursor.source === "document_version") {
+    return {
+      occurredAt: cursor.occurred_at,
+      source: cursor.source,
+      versionId: cursor.version_id,
+    };
+  }
+  return {
+    occurredAt: cursor.occurred_at,
+    source: cursor.source,
+    changeSeq: cursor.change_seq,
+  };
+};
+
+const mapPageHistoryEntryBase = (
+  entry: CorePageHistoryEntry,
+): Readonly<Record<string, unknown>> => ({
+  id: entry.id,
+  libraryId: entry.library_id,
+  pageId: entry.page_id,
+  documentId: entry.document_id,
+  occurredAt: entry.occurred_at,
+  display: {
+    category: entry.display.category,
+    title: entry.display.title,
+    detail: entry.display.detail ?? null,
+    actorLabel: entry.display.actor_label ?? null,
+  },
+  evidence: entry.evidence,
+  recovery: entry.recovery.kind === "restore_document_version"
+    ? {
+        kind: entry.recovery.kind,
+        documentId: entry.recovery.document_id,
+        versionId: entry.recovery.version_id,
+      }
+    : entry.recovery,
+});
+
+const mapPageHistoryEntry = (
+  entry: CorePageHistoryEntry,
+): Readonly<Record<string, unknown>> => {
+  const base = mapPageHistoryEntryBase(entry);
+  if (entry.kind === "document_version") {
+    return {
+      ...base,
+      kind: entry.kind,
+      versionMetadata: {
+        versionId: entry.version_metadata.version_id,
+        generation: entry.version_metadata.generation,
+        baseHeadSeq: entry.version_metadata.base_head_seq,
+        schemaKey: entry.version_metadata.schema_key,
+        schemaVersion: entry.version_metadata.schema_version,
+        cause: entry.version_metadata.cause,
+        label: entry.version_metadata.label ?? null,
+        revisionKind: entry.version_metadata.revision_kind,
+        sourceMutationId: entry.version_metadata.source_mutation_id ?? null,
+        sourceChangeSeq: entry.version_metadata.source_change_seq ?? null,
+        pinned: entry.version_metadata.pinned,
+        checkpointHash: entry.version_metadata.checkpoint_hash,
+        byteLength: entry.version_metadata.byte_length,
+      },
+    };
+  }
+  if (entry.kind === "block_mutation") {
+    return {
+      ...base,
+      kind: entry.kind,
+      changeSeq: entry.change_seq,
+      mutationId: entry.mutation_id ?? null,
+      mutationKind: entry.mutation_kind ?? null,
+      affectedBlockCount: entry.affected_block_count ?? null,
+      fieldIntentCount: entry.field_intent_count ?? null,
+    };
+  }
+  return {
+    ...base,
+    kind: entry.kind,
+    changeSeq: entry.change_seq,
+    relocationId: entry.relocation_id ?? null,
+    direction: entry.direction,
+    movedBlockCount: entry.moved_block_count ?? null,
+  };
+};
+
+const mapPageHistory = (
+  page: CorePageHistory,
+): Readonly<Record<string, unknown>> => ({
+  version: page.version,
+  libraryId: page.library_id,
+  pageId: page.page_id,
+  documentId: page.document_id,
+  entries: page.entries.map(mapPageHistoryEntry),
+  nextCursor: page.next_cursor ? mapPageHistoryCursor(page.next_cursor) : null,
+});
+
 const mapCoreError = (error: CoreModuleError): LibraryModuleError => {
   const code = (() => {
     switch (error.code) {
@@ -394,6 +508,35 @@ const pageDetailError = (error: unknown): PageDetailError => {
     message: error instanceof Error ? error.message : String(error),
     retryable: true,
   };
+};
+
+const pageHistoryError = (error: unknown): PageHistoryCommandError => {
+  if (error instanceof CoreModuleResponseError) {
+    const code = (() => {
+      switch (error.coreError.code) {
+        case "invalid_input":
+          return "invalid_page_history_request";
+        case "not_found":
+        case "unauthorized":
+          return "page_not_found";
+        case "store_corrupt":
+        case "invalid_document_schema":
+          return "page_history_corrupt";
+        default:
+          return "unknown";
+      }
+    })() satisfies PageHistoryCommandError["code"];
+    return pageHistoryFailure(
+      code,
+      error.message,
+      error.coreError.retryable,
+    );
+  }
+  return pageHistoryFailure(
+    "unknown",
+    error instanceof Error ? error.message : String(error),
+    true,
+  );
 };
 
 const fromCoreCreatedTarget = (
@@ -512,6 +655,44 @@ export const createCoreLibraryModuleAdapter = (
         });
       } catch (error) {
         return { ok: false, error: pageDetailError(error) };
+      }
+    },
+    listPageHistory: async (request) => {
+      try {
+        const snapshot = await input.client.libraryRead({
+          kind: "page_history",
+          page_id: request.pageId,
+          before: request.before
+            ? request.before.source === "document_version"
+              ? {
+                  occurred_at: request.before.occurredAt,
+                  source: request.before.source,
+                  version_id: request.before.versionId,
+                }
+              : {
+                  occurred_at: request.before.occurredAt,
+                  source: request.before.source,
+                  change_seq: request.before.changeSeq,
+                }
+            : null,
+          limit: request.pageSize ?? null,
+        });
+        if (snapshot.value.kind !== "page_history") {
+          throw new Error("Core returned a non-Page-history Library read value");
+        }
+        const page = snapshot.value.value;
+        if (
+          page.library_id !== input.libraryId
+          || page.page_id !== request.pageId
+        ) {
+          throw new Error("Core Page history escaped its Library Page scope");
+        }
+        return parsePageHistoryCommandResult({
+          ok: true,
+          value: mapPageHistory(page),
+        });
+      } catch (error) {
+        return { ok: false, error: pageHistoryError(error) };
       }
     },
   };

@@ -14,6 +14,7 @@ import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspa
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { closeDatabase, getDb } from "./local-store/database";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
+import { PAGE_HISTORY_CONTRACT_VERSION } from "../shared/page-history";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   primaryCanvasDocumentId,
@@ -350,6 +351,26 @@ describe("Electron native data authority", () => {
           duplicate: false,
         },
       });
+      await expect(library.apply({
+        version: LIBRARY_MODULE_CONTRACT_VERSION,
+        operationId: "electron-library-adapter-grant",
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        operation: {
+          kind: "grant_project_access",
+          projectId,
+          target: {
+            kind: "page",
+            pageId: "page:electron-library-adapter",
+          },
+          access: "read_write",
+        },
+      })).resolves.toMatchObject({
+        ok: true,
+        value: {
+          operationKind: "grant_project_access",
+          didMutate: true,
+        },
+      });
       await expect(library.readProjectPageDetail(
         projectId,
         "page:electron-library-adapter",
@@ -363,6 +384,19 @@ describe("Electron native data authority", () => {
             title: "Electron Library Adapter",
           },
           document: { readiness: "ready" },
+        },
+      });
+      await expect(library.listPageHistory({
+        version: PAGE_HISTORY_CONTRACT_VERSION,
+        requestingProjectId: projectId,
+        pageId: "page:electron-library-adapter",
+        pageSize: 10,
+      })).resolves.toMatchObject({
+        ok: true,
+        value: {
+          libraryId: runtime.rootClient.handshake.library_id,
+          pageId: "page:electron-library-adapter",
+          documentId: "document:electron-library-adapter",
         },
       });
       const rootLibrary = createCoreLibraryModuleAdapter({

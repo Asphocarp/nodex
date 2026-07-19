@@ -1637,6 +1637,8 @@ export async function runMainAppStartup(
               "app_window",
             )
           ).result,
+        listPageHistory: (request) =>
+          blockMutationWriter.listPageHistory(request),
       },
     }),
     rendererClientRouter,

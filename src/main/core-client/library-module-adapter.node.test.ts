@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
+import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
@@ -62,6 +63,50 @@ const pageDetailSnapshot = () => ({
   },
 });
 
+const pageHistorySnapshot = () => ({
+  version: 1 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 12,
+  value: {
+    kind: "page_history" as const,
+    value: {
+      version: PAGE_HISTORY_CONTRACT_VERSION,
+      library_id: identity.libraryId,
+      page_id: "page:one",
+      document_id: "document:one",
+      entries: [{
+        id: "change:12",
+        kind: "block_mutation" as const,
+        library_id: identity.libraryId,
+        page_id: "page:one",
+        document_id: "document:one",
+        occurred_at: "2026-07-19T18:12:00.000Z",
+        display: {
+          category: "content" as const,
+          title: "Edited page content",
+          detail: null,
+          actor_label: "Electron renderer",
+        },
+        evidence: { status: "verified" as const },
+        recovery: {
+          kind: "unavailable" as const,
+          reason: "no_inverse_contract" as const,
+        },
+        change_seq: 12,
+        mutation_id: "mutation:12",
+        mutation_kind: "semantic_mutation",
+        affected_block_count: 1,
+        field_intent_count: 2,
+      }],
+      next_cursor: {
+        occurred_at: "2026-07-19T18:12:00.000Z",
+        source: "change_log" as const,
+        change_seq: 12,
+      },
+    },
+  },
+});
+
 const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   read: async () => {
     throw new Error("TypeScript read must not run");
@@ -74,6 +119,9 @@ const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   },
   readLibraryPageDetail: async () => {
     throw new Error("TypeScript Library Page Detail must not run");
+  },
+  listPageHistory: async () => {
+    throw new Error("TypeScript Page history must not run");
   },
 });
 
@@ -125,6 +173,7 @@ describe("Core Library Module Adapter", () => {
     const projectClient = new FakeCoreClient();
     rootClient.enqueueRead(pageDetailSnapshot());
     projectClient.enqueueRead(pageDetailSnapshot());
+    projectClient.enqueueRead(pageHistorySnapshot());
     const requestedProjects: string[] = [];
     const runtime = {
       backend: "rust",
@@ -161,9 +210,83 @@ describe("Core Library Module Adapter", () => {
           page: { pageId: "page:one" },
         },
       });
+    await expect(bridge.listPageHistory({
+      version: PAGE_HISTORY_CONTRACT_VERSION,
+      requestingProjectId: "project:test",
+      pageId: "page:one",
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        libraryId: identity.libraryId,
+        pageId: "page:one",
+        entries: [{ kind: "block_mutation", changeSeq: 12 }],
+      },
+    });
     expect(requestedProjects).toEqual(["project:test"]);
-    expect(projectClient.reads).toHaveLength(1);
+    expect(projectClient.reads).toHaveLength(2);
     expect(rootClient.reads).toHaveLength(1);
+  });
+
+  test("maps Page history cursors and entries through the strict shared contract", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead(pageHistorySnapshot());
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.listPageHistory({
+      version: PAGE_HISTORY_CONTRACT_VERSION,
+      requestingProjectId: "project:test",
+      pageId: "page:one",
+      before: {
+        occurredAt: "2026-07-19T18:13:00.000Z",
+        source: "document_version",
+        versionId: "version:13",
+      },
+      pageSize: 25,
+    })).resolves.toEqual({
+      ok: true,
+      value: {
+        version: PAGE_HISTORY_CONTRACT_VERSION,
+        libraryId: identity.libraryId,
+        pageId: "page:one",
+        documentId: "document:one",
+        entries: [{
+          id: "change:12",
+          kind: "block_mutation",
+          libraryId: identity.libraryId,
+          pageId: "page:one",
+          documentId: "document:one",
+          occurredAt: "2026-07-19T18:12:00.000Z",
+          display: {
+            category: "content",
+            title: "Edited page content",
+            detail: null,
+            actorLabel: "Electron renderer",
+          },
+          evidence: { status: "verified" },
+          recovery: { kind: "unavailable", reason: "no_inverse_contract" },
+          changeSeq: 12,
+          mutationId: "mutation:12",
+          mutationKind: "semantic_mutation",
+          affectedBlockCount: 1,
+          fieldIntentCount: 2,
+        }],
+        nextCursor: {
+          occurredAt: "2026-07-19T18:12:00.000Z",
+          source: "change_log",
+          changeSeq: 12,
+        },
+      },
+    });
+    expect(client.reads).toEqual([{
+      kind: "page_history",
+      page_id: "page:one",
+      before: {
+        occurred_at: "2026-07-19T18:13:00.000Z",
+        source: "document_version",
+        version_id: "version:13",
+      },
+      limit: 25,
+    }]);
   });
 
   test("maps one complete catalog read without exposing transport shapes", async () => {

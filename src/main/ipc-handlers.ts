@@ -576,6 +576,7 @@ interface RegisterIpcHandlersOptions {
     | "read"
     | "readProjectPageDetail"
     | "readLibraryPageDetail"
+    | "listPageHistory"
   >;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
@@ -1663,7 +1664,8 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    listHistory: (request) => blockMutationWriter.listPageHistory(request),
+    listHistory: options.libraryModule?.listPageHistory ??
+      ((request) => blockMutationWriter.listPageHistory(request)),
   });
 
   registerPersistedAtomIpc({
