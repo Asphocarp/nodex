@@ -295,24 +295,8 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &module_headers,
     );
     let database_apply = response_json(&database_apply);
-    assert_eq!(database_apply["status"], "ok");
-    assert_eq!(database_apply["payload"]["value"]["operation_count"], 1);
-    assert_eq!(database_apply["payload"]["receipt"]["duplicate"], false);
-    let database_event_sequence = database_apply["payload"]["event_sequence"].clone();
-    let database_replay = request_with_headers(
-        &expected.socket_path,
-        &auth,
-        "POST",
-        "/core/v1/modules/database/apply",
-        &database_apply_body,
-        &module_headers,
-    );
-    let database_replay = response_json(&database_replay);
-    assert_eq!(database_replay["payload"]["receipt"]["duplicate"], true);
-    assert_eq!(
-        database_replay["payload"]["event_sequence"],
-        database_event_sequence
-    );
+    assert_eq!(database_apply["status"], "error");
+    assert_eq!(database_apply["payload"]["code"], "unauthorized");
 
     let oversized = request(
         &expected.socket_path,

@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::document::{read_store_epoch, sha256};
+use crate::domain::fractional_rank::{
+    FractionalRankError, FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
+};
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
@@ -429,7 +432,12 @@ fn put_property(
     let name = validate_name(name, "Property name")?;
     validate_value_type(value_type)?;
     let source = require_source(connection, library_id, data_source_id)?;
-    authorize_write(connection, project_id, &source.database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::ManageSchema,
+    )?;
     require_revision(
         expected_source_revision,
         source.revision,
@@ -506,7 +514,12 @@ fn delete_property(
     effects: &mut MutationEffects,
 ) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
-    authorize_write(connection, project_id, &source.database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::ManageSchema,
+    )?;
     require_revision(
         expected_source_revision,
         source.revision,
@@ -564,7 +577,12 @@ fn put_option(
         return Err(invalid("Option color must contain between 1 and 128 bytes"));
     }
     let source = require_source(connection, library_id, data_source_id)?;
-    authorize_write(connection, project_id, &source.database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::ManageSchema,
+    )?;
     let property = active_property(connection, data_source_id, property_id)?;
     require_revision(
         expected_property_revision,
@@ -625,7 +643,12 @@ fn delete_option(
     effects: &mut MutationEffects,
 ) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
-    authorize_write(connection, project_id, &source.database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::ManageSchema,
+    )?;
     let property = active_property(connection, data_source_id, property_id)?;
     require_revision(
         expected_property_revision,
@@ -674,7 +697,12 @@ fn set_value(
     effects: &mut MutationEffects,
 ) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, &input.data_source_id)?;
-    authorize_write(connection, project_id, &source.database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &source.database_id,
+        DatabaseWriteAction::Write,
+    )?;
     let property = active_property(connection, &input.data_source_id, &input.property_id)?;
     let membership = connection
         .query_row(
@@ -940,7 +968,12 @@ fn transfer_page(
         .map(|membership| require_source(connection, library_id, &membership.data_source_id))
         .transpose()?;
     if let Some(source) = &previous_source {
-        authorize_write(connection, project_id, &source.database_id)?;
+        authorize_write(
+            connection,
+            project_id,
+            &source.database_id,
+            DatabaseWriteAction::Write,
+        )?;
     }
     let positioned_views = connection
         .prepare("SELECT view_id FROM database_view_page_positions WHERE page_block_id = ?1")?
@@ -991,7 +1024,12 @@ fn transfer_page(
         }
         DatabaseTransferTarget::DataSource { data_source_id } => {
             let target_source = require_source(connection, library_id, data_source_id)?;
-            authorize_write(connection, project_id, &target_source.database_id)?;
+            authorize_write(
+                connection,
+                project_id,
+                &target_source.database_id,
+                DatabaseWriteAction::Write,
+            )?;
             let target_project_id = connection
                 .query_row(
                     "SELECT project_id FROM blocks WHERE id = ?1 AND type = 'database'",
@@ -1580,7 +1618,12 @@ fn put_view(
             "View Database and Data Source must share one active authority",
         ));
     }
-    authorize_write(connection, project_id, database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        database_id,
+        DatabaseWriteAction::ManageViews,
+    )?;
     let existing = view_row(connection, view_id)?;
     require_revision(
         expected_revision,
@@ -1692,7 +1735,12 @@ fn delete_view(
     let view = view_row(connection, view_id)?
         .filter(|view| view.database_id == database_id && view.lifecycle == "active")
         .ok_or_else(|| not_found("Active Database View is unavailable"))?;
-    authorize_write(connection, project_id, database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        database_id,
+        DatabaseWriteAction::ManageViews,
+    )?;
     require_revision(
         expected_revision,
         view.revision,
@@ -1760,7 +1808,12 @@ fn position_pages(
     if source.database_id != view.database_id {
         return Err(corrupt("Database View source authority is inconsistent"));
     }
-    authorize_write(connection, project_id, &view.database_id)?;
+    authorize_write(
+        connection,
+        project_id,
+        &view.database_id,
+        DatabaseWriteAction::Write,
+    )?;
     let config = parse_json(&view.config_json, "Database View config")?;
     let group_property_id = view_group_property(&config);
     let mut existing_revisions = std::collections::HashMap::new();
@@ -2218,32 +2271,30 @@ fn reorder_views(
     view_id: &str,
     before_view_id: Option<&str>,
 ) -> Result<(), StoreError> {
-    let mut ids = connection
+    let items = connection
         .prepare(
-            "SELECT id FROM database_views WHERE database_block_id = ?1 \
+            "SELECT id, rank_key FROM database_views WHERE database_block_id = ?1 \
              AND lifecycle = 'active' ORDER BY rank_key, id",
         )?
-        .query_map([database_id], |row| row.get::<_, String>(0))?
+        .query_map([database_id], |row| {
+            Ok(RankedItem {
+                id: row.get(0)?,
+                rank_key: row.get(1)?,
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    ids.retain(|id| id != view_id);
-    let index = match before_view_id {
-        Some(before) => ids.iter().position(|id| id == before).ok_or_else(|| {
-            StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Database View placement anchor changed",
-                true,
-            )
-        })?,
-        None => ids.len(),
-    };
-    ids.insert(index, view_id.to_owned());
-    let total = ids.len();
-    for (index, id) in ids.into_iter().enumerate() {
+    let plan = plan_fractional_rank(&items, view_id, before_view_id)
+        .map_err(|error| rank_plan_error(error, "Database View placement anchor changed"))?;
+    for (id, rank_key) in plan.rebalanced_rank_keys {
         connection.execute(
             "UPDATE database_views SET rank_key = ?1 WHERE database_block_id = ?2 AND id = ?3",
-            params![fractional_rank(index + 1, total), database_id, id],
+            params![rank_key, database_id, id],
         )?;
     }
+    connection.execute(
+        "UPDATE database_views SET rank_key = ?1 WHERE database_block_id = ?2 AND id = ?3",
+        params![plan.rank_key, database_id, view_id],
+    )?;
     Ok(())
 }
 
@@ -2420,38 +2471,38 @@ fn reorder_properties(
     property_id: &str,
     before_property_id: Option<&str>,
 ) -> Result<(), StoreError> {
-    let mut ids = connection
+    let items = connection
         .prepare(
-            "SELECT id FROM data_source_properties \
+            "SELECT id, rank_key FROM data_source_properties \
              WHERE data_source_id = ?1 AND lifecycle = 'active' ORDER BY rank_key, id",
         )?
-        .query_map([data_source_id], |row| row.get::<_, String>(0))?
+        .query_map([data_source_id], |row| {
+            Ok(RankedItem {
+                id: row.get(0)?,
+                rank_key: row.get(1)?,
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    ids.retain(|id| id != property_id);
-    let index = match before_property_id {
-        Some(before) => ids.iter().position(|id| id == before).ok_or_else(|| {
-            StoreError::new(
-                StoreErrorCode::RevisionConflict,
-                "Property placement anchor changed",
-                true,
-            )
-        })?,
-        None => ids.len(),
-    };
-    ids.insert(index, property_id.to_owned());
+    let plan = plan_fractional_rank(&items, property_id, before_property_id)
+        .map_err(|error| rank_plan_error(error, "Property placement anchor changed"))?;
     let mut update = connection.prepare(
         "UPDATE data_source_properties SET rank_key = ?1 \
          WHERE data_source_id = ?2 AND id = ?3",
     )?;
-    let total = ids.len();
-    for (index, id) in ids.into_iter().enumerate() {
-        update.execute(params![
-            fractional_rank(index + 1, total),
-            data_source_id,
-            id
-        ])?;
+    for (id, rank_key) in plan.rebalanced_rank_keys {
+        update.execute(params![rank_key, data_source_id, id])?;
     }
+    update.execute(params![plan.rank_key, data_source_id, property_id])?;
     Ok(())
+}
+
+fn rank_plan_error(error: FractionalRankError, anchor_message: &str) -> StoreError {
+    match error.code {
+        FractionalRankErrorCode::AnchorNotFound => {
+            StoreError::new(StoreErrorCode::RevisionConflict, anchor_message, true)
+        }
+        FractionalRankErrorCode::RebalanceLimit => invalid(&error.message),
+    }
 }
 
 fn active_view_references_property(
@@ -2983,29 +3034,45 @@ fn active_property(
     Ok(property)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DatabaseWriteAction {
+    Write,
+    ManageSchema,
+    ManageViews,
+}
+
 fn authorize_write(
     connection: &Connection,
     project_id: &str,
     database_id: &str,
+    action: DatabaseWriteAction,
 ) -> Result<(), StoreError> {
-    let primary = connection
+    let project = connection
         .query_row(
-            "SELECT database_block_id FROM projects WHERE id = ?1 AND lifecycle = 'active'",
+            "SELECT database_block_id, lifecycle FROM projects WHERE id = ?1",
             [project_id],
-            |row| row.get::<_, Option<String>>(0),
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
         )
         .optional()?
-        .flatten()
-        .or(connection
-            .query_row(
-                "SELECT database_block_id FROM project_database_bindings \
+        .ok_or_else(|| unauthorized("Project is unavailable"))?;
+    if project.1 != "active" {
+        return Err(unauthorized("Project is read-only"));
+    }
+    let primary = project.0.or(connection
+        .query_row(
+            "SELECT database_block_id FROM project_database_bindings \
                  WHERE project_id = ?1 AND lifecycle = 'active'",
-                [project_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?);
+            [project_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?);
     if primary.as_deref() == Some(database_id) {
         return Ok(());
+    }
+    if action != DatabaseWriteAction::Write {
+        return Err(unauthorized(
+            "Database schema and View management require the Project's primary Database",
+        ));
     }
     let direct = connection
         .query_row(
