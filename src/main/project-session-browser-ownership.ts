@@ -48,11 +48,35 @@ export async function deleteProjectSessionWithBrowserCleanup(
   sessionId: string,
   browserRuntime: ProjectSessionBrowserRuntime,
 ): Promise<boolean> {
-  const existing = projectSessionService.getProjectSession(sessionId);
-  const deleted = projectSessionService.deleteProjectSession(sessionId);
+  return await deleteProjectSessionWithBrowserCleanupUsing({
+    sessionId,
+    browserRuntime,
+    getProjectSession: async (targetSessionId) =>
+      projectSessionService.getProjectSession(targetSessionId),
+    deleteProjectSession: async (targetSessionId) =>
+      projectSessionService.deleteProjectSession(targetSessionId),
+  });
+}
+
+export interface DeleteProjectSessionWithBrowserCleanupInput {
+  readonly sessionId: string;
+  readonly browserRuntime: ProjectSessionBrowserRuntime;
+  readonly getProjectSession: (
+    sessionId: string,
+  ) => ProjectSession | null | Promise<ProjectSession | null>;
+  readonly deleteProjectSession: (
+    sessionId: string,
+  ) => boolean | Promise<boolean>;
+}
+
+export async function deleteProjectSessionWithBrowserCleanupUsing(
+  input: DeleteProjectSessionWithBrowserCleanupInput,
+): Promise<boolean> {
+  const existing = await input.getProjectSession(input.sessionId);
+  const deleted = await input.deleteProjectSession(input.sessionId);
   if (!deleted || !existing) return deleted;
 
-  await browserRuntime.closeBrowserConversation(existing.id);
+  await input.browserRuntime.closeBrowserConversation(existing.id);
   return true;
 }
 

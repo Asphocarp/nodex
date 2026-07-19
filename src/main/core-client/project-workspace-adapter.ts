@@ -8,10 +8,14 @@ import type {
   ProjectPinnedInput,
   ProjectPinnedOrderInput,
   ProjectSession,
+  ProjectSessionCreateInput,
   ProjectSessionListOptions,
+  ProjectSessionPinnedInput,
+  ProjectSessionPinnedOrderInput,
   ProjectSessionSummary,
   ProjectSessionTab,
   ProjectSessionThreadLink,
+  ProjectSessionUnreadInput,
   ProjectUpdateInput,
 } from "../../shared/types";
 import {
@@ -65,6 +69,26 @@ export interface DesktopProjectWorkspacePort {
     options?: ProjectSessionListOptions,
   ): Promise<ProjectSessionSummary[]>;
   getProjectSession(sessionId: string): Promise<ProjectSession | null>;
+  createProjectSession(input: ProjectSessionCreateInput): Promise<ProjectSession>;
+  deleteProjectSession(sessionId: string): Promise<boolean>;
+  reorderProjectSessions(
+    projectId: string,
+    orderedSessionIds: string[],
+  ): Promise<ProjectSession[]>;
+  setProjectSessionPinned(
+    sessionId: string,
+    input: ProjectSessionPinnedInput,
+  ): Promise<ProjectSession | null>;
+  setPinnedProjectSessionOrder(
+    projectId: string,
+    input: ProjectSessionPinnedOrderInput,
+  ): Promise<ProjectSession[]>;
+  archiveProjectSession(sessionId: string): Promise<ProjectSession | null>;
+  unarchiveProjectSession(sessionId: string): Promise<ProjectSession | null>;
+  markProjectSessionUnread(
+    sessionId: string,
+    input: ProjectSessionUnreadInput,
+  ): Promise<ProjectSession | null>;
 }
 
 const isNotFound = (error: unknown): boolean =>
@@ -328,5 +352,92 @@ export function createCoreProjectWorkspaceAdapter(
     },
     listProjectSessionSummaries: listSummaries,
     getProjectSession: readSession,
+    createProjectSession: async (input) => {
+      const sessionId = randomUUID();
+      await apply({
+        kind: "create_session",
+        session_id: sessionId,
+        project_id: input.projectId,
+        title: input.noThreadFallbackTitle,
+      });
+      const session = await readSession(sessionId);
+      if (!session) {
+        throw new Error(`Created Project Session not found: ${sessionId}`);
+      }
+      return session;
+    },
+    deleteProjectSession: async (sessionId) => {
+      if (!(await readSession(sessionId))) return false;
+      await apply({ kind: "delete_session", session_id: sessionId });
+      return true;
+    },
+    reorderProjectSessions: async (projectId, orderedSessionIds) => {
+      await apply({
+        kind: "reorder_sessions",
+        project_id: projectId,
+        session_ids: orderedSessionIds,
+      });
+      return await Promise.all(
+        (await listSummaries(projectId)).map(async (summary) => {
+          const session = await readSession(summary.id);
+          if (!session) {
+            throw new Error(`Reordered Project Session not found: ${summary.id}`);
+          }
+          return session;
+        }),
+      );
+    },
+    setProjectSessionPinned: async (sessionId, input) => {
+      if (!(await readSession(sessionId))) return null;
+      await apply({
+        kind: "mutate_session",
+        session_id: sessionId,
+        intent: { kind: "set_pinned", pinned: input.pinned },
+      });
+      return await readSession(sessionId);
+    },
+    setPinnedProjectSessionOrder: async (projectId, input) => {
+      await apply({
+        kind: "reorder_pinned_sessions",
+        project_id: projectId,
+        session_ids: input.orderedSessionIds,
+      });
+      return await Promise.all(
+        (await listSummaries(projectId)).map(async (summary) => {
+          const session = await readSession(summary.id);
+          if (!session) {
+            throw new Error(`Pinned Project Session not found: ${summary.id}`);
+          }
+          return session;
+        }),
+      );
+    },
+    archiveProjectSession: async (sessionId) => {
+      if (!(await readSession(sessionId))) return null;
+      await apply({
+        kind: "mutate_session",
+        session_id: sessionId,
+        intent: { kind: "set_archived", archived: true },
+      });
+      return await readSession(sessionId);
+    },
+    unarchiveProjectSession: async (sessionId) => {
+      if (!(await readSession(sessionId))) return null;
+      await apply({
+        kind: "mutate_session",
+        session_id: sessionId,
+        intent: { kind: "set_archived", archived: false },
+      });
+      return await readSession(sessionId);
+    },
+    markProjectSessionUnread: async (sessionId, input) => {
+      if (!(await readSession(sessionId))) return null;
+      await apply({
+        kind: "mutate_session",
+        session_id: sessionId,
+        intent: { kind: "set_unread", unread: input.unread },
+      });
+      return await readSession(sessionId);
+    },
   };
 }

@@ -128,7 +128,7 @@ import {
 } from "./browser-sidebar-service";
 import {
   deleteProjectSessionTabWithBrowserCleanup,
-  deleteProjectSessionWithBrowserCleanup,
+  deleteProjectSessionWithBrowserCleanupUsing,
   deleteProjectWithBrowserCleanupUsing,
 } from "./project-session-browser-ownership";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
@@ -662,6 +662,25 @@ export function registerIpcHandlers(
         ),
       getProjectSession: async (sessionId) =>
         projectSessionService.getProjectSession(sessionId),
+      createProjectSession: async (input) =>
+        projectSessionService.createProjectSession(input),
+      deleteProjectSession: async (sessionId) =>
+        projectSessionService.deleteProjectSession(sessionId),
+      reorderProjectSessions: async (projectId, orderedSessionIds) =>
+        projectSessionService.reorderProjectSessions(
+          projectId,
+          orderedSessionIds,
+        ),
+      setProjectSessionPinned: async (sessionId, input) =>
+        projectSessionService.setProjectSessionPinned(sessionId, input),
+      setPinnedProjectSessionOrder: async (projectId, input) =>
+        projectSessionService.setPinnedProjectSessionOrder(projectId, input),
+      archiveProjectSession: async (sessionId) =>
+        projectSessionService.archiveProjectSession(sessionId),
+      unarchiveProjectSession: async (sessionId) =>
+        projectSessionService.unarchiveProjectSession(sessionId),
+      markProjectSessionUnread: async (sessionId, input) =>
+        projectSessionService.markProjectSessionUnread(sessionId, input),
     };
 
   const gitBranchWatches = new Map<
@@ -1614,8 +1633,8 @@ export function registerIpcHandlers(
     return session;
   });
 
-  registerHandle("project-sessions:create", (_, input) => {
-    const session = projectSessionService.createProjectSession(input);
+  registerHandle("project-sessions:create", async (_, input) => {
+    const session = await projectWorkspace.createProjectSession(input);
     dbNotifier.notifyProjectSessionsChanged(
       session.projectId,
       "create",
@@ -1658,11 +1677,13 @@ export function registerIpcHandlers(
   );
 
   registerHandle("project-sessions:delete", async (_, sessionId: string) => {
-    const existing = projectSessionService.getProjectSession(sessionId);
-    const success = await deleteProjectSessionWithBrowserCleanup(
+    const existing = await projectWorkspace.getProjectSession(sessionId);
+    const success = await deleteProjectSessionWithBrowserCleanupUsing({
       sessionId,
-      browserSidebarService,
-    );
+      browserRuntime: browserSidebarService,
+      getProjectSession: projectWorkspace.getProjectSession,
+      deleteProjectSession: projectWorkspace.deleteProjectSession,
+    });
     if (success && existing) {
       dbNotifier.notifyProjectSessionsChanged(
         existing.projectId,
@@ -1675,8 +1696,8 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:reorder",
-    (_, projectId: string, orderedSessionIds: string[]) => {
-      const sessions = projectSessionService.reorderProjectSessions(
+    async (_, projectId: string, orderedSessionIds: string[]) => {
+      const sessions = await projectWorkspace.reorderProjectSessions(
         projectId,
         orderedSessionIds,
       );
@@ -1687,8 +1708,8 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:set-pinned",
-    (_, sessionId: string, input) => {
-      const session = projectSessionService.setProjectSessionPinned(
+    async (_, sessionId: string, input) => {
+      const session = await projectWorkspace.setProjectSessionPinned(
         sessionId,
         input,
       );
@@ -1705,8 +1726,8 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:set-pinned-order",
-    (_, projectId: string, input) => {
-      const sessions = projectSessionService.setPinnedProjectSessionOrder(
+    async (_, projectId: string, input) => {
+      const sessions = await projectWorkspace.setPinnedProjectSessionOrder(
         projectId,
         input,
       );
@@ -1716,12 +1737,12 @@ export function registerIpcHandlers(
   );
 
   registerHandle("project-sessions:archive", async (_, sessionId: string) => {
-    const existing = projectSessionService.getProjectSession(sessionId);
+    const existing = await projectWorkspace.getProjectSession(sessionId);
     if (!existing) return null;
     if (existing.thread) {
       await codexService.archiveThread(existing.thread.threadId);
     }
-    const session = projectSessionService.archiveProjectSession(sessionId);
+    const session = await projectWorkspace.archiveProjectSession(sessionId);
     if (session) {
       dbNotifier.notifyProjectSessionsChanged(
         session.projectId,
@@ -1733,12 +1754,12 @@ export function registerIpcHandlers(
   });
 
   registerHandle("project-sessions:unarchive", async (_, sessionId: string) => {
-    const existing = projectSessionService.getProjectSession(sessionId);
+    const existing = await projectWorkspace.getProjectSession(sessionId);
     if (!existing) return null;
     if (existing.thread) {
       await codexService.unarchiveThread(existing.thread.threadId);
     }
-    const session = projectSessionService.unarchiveProjectSession(sessionId);
+    const session = await projectWorkspace.unarchiveProjectSession(sessionId);
     if (session) {
       dbNotifier.notifyProjectSessionsChanged(
         session.projectId,
@@ -1751,8 +1772,8 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:mark-unread",
-    (_, sessionId: string, input) => {
-      const session = projectSessionService.markProjectSessionUnread(
+    async (_, sessionId: string, input) => {
+      const session = await projectWorkspace.markProjectSessionUnread(
         sessionId,
         input,
       );

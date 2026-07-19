@@ -1476,6 +1476,25 @@ export async function runMainAppStartup(
           projectSessionService.listProjectSessionSummaries(projectId, options),
         getProjectSession: async (sessionId) =>
           projectSessionService.getProjectSession(sessionId),
+        createProjectSession: async (input) =>
+          projectSessionService.createProjectSession(input),
+        deleteProjectSession: async (sessionId) =>
+          projectSessionService.deleteProjectSession(sessionId),
+        reorderProjectSessions: async (projectId, orderedSessionIds) =>
+          projectSessionService.reorderProjectSessions(
+            projectId,
+            orderedSessionIds,
+          ),
+        setProjectSessionPinned: async (sessionId, input) =>
+          projectSessionService.setProjectSessionPinned(sessionId, input),
+        setPinnedProjectSessionOrder: async (projectId, input) =>
+          projectSessionService.setPinnedProjectSessionOrder(projectId, input),
+        archiveProjectSession: async (sessionId) =>
+          projectSessionService.archiveProjectSession(sessionId),
+        unarchiveProjectSession: async (sessionId) =>
+          projectSessionService.unarchiveProjectSession(sessionId),
+        markProjectSessionUnread: async (sessionId, input) =>
+          projectSessionService.markProjectSessionUnread(sessionId, input),
       },
     }),
     libraryModule: createDesktopLibraryModuleBridge({

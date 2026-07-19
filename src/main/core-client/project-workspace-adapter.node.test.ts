@@ -89,6 +89,7 @@ describe("Core Project Workspace adapter", () => {
   test("maps Project reads and preserves Date values at the IPC boundary", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
+      version: 1,
       event_head: 3,
       store_epoch: "epoch:test",
       value: {
@@ -115,6 +116,7 @@ describe("Core Project Workspace adapter", () => {
   test("uses the current binding revision for one Project update aggregate", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
+      version: 1,
       event_head: 3,
       store_epoch: "epoch:test",
       value: { kind: "project", project: project() },
@@ -135,6 +137,7 @@ describe("Core Project Workspace adapter", () => {
       store_epoch: "epoch:test",
     });
     client.enqueueWorkspaceRead({
+      version: 1,
       event_head: 4,
       store_epoch: "epoch:test",
       value: {
@@ -163,6 +166,7 @@ describe("Core Project Workspace adapter", () => {
   test("hydrates one complete Session without leaking Core wire casing", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({
+      version: 1,
       event_head: 5,
       store_epoch: "epoch:test",
       value: {
@@ -176,6 +180,7 @@ describe("Core Project Workspace adapter", () => {
       },
     });
     client.enqueueWorkspaceRead({
+      version: 1,
       event_head: 5,
       store_epoch: "epoch:test",
       value: { kind: "thread", thread },
@@ -198,6 +203,67 @@ describe("Core Project Workspace adapter", () => {
     expect(client.workspaceReads).toEqual([
       { kind: "session", session_id: "session:one" },
       { kind: "thread", thread_id: "thread:one" },
+    ]);
+  });
+
+  test("creates one Session through a retry-stable Workspace aggregate", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:created"],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:create-session",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:created"],
+      },
+      event_sequence: 6,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 6,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "session",
+        session: sessionSummary({
+          id: "session:created",
+          thread_id: null,
+          display_title: "Created",
+          no_thread_fallback_title: "Created",
+        }),
+        panels: {
+          right: emptyPanel("right:root"),
+          bottom: emptyPanel("bottom:root"),
+        },
+        tabs: [],
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    const created = await adapter.createProjectSession({
+      projectId: "project:one",
+      noThreadFallbackTitle: "Created",
+    });
+
+    expect(created).toMatchObject({
+      projectId: "project:one",
+      noThreadFallbackTitle: "Created",
+      thread: null,
+    });
+    expect(client.workspaceApplies).toEqual([
+      {
+        operationId: expect.any(String),
+        intent: {
+          kind: "create_session",
+          session_id: expect.any(String),
+          project_id: "project:one",
+          title: "Created",
+        },
+      },
     ]);
   });
 });

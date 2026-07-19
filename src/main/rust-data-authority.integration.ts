@@ -84,6 +84,27 @@ describe("Electron native data authority", () => {
         name: "Electron Workspace Adapter",
         sources: [nodexHome],
       });
+      const createdSession = await workspace.createProjectSession({
+        projectId: createdProject.id,
+        noThreadFallbackTitle: "Electron Session Adapter",
+      });
+      const pinnedSession = await workspace.setProjectSessionPinned(
+        createdSession.id,
+        { pinned: true },
+      );
+      expect(pinnedSession).toMatchObject({
+        id: createdSession.id,
+        pinned: true,
+      });
+      await expect(
+        workspace.setPinnedProjectSessionOrder(createdProject.id, {
+          orderedSessionIds: [createdSession.id],
+        }),
+      ).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: createdSession.id, pinnedOrder: 0 }),
+        ]),
+      );
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];

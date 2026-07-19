@@ -43,5 +43,27 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).listProjectSessionSummaries(projectId, options),
     getProjectSession: async (sessionId) =>
       await (await resolve()).getProjectSession(sessionId),
+    createProjectSession: async (sessionInput) =>
+      await (await resolve()).createProjectSession(sessionInput),
+    deleteProjectSession: async (sessionId) =>
+      await (await resolve()).deleteProjectSession(sessionId),
+    reorderProjectSessions: async (projectId, orderedSessionIds) =>
+      await (await resolve()).reorderProjectSessions(
+        projectId,
+        orderedSessionIds,
+      ),
+    setProjectSessionPinned: async (sessionId, sessionInput) =>
+      await (await resolve()).setProjectSessionPinned(sessionId, sessionInput),
+    setPinnedProjectSessionOrder: async (projectId, sessionInput) =>
+      await (await resolve()).setPinnedProjectSessionOrder(
+        projectId,
+        sessionInput,
+      ),
+    archiveProjectSession: async (sessionId) =>
+      await (await resolve()).archiveProjectSession(sessionId),
+    unarchiveProjectSession: async (sessionId) =>
+      await (await resolve()).unarchiveProjectSession(sessionId),
+    markProjectSessionUnread: async (sessionId, sessionInput) =>
+      await (await resolve()).markProjectSessionUnread(sessionId, sessionInput),
   };
 }
