@@ -6,3 +6,4 @@ pub mod nfm;
 pub mod nfm_parser;
 pub mod rich_text;
 pub mod subtree;
+pub mod view_position;

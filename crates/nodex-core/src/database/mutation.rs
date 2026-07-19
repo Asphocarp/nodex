@@ -1,5 +1,4 @@
 use std::collections::{BTreeSet, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent, DatabasePagePosition,
@@ -16,6 +15,10 @@ use serde_json::{Map, Value, json};
 use crate::document::{read_store_epoch, sha256};
 use crate::domain::fractional_rank::{
     FractionalRankError, FractionalRankErrorCode, RankedItem, plan as plan_fractional_rank,
+};
+use crate::domain::view_position::{
+    LogicalViewPositionItem, ViewPositionPlanError, ViewSiblingRankWriteKind,
+    plan_view_position_run,
 };
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
@@ -145,7 +148,7 @@ pub(super) fn apply(
                 });
             }
 
-            let now = unix_timestamp_millis();
+            let now = sqlite_now(transaction)?;
             let mut effects = MutationEffects::default();
             for intent in &request.intent {
                 apply_intent(
@@ -1854,35 +1857,14 @@ fn position_pages(
         existing_revisions.insert(page.page_id.as_str(), existing_revision);
     }
 
-    let mut logical =
-        read_logical_group(connection, &view, group_property_id, group_key, &page_ids)?;
-    let insertion = match before_page_id {
-        Some(anchor) => logical
-            .iter()
-            .position(|page_id| page_id == anchor)
-            .ok_or_else(|| {
-                StoreError::new(
-                    StoreErrorCode::RevisionConflict,
-                    "View position anchor changed",
-                    true,
-                )
-            })?,
-        None => logical.len(),
-    };
-    logical.splice(
-        insertion..insertion,
-        pages.iter().map(|page| page.page_id.clone()),
-    );
+    let logical = read_logical_group(connection, &view, group_property_id, group_key, &page_ids)?;
     let descending = view_manual_direction(&config) == "desc";
-    let physical = if descending {
-        logical.iter().rev().cloned().collect::<Vec<_>>()
-    } else {
-        logical
-    };
-    let moved = pages
+    let moved_page_ids = pages
         .iter()
-        .map(|page| page.page_id.as_str())
-        .collect::<HashSet<_>>();
+        .map(|page| page.page_id.clone())
+        .collect::<Vec<_>>();
+    let rank_plan = plan_view_position_run(&logical, &moved_page_ids, before_page_id, descending)
+        .map_err(view_position_plan_error)?;
     let mut put = connection.prepare(
         "INSERT INTO database_view_page_positions(\
            view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at\
@@ -1890,30 +1872,61 @@ fn position_pages(
          ON CONFLICT(view_id, page_block_id) DO UPDATE SET group_key = excluded.group_key, \
            rank_key = excluded.rank_key, revision = excluded.revision, updated_at = excluded.updated_at",
     )?;
-    let total = physical.len();
-    for (index, page_id) in physical.iter().enumerate() {
+    for write in &rank_plan.sibling_writes {
+        match write.kind {
+            ViewSiblingRankWriteKind::Materialize => {
+                put.execute(params![
+                    view_id,
+                    write.page_id,
+                    group_key,
+                    write.rank_key,
+                    1,
+                    now,
+                ])?;
+            }
+            ViewSiblingRankWriteKind::Rebalance => {
+                let updated = connection.execute(
+                    "UPDATE database_view_page_positions SET rank_key = ?1, updated_at = ?2 \
+                     WHERE view_id = ?3 AND page_block_id = ?4",
+                    params![write.rank_key, now, view_id, write.page_id],
+                )?;
+                if updated != 1 {
+                    return Err(corrupt(
+                        "Database View sibling position disappeared during rank maintenance",
+                    ));
+                }
+            }
+        }
+        connection.execute(
+            "UPDATE page_read_model SET view_group_key = ?1, view_rank_key = ?2, \
+               projection_version = projection_version + 1, updated_at = ?3 \
+             WHERE page_block_id = ?4 AND view_id = ?5",
+            params![group_key, write.rank_key, now, write.page_id, view_id],
+        )?;
+    }
+    for page in pages {
+        let rank_key = rank_plan
+            .moved_rank_keys
+            .get(&page.page_id)
+            .ok_or_else(|| corrupt("Database View rank plan omitted a moved Page"))?;
         let current = connection
             .query_row(
                 "SELECT revision, created_at FROM database_view_page_positions \
                  WHERE view_id = ?1 AND page_block_id = ?2",
-                params![view_id, page_id],
+                params![view_id, page.page_id],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
-        let revision = if moved.contains(page_id.as_str()) {
-            existing_revisions
-                .get(page_id.as_str())
-                .copied()
-                .unwrap_or(0)
-                + 1
-        } else {
-            current.as_ref().map_or(1, |(revision, _)| *revision)
-        };
+        let revision = existing_revisions
+            .get(page.page_id.as_str())
+            .copied()
+            .unwrap_or(0)
+            + 1;
         put.execute(params![
             view_id,
-            page_id,
+            page.page_id,
             group_key,
-            fractional_rank(index + 1, total),
+            rank_key,
             revision,
             current.as_ref().map_or(now, |(_, created_at)| created_at),
         ])?;
@@ -1921,13 +1934,7 @@ fn position_pages(
             "UPDATE page_read_model SET view_group_key = ?1, view_rank_key = ?2, \
                projection_version = projection_version + 1, updated_at = ?3 \
              WHERE page_block_id = ?4 AND view_id = ?5",
-            params![
-                group_key,
-                fractional_rank(index + 1, total),
-                now,
-                page_id,
-                view_id,
-            ],
+            params![group_key, rank_key, now, page.page_id, view_id,],
         )?;
     }
     for page in pages {
@@ -2195,7 +2202,7 @@ fn read_logical_group(
     group_property_id: Option<&str>,
     group_key: Option<&str>,
     excluded_page_ids: &HashSet<&str>,
-) -> Result<Vec<String>, StoreError> {
+) -> Result<Vec<LogicalViewPositionItem>, StoreError> {
     let rows = connection
         .prepare(
             "SELECT membership.id, membership.page_block_id, position.rank_key \
@@ -2218,7 +2225,7 @@ fn read_logical_group(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut result = Vec::new();
-    for (membership_id, page_id, _) in rows {
+    for (membership_id, page_id, rank_key) in rows {
         if excluded_page_ids.contains(page_id.as_str()) {
             continue;
         }
@@ -2238,12 +2245,20 @@ fn read_logical_group(
                 continue;
             }
         }
-        result.push(page_id);
+        result.push(LogicalViewPositionItem { page_id, rank_key });
     }
     if view_manual_direction(&parse_json(&view.config_json, "Database View config")?) == "desc" {
         result.reverse();
     }
     Ok(result)
+}
+
+fn view_position_plan_error(error: ViewPositionPlanError) -> StoreError {
+    match error {
+        ViewPositionPlanError::InvalidInput(message)
+        | ViewPositionPlanError::AnchorNotFound(message) => invalid(message),
+        ViewPositionPlanError::FractionalRank(error) => invalid(error.message),
+    }
 }
 
 fn active_row_membership(
@@ -3283,12 +3298,12 @@ fn parse_json(value: &str, label: &str) -> Result<Value, StoreError> {
     serde_json::from_str(value).map_err(|_| corrupt(format!("{label} is invalid JSON")))
 }
 
-fn unix_timestamp_millis() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .to_string()
+fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
+    connection
+        .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(StoreError::from)
 }
 
 fn invalid(message: impl Into<String>) -> StoreError {
