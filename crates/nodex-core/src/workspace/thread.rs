@@ -1299,7 +1299,7 @@ fn affected_projects(previous: Option<&str>, next: Option<&str>) -> Vec<String> 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn finish_thread_mutation(
+pub(super) fn finish_thread_mutation(
     connection: &Connection,
     library_id: &str,
     context: &BoundModuleContext,

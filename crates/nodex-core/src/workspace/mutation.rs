@@ -23,7 +23,10 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
-use super::{ProjectWorkspaceApplyOutcome, execution, session_lifecycle, session_mutation, thread};
+use super::{
+    ProjectWorkspaceApplyOutcome, execution, session_lifecycle, session_mutation, sidebar, thread,
+    thread_search,
+};
 
 const MODULE_NAME: &str = "project_workspace";
 const MAX_ID_LENGTH: usize = 512;
@@ -347,6 +350,79 @@ pub(super) fn apply(
                         thread_ids,
                     )
                 }
+                ProjectWorkspaceIntent::SetProjectThreadOrder {
+                    project_id,
+                    ordered_thread_ids,
+                } => sidebar::set_project_thread_order(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    project_id,
+                    Some(ordered_thread_ids),
+                ),
+                ProjectWorkspaceIntent::ClearProjectThreadOrder { project_id } => {
+                    sidebar::set_project_thread_order(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        project_id,
+                        None,
+                    )
+                }
+                ProjectWorkspaceIntent::SetProjectlessThreadOrder {
+                    thread_ids_in_display_order,
+                    visible_thread_ids,
+                    next_visible_thread_ids,
+                } => sidebar::set_projectless_thread_order(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_ids_in_display_order,
+                    visible_thread_ids,
+                    next_visible_thread_ids,
+                ),
+                ProjectWorkspaceIntent::MoveThread {
+                    thread_id,
+                    source,
+                    target,
+                    placement,
+                    metadata,
+                } => sidebar::move_thread(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    match source {
+                        nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
+                            project_id,
+                        } => Some(project_id.as_str()),
+                        nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Projectless => {
+                            None
+                        }
+                    },
+                    match target {
+                        nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Project {
+                            project_id,
+                        } => Some(project_id.as_str()),
+                        nodex_core_contracts::workspace::ProjectWorkspaceThreadLane::Projectless => {
+                            None
+                        }
+                    },
+                    placement,
+                    metadata,
+                ),
                 ProjectWorkspaceIntent::SetThreadUnread { thread_id, unread } => {
                     thread::set_thread_unread(
                         transaction,
@@ -433,6 +509,36 @@ pub(super) fn apply(
                     &request_hash,
                     process,
                     preserve_started_at.unwrap_or(true),
+                ),
+                ProjectWorkspaceIntent::ReplaceThreadSearchProjection {
+                    thread_id,
+                    expected_thread_updated_at,
+                    units,
+                } => thread_search::replace_projection(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    *expected_thread_updated_at,
+                    units,
+                ),
+                ProjectWorkspaceIntent::FailThreadSearchProjection {
+                    thread_id,
+                    expected_thread_updated_at,
+                    error,
+                } => thread_search::fail_projection(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    *expected_thread_updated_at,
+                    error,
                 ),
                 ProjectWorkspaceIntent::SetProjectPermissionMode { project_id, mode } => {
                     thread::set_project_permission_mode(

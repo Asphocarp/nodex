@@ -4,7 +4,11 @@ mod panel_layout;
 mod read;
 mod session_lifecycle;
 mod session_mutation;
+mod sidebar;
+#[cfg(test)]
+mod test_support;
 mod thread;
+mod thread_search;
 
 use std::path::PathBuf;
 

@@ -105,6 +105,55 @@ export interface ProjectWorkspaceExecutionContext {
   readonly permissionMode: CodexPermissionMode | null;
 }
 
+export interface ProjectWorkspaceSidebar {
+  readonly threads: readonly ProjectWorkspaceThread[];
+  readonly projectThreadOrders: Readonly<Record<string, readonly string[]>>;
+  readonly projectlessThreadOrder: readonly string[] | null;
+}
+
+export interface ProjectWorkspaceThreadSearchBackfillCandidate {
+  readonly threadId: string;
+  readonly sourceUpdatedAt: number;
+  readonly pinnedOrder: number | null;
+}
+
+export interface ProjectWorkspaceThreadSearchSnippetSegment {
+  readonly text: string;
+  readonly highlight: boolean;
+}
+
+export interface ProjectWorkspaceThreadSearchResult {
+  readonly threadId: string;
+  readonly snippet: string;
+  readonly score: number;
+  readonly matchKind: "fts";
+  readonly snippetSegments: readonly ProjectWorkspaceThreadSearchSnippetSegment[];
+}
+
+export interface ProjectWorkspaceThreadSearchUnit {
+  readonly turnId: string;
+  readonly itemId: string;
+  readonly role: "user" | "assistant";
+  readonly text: string;
+}
+
+export type ProjectWorkspaceThreadPlacement =
+  | { readonly kind: "start" }
+  | { readonly kind: "end" }
+  | { readonly kind: "default" }
+  | { readonly kind: "before"; readonly threadId: string };
+
+export type ProjectWorkspaceThreadLane =
+  | { readonly kind: "project"; readonly projectId: string }
+  | { readonly kind: "projectless" };
+
+export interface ProjectWorkspaceThreadMoveMetadataPatch {
+  readonly cwd?: string | null;
+  readonly managedWorktreePath?: string | null;
+  readonly projectlessOutputDirectory?: string | null;
+  readonly projectlessWorkspaceBrowserRoot?: string | null;
+}
+
 export interface ProjectWorkspaceThreadPatch {
   readonly projectId?: string | null;
   readonly forkedFromId?: string | null;
@@ -217,6 +266,13 @@ export type ProjectWorkspaceRead =
       readonly actorProjectId: string;
     }
   | { readonly kind: "background_processes"; readonly threadId?: string }
+  | { readonly kind: "sidebar"; readonly includeArchived?: boolean }
+  | { readonly kind: "thread_search"; readonly query: string; readonly limit?: number }
+  | {
+      readonly kind: "thread_search_backfill_candidates";
+      readonly limit?: number;
+      readonly force?: boolean;
+    }
   | { readonly kind: "managed_worktrees"; readonly projectId: string };
 
 export type ProjectWorkspaceReadValue =
@@ -259,6 +315,18 @@ export type ProjectWorkspaceReadValue =
   | {
       readonly kind: "background_processes";
       readonly processes: readonly ProjectWorkspaceBackgroundProcess[];
+    }
+  | {
+      readonly kind: "sidebar";
+      readonly sidebar: ProjectWorkspaceSidebar;
+    }
+  | {
+      readonly kind: "thread_search";
+      readonly results: readonly ProjectWorkspaceThreadSearchResult[];
+    }
+  | {
+      readonly kind: "thread_search_backfill_candidates";
+      readonly candidates: readonly ProjectWorkspaceThreadSearchBackfillCandidate[];
     }
   | {
       readonly kind: "managed_worktrees";
@@ -385,6 +453,26 @@ export type ProjectWorkspaceIntent =
       readonly threadIds: readonly string[];
     }
   | {
+      readonly kind: "set_project_thread_order";
+      readonly projectId: string;
+      readonly orderedThreadIds: readonly string[];
+    }
+  | { readonly kind: "clear_project_thread_order"; readonly projectId: string }
+  | {
+      readonly kind: "set_projectless_thread_order";
+      readonly threadIdsInDisplayOrder: readonly string[];
+      readonly visibleThreadIds: readonly string[];
+      readonly nextVisibleThreadIds: readonly string[];
+    }
+  | {
+      readonly kind: "move_thread";
+      readonly threadId: string;
+      readonly source: ProjectWorkspaceThreadLane;
+      readonly target: ProjectWorkspaceThreadLane;
+      readonly placement: ProjectWorkspaceThreadPlacement;
+      readonly metadata: ProjectWorkspaceThreadMoveMetadataPatch;
+    }
+  | {
       readonly kind: "set_thread_unread";
       readonly threadId: string;
       readonly unread: boolean;
@@ -417,6 +505,18 @@ export type ProjectWorkspaceIntent =
       readonly kind: "upsert_background_process";
       readonly process: ProjectWorkspaceBackgroundProcess;
       readonly preserveStartedAt?: boolean;
+    }
+  | {
+      readonly kind: "replace_thread_search_projection";
+      readonly threadId: string;
+      readonly expectedThreadUpdatedAt: number;
+      readonly units: readonly ProjectWorkspaceThreadSearchUnit[];
+    }
+  | {
+      readonly kind: "fail_thread_search_projection";
+      readonly threadId: string;
+      readonly expectedThreadUpdatedAt: number;
+      readonly error: string;
     }
   | {
       readonly kind: "set_project_permission_mode";

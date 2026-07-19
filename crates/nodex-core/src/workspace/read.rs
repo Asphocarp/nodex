@@ -7,10 +7,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
-use super::execution;
 use super::panel_layout::{parse_panel_id, parse_panels};
 use super::session_mutation::parse_tab_kind;
 use super::thread::{read_permission_mode, read_thread, read_threads};
+use super::{execution, sidebar, thread_search};
 
 const MAX_ID_LENGTH: usize = 512;
 const MAX_TAB_JSON_BYTES: usize = 2 * 1024 * 1024;
@@ -187,6 +187,30 @@ pub(super) fn read(
                     connection,
                     library_id,
                     thread_id.as_deref(),
+                )?,
+            })
+        }
+        ProjectWorkspaceRead::Sidebar { include_archived } => {
+            Ok(ProjectWorkspaceReadValue::Sidebar {
+                sidebar: Box::new(sidebar::read_sidebar(
+                    connection,
+                    library_id,
+                    include_archived.unwrap_or(false),
+                )?),
+            })
+        }
+        ProjectWorkspaceRead::ThreadSearch { query, limit } => {
+            Ok(ProjectWorkspaceReadValue::ThreadSearch {
+                results: thread_search::search(connection, library_id, &query, limit)?,
+            })
+        }
+        ProjectWorkspaceRead::ThreadSearchBackfillCandidates { limit, force } => {
+            Ok(ProjectWorkspaceReadValue::ThreadSearchBackfillCandidates {
+                candidates: thread_search::backfill_candidates(
+                    connection,
+                    library_id,
+                    limit,
+                    force.unwrap_or(false),
                 )?,
             })
         }

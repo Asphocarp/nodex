@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -41,6 +43,17 @@ pub enum ProjectWorkspaceRead {
     BackgroundProcesses {
         thread_id: Option<String>,
     },
+    Sidebar {
+        include_archived: Option<bool>,
+    },
+    ThreadSearch {
+        query: String,
+        limit: Option<u32>,
+    },
+    ThreadSearchBackfillCandidates {
+        limit: Option<u32>,
+        force: Option<bool>,
+    },
     ManagedWorktrees {
         project_id: String,
     },
@@ -82,9 +95,112 @@ pub enum ProjectWorkspaceReadValue {
     BackgroundProcesses {
         processes: Vec<ProjectWorkspaceBackgroundProcess>,
     },
+    Sidebar {
+        sidebar: Box<ProjectWorkspaceSidebar>,
+    },
+    ThreadSearch {
+        results: Vec<ProjectWorkspaceThreadSearchResult>,
+    },
+    ThreadSearchBackfillCandidates {
+        candidates: Vec<ProjectWorkspaceThreadSearchBackfillCandidate>,
+    },
     ManagedWorktrees {
         roots: Vec<String>,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSidebar {
+    pub threads: Vec<ProjectWorkspaceThread>,
+    pub project_thread_orders: BTreeMap<String, Vec<String>>,
+    pub projectless_thread_order: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadSearchBackfillCandidate {
+    pub thread_id: String,
+    pub source_updated_at: i64,
+    pub pinned_order: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadSearchResult {
+    pub thread_id: String,
+    pub snippet: String,
+    pub score: i64,
+    pub match_kind: ProjectWorkspaceThreadSearchMatchKind,
+    pub snippet_segments: Vec<ProjectWorkspaceThreadSearchSnippetSegment>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceThreadSearchMatchKind {
+    Fts,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadSearchSnippetSegment {
+    pub text: String,
+    pub highlight: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceThreadSearchRole {
+    User,
+    Assistant,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadSearchUnit {
+    pub turn_id: String,
+    pub item_id: String,
+    pub role: ProjectWorkspaceThreadSearchRole,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectWorkspaceThreadPlacement {
+    Start,
+    End,
+    Default,
+    Before { thread_id: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProjectWorkspaceThreadLane {
+    Project { project_id: String },
+    Projectless,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadMoveMetadataPatch {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cwd: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub managed_worktree_path: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub projectless_output_directory: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub projectless_workspace_browser_root: Option<Option<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -492,6 +608,25 @@ pub enum ProjectWorkspaceIntent {
     ReorderPinnedThreads {
         thread_ids: Vec<String>,
     },
+    SetProjectThreadOrder {
+        project_id: String,
+        ordered_thread_ids: Vec<String>,
+    },
+    ClearProjectThreadOrder {
+        project_id: String,
+    },
+    SetProjectlessThreadOrder {
+        thread_ids_in_display_order: Vec<String>,
+        visible_thread_ids: Vec<String>,
+        next_visible_thread_ids: Vec<String>,
+    },
+    MoveThread {
+        thread_id: String,
+        source: ProjectWorkspaceThreadLane,
+        target: ProjectWorkspaceThreadLane,
+        placement: ProjectWorkspaceThreadPlacement,
+        metadata: ProjectWorkspaceThreadMoveMetadataPatch,
+    },
     SetThreadUnread {
         thread_id: String,
         unread: bool,
@@ -519,6 +654,16 @@ pub enum ProjectWorkspaceIntent {
     UpsertBackgroundProcess {
         process: ProjectWorkspaceBackgroundProcess,
         preserve_started_at: Option<bool>,
+    },
+    ReplaceThreadSearchProjection {
+        thread_id: String,
+        expected_thread_updated_at: i64,
+        units: Vec<ProjectWorkspaceThreadSearchUnit>,
+    },
+    FailThreadSearchProjection {
+        thread_id: String,
+        expected_thread_updated_at: i64,
+        error: String,
     },
     SetProjectPermissionMode {
         project_id: String,
@@ -670,7 +815,10 @@ impl VersionedModuleContract for ProjectWorkspaceContract {
 mod tests {
     use serde_json::json;
 
-    use super::{ProjectSessionIntent, ProjectWorkspaceIntent};
+    use super::{
+        ProjectSessionIntent, ProjectWorkspaceIntent, ProjectWorkspaceThreadLane,
+        ProjectWorkspaceThreadPlacement,
+    };
 
     #[test]
     fn optional_tab_updates_distinguish_absence_from_explicit_null() {
@@ -732,5 +880,64 @@ mod tests {
         .expect("Thread patch round trip");
         assert_eq!(encoded["patch"]["project_id"], serde_json::Value::Null);
         assert!(encoded["patch"].get("cwd").is_none());
+    }
+
+    #[test]
+    fn sidebar_intents_encode_explicit_lane_order_and_presence_semantics() {
+        let intent = serde_json::from_value::<ProjectWorkspaceIntent>(json!({
+            "kind": "move_thread",
+            "thread_id": "thread-1",
+            "source": { "kind": "projectless" },
+            "target": { "kind": "project", "project_id": "project-1" },
+            "placement": { "kind": "before", "thread_id": "thread-2" },
+            "metadata": {
+                "cwd": null,
+                "managed_worktree_path": "/tmp/worktree"
+            }
+        }))
+        .expect("explicit Thread move contract");
+        let ProjectWorkspaceIntent::MoveThread {
+            source,
+            target,
+            placement,
+            metadata,
+            ..
+        } = intent
+        else {
+            panic!("move Thread intent");
+        };
+        assert_eq!(source, ProjectWorkspaceThreadLane::Projectless);
+        assert_eq!(
+            target,
+            ProjectWorkspaceThreadLane::Project {
+                project_id: "project-1".to_owned(),
+            }
+        );
+        assert_eq!(
+            placement,
+            ProjectWorkspaceThreadPlacement::Before {
+                thread_id: "thread-2".to_owned(),
+            }
+        );
+        assert_eq!(metadata.cwd, Some(None));
+        assert_eq!(
+            metadata.managed_worktree_path,
+            Some(Some("/tmp/worktree".to_owned()))
+        );
+        assert_eq!(metadata.projectless_output_directory, None);
+
+        let set_empty = serde_json::to_value(ProjectWorkspaceIntent::SetProjectThreadOrder {
+            project_id: "project-1".to_owned(),
+            ordered_thread_ids: Vec::new(),
+        })
+        .expect("empty custom order");
+        let clear = serde_json::to_value(ProjectWorkspaceIntent::ClearProjectThreadOrder {
+            project_id: "project-1".to_owned(),
+        })
+        .expect("clear custom order");
+        assert_eq!(set_empty["kind"], "set_project_thread_order");
+        assert_eq!(set_empty["ordered_thread_ids"], json!([]));
+        assert_eq!(clear["kind"], "clear_project_thread_order");
+        assert!(clear.get("ordered_thread_ids").is_none());
     }
 }

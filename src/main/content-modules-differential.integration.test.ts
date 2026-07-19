@@ -51,6 +51,7 @@ import {
   updateProjectSession,
   updateProjectSessionTab,
   updateProjectSessionTabState,
+  upsertProjectSessionThreadLink,
 } from "./local-store/project-sessions";
 import {
   applyDatabaseModuleV2,
@@ -88,7 +89,17 @@ import {
   listCodexBackgroundProcesses,
   upsertCodexBackgroundProcess,
 } from "./local-store/codex-background-processes";
+import {
+  getCodexProjectThreadOrder,
+  moveCodexProjectThread,
+  setCodexProjectThreadOrder,
+} from "./local-store/codex-project-thread-move";
+import {
+  getCodexSidebarChatOrder,
+  setCodexSidebarChatOrder,
+} from "./local-store/codex-sidebar-chat-order";
 import { CodexNodexAgentAuthorityRegistry } from "./codex/codex-nodex-agent-authority";
+import { CommandPaletteThreadSearchService } from "./codex/command-palette-thread-search-service";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 import { DuplicatePageV3InputSchema } from "../shared/nodex-agent-tools";
 import {
@@ -4205,6 +4216,366 @@ describe("TypeScript/Rust content Module differential", () => {
         },
       }),
     );
+
+    const sidebarMoveThreadId = "gate-c-sidebar-move";
+    const sidebarAnchorThreadId = "gate-c-sidebar-anchor";
+    const sidebarChatAThreadId = "gate-c-sidebar-chat-a";
+    const sidebarChatBThreadId = "gate-c-sidebar-chat-b";
+    const sidebarSearchUpdatedAt = 610;
+    const oracleMoveSession = createProjectSession({
+      projectId: oracleCreatedProject.id,
+      noThreadFallbackTitle: "Gate C sidebar move",
+    });
+    upsertProjectSessionThreadLink({
+      sessionId: oracleMoveSession.id,
+      projectId: oracleCreatedProject.id,
+      threadId: sidebarMoveThreadId,
+      threadName: "Gate C sidebar move",
+      threadPreview: "Atomic sidebar move and search",
+      modelProvider: "openai",
+      cwd: workspaceRoot,
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: sidebarSearchUpdatedAt,
+      updatedAt: sidebarSearchUpdatedAt,
+    });
+    const oracleAnchorSession = createProjectSession({
+      projectId: oracleSecondProject.id,
+      noThreadFallbackTitle: "Gate C sidebar anchor",
+    });
+    upsertProjectSessionThreadLink({
+      sessionId: oracleAnchorSession.id,
+      projectId: oracleSecondProject.id,
+      threadId: sidebarAnchorThreadId,
+      threadName: "Gate C sidebar anchor",
+      threadPreview: "",
+      modelProvider: "openai",
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: 600,
+      updatedAt: 600,
+    });
+    for (const [threadId, updatedAt] of [
+      [sidebarChatAThreadId, 590],
+      [sidebarChatBThreadId, 580],
+    ] as const) {
+      upsertCodexThread({
+        threadId,
+        threadName: threadId,
+        threadPreview: "",
+        modelProvider: "openai",
+        statusType: "idle",
+        statusActiveFlags: [],
+        createdAt: updatedAt,
+        updatedAt,
+      });
+    }
+
+    const candidateMoveSessionId = "gate-c-sidebar-move-session";
+    const candidateAnchorSessionId = "gate-c-sidebar-anchor-session";
+    for (const [operationPrefix, sessionId, threadId, projectId, updatedAt, preview] of [
+      [
+        "move",
+        candidateMoveSessionId,
+        sidebarMoveThreadId,
+        candidateProjectId,
+        sidebarSearchUpdatedAt,
+        "Atomic sidebar move and search",
+      ],
+      [
+        "anchor",
+        candidateAnchorSessionId,
+        sidebarAnchorThreadId,
+        candidateSecondProjectId,
+        600,
+        "",
+      ],
+    ] as const) {
+      await stage(
+        "Project Workspace create sidebar " + operationPrefix + " Session",
+        candidate.workspaceApply({
+          operationId: "gate-c-workspace-sidebar-" + operationPrefix + "-session",
+          intent: {
+            kind: "create_session",
+            session_id: sessionId,
+            project_id: projectId,
+            title: threadId,
+          },
+        }),
+      );
+      await stage(
+        "Project Workspace create sidebar " + operationPrefix + " Thread",
+        candidate.workspaceApply({
+          operationId: "gate-c-workspace-sidebar-" + operationPrefix + "-thread",
+          intent: {
+            kind: "upsert_thread",
+            thread_id: threadId,
+            patch: {
+              project_id: projectId,
+              thread_name: threadId,
+              thread_preview: preview,
+              model_provider: "openai",
+              status: {
+                status_type: "idle",
+                active_flags: [],
+              },
+              created_at: updatedAt,
+              updated_at: updatedAt,
+              linked_at: threadLinkedAt,
+            },
+          },
+        }),
+      );
+      await stage(
+        "Project Workspace link sidebar " + operationPrefix + " Thread",
+        candidate.workspaceApply({
+          operationId: "gate-c-workspace-sidebar-" + operationPrefix + "-link",
+          intent: {
+            kind: "mutate_session",
+            session_id: sessionId,
+            intent: {
+              kind: "link_thread",
+              thread_id: threadId,
+              expected_project_id: projectId,
+            },
+          },
+        }),
+      );
+    }
+    for (const [threadId, updatedAt] of [
+      [sidebarChatAThreadId, 590],
+      [sidebarChatBThreadId, 580],
+    ] as const) {
+      await stage(
+        "Project Workspace create " + threadId,
+        candidate.workspaceApply({
+          operationId: "gate-c-workspace-" + threadId,
+          intent: {
+            kind: "upsert_thread",
+            thread_id: threadId,
+            patch: {
+              project_id: null,
+              thread_name: threadId,
+              thread_preview: "",
+              model_provider: "openai",
+              status: {
+                status_type: "idle",
+                active_flags: [],
+              },
+              created_at: updatedAt,
+              updated_at: updatedAt,
+              linked_at: threadLinkedAt,
+            },
+          },
+        }),
+      );
+    }
+
+    setCodexProjectThreadOrder(oracleCreatedProject.id, [sidebarMoveThreadId]);
+    setCodexProjectThreadOrder(oracleSecondProject.id, [sidebarAnchorThreadId]);
+    await stage(
+      "Project Workspace set source sidebar order",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-sidebar-source-order",
+        intent: {
+          kind: "set_project_thread_order",
+          project_id: candidateProjectId,
+          ordered_thread_ids: [sidebarMoveThreadId],
+        },
+      }),
+    );
+    await stage(
+      "Project Workspace set target sidebar order",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-sidebar-target-order",
+        intent: {
+          kind: "set_project_thread_order",
+          project_id: candidateSecondProjectId,
+          ordered_thread_ids: [sidebarAnchorThreadId],
+        },
+      }),
+    );
+    const chatOrderInput = {
+      threadIdsInDisplayOrder: [sidebarChatAThreadId, sidebarChatBThreadId],
+      visibleThreadIds: [sidebarChatAThreadId, sidebarChatBThreadId],
+      nextVisibleThreadIds: [sidebarChatBThreadId, sidebarChatAThreadId],
+    };
+    setCodexSidebarChatOrder(chatOrderInput);
+    await stage(
+      "Project Workspace set projectless sidebar order",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-sidebar-projectless-order",
+        intent: {
+          kind: "set_projectless_thread_order",
+          thread_ids_in_display_order: chatOrderInput.threadIdsInDisplayOrder,
+          visible_thread_ids: chatOrderInput.visibleThreadIds,
+          next_visible_thread_ids: chatOrderInput.nextVisibleThreadIds,
+        },
+      }),
+    );
+
+    const oracleSidebarSearchService = new CommandPaletteThreadSearchService();
+    const oracleSearchThread = getCodexThread(sidebarMoveThreadId);
+    if (!oracleSearchThread) throw new Error("Gate C sidebar search Thread is missing");
+    const oracleSearchSummary = {
+      threadId: sidebarMoveThreadId,
+      sessionId: oracleMoveSession.id,
+      projectId: oracleCreatedProject.id,
+      projectName: oracleCreatedProject.name,
+      title: "Gate C sidebar move",
+      preview: "Atomic sidebar move and search",
+      cwd: workspaceRoot,
+      projectless: false,
+      pinned: false,
+      pinnedOrder: null,
+      statusType: "idle" as const,
+      statusActiveFlags: [],
+      createdAt: sidebarSearchUpdatedAt,
+      updatedAt: sidebarSearchUpdatedAt,
+      linkedAt: oracleSearchThread.linkedAt,
+    };
+    oracleSidebarSearchService.indexThreadDetail(oracleSearchSummary, {
+      ...oracleSearchThread,
+      turns: [],
+      transcript: [{
+        threadId: sidebarMoveThreadId,
+        turnId: "turn-sidebar-search",
+        itemId: "item-sidebar-search",
+        type: "userMessage",
+        kind: "userMessage",
+        role: "user",
+        markdownText: "sidebarneedle visible transcript",
+        createdAt: sidebarSearchUpdatedAt,
+        updatedAt: sidebarSearchUpdatedAt,
+      }],
+    });
+    await stage(
+      "Project Workspace replace sidebar Thread search projection",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-sidebar-search-projection",
+        intent: {
+          kind: "replace_thread_search_projection",
+          thread_id: sidebarMoveThreadId,
+          expected_thread_updated_at: sidebarSearchUpdatedAt,
+          units: [{
+            turn_id: "turn-sidebar-search",
+            item_id: "item-sidebar-search",
+            role: "user",
+            text: "sidebarneedle visible transcript",
+          }],
+        },
+      }),
+    );
+
+    moveCodexProjectThread({
+      threadId: sidebarMoveThreadId,
+      sourceProjectId: oracleCreatedProject.id,
+      targetProjectId: oracleSecondProject.id,
+      beforeThreadId: sidebarAnchorThreadId,
+      threadMetadataPatch: {
+        cwd: updatedWorkspaceRoot,
+        managedWorktreePath: null,
+      },
+    });
+    const candidateSidebarMove = {
+      operationId: "gate-c-workspace-sidebar-move",
+      intent: {
+        kind: "move_thread" as const,
+        thread_id: sidebarMoveThreadId,
+        source: {
+          kind: "project" as const,
+          project_id: candidateProjectId,
+        },
+        target: {
+          kind: "project" as const,
+          project_id: candidateSecondProjectId,
+        },
+        placement: {
+          kind: "before" as const,
+          thread_id: sidebarAnchorThreadId,
+        },
+        metadata: {
+          cwd: updatedWorkspaceRoot,
+          managed_worktree_path: null,
+        },
+      },
+    };
+    const candidateSidebarMoveCommit = await stage(
+      "Project Workspace move sidebar Thread",
+      candidate.workspaceApply(candidateSidebarMove),
+    );
+    const candidateSidebarMoveReplay = await stage(
+      "Project Workspace replay sidebar Thread move",
+      candidate.workspaceApply(candidateSidebarMove),
+    );
+    expect(candidateSidebarMoveReplay.event_sequence).toBe(
+      candidateSidebarMoveCommit.event_sequence,
+    );
+    expect(candidateSidebarMoveReplay.receipt.duplicate).toBe(true);
+
+    const candidateSidebar = await stage(
+      "Project Workspace sidebar snapshot",
+      candidate.workspaceRead({ kind: "sidebar", include_archived: false }),
+    );
+    if (candidateSidebar.value.kind !== "sidebar") {
+      throw new Error("Expected Rust sidebar snapshot");
+    }
+    const candidateSidebarValue = candidateSidebar.value.sidebar;
+    expect(
+      candidateSidebarValue.project_thread_orders[candidateSecondProjectId]
+        ?.filter((id) => id === sidebarMoveThreadId || id === sidebarAnchorThreadId),
+    ).toEqual(
+      getCodexProjectThreadOrder(oracleSecondProject.id)
+        ?.filter((id) => id === sidebarMoveThreadId || id === sidebarAnchorThreadId),
+    );
+    expect(
+      candidateSidebarValue.project_thread_orders[candidateProjectId]
+        ?.filter((id) => id === sidebarMoveThreadId),
+    ).toEqual(
+      getCodexProjectThreadOrder(oracleCreatedProject.id)
+        ?.filter((id) => id === sidebarMoveThreadId),
+    );
+    expect(candidateSidebarValue.projectless_thread_order).toEqual(
+      getCodexSidebarChatOrder(),
+    );
+    const candidateMovedSidebarThread = candidateSidebarValue.threads.find(
+      (thread) => thread.thread_id === sidebarMoveThreadId,
+    );
+    const oracleMovedSidebarThread = getCodexThread(sidebarMoveThreadId);
+    expect(candidateMovedSidebarThread).toMatchObject({
+      project_id: candidateSecondProjectId,
+      session_id: candidateMoveSessionId,
+      cwd: updatedWorkspaceRoot,
+      managed_worktree_path: null,
+    });
+    expect(oracleMovedSidebarThread).toMatchObject({
+      projectId: oracleSecondProject.id,
+      cwd: updatedWorkspaceRoot,
+      managedWorktreePath: null,
+    });
+
+    const oracleSidebarSearch = oracleSidebarSearchService.search(
+      { query: "sidebarneedle", limit: 10 },
+      [oracleSearchSummary],
+    );
+    const candidateSidebarSearch = await stage(
+      "Project Workspace sidebar Thread search",
+      candidate.workspaceRead({
+        kind: "thread_search",
+        query: "sidebarneedle",
+        limit: 10,
+      }),
+    );
+    if (candidateSidebarSearch.value.kind !== "thread_search") {
+      throw new Error("Expected Rust sidebar Thread search");
+    }
+    expect(candidateSidebarSearch.value.results).toEqual(
+      withSnakeCaseKeys(oracleSidebarSearch),
+    );
+    oracleSidebarSearchService.shutdown();
+
     reorderProjects({
       orderedProjectIds: [
         oracleCreatedProject.id,

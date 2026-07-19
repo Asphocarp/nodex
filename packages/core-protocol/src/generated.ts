@@ -1264,6 +1264,29 @@ export interface components {
                 readonly thread_ids: readonly string[];
             } | {
                 /** @enum {string} */
+                readonly kind: "set_project_thread_order";
+                readonly ordered_thread_ids: readonly string[];
+                readonly project_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "clear_project_thread_order";
+                readonly project_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "set_projectless_thread_order";
+                readonly next_visible_thread_ids: readonly string[];
+                readonly thread_ids_in_display_order: readonly string[];
+                readonly visible_thread_ids: readonly string[];
+            } | {
+                /** @enum {string} */
+                readonly kind: "move_thread";
+                readonly metadata: components["schemas"]["ProjectWorkspaceThreadMoveMetadataPatch"];
+                readonly placement: components["schemas"]["ProjectWorkspaceThreadPlacement"];
+                readonly source: components["schemas"]["ProjectWorkspaceThreadLane"];
+                readonly target: components["schemas"]["ProjectWorkspaceThreadLane"];
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
                 readonly kind: "set_thread_unread";
                 readonly thread_id: string;
                 readonly unread: boolean;
@@ -1296,6 +1319,20 @@ export interface components {
                 readonly kind: "upsert_background_process";
                 readonly preserve_started_at?: boolean | null;
                 readonly process: components["schemas"]["ProjectWorkspaceBackgroundProcess"];
+            } | {
+                /** Format: int64 */
+                readonly expected_thread_updated_at: number;
+                /** @enum {string} */
+                readonly kind: "replace_thread_search_projection";
+                readonly thread_id: string;
+                readonly units: readonly components["schemas"]["ProjectWorkspaceThreadSearchUnit"][];
+            } | {
+                readonly error: string;
+                /** Format: int64 */
+                readonly expected_thread_updated_at: number;
+                /** @enum {string} */
+                readonly kind: "fail_thread_search_projection";
+                readonly thread_id: string;
             } | {
                 /** @enum {string} */
                 readonly kind: "set_project_permission_mode";
@@ -1623,6 +1660,22 @@ export interface components {
                 readonly kind: "background_processes";
                 readonly thread_id?: string | null;
             } | {
+                readonly include_archived?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "sidebar";
+            } | {
+                /** @enum {string} */
+                readonly kind: "thread_search";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly query: string;
+            } | {
+                readonly force?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "thread_search_backfill_candidates";
+                /** Format: int32 */
+                readonly limit?: number | null;
+            } | {
                 /** @enum {string} */
                 readonly kind: "managed_worktrees";
                 readonly project_id: string;
@@ -1861,6 +1914,13 @@ export interface components {
             readonly title: string;
             readonly updated_at: string;
         };
+        readonly ProjectWorkspaceSidebar: {
+            readonly project_thread_orders: {
+                readonly [key: string]: readonly string[];
+            };
+            readonly projectless_thread_order?: readonly string[] | null;
+            readonly threads: readonly components["schemas"]["ProjectWorkspaceThread"][];
+        };
         readonly ProjectWorkspaceThread: {
             readonly agent_nickname?: string | null;
             readonly agent_role?: string | null;
@@ -1891,6 +1951,20 @@ export interface components {
             readonly updated_at: number;
             readonly writable_roots: readonly string[];
         };
+        readonly ProjectWorkspaceThreadLane: {
+            /** @enum {string} */
+            readonly kind: "project";
+            readonly project_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "projectless";
+        };
+        readonly ProjectWorkspaceThreadMoveMetadataPatch: {
+            readonly cwd?: string | null;
+            readonly managed_worktree_path?: string | null;
+            readonly projectless_output_directory?: string | null;
+            readonly projectless_workspace_browser_root?: string | null;
+        };
         readonly ProjectWorkspaceThreadPatch: {
             readonly agent_nickname?: string | null;
             readonly agent_role?: string | null;
@@ -1913,6 +1987,49 @@ export interface components {
             readonly thread_source?: string | null;
             /** Format: int64 */
             readonly updated_at?: number | null;
+        };
+        readonly ProjectWorkspaceThreadPlacement: {
+            /** @enum {string} */
+            readonly kind: "start";
+        } | {
+            /** @enum {string} */
+            readonly kind: "end";
+        } | {
+            /** @enum {string} */
+            readonly kind: "default";
+        } | {
+            /** @enum {string} */
+            readonly kind: "before";
+            readonly thread_id: string;
+        };
+        readonly ProjectWorkspaceThreadSearchBackfillCandidate: {
+            /** Format: int64 */
+            readonly pinned_order?: number | null;
+            /** Format: int64 */
+            readonly source_updated_at: number;
+            readonly thread_id: string;
+        };
+        /** @enum {string} */
+        readonly ProjectWorkspaceThreadSearchMatchKind: "fts";
+        readonly ProjectWorkspaceThreadSearchResult: {
+            readonly match_kind: components["schemas"]["ProjectWorkspaceThreadSearchMatchKind"];
+            /** Format: int64 */
+            readonly score: number;
+            readonly snippet: string;
+            readonly snippet_segments: readonly components["schemas"]["ProjectWorkspaceThreadSearchSnippetSegment"][];
+            readonly thread_id: string;
+        };
+        /** @enum {string} */
+        readonly ProjectWorkspaceThreadSearchRole: "user" | "assistant";
+        readonly ProjectWorkspaceThreadSearchSnippetSegment: {
+            readonly highlight: boolean;
+            readonly text: string;
+        };
+        readonly ProjectWorkspaceThreadSearchUnit: {
+            readonly item_id: string;
+            readonly role: components["schemas"]["ProjectWorkspaceThreadSearchRole"];
+            readonly text: string;
+            readonly turn_id: string;
         };
         readonly ProjectWorkspaceThreadStatus: {
             readonly active_flags: readonly components["schemas"]["CodexThreadActiveFlag"][];
@@ -2314,6 +2431,18 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "background_processes";
                     readonly processes: readonly components["schemas"]["ProjectWorkspaceBackgroundProcess"][];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "sidebar";
+                    readonly sidebar: components["schemas"]["ProjectWorkspaceSidebar"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "thread_search";
+                    readonly results: readonly components["schemas"]["ProjectWorkspaceThreadSearchResult"][];
+                } | {
+                    readonly candidates: readonly components["schemas"]["ProjectWorkspaceThreadSearchBackfillCandidate"][];
+                    /** @enum {string} */
+                    readonly kind: "thread_search_backfill_candidates";
                 } | {
                     /** @enum {string} */
                     readonly kind: "managed_worktrees";

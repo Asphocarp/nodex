@@ -86,13 +86,13 @@ Library receipt and event represent the operation.
 The Project Workspace read boundary returns active Project execution contexts
 and non-archived startup Sessions, or resolves an exact Project, normalized
 Session panel/tab aggregate, complete Codex Thread descriptor, persisted Thread
-execution context, root/child Thread collection, or managed-worktree set.
+execution context, root/child Thread collection, managed-worktree set, durable
+sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Durable Turn authority, background
-process and writable-root state, Automation, and Store Administration remain
-migration work, so their unavailable operations do not fall back to direct
-native SQL.
+bindings and cross-Library rows fail closed. Automation and Store
+Administration remain migration work, so their unavailable operations do not
+fall back to direct native SQL.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and
@@ -152,6 +152,22 @@ file only as rollback evidence. Background-process observations remain records
 of Electron-owned app-server or terminal work: Workspace validates and bounds
 their Thread identity, preserves restart time according to the semantic intent,
 and prunes the global durable collection atomically with its receipt/event.
+
+Workspace also owns the durable sidebar/search projection around those Threads.
+One snapshot returns eligible root Threads together with Project-lane and
+projectless manual identity order. Project order set and clear are distinct
+intents, projectless reorder replaces only the caller's visible slots, and a
+cross-Project Thread move atomically updates Thread and Session ownership,
+browser-tab ownership, metadata, search-unit scope, and every affected Project
+manual order. Project and projectless lanes are explicit contract variants, so
+absence never doubles as an ownership coordinate. Electron continues to observe
+Codex app-server content and extracts only bounded user/assistant transcript
+units; Core admits that projection only at the exact current Thread
+`updated_at`, owns the FTS5 index, retry clock, stale-work selection, eligibility,
+and snippets, and emits the normal Workspace invalidation event after commit.
+Generic persisted renderer atoms remain shell-owned until their owning semantic
+Module adopts a typed field; Core does not provide a catch-all JSON persistence
+surface.
 
 Workspace owns the durable Session panel/tab aggregate as well. The versioned
 contract names the target panel, tab kind, optional browser identity, and target
