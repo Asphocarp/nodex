@@ -5,16 +5,15 @@ use super::migration::{StorePreparation, prepare_profile_store};
 use super::sqlite::{StoreError, StoreErrorCode, open_writer};
 use super::store_lock::ProfileStoreLock;
 use super::writer::{
-    DEFAULT_READ_CONNECTIONS, DEFAULT_WRITER_QUEUE_CAPACITY, StoreReaders, StoreWriter,
-    StoreWriterRuntime,
+    DEFAULT_READ_CONNECTIONS, DEFAULT_WRITER_QUEUE_CAPACITY, StoreMaintenance, StoreReaders,
+    StoreRuntime, StoreWriter,
 };
 
 pub const STORE_FILE_NAME: &str = "nodex.db";
 
 pub struct SqliteStoreKernel {
     preparation: StorePreparation,
-    writer: StoreWriterRuntime,
-    readers: StoreReaders,
+    runtime: StoreRuntime,
     _lock: ProfileStoreLock,
     database_path: PathBuf,
 }
@@ -36,12 +35,14 @@ impl SqliteStoreKernel {
         let preparation = prepare_profile_store(&mut migration_connection, profile_home)?;
         drop(migration_connection);
 
-        let writer = StoreWriterRuntime::start(&database_path, DEFAULT_WRITER_QUEUE_CAPACITY)?;
-        let readers = StoreReaders::new(&database_path, DEFAULT_READ_CONNECTIONS)?;
+        let runtime = StoreRuntime::start(
+            &database_path,
+            DEFAULT_WRITER_QUEUE_CAPACITY,
+            DEFAULT_READ_CONNECTIONS,
+        )?;
         Ok(Self {
             preparation,
-            writer,
-            readers,
+            runtime,
             _lock: lock,
             database_path,
         })
@@ -52,11 +53,15 @@ impl SqliteStoreKernel {
     }
 
     pub fn writer(&self) -> StoreWriter {
-        self.writer.handle()
+        self.runtime.writer()
     }
 
     pub fn readers(&self) -> StoreReaders {
-        self.readers.clone()
+        self.runtime.readers()
+    }
+
+    pub fn maintenance(&self) -> StoreMaintenance {
+        self.runtime.maintenance()
     }
 
     pub fn database_path(&self) -> &Path {

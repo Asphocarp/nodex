@@ -2430,6 +2430,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::MissingDependencies => CoreErrorCode::DocumentUpdateMissingDependencies,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::InvalidDocumentSchema,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
+        StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
         _ => CoreErrorCode::CoreUnavailable,
     };
     CoreError {

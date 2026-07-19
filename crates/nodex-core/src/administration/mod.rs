@@ -546,6 +546,7 @@ fn core_error(error: StoreError) -> CoreError {
         | StoreErrorCode::InvalidProfile
         | StoreErrorCode::RuntimeIncompatible => CoreErrorCode::SchemaUnsupported,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
+        StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
         StoreErrorCode::WriterQueueFull
         | StoreErrorCode::WriterClosed
         | StoreErrorCode::ReaderPoolTimeout

@@ -74,8 +74,18 @@
   on collision. Staging and managed-asset trees refuse symlinks and special
   files, the immutable candidate must pass schema-owner, integrity, and foreign
   key validation, and every file plus containing directory is flushed before
-  publication. Native restore/delete/prune/maintenance remain closed until the
-  Core runtime can fence work and close all SQLite generations.
+  publication. Native restore/delete/prune/maintenance remain closed while
+  their journal, reconciliation, and task semantics are implemented on the
+  generation fence.
+- Native SQLite handles are generation-stable facades. Exclusive maintenance
+  rejects new reads/writes with a typed retryable error, waits for all accepted
+  operations (including queued writer jobs and checked-out readers), joins the
+  writer, and drops idle readers before invoking filesystem work. A fresh
+  writer/pool generation is published before the fence reopens, so existing
+  Modules cannot retain a connection to a replaced database. The store remains
+  fenced if reopen fails. Document caches and realtime listeners are separate
+  generation-bound state and must be reset by the restore coordinator before
+  native restore is promoted.
 - Whole-store backups include `nodex.db` and managed asset files from one quiesced boundary. The asset gate first drains accepted uploads/materialization and rejects new mutations; the FIFO writer then crosses a barrier, destroys its Y.Doc cache, and closes the worker SQLite connection. The main connection also closes and fails lazy access until a standalone read-only backup source finishes.
 - Manual and scheduled backups are managed by `local-store/backups.ts` and use SQLite's online backup API. The staged DB and every asset file/directory are fsynced before the backup directory rename is published.
 - Restore requires explicit confirmation. Its optional pre-restore safety backup is created after the same asset/writer fence is acquired and before replacement, without reopening a write window between those operations.

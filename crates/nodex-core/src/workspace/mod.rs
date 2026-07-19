@@ -182,6 +182,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::InvalidInput => CoreErrorCode::InvalidInput,
         StoreErrorCode::NotFound => CoreErrorCode::NotFound,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
+        StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::Conflict
         | StoreErrorCode::HeadConflict

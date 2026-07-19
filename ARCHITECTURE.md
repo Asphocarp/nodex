@@ -104,8 +104,20 @@ v2-compatible manifest last, validates the immutable snapshot, fsyncs database,
 assets, manifest, and directories, then commits its receipt/event. A retry after
 filesystem publication but before the SQLite receipt adopts only an exact
 operation/request-fingerprint match. Restore, deletion, retention, and general
-maintenance remain unavailable until the shared runtime can drain and close
-every live store generation safely.
+maintenance remain unavailable until their journaled filesystem/task semantics
+are complete on the shared generation fence.
+
+Every native Module now holds a stable `StoreWriter`/`StoreReaders` facade,
+not a generation-local connection or channel. The shared store runtime admits
+work only while running, counts every accepted read and write through result
+delivery, and resolves each call to the current generation. Exclusive
+maintenance first changes admission to `maintenance_in_progress`, drains both
+counts, joins the FIFO writer, and drops the complete reader pool before its
+Core-owned closure runs. It then opens and atomically publishes a replacement
+generation, so all pre-existing Module facades resume without reconstruction.
+Restore still requires its staged replacement journal, semantic validation,
+store-epoch rotation, Document cache/subscription reset, and failure recovery
+before it can use this seam publicly.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and

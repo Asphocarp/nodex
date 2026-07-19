@@ -38,6 +38,7 @@ pub enum StoreErrorCode {
     RuntimeIncompatible,
     UnsupportedSchema,
     StoreCorrupt,
+    MaintenanceInProgress,
     Internal,
 }
 

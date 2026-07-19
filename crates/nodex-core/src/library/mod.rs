@@ -352,6 +352,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::IdempotencyKeyReused => CoreErrorCode::IdempotencyKeyReused,
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::SchemaUnsupported,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
+        StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::WriterQueueFull
         | StoreErrorCode::WriterClosed
