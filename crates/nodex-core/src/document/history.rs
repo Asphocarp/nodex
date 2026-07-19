@@ -878,11 +878,11 @@ fn validate_checkpoint_input(input: &NewDocumentCheckpoint<'_>) -> Result<(), St
     Ok(())
 }
 
-fn prune_document_history(
+pub(super) fn prune_document_history(
     connection: &Connection,
     document_id: &str,
     now: &str,
-) -> Result<(), StoreError> {
+) -> Result<usize, StoreError> {
     const DAY_MS: i64 = 24 * 60 * 60 * 1_000;
     const KEEP_ALL_MS: i64 = 7 * DAY_MS;
     const KEEP_HOURLY_MS: i64 = 30 * DAY_MS;
@@ -908,6 +908,7 @@ fn prune_document_history(
     let mut hourly = std::collections::HashSet::new();
     let mut daily = std::collections::HashSet::new();
     let mut retained_unpinned = 0usize;
+    let mut deleted = 0usize;
     for (version_id, created_at, pinned, age) in rows {
         if pinned == 1 {
             continue;
@@ -930,13 +931,15 @@ fn prune_document_history(
             retained_unpinned += 1;
             continue;
         }
-        connection.execute(
-            "DELETE FROM document_versions \
+        deleted = deleted
+            .checked_add(connection.execute(
+                "DELETE FROM document_versions \
              WHERE version_id = ?1 AND document_id = ?2 AND pinned = 0",
-            params![version_id, document_id],
-        )?;
+                params![version_id, document_id],
+            )?)
+            .ok_or_else(|| corrupt("Document revision deletion count overflowed"))?;
     }
-    Ok(())
+    Ok(deleted)
 }
 
 fn validate_identity(value: &str, field: &str) -> Result<(), StoreError> {

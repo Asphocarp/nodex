@@ -78,8 +78,13 @@
   publication. Restore validates the selected immutable v83 backup plus every
   reconstructed ready Document, Canvas scene and current projection,
   Profile/Library identity, and referenced managed asset before file movement.
-  Native delete/prune/general-maintenance remain closed while their
-  filesystem/task semantics are implemented on the generation fence.
+  Delete and automatic-retention pruning persist exact logical deletion
+  identities with the Store Administration receipt before best-effort physical
+  cleanup. Backup reads and restore filter those identities, and exact retry
+  completes cleanup after a post-receipt crash. Integrity/foreign-key checks,
+  bounded eligible Document compaction, and revision retention run in a
+  Module-owned canonical order with one exact receipt. Native Block-retention GC
+  remains closed until its complete authority-closure proof is ported.
 - Native SQLite handles are generation-stable facades. Exclusive maintenance
   rejects new reads/writes with a typed retryable error, waits for all accepted
   operations (including queued writer jobs and checked-out readers), joins the

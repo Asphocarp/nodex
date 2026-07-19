@@ -4,8 +4,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use nodex_core_contracts::administration::{
-    SchemaOwner, StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
-    StoreIntegrity, StoreReadiness,
+    MaintenanceTask, SchemaOwner, StoreAdministrationIntent, StoreAdministrationRead,
+    StoreAdministrationReadValue, StoreIntegrity, StoreReadiness,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
@@ -150,6 +150,60 @@ impl Fixture {
                 },
             )
             .expect("restore backup")
+    }
+
+    fn delete_backup(
+        &self,
+        operation_id: &str,
+        backup_id: &str,
+    ) -> super::StoreAdministrationApplyOutcome {
+        self.module
+            .apply(
+                &self.context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: StoreAdministrationIntent::DeleteBackup {
+                        backup_id: backup_id.to_owned(),
+                    },
+                },
+            )
+            .expect("delete backup")
+    }
+
+    fn prune_backups(
+        &self,
+        operation_id: &str,
+        retain_count: u32,
+    ) -> super::StoreAdministrationApplyOutcome {
+        self.module
+            .apply(
+                &self.context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: StoreAdministrationIntent::PruneBackups { retain_count },
+                },
+            )
+            .expect("prune backups")
+    }
+
+    fn run_maintenance(
+        &self,
+        operation_id: &str,
+        tasks: Vec<MaintenanceTask>,
+    ) -> Result<super::StoreAdministrationApplyOutcome, nodex_core_contracts::CoreError> {
+        self.module.apply(
+            &self.context(),
+            ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: operation_id.to_owned(),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: StoreAdministrationIntent::RunMaintenance { tasks },
+            },
+        )
     }
 }
 
@@ -769,4 +823,312 @@ fn rejects_a_corrupt_restore_candidate_without_touching_the_live_store() {
             .join(".core-store-restore-journal.json")
             .exists()
     );
+}
+
+#[test]
+fn deletes_one_backup_with_exact_replay_and_rejects_later_restore() {
+    let fixture = Fixture::new();
+    let target = fixture.create_backup("administration:create-backup:delete", None, false);
+    let backup_id = target.committed.value.backup_id.expect("target backup");
+
+    let deleted = fixture.delete_backup("administration:delete-backup:1", &backup_id);
+    assert_eq!(
+        deleted.committed.value.backup_id.as_deref(),
+        Some(backup_id.as_str())
+    );
+    assert!(!deleted.committed.receipt.mutation.duplicate);
+    assert_eq!(
+        deleted
+            .event
+            .as_ref()
+            .and_then(|event| match &event.payload {
+                nodex_core_contracts::CoreModuleEventPayload::StoreAdministration(event) => {
+                    Some(event.backup_ids.as_slice())
+                }
+                _ => None,
+            }),
+        Some([backup_id.clone()].as_slice())
+    );
+    assert!(!fixture.home().join("backups").join(&backup_id).exists());
+    let StoreAdministrationReadValue::Backups { items } =
+        fixture.read(StoreAdministrationRead::Backups)
+    else {
+        panic!("backup list")
+    };
+    assert!(items.is_empty());
+
+    let retry = fixture.delete_backup("administration:delete-backup:1", &backup_id);
+    assert!(retry.committed.receipt.mutation.duplicate);
+    assert!(retry.event.is_none());
+    let restore = fixture
+        .module
+        .apply(
+            &fixture.context(),
+            ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: "administration:restore-deleted-backup".to_owned(),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: StoreAdministrationIntent::RestoreBackup {
+                    backup_id,
+                    create_safety_backup: false,
+                },
+            },
+        )
+        .expect_err("logically deleted backup cannot be restored");
+    assert_eq!(restore.code, CoreErrorCode::NotFound);
+}
+
+#[test]
+fn exact_delete_retry_finishes_physical_cleanup_after_receipt_commit() {
+    let fixture = Fixture::new();
+    let target = fixture.create_backup("administration:create-backup:delete-adoption", None, false);
+    let backup_id = target.committed.value.backup_id.expect("target backup");
+    let operation_id = "administration:delete-backup:adopt";
+    let fingerprint = serde_json::to_vec(&(
+        PROFILE_ID,
+        LIBRARY_ID,
+        CORE_CONTRACT_VERSION,
+        StoreEpoch(STORE_EPOCH.to_owned()),
+        "delete_backup",
+        &backup_id,
+    ))
+    .expect("delete request fingerprint");
+    let request_hash = super::sha256(&fingerprint);
+    let context = fixture.context();
+    let operation_id_for_write = operation_id.to_owned();
+    let backup_id_for_write = backup_id.clone();
+    fixture
+        .kernel
+        .writer()
+        .call(move |connection| {
+            let committed_at = super::sqlite_now(connection)?;
+            super::finish_cleanup_operation(
+                connection,
+                LIBRARY_ID,
+                &context,
+                &operation_id_for_write,
+                &request_hash,
+                STORE_EPOCH,
+                "delete_backup",
+                Some(&backup_id_for_write),
+                std::slice::from_ref(&backup_id_for_write),
+                &committed_at,
+            )
+        })
+        .expect("durable delete receipt");
+    assert!(fixture.home().join("backups").join(&backup_id).exists());
+    let StoreAdministrationReadValue::Backups { items } =
+        fixture.read(StoreAdministrationRead::Backups)
+    else {
+        panic!("backup list")
+    };
+    assert!(items.is_empty());
+
+    let retry = fixture.delete_backup(operation_id, &backup_id);
+    assert!(retry.committed.receipt.mutation.duplicate);
+    assert!(!fixture.home().join("backups").join(&backup_id).exists());
+}
+
+#[test]
+fn prunes_only_automatic_backups_beyond_the_retention_count() {
+    let fixture = Fixture::new();
+    let mut automatic_ids = Vec::new();
+    for index in 0..3 {
+        let created = fixture.create_backup(
+            &format!("administration:create-backup:auto-{index}"),
+            Some(&format!("auto {index}")),
+            false,
+        );
+        let backup_id = created.committed.value.backup_id.expect("auto backup");
+        set_backup_trigger(fixture.home(), &backup_id, "auto");
+        automatic_ids.push(backup_id);
+    }
+    let manual = fixture.create_backup(
+        "administration:create-backup:manual-retained",
+        Some("manual"),
+        false,
+    );
+    let manual_id = manual.committed.value.backup_id.expect("manual backup");
+    let automatic_inventory = super::backup::list_backup_inventory(fixture.home())
+        .expect("backup inventory")
+        .into_iter()
+        .filter(|item| item.trigger == "auto")
+        .map(|item| item.record.backup_id)
+        .collect::<Vec<_>>();
+    let retained_automatic = automatic_inventory[0].clone();
+    let expected_removed = automatic_inventory[1..].to_vec();
+
+    let pruned = fixture.prune_backups("administration:prune-backups:1", 1);
+    let removed = pruned
+        .event
+        .as_ref()
+        .and_then(|event| match &event.payload {
+            nodex_core_contracts::CoreModuleEventPayload::StoreAdministration(event) => {
+                Some(event.backup_ids.clone())
+            }
+            _ => None,
+        })
+        .expect("prune event");
+    assert_eq!(removed, expected_removed);
+    assert!(fixture.home().join("backups").join(&manual_id).exists());
+    assert!(
+        fixture
+            .home()
+            .join("backups")
+            .join(&retained_automatic)
+            .exists()
+    );
+    for backup_id in &expected_removed {
+        assert!(!fixture.home().join("backups").join(backup_id).exists());
+    }
+    let StoreAdministrationReadValue::Backups { items } =
+        fixture.read(StoreAdministrationRead::Backups)
+    else {
+        panic!("backup list")
+    };
+    assert_eq!(items.len(), 2);
+    assert!(items.iter().any(|item| item.backup_id == manual_id));
+    assert!(
+        items
+            .iter()
+            .any(|item| item.backup_id == retained_automatic)
+    );
+
+    let retry = fixture.prune_backups("administration:prune-backups:1", 1);
+    assert!(retry.committed.receipt.mutation.duplicate);
+    assert!(retry.event.is_none());
+    assert_eq!(automatic_ids.len(), 3);
+}
+
+#[test]
+fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
+    let fixture = Fixture::new();
+    let tasks = vec![
+        MaintenanceTask::HistoryRetention,
+        MaintenanceTask::DocumentCompaction,
+        MaintenanceTask::ForeignKeyCheck,
+        MaintenanceTask::IntegrityCheck,
+    ];
+    let maintained = fixture
+        .run_maintenance("administration:maintenance:1", tasks)
+        .expect("maintenance pass");
+    assert_eq!(
+        maintained.committed.value.completed_tasks,
+        [
+            MaintenanceTask::IntegrityCheck,
+            MaintenanceTask::ForeignKeyCheck,
+            MaintenanceTask::DocumentCompaction,
+            MaintenanceTask::HistoryRetention,
+        ]
+    );
+    assert!(maintained.event.is_some());
+    assert_eq!(
+        fixture.read(StoreAdministrationRead::Status),
+        StoreAdministrationReadValue::Status {
+            readiness: StoreReadiness::Ready,
+            schema_version: 83,
+            schema_owner: SchemaOwner::Rust,
+            integrity: StoreIntegrity::Ok,
+        }
+    );
+
+    let retry = fixture
+        .run_maintenance(
+            "administration:maintenance:1",
+            vec![
+                MaintenanceTask::IntegrityCheck,
+                MaintenanceTask::ForeignKeyCheck,
+                MaintenanceTask::DocumentCompaction,
+                MaintenanceTask::HistoryRetention,
+            ],
+        )
+        .expect("exact maintenance retry");
+    assert!(retry.committed.receipt.mutation.duplicate);
+    assert!(retry.event.is_none());
+
+    let duplicate = fixture
+        .run_maintenance(
+            "administration:maintenance:duplicate-task",
+            vec![
+                MaintenanceTask::IntegrityCheck,
+                MaintenanceTask::IntegrityCheck,
+            ],
+        )
+        .expect_err("duplicate maintenance task");
+    assert_eq!(duplicate.code, CoreErrorCode::InvalidInput);
+    let block_retention = fixture
+        .run_maintenance(
+            "administration:maintenance:block-retention",
+            vec![MaintenanceTask::BlockRetention],
+        )
+        .expect_err("unported Block retention task");
+    assert_eq!(block_retention.code, CoreErrorCode::CoreUnavailable);
+}
+
+#[test]
+fn failed_foreign_key_maintenance_marks_integrity_failed_without_a_receipt() {
+    let fixture = Fixture::new();
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute_batch(
+                "PRAGMA foreign_keys = OFF; \
+                 INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                 VALUES ('library:orphan', 'profile:missing', \
+                   '2026-07-19T00:00:00.000Z', '2026-07-19T00:00:00.000Z'); \
+                 PRAGMA foreign_keys = ON;",
+            )?;
+            Ok(())
+        })
+        .expect("foreign key corruption fixture");
+
+    let error = fixture
+        .run_maintenance(
+            "administration:maintenance:foreign-key-failure",
+            vec![MaintenanceTask::ForeignKeyCheck],
+        )
+        .expect_err("foreign key maintenance failure");
+    assert_eq!(error.code, CoreErrorCode::StoreCorrupt);
+    assert_eq!(
+        fixture.read(StoreAdministrationRead::Status),
+        StoreAdministrationReadValue::Status {
+            readiness: StoreReadiness::Ready,
+            schema_version: 83,
+            schema_owner: SchemaOwner::Rust,
+            integrity: StoreIntegrity::Failed,
+        }
+    );
+    let receipt_exists = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM core_module_receipts \
+                     WHERE module_name = 'store_administration' AND operation_id = ?1)",
+                    ["administration:maintenance:foreign-key-failure"],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(Into::into)
+        })
+        .expect("failed maintenance receipt existence");
+    assert_eq!(receipt_exists, 0);
+}
+
+fn set_backup_trigger(profile_home: &Path, backup_id: &str, trigger: &str) {
+    let manifest_path = profile_home
+        .join("backups")
+        .join(backup_id)
+        .join("manifest.json");
+    let mut manifest = serde_json::from_slice::<serde_json::Value>(
+        &fs::read(&manifest_path).expect("backup manifest"),
+    )
+    .expect("backup manifest JSON");
+    manifest["trigger"] = serde_json::Value::String(trigger.to_owned());
+    fs::write(
+        manifest_path,
+        serde_json::to_vec_pretty(&manifest).expect("encoded backup manifest"),
+    )
+    .expect("updated backup manifest");
 }

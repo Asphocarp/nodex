@@ -5,6 +5,7 @@ mod compaction;
 mod event_log;
 mod genesis;
 mod history;
+mod maintenance;
 mod materialization;
 mod module;
 mod operations;
@@ -24,6 +25,7 @@ pub use block_document::{
     encode_block_document,
 };
 pub use compaction::DocumentCompactionResult;
+pub(crate) use maintenance::{compact_eligible_documents, prune_document_history_pass};
 pub use materialization::{
     BlockDocumentKind, BlockDocumentSchemaMetadata, DocumentBlockSearchUnit,
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,

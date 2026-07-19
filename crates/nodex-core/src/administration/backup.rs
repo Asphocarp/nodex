@@ -17,6 +17,13 @@ const BACKUP_DATABASE_FILE_NAME: &str = "nodex.db";
 const BACKUP_ASSETS_DIRECTORY_NAME: &str = "assets";
 const BACKUP_MANIFEST_FILE_NAME: &str = "manifest.json";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+const MAX_BACKUP_ENTRIES: usize = 10_000;
+const MAX_BACKUP_TREE_ENTRIES: usize = 100_000;
+
+pub(super) struct BackupInventoryItem {
+    pub record: BackupRecord,
+    pub trigger: String,
+}
 
 pub(super) struct ValidatedRestoreBackup {
     directory: PathBuf,
@@ -49,10 +56,22 @@ struct BackupManifest {
 }
 
 pub(super) fn list_backups(profile_home: &Path) -> Result<Vec<BackupRecord>, StoreError> {
+    Ok(list_backup_inventory(profile_home)?
+        .into_iter()
+        .map(|item| item.record)
+        .collect())
+}
+
+pub(super) fn list_backup_inventory(
+    profile_home: &Path,
+) -> Result<Vec<BackupInventoryItem>, StoreError> {
     let root = profile_home.join("backups");
     let Some(entries) = read_backup_root(&root)? else {
         return Ok(Vec::new());
     };
+    if entries.len() > MAX_BACKUP_ENTRIES {
+        return Err(corrupt("Backup inventory exceeds its entry bound"));
+    }
     let mut backups = Vec::new();
     for entry in entries {
         let file_type = entry.file_type().map_err(io_error)?;
@@ -69,15 +88,84 @@ pub(super) fn list_backups(profile_home: &Path) -> Result<Vec<BackupRecord>, Sto
         if manifest.id != name || validate_manifest(&manifest).is_err() {
             continue;
         }
-        backups.push(to_record(&manifest));
+        backups.push(BackupInventoryItem {
+            record: to_record(&manifest),
+            trigger: manifest.trigger,
+        });
     }
     backups.sort_by(|left, right| {
         right
+            .record
             .created_at
-            .cmp(&left.created_at)
-            .then_with(|| right.backup_id.cmp(&left.backup_id))
+            .cmp(&left.record.created_at)
+            .then_with(|| right.record.backup_id.cmp(&left.record.backup_id))
     });
     Ok(backups)
+}
+
+pub(super) fn validate_backup_for_deletion(
+    profile_home: &Path,
+    backup_id: &str,
+) -> Result<(), StoreError> {
+    if !is_safe_backup_id(backup_id) {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Backup identity is invalid",
+            false,
+        ));
+    }
+    let root = profile_home.join("backups");
+    require_directory(&root, "Backup root")?;
+    let directory = root.join(backup_id);
+    let metadata = match fs::symlink_metadata(&directory) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(StoreError::new(
+                StoreErrorCode::NotFound,
+                "Backup was not found",
+                false,
+            ));
+        }
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(invalid_profile(
+            "Backup deletion target must be a real owned directory",
+        ));
+    }
+    let mut inspected = 0usize;
+    inspect_removable_tree(&directory, &mut inspected)
+}
+
+pub(super) fn delete_backup_directories(
+    profile_home: &Path,
+    backup_ids: &[String],
+) -> Result<(), StoreError> {
+    if backup_ids.is_empty() {
+        return Ok(());
+    }
+    let root = profile_home.join("backups");
+    require_directory(&root, "Backup root")?;
+    for backup_id in backup_ids {
+        if !is_safe_backup_id(backup_id) {
+            return Err(corrupt("Durable backup deletion identity is invalid"));
+        }
+        let directory = root.join(backup_id);
+        let metadata = match fs::symlink_metadata(&directory) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(io_error(error)),
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(invalid_profile(
+                "Backup deletion target must remain a real owned directory",
+            ));
+        }
+        let mut inspected = 0usize;
+        inspect_removable_tree(&directory, &mut inspected)?;
+        fs::remove_dir_all(&directory).map_err(io_error)?;
+    }
+    sync_directory(&root)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -504,6 +592,34 @@ fn inspect_directory(root: &Path) -> Result<u64, StoreError> {
     Ok(total)
 }
 
+fn inspect_removable_tree(root: &Path, inspected: &mut usize) -> Result<(), StoreError> {
+    for entry in fs::read_dir(root).map_err(io_error)? {
+        let entry = entry.map_err(io_error)?;
+        *inspected = inspected
+            .checked_add(1)
+            .ok_or_else(|| corrupt("Backup deletion tree exceeds its entry bound"))?;
+        if *inspected > MAX_BACKUP_TREE_ENTRIES {
+            return Err(corrupt("Backup deletion tree exceeds its entry bound"));
+        }
+        let metadata = fs::symlink_metadata(entry.path()).map_err(io_error)?;
+        if metadata.file_type().is_symlink() {
+            return Err(invalid_profile(
+                "Backup deletion tree must not contain symbolic links",
+            ));
+        }
+        if metadata.is_dir() {
+            inspect_removable_tree(&entry.path(), inspected)?;
+            continue;
+        }
+        if !metadata.is_file() {
+            return Err(invalid_profile(
+                "Backup deletion tree contains an unsupported entry",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn validate_backup_database(path: &Path) -> Result<(u32, String), StoreError> {
     let result = (|| {
         let connection = open_immutable_reader(path)?;
@@ -618,7 +734,7 @@ fn manifest_version() -> u32 {
     BACKUP_MANIFEST_VERSION
 }
 
-fn is_safe_backup_id(value: &str) -> bool {
+pub(super) fn is_safe_backup_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value

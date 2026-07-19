@@ -93,9 +93,9 @@ execution context, root/child Thread collection, managed-worktree set, durable
 sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Store Administration's deletion,
-retention, and general maintenance operations remain migration work;
-unavailable semantics do not fall back to direct native SQL.
+bindings and cross-Library rows fail closed. Store Administration's physical
+Block-retention closure remains migration work; unavailable semantics do not
+fall back to direct native SQL.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
 occurrence surface. Store Administration owns v83 readiness, backup listing,
@@ -109,9 +109,13 @@ semantically validates the complete v83 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
-old in-memory event replay before committing its receipt/event. Deletion,
-retention, and general maintenance remain unavailable until their complete
-filesystem/task semantics are integrated with the same fence.
+old in-memory event replay before committing its receipt/event. Backup deletion
+and automatic-retention pruning commit a durable logical tombstone before
+best-effort physical cleanup, so a crash cannot make a deleted backup visible or
+restorable and an exact retry finishes cleanup. Maintenance normalizes task
+order inside the Module and owns integrity/foreign-key verification, bounded
+eligible Document compaction, and revision retention. Block-retention GC remains
+closed until its complete authority-closure proof is ported.
 
 Every native Module now holds a stable `StoreWriter`/`StoreReaders` facade,
 not a generation-local connection or channel. The shared store runtime admits

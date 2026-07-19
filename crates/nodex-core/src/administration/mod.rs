@@ -4,11 +4,12 @@ mod restore;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, TryLockError};
 
 use nodex_core_contracts::administration::{
-    SchemaOwner, StoreAdministrationCommitValue, StoreAdministrationEvent,
+    MaintenanceTask, SchemaOwner, StoreAdministrationCommitValue, StoreAdministrationEvent,
     StoreAdministrationEventKind, StoreAdministrationIntent, StoreAdministrationRead,
     StoreAdministrationReadValue, StoreAdministrationReceipt, StoreIntegrity, StoreReadiness,
 };
@@ -166,9 +167,12 @@ impl StoreAdministrationModule {
                             integrity: state.integrity,
                         }
                     }
-                    StoreAdministrationRead::Backups => StoreAdministrationReadValue::Backups {
-                        items: backup::list_backups(&profile_home)?,
-                    },
+                    StoreAdministrationRead::Backups => {
+                        let deleted = logically_deleted_backup_ids(&transaction)?;
+                        let mut items = backup::list_backups(&profile_home)?;
+                        items.retain(|item| !deleted.contains(&item.backup_id));
+                        StoreAdministrationReadValue::Backups { items }
+                    }
                     StoreAdministrationRead::MaintenanceStatus => {
                         let state = runtime.lock().map_err(|_| {
                             internal("Store Administration runtime state lock failed")
@@ -210,18 +214,19 @@ impl StoreAdministrationModule {
         }
         require_private_adapter(context)?;
         validate_operation_id(&request.operation_id)?;
-        let (phase, normalized_label, restore) = match &request.intent {
+        let intent = request.intent.clone();
+        let (phase, normalized_label, maintenance_tasks) = match &intent {
             StoreAdministrationIntent::CreateBackup { label, .. } => {
-                ("online_backup", normalize_label(label)?, false)
+                ("online_backup", normalize_label(label)?, None)
             }
-            StoreAdministrationIntent::RestoreBackup { .. } => ("restore", None, true),
-            StoreAdministrationIntent::DeleteBackup { .. }
-            | StoreAdministrationIntent::PruneBackups { .. }
-            | StoreAdministrationIntent::RunMaintenance { .. } => {
-                return Err(unavailable(
-                    "This Store Administration operation is not available in the backup/restore slice",
-                ));
-            }
+            StoreAdministrationIntent::RestoreBackup { .. } => ("restore", None, None),
+            StoreAdministrationIntent::DeleteBackup { .. } => ("delete_backup", None, None),
+            StoreAdministrationIntent::PruneBackups { .. } => ("prune_backups", None, None),
+            StoreAdministrationIntent::RunMaintenance { tasks } => (
+                "maintenance",
+                None,
+                Some(normalize_maintenance_tasks(tasks)?),
+            ),
         };
         let operation_guard = match self.operation_lock.try_lock() {
             Ok(guard) => guard,
@@ -231,10 +236,24 @@ impl StoreAdministrationModule {
             }
         };
         self.set_active(&request.operation_id, phase)?;
-        let result = if restore {
-            self.apply_restore_backup(context, request)
-        } else {
-            self.apply_create_backup(context, request, normalized_label)
+        let result = match intent {
+            StoreAdministrationIntent::CreateBackup { .. } => {
+                self.apply_create_backup(context, request, normalized_label)
+            }
+            StoreAdministrationIntent::RestoreBackup { .. } => {
+                self.apply_restore_backup(context, request)
+            }
+            StoreAdministrationIntent::DeleteBackup { .. } => {
+                self.apply_delete_backup(context, request)
+            }
+            StoreAdministrationIntent::PruneBackups { .. } => {
+                self.apply_prune_backups(context, request)
+            }
+            StoreAdministrationIntent::RunMaintenance { .. } => self.apply_maintenance(
+                context,
+                request,
+                maintenance_tasks.expect("maintenance tasks were normalized"),
+            ),
         };
         self.clear_active();
         drop(operation_guard);
@@ -335,6 +354,255 @@ impl StoreAdministrationModule {
         Ok(outcome)
     }
 
+    fn apply_delete_backup(
+        &self,
+        context: &BoundModuleContext,
+        request: ModuleApplyRequest<StoreAdministrationIntent>,
+    ) -> Result<StoreAdministrationApplyOutcome, CoreError> {
+        let Some(writer) = &self.writer else {
+            return Err(unavailable(
+                "Store Administration Module has no durable writer",
+            ));
+        };
+        let Some(profile_home) = &self.profile_home else {
+            return Err(unavailable(
+                "Store Administration Module has no managed Profile home",
+            ));
+        };
+        let StoreAdministrationIntent::DeleteBackup { backup_id } = request.intent else {
+            unreachable!("apply validates the Store Administration intent")
+        };
+        let fingerprint = serde_json::to_vec(&(
+            &self.profile_id,
+            &self.library_id,
+            request.version,
+            &request.store_epoch,
+            "delete_backup",
+            &backup_id,
+        ))
+        .map_err(|_| unavailable("Backup deletion request cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let profile_id = self.profile_id.clone();
+        let library_id = self.library_id.clone();
+        let finish_context = context.clone();
+        let operation_id = request.operation_id;
+        let requested_store_epoch = request.store_epoch.0;
+        let profile_home_for_write = profile_home.clone();
+        let backup_id_for_write = backup_id.clone();
+        let (outcome, deleted_backup_ids) = writer
+            .call(move |connection| {
+                assert_identity(connection, &profile_id, &library_id)?;
+                let store_epoch = read_store_epoch(connection)?;
+                if requested_store_epoch != store_epoch {
+                    return Err(stale_store_epoch());
+                }
+                if let Some(replayed) =
+                    replay_cleanup_outcome(connection, &operation_id, &request_hash)?
+                {
+                    return Ok(replayed);
+                }
+                let deleted = logically_deleted_backup_ids(connection)?;
+                if deleted.contains(&backup_id_for_write) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::NotFound,
+                        "Backup was not found",
+                        false,
+                    ));
+                }
+                let exists = backup::list_backup_inventory(&profile_home_for_write)?
+                    .into_iter()
+                    .any(|item| item.record.backup_id == backup_id_for_write);
+                if !exists {
+                    return Err(StoreError::new(
+                        StoreErrorCode::NotFound,
+                        "Backup was not found",
+                        false,
+                    ));
+                }
+                backup::validate_backup_for_deletion(
+                    &profile_home_for_write,
+                    &backup_id_for_write,
+                )?;
+                let committed_at = sqlite_now(connection)?;
+                let deleted_backup_ids = vec![backup_id_for_write.clone()];
+                let outcome = finish_cleanup_operation(
+                    connection,
+                    &library_id,
+                    &finish_context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "delete_backup",
+                    Some(&backup_id_for_write),
+                    &deleted_backup_ids,
+                    &committed_at,
+                )?;
+                Ok((outcome, deleted_backup_ids))
+            })
+            .map_err(core_error)?;
+        let _ = backup::delete_backup_directories(profile_home, &deleted_backup_ids);
+        Ok(outcome)
+    }
+
+    fn apply_prune_backups(
+        &self,
+        context: &BoundModuleContext,
+        request: ModuleApplyRequest<StoreAdministrationIntent>,
+    ) -> Result<StoreAdministrationApplyOutcome, CoreError> {
+        let Some(writer) = &self.writer else {
+            return Err(unavailable(
+                "Store Administration Module has no durable writer",
+            ));
+        };
+        let Some(profile_home) = &self.profile_home else {
+            return Err(unavailable(
+                "Store Administration Module has no managed Profile home",
+            ));
+        };
+        let StoreAdministrationIntent::PruneBackups { retain_count } = request.intent else {
+            unreachable!("apply validates the Store Administration intent")
+        };
+        let fingerprint = serde_json::to_vec(&(
+            &self.profile_id,
+            &self.library_id,
+            request.version,
+            &request.store_epoch,
+            "prune_backups",
+            retain_count,
+        ))
+        .map_err(|_| unavailable("Backup pruning request cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let profile_id = self.profile_id.clone();
+        let library_id = self.library_id.clone();
+        let finish_context = context.clone();
+        let operation_id = request.operation_id;
+        let requested_store_epoch = request.store_epoch.0;
+        let profile_home_for_write = profile_home.clone();
+        let (outcome, deleted_backup_ids) = writer
+            .call(move |connection| {
+                assert_identity(connection, &profile_id, &library_id)?;
+                let store_epoch = read_store_epoch(connection)?;
+                if requested_store_epoch != store_epoch {
+                    return Err(stale_store_epoch());
+                }
+                if let Some(replayed) =
+                    replay_cleanup_outcome(connection, &operation_id, &request_hash)?
+                {
+                    return Ok(replayed);
+                }
+                let logically_deleted = logically_deleted_backup_ids(connection)?;
+                let retain_count = usize::try_from(retain_count)
+                    .map_err(|_| invalid_store("Backup retention count is invalid"))?;
+                let deleted_backup_ids = backup::list_backup_inventory(&profile_home_for_write)?
+                    .into_iter()
+                    .filter(|item| {
+                        item.trigger == "auto"
+                            && !logically_deleted.contains(&item.record.backup_id)
+                    })
+                    .skip(retain_count)
+                    .map(|item| item.record.backup_id)
+                    .collect::<Vec<_>>();
+                for backup_id in &deleted_backup_ids {
+                    backup::validate_backup_for_deletion(&profile_home_for_write, backup_id)?;
+                }
+                let committed_at = sqlite_now(connection)?;
+                let outcome = finish_cleanup_operation(
+                    connection,
+                    &library_id,
+                    &finish_context,
+                    &operation_id,
+                    &request_hash,
+                    &store_epoch,
+                    "prune_backups",
+                    None,
+                    &deleted_backup_ids,
+                    &committed_at,
+                )?;
+                Ok((outcome, deleted_backup_ids))
+            })
+            .map_err(core_error)?;
+        let _ = backup::delete_backup_directories(profile_home, &deleted_backup_ids);
+        Ok(outcome)
+    }
+
+    fn apply_maintenance(
+        &self,
+        context: &BoundModuleContext,
+        request: ModuleApplyRequest<StoreAdministrationIntent>,
+        tasks: Vec<MaintenanceTask>,
+    ) -> Result<StoreAdministrationApplyOutcome, CoreError> {
+        if tasks.contains(&MaintenanceTask::BlockRetention) {
+            return Err(unavailable(
+                "Native Block retention maintenance is not available in this slice",
+            ));
+        }
+        let Some(writer) = &self.writer else {
+            return Err(unavailable(
+                "Store Administration Module has no durable writer",
+            ));
+        };
+        let fingerprint = serde_json::to_vec(&(
+            &self.profile_id,
+            &self.library_id,
+            request.version,
+            &request.store_epoch,
+            "run_maintenance",
+            &tasks,
+        ))
+        .map_err(|_| unavailable("Store maintenance request cannot be fingerprinted"))?;
+        let request_hash = sha256(&fingerprint);
+        let profile_id = self.profile_id.clone();
+        let library_id = self.library_id.clone();
+        let finish_context = context.clone();
+        let operation_id = request.operation_id;
+        let requested_store_epoch = request.store_epoch.0;
+        let tasks_for_write = tasks.clone();
+        let verifies_integrity = tasks.iter().any(|task| {
+            matches!(
+                task,
+                MaintenanceTask::IntegrityCheck | MaintenanceTask::ForeignKeyCheck
+            )
+        });
+        let result = writer.call(move |connection| {
+            assert_identity(connection, &profile_id, &library_id)?;
+            let store_epoch = read_store_epoch(connection)?;
+            if requested_store_epoch != store_epoch {
+                return Err(stale_store_epoch());
+            }
+            if let Some(outcome) = replay_outcome(connection, &operation_id, &request_hash)? {
+                return Ok(outcome);
+            }
+            for task in &tasks_for_write {
+                run_maintenance_task(connection, *task)?;
+            }
+            let committed_at = sqlite_now(connection)?;
+            finish_maintenance(
+                connection,
+                &library_id,
+                &finish_context,
+                &operation_id,
+                &request_hash,
+                &store_epoch,
+                &tasks_for_write,
+                &committed_at,
+            )
+        });
+        match result {
+            Ok(outcome) => {
+                if verifies_integrity && let Ok(mut state) = self.runtime.lock() {
+                    state.integrity = StoreIntegrity::Ok;
+                }
+                Ok(outcome)
+            }
+            Err(error) => {
+                if verifies_integrity && let Ok(mut state) = self.runtime.lock() {
+                    state.integrity = StoreIntegrity::Failed;
+                }
+                Err(core_error(error))
+            }
+        }
+    }
+
     fn apply_restore_backup(
         &self,
         context: &BoundModuleContext,
@@ -377,10 +645,23 @@ impl StoreAdministrationModule {
         let library_id = self.library_id.clone();
         let preflight_operation_id = operation_id.clone();
         let preflight_request_hash = request_hash.clone();
+        let preflight_backup_id = backup_id.clone();
         if let Some(outcome) = writer
             .call(move |connection| {
                 assert_identity(connection, &profile_id, &library_id)?;
-                replay_outcome(connection, &preflight_operation_id, &preflight_request_hash)
+                if let Some(outcome) =
+                    replay_outcome(connection, &preflight_operation_id, &preflight_request_hash)?
+                {
+                    return Ok(Some(outcome));
+                }
+                if logically_deleted_backup_ids(connection)?.contains(&preflight_backup_id) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::NotFound,
+                        "Restore backup was not found",
+                        false,
+                    ));
+                }
+                Ok(None)
             })
             .map_err(core_error)?
         {
@@ -555,6 +836,83 @@ fn replay_outcome(
     }))
 }
 
+fn replay_cleanup_outcome(
+    connection: &Connection,
+    operation_id: &str,
+    request_hash: &str,
+) -> Result<Option<(StoreAdministrationApplyOutcome, Vec<String>)>, StoreError> {
+    let Some(stored) = read_module_receipt(connection, MODULE_NAME, operation_id)? else {
+        return Ok(None);
+    };
+    if stored.request_hash != request_hash {
+        return Err(StoreError::new(
+            StoreErrorCode::IdempotencyKeyReused,
+            "operation_id is already bound to another Store Administration intent",
+            false,
+        ));
+    }
+    let deleted_backup_ids = deleted_backup_ids_from_result(&stored.result)?;
+    let mut committed = serde_json::from_value::<
+        CommittedModuleValue<StoreAdministrationCommitValue, StoreAdministrationReceipt>,
+    >(stored.result)
+    .map_err(|_| corrupt("Stored Store Administration cleanup receipt is invalid"))?;
+    committed.receipt.mutation.duplicate = true;
+    Ok(Some((
+        StoreAdministrationApplyOutcome {
+            committed,
+            event: None,
+        },
+        deleted_backup_ids,
+    )))
+}
+
+fn logically_deleted_backup_ids(connection: &Connection) -> Result<BTreeSet<String>, StoreError> {
+    let result_json = connection
+        .prepare(
+            "SELECT result_json FROM core_module_receipts \
+             WHERE module_name = ?1 AND operation_kind IN ('delete_backup', 'prune_backups') \
+             ORDER BY committed_at, operation_id LIMIT 10001",
+        )?
+        .query_map([MODULE_NAME], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if result_json.len() > 10_000 {
+        return Err(corrupt(
+            "Durable backup deletion ledger exceeds its row bound",
+        ));
+    }
+    let mut deleted = BTreeSet::new();
+    for raw in result_json {
+        let value = serde_json::from_str(&raw)
+            .map_err(|_| corrupt("Durable backup deletion receipt JSON is invalid"))?;
+        for backup_id in deleted_backup_ids_from_result(&value)? {
+            deleted.insert(backup_id);
+        }
+    }
+    Ok(deleted)
+}
+
+fn deleted_backup_ids_from_result(result: &serde_json::Value) -> Result<Vec<String>, StoreError> {
+    let values = result
+        .get("_coreDeletedBackupIds")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| corrupt("Durable backup deletion receipt has no cleanup identities"))?;
+    if values.len() > 10_000 {
+        return Err(corrupt(
+            "Durable backup deletion receipt exceeds its identity bound",
+        ));
+    }
+    values
+        .iter()
+        .map(|value| {
+            let backup_id = value
+                .as_str()
+                .filter(|backup_id| backup::is_safe_backup_id(backup_id))
+                .ok_or_else(|| corrupt("Durable backup deletion identity is invalid"))?;
+            Ok(backup_id.to_owned())
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn finish_backup_creation(
     connection: &mut Connection,
@@ -646,6 +1004,251 @@ fn finish_backup_creation(
                 operation: "create_backup".to_owned(),
                 backup_ids: vec![backup_id.to_owned()],
                 readiness_changed: false,
+            }),
+        });
+        Ok(StoreAdministrationApplyOutcome { committed, event })
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_cleanup_operation(
+    connection: &mut Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    request_hash: &str,
+    store_epoch: &str,
+    operation_kind: &str,
+    backup_id: Option<&str>,
+    deleted_backup_ids: &[String],
+    committed_at: &str,
+) -> Result<StoreAdministrationApplyOutcome, StoreError> {
+    with_immediate_transaction(connection, |transaction| {
+        let payload = json!({
+            "module": MODULE_NAME,
+            "operationKind": operation_kind,
+            "kind": "store_administration_changed",
+            "backupIds": deleted_backup_ids,
+            "readinessChanged": false,
+        });
+        let event_project_id = transaction
+            .query_row(
+                "SELECT id FROM projects WHERE library_id = ?1 \
+                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, created, id LIMIT 1",
+                [library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let event_sequence = if let Some(project_id) = event_project_id.as_deref() {
+            transaction.execute(
+                "INSERT INTO change_log(\
+                   project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
+                   database_block_ids_json, payload_json, committed_at\
+                 ) VALUES (?1, ?2, 'store_administration.changed', ?3, '[]', '[]', '[]', ?4, ?5)",
+                params![
+                    project_id,
+                    store_epoch,
+                    operation_id,
+                    payload.to_string(),
+                    committed_at
+                ],
+            )?;
+            transaction.last_insert_rowid()
+        } else {
+            transaction.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
+                row.get::<_, i64>(0)
+            })?
+        };
+        let committed = CommittedModuleValue {
+            value: StoreAdministrationCommitValue {
+                backup_id: backup_id.map(str::to_owned),
+                safety_backup_id: None,
+                completed_tasks: Vec::new(),
+            },
+            receipt: StoreAdministrationReceipt {
+                mutation: ModuleMutationReceipt {
+                    operation_id: operation_id.to_owned(),
+                    duplicate: false,
+                },
+                backup_id: backup_id.map(str::to_owned),
+                safety_backup_id: None,
+            },
+            event_sequence,
+            store_epoch: StoreEpoch(store_epoch.to_owned()),
+        };
+        let mut result = serde_json::to_value(&committed)
+            .map_err(|_| internal("Store cleanup receipt could not be encoded"))?;
+        let object = result
+            .as_object_mut()
+            .ok_or_else(|| internal("Store cleanup receipt is not an object"))?;
+        object.insert(
+            "_coreDeletedBackupIds".to_owned(),
+            serde_json::to_value(deleted_backup_ids)
+                .map_err(|_| internal("Backup cleanup identities could not be encoded"))?,
+        );
+        insert_module_receipt(
+            transaction,
+            NewModuleReceipt {
+                module_name: MODULE_NAME,
+                operation_id,
+                context,
+                operation_kind,
+                store_epoch,
+                request_hash,
+                result: &result,
+                event_sequence: (event_project_id.is_some()).then_some(event_sequence),
+                committed_at,
+            },
+        )?;
+        let event = event_project_id.map(|_| CommittedCoreModuleEvent {
+            version: CORE_CONTRACT_VERSION,
+            sequence: event_sequence,
+            store_epoch: StoreEpoch(store_epoch.to_owned()),
+            operation_id: Some(operation_id.to_owned()),
+            committed_at: committed_at.to_owned(),
+            payload: CoreModuleEventPayload::StoreAdministration(StoreAdministrationEvent {
+                kind: StoreAdministrationEventKind::StoreAdministrationChanged,
+                operation: operation_kind.to_owned(),
+                backup_ids: deleted_backup_ids.to_vec(),
+                readiness_changed: false,
+            }),
+        });
+        Ok(StoreAdministrationApplyOutcome { committed, event })
+    })
+}
+
+fn run_maintenance_task(
+    connection: &mut Connection,
+    task: MaintenanceTask,
+) -> Result<(), StoreError> {
+    match task {
+        MaintenanceTask::IntegrityCheck => {
+            let integrity = connection
+                .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))?;
+            if integrity != "ok" {
+                return Err(corrupt(format!(
+                    "SQLite integrity_check failed: {integrity}"
+                )));
+            }
+        }
+        MaintenanceTask::ForeignKeyCheck => {
+            let violations = connection.query_row(
+                "SELECT count(*) FROM pragma_foreign_key_check",
+                [],
+                |row| row.get::<_, i64>(0),
+            )?;
+            if violations != 0 {
+                return Err(corrupt(format!(
+                    "SQLite foreign_key_check found {violations} violations"
+                )));
+            }
+        }
+        MaintenanceTask::DocumentCompaction => {
+            crate::document::compact_eligible_documents(connection)?;
+        }
+        MaintenanceTask::HistoryRetention => {
+            crate::document::prune_document_history_pass(connection)?;
+        }
+        MaintenanceTask::BlockRetention => {
+            return Err(internal(
+                "Block retention must be rejected before maintenance execution",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_maintenance(
+    connection: &mut Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    operation_id: &str,
+    request_hash: &str,
+    store_epoch: &str,
+    completed_tasks: &[MaintenanceTask],
+    committed_at: &str,
+) -> Result<StoreAdministrationApplyOutcome, StoreError> {
+    with_immediate_transaction(connection, |transaction| {
+        let payload = json!({
+            "module": MODULE_NAME,
+            "operationKind": "run_maintenance",
+            "kind": "store_administration_changed",
+            "backupIds": [],
+            "readinessChanged": true,
+        });
+        let event_project_id = transaction
+            .query_row(
+                "SELECT id FROM projects WHERE library_id = ?1 \
+                 ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, created, id LIMIT 1",
+                [library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let event_sequence = if let Some(project_id) = event_project_id.as_deref() {
+            transaction.execute(
+                "INSERT INTO change_log(\
+                   project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
+                   database_block_ids_json, payload_json, committed_at\
+                 ) VALUES (?1, ?2, 'store_administration.changed', ?3, '[]', '[]', '[]', ?4, ?5)",
+                params![
+                    project_id,
+                    store_epoch,
+                    operation_id,
+                    payload.to_string(),
+                    committed_at
+                ],
+            )?;
+            transaction.last_insert_rowid()
+        } else {
+            transaction.query_row("SELECT COALESCE(max(seq), 0) FROM change_log", [], |row| {
+                row.get::<_, i64>(0)
+            })?
+        };
+        let committed = CommittedModuleValue {
+            value: StoreAdministrationCommitValue {
+                backup_id: None,
+                safety_backup_id: None,
+                completed_tasks: completed_tasks.to_vec(),
+            },
+            receipt: StoreAdministrationReceipt {
+                mutation: ModuleMutationReceipt {
+                    operation_id: operation_id.to_owned(),
+                    duplicate: false,
+                },
+                backup_id: None,
+                safety_backup_id: None,
+            },
+            event_sequence,
+            store_epoch: StoreEpoch(store_epoch.to_owned()),
+        };
+        let result = serde_json::to_value(&committed)
+            .map_err(|_| internal("Store maintenance receipt could not be encoded"))?;
+        insert_module_receipt(
+            transaction,
+            NewModuleReceipt {
+                module_name: MODULE_NAME,
+                operation_id,
+                context,
+                operation_kind: "run_maintenance",
+                store_epoch,
+                request_hash,
+                result: &result,
+                event_sequence: (event_project_id.is_some()).then_some(event_sequence),
+                committed_at,
+            },
+        )?;
+        let event = event_project_id.map(|_| CommittedCoreModuleEvent {
+            version: CORE_CONTRACT_VERSION,
+            sequence: event_sequence,
+            store_epoch: StoreEpoch(store_epoch.to_owned()),
+            operation_id: Some(operation_id.to_owned()),
+            committed_at: committed_at.to_owned(),
+            payload: CoreModuleEventPayload::StoreAdministration(StoreAdministrationEvent {
+                kind: StoreAdministrationEventKind::StoreAdministrationChanged,
+                operation: "run_maintenance".to_owned(),
+                backup_ids: Vec::new(),
+                readiness_changed: true,
             }),
         });
         Ok(StoreAdministrationApplyOutcome { committed, event })
@@ -813,11 +1416,59 @@ fn normalize_label(label: &Option<String>) -> Result<Option<String>, CoreError> 
     Ok(normalized.map(str::to_owned))
 }
 
+fn normalize_maintenance_tasks(
+    tasks: &[MaintenanceTask],
+) -> Result<Vec<MaintenanceTask>, CoreError> {
+    const ORDER: [MaintenanceTask; 5] = [
+        MaintenanceTask::IntegrityCheck,
+        MaintenanceTask::ForeignKeyCheck,
+        MaintenanceTask::DocumentCompaction,
+        MaintenanceTask::HistoryRetention,
+        MaintenanceTask::BlockRetention,
+    ];
+    if tasks.is_empty() || tasks.len() > ORDER.len() {
+        return Err(invalid(
+            "maintenance tasks must contain one to five unique tasks",
+        ));
+    }
+    let mut normalized = Vec::new();
+    for task in ORDER {
+        let count = tasks.iter().filter(|candidate| **candidate == task).count();
+        if count > 1 {
+            return Err(invalid("maintenance tasks must not contain duplicates"));
+        }
+        if count == 1 {
+            normalized.push(task);
+        }
+    }
+    Ok(normalized)
+}
+
 fn validate_operation_id(operation_id: &str) -> Result<(), CoreError> {
     if operation_id.is_empty() || operation_id.len() > MAX_OPERATION_ID_BYTES {
         return Err(invalid("operation_id is empty or exceeds its byte bound"));
     }
     Ok(())
+}
+
+fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
+    connection
+        .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(Into::into)
+}
+
+fn stale_store_epoch() -> StoreError {
+    StoreError::new(
+        StoreErrorCode::StaleStoreEpoch,
+        "Store Administration mutation targets a stale store epoch",
+        true,
+    )
+}
+
+fn invalid_store(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
 
 fn sha256(bytes: &[u8]) -> String {
