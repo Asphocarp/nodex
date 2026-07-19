@@ -2878,6 +2878,8 @@ export interface GitReviewSnapshotRequest {
   hideWhitespace?: boolean;
   operationSource?: string | null;
   requestId?: string | null;
+  snapshotGeneration?: number | null;
+  includeUntrackedFiles?: boolean;
 }
 
 export interface GitReviewBranchCommitsRequest {
@@ -2959,6 +2961,8 @@ export interface GitReviewFileSummary {
   additions: number | null;
   deletions: number | null;
   safety: ReviewFileSafety;
+  /** null means repository attributes could not be resolved safely. */
+  generated?: boolean | null;
 }
 
 export interface GitReviewSnapshot {
@@ -2971,6 +2975,7 @@ export interface GitReviewSnapshot {
   currentBranch: string | null;
   defaultBranch: string | null;
   errorMessage: string | null;
+  snapshotGeneration: number;
 }
 
 export interface ReviewDiffEntry extends GitReviewFileSummary {
@@ -2989,7 +2994,7 @@ export interface ReviewDiffRequest {
   cwd: string;
   source: GitReviewSource;
   sourceDescriptor?: ReviewDiffSourceDescriptor;
-  files?: string[];
+  files?: GitReviewDiffFileRequest[];
   baseRef?: string | null;
   baseBranch?: string | null;
   commitSha?: string | null;
@@ -2997,9 +3002,18 @@ export interface ReviewDiffRequest {
   hostConfig?: Record<string, unknown> | null;
   operationSource?: string | null;
   requestId?: string | null;
+  snapshotGeneration: number;
 }
 
-export interface ReviewDiffResult {
+export interface GitReviewDiffFileRequest {
+  path: string;
+  previousPath?: string | null;
+  status: GitReviewFileStatus;
+  revision?: string | null;
+}
+
+export interface ReviewDiffSuccessResult {
+  type: "success";
   cwd: string;
   source: GitReviewSource;
   patch: string;
@@ -3009,7 +3023,15 @@ export interface ReviewDiffResult {
   currentBranch: string | null;
   defaultBranch: string | null;
   errorMessage: string | null;
+  snapshotGeneration: number;
 }
+
+export type ReviewDiffResult =
+  | ReviewDiffSuccessResult
+  | {
+      type: "stale-snapshot";
+      source: GitReviewSource;
+    };
 
 export interface GitReviewPatchRequest {
   cwd: string;
@@ -3073,21 +3095,71 @@ export interface GitReviewSummaryRequest {
   commitSha?: string | null;
   hideWhitespace?: boolean;
   requestId?: string | null;
+  includeUntrackedFiles?: boolean;
 }
 
-export interface GitReviewSummaryResult {
+export interface GitReviewStageCounts {
+  stagedFileCount: number;
+  unstagedFileCount: number;
+  untrackedFileCount: number;
+}
+
+export type GitReviewSummaryResult =
+  | {
+      type: "success";
+      source: GitReviewSource;
+      files: GitReviewFileSummary[];
+      snapshotGeneration: number;
+      stageCounts: GitReviewStageCounts;
+    }
+  | {
+      type: "error";
+      source: GitReviewSource;
+      errorMessage: string | null;
+    };
+
+export interface GitReviewRepositoryMetadataRequest {
   cwd: string;
-  source: GitReviewSource;
-  baseRef: string | null;
-  commitSha: string | null;
-  files: GitReviewFileSummary[];
-  additions: number;
-  deletions: number;
+}
+
+export interface GitReviewRepositoryMetadataResult {
+  cwd: string;
+  root: string | null;
+  gitDir: string | null;
+  commonDir: string | null;
   isGitRepository: boolean;
   currentBranch: string | null;
   defaultBranch: string | null;
   errorMessage: string | null;
 }
+
+export interface GitReviewLiveSubscriptionInput {
+  subscriptionId: string;
+  request: GitReviewSummaryRequest;
+}
+
+export interface GitReviewLiveSubscriptionStopInput {
+  subscriptionId: string;
+}
+
+export type GitReviewLiveSummaryEvent =
+  | {
+      type: "git-live-query-updated";
+      subscriptionId: string;
+      generation: number;
+      requiresRecovery: boolean;
+      phase: "tracked" | "complete";
+      method: "review-summary";
+      result: GitReviewSummaryResult;
+    }
+  | {
+      type: "git-live-query-failed";
+      subscriptionId: string;
+      generation: number;
+      requiresRecovery: boolean;
+      method: "review-summary";
+      errorMessage: string;
+    };
 
 export interface GitActionStatusRequest {
   cwd: string;
@@ -3205,6 +3277,7 @@ export interface GitReviewFileContentsInput {
   previousPath?: string | null;
   baseRef?: string | null;
   commitSha?: string | null;
+  snapshotGeneration?: number | null;
 }
 
 export interface GitReviewFileContents {
@@ -3220,6 +3293,31 @@ export interface GitReviewFileContents {
   errorMessage: string | null;
 }
 
+export interface GitReviewCatFileRequest {
+  oid: string | null;
+  path: string;
+  fallbackToDisk?: boolean;
+}
+
+export type GitCatFileResult =
+  | { type: "success"; lines: readonly string[] }
+  | { type: "error"; error: { type: "not-found" | "unknown" } }
+  | {
+      type: "error";
+      error: { type: "too-large"; limitBytes: number };
+    };
+
+export interface GitReviewCatFileInput {
+  cwd: string;
+  snapshotGeneration: number;
+  requests: GitReviewCatFileRequest[];
+}
+
+export interface GitReviewCatFileOutput {
+  snapshotGeneration: number;
+  results: GitCatFileResult[];
+}
+
 export interface GitReviewSearchInput {
   cwd: string;
   source: GitReviewSource;
@@ -3229,12 +3327,31 @@ export interface GitReviewSearchInput {
   commitSha?: string | null;
   hideWhitespace?: boolean;
   limit?: number;
+  snapshotGeneration: number;
+  requestId?: string | null;
 }
 
-export interface GitReviewSearchResult {
-  query: string;
-  matchingPaths: string[];
-}
+export type GitReviewSearchResult =
+  | {
+      type: "success";
+      source: GitReviewSource;
+      query: string;
+      matchingPaths: string[];
+      totalMatches: number;
+      isCapped: boolean;
+      snapshotGeneration: number;
+    }
+  | {
+      type: "stale-snapshot";
+      source: GitReviewSource;
+      query: string;
+    }
+  | {
+      type: "error";
+      source: GitReviewSource;
+      query: string;
+      errorMessage: string | null;
+    };
 
 export interface GitApplyPatchInput {
   cwd: string;

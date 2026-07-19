@@ -1,15 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
-  REVIEW_DEFERRED_RENDER_FALLBACK_COUNT,
   REVIEW_CAPPED_MATCH_PAGE_SIZE,
-  buildReviewRenderPlan,
   buildReviewSearchMatches,
   buildReviewVisibleFiles,
   filterReviewFiles,
-  getReviewContainIntrinsicSize,
   getReviewTotalChangedBytes,
   getReviewTotalChangedLines,
   isReviewLargeDiff,
+  isReviewWordDiffEnabled,
   resolveReviewSelectedPath,
 } from "./review-diff-model";
 
@@ -57,6 +55,27 @@ describe("review diff model", () => {
       totalChangedLines: 1,
       totalChangedBytes: 1,
     })).toBe(false);
+    expect(isReviewLargeDiff({
+      fileCount: 128,
+      totalChangedLines: 9_000,
+      totalChangedBytes: 12 * 1024 * 1024,
+    })).toBe(false);
+    expect(isReviewLargeDiff({
+      fileCount: 1,
+      totalChangedLines: 9_001,
+      totalChangedBytes: 0,
+    })).toBe(true);
+    expect(isReviewLargeDiff({
+      fileCount: 1,
+      totalChangedLines: 0,
+      totalChangedBytes: 12 * 1024 * 1024 + 1,
+    })).toBe(true);
+  });
+
+  test("disables word diffs above two thousand changed lines", () => {
+    expect(isReviewWordDiffEnabled(2_000, true)).toBe(true);
+    expect(isReviewWordDiffEnabled(2_001, true)).toBe(false);
+    expect(isReviewWordDiffEnabled(1, false)).toBe(false);
   });
 
   test("detects codex-style single-file large diffs", () => {
@@ -126,23 +145,4 @@ describe("review diff model", () => {
     expect(result.length).toBe(20);
   });
 
-  test("defers non-capped review rendering after the first two files", () => {
-    const plan = buildReviewRenderPlan(FILES, false);
-
-    expect(plan.shouldDefer).toBe(true);
-    expect(plan.visibleFiles.length).toBe(3);
-    expect(plan.fallbackFiles.length).toBe(REVIEW_DEFERRED_RENDER_FALLBACK_COUNT);
-  });
-
-  test("does not defer capped review rendering", () => {
-    const plan = buildReviewRenderPlan(FILES, true);
-
-    expect(plan.shouldDefer).toBe(false);
-    expect(plan.fallbackFiles.length).toBe(3);
-  });
-
-  test("estimates intrinsic row height using Codex review constants", () => {
-    expect(getReviewContainIntrinsicSize(2, 1, "unified")).toBe("auto 116px");
-    expect(getReviewContainIntrinsicSize(2, 1, "split")).toBe("auto 176px");
-  });
 });

@@ -7,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { render, textContent } from "../../test/dom";
+import { TestQueryProvider } from "../../test/query";
 import {
   __resetNodexToastStoreForTests,
   NodexToastProvider,
@@ -14,13 +15,24 @@ import {
 import { NodexTooltipProvider } from "../ui/tooltip";
 import { NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT } from "../../lib/diff-presentation";
 import { buildReviewFileTreeVisibleState } from "@/lib/review-file-tree-model";
-import type { CodexConversationSnapshot } from "@/lib/types";
+import type {
+  CodexConversationSnapshot,
+  GitReviewLiveSummaryEvent,
+} from "@/lib/types";
 import { buildReviewFileSafety } from "../../../shared/review-file-safety";
 import { ReviewDiffPanel } from "./review-diff-panel";
+import { parsePatchFiles } from "@pierre/diffs";
+import { __resetReviewFullContentStoreForTests } from "@/features/review/data/review-full-content-store";
+import { __resetReviewCatFileBatcherForTests } from "@/features/review/data/review-cat-file-batcher";
+import { __resetReviewDiffBatcherForTests } from "@/features/review/data/review-diff-batcher";
+import {
+  buildReviewConversationProjection,
+  type ReviewConversationProjection,
+} from "@/features/review/model/review-conversation-projection";
+import { installReviewRuntimeProbe } from "@/features/review/testing/review-runtime-probe";
 import type {
   FileDiffMetadata,
   FileDiffProps,
-  MultiFileDiffProps,
 } from "@pierre/diffs/react";
 
 const invokeCalls: unknown[][] = [];
@@ -28,6 +40,77 @@ const startThreadPromptCalls: Array<{ threadId: string; prompt: string }> = [];
 const clipboardWrites: string[] = [];
 let mockInvokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null;
 let lastFileDiffProps: FileDiffProps<unknown> | null = null;
+
+function installControlledIntersectionObserver() {
+  const originalIntersectionObserver = globalThis.IntersectionObserver;
+  const observed = new Map<
+    Element,
+    {
+      callback: IntersectionObserverCallback;
+      observer: IntersectionObserver;
+    }
+  >();
+
+  class ControlledIntersectionObserver implements IntersectionObserver {
+    readonly root = null;
+    readonly rootMargin = "0px";
+    readonly scrollMargin = "0px";
+    readonly thresholds = [0];
+
+    constructor(private readonly callback: IntersectionObserverCallback) {}
+
+    disconnect(): void {
+      for (const [target, record] of observed) {
+        if (record.observer === this) observed.delete(target);
+      }
+    }
+
+    observe(target: Element): void {
+      observed.set(target, { callback: this.callback, observer: this });
+    }
+
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
+    }
+
+    unobserve(target: Element): void {
+      if (observed.get(target)?.observer === this) observed.delete(target);
+    }
+  }
+
+  Object.defineProperty(globalThis, "IntersectionObserver", {
+    configurable: true,
+    writable: true,
+    value: ControlledIntersectionObserver,
+  });
+
+  return {
+    isObserved(target: Element): boolean {
+      return observed.has(target);
+    },
+    emit(target: Element): void {
+      const record = observed.get(target);
+      if (!record) throw new Error("Expected target to be observed.");
+      record.callback(
+        [
+          {
+            target,
+            isIntersecting: true,
+            intersectionRatio: 1,
+          } as IntersectionObserverEntry,
+        ],
+        record.observer,
+      );
+    },
+    restore(): void {
+      Object.defineProperty(globalThis, "IntersectionObserver", {
+        configurable: true,
+        writable: true,
+        value: originalIntersectionObserver,
+      });
+    },
+  };
+}
 
 async function recordStartThreadPrompt(threadId: string, prompt: string): Promise<void> {
   startThreadPromptCalls.push({ threadId, prompt });
@@ -120,19 +203,27 @@ function parsePatchFilesForTest(
       }
     }
 
-    const fileDiff = {
-      name: nextPath || previousPath || "file.ts",
-      prevName: previousPath || null,
-      type:
-        previousPath.length === 0
-          ? "add"
-          : nextPath.length === 0
-            ? "delete"
-            : "modify",
-      hunks,
-      additionLines: hunks.reduce((sum, hunk) => sum + hunk.additionLines, 0),
-      deletionLines: hunks.reduce((sum, hunk) => sum + hunk.deletionLines, 0),
-    } as unknown as FileDiffMetadata;
+    const fileDiff =
+      parsePatchFiles(filePatch).flatMap((parsed) => parsed.files)[0] ??
+      ({
+        name: nextPath || previousPath || "file.ts",
+        prevName: previousPath || null,
+        type:
+          previousPath.length === 0
+            ? "add"
+            : nextPath.length === 0
+              ? "delete"
+              : "modify",
+        hunks,
+        additionLines: hunks.reduce(
+          (sum, hunk) => sum + hunk.additionLines,
+          0,
+        ),
+        deletionLines: hunks.reduce(
+          (sum, hunk) => sum + hunk.deletionLines,
+          0,
+        ),
+      } as unknown as FileDiffMetadata);
 
     return { files: [fileDiff] };
   });
@@ -192,6 +283,7 @@ function testDiffOptionValue(options: unknown, key: string): string {
 }
 
 const reviewDiffPanelTestDeps = {
+  initialSummaryQuery: true,
   parsePatchFiles: parsePatchFilesForTest,
   invoke: async (...args: unknown[]) => {
     invokeCalls.push(args);
@@ -225,7 +317,12 @@ const reviewDiffPanelTestDeps = {
       });
     }
 
-    if (args[0] !== "git:review:snapshot") return result;
+    if (
+      args[0] !== "git:review:summary" &&
+      args[0] !== "git:review:snapshot"
+    ) {
+      return result;
+    }
     const legacyResult = await mockInvokeImpl("git:review:diff", args[1]);
     if (typeof legacyResult !== "object" || legacyResult === null)
       return result;
@@ -254,6 +351,14 @@ const reviewDiffPanelTestDeps = {
       currentBranch: legacySnapshot.currentBranch ?? "feature",
       defaultBranch: legacySnapshot.defaultBranch ?? "main",
       errorMessage: legacySnapshot.errorMessage ?? null,
+      snapshotGeneration: 1,
+      additions: 0,
+      deletions: 0,
+      stageCounts: {
+        stagedFileCount: 0,
+        unstagedFileCount: 0,
+        untrackedFileCount: 0,
+      },
     };
   },
   useTheme: () => ({
@@ -282,53 +387,6 @@ const reviewDiffPanelTestDeps = {
         "data-file-deletions": countTestFileDiffLines(
           (fileDiff as { deletionLines?: unknown }).deletionLines,
         ),
-        "data-line-annotations": String(lineAnnotations?.length ?? 0),
-        "data-selected-lines": selectedLines
-          ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}`
-          : "",
-        "data-hunk-separators": testDiffOptionValue(options, "hunkSeparators"),
-        "data-collapsed-context-threshold": testDiffOptionValue(
-          options,
-          "collapsedContextThreshold",
-        ),
-        "data-expansion-line-count": testDiffOptionValue(
-          options,
-          "expansionLineCount",
-        ),
-        "data-line-diff-type": testDiffOptionValue(options, "lineDiffType"),
-        "data-diff-indicators": testDiffOptionValue(options, "diffIndicators"),
-      },
-      lineAnnotations?.map((annotation, index) =>
-        createElement(
-          "div",
-          {
-            key: index,
-            "data-rendered-line-annotation": `${annotation.side}:${annotation.lineNumber}`,
-          },
-          renderAnnotation?.(annotation),
-        ),
-      ),
-    );
-  },
-  MultiFileDiff: <LAnnotation,>(props: MultiFileDiffProps<LAnnotation>) => {
-    const {
-      className,
-      oldFile,
-      newFile,
-      options,
-      lineAnnotations,
-      renderAnnotation,
-      selectedLines,
-    } = props;
-    return createElement(
-      "div",
-      {
-        className,
-        "data-multi-file-diff": "true",
-        "data-old-file-name": oldFile.name,
-        "data-new-file-name": newFile.name,
-        "data-old-file-contents": oldFile.contents,
-        "data-new-file-contents": newFile.contents,
         "data-line-annotations": String(lineAnnotations?.length ?? 0),
         "data-selected-lines": selectedLines
           ? `${selectedLines.side ?? ""}:${selectedLines.start}-${selectedLines.endSide ?? ""}:${selectedLines.end}`
@@ -443,7 +501,12 @@ function buildRepeatedFilePatch(pathName = "src/example.ts"): string {
 
 function buildGitSummary(
   path: string,
-  status: "modified" | "added" | "deleted" | "renamed" = "modified",
+  status:
+    | "modified"
+    | "added"
+    | "deleted"
+    | "renamed"
+    | "untracked" = "modified",
 ) {
   return {
     path,
@@ -520,15 +583,19 @@ function buildGitDiffResultForTest(input: {
     currentBranch: "feature",
     defaultBranch: "main",
     errorMessage: null,
+    snapshotGeneration: 1,
   };
 }
 
 beforeEach(() => {
+  __resetReviewDiffBatcherForTests();
   invokeCalls.length = 0;
   startThreadPromptCalls.length = 0;
   clipboardWrites.length = 0;
   mockInvokeImpl = null;
   lastFileDiffProps = null;
+  __resetReviewFullContentStoreForTests();
+  __resetReviewCatFileBatcherForTests();
   __resetNodexToastStoreForTests();
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -541,15 +608,31 @@ beforeEach(() => {
 });
 
 async function loadReviewDiffPanelModule() {
+  type TestReviewDiffPanelProps = Omit<
+    ComponentProps<typeof ReviewDiffPanel>,
+    "conversationProjection" | "onStartThreadPrompt"
+  > & {
+    conversation?: CodexConversationSnapshot | null;
+    conversationProjection?: ReviewConversationProjection;
+  };
+
   function TestReviewDiffPanel(
-    props: Omit<ComponentProps<typeof ReviewDiffPanel>, "deps" | "onStartThreadPrompt">,
+    props: TestReviewDiffPanelProps,
   ) {
+    const { conversation = null, conversationProjection, deps, ...panelProps } =
+      props;
     return (
-      <ReviewDiffPanel
-        {...props}
-        deps={reviewDiffPanelTestDeps}
-        onStartThreadPrompt={recordStartThreadPrompt}
-      />
+      <TestQueryProvider>
+        <ReviewDiffPanel
+          {...panelProps}
+          conversationProjection={
+            conversationProjection ??
+            buildReviewConversationProjection(conversation)
+          }
+          deps={{ ...reviewDiffPanelTestDeps, ...deps }}
+          onStartThreadPrompt={recordStartThreadPrompt}
+        />
+      </TestQueryProvider>
     );
   }
 
@@ -649,7 +732,7 @@ async function waitForGitReviewDiffCall(): Promise<void> {
 
 async function waitForGitReviewSnapshotCall(): Promise<void> {
   await waitFor(() => {
-    if (!invokeCalls.some((call) => call[0] === "git:review:snapshot")) {
+    if (!invokeCalls.some((call) => call[0] === "git:review:summary")) {
       throw new Error("Expected git review snapshot call.");
     }
   });
@@ -662,10 +745,6 @@ async function waitForGitReviewPatchCall(): Promise<void> {
       throw new Error("Expected git review patch call.");
     }
   });
-  await settleAsyncRender();
-}
-
-async function waitPastGitReviewBatchDelay(): Promise<void> {
   await settleAsyncRender();
 }
 
@@ -1429,7 +1508,7 @@ describe("review diff panel", () => {
     });
     await waitFor(() => {
       const hasBranchDiffRequest = invokeCalls.some((call) => {
-        if (call[0] !== "git:review:snapshot") return false;
+        if (call[0] !== "git:review:summary") return false;
         const input = call[1];
         return (
           typeof input === "object" &&
@@ -1502,17 +1581,21 @@ describe("review diff panel", () => {
       "diff payload retained but no renderable file entries";
 
     const view = render(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          onStartThreadPrompt={recordStartThreadPrompt}
-          projectWorkspacePath="/tmp/codex"
-          deps={{
-            ...reviewDiffPanelTestDeps,
-            parsePatchFiles: () => [],
-          }}
-        />
-      </NodexTooltipProvider>,
+      <TestQueryProvider>
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversationProjection={
+              buildReviewConversationProjection(conversation)
+            }
+            onStartThreadPrompt={recordStartThreadPrompt}
+            projectWorkspacePath="/tmp/codex"
+            deps={{
+              ...reviewDiffPanelTestDeps,
+              parsePatchFiles: () => [],
+            }}
+          />
+        </NodexTooltipProvider>
+      </TestQueryProvider>,
     );
 
     await settleAsyncRender();
@@ -1604,7 +1687,7 @@ describe("review diff panel", () => {
     await waitForGitReviewSnapshotCall();
 
     const snapshotCall = invokeCalls.find(
-      (call) => call[0] === "git:review:snapshot",
+      (call) => call[0] === "git:review:summary",
     );
     if (!snapshotCall) {
       throw new Error("Expected git-backed review to request a snapshot.");
@@ -1617,7 +1700,8 @@ describe("review diff panel", () => {
     expect(cwd).toBe("/tmp/storybook/large-diff");
   });
 
-  test("loads full files by default for git-backed review without rich preview", async () => {
+  test("loads full metadata only after a git-backed row enters the viewport", async () => {
+    const intersectionObserver = installControlledIntersectionObserver();
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
       if (channel === "git:review:diff") {
@@ -1634,48 +1718,287 @@ describe("review diff panel", () => {
           errorMessage: null,
         };
       }
-      if (channel === "git:review:file-contents") {
+      if (channel === "git:review:cat-file") {
         return {
-          path: "src/git.ts",
-          previousPath: null,
-          oldText: "export const git = 1;\n",
-          newText: "export const git = 1;\nexport const diff = true;\n",
-          oldExists: true,
-          newExists: true,
-          errorMessage: null,
+          snapshotGeneration: 1,
+          results: [
+            {
+              type: "success",
+              lines: ["export const git = 1;\n"],
+            },
+            {
+              type: "success",
+              lines: [
+                "export const git = 1;\n",
+                "export const diff = true;\n",
+              ],
+            },
+          ],
         };
       }
       return null;
     };
 
-    const view = render(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={buildConversation()}
-          projectWorkspacePath="/tmp/codex"
-          initialSource="unstaged"
-        />
-      </NodexTooltipProvider>,
-    );
+    try {
+      const view = render(
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversation={buildConversation()}
+            projectWorkspacePath="/tmp/codex"
+            initialSource="unstaged"
+            deps={{
+              ...reviewDiffPanelTestDeps,
+              parsePatchFiles,
+            }}
+          />
+        </NodexTooltipProvider>,
+      );
 
-    await settleAsyncRender();
-    await waitForGitReviewDiffCall();
-    await waitFor(() => {
-      if (!view.container.querySelector('[data-multi-file-diff="true"]')) {
-        throw new Error("Expected full-file diff to render by default.");
+      await settleAsyncRender();
+      await waitForGitReviewDiffCall();
+      const row = await waitFor(() => {
+        const candidate = view.container.querySelector(
+          'section[data-review-path="src/git.ts"]',
+        );
+        if (!candidate) throw new Error("Expected the git review row.");
+        return candidate;
+      });
+      await waitFor(() => {
+        expect(
+          view.container.querySelector('[data-file-diff="src/git.ts"]'),
+        ).not.toBeNull();
+      });
+      expect(lastFileDiffProps?.fileDiff.isPartial).toBe(true);
+
+      expect(
+        invokeCalls.some((call) => call[0] === "git:review:cat-file"),
+      ).toBe(false);
+      await waitFor(() => {
+        expect(intersectionObserver.isObserved(row)).toBe(true);
+      });
+
+      await act(async () => {
+        intersectionObserver.emit(row);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        if (
+          !invokeCalls.some(
+            (call) => call[0] === "git:review:cat-file",
+          )
+        ) {
+          throw new Error("Expected visible row contents to load.");
+        }
+      });
+      await waitFor(() => {
+        const fileDiff = view.container.querySelector(
+          '[data-file-diff="src/git.ts"]',
+        );
+        expect(fileDiff?.getAttribute("data-file-additions")).toBe("2");
+        expect(fileDiff?.getAttribute("data-file-deletions")).toBe("1");
+      });
+      expect(view.container.querySelector("[data-multi-file-diff]")).toBe(
+        null,
+      );
+      await openReviewOptionsMenu(view);
+      expect(
+        Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
+      ).toBe(true);
+    } finally {
+      intersectionObserver.restore();
+    }
+  });
+
+  test("preserves loaded rows and parsed metadata across tracked to complete publication", async () => {
+    const intersectionObserver = installControlledIntersectionObserver();
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const trackedPatch = [
+      "diff --git a/src/tracked.ts b/src/tracked.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/tracked.ts",
+      "+++ b/src/tracked.ts",
+      "@@ -1 +1,2 @@",
+      " export const tracked = 1;",
+      "+export const changed = true;",
+      "",
+    ].join("\n");
+    const untrackedPatch = [
+      "diff --git a/src/untracked.ts b/src/untracked.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/untracked.ts",
+      "@@ -0,0 +1 @@",
+      "+export const untracked = true;",
+      "",
+    ].join("\n");
+    const trackedSummary = {
+      ...buildGitSummary("src/tracked.ts"),
+      generated: false,
+    };
+    const untrackedSummary = {
+      ...buildGitSummary("src/untracked.ts", "untracked"),
+      generated: false,
+    };
+    let publish: ((event: GitReviewLiveSummaryEvent) => void) | null = null;
+    let subscriptionId = "";
+    const events: Array<
+      | { type: "row-render"; path: string }
+      | { type: "partial-parse"; path: string }
+    > = [];
+    const uninstallProbe = installReviewRuntimeProbe((event) => {
+      if (event.type === "row-render" || event.type === "partial-parse") {
+        events.push(event);
       }
     });
 
-    expect(
-      invokeCalls.some((call) => call[0] === "git:review:file-contents"),
-    ).toBe(true);
-    await openReviewOptionsMenu(view);
-    expect(
-      Boolean(view.baseElement.textContent?.includes("Enable rich preview")),
-    ).toBe(true);
+    mockInvokeImpl = async (channel: unknown, payload: unknown) => {
+      if (
+        channel === "git:live-query:subscribe" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "subscriptionId" in payload
+      ) {
+        subscriptionId = String(payload.subscriptionId);
+        return null;
+      }
+      if (channel !== "git:review:diff") return null;
+      const requestedPaths =
+        typeof payload === "object" && payload !== null && "files" in payload
+          ? (payload as { files: Array<{ path: string }> }).files.map(
+              (file) => file.path,
+            )
+          : [];
+      const patch = requestedPaths
+        .flatMap((path) => {
+          if (path === trackedSummary.path) return [trackedPatch];
+          if (path === untrackedSummary.path) return [untrackedPatch];
+          return [];
+        })
+        .join("\n");
+      return buildGitDiffResultForTest({
+        patch,
+        files: requestedPaths.flatMap((path) => {
+          if (path === trackedSummary.path) return [trackedSummary];
+          if (path === untrackedSummary.path) return [untrackedSummary];
+          return [];
+        }),
+      });
+    };
+
+    try {
+      const view = render(
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversation={buildConversation()}
+            projectWorkspacePath="/tmp/codex"
+            initialSource="unstaged"
+            deps={{
+              initialSummaryQuery: false,
+              subscribeGitReviewSummaries: (listener) => {
+                publish = listener;
+                return () => {
+                  publish = null;
+                };
+              },
+            }}
+          />
+        </NodexTooltipProvider>,
+      );
+      await waitFor(() => {
+        if (!publish || !subscriptionId) {
+          throw new Error("Expected live summary subscription.");
+        }
+      });
+
+      await act(async () => {
+        publish?.({
+          type: "git-live-query-updated",
+          subscriptionId,
+          generation: 1,
+          requiresRecovery: false,
+          phase: "tracked",
+          method: "review-summary",
+          result: {
+            type: "success",
+            source: "unstaged",
+            files: [trackedSummary],
+            snapshotGeneration: 1,
+            stageCounts: {
+              stagedFileCount: 0,
+              unstagedFileCount: 1,
+              untrackedFileCount: 1,
+            },
+          },
+        });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(
+          view.container.querySelector('[data-file-diff="src/tracked.ts"]'),
+        ).not.toBeNull();
+      });
+      await settleAsyncRender();
+
+      const trackedRenderCount = events.filter(
+        (event) =>
+          event.type === "row-render" && event.path === trackedSummary.path,
+      ).length;
+      const trackedParseCount = events.filter(
+        (event) =>
+          event.type === "partial-parse" && event.path === trackedSummary.path,
+      ).length;
+
+      await act(async () => {
+        publish?.({
+          type: "git-live-query-updated",
+          subscriptionId,
+          generation: 1,
+          requiresRecovery: false,
+          phase: "complete",
+          method: "review-summary",
+          result: {
+            type: "success",
+            source: "unstaged",
+            files: [{ ...trackedSummary }, untrackedSummary],
+            snapshotGeneration: 1,
+            stageCounts: {
+              stagedFileCount: 0,
+              unstagedFileCount: 1,
+              untrackedFileCount: 1,
+            },
+          },
+        });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(
+          view.container.querySelector('[data-file-diff="src/untracked.ts"]'),
+        ).not.toBeNull();
+      });
+      await settleAsyncRender();
+
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "row-render" && event.path === trackedSummary.path,
+        ),
+      ).toHaveLength(trackedRenderCount);
+      expect(
+        events.filter(
+          (event) =>
+            event.type === "partial-parse" &&
+            event.path === trackedSummary.path,
+        ),
+      ).toHaveLength(trackedParseCount);
+      expect(trackedParseCount).toBe(1);
+    } finally {
+      uninstallProbe();
+      intersectionObserver.restore();
+    }
   });
 
-  test("builds last-turn added file full contents from the patch without reading the workspace file", async () => {
+  test("keeps a last-turn added file on its complete patch without reading the workspace file", async () => {
     mockInvokeImpl = async (channel: unknown) => {
       if (channel === "read-file") {
         return {
@@ -1699,53 +2022,54 @@ describe("review diff panel", () => {
     ].join("\n");
 
     const view = render(
-      <NodexTooltipProvider>
-        <ReviewDiffPanel
-          conversation={conversation}
-          onStartThreadPrompt={recordStartThreadPrompt}
-          projectWorkspacePath="/tmp/codex"
-          deps={{
-            ...reviewDiffPanelTestDeps,
-            parsePatchFiles: parseAddedPatchFileWithLineArraysForTest,
-          }}
-        />
-      </NodexTooltipProvider>,
+      <TestQueryProvider>
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversationProjection={
+              buildReviewConversationProjection(conversation)
+            }
+            onStartThreadPrompt={recordStartThreadPrompt}
+            projectWorkspacePath="/tmp/codex"
+            deps={{
+              ...reviewDiffPanelTestDeps,
+              parsePatchFiles: parseAddedPatchFileWithLineArraysForTest,
+            }}
+          />
+        </NodexTooltipProvider>
+      </TestQueryProvider>,
     );
 
     await settleAsyncRender();
-    await waitFor(() => {
-      if (!view.container.querySelector('[data-multi-file-diff="true"]')) {
-        throw new Error(
-          "Expected added last-turn file to use full-file diff rendering.",
-        );
-      }
+    const fileDiff = await waitFor(() => {
+      const candidate = view.container.querySelector(
+        '[data-file-diff="src/created.ts"]',
+      );
+      if (!candidate) throw new Error("Expected the added file diff.");
+      return candidate;
     });
 
-    const fullDiff = view.container.querySelector(
-      '[data-multi-file-diff="true"]',
-    );
-    expect(fullDiff?.getAttribute("data-old-file-contents")).toBe("");
-    expect(fullDiff?.getAttribute("data-new-file-contents")).toBe(
-      'export const created = true;\nexport const source = "patch";\n',
-    );
+    expect(fileDiff.getAttribute("data-file-additions")).toBe("2");
+    expect(fileDiff.getAttribute("data-file-deletions")).toBe("0");
     expect(invokeCalls.some((call) => call[0] === "read-file")).toBe(false);
+    expect(
+      invokeCalls.some((call) => call[0] === "git:review:cat-file"),
+    ).toBe(false);
   });
 
-  test("cancels delayed git review snapshot loading after unmount", async () => {
+  test("cancels an in-flight Git review summary after unmount", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
     mockInvokeImpl = async (channel: unknown) => {
-      if (channel !== "git:review:diff") return null;
-      return {
-        cwd: "/tmp/codex",
-        source: "unstaged",
-        patch: "",
-        files: [],
-        isGitRepository: true,
-        baseRef: null,
-        currentBranch: "feature",
-        defaultBranch: "main",
-        errorMessage: null,
-      };
+      if (channel === "git:review:repository-metadata") {
+        return {
+          cwd: "/tmp/codex",
+          isGitRepository: true,
+          currentBranch: "feature",
+          defaultBranch: "main",
+        };
+      }
+      if (channel === "git:review:summary") return new Promise(() => {});
+      if (channel === "git:review:cancel") return { cancelled: true };
+      return null;
     };
 
     const view = render(
@@ -1758,15 +2082,16 @@ describe("review diff panel", () => {
       </NodexTooltipProvider>,
     );
 
+    await waitForGitReviewSnapshotCall();
     await unmountReviewView(view);
-    await waitPastGitReviewBatchDelay();
+    await settleAsyncRender();
 
     expect(
-      invokeCalls.some((call) => call[0] === "git:review:snapshot"),
-    ).toBe(false);
+      invokeCalls.some((call) => call[0] === "git:review:summary"),
+    ).toBe(true);
     expect(
-      invokeCalls.some((call) => call[0] === "git:review:diff"),
-    ).toBe(false);
+      invokeCalls.some((call) => call[0] === "git:review:cancel"),
+    ).toBe(true);
   });
 
   test("starts commit and pull-request prompts from the parity action buttons", async () => {

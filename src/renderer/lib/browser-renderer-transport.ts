@@ -190,6 +190,22 @@ interface StoryGitReviewSnapshot {
   errorMessage: string | null;
 }
 
+const browserGitReviewSummarySubscribers = new Set<
+  (event: import("../../shared/types").GitReviewLiveSummaryEvent) => void
+>();
+const browserGitReviewSubscriptions = new Map<
+  string,
+  import("../../shared/types").GitReviewSummaryRequest
+>();
+
+function publishBrowserGitReviewSummary(
+  event: import("../../shared/types").GitReviewLiveSummaryEvent,
+): void {
+  for (const subscriber of browserGitReviewSummarySubscribers) {
+    subscriber(event);
+  }
+}
+
 function splitStoryPatchFileDiffs(patch: string): string[] {
   const matches = Array.from(patch.matchAll(/^diff --git .+$/gm));
   if (matches.length === 0) return [];
@@ -258,7 +274,9 @@ function toStoryReviewDiffResult(snapshot: StoryGitReviewSnapshot) {
   });
 
   return {
+    type: "success" as const,
     ...snapshot,
+    snapshotGeneration: 1,
     patch: files
       .map((file) => file.diff)
       .filter(Boolean)
@@ -1566,6 +1584,93 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.json();
     }
+    case "git:review:repository-metadata": {
+      const [input] = args as [{ cwd: string }];
+      const isGitRepository = !input.cwd.includes("no-git");
+      return {
+        cwd: input.cwd,
+        root: isGitRepository ? input.cwd : null,
+        gitDir: isGitRepository ? `${input.cwd}/.git` : null,
+        commonDir: isGitRepository ? `${input.cwd}/.git` : null,
+        isGitRepository,
+        currentBranch: isGitRepository ? "codex/storybook" : null,
+        defaultBranch: isGitRepository ? "main" : null,
+        errorMessage: null,
+      };
+    }
+    case "git:review:summary": {
+      const [input] = args as [
+        {
+          cwd: string;
+          source: "unstaged" | "staged" | "branch";
+          baseRef?: string | null;
+          baseBranch?: string | null;
+        },
+      ];
+      const snapshot = (await invoke("git:review:snapshot", {
+        cwd: input.cwd,
+        source: input.source,
+        baseRef: input.baseBranch ?? input.baseRef ?? null,
+      })) as StoryGitReviewSnapshot;
+      const diff = toStoryReviewDiffResult(snapshot);
+      return {
+        type: "success",
+        source: input.source,
+        files: diff.files,
+        snapshotGeneration: 1,
+        stageCounts: {
+          stagedFileCount: input.source === "staged" ? diff.files.length : 0,
+          unstagedFileCount:
+            input.source === "unstaged" ? diff.files.length : 0,
+          untrackedFileCount: 0,
+        },
+      };
+    }
+    case "git:live-query:subscribe": {
+      const [input] = args as [
+        import("../../shared/types").GitReviewLiveSubscriptionInput,
+      ];
+      browserGitReviewSubscriptions.set(input.subscriptionId, input.request);
+      const result = (await invoke(
+        "git:review:summary",
+        input.request,
+      )) as import("../../shared/types").GitReviewSummaryResult;
+      publishBrowserGitReviewSummary({
+        type: "git-live-query-updated",
+        subscriptionId: input.subscriptionId,
+        generation: 1,
+        requiresRecovery: false,
+        phase: "complete",
+        method: "review-summary",
+        result,
+      });
+      return undefined;
+    }
+    case "git:live-query:unsubscribe": {
+      const [input] = args as [{ subscriptionId: string }];
+      browserGitReviewSubscriptions.delete(input.subscriptionId);
+      return undefined;
+    }
+    case "git:live-query:recover":
+    case "git:live-query:refresh-repository": {
+      const [input] = args as [{ subscriptionId: string }];
+      const request = browserGitReviewSubscriptions.get(input.subscriptionId);
+      if (!request) return undefined;
+      const result = (await invoke(
+        "git:review:summary",
+        request,
+      )) as import("../../shared/types").GitReviewSummaryResult;
+      publishBrowserGitReviewSummary({
+        type: "git-live-query-updated",
+        subscriptionId: input.subscriptionId,
+        generation: Date.now(),
+        requiresRecovery: false,
+        phase: "complete",
+        method: "review-summary",
+        result,
+      });
+      return undefined;
+    }
     case "git:review:snapshot": {
       const [input] = args as [
         {
@@ -1729,7 +1834,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         {
           cwd: string;
           source: "unstaged" | "staged" | "branch";
-          files?: string[];
+          files?: Array<{ path: string; previousPath?: string | null }>;
           baseRef?: string | null;
           baseBranch?: string | null;
         },
@@ -1740,7 +1845,11 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         baseRef: input.baseBranch ?? input.baseRef ?? null,
       })) as StoryGitReviewSnapshot;
       const result = toStoryReviewDiffResult(snapshot);
-      const requestedPaths = new Set(input.files ?? []);
+      const requestedPaths = new Set(
+        (input.files ?? []).flatMap((file) =>
+          file.previousPath ? [file.path, file.previousPath] : [file.path],
+        ),
+      );
       if (requestedPaths.size === 0) return result;
 
       const files = result.files.filter(
@@ -1770,6 +1879,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         cwd: input.cwd,
         source: input.source,
         baseRef: input.baseBranch ?? input.baseRef ?? null,
+        snapshotGeneration: 1,
       })) as ReturnType<typeof toStoryReviewDiffResult>;
       return {
         cwd: result.cwd,
@@ -1794,6 +1904,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         cwd: input.cwd,
         source: "branch",
         baseRef: input.baseBranch ?? input.baseRef ?? null,
+        snapshotGeneration: 1,
       })) as ReturnType<typeof toStoryReviewDiffResult>;
       return {
         cwd: result.cwd,
@@ -1869,49 +1980,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           : "Base branch is required.",
       };
     }
-    case "git:review:file-contents": {
-      const [input] = args as [
-        {
-          cwd: string;
-          source: "unstaged" | "staged" | "branch";
-          path: string;
-          previousPath?: string | null;
-        },
-      ];
-      if (isStorybookRuntime()) {
-        if (input.cwd.includes("large-diff")) {
-          return {
-            path: input.path,
-            previousPath: input.previousPath ?? null,
-            oldText: "export const large = true;\n",
-            newText: `export const large = true;\n${Array.from({ length: 40 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join("\n")}\n`,
-            oldExists: true,
-            newExists: true,
-            errorMessage: null,
-          };
-        }
-        return {
-          path: input.path,
-          previousPath: input.previousPath ?? null,
-          oldText:
-            "export const title = 'Nodex';\nexport const version = '1.0.0';\n",
-          newText:
-            "export const title = 'Nodex';\nexport const version = '1.0.0';\nexport const review = true;\n",
-          oldExists: true,
-          newExists: true,
-          errorMessage: null,
-        };
-      }
-      return {
-        path: input.path,
-        previousPath: input.previousPath ?? null,
-        oldText: null,
-        newText: null,
-        oldExists: false,
-        newExists: false,
-        errorMessage: "Review file contents are unavailable outside Electron.",
-      };
-    }
     case "git:review:search": {
       const [input] = args as [
         {
@@ -1937,13 +2005,20 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
                     ? ["src/workbench.tsx"]
                     : [];
         return {
+          type: "success",
+          source: input.source,
           query: input.query,
           matchingPaths,
+          totalMatches: matchingPaths.length,
+          isCapped: false,
+          snapshotGeneration: 1,
         };
       }
       return {
+        type: "error",
+        source: input.source,
         query: input.query,
-        matchingPaths: [],
+        errorMessage: "Git review search is unavailable outside Electron.",
       };
     }
     case "git:init": {
@@ -1958,6 +2033,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         currentBranch: "main",
         defaultBranch: "main",
         errorMessage: null,
+        snapshotGeneration: 1,
       };
     }
     case "git:action:status": {
@@ -2637,6 +2713,17 @@ function subscribeWindowFocusChanges(
   };
 }
 
+function subscribeGitReviewSummaries(
+  callback: (
+    event: import("../../shared/types").GitReviewLiveSummaryEvent,
+  ) => void,
+): () => void {
+  browserGitReviewSummarySubscribers.add(callback);
+  return () => {
+    browserGitReviewSummarySubscribers.delete(callback);
+  };
+}
+
 export const browserRendererTransport = {
   kind: "browser" as const,
   readPageLifecyclePreflight(
@@ -2910,6 +2997,7 @@ export const browserRendererTransport = {
   subscribeCodexRendererClientRequests,
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,
+  subscribeGitReviewSummaries,
   subscribeAppUpdateStatus,
   subscribeCommandKeymapChanges,
   subscribeCommandPaletteThreadIndexUpdates,

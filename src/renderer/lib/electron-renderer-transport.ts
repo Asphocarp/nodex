@@ -348,6 +348,19 @@ export function createElectronRendererTransport(
         callback({ cwd: payload.cwd });
       });
     },
+    subscribeGitReviewSummaries(
+      callback: (
+        event: import("../../shared/types").GitReviewLiveSummaryEvent,
+      ) => void,
+    ) {
+      return bridge.on("git:live-query:event", (...args: unknown[]) => {
+        const payload = args[0] as
+          | import("../../shared/types").GitReviewLiveSummaryEvent
+          | undefined;
+        if (!payload || typeof payload.subscriptionId !== "string") return;
+        callback(payload);
+      });
+    },
     subscribeAppUpdateStatus(callback: (status: AppUpdateStatus) => void) {
       return bridge.on("app:update-status", (...args: unknown[]) => {
         const payload = args[0] as AppUpdateStatus | undefined;

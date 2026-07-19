@@ -1,4 +1,5 @@
-import type { FileContents, OnDiffLineEnterLeaveProps } from "@pierre/diffs";
+import type { OnDiffLineEnterLeaveProps } from "@pierre/diffs";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   DiffLineAnnotation,
   FileDiffMetadata,
@@ -6,11 +7,11 @@ import type {
   SelectedLineRange,
 } from "@pierre/diffs/react";
 import {
+  memo,
   startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
-  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -92,13 +93,12 @@ import {
   splitReviewJumpToFilePath,
 } from "@/lib/review-jump-to-file";
 import {
-  buildReviewRenderPlan,
   filterReviewFiles,
   buildReviewVisibleFiles,
-  getReviewContainIntrinsicSize,
   getReviewTotalChangedBytes,
   getReviewTotalChangedLines,
   isReviewLargeDiff,
+  isReviewWordDiffEnabled,
   resolveReviewSelectedPath,
   REVIEW_CAPPED_MATCH_PAGE_SIZE,
 } from "@/lib/review-diff-model";
@@ -125,32 +125,34 @@ import {
   type ReviewFileTreeVirtualRange,
 } from "@/lib/review-file-tree-virtualization";
 import {
-  extractReviewCodeCommentsFromConversation,
   filterReviewCodeCommentsForPath,
   type ReviewCodeComment,
 } from "@/lib/review-code-comments";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import type {
-  CodexConversationItem,
-  CodexConversationSnapshot,
   CodexTurnDiffPatchBatch,
   CodexTurnDiffReviewTarget,
   GitReviewBranchCommit,
   GitReviewBranchCommitsResult,
+  GitCatFileResult,
   GitReviewFileContents,
   GitReviewFileSummary,
   GitReviewFileStatus,
   GitReviewPatchResult,
+  GitReviewRepositoryMetadataResult,
   GitReviewSnapshot,
   GitReviewSource,
   ReviewDiffEntry,
   ReviewDiffLoadStatus,
-  ReviewDiffResult,
+  ReviewDiffRequest,
+  ReviewDiffSuccessResult,
   ReviewFileSafety,
   WorkspaceFileReadResult,
   CodexReviewDiffCommentAttachment,
   ReviewDiffAnnotationSide,
 } from "@/lib/types";
+import type { ReviewConversationProjection } from "@/features/review/model/review-conversation-projection";
+import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
 import { cn } from "@/lib/utils";
 import { showNativeContextMenu } from "@/lib/native-context-menu";
 import { ComposerPromptEditor } from "@/features/local-conversation/view/composer/composer-prompt-editor";
@@ -182,12 +184,21 @@ import {
   buildReviewFileSafety,
   describeReviewFileSafety,
 } from "../../../shared/review-file-safety";
+import { expandPartialDiffMetadata } from "@/features/review/model/expand-partial-diff-metadata";
+import {
+  loadReviewFullContent,
+  readReviewFullContentState,
+  useReviewFullContentState,
+} from "@/features/review/data/review-full-content-store";
+import { requestReviewCatFile } from "@/features/review/data/review-cat-file-batcher";
+import { requestReviewDiffPath } from "@/features/review/data/review-diff-batcher";
 import {
   parsePatchFiles as defaultParsePatchFiles,
   FileDiff as defaultFileDiff,
   invoke as defaultInvoke,
-  MultiFileDiff as defaultMultiFileDiff,
+  subscribeGitReviewSummaries as defaultSubscribeGitReviewSummaries,
   useTheme as defaultUseTheme,
+  Virtualizer as ReviewDiffVirtualizer,
 } from "./review-diff-panel-deps";
 import {
   DiffStats,
@@ -205,7 +216,7 @@ type GitReviewLoadStatus =
   "idle" | "loading" | "loaded" | "load-failed" | "timed-out";
 
 interface ReviewDiffPanelProps {
-  conversation: CodexConversationSnapshot | null;
+  conversationProjection: ReviewConversationProjection;
   onStartThreadPrompt: (threadId: string, prompt: string) => Promise<unknown>;
   threadId?: string | null;
   projectWorkspacePath?: string | null;
@@ -223,7 +234,8 @@ interface ReviewDiffPanelDeps {
   invoke: typeof defaultInvoke;
   useTheme: typeof defaultUseTheme;
   FileDiff: typeof defaultFileDiff;
-  MultiFileDiff: typeof defaultMultiFileDiff;
+  subscribeGitReviewSummaries: typeof defaultSubscribeGitReviewSummaries;
+  initialSummaryQuery?: boolean;
 }
 
 interface ReviewFileEntry {
@@ -232,6 +244,8 @@ interface ReviewFileEntry {
   previousPath: string | null;
   gitStatus: GitReviewFileStatus | null;
   revision: string | null;
+  oldOid: string | null;
+  newOid: string | null;
   patchText: string;
   openPath: string | null;
   openLine: number | undefined;
@@ -240,7 +254,20 @@ interface ReviewFileEntry {
   fileDiff: FileDiffMetadata | null;
   loadStatus: ReviewDiffLoadStatus;
   safety: ReviewFileSafety;
+  generated?: boolean | null;
 }
+
+interface GitReviewFileEntryCacheRecord {
+  basePath: string | null;
+  parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"];
+  entry: ReviewFileEntry;
+}
+
+const gitReviewFileEntryCache = new WeakMap<
+  GitReviewFileSummary,
+  GitReviewFileEntryCacheRecord
+>();
+const EMPTY_REVIEW_CODE_COMMENTS: ReviewCodeComment[] = [];
 
 interface ReviewSnapshot {
   source: ReviewSource;
@@ -253,6 +280,7 @@ interface ReviewSnapshot {
   defaultBranch: string | null;
   errorMessage: string | null;
   emptyReason: "noDiff" | "noLongerAvailable" | null;
+  snapshotGeneration: number;
 }
 
 interface ReviewEmptyStateCopy {
@@ -265,10 +293,7 @@ interface ReviewEmptyStateCopy {
 const REVIEW_FILE_TREE_DEFAULT_WIDTH_PX = 280;
 const REVIEW_FILE_TREE_MIN_WIDTH_PX = 200;
 const REVIEW_FILE_TREE_MAX_WIDTH_RATIO = 0.6;
-const LARGE_DIFF_LINE_THRESHOLD = 3_000;
 const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
-const REVIEW_DIFF_BATCH_DELAY_MS = 16;
-const REVIEW_DIFF_TIMEOUT_MS = 15_000;
 const REVIEW_CONTENT_SEARCH_CAP = 250;
 const REVIEW_FULL_FILE_MAX_BYTES = 5_000_000;
 const REVIEW_OPTIONS_MENU_ICON_CLASS_NAME =
@@ -311,7 +336,7 @@ const DEFAULT_REVIEW_DIFF_PANEL_DEPS: ReviewDiffPanelDeps = {
   invoke: defaultInvoke,
   useTheme: defaultUseTheme,
   FileDiff: defaultFileDiff,
-  MultiFileDiff: defaultMultiFileDiff,
+  subscribeGitReviewSummaries: defaultSubscribeGitReviewSummaries,
 };
 
 const REVIEW_RENDERABLE_FILE_SAFETY = buildReviewFileSafety();
@@ -722,6 +747,8 @@ function buildReviewFileEntryFromSummary(
     previousPath: summary.previousPath ?? existing?.previousPath ?? null,
     gitStatus: summary.status,
     revision: summary.revision,
+    oldOid: summary.oldOid,
+    newOid: summary.newOid,
     patchText,
     openPath: resolveOpenPath(displayPath, basePath),
     openLine: existing?.openLine,
@@ -734,6 +761,7 @@ function buildReviewFileEntryFromSummary(
       fallbackStatus,
     }),
     safety,
+    generated: summary.generated,
   };
 }
 
@@ -813,6 +841,16 @@ function buildReviewFileEntries(
               null,
             gitStatus: metadata?.status ?? null,
             revision: metadata?.revision ?? existing?.revision ?? null,
+            oldOid:
+              metadata?.oldOid ??
+              fileDiff.prevObjectId ??
+              existing?.oldOid ??
+              null,
+            newOid:
+              metadata?.newOid ??
+              fileDiff.newObjectId ??
+              existing?.newOid ??
+              null,
             patchText: safety.renderable ? nextPatchText : "",
             openPath: resolveOpenPath(displayPath, basePath),
             openLine: resolveOpenLine(fileDiff) ?? existing?.openLine,
@@ -828,6 +866,7 @@ function buildReviewFileEntries(
               fileDiff: fileDiffForEntry,
             }),
             safety,
+            generated: metadata?.generated,
           } satisfies ReviewFileEntry);
         }
       }
@@ -850,6 +889,35 @@ function buildReviewFileEntries(
   return orderedPaths.flatMap((displayPath) => {
     const entry = entriesByPath.get(displayPath);
     return entry ? [entry] : [];
+  });
+}
+
+function buildGitReviewFileEntries(
+  basePath: string | null,
+  parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
+  metadataFiles: GitReviewFileSummary[],
+): ReviewFileEntry[] {
+  return metadataFiles.flatMap((file) => {
+    const cached = gitReviewFileEntryCache.get(file);
+    if (
+      cached?.basePath === basePath &&
+      cached.parsePatchFiles === parsePatchFiles
+    ) {
+      return [cached.entry];
+    }
+
+    let entry: ReviewFileEntry;
+    if (isReviewDiffEntryLike(file) && file.diff.trim().length > 0) {
+      recordReviewRuntimeEvent({ type: "partial-parse", path: file.path });
+      entry =
+        buildReviewFileEntries(file.diff, basePath, parsePatchFiles, [file])[0] ??
+        buildReviewFileEntryFromSummary(file, basePath, null);
+    } else {
+      entry = buildReviewFileEntryFromSummary(file, basePath, null);
+    }
+
+    gitReviewFileEntryCache.set(file, { basePath, parsePatchFiles, entry });
+    return [entry];
   });
 }
 
@@ -919,23 +987,54 @@ function buildPatchBatchMetadataFiles(
   return Array.from(summariesByPath.values());
 }
 
-function buildFullFileContents(
-  pathName: string,
-  contents: string,
-): FileContents {
-  return {
-    name: pathName,
-    contents,
-    cacheKey: `${pathName}:${contents.length}`,
-  };
-}
-
 function isTextualFullDiffCandidate(entry: ReviewFileEntry): boolean {
+  const fileDiff = entry.fileDiff;
   return (
     entry.safety.renderable &&
-    entry.fileDiff !== null &&
-    getReviewChangedLines(entry) <= LARGE_DIFF_LINE_THRESHOLD
+    entry.generated !== true &&
+    entry.generated !== null &&
+    fileDiff !== null &&
+    fileDiff.isPartial &&
+    fileDiff.mode !== "160000" &&
+    fileDiff.type !== "new" &&
+    fileDiff.type !== "deleted" &&
+    fileDiff.type !== "rename-pure" &&
+    getReviewChangedLines(entry) > 0
   );
+}
+
+function splitReviewFileContents(contents: string): string[] {
+  const lines = contents.split(/(?<=\n)/);
+  if (lines.length === 1 && lines[0] === "") return [];
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function buildReviewFullContentKey(input: {
+  entry: ReviewFileEntry;
+  cwd: string | null;
+  hostConfigKey: string;
+  nextFallbackToDisk: boolean;
+  ignoreWhitespace: boolean;
+  loadFullFilesEnabled: boolean;
+  snapshotGeneration: number | null;
+}): string {
+  const { entry } = input;
+  const metadata = entry.fileDiff;
+  const metadataIdentity =
+    metadata?.cacheKey ??
+    `${metadata?.name ?? entry.displayPath}:${metadata?.prevObjectId ?? "none"}:${metadata?.newObjectId ?? "none"}:${entry.additions ?? 0}:${entry.deletions ?? 0}`;
+  return JSON.stringify([
+    metadataIdentity,
+    metadata?.prevName ?? "",
+    metadata?.name ?? entry.displayPath,
+    input.cwd ?? "",
+    input.hostConfigKey,
+    input.nextFallbackToDisk ? "next-disk-fallback" : "next-object-only",
+    input.ignoreWhitespace ? "ignore-whitespace" : "exact-whitespace",
+    input.loadFullFilesEnabled ? "full" : "partial",
+    input.snapshotGeneration ?? "unversioned",
+  ]);
 }
 
 function buildUnavailableReviewFullContents(
@@ -957,30 +1056,79 @@ function buildUnavailableReviewFullContents(
   };
 }
 
-function isGitReviewFileContentsResult(
-  value: unknown,
-): value is GitReviewFileContents {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Partial<GitReviewFileContents>;
-  return (
-    typeof candidate.path === "string" &&
-    "oldText" in candidate &&
-    "newText" in candidate &&
-    typeof candidate.oldExists === "boolean" &&
-    typeof candidate.newExists === "boolean" &&
-    "errorMessage" in candidate
-  );
+interface ReviewCatFileTextRead {
+  text: string | null;
+  exists: boolean;
+  status: ReviewDiffLoadStatus;
+  safety: ReviewFileSafety;
 }
 
-function normalizeGitReviewFileContentsResult(
-  value: GitReviewFileContents,
-): GitReviewFileContents {
+function normalizeReviewObjectId(
+  value: string | null | undefined,
+): string | null {
+  const normalized = value?.trim() ?? "";
+  if (!normalized || /^0+$/.test(normalized)) return null;
+  return normalized;
+}
+
+function buildReviewCatFileTextRead(
+  result: GitCatFileResult | undefined,
+): ReviewCatFileTextRead {
+  if (!result || (result.type === "error" && result.error.type === "unknown")) {
+    return {
+      text: null,
+      exists: false,
+      status: "load-failed",
+      safety: buildReviewFileSafety({ unsupported: true }),
+    };
+  }
+  if (result.type === "error" && result.error.type === "not-found") {
+    return {
+      text: null,
+      exists: false,
+      status: "loaded",
+      safety: buildReviewFileSafety(),
+    };
+  }
+  if (result.type === "error" && result.error.type === "too-large") {
+    return {
+      text: null,
+      exists: true,
+      status: "diff-too-large",
+      safety: buildReviewFileSafety({
+        tooLarge: true,
+        sizeBytes: result.error.limitBytes,
+      }),
+    };
+  }
+  if (result.type === "error") {
+    return {
+      text: null,
+      exists: false,
+      status: "load-failed",
+      safety: buildReviewFileSafety({ unsupported: true }),
+    };
+  }
+
+  const text = result.lines.join("");
   return {
-    ...value,
-    oldStatus: value.oldStatus ?? "loaded",
-    newStatus: value.newStatus ?? "loaded",
-    safety: value.safety ?? buildReviewFileSafety(),
+    text,
+    exists: true,
+    status: "loaded",
+    safety: buildReviewFileSafety({ sizeBytes: text.length }),
   };
+}
+
+function mergeReviewCatFileSafety(
+  oldRead: ReviewCatFileTextRead,
+  newRead: ReviewCatFileTextRead,
+): ReviewFileSafety {
+  if (!oldRead.safety.renderable) return oldRead.safety;
+  if (!newRead.safety.renderable) return newRead.safety;
+  return buildReviewFileSafety({
+    sizeBytes:
+      (oldRead.safety.sizeBytes ?? 0) + (newRead.safety.sizeBytes ?? 0),
+  });
 }
 
 function isWorkspaceFileReadResult(
@@ -1171,49 +1319,17 @@ function buildTranscriptNewFileContentsFromPatch(
   };
 }
 
-function extractLastTurnPatchItem(
-  items: CodexConversationItem[],
-): { patch: string; patchBatches: CodexTurnDiffPatchBatch[] } | null {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (!item) continue;
-    const rawItem = item.rawItem;
-    if (typeof rawItem === "object" && rawItem !== null) {
-      const unifiedDiff = (rawItem as { unifiedDiff?: unknown }).unifiedDiff;
-      const patchBatches = (rawItem as { patchBatches?: unknown }).patchBatches;
-      if (
-        typeof unifiedDiff === "string" &&
-        (unifiedDiff.trim().length > 0 ||
-          (Array.isArray(patchBatches) && patchBatches.length > 0))
-      ) {
-        return {
-          patch: unifiedDiff,
-          patchBatches: Array.isArray(patchBatches)
-            ? (patchBatches as CodexTurnDiffPatchBatch[])
-            : [],
-        };
-      }
-    }
-  }
-
-  return null;
-}
-
 function buildLastTurnSnapshot(
-  conversation: CodexConversationSnapshot | null,
+  conversation: ReviewConversationProjection,
   projectWorkspacePath: string | null | undefined,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
-  const turn = conversation?.turns.at(-1) ?? null;
-  const rawTurnDiff = turn ? extractLastTurnPatchItem(turn.items) : null;
-  const patch =
-    rawTurnDiff?.patch ??
-    (typeof turn?.diff === "string" && turn.diff.trim().length > 0
-      ? turn.diff
-      : "");
-  const cwd = conversation?.cwd ?? projectWorkspacePath ?? null;
+  const patch = conversation.lastTurnPatch;
+  const cwd = conversation.cwd ?? projectWorkspacePath ?? null;
   const basePath = normalizeReviewBasePath(cwd);
-  const metadataFiles = buildPatchBatchMetadataFiles(rawTurnDiff?.patchBatches);
+  const metadataFiles = buildPatchBatchMetadataFiles(
+    conversation.lastTurnPatchBatches,
+  );
   const files = buildReviewFileEntries(
     patch,
     basePath,
@@ -1235,18 +1351,19 @@ function buildLastTurnSnapshot(
       patch.trim().length === 0 && files.length === 0
         ? "noLongerAvailable"
         : null,
+    snapshotGeneration: 0,
   };
 }
 
 function buildSelectedTurnSnapshot(
   selectedTurnDiff: CodexTurnDiffReviewTarget | null | undefined,
-  conversation: CodexConversationSnapshot | null,
+  conversation: ReviewConversationProjection,
   projectWorkspacePath: string | null | undefined,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
   const patch = selectedTurnDiff?.patch ?? "";
   const cwd =
-    selectedTurnDiff?.cwd ?? conversation?.cwd ?? projectWorkspacePath ?? null;
+    selectedTurnDiff?.cwd ?? conversation.cwd ?? projectWorkspacePath ?? null;
   const basePath = normalizeReviewBasePath(cwd);
   const metadataFiles = buildPatchBatchMetadataFiles(
     selectedTurnDiff?.patchBatches,
@@ -1272,18 +1389,18 @@ function buildSelectedTurnSnapshot(
       patch.trim().length === 0 && files.length === 0
         ? "noLongerAvailable"
         : null,
+    snapshotGeneration: 0,
   };
 }
 
 function buildGitSnapshot(
-  gitSnapshot: GitReviewSnapshot | ReviewDiffResult | null,
+  gitSnapshot: GitReviewSnapshot | ReviewDiffSuccessResult | null,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
   const cwd = gitSnapshot?.cwd ?? null;
   const basePath = normalizeReviewBasePath(cwd);
   const patch = gitSnapshot?.patch ?? "";
-  const files = buildReviewFileEntries(
-    patch,
+  const files = buildGitReviewFileEntries(
     basePath,
     parsePatchFiles,
     gitSnapshot?.files ?? [],
@@ -1301,6 +1418,7 @@ function buildGitSnapshot(
     errorMessage: gitSnapshot?.errorMessage ?? null,
     emptyReason:
       patch.trim().length === 0 && files.length === 0 ? "noDiff" : null,
+    snapshotGeneration: gitSnapshot?.snapshotGeneration ?? 0,
   };
 }
 
@@ -1315,9 +1433,9 @@ function isReviewDiffEntryLike(
 }
 
 function mergeGitSnapshotWithDiffResult(
-  currentSnapshot: GitReviewSnapshot | ReviewDiffResult | null,
-  diffResult: ReviewDiffResult,
-): GitReviewSnapshot | ReviewDiffResult {
+  currentSnapshot: GitReviewSnapshot | null | undefined,
+  diffResult: ReviewDiffSuccessResult,
+): GitReviewSnapshot {
   if (
     !currentSnapshot ||
     currentSnapshot.cwd !== diffResult.cwd ||
@@ -1332,7 +1450,10 @@ function mergeGitSnapshotWithDiffResult(
       .map((file) => [file.path, file]),
   );
   for (const file of diffResult.files) {
-    loadedByPath.set(file.path, file);
+    const summary = currentSnapshot.files.find(
+      (candidate) => candidate.path === file.path,
+    );
+    loadedByPath.set(file.path, summary ? { ...summary, ...file } : file);
   }
 
   const files = currentSnapshot.files.map(
@@ -1348,6 +1469,76 @@ function mergeGitSnapshotWithDiffResult(
     ...currentSnapshot,
     patch,
     files,
+  };
+}
+
+function mergeGitSnapshotWithSummary(input: {
+  current: GitReviewSnapshot | null | undefined;
+  cwd: string;
+  source: GitReviewSource;
+  files: GitReviewFileSummary[];
+  snapshotGeneration: number;
+}): GitReviewSnapshot {
+  const reusableByPath = new Map(
+    (input.current?.files ?? []).map((file) => [file.path, file]),
+  );
+  const files = input.files.map((file) => {
+    const reusable = reusableByPath.get(file.path);
+    if (
+      !reusable ||
+      reusable.revision !== file.revision ||
+      reusable.previousPath !== file.previousPath ||
+      reusable.status !== file.status ||
+      reusable.generated !== file.generated
+    ) {
+      return file;
+    }
+    return reusable;
+  });
+  const patch = files
+    .filter(isReviewDiffEntryLike)
+    .map((file) => file.diff)
+    .filter((diff) => diff.trim().length > 0)
+    .join("\n");
+
+  return {
+    cwd: input.cwd,
+    source: input.source,
+    patch,
+    files,
+    isGitRepository: input.current?.isGitRepository ?? true,
+    baseRef: input.current?.baseRef ?? null,
+    currentBranch: input.current?.currentBranch ?? null,
+    defaultBranch: input.current?.defaultBranch ?? null,
+    errorMessage: null,
+    snapshotGeneration: input.snapshotGeneration,
+  };
+}
+
+function markGitSnapshotDiffLoadFailure(
+  currentSnapshot: GitReviewSnapshot | undefined,
+  paths: ReadonlySet<string>,
+  loadStatus: "load-failed" | "timed-out",
+  errorMessage: string,
+): GitReviewSnapshot | undefined {
+  if (!currentSnapshot) return currentSnapshot;
+  return {
+    ...currentSnapshot,
+    files: currentSnapshot.files.map((file) => {
+      if (!paths.has(file.path)) return file;
+      return {
+        ...file,
+        diff: "",
+        loadStatus,
+        renderKey: `${file.revision ?? file.path}:error:${loadStatus}`,
+        diffBytes: 0,
+        diffError: errorMessage,
+        canApplyPatchActions: false,
+        changedBytes: 0,
+        tooLarge: false,
+        tooLargeReason: null,
+      } satisfies ReviewDiffEntry;
+    }),
   };
 }
 
@@ -1575,45 +1766,119 @@ function ReviewFileDiffPlaceholder({ entry }: { entry: ReviewFileEntry }) {
   );
 }
 
-function ReviewFileRow({
-  entry,
-  diffMode,
-  wrap,
-  wordDiffsEnabled,
-  loadFullFilesEnabled,
-  expanded,
-  openerId,
-  fullContents,
-  fullContentsLoading,
-  comments,
-  threadId,
-  sourceKey,
-  pendingCommentAttachments,
-  deps,
-  onToggleExpanded,
-}: {
+interface ReviewFileRowProps {
   entry: ReviewFileEntry;
   diffMode: ReviewDiffMode;
   wrap: boolean;
   wordDiffsEnabled: boolean;
+  ignoreWhitespace: boolean;
   loadFullFilesEnabled: boolean;
+  canLoadFullContent: boolean;
   expanded: boolean;
   openerId: string;
-  fullContents: GitReviewFileContents | null;
-  fullContentsLoading: boolean;
+  fullContentKey: string;
+  loadFullContents: (entry: ReviewFileEntry) => Promise<GitReviewFileContents>;
   comments: ReviewCodeComment[];
   threadId: string | null;
   sourceKey: string;
   pendingCommentAttachments: CodexReviewDiffCommentAttachment[];
   deps: ReviewDiffPanelDeps;
-  onToggleExpanded: () => void;
-}) {
-  const { invoke, useTheme, FileDiff, MultiFileDiff } = deps;
+  onToggleExpandedKey: (key: string) => void;
+}
+
+function areShallowArraysEqual<T>(left: T[], right: T[]): boolean {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((value, index) => value === right[index]))
+  );
+}
+
+function areReviewFileEntriesEqual(
+  left: ReviewFileEntry,
+  right: ReviewFileEntry,
+): boolean {
+  return (
+    left === right ||
+    (left.key === right.key &&
+      left.previousPath === right.previousPath &&
+      left.gitStatus === right.gitStatus &&
+      left.revision === right.revision &&
+      left.oldOid === right.oldOid &&
+      left.newOid === right.newOid &&
+      left.patchText === right.patchText &&
+      left.openPath === right.openPath &&
+      left.openLine === right.openLine &&
+      left.additions === right.additions &&
+      left.deletions === right.deletions &&
+      left.fileDiff === right.fileDiff &&
+      left.loadStatus === right.loadStatus &&
+      left.safety === right.safety &&
+      left.generated === right.generated)
+  );
+}
+
+function areReviewFileRowPropsEqual(
+  left: ReviewFileRowProps,
+  right: ReviewFileRowProps,
+): boolean {
+  return (
+    areReviewFileEntriesEqual(left.entry, right.entry) &&
+    left.diffMode === right.diffMode &&
+    left.wrap === right.wrap &&
+    left.wordDiffsEnabled === right.wordDiffsEnabled &&
+    left.ignoreWhitespace === right.ignoreWhitespace &&
+    left.loadFullFilesEnabled === right.loadFullFilesEnabled &&
+    left.canLoadFullContent === right.canLoadFullContent &&
+    left.expanded === right.expanded &&
+    left.openerId === right.openerId &&
+    left.fullContentKey === right.fullContentKey &&
+    left.loadFullContents === right.loadFullContents &&
+    areShallowArraysEqual(left.comments, right.comments) &&
+    left.threadId === right.threadId &&
+    left.sourceKey === right.sourceKey &&
+    areShallowArraysEqual(
+      left.pendingCommentAttachments,
+      right.pendingCommentAttachments,
+    ) &&
+    left.deps === right.deps &&
+    left.onToggleExpandedKey === right.onToggleExpandedKey
+  );
+}
+
+const ReviewFileRow = memo(function ReviewFileRow({
+  entry,
+  diffMode,
+  wrap,
+  wordDiffsEnabled,
+  ignoreWhitespace,
+  loadFullFilesEnabled,
+  canLoadFullContent,
+  expanded,
+  openerId,
+  fullContentKey,
+  loadFullContents,
+  comments,
+  threadId,
+  sourceKey,
+  pendingCommentAttachments,
+  deps,
+  onToggleExpandedKey,
+}: ReviewFileRowProps) {
+  recordReviewRuntimeEvent({ type: "row-render", path: entry.displayPath });
+  const { invoke, useTheme, FileDiff } = deps;
   const { resolved } = useTheme();
+  const rowRef = useRef<HTMLElement | null>(null);
+  const fullContentState = useReviewFullContentState(fullContentKey);
   const diffHostStyle = getNodexDiffHostStyle(
     resolved === "dark" ? "dark" : "light",
   );
-  const lineDiffType = wordDiffsEnabled ? "word-alt" : "none";
+  const supportsWordDiffs = isReviewWordDiffEnabled(
+    getReviewChangedLines(entry),
+    true,
+  );
+  const renderWordDiffs = supportsWordDiffs && wordDiffsEnabled;
+  const lineDiffType = renderWordDiffs ? "word-alt" : "none";
   const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(
     null,
   );
@@ -2017,24 +2282,84 @@ function ReviewFileRow({
     onLineSelected: createDraftFromRange,
     onLineSelectionChange: setSelectedLines,
   } as NonNullable<FileDiffProps<ReviewDiffAnnotationMetadata>["options"]>;
-  const fullDiffRenderable =
+  const shouldRequestFullContents =
     loadFullFilesEnabled &&
+    canLoadFullContent &&
     expanded &&
-    fullContents &&
-    fullContents.errorMessage === null &&
-    fullContents.safety.renderable &&
-    fullContents.oldStatus === "loaded" &&
-    fullContents.newStatus === "loaded" &&
-    (fullContents.oldExists || fullContents.newExists);
-  const oldFile = fullDiffRenderable
-    ? buildFullFileContents(
-        entry.previousPath ?? entry.displayPath,
-        fullContents.oldText ?? "",
-      )
-    : null;
-  const newFile = fullDiffRenderable
-    ? buildFullFileContents(entry.displayPath, fullContents.newText ?? "")
-    : null;
+    isTextualFullDiffCandidate(entry) &&
+    fullContentState.fullDiffMetadata === null &&
+    !fullContentState.fullContentLoadFailed &&
+    !fullContentState.fullContentUnavailable &&
+    !fullContentState.isLoadingFullContent;
+
+  useEffect(() => {
+    if (!shouldRequestFullContents) return;
+    const row = rowRef.current;
+    if (!row) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((candidate) => candidate.isIntersecting)) return;
+      observer.disconnect();
+      void loadReviewFullContent({
+        key: fullContentKey,
+        identity: fullContentKey,
+        load: () => loadFullContents(entry),
+        expand: (contents) =>
+          entry.fileDiff
+            ? (() => {
+                const metadata = expandPartialDiffMetadata(
+                  entry.fileDiff,
+                  splitReviewFileContents(contents.oldText ?? ""),
+                  splitReviewFileContents(contents.newText ?? ""),
+                  { ignoreWhitespace },
+                );
+                recordReviewRuntimeEvent({
+                  type: "full-expansion",
+                  path: entry.displayPath,
+                  success: metadata !== null,
+                });
+                return metadata;
+              })()
+            : null,
+      });
+    });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [
+    entry,
+    fullContentKey,
+    ignoreWhitespace,
+    loadFullContents,
+    shouldRequestFullContents,
+  ]);
+
+  const pendingFileDiff = useMemo(() => {
+    if (!entry.fileDiff || !fullContentState.isLoadingFullContent) return null;
+    return {
+      ...entry.fileDiff,
+      cacheKey: `${entry.fileDiff.cacheKey ?? entry.key}:pending-full`,
+      lang: "text",
+    } satisfies FileDiffMetadata;
+  }, [entry.fileDiff, entry.key, fullContentState.isLoadingFullContent]);
+  const renderedFileDiff =
+    fullContentState.fullDiffMetadata ?? pendingFileDiff ?? entry.fileDiff;
+  const presentationFileDiff = useMemo(() => {
+    if (!renderedFileDiff || supportsWordDiffs) return renderedFileDiff;
+    return {
+      ...renderedFileDiff,
+      cacheKey: `${renderedFileDiff.cacheKey ?? entry.key}:plain-text`,
+      lang: "text",
+    } satisfies FileDiffMetadata;
+  }, [entry.key, renderedFileDiff, supportsWordDiffs]);
+  const fullContentPhase = fullContentState.isLoadingFullContent
+    ? "loading"
+    : fullContentState.fullDiffMetadata
+      ? "success"
+      : fullContentState.fullContentLoadFailed
+        ? "failed"
+        : fullContentState.fullContentUnavailable
+          ? "unavailable"
+          : "partial";
 
   const openFile = () => {
     if (!entry.openPath) return;
@@ -2050,14 +2375,16 @@ function ReviewFileRow({
 
   return (
     <section
+      ref={rowRef}
       data-review-path={entry.displayPath}
+      data-review-full-content-state={fullContentPhase}
       className="group/file-diff flex flex-col overflow-clip pb-0.5 codex-review-diff-card extension:rounded-lg"
       style={REVIEW_FILE_ROW_SURFACE_STYLE}
     >
       <div
         className="cursor-interaction select-none focus-visible:outline-none z-10 sticky top-0 backdrop-blur-sm"
         style={REVIEW_FILE_ROW_HEADER_STYLE}
-        onClick={onToggleExpanded}
+        onClick={() => onToggleExpandedKey(entry.key)}
       >
         <div>
           <div className="group/diff-header text-size-chat @container/diff-header relative flex items-center gap-2 py-0.5 ps-3 pe-2 hover:bg-token-list-hover-background bg-[color-mix(in_srgb,var(--color-token-main-surface-primary)_88%,transparent)] [.dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] [.electron-dark_&]:bg-[color-mix(in_srgb,var(--color-token-list-active-selection-background)_88%,transparent)] mb-0.5">
@@ -2084,7 +2411,7 @@ function ReviewFileRow({
                   aria-label="Toggle file diff"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onToggleExpanded();
+                    onToggleExpandedKey(entry.key);
                   }}
                 >
                   <ReviewFileToggleChevronIcon
@@ -2157,28 +2484,9 @@ function ReviewFileRow({
               </div>
             </div>
           ) : null}
-          {fullContentsLoading ? (
-            <div className="px-3 py-3 text-sm text-token-description-foreground">
-              Loading full file…
-            </div>
-          ) : fullContents?.errorMessage ? (
-            <div className="px-3 py-3 text-sm text-token-charts-red">
-              {fullContents.errorMessage}
-            </div>
-          ) : oldFile && newFile ? (
-            <MultiFileDiff<ReviewDiffAnnotationMetadata>
-              oldFile={oldFile}
-              newFile={newFile}
-              className={NODEX_DIFF_HOST_CLASS}
-              style={diffHostStyle}
-              options={diffOptions}
-              lineAnnotations={lineAnnotations}
-              selectedLines={selectedLines}
-              renderAnnotation={renderAnnotation}
-            />
-          ) : entry.fileDiff ? (
+          {presentationFileDiff ? (
             <FileDiff<ReviewDiffAnnotationMetadata>
-              fileDiff={entry.fileDiff}
+              fileDiff={presentationFileDiff}
               className={NODEX_DIFF_HOST_CLASS}
               style={diffHostStyle}
               options={diffOptions}
@@ -2193,7 +2501,7 @@ function ReviewFileRow({
       ) : null}
     </section>
   );
-}
+}, areReviewFileRowPropsEqual);
 
 interface ReviewFileTreePaneProps {
   rows: ReviewFileTreeRow<ReviewFileEntry>[];
@@ -2768,45 +3076,8 @@ function ReviewFileTreePane({
   );
 }
 
-interface ReviewDeferredRenderProps {
-  defer: boolean;
-  delayMs?: number;
-  fallback: ReactNode;
-  children: ReactNode;
-}
-
-function ReviewDeferredRender({
-  defer,
-  delayMs = 0,
-  fallback,
-  children,
-}: ReviewDeferredRenderProps) {
-  const [ready, setReady] = useState(() => !defer);
-
-  useEffect(() => {
-    if (!defer) {
-      setReady(true);
-      return;
-    }
-
-    setReady(false);
-    const timerId = window.setTimeout(() => {
-      setReady(true);
-    }, delayMs);
-    return () => {
-      window.clearTimeout(timerId);
-    };
-  }, [defer, delayMs]);
-
-  if (!defer || ready) {
-    return <>{children}</>;
-  }
-
-  return <>{fallback}</>;
-}
-
 export function ReviewDiffPanel({
-  conversation,
+  conversationProjection,
   onStartThreadPrompt,
   threadId,
   projectWorkspacePath,
@@ -2817,11 +3088,15 @@ export function ReviewDiffPanel({
   initialFileTreeOpen = false,
   deps,
 }: ReviewDiffPanelProps) {
-  const resolvedDeps = {
-    ...DEFAULT_REVIEW_DIFF_PANEL_DEPS,
-    ...deps,
-  };
-  const { invoke, parsePatchFiles } = resolvedDeps;
+  const resolvedDeps = useMemo(
+    () => ({
+      ...DEFAULT_REVIEW_DIFF_PANEL_DEPS,
+      ...deps,
+    }),
+    [deps],
+  );
+  const { invoke, parsePatchFiles, subscribeGitReviewSummaries } = resolvedDeps;
+  const reviewConversation = conversationProjection;
   const { opener } = useFileLinkOpener();
   const reviewContentRootRef = useRef<HTMLDivElement | null>(null);
   const reviewSplitRootRef = useRef<HTMLDivElement | null>(null);
@@ -2853,11 +3128,6 @@ export function ReviewDiffPanel({
   const [focusedTreeItemId, setFocusedTreeItemId] = useState<string | null>(
     null,
   );
-  const [gitSnapshot, setGitSnapshot] = useState<
-    GitReviewSnapshot | ReviewDiffResult | null
-  >(null);
-  const [gitLoadStatus, setGitLoadStatus] =
-    useState<GitReviewLoadStatus>("idle");
   const [branchCommits, setBranchCommits] = useState<GitReviewBranchCommit[]>(
     [],
   );
@@ -2867,19 +3137,17 @@ export function ReviewDiffPanel({
     null,
   );
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
-  const [fullContentsByPath, setFullContentsByPath] = useState<
-    Record<string, GitReviewFileContents>
-  >({});
-  const [fullContentsLoadingPaths, setFullContentsLoadingPaths] = useState<
-    Record<string, boolean>
-  >({});
-  const fullContentsLoadingPathsRef = useRef<Record<string, boolean>>({});
-  const fullContentsGenerationRef = useRef(0);
-  const gitLoadRequestIdRef = useRef(0);
-  const gitFileDiffLoadRequestIdRef = useRef(0);
+  const expandedKeysSourceRef = useRef<ReviewSource | null>(null);
+  const knownReviewFileKeysRef = useRef<Set<string>>(new Set());
+  const gitLiveGenerationRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const gitLoading = gitLoadStatus === "loading";
-  const reviewThreadId = conversation?.threadId ?? threadId ?? null;
+  const reviewCommentsByPathCacheRef = useRef<{
+    comments: ReviewCodeComment[];
+    pathsIdentity: string;
+    value: Map<string, ReviewCodeComment[]>;
+  } | null>(null);
+  const queryClient = useQueryClient();
+  const reviewThreadId = reviewConversation.threadId ?? threadId ?? null;
   const pendingReviewCommentAttachments =
     useReviewDiffCommentAttachments(reviewThreadId);
   const selectedTurnDiffEntryId = selectedTurnDiff?.entryId ?? null;
@@ -2890,15 +3158,15 @@ export function ReviewDiffPanel({
   const reviewCwd = isTranscriptReviewSource(source)
     ? source === "selected-turn"
       ? (selectedTurnDiff?.cwd ??
-        conversation?.cwd ??
+        reviewConversation.cwd ??
         projectWorkspacePath ??
         null)
-      : (conversation?.cwd ?? projectWorkspacePath ?? null)
-    : (projectWorkspacePath ?? conversation?.cwd ?? null);
+      : (reviewConversation.cwd ?? projectWorkspacePath ?? null)
+    : (projectWorkspacePath ?? reviewConversation.cwd ?? null);
 
   useEffect(() => {
     clearContentSearchMarks(reviewContentRootRef.current);
-  }, [conversation?.threadId]);
+  }, [reviewConversation.threadId]);
 
   useEffect(() => {
     void selectedTurnDiffEntryId;
@@ -2956,61 +3224,184 @@ export function ReviewDiffPanel({
     });
   };
 
-  const lastTurnSnapshot = useMemo(
-    () =>
-      buildLastTurnSnapshot(
-        conversation,
+  const transcriptSnapshot = useMemo(() => {
+    if (source === "last-turn") {
+      return buildLastTurnSnapshot(
+        reviewConversation,
         projectWorkspacePath,
         parsePatchFiles,
-      ),
-    [conversation, parsePatchFiles, projectWorkspacePath],
-  );
-  const selectedTurnSnapshot = useMemo(
-    () =>
-      buildSelectedTurnSnapshot(
+      );
+    }
+    if (source === "selected-turn") {
+      return buildSelectedTurnSnapshot(
         selectedTurnDiff,
-        conversation,
+        reviewConversation,
         projectWorkspacePath,
         parsePatchFiles,
-      ),
-    [conversation, parsePatchFiles, projectWorkspacePath, selectedTurnDiff],
-  );
+      );
+    }
+    return null;
+  }, [
+    parsePatchFiles,
+    projectWorkspacePath,
+    reviewConversation,
+    selectedTurnDiff,
+    source,
+  ]);
 
   const loadGitSnapshot = useCallback(async (
     nextSource: GitReviewSource,
     nextCwd: string,
+    signal?: AbortSignal,
   ): Promise<GitReviewSnapshot> => {
-    return invoke("git:review:snapshot", {
+    const requestId = `review:${nextCwd}:${nextSource}:${commitSha ?? ""}`;
+    const abort = () => {
+      void invoke("git:review:cancel", { requestId });
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) {
+      abort();
+      throw new DOMException("Git review summary aborted", "AbortError");
+    }
+    const result = await invoke("git:review:summary", {
+        cwd: nextCwd,
+        source: nextSource,
+        commitSha: nextSource === "commit" ? commitSha : null,
+        hideWhitespace,
+        requestId,
+      }).finally(() => signal?.removeEventListener("abort", abort));
+    if (result.type === "error") {
+      return {
+        cwd: nextCwd,
+        source: nextSource,
+        patch: "",
+        files: [],
+        isGitRepository: true,
+        baseRef: null,
+        currentBranch: null,
+        defaultBranch: null,
+        errorMessage: result.errorMessage,
+        snapshotGeneration: 0,
+      };
+    }
+    return {
       cwd: nextCwd,
       source: nextSource,
-      commitSha: nextSource === "commit" ? commitSha : null,
-      hideWhitespace,
-      operationSource: "review_model",
-      requestId: `review:${nextCwd}:${nextSource}:${commitSha ?? ""}`,
-    }) as Promise<GitReviewSnapshot>;
+      patch: "",
+      files: result.files,
+      isGitRepository: true,
+      baseRef: null,
+      currentBranch: null,
+      defaultBranch: null,
+      errorMessage: null,
+      snapshotGeneration: result.snapshotGeneration,
+    };
   }, [commitSha, hideWhitespace, invoke]);
 
-  const loadGitFileDiffs = useEffectEvent(async (
-    entries: ReviewFileEntry[],
-  ): Promise<ReviewDiffResult | null> => {
-    if (!isGitReviewSource(source)) return null;
-
-    const normalizedCwd = reviewCwd?.trim() ?? "";
-    if (!normalizedCwd || entries.length === 0) return null;
-
-    return invoke("git:review:diff", {
-      cwd: normalizedCwd,
-      source,
-      files: entries.map((entry) => entry.displayPath),
-      baseRef: gitSnapshot?.baseRef ?? null,
-      commitSha: source === "commit" ? commitSha : null,
-      hideWhitespace,
-      operationSource: "review_model",
-      requestId: `review:${normalizedCwd}:${source}:${commitSha ?? ""}:files:${entries.map((entry) => entry.revision ?? entry.displayPath).join("|")}`,
-    }) as Promise<ReviewDiffResult>;
+  const normalizedGitCwd = reviewCwd?.trim() ?? "";
+  const gitQueryEnabled =
+    isGitReviewSource(source) && normalizedGitCwd.length > 0;
+  const gitSummaryQueryKey = useMemo(
+    () =>
+      [
+        "review",
+        "live-summary",
+        normalizedGitCwd,
+        source,
+        commitSha ?? "",
+        hideWhitespace,
+        loadGitSnapshot,
+      ] as const,
+    [commitSha, hideWhitespace, loadGitSnapshot, normalizedGitCwd, source],
+  );
+  const gitLiveSubscriptionId = useMemo(
+    () =>
+      `review:${hashReviewDiffSourceKey(
+        `${normalizedGitCwd}:${source}:${commitSha ?? ""}:${hideWhitespace}`,
+      )}`,
+    [commitSha, hideWhitespace, normalizedGitCwd, source],
+  );
+  const gitRepositoryMetadataQueryKey = useMemo(
+    () =>
+      ["review", "repository-metadata", normalizedGitCwd, invoke] as const,
+    [invoke, normalizedGitCwd],
+  );
+  const gitRepositoryMetadataQuery = useQuery({
+    queryKey: gitRepositoryMetadataQueryKey,
+    queryFn: async (): Promise<GitReviewRepositoryMetadataResult> => {
+      const result = await invoke("git:review:repository-metadata", {
+        cwd: normalizedGitCwd,
+      });
+      if (result && typeof result.cwd === "string") return result;
+      return {
+        cwd: normalizedGitCwd,
+        root: normalizedGitCwd,
+        gitDir: null,
+        commonDir: null,
+        isGitRepository: true,
+        currentBranch: null,
+        defaultBranch: null,
+        errorMessage: null,
+      };
+    },
+    enabled: gitQueryEnabled,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
   });
+  const gitSummaryQuery = useQuery({
+    queryKey: gitSummaryQueryKey,
+    queryFn: ({ signal }) => {
+      if (!isGitReviewSource(source) || !normalizedGitCwd) {
+        throw new Error("Git review source is not active.");
+      }
+      return loadGitSnapshot(source, normalizedGitCwd, signal);
+    },
+    enabled: gitQueryEnabled && resolvedDeps.initialSummaryQuery === true,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
+  });
+  const gitSnapshot = useMemo(() => {
+    if (!gitQueryEnabled || !gitSummaryQuery.data) return null;
+    const metadata = gitRepositoryMetadataQuery.data;
+    if (!metadata) return gitSummaryQuery.data;
+    return {
+      ...gitSummaryQuery.data,
+      cwd: metadata.cwd,
+      isGitRepository: metadata.isGitRepository,
+      baseRef:
+        source === "branch"
+          ? (gitSummaryQuery.data.baseRef ?? metadata.defaultBranch)
+          : gitSummaryQuery.data.baseRef,
+      currentBranch: metadata.currentBranch,
+      defaultBranch: metadata.defaultBranch,
+      errorMessage:
+        gitSummaryQuery.data.errorMessage ?? metadata.errorMessage,
+    };
+  }, [
+    gitQueryEnabled,
+    gitRepositoryMetadataQuery.data,
+    gitSummaryQuery.data,
+    source,
+  ]);
+  const gitLoadStatus: GitReviewLoadStatus = !gitQueryEnabled
+    ? "idle"
+    : gitSummaryQuery.isPending || gitRepositoryMetadataQuery.isPending
+      ? "loading"
+      : gitSummaryQuery.isError || gitRepositoryMetadataQuery.isError
+        ? gitSummaryQuery.error instanceof Error &&
+          gitSummaryQuery.error.message.includes("timed out")
+          ? "timed-out"
+          : "load-failed"
+        : "loaded";
+  const gitLoading = gitLoadStatus === "loading";
 
-  const loadReviewFileContents = useEffectEvent(async (
+  const loadReviewFileContents = useCallback(async (
     entry: ReviewFileEntry,
   ): Promise<GitReviewFileContents> => {
     if (!entry.safety.renderable || !entry.fileDiff) {
@@ -3065,119 +3456,194 @@ export function ReviewDiffPanel({
       );
     }
 
-    const result = await invoke("git:review:file-contents", {
+    const snapshotGeneration = gitSnapshot?.snapshotGeneration ?? 0;
+    if (snapshotGeneration <= 0) {
+      return buildUnavailableReviewFullContents(entry);
+    }
+    const oldObjectSpec = normalizeReviewObjectId(
+      entry.oldOid ?? entry.fileDiff.prevObjectId,
+    );
+    if (!oldObjectSpec) return buildUnavailableReviewFullContents(entry);
+    const newObjectSpec = normalizeReviewObjectId(
+      entry.newOid ?? entry.fileDiff.newObjectId,
+    );
+    const results = await requestReviewCatFile({
+      bucketKey: `${source}:${gitSnapshot?.baseRef ?? ""}:${commitSha ?? ""}`,
       cwd: normalizedCwd,
-      source,
+      snapshotGeneration,
+      requests: [
+        {
+          oid: oldObjectSpec,
+          path: entry.previousPath ?? entry.displayPath,
+        },
+        {
+          oid: newObjectSpec,
+          path: entry.displayPath,
+          fallbackToDisk: source === "unstaged",
+        },
+      ],
+      invoke: (channel, input) => invoke(channel, input),
+    });
+    const oldRead = buildReviewCatFileTextRead(results[0]);
+    const newRead = buildReviewCatFileTextRead(results[1]);
+    return {
       path: entry.displayPath,
       previousPath: entry.previousPath,
-      baseRef: gitSnapshot?.baseRef ?? null,
-      commitSha: source === "commit" ? commitSha : null,
-    });
-    return isGitReviewFileContentsResult(result)
-      ? normalizeGitReviewFileContentsResult(result)
-      : buildUnavailableReviewFullContents(entry);
-  });
+      oldText: oldRead.text,
+      newText: newRead.text,
+      oldExists: oldRead.exists,
+      newExists: newRead.exists,
+      oldStatus: oldRead.status,
+      newStatus: newRead.status,
+      safety: mergeReviewCatFileSafety(oldRead, newRead),
+      errorMessage:
+        oldRead.status === "load-failed" || newRead.status === "load-failed"
+          ? "Could not load full review file."
+          : null,
+    };
+  }, [commitSha, gitSnapshot?.baseRef, gitSnapshot?.snapshotGeneration, invoke, reviewCwd, source]);
 
   useEffect(() => {
-    if (isTranscriptReviewSource(source)) {
-      setGitSnapshot(null);
-      return;
-    }
-
+    if (!isGitReviewSource(source)) return;
     const normalizedCwd = reviewCwd?.trim() ?? "";
-    if (!normalizedCwd) {
-      setGitSnapshot(null);
-      return;
-    }
+    if (!normalizedCwd) return;
 
-    let cancelled = false;
-    const requestId = gitLoadRequestIdRef.current + 1;
-    gitLoadRequestIdRef.current = requestId;
-    setGitLoadStatus("loading");
-
-    let timeoutTimerId: number | null = null;
-    let loadTimerId: number | null = null;
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutTimerId = window.setTimeout(() => {
-        reject(new Error("timed-out"));
-      }, REVIEW_DIFF_TIMEOUT_MS);
-    });
-    const loadPromise = new Promise<GitReviewSnapshot>((resolve, reject) => {
-      loadTimerId = window.setTimeout(() => {
-        if (cancelled || gitLoadRequestIdRef.current !== requestId) return;
-        void loadGitSnapshot(source, normalizedCwd).then(resolve, reject);
-      }, REVIEW_DIFF_BATCH_DELAY_MS);
-    });
-
-    void Promise.race([loadPromise, timeoutPromise])
-      .then((result) => {
-        if (cancelled || gitLoadRequestIdRef.current !== requestId) return;
-        setGitSnapshot(result);
-        setGitLoadStatus("loaded");
-      })
-      .catch((error) => {
-        if (cancelled || gitLoadRequestIdRef.current !== requestId) return;
-        const timedOut =
-          error instanceof Error && error.message === "timed-out";
-        setGitSnapshot({
-          cwd: normalizedCwd,
-          source,
-          patch: "",
-          files: [],
-          isGitRepository: true,
-          baseRef: null,
-          currentBranch: null,
-          defaultBranch: null,
-          errorMessage: timedOut
-            ? null
-            : error instanceof Error
-              ? error.message
-              : "Could not load Git review snapshot.",
+    const subscriptionId = gitLiveSubscriptionId;
+    gitLiveGenerationRef.current = 0;
+    const unsubscribe = subscribeGitReviewSummaries((event) => {
+      if (event.subscriptionId !== subscriptionId) return;
+      if (event.requiresRecovery) {
+        void invoke("git:live-query:recover", { subscriptionId });
+      }
+      if (event.generation < gitLiveGenerationRef.current) return;
+      gitLiveGenerationRef.current = event.generation;
+      if (event.type === "git-live-query-failed") {
+        queryClient.setQueryData<GitReviewSnapshot>(
+          gitSummaryQueryKey,
+          (current) =>
+            current ?? {
+              cwd: normalizedCwd,
+              source,
+              patch: "",
+              files: [],
+              isGitRepository: true,
+              baseRef: null,
+              currentBranch: null,
+              defaultBranch: null,
+              errorMessage: event.errorMessage,
+              snapshotGeneration: 0,
+            },
+        );
+        return;
+      }
+      if (event.result.source !== source || event.result.type !== "success") return;
+      const summary = event.result;
+      if (event.phase === "complete") {
+        void queryClient.invalidateQueries({
+          queryKey: gitRepositoryMetadataQueryKey,
+          exact: true,
         });
-        setGitLoadStatus(timedOut ? "timed-out" : "load-failed");
+      }
+      startTransition(() => {
+        queryClient.setQueryData<GitReviewSnapshot>(
+          gitSummaryQueryKey,
+          (current) =>
+            mergeGitSnapshotWithSummary({
+              current,
+              cwd: normalizedCwd,
+              source,
+              files: summary.files,
+              snapshotGeneration: summary.snapshotGeneration,
+            }),
+        );
       });
+    });
+    void invoke("git:live-query:subscribe", {
+      subscriptionId,
+      request: {
+        cwd: normalizedCwd,
+        source,
+        commitSha: source === "commit" ? commitSha : null,
+        hideWhitespace,
+      },
+    });
 
     return () => {
-      cancelled = true;
-      if (timeoutTimerId !== null) {
-        window.clearTimeout(timeoutTimerId);
-      }
-      if (loadTimerId !== null) {
-        window.clearTimeout(loadTimerId);
-      }
+      unsubscribe();
+      void invoke("git:live-query:unsubscribe", { subscriptionId });
     };
-  }, [loadGitSnapshot, reviewCwd, source]);
+  }, [
+    commitSha,
+    gitLiveSubscriptionId,
+    gitRepositoryMetadataQueryKey,
+    hideWhitespace,
+    invoke,
+    gitSummaryQueryKey,
+    queryClient,
+    reviewCwd,
+    source,
+    subscribeGitReviewSummaries,
+  ]);
 
   const snapshot = useMemo(() => {
-    if (source === "selected-turn") return selectedTurnSnapshot;
-    if (source === "last-turn") return lastTurnSnapshot;
+    if (transcriptSnapshot) return transcriptSnapshot;
     return buildGitSnapshot(gitSnapshot, parsePatchFiles);
   }, [
     gitSnapshot,
-    lastTurnSnapshot,
     parsePatchFiles,
-    selectedTurnSnapshot,
-    source,
+    transcriptSnapshot,
   ]);
+  const reviewFullContentKeysByPath = useMemo(
+    () =>
+      new Map(
+        snapshot.files.map((entry) => [
+          entry.displayPath,
+          buildReviewFullContentKey({
+            entry,
+            cwd: reviewCwd,
+            hostConfigKey: "local",
+            nextFallbackToDisk:
+              source === "unstaged" || isTranscriptReviewSource(source),
+            ignoreWhitespace: hideWhitespace,
+            loadFullFilesEnabled,
+            snapshotGeneration:
+              snapshot.snapshotGeneration > 0
+                ? snapshot.snapshotGeneration
+                : null,
+          }),
+        ]),
+      ),
+    [
+      hideWhitespace,
+      loadFullFilesEnabled,
+      reviewCwd,
+      snapshot.files,
+      snapshot.snapshotGeneration,
+      source,
+    ],
+  );
   const reviewDiffCommentSourceKey = useMemo(() => {
     const sourceParts = [
       source,
+      source === "last-turn" ? reviewConversation.lastTurnId ?? "" : "",
+      source === "last-turn" ? reviewConversation.lastTurnEntryId ?? "" : "",
       commitSha ?? "",
       selectedTurnDiff?.turnId ?? "",
       selectedTurnDiff?.entryId ?? "",
       snapshot.baseRef ?? "",
       snapshot.currentBranch ?? "",
-      hashReviewDiffSourceKey(snapshot.patch),
+      snapshot.snapshotGeneration,
     ];
     return sourceParts.join(":");
   }, [
     commitSha,
+    reviewConversation.lastTurnEntryId,
+    reviewConversation.lastTurnId,
     selectedTurnDiff?.entryId,
     selectedTurnDiff?.turnId,
     snapshot.baseRef,
     snapshot.currentBranch,
-    snapshot.patch,
+    snapshot.snapshotGeneration,
     source,
   ]);
   const selectedCommitSubject = useMemo(
@@ -3209,10 +3675,7 @@ export function ReviewDiffPanel({
       setBranchCommitsLoadStatus("error");
     }
   };
-  const reviewCodeComments = useMemo(
-    () => extractReviewCodeCommentsFromConversation(conversation),
-    [conversation],
-  );
+  const reviewCodeComments = reviewConversation.codeComments;
   const totalChangedLines = useMemo(
     () => getReviewTotalChangedLines(snapshot.files),
     [snapshot.files],
@@ -3240,23 +3703,8 @@ export function ReviewDiffPanel({
   );
 
   useEffect(() => {
-    const generation = fullContentsGenerationRef.current + 1;
-    fullContentsGenerationRef.current = generation;
-    fullContentsLoadingPathsRef.current = {};
-    setFullContentsByPath({});
-    setFullContentsLoadingPaths({});
     clearContentSearchMarks(reviewContentRootRef.current);
-
-    return () => {
-      if (fullContentsGenerationRef.current === generation) {
-        fullContentsGenerationRef.current += 1;
-      }
-    };
   }, [snapshot.patch, source]);
-
-  useEffect(() => {
-    fullContentsLoadingPathsRef.current = fullContentsLoadingPaths;
-  }, [fullContentsLoadingPaths]);
 
   const filteredFiles = useMemo(
     () => filterReviewFiles(snapshot.files, deferredFileFilter),
@@ -3301,11 +3749,21 @@ export function ReviewDiffPanel({
   );
 
   useEffect(() => {
-    const nextExpandedKeys = snapshot.files.reduce<Set<string>>((acc, file) => {
-      acc.add(file.key);
-      return acc;
-    }, new Set());
-    setExpandedKeys(nextExpandedKeys);
+    const nextFileKeys = new Set(snapshot.files.map((file) => file.key));
+    const sourceChanged = expandedKeysSourceRef.current !== source;
+    const previousFileKeys = knownReviewFileKeysRef.current;
+    expandedKeysSourceRef.current = source;
+    knownReviewFileKeysRef.current = nextFileKeys;
+    setExpandedKeys((current) => {
+      if (sourceChanged) return nextFileKeys;
+      const next = new Set(
+        Array.from(current).filter((key) => nextFileKeys.has(key)),
+      );
+      for (const key of nextFileKeys) {
+        if (!previousFileKeys.has(key)) next.add(key);
+      }
+      return next;
+    });
   }, [source, snapshot.files]);
 
   useEffect(() => {
@@ -3410,14 +3868,10 @@ export function ReviewDiffPanel({
       REVIEW_CAPPED_MATCH_PAGE_SIZE,
     );
   }, [filteredFiles, isCappedMode, selectedPath]);
-  const reviewRenderPlan = useMemo(
-    () => buildReviewRenderPlan(visibleFiles, isCappedMode),
-    [isCappedMode, visibleFiles],
-  );
-
   useEffect(() => {
     if (!isGitReviewSource(source)) return;
     if (gitLoadStatus !== "loaded") return;
+    if (!gitSnapshot) return;
 
     const entriesToLoad = visibleFiles.filter(
       (entry) => entry.safety.renderable && entry.loadStatus === "loading",
@@ -3425,36 +3879,104 @@ export function ReviewDiffPanel({
     if (entriesToLoad.length === 0) return;
 
     let cancelled = false;
-    const requestId = gitFileDiffLoadRequestIdRef.current + 1;
-    gitFileDiffLoadRequestIdRef.current = requestId;
-    const timerId = window.setTimeout(() => {
-      void loadGitFileDiffs(entriesToLoad)
-        .then((result) => {
-          if (
-            cancelled ||
-            gitFileDiffLoadRequestIdRef.current !== requestId ||
-            !result
-          )
-            return;
-          startTransition(() => {
-            setGitSnapshot((current) =>
-              mergeGitSnapshotWithDiffResult(current, result),
-            );
-          });
-        })
-        .catch(() => {
-          if (cancelled || gitFileDiffLoadRequestIdRef.current !== requestId)
-            return;
+    const controller = new AbortController();
+    const gitSource = source;
+    const request = {
+      cwd: gitSnapshot.cwd,
+      source: gitSource,
+      baseRef: gitSnapshot.baseRef,
+      commitSha: gitSource === "commit" ? commitSha : null,
+      hideWhitespace,
+      snapshotGeneration: gitSnapshot.snapshotGeneration,
+      operationSource: "review_model",
+    } satisfies Omit<ReviewDiffRequest, "files" | "requestId">;
+
+    void Promise.all(
+      entriesToLoad.map((entry) =>
+        requestReviewDiffPath({
+          bucketKey: `${gitSnapshot.cwd}:${gitSource}:${gitSnapshot.snapshotGeneration}:${hideWhitespace}`,
+          request,
+          path: entry.displayPath,
+          previousPath: entry.previousPath,
+          untracked: entry.gitStatus === "untracked",
+          status: entry.gitStatus ?? "modified",
+          revision: entry.revision,
+          signal: controller.signal,
+          invoke: (channel, input) => invoke(channel, input),
+        }),
+      ),
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        const loadedEntries = entries.filter(
+          (entry): entry is ReviewDiffEntry => entry !== null,
+        );
+        if (loadedEntries.length === 0) return;
+        const result: ReviewDiffSuccessResult = {
+          type: "success",
+          cwd: gitSnapshot.cwd,
+          source: gitSource,
+          patch: loadedEntries.map((entry) => entry.diff).join("\n"),
+          files: loadedEntries,
+          isGitRepository: gitSnapshot.isGitRepository,
+          baseRef: gitSnapshot.baseRef,
+          currentBranch: gitSnapshot.currentBranch,
+          defaultBranch: gitSnapshot.defaultBranch,
+          errorMessage: gitSnapshot.errorMessage,
+          snapshotGeneration: gitSnapshot.snapshotGeneration,
+        };
+        startTransition(() => {
+          queryClient.setQueryData<GitReviewSnapshot>(
+            gitSummaryQueryKey,
+            (current) => mergeGitSnapshotWithDiffResult(current, result),
+          );
         });
-    }, REVIEW_DIFF_BATCH_DELAY_MS);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if (
+          error instanceof Error &&
+          error.message.includes("Git review snapshot changed")
+        ) {
+          void invoke("git:live-query:refresh-repository", {
+            subscriptionId: gitLiveSubscriptionId,
+          });
+          return;
+        }
+        if (error instanceof Error && error.name === "AbortError") return;
+        const errorMessage =
+          error instanceof Error ? error.message : "Could not load file diff.";
+        const loadStatus = errorMessage.includes("timed out")
+          ? "timed-out"
+          : "load-failed";
+        const paths = new Set(entriesToLoad.map((entry) => entry.displayPath));
+        startTransition(() => {
+          queryClient.setQueryData<GitReviewSnapshot>(
+            gitSummaryQueryKey,
+            (current) =>
+              markGitSnapshotDiffLoadFailure(
+                current,
+                paths,
+                loadStatus,
+                errorMessage,
+              ),
+          );
+        });
+      });
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timerId);
+      controller.abort();
     };
   }, [
     commitSha,
+    gitSnapshot,
+    gitLiveSubscriptionId,
     gitLoadStatus,
+    gitSummaryQueryKey,
+    hideWhitespace,
+    invoke,
+    queryClient,
     source,
     visibleFiles,
   ]);
@@ -3463,30 +3985,87 @@ export function ReviewDiffPanel({
     () => ({
       domain: "diff",
       contextId: `diff:${reviewCwd ?? "workspace"}:${source}`,
-      search(query, limit) {
+      async search(query, limit) {
         const normalizedQuery = query.trim();
         if (!normalizedQuery) {
           return { query, matches: [], totalMatches: 0, capped: false };
         }
 
+        const requiresServerSearch =
+          isGitReviewSource(source) &&
+          (isCappedMode ||
+            snapshot.files.some((entry) => entry.generated !== false) ||
+            snapshot.files.some((entry) => {
+              if (entry.loadStatus === "loading") return true;
+              if (!isTextualFullDiffCandidate(entry)) return false;
+              const key = reviewFullContentKeysByPath.get(entry.displayPath);
+              return key
+                ? readReviewFullContentState(key).fullDiffMetadata === null
+                : true;
+            }));
+        if (requiresServerSearch && reviewCwd) {
+          const result = await invoke("git:review:search", {
+            cwd: reviewCwd,
+            source,
+            query: normalizedQuery,
+            baseRef: snapshot.baseRef,
+            commitSha: source === "commit" ? commitSha : null,
+            hideWhitespace,
+            limit: Math.min(limit, REVIEW_CONTENT_SEARCH_CAP),
+            snapshotGeneration: snapshot.snapshotGeneration,
+            requestId: `review-search:${reviewCwd}:${source}:${snapshot.snapshotGeneration}`,
+          });
+          if (result.type === "stale-snapshot") {
+            void invoke("git:live-query:refresh-repository", {
+              subscriptionId: gitLiveSubscriptionId,
+            });
+            return { query, matches: [], totalMatches: 0, capped: false };
+          }
+          if (result.type === "error") {
+            return { query, matches: [], totalMatches: 0, capped: false };
+          }
+          const contextId = `diff:${reviewCwd}:${source}`;
+          const occurrenceByPath = new Map<string, number>();
+          return {
+            query,
+            matches: result.matchingPaths.map((path, ordinal) => {
+              const occurrenceIndex = occurrenceByPath.get(path) ?? 0;
+              occurrenceByPath.set(path, occurrenceIndex + 1);
+              return {
+                id: `diff:${path}:server:${ordinal}`,
+                domain: "diff",
+                contextId,
+                ordinal,
+                label: path,
+                meta: { path, occurrenceIndex },
+              } satisfies ContentSearchLocalMatch;
+            }),
+            totalMatches: result.totalMatches,
+            capped: result.isCapped,
+          };
+        }
+
         const matches: ContentSearchLocalMatch[] = [];
-        let capped = false;
+        let totalMatches = 0;
         const cappedLimit = Math.min(limit, REVIEW_CONTENT_SEARCH_CAP);
         for (const entry of snapshot.files) {
+          if (entry.generated === true) continue;
+          const fullContentKey = reviewFullContentKeysByPath.get(
+            entry.displayPath,
+          );
           const occurrenceCount = countReviewOccurrences(
             entry,
             normalizedQuery,
-            fullContentsByPath[entry.displayPath] ?? null,
+            fullContentKey
+              ? readReviewFullContentState(fullContentKey).fullContents
+              : null,
           );
+          totalMatches += occurrenceCount;
           for (
             let occurrenceIndex = 0;
-            occurrenceIndex < occurrenceCount;
+            occurrenceIndex < occurrenceCount && matches.length < cappedLimit;
             occurrenceIndex += 1
           ) {
-            if (matches.length >= cappedLimit) {
-              capped = true;
-              break;
-            }
             matches.push({
               id: `diff:${entry.displayPath}:0:${entry.openLine ?? 1}:${occurrenceIndex}`,
               domain: "diff",
@@ -3499,14 +4078,13 @@ export function ReviewDiffPanel({
               },
             });
           }
-          if (capped) break;
         }
 
         return {
           query,
           matches,
-          totalMatches: matches.length,
-          capped,
+          totalMatches,
+          capped: totalMatches > matches.length,
         };
       },
       async activate(match, query) {
@@ -3557,7 +4135,19 @@ export function ReviewDiffPanel({
         clearContentSearchMarks(reviewContentRootRef.current);
       },
     }),
-    [fullContentsByPath, reviewCwd, snapshot.files, source],
+    [
+      commitSha,
+      hideWhitespace,
+      invoke,
+      isCappedMode,
+      gitLiveSubscriptionId,
+      reviewCwd,
+      reviewFullContentKeysByPath,
+      snapshot.baseRef,
+      snapshot.files,
+      snapshot.snapshotGeneration,
+      source,
+    ],
   );
   useRegisterContentSearchSource(contentSearchSource);
   const areAllDiffsExpanded = useMemo(() => {
@@ -3595,10 +4185,50 @@ export function ReviewDiffPanel({
     node.scrollIntoView({ block: "start" });
   }, [selectedPath, visibleFiles]);
 
+  const toggleReviewRow = useCallback((entryKey: string) => {
+    setExpandedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(entryKey)) {
+        next.delete(entryKey);
+      } else {
+        next.add(entryKey);
+      }
+      return next;
+    });
+  }, []);
+
+  const reviewFilePathsIdentity = useMemo(
+    () => snapshot.files.map((entry) => entry.displayPath).join("\0"),
+    [snapshot.files],
+  );
+  const reviewCommentsCache = reviewCommentsByPathCacheRef.current;
+  const reviewCommentsByPath =
+    reviewCommentsCache?.comments === reviewCodeComments &&
+    reviewCommentsCache.pathsIdentity === reviewFilePathsIdentity
+      ? reviewCommentsCache.value
+      : new Map(
+          snapshot.files.map((entry) => {
+            const comments = filterReviewCodeCommentsForPath(
+              reviewCodeComments,
+              entry.displayPath,
+            );
+            return [
+              entry.displayPath,
+              comments.length > 0 ? comments : EMPTY_REVIEW_CODE_COMMENTS,
+            ] as const;
+          }),
+        );
+  if (reviewCommentsByPath !== reviewCommentsCache?.value) {
+    reviewCommentsByPathCacheRef.current = {
+      comments: reviewCodeComments,
+      pathsIdentity: reviewFilePathsIdentity,
+      value: reviewCommentsByPath,
+    };
+  }
+
   const renderReviewRow = (entry: ReviewFileEntry, keyPrefix = "") => (
     <div
       key={`${keyPrefix}${entry.key}`}
-      className="review-diff-virtualized [content-visibility:auto]"
       data-review-path={entry.displayPath}
       ref={(node) => {
         if (!node) {
@@ -3607,54 +4237,39 @@ export function ReviewDiffPanel({
         }
         rowRefs.current.set(entry.displayPath, node);
       }}
-      style={{
-        containIntrinsicSize: getReviewContainIntrinsicSize(
-          entry.additions,
-          entry.deletions,
-          diffMode,
-        ),
-      }}
     >
       <ReviewFileRow
         entry={entry}
         diffMode={diffMode}
         wrap={wrap}
         wordDiffsEnabled={wordDiffsEnabled}
+        ignoreWhitespace={hideWhitespace}
         loadFullFilesEnabled={loadFullFilesEnabled}
+        canLoadFullContent={
+          Boolean(reviewCwd?.trim()) &&
+          (!isGitReviewSource(source) || snapshot.snapshotGeneration > 0)
+        }
         expanded={expandedKeys.has(entry.key)}
         openerId={opener}
-        fullContents={fullContentsByPath[entry.displayPath] ?? null}
-        fullContentsLoading={Boolean(
-          fullContentsLoadingPaths[entry.displayPath],
-        )}
-        comments={filterReviewCodeCommentsForPath(
-          reviewCodeComments,
-          entry.displayPath,
-        )}
+        fullContentKey={
+          reviewFullContentKeysByPath.get(entry.displayPath) ?? entry.key
+        }
+        loadFullContents={loadReviewFileContents}
+        comments={
+          reviewCommentsByPath.get(entry.displayPath) ??
+          EMPTY_REVIEW_CODE_COMMENTS
+        }
         threadId={reviewThreadId}
-        sourceKey={reviewDiffCommentSourceKey}
+        sourceKey={`${reviewDiffCommentSourceKey}:${
+          entry.revision ?? hashReviewDiffSourceKey(entry.patchText)
+        }`}
         pendingCommentAttachments={pendingReviewCommentAttachments}
         deps={resolvedDeps}
-        onToggleExpanded={() => {
-          setExpandedKeys((current) => {
-            const next = new Set(current);
-            if (next.has(entry.key)) {
-              next.delete(entry.key);
-            } else {
-              next.add(entry.key);
-            }
-            return next;
-          });
-        }}
+        onToggleExpandedKey={toggleReviewRow}
       />
     </div>
   );
-  const reviewRows = reviewRenderPlan.visibleFiles.map((entry) =>
-    renderReviewRow(entry),
-  );
-  const reviewFallbackRows = reviewRenderPlan.fallbackFiles.map((entry) =>
-    renderReviewRow(entry, "fallback:"),
-  );
+  const reviewRows = visibleFiles.map((entry) => renderReviewRow(entry));
 
   const refreshGitSnapshot = async (): Promise<void> => {
     if (!isGitReviewSource(source)) return;
@@ -3662,15 +4277,11 @@ export function ReviewDiffPanel({
     const normalizedCwd = reviewCwd?.trim() ?? "";
     if (!normalizedCwd) return;
 
-    setGitLoadStatus("loading");
     try {
-      const result = await loadGitSnapshot(source, normalizedCwd);
-      startTransition(() => {
-        setGitSnapshot(result);
+      await invoke("git:live-query:refresh-repository", {
+        subscriptionId: gitLiveSubscriptionId,
       });
-      setGitLoadStatus("loaded");
     } catch (error) {
-      setGitLoadStatus("load-failed");
       toast.danger(
         error instanceof Error ? error.message : "Could not refresh review.",
         {
@@ -3680,100 +4291,34 @@ export function ReviewDiffPanel({
     }
   };
 
-  useEffect(() => {
-    if (!loadFullFilesEnabled) return;
-
-    const loadingPaths = fullContentsLoadingPathsRef.current;
-    const nextEntries = visibleFiles.filter((entry) => {
-      if (!isTextualFullDiffCandidate(entry)) return false;
-      if (!entry.fileDiff) return false;
-      if (
-        isTranscriptReviewSource(source) &&
-        !hasPatchLineArrays(entry.fileDiff)
-      )
-        return false;
-      if (fullContentsByPath[entry.displayPath]) return false;
-      return !loadingPaths[entry.displayPath];
-    });
-    if (nextEntries.length === 0) return;
-
-    const generation = fullContentsGenerationRef.current;
-    const nextLoadingPaths = { ...loadingPaths };
-    for (const entry of nextEntries) {
-      nextLoadingPaths[entry.displayPath] = true;
-    }
-    fullContentsLoadingPathsRef.current = nextLoadingPaths;
-    startTransition(() => {
-      setFullContentsLoadingPaths(nextLoadingPaths);
-    });
-
-    void Promise.all(
-      nextEntries.map(async (entry) => {
-        const result = await loadReviewFileContents(entry).catch(
-          (error): GitReviewFileContents => ({
-            path: entry.displayPath,
-            previousPath: entry.previousPath,
-            oldText: null,
-            newText: null,
-            oldExists: false,
-            newExists: false,
-            oldStatus: "load-failed",
-            newStatus: "load-failed",
-            safety: buildReviewFileSafety({ unsupported: true }),
-            errorMessage:
-              error instanceof Error
-                ? error.message
-                : "Could not load full review file.",
-          }),
-        );
-        return { entry, result };
-      }),
-    ).then((results) => {
-      if (fullContentsGenerationRef.current !== generation) return;
-      startTransition(() => {
-        setFullContentsByPath((current) => {
-          const next = { ...current };
-          for (const { entry, result } of results) {
-            next[entry.displayPath] = result;
-          }
-          return next;
-        });
-        setFullContentsLoadingPaths((current) => {
-          const next = { ...current };
-          for (const { entry } of results) {
-            delete next[entry.displayPath];
-          }
-          fullContentsLoadingPathsRef.current = next;
-          return next;
-        });
-      });
-    });
-  }, [fullContentsByPath, loadFullFilesEnabled, source, visibleFiles]);
-
   const handleCreateGitRepository = async () => {
     const normalizedCwd = reviewCwd?.trim() ?? "";
     if (!normalizedCwd) return;
 
-    setGitLoadStatus("loading");
     try {
       const result = (await invoke(
         "git:init",
         normalizedCwd,
       )) as GitReviewSnapshot;
       startTransition(() => {
-        setGitSnapshot(result);
+        queryClient.setQueryData(gitSummaryQueryKey, result);
       });
-      setGitLoadStatus("loaded");
       toast.success("Created a Git repository for this workspace.", {
         id: "review-diff-notice",
       });
     } finally {
-      setGitLoadStatus("idle");
+      void queryClient.invalidateQueries({
+        queryKey: gitRepositoryMetadataQueryKey,
+        exact: true,
+      });
+      void invoke("git:live-query:recover", {
+        subscriptionId: gitLiveSubscriptionId,
+      });
     }
   };
 
   const startThreadPrompt = async (prompt: string) => {
-    const threadId = conversation?.threadId ?? null;
+    const threadId = reviewConversation.threadId;
     if (!threadId) return;
 
     try {
@@ -3789,7 +4334,7 @@ export function ReviewDiffPanel({
   };
 
   const canUseThreadGitActions = Boolean(
-    conversation?.threadId && snapshot.isGitRepository && reviewCwd,
+    reviewConversation.threadId && snapshot.isGitRepository && reviewCwd,
   );
   const reviewOptionsWordWrapLabel = wrap
     ? "Disable word wrap"
@@ -4083,27 +4628,24 @@ export function ReviewDiffPanel({
         description="Try a different file filter or review search query."
       />
     ) : (
-      <div
-        ref={reviewContentRootRef}
+      <ReviewDiffVirtualizer
+        config={{ intersectionObserverMargin: 1_000 }}
         className="electron:bg-token-main-surface-primary flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pb-3"
         style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
+        contentClassName="flex w-full flex-col extension:pl-4 extension:pr-1"
       >
         {isCappedMode ? (
           <div className="bg-token-surface-muted text-token-foreground-muted mb-3 rounded-md px-3 py-2 text-xs">
             This diff is large, showing one file at a time
           </div>
         ) : null}
-        <div className="flex w-full flex-col extension:pl-4 extension:pr-1">
-          <div className="flex flex-col extension:gap-2">
-            <ReviewDeferredRender
-              defer={reviewRenderPlan.shouldDefer}
-              fallback={reviewFallbackRows}
-            >
-              {reviewRows}
-            </ReviewDeferredRender>
-          </div>
+        <div
+          ref={reviewContentRootRef}
+          className="flex flex-col extension:gap-2"
+        >
+          {reviewRows}
         </div>
-      </div>
+      </ReviewDiffVirtualizer>
     );
 
   return (

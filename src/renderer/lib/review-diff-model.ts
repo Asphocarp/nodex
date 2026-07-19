@@ -23,21 +23,12 @@ export interface ReviewLargeDiffStats {
   largestFileChangedLines?: number;
 }
 
-export interface ReviewRenderPlan<TFile> {
-  visibleFiles: TFile[];
-  fallbackFiles: TFile[];
-  shouldDefer: boolean;
-}
-
 const REVIEW_LARGE_DIFF_FILE_THRESHOLD = 128;
 const REVIEW_LARGE_DIFF_LINE_THRESHOLD = 9_000;
 const REVIEW_LARGE_DIFF_BYTE_THRESHOLD = 12 * 1024 * 1024;
 const REVIEW_LARGE_DIFF_SINGLE_FILE_CHANGED_LINE_THRESHOLD = 15_000;
+const REVIEW_WORD_DIFF_CHANGED_LINE_THRESHOLD = 2_000;
 export const REVIEW_CAPPED_MATCH_PAGE_SIZE = 20;
-export const REVIEW_DEFERRED_RENDER_FALLBACK_COUNT = 2;
-const REVIEW_CONTAIN_INTRINSIC_BASE_HEIGHT = 56;
-const REVIEW_CONTAIN_INTRINSIC_LINE_HEIGHT = 20;
-const REVIEW_CONTAIN_INTRINSIC_MAX_CHANGED_LINES = 480;
 
 export function getReviewTotalChangedLines<TFile extends ReviewDiffModelFile>(files: TFile[]): number {
   return files.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0);
@@ -54,6 +45,13 @@ export function isReviewLargeDiff(stats: ReviewLargeDiffStats): boolean {
     || (stats.largestFileChangedLines ?? 0) > REVIEW_LARGE_DIFF_SINGLE_FILE_CHANGED_LINE_THRESHOLD;
 }
 
+export function isReviewWordDiffEnabled(
+  changedLines: number,
+  requested: boolean,
+): boolean {
+  return requested && changedLines <= REVIEW_WORD_DIFF_CHANGED_LINE_THRESHOLD;
+}
+
 export function filterReviewFiles<TFile extends ReviewDiffModelFile>(
   files: TFile[],
   fileFilterQuery: string,
@@ -67,13 +65,13 @@ export function filterReviewFiles<TFile extends ReviewDiffModelFile>(
 export function buildReviewSearchMatches<TFile extends ReviewDiffModelFile>(
   files: TFile[],
   searchQuery: string,
-  fullContentsByPath: Record<string, ReviewSearchableContent>,
+  searchableContentsByPath: Record<string, ReviewSearchableContent>,
 ): ReviewSearchMatch[] {
   const normalizedSearch = searchQuery.trim().toLowerCase();
   if (normalizedSearch.length === 0) return [];
 
   return files.flatMap((file) => {
-    const fullContents = fullContentsByPath[file.displayPath];
+    const fullContents = searchableContentsByPath[file.displayPath];
     const haystacks = [
       file.displayPath,
       file.patchText,
@@ -135,43 +133,4 @@ export function buildReviewVisibleFiles<TFile extends ReviewDiffModelFile>(
   }
 
   return files.slice(0, nextVisibleCount);
-}
-
-export function buildReviewRenderPlan<TFile extends ReviewDiffModelFile>(
-  files: TFile[],
-  isCappedMode: boolean,
-): ReviewRenderPlan<TFile> {
-  if (isCappedMode) {
-    return {
-      visibleFiles: files,
-      fallbackFiles: files,
-      shouldDefer: false,
-    };
-  }
-
-  if (files.length <= REVIEW_DEFERRED_RENDER_FALLBACK_COUNT) {
-    return {
-      visibleFiles: files,
-      fallbackFiles: files,
-      shouldDefer: false,
-    };
-  }
-
-  return {
-    visibleFiles: files,
-    fallbackFiles: files.slice(0, REVIEW_DEFERRED_RENDER_FALLBACK_COUNT),
-    shouldDefer: true,
-  };
-}
-
-export function getReviewContainIntrinsicSize(
-  additions: number | null,
-  deletions: number | null,
-  diffMode: "unified" | "split",
-): string {
-  const changedLineCount = Math.min((additions ?? 0) + (deletions ?? 0), REVIEW_CONTAIN_INTRINSIC_MAX_CHANGED_LINES);
-  const multiplier = diffMode === "split" ? 2 : 1;
-  const estimatedHeight = REVIEW_CONTAIN_INTRINSIC_BASE_HEIGHT
-    + changedLineCount * REVIEW_CONTAIN_INTRINSIC_LINE_HEIGHT * multiplier;
-  return `auto ${estimatedHeight}px`;
 }

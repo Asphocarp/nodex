@@ -1,9 +1,19 @@
+import { useCallback, useMemo } from "react";
 import {
   useCodexAppServerManagerForConversationId,
-  useConversation,
+  useCodexConversationValue,
 } from "../local-conversation-store";
 import { ReviewDiffPanel } from "@/components/workbench/review-diff-panel";
-import type { CodexConversationSnapshot, GitReviewSource, CodexTurnDiffReviewTarget } from "@/lib/types";
+import type {
+  CodexConversationSnapshot,
+  CodexTurnDiffReviewTarget,
+  GitReviewSource,
+} from "@/lib/types";
+import {
+  areReviewConversationProjectionsEqual,
+  createReviewConversationProjectionSelector,
+} from "@/features/review/model/review-conversation-projection";
+import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
 
 interface ConnectedReviewDiffPanelProps {
   threadId: string | null;
@@ -21,8 +31,13 @@ function refreshSelectedTurnDiffTarget(
 ): CodexTurnDiffReviewTarget | null {
   if (!selectedTurnDiff || !conversation) return selectedTurnDiff;
 
-  const turn = conversation.turns.find((candidate) => candidate.turnId === selectedTurnDiff.turnId);
-  const item = turn?.items.find((candidate) => (candidate.entryId ?? candidate.itemId) === selectedTurnDiff.entryId);
+  const turn = conversation.turns.find(
+    (candidate) => candidate.turnId === selectedTurnDiff.turnId,
+  );
+  const item = turn?.items.find(
+    (candidate) =>
+      (candidate.entryId ?? candidate.itemId) === selectedTurnDiff.entryId,
+  );
   if (!item || item.rawItem === null || typeof item.rawItem !== "object") return selectedTurnDiff;
 
   const rawItem = item.rawItem as {
@@ -31,7 +46,10 @@ function refreshSelectedTurnDiffTarget(
     showRevertButton?: unknown;
     patchBatches?: unknown;
   };
-  if (typeof rawItem.unifiedDiff !== "string" || rawItem.unifiedDiff.trim().length === 0) {
+  if (
+    typeof rawItem.unifiedDiff !== "string" ||
+    rawItem.unifiedDiff.trim().length === 0
+  ) {
     return selectedTurnDiff;
   }
 
@@ -49,13 +67,48 @@ function refreshSelectedTurnDiffTarget(
           if (typeof batch !== "object" || batch === null) return [];
           const batchCwd = (batch as { cwd?: unknown }).cwd;
           const changes = (batch as { changes?: unknown }).changes;
-          return [{
-            cwd: typeof batchCwd === "string" && batchCwd.trim().length > 0 ? batchCwd : null,
-            changes: Array.isArray(changes) ? changes : [],
-          }];
+          return [
+            {
+              cwd:
+                typeof batchCwd === "string" && batchCwd.trim().length > 0
+                  ? batchCwd
+                  : null,
+              changes: Array.isArray(changes) ? changes : [],
+            },
+          ];
         })
       : selectedTurnDiff.patchBatches,
   };
+}
+
+function areSelectedTurnDiffTargetsEqual(
+  left: CodexTurnDiffReviewTarget | null,
+  right: CodexTurnDiffReviewTarget | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  const leftPatchBatches = left.patchBatches ?? [];
+  const rightPatchBatches = right.patchBatches ?? [];
+  const patchBatchesEqual =
+    left.patchBatches === right.patchBatches ||
+    (leftPatchBatches.length === rightPatchBatches.length &&
+      leftPatchBatches.every(
+        (batch, index) =>
+          batch.cwd === rightPatchBatches[index]?.cwd &&
+          batch.changes === rightPatchBatches[index]?.changes,
+      ));
+  return (
+    left.type === right.type &&
+    left.threadId === right.threadId &&
+    left.turnId === right.turnId &&
+    left.entryId === right.entryId &&
+    left.patch === right.patch &&
+    left.cwd === right.cwd &&
+    left.path === right.path &&
+    left.source === right.source &&
+    left.showRevertButton === right.showRevertButton &&
+    patchBatchesEqual
+  );
 }
 
 export function ConnectedReviewDiffPanel({
@@ -66,19 +119,36 @@ export function ConnectedReviewDiffPanel({
   initialGitSourceRequestKey = null,
   selectedTurnDiff = null,
 }: ConnectedReviewDiffPanelProps) {
-  const conversation = useConversation(threadId);
+  recordReviewRuntimeEvent({ type: "connected-render" });
+  const reviewProjectionSelector = useMemo(
+    createReviewConversationProjectionSelector,
+    [],
+  );
+  const conversationProjection = useCodexConversationValue(
+    threadId,
+    reviewProjectionSelector,
+    areReviewConversationProjectionsEqual,
+  );
+  const refreshedSelectedTurnDiff = useCodexConversationValue(
+    threadId,
+    (conversation) =>
+      refreshSelectedTurnDiffTarget(
+        selectedTurnDiff,
+        conversation,
+        projectWorkspacePath ?? null,
+      ),
+    areSelectedTurnDiffTargetsEqual,
+  );
   const manager = useCodexAppServerManagerForConversationId(threadId);
-  const startThreadPrompt = (targetThreadId: string, prompt: string) =>
-    manager.startTurn(targetThreadId, prompt);
-  const refreshedSelectedTurnDiff = refreshSelectedTurnDiffTarget(
-    selectedTurnDiff,
-    conversation,
-    projectWorkspacePath ?? null,
+  const startThreadPrompt = useCallback(
+    (targetThreadId: string, prompt: string) =>
+      manager.startTurn(targetThreadId, prompt),
+    [manager],
   );
 
   return (
     <ReviewDiffPanel
-      conversation={conversation}
+      conversationProjection={conversationProjection}
       onStartThreadPrompt={startThreadPrompt}
       threadId={threadId}
       projectWorkspacePath={projectWorkspacePath ?? null}

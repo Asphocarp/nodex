@@ -9,6 +9,7 @@ import {
   readBranchDiffStats,
   readGitReviewBlameFile,
   readGitReviewBranchCommits,
+  readGitReviewCatFile,
   readGitReviewDiff,
   readGitReviewFileContents,
   readGitReviewPatch,
@@ -17,6 +18,15 @@ import {
   resolveGitMergeBase,
   searchGitReview,
 } from "./git-review-service";
+import { subscribeGitReviewSummary } from "./git-review-live-service";
+import type {
+  GitReviewLiveSummaryEvent,
+  GitReviewSearchResult,
+  ReviewDiffResult,
+  ReviewDiffSuccessResult,
+} from "../shared/types";
+
+type GitReviewSearchSuccess = Extract<GitReviewSearchResult, { type: "success" }>;
 
 const tempDirs: string[] = [];
 
@@ -43,6 +53,20 @@ function initializeRepository(cwd: string): void {
 function commitAll(cwd: string, message: string): void {
   runGit(cwd, ["add", "."]);
   runGit(cwd, ["commit", "-m", message]);
+}
+
+function expectSuccessfulDiff(
+  result: ReviewDiffResult,
+): asserts result is ReviewDiffSuccessResult {
+  expect(result.type).toBe("success");
+  if (result.type !== "success") throw new Error("Expected a successful diff.");
+}
+
+function expectSuccessfulSearch(
+  result: GitReviewSearchResult,
+): asserts result is GitReviewSearchSuccess {
+  expect(result.type).toBe("success");
+  if (result.type !== "success") throw new Error("Expected search result.");
 }
 
 afterEach(() => {
@@ -122,8 +146,14 @@ describe("git review service", () => {
     const diff = await readGitReviewDiff({
       cwd,
       source: "unstaged",
-      files: ["image.png"],
+      files: [{
+        path: "image.png",
+        status: file?.status ?? "untracked",
+        revision: file?.revision,
+      }],
+      snapshotGeneration: snapshot.snapshotGeneration,
     });
+    expectSuccessfulDiff(diff);
     const contents = await readGitReviewFileContents({
       cwd,
       source: "unstaged",
@@ -133,12 +163,16 @@ describe("git review service", () => {
       cwd,
       source: "unstaged",
       query: "secret-binary-body",
+      snapshotGeneration: snapshot.snapshotGeneration,
     });
     const pathSearch = await searchGitReview({
       cwd,
       source: "unstaged",
       query: "image.png",
+      snapshotGeneration: snapshot.snapshotGeneration,
     });
+    expectSuccessfulSearch(bodySearch);
+    expectSuccessfulSearch(pathSearch);
 
     expect(file !== null).toBe(true);
     expect(file?.safety.binary ?? false).toBe(true);
@@ -174,8 +208,14 @@ describe("git review service", () => {
     const diff = await readGitReviewDiff({
       cwd,
       source: "staged",
-      files: ["README.md"],
+      files: [{
+        path: "README.md",
+        status: snapshot.files[0]?.status ?? "modified",
+        revision: snapshot.files[0]?.revision,
+      }],
+      snapshotGeneration: snapshot.snapshotGeneration,
     });
+    expectSuccessfulDiff(diff);
     expect(diff.patch.includes("@@ -1 +1,2 @@")).toBe(true);
   });
 
@@ -299,8 +339,14 @@ describe("git review service", () => {
       cwd,
       source: "commit",
       commitSha,
-      files: ["feature.ts"],
+      files: [{
+        path: "feature.ts",
+        status: snapshot.files[0]?.status ?? "added",
+        revision: snapshot.files[0]?.revision,
+      }],
+      snapshotGeneration: snapshot.snapshotGeneration,
     });
+    expectSuccessfulDiff(diff);
     expect(diff.patch.includes("+++ b/feature.ts")).toBe(true);
   });
 
@@ -317,11 +363,24 @@ describe("git review service", () => {
       "utf8",
     );
 
+    const snapshot = await readGitReviewSnapshot({
+      cwd,
+      source: "unstaged",
+    });
     const result = await readGitReviewDiff({
       cwd,
       source: "unstaged",
-      files: ["feature.ts"],
+      files: [{
+        path: "feature.ts",
+        status:
+          snapshot.files.find((file) => file.path === "feature.ts")?.status ??
+          "untracked",
+        revision:
+          snapshot.files.find((file) => file.path === "feature.ts")?.revision,
+      }],
+      snapshotGeneration: snapshot.snapshotGeneration,
     });
+    expectSuccessfulDiff(result);
 
     expect(result.isGitRepository).toBe(true);
     expect(result.files.length).toBe(1);
@@ -370,11 +429,64 @@ describe("git review service", () => {
       source: "unstaged",
     });
 
-    expect(summary.isGitRepository).toBe(true);
+    expect(summary.type).toBe("success");
+    if (summary.type !== "success") throw new Error("Expected summary.");
     expect(summary.source).toBe("unstaged");
     expect(summary.files.length).toBe(1);
-    expect(summary.additions).toBe(1);
-    expect(summary.deletions).toBe(0);
+    expect(summary.files[0]?.additions).toBe(1);
+    expect(summary.files[0]?.deletions).toBe(0);
+  });
+
+  test("publishes a debounced complete live summary with a new snapshot generation", async () => {
+    const cwd = createTempDir("nodex-git-review-live-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+    const initial = await readGitReviewSummary({ cwd, source: "unstaged" });
+    if (initial.type !== "success") throw new Error("Expected summary.");
+
+    let resolveEvent: ((event: GitReviewLiveSummaryEvent) => void) | null = null;
+    let rejectEvent: ((error: Error) => void) | null = null;
+    const eventPromise = new Promise<GitReviewLiveSummaryEvent>(
+      (resolve, reject) => {
+        resolveEvent = resolve;
+        rejectEvent = reject;
+      },
+    );
+    const timeout = setTimeout(() => {
+      rejectEvent?.(new Error("Timed out waiting for live review summary."));
+    }, 5_000);
+    const subscription = subscribeGitReviewSummary({
+      subscriptionId: "integration-live",
+      request: { cwd, source: "unstaged" },
+      publish: (event) => {
+        if (
+          event.type !== "git-live-query-updated" ||
+          event.phase !== "complete"
+        )
+          return;
+        clearTimeout(timeout);
+        resolveEvent?.(event);
+      },
+    });
+    try {
+      writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+      subscription.refresh();
+      const event = await eventPromise;
+
+      expect(event.type).toBe("git-live-query-updated");
+      if (event.type !== "git-live-query-updated") {
+        throw new Error("Expected update event.");
+      }
+      if (event.result.type !== "success") throw new Error("Expected summary.");
+      expect(event.result.snapshotGeneration).toBeGreaterThan(
+        initial.snapshotGeneration,
+      );
+      expect(event.result.files[0]?.path).toBe("README.md");
+    } finally {
+      clearTimeout(timeout);
+      subscription.dispose();
+    }
   });
 
   test("reads a full review patch separately from the metadata snapshot", async () => {
@@ -419,11 +531,21 @@ describe("git review service", () => {
     commitAll(cwd, "initial");
 
     writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+    const unstagedSnapshot = await readGitReviewSnapshot({
+      cwd,
+      source: "unstaged",
+    });
     const unstagedDiff = await readGitReviewDiff({
       cwd,
       source: "unstaged",
-      files: ["README.md"],
+      files: [{
+        path: "README.md",
+        status: unstagedSnapshot.files[0]?.status ?? "modified",
+        revision: unstagedSnapshot.files[0]?.revision,
+      }],
+      snapshotGeneration: unstagedSnapshot.snapshotGeneration,
     });
+    expectSuccessfulDiff(unstagedDiff);
 
     const result = await applyGitReviewPatch({
       cwd,
@@ -448,11 +570,21 @@ describe("git review service", () => {
 
     writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
     runGit(cwd, ["add", "README.md"]);
+    const stagedSnapshot = await readGitReviewSnapshot({
+      cwd,
+      source: "staged",
+    });
     const stagedDiff = await readGitReviewDiff({
       cwd,
       source: "staged",
-      files: ["README.md"],
+      files: [{
+        path: "README.md",
+        status: stagedSnapshot.files[0]?.status ?? "modified",
+        revision: stagedSnapshot.files[0]?.revision,
+      }],
+      snapshotGeneration: stagedSnapshot.snapshotGeneration,
     });
+    expectSuccessfulDiff(stagedDiff);
 
     const result = await applyGitReviewPatch({
       cwd,
@@ -525,6 +657,105 @@ describe("git review service", () => {
     expect(result.newExists).toBe(true);
     expect(result.oldText?.includes("alpha")).toBe(true);
     expect(result.newText?.includes("beta")).toBe(true);
+  });
+
+  test("reads Git objects in a generation-bound batch with disk fallback", async () => {
+    const cwd = createTempDir("nodex-git-review-cat-file-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+
+    const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
+    const file = snapshot.files[0];
+    if (!file) throw new Error("Expected an unstaged file.");
+    const result = await readGitReviewCatFile({
+      cwd,
+      snapshotGeneration: snapshot.snapshotGeneration,
+      requests: [
+        {
+          oid: file.oldOid,
+          path: file.previousPath ?? file.path,
+        },
+        {
+          oid: null,
+          path: file.path,
+          fallbackToDisk: true,
+        },
+      ],
+    });
+
+    expect(result.results[0]).toEqual({
+      type: "success",
+      lines: ["alpha\n"],
+    });
+    expect(result.results[1]).toEqual({
+      type: "success",
+      lines: ["alpha\n", "beta\n"],
+    });
+  });
+
+  test("parses multibyte object sizes and applies the five MiB disk cap", async () => {
+    const cwd = createTempDir("nodex-git-review-cat-file-bytes-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "utf8.txt"), "你好🙂\nsecond\n", "utf8");
+    commitAll(cwd, "initial");
+    writeFileSync(path.join(cwd, "medium.txt"), Buffer.alloc(2 * 1024 * 1024, 97));
+    writeFileSync(path.join(cwd, "too-large.txt"), Buffer.alloc(5_242_881, 98));
+
+    const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
+    const result = await readGitReviewCatFile({
+      cwd,
+      snapshotGeneration: snapshot.snapshotGeneration,
+      requests: [
+        { oid: "HEAD:utf8.txt", path: "utf8.txt" },
+        { oid: null, path: "medium.txt", fallbackToDisk: true },
+        { oid: null, path: "too-large.txt", fallbackToDisk: true },
+      ],
+    });
+
+    expect(result.results[0]).toEqual({
+      type: "success",
+      lines: ["你好🙂\n", "second\n"],
+    });
+    expect(result.results[1]).toMatchObject({ type: "success" });
+    expect(result.results[2]).toEqual({
+      type: "error",
+      error: { type: "too-large", limitBytes: 5_242_880 },
+    });
+  });
+
+  test("rejects stale snapshot generations before publishing file data", async () => {
+    const cwd = createTempDir("nodex-git-review-stale-generation-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+    const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
+
+    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\ngamma\n", "utf8");
+    const catFile = await readGitReviewCatFile({
+      cwd,
+      snapshotGeneration: snapshot.snapshotGeneration,
+      requests: [
+        {
+          oid: snapshot.files[0]?.oldOid ?? null,
+          path: "README.md",
+        },
+      ],
+    });
+
+    expect(catFile.results).toEqual([
+      { type: "error", error: { type: "unknown" } },
+    ]);
+    await expect(
+      readGitReviewDiff({
+        cwd,
+        source: "unstaged",
+        files: [{ path: "README.md", status: "modified" }],
+        snapshotGeneration: snapshot.snapshotGeneration,
+      }),
+    ).resolves.toEqual({ type: "stale-snapshot", source: "unstaged" });
   });
 
   test("reads review file contents for staged new files", async () => {
@@ -601,14 +832,79 @@ describe("git review service", () => {
       "utf8",
     );
     runGit(cwd, ["add", "feature.ts"]);
+    const snapshot = await readGitReviewSnapshot({ cwd, source: "staged" });
 
     const result = await searchGitReview({
       cwd,
       source: "staged",
       query: "reviewsearch",
+      snapshotGeneration: snapshot.snapshotGeneration,
     });
+    expectSuccessfulSearch(result);
 
     expect(result.matchingPaths.length).toBe(1);
     expect(result.matchingPaths[0]).toBe("feature.ts");
+  });
+
+  test("excludes generated file bodies while preserving generated path matches", async () => {
+    const cwd = createTempDir("nodex-git-review-search-generated-");
+    initializeRepository(cwd);
+    writeFileSync(
+      path.join(cwd, ".gitattributes"),
+      "generated.ts linguist-generated\n",
+      "utf8",
+    );
+    writeFileSync(path.join(cwd, "generated.ts"), "export const base = 1;\n", "utf8");
+    commitAll(cwd, "initial");
+    writeFileSync(
+      path.join(cwd, "generated.ts"),
+      "export const generatedNeedle = true;\n",
+      "utf8",
+    );
+    const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
+
+    const bodyResult = await searchGitReview({
+      cwd,
+      source: "unstaged",
+      query: "generatedneedle",
+      snapshotGeneration: snapshot.snapshotGeneration,
+    });
+    const pathResult = await searchGitReview({
+      cwd,
+      source: "unstaged",
+      query: "generated.ts",
+      snapshotGeneration: snapshot.snapshotGeneration,
+    });
+    expectSuccessfulSearch(bodyResult);
+    expectSuccessfulSearch(pathResult);
+
+    expect(bodyResult.matchingPaths).toEqual([]);
+    expect(pathResult.matchingPaths).toEqual(["generated.ts"]);
+  });
+
+  test("caps stored search matches at 250 while counting the full diff stream", async () => {
+    const cwd = createTempDir("nodex-git-review-search-cap-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "matches.ts"), "export const base = 1;\n", "utf8");
+    commitAll(cwd, "initial");
+    writeFileSync(
+      path.join(cwd, "matches.ts"),
+      Array.from({ length: 300 }, (_, index) => `needle ${index}\n`).join(""),
+      "utf8",
+    );
+    const snapshot = await readGitReviewSnapshot({ cwd, source: "unstaged" });
+
+    const result = await searchGitReview({
+      cwd,
+      source: "unstaged",
+      query: "needle",
+      limit: 250,
+      snapshotGeneration: snapshot.snapshotGeneration,
+    });
+    expectSuccessfulSearch(result);
+
+    expect(result.matchingPaths).toHaveLength(250);
+    expect(result.totalMatches).toBe(300);
+    expect(result.isCapped).toBe(true);
   });
 });

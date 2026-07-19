@@ -142,6 +142,7 @@ function makeSnapshot(
     currentBranch: "feature/summary-panel",
     defaultBranch: "main",
     errorMessage: null,
+    snapshotGeneration: 1,
   };
 }
 

@@ -175,11 +175,6 @@
     }
   }
 
-  .review-diff-virtualized {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 360px;
-  }
-
   .thread-diff-virtualized {
     content-visibility: auto;
     contain-intrinsic-size: auto 40vh;

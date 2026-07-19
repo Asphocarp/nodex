@@ -1,7 +1,7 @@
 # Review Right Panel Behavior
 
 Status: Active
-Last updated: 2026-07-09
+Last updated: 2026-07-19
 
 ## Purpose
 
@@ -49,7 +49,7 @@ Supported source kinds are:
 
 Selected transcript turns can still open an internal selected-turn diff, but selected turns are not a primary source menu item.
 
-`last-turn` reads the completed `turn-diff` transcript item's raw `unifiedDiff` first, then falls back to the turn summary `diff`. The completed `turn-diff` item is the preferred source because it preserves the app-server turn diff payload plus patch-batch metadata when available; when the app-server turn diff is missing or empty, main may populate this item from completed patch batches with path-aware hunk folding.
+`last-turn` reads the newest available completed `turn-diff` transcript item's raw `unifiedDiff` first, then falls back to that turn's summary `diff`. A newer prose-only or in-progress turn does not hide the preceding completed diff. The completed `turn-diff` item is the preferred source because it preserves the app-server turn diff payload plus patch-batch metadata when available; when the app-server turn diff is missing or empty, main may populate this item from completed patch batches with path-aware hunk folding.
 
 Review treats unified diff text as renderable content only after file safety classification. Binary, oversized, invalid-text, or unsupported file changes remain metadata rows with their original path and action, but they do not feed `@pierre/diffs`, full-file loading, or body text search. These rows render typed placeholders such as `Binary file changed` or `File too large to display`; they still appear in the file tree and can match path search.
 
@@ -65,9 +65,11 @@ Generic no-diff states render `No file changes yet` with the Codex 66x73 documen
 
 Review builds one file entry per display path. If a legacy or fallback patch payload contains repeated `diff --git` sections for the same path, Review folds them into a single row and single file-tree item: stats and search text accumulate across all sections, while inline diff rendering uses the last parsed file diff for that path. Git-backed sources normally arrive as net diffs already, but the same path-fold guard applies to every source.
 
-File entries are metadata-first. A row may have `fileDiff: null` when the path is binary, too large, invalid text, or otherwise unavailable. Renderer code must branch on the row load status before rendering a diff body: `loaded` rows may render `FileDiff` or `MultiFileDiff`, while `binary`, `diff-too-large`, and `unsupported` rows render placeholders. Binary file line stats are nullable, matching Git `numstat` semantics, and aggregate stats treat null values as absent rather than as displayed zeroes.
+File entries are metadata-first. A row may have `fileDiff: null` when the path is binary, too large, invalid text, or otherwise unavailable. Renderer code must branch on the row load status before rendering a diff body: `loaded` rows render `FileDiff`, while `binary`, `diff-too-large`, and `unsupported` rows render placeholders. Review never sends full old/new texts through `MultiFileDiff`; full context expands the existing partial `FileDiffMetadata` only after validating its hunks against both complete line arrays. Binary file line stats are nullable, matching Git `numstat` semantics, and aggregate stats treat null values as absent rather than as displayed zeroes.
 
 Each file diff card exposes `data-review-path`, `group/file-diff`, `codex-review-diff-card`, a toggle marked `data-app-action-review-file-toggle`, and an `Open in` action. The diff scroll viewport is zero-inset horizontally; file rows must not sit inside an extra padded or gapped card list. The file row surface uses `--codex-diffs-surface` with the primary surface fallback and `pb-0.5`. The sticky row header is a `group/diff-header` strip with blurred surface mix, `text-size-chat`, `py-0.5 ps-3 pe-2`, a file-type icon, path label, a chevron toggle button that appears on header hover or when the toggle itself has keyboard focus, right-aligned stats, and icon-only `Open in`. Row-level `+N` / `-N` stats inherit that `text-size-chat` header size and must not add a smaller `text-xs` override. Diff rendering uses `@pierre/diffs` through `src/renderer/lib/diff-presentation.ts` and must pass the Review-specific host style/options rather than feature-local shadow-DOM CSS. Review options are `hunkSeparators: "line-info"`, `collapsedContextThreshold: 1`, `expansionLineCount: 20`, `diffIndicators: "bars"`, `lineDiffType: "word-alt"` while word diffs are enabled, and `overflow: "scroll"`, producing expandable `N unmodified lines` rows between distant hunks. Separator wrappers align to the package line-number column via `grid-template-columns: var(--diffs-column-number-width) auto` and `padding-inline: 2px`; do not add local first-child margins or fixed expand-button widths.
+
+The Review scroll surface uses the real `@pierre/diffs/react` `Virtualizer` with an intersection margin of 1000px. Offscreen diff bodies are package-owned virtual placeholders; CSS `content-visibility` and delayed bulk rendering are not correctness mechanisms. A row is memoized and reads only its own full-content cell. Files above 2000 changed lines disable word-level diffing and use plain-text language presentation.
 
 The file tree is a right split pane. It has a minimum logical width of `200px`, a maximum width of `60%`, and hidden-state preservation for filter, expanded paths, selection, and width. The open pane outer shell uses `relative flex h-full shrink-0 border-l border-token-border-default`; inline style owns only `width`, `maxWidth: "60%"`, and `opacity: 1`. Do not add pane-level padding, background, overflow clipping, or a dimmed opacity; the inner content wrapper is `flex h-full min-h-0 w-full flex-col`. The left resize separator is a 16px hit target with `role="separator"` and `aria-orientation="vertical"`: `group absolute flex touch-none select-none z-40 top-0 bottom-0 left-0 w-4 -translate-x-2 cursor-col-resize active:cursor-col-resize`, containing an opacity-0 gradient line that appears on hover/active. The tree search uses the Codex `Filter files…` field chrome: `px-2 pt-2 pb-px` search container, leading search glyph, `h-token-button-composer` rounded input surface, and a clear button only while a filter is present. The tree rows use the same 8px horizontal inset as the search input, so the rounded input and row backgrounds share the same left and right edges. The tree preserves ancestor folders during filtering and keeps focused/selected rows synchronized with the active diff path.
 
@@ -79,29 +81,23 @@ Large diff mode activates when any of these are true: file count is above 128, t
 
 Review does not own a local find bar. It registers a global content-search source with `domain: "diff"`. Matches are capped at 250. Match ids use a `diff:<path>:<hunk>:<start>` prefix, and activation scrolls the matching `data-review-path` card before marking and centering the text match.
 
-Content search indexes file paths for every row, but it indexes patch text and full-file contents only for renderable files. Binary, oversized, invalid-text, and unsupported rows must not trigger full-file reads only to satisfy search.
+Content search indexes file paths for every row, but it indexes patch text and full-file contents only for renderable, non-generated files. Binary, oversized, invalid-text, generated, and unsupported rows must not trigger full-file reads only to satisfy search. A Git-backed search uses local row data only when all required diff/full cells and generated-file classifications are ready and the review is not capped. Otherwise it sends a generation-bound server search. Main streams Git diff stdout, uses `git check-attr linguist-generated`, stores at most 250 matches while continuing to count the total, and excludes generated-file bodies while retaining path matches.
 
 ## Backend Contract
 
 Renderer code calls `src/renderer/lib/api.ts`; it does not call Electron or main-process services directly.
 
-Git-backed Review uses:
+Git-backed Review's normal read path uses `git:review:repository-metadata`, `git:live-query:subscribe`, `git:live-query:unsubscribe`, `git:live-query:recover`, `git:live-query:refresh-repository`, `git:review:diff`, `git:review:cat-file`, `git:review:search`, `git:review:patch`, `git:review:branch-commits`, `git:review:cancel`, and `git:review:blame-file`. Mutation surfaces continue to use their action-specific channels, including `git:apply-patch` and `git:init`, and every successful mutation invalidates the repository generation.
 
-- `git:review:snapshot`
-- `git:review:summary`
-- `git:review:diff`
-- `git:review:branch-commits`
-- `git:review:search`
-- `git:review:patch`
-- `git:review:cancel`
-- `git:review:blame-file`
-- compatibility channels `git:review:branch-diff-stats`, `git:merge-base`, `git:review:file-contents`, `git:apply-patch`, and `git:init`
+The live summary publishes `git-live-query-updated` / `git-live-query-failed` events with `method: "review-summary"` and can publish `tracked` and `complete` phases. Subscriptions for the same repository share one watcher hub. Subscription generation orders publications; repository `snapshotGeneration` binds summary, diff, cat-file, and search data. A response for an older repository generation is a typed stale result and cannot enter renderer state. Rapid watcher events debounce for 100ms, in-flight refreshes serialize, transient failures retry three times at one-second intervals, and watcher failure sets a recovery requirement without clearing the last consistent snapshot.
 
-`git:review:diff` accepts `cwd`, `source`, optional `files`, `baseBranch` / `baseRef`, `commitSha`, `hideWhitespace`, `hostConfig`, `operationSource: "review_model"`, and `requestId`. Main process owns Git execution, per-request cancellation, per-file load/error/large states, and diff parsing.
+`git:review:diff` accepts `cwd`, `source`, structured file requests, `snapshotGeneration`, `baseBranch` / `baseRef`, `commitSha`, `hideWhitespace`, `hostConfig`, `operationSource: "review_model"`, and `requestId`. The renderer coalesces path requests after two microtasks, separates tracked and untracked groups, gives each path independent cancellation, and aborts the main request after 15 seconds. Main trusts the summary-owned structured paths and does not rebuild the repository summary before reading their patch bodies.
 
 Git-backed Review builds its file list from machine-readable Git metadata before renderer diff parsing. Main uses no-textconv/no-ext-diff, colorless Git diff commands and reads `--name-status -z`, `--numstat -z`, and `--raw -z` style metadata so binary files can be represented even when no textual hunk exists. File summaries include nullable line stats, raw status, old/new object ids, and a per-file revision identity when Git can provide one. Untracked files are diffed with `git diff --no-index -- /dev/null <path>` instead of pre-reading the worktree file as UTF-8.
 
-`git:review:snapshot` is a metadata snapshot: it returns file summaries, aggregate stats, stage counts, and source metadata, but it must not send an aggregate textual patch to the renderer as the normal render path. `git:review:diff` is the body loader and may be called for only the visible, selected, or otherwise needed files; it must return typed load statuses for binary, oversized, unsupported, and load-failed rows instead of decoded text. `git:review:file-contents` returns old/new side load statuses and never returns decoded body text for binary or oversized sides.
+The live summary is metadata-only and returns file summaries plus stage counts and `snapshotGeneration`; it never sends an aggregate textual patch as the normal render path. `git:review:diff` is the partial body loader and returns typed load statuses for binary, oversized, unsupported, timed-out, and load-failed rows instead of decoded text. Renderer parses each loaded path once and reuses that metadata/object identity across a tracked-to-complete publication, so adding untracked rows does not reparse or rerender already loaded tracked rows.
+
+`Load full files` defaults on, but loading is row-local. A file must be expanded, partial, textual, changed, generated-classification-ready, and intersecting the viewport before it can request full content; new, deleted, pure-rename, gitlink, binary, oversized, collapsed, and offscreen rows do not request it. Requests wait 40ms and batch at most four Git objects per `git cat-file --batch` command. Each object is byte-parsed and capped at 5 MiB with a 30-second command timeout. Working-tree fallback is allowed only for a missing next-side object. Failed or unvalidated expansion keeps the partial diff visible.
 
 `git:review:patch` is a read-only full-patch query used for commands such as `Copy git apply command`; it does not mutate the worktree or index. Patch application and revert actions use `git:apply-patch`, which is the only Git-backed Review IPC that applies patch content.
 

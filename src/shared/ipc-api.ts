@@ -198,8 +198,13 @@ import type {
   GitReviewBlameInput,
   GitReviewBlameResult,
   GitReviewCancelInput,
-  GitReviewFileContents,
-  GitReviewFileContentsInput,
+  GitReviewCatFileInput,
+  GitReviewCatFileOutput,
+  GitReviewLiveSubscriptionInput,
+  GitReviewLiveSubscriptionStopInput,
+  GitReviewLiveSummaryEvent,
+  GitReviewRepositoryMetadataRequest,
+  GitReviewRepositoryMetadataResult,
   GitReviewPatchRequest,
   GitReviewPatchResult,
   GitReviewSearchInput,
@@ -1076,6 +1081,26 @@ export interface IpcApi {
     args: [input: GitReviewSummaryRequest];
     result: GitReviewSummaryResult;
   };
+  "git:review:repository-metadata": {
+    args: [input: GitReviewRepositoryMetadataRequest];
+    result: GitReviewRepositoryMetadataResult;
+  };
+  "git:live-query:subscribe": {
+    args: [input: GitReviewLiveSubscriptionInput];
+    result: void;
+  };
+  "git:live-query:unsubscribe": {
+    args: [input: GitReviewLiveSubscriptionStopInput];
+    result: void;
+  };
+  "git:live-query:recover": {
+    args: [input: GitReviewLiveSubscriptionStopInput];
+    result: void;
+  };
+  "git:live-query:refresh-repository": {
+    args: [input: GitReviewLiveSubscriptionStopInput];
+    result: void;
+  };
   "git:review:diff": {
     args: [input: ReviewDiffRequest];
     result: ReviewDiffResult;
@@ -1096,9 +1121,9 @@ export interface IpcApi {
     args: [input: GitMergeBaseRequest];
     result: GitMergeBaseResult;
   };
-  "git:review:file-contents": {
-    args: [input: GitReviewFileContentsInput];
-    result: GitReviewFileContents;
+  "git:review:cat-file": {
+    args: [input: GitReviewCatFileInput];
+    result: GitReviewCatFileOutput;
   };
   "git:review:search": {
     args: [input: GitReviewSearchInput];
@@ -1722,6 +1747,7 @@ export interface IpcApi {
 }
 
 export interface IpcEvents {
+  "git:live-query:event": GitReviewLiveSummaryEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;

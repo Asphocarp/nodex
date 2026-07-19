@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -14,12 +14,17 @@ import type {
   GitReviewBranchCommitsRequest,
   GitReviewBranchCommitsResult,
   GitReviewCancelInput,
+  GitCatFileResult,
+  GitReviewCatFileInput,
+  GitReviewCatFileOutput,
   GitMergeBaseRequest,
   GitMergeBaseResult,
   GitReviewFileContents,
   GitReviewFileContentsInput,
   GitReviewPatchRequest,
   GitReviewPatchResult,
+  GitReviewRepositoryMetadataRequest,
+  GitReviewRepositoryMetadataResult,
   GitReviewSearchInput,
   GitReviewSearchResult,
   GitReviewFileStatus,
@@ -57,7 +62,26 @@ interface GitCommandError extends Error {
 
 const GIT_COMMAND_TIMEOUT_MS = 8_000;
 const REVIEW_FILE_CHANGED_LINES_LIMIT = 15_000;
+const REVIEW_CAT_FILE_MAX_BYTES = 5_242_880;
+const REVIEW_CAT_FILE_TIMEOUT_MS = 30_000;
 const gitReviewAbortControllers = new Map<string, AbortController>();
+const gitReviewSnapshotStates = new Map<
+  string,
+  {
+    fingerprint: string;
+    generation: number;
+    verifiedAt: number;
+    invalidationEpoch: number;
+  }
+>();
+const gitReviewSnapshotGenerationReads = new Map<
+  string,
+  { invalidationEpoch: number; promise: Promise<number> }
+>();
+const gitReviewSnapshotInvalidationEpochs = new Map<string, number>();
+const gitReviewObservedRepositoryCounts = new Map<string, number>();
+let gitReviewSnapshotInvalidationSequence = 0;
+const GIT_REVIEW_SNAPSHOT_COMMAND_CACHE_MS = 250;
 const GIT_CONFIG_OVERRIDES = [
   "-c",
   "diff.mnemonicPrefix=false",
@@ -86,6 +110,7 @@ interface GitDiffFileMetadata {
   additions: number | null;
   deletions: number | null;
   safety: ReviewFileSafety;
+  generated?: boolean | null;
 }
 
 interface GitDiffRawMetadata {
@@ -158,6 +183,186 @@ function runGitCommand(
       },
     );
   });
+}
+
+class GitReviewStaleSnapshotError extends Error {
+  constructor(
+    readonly expectedGeneration: number,
+    readonly actualGeneration: number,
+  ) {
+    super(
+      `Git review snapshot changed (${expectedGeneration} -> ${actualGeneration}).`,
+    );
+    this.name = "GitReviewStaleSnapshotError";
+  }
+}
+
+function parseDirtyWorktreePaths(status: string): string[] {
+  const records = status.split("\0").filter(Boolean);
+  const paths: string[] = [];
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index] ?? "";
+    if (record.length < 4) continue;
+    const statusCode = record.slice(0, 2);
+    const filePath = record.slice(3);
+    if (filePath) paths.push(filePath);
+    if (
+      statusCode.includes("R") ||
+      statusCode.includes("C")
+    ) {
+      index += 1;
+    }
+  }
+
+  return paths;
+}
+
+async function readGitReviewRepositoryFingerprint(
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const [head, index, status] = await Promise.all([
+    runGitCommand(["rev-parse", "--verify", "HEAD"], cwd, [0, 128], {
+      signal,
+    }).then((result) => result.stdout.trim()),
+    runGitCommand(["ls-files", "-s", "-z"], cwd, [0], { signal }).then(
+      (result) => result.stdout,
+    ),
+    runGitCommand(
+      ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+      cwd,
+      [0],
+      { signal },
+    ).then((result) => result.stdout),
+  ]);
+  const dirtyPaths = parseDirtyWorktreePaths(status);
+  if (signal?.aborted) throw signal.reason;
+  const worktreeIdentities = await Promise.all(
+    dirtyPaths.map(async (filePath) => {
+      const entry = await stat(path.resolve(cwd, filePath), {
+        bigint: true,
+      }).catch(() => null);
+      if (!entry?.isFile()) return [filePath, null] as const;
+      return [
+        filePath,
+        [
+          entry.dev,
+          entry.ino,
+          entry.size,
+          entry.mtimeNs,
+          entry.ctimeNs,
+        ].join(":"),
+      ] as const;
+    }),
+  );
+  if (signal?.aborted) throw signal.reason;
+
+  return JSON.stringify([
+    head,
+    index,
+    status,
+    worktreeIdentities,
+  ]);
+}
+
+async function readGitReviewSnapshotGeneration(
+  cwd: string,
+  signal?: AbortSignal,
+  force = false,
+): Promise<number> {
+  const invalidationEpoch = gitReviewSnapshotInvalidationEpochs.get(cwd) ?? 0;
+  const previous = gitReviewSnapshotStates.get(cwd);
+  if (
+    !force &&
+    previous?.invalidationEpoch === invalidationEpoch &&
+    Date.now() - previous.verifiedAt < GIT_REVIEW_SNAPSHOT_COMMAND_CACHE_MS
+  ) {
+    return previous.generation;
+  }
+
+  const existing = gitReviewSnapshotGenerationReads.get(cwd);
+  if (!force && existing?.invalidationEpoch === invalidationEpoch) {
+    return existing.promise;
+  }
+
+  const promise = readGitReviewRepositoryFingerprint(cwd, signal).then(
+    async (fingerprint) => {
+      const currentEpoch = gitReviewSnapshotInvalidationEpochs.get(cwd) ?? 0;
+      if (currentEpoch !== invalidationEpoch) {
+        return readGitReviewSnapshotGeneration(cwd, signal, force);
+      }
+      const current = gitReviewSnapshotStates.get(cwd);
+      const generation = current?.fingerprint.startsWith("invalidated:")
+        ? current.generation
+        : current?.fingerprint === fingerprint
+          ? current.generation
+          : (current?.generation ?? 0) + 1;
+      gitReviewSnapshotStates.set(cwd, {
+        fingerprint,
+        generation,
+        verifiedAt: Date.now(),
+        invalidationEpoch,
+      });
+      return generation;
+    },
+  );
+  gitReviewSnapshotGenerationReads.set(cwd, { invalidationEpoch, promise });
+  try {
+    return await promise;
+  } finally {
+    if (gitReviewSnapshotGenerationReads.get(cwd)?.promise === promise) {
+      gitReviewSnapshotGenerationReads.delete(cwd);
+    }
+  }
+}
+
+export function invalidateGitReviewSnapshot(cwd: string): void {
+  const normalizedCwd = cwd.trim();
+  if (!normalizedCwd) return;
+  const previous = gitReviewSnapshotStates.get(normalizedCwd);
+  gitReviewSnapshotInvalidationSequence += 1;
+  const invalidationEpoch =
+    (gitReviewSnapshotInvalidationEpochs.get(normalizedCwd) ?? 0) + 1;
+  gitReviewSnapshotInvalidationEpochs.set(normalizedCwd, invalidationEpoch);
+  gitReviewSnapshotStates.set(normalizedCwd, {
+    fingerprint: `invalidated:${gitReviewSnapshotInvalidationSequence}`,
+    generation: (previous?.generation ?? 0) + 1,
+    verifiedAt: 0,
+    invalidationEpoch,
+  });
+}
+
+export function markGitReviewRepositoryObserved(
+  cwd: string,
+  observed: boolean,
+): void {
+  const normalizedCwd = cwd.trim();
+  if (!normalizedCwd) return;
+  const current = gitReviewObservedRepositoryCounts.get(normalizedCwd) ?? 0;
+  const next = observed ? current + 1 : Math.max(0, current - 1);
+  if (next === 0) {
+    gitReviewObservedRepositoryCounts.delete(normalizedCwd);
+    return;
+  }
+  gitReviewObservedRepositoryCounts.set(normalizedCwd, next);
+}
+
+async function assertGitReviewSnapshotGeneration(
+  cwd: string,
+  expectedGeneration: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const observed = (gitReviewObservedRepositoryCounts.get(cwd) ?? 0) > 0;
+  const actualGeneration = observed
+    ? (gitReviewSnapshotStates.get(cwd)?.generation ??
+      (await readGitReviewSnapshotGeneration(cwd, signal, true)))
+    : await readGitReviewSnapshotGeneration(cwd, signal, true);
+  if (actualGeneration === expectedGeneration) return;
+  throw new GitReviewStaleSnapshotError(
+    expectedGeneration,
+    actualGeneration,
+  );
 }
 
 async function runGitReviewRequest<T>(
@@ -599,6 +804,59 @@ async function readGitDiffMetadata(
   });
 }
 
+async function readGeneratedReviewPaths(
+  cwd: string,
+  paths: readonly string[],
+  signal?: AbortSignal,
+): Promise<Set<string> | null> {
+  if (paths.length === 0) return new Set();
+  const generated = new Set<string>();
+
+  try {
+    for (let offset = 0; offset < paths.length; offset += 100) {
+      const batch = paths.slice(offset, offset + 100);
+      const result = await runGitCommand(
+        ["check-attr", "-z", "linguist-generated", "--", ...batch],
+        cwd,
+        [0],
+        { signal },
+      );
+      const records = result.stdout.split("\0");
+      for (let index = 0; index + 2 < records.length; index += 3) {
+        const filePath = records[index] ?? "";
+        const attribute = records[index + 1] ?? "";
+        const value = (records[index + 2] ?? "").toLowerCase();
+        if (
+          attribute === "linguist-generated" &&
+          (value === "set" || value === "true")
+        ) {
+          generated.add(filePath);
+        }
+      }
+    }
+    return generated;
+  } catch {
+    return null;
+  }
+}
+
+async function annotateGeneratedReviewFiles(
+  cwd: string,
+  files: GitDiffFileMetadata[],
+  signal?: AbortSignal,
+): Promise<GitDiffFileMetadata[]> {
+  const generatedPaths = await readGeneratedReviewPaths(
+    cwd,
+    files.map((file) => file.path),
+    signal,
+  );
+  return files.map((file) => ({
+    ...file,
+    generated:
+      generatedPaths === null ? null : generatedPaths.has(file.path),
+  }));
+}
+
 function toFileSummaries(patch: string): GitReviewFileSummary[] {
   if (!patch.trim()) return [];
 
@@ -943,9 +1201,15 @@ async function readGitReviewFiles(
     if (!diffArgs) return [];
     const [trackedFiles, untrackedFiles] = await Promise.all([
       readGitDiffMetadata(input.cwd, input.source, diffArgs, signal),
-      readUntrackedMetadata(input.cwd, input.hideWhitespace, signal),
+      input.includeUntrackedFiles === false
+        ? Promise.resolve([])
+        : readUntrackedMetadata(input.cwd, input.hideWhitespace, signal),
     ]);
-    return [...trackedFiles, ...untrackedFiles];
+    return annotateGeneratedReviewFiles(
+      input.cwd,
+      [...trackedFiles, ...untrackedFiles],
+      signal,
+    );
   }
 
   const diffArgs = buildGitReviewSourceDiffArgs({
@@ -955,7 +1219,13 @@ async function readGitReviewFiles(
     commitSha: input.commitSha,
   });
   if (!diffArgs) return [];
-  return readGitDiffMetadata(input.cwd, input.source, diffArgs, signal);
+  const files = await readGitDiffMetadata(
+    input.cwd,
+    input.source,
+    diffArgs,
+    signal,
+  );
+  return annotateGeneratedReviewFiles(input.cwd, files, signal);
 }
 
 async function resolveBaseRef(
@@ -1157,6 +1427,276 @@ async function readWorktreeFileText(
   return buildReviewFileTextRead(normalizedPath, contents, fileStat.size);
 }
 
+function splitGitObjectLines(contents: string): string[] {
+  const lines = contents.split(/(?<=\n)/);
+  if (lines.length === 1 && lines[0] === "") return [];
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer> {
+  if (objectSpecs.length === 0) return Promise.resolve(Buffer.alloc(0));
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "git",
+      [...GIT_CONFIG_OVERRIDES, "cat-file", "--batch"],
+      {
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    const outputChunks: Buffer[] = [];
+    const errorChunks: Buffer[] = [];
+    const outputLimit =
+      objectSpecs.length * (REVIEW_CAT_FILE_MAX_BYTES + 512);
+    let outputBytes = 0;
+    let settled = false;
+    let outputLimitReached = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      child.kill("SIGKILL");
+    }, REVIEW_CAT_FILE_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (outputLimitReached) return;
+      const remaining = outputLimit - outputBytes;
+      if (remaining <= 0) {
+        outputLimitReached = true;
+        child.kill("SIGKILL");
+        return;
+      }
+      const accepted = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+      outputChunks.push(accepted);
+      outputBytes += accepted.length;
+      if (accepted.length !== chunk.length) {
+        outputLimitReached = true;
+        child.kill("SIGKILL");
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => errorChunks.push(chunk));
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const output = Buffer.concat(outputChunks);
+      if (exitCode === 0 || outputLimitReached) {
+        resolve(output);
+        return;
+      }
+      reject(
+        new Error(
+          Buffer.concat(errorChunks).toString("utf8").trim() ||
+            "Could not read Git objects.",
+        ),
+      );
+    });
+
+    child.stdin.end(`${objectSpecs.join("\n")}\n`);
+  });
+}
+
+function parseGitCatFileBatch(
+  output: Buffer,
+  requestCount: number,
+): { results: GitCatFileResult[]; processed: number } {
+  const results: GitCatFileResult[] = [];
+  let offset = 0;
+
+  for (let index = 0; index < requestCount; index += 1) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd < 0) break;
+    const header = output.subarray(offset, headerEnd).toString("utf8");
+    offset = headerEnd + 1;
+
+    if (header.endsWith(" missing")) {
+      results.push({ type: "error", error: { type: "not-found" } });
+      continue;
+    }
+
+    const match = /^\S+\s+\S+\s+(\d+)$/.exec(header);
+    const sizeBytes = Number(match?.[1] ?? "NaN");
+    if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+      results.push({ type: "error", error: { type: "unknown" } });
+      continue;
+    }
+    if (sizeBytes > REVIEW_CAT_FILE_MAX_BYTES) {
+      results.push({
+        type: "error",
+        error: {
+          type: "too-large",
+          limitBytes: REVIEW_CAT_FILE_MAX_BYTES,
+        },
+      });
+      if (offset + sizeBytes + 1 <= output.length) {
+        offset += sizeBytes + 1;
+        continue;
+      }
+      return { results, processed: index + 1 };
+    }
+    if (offset + sizeBytes > output.length) {
+      results.push({ type: "error", error: { type: "unknown" } });
+      return { results, processed: index + 1 };
+    }
+
+    const contents = output.subarray(offset, offset + sizeBytes).toString("utf8");
+    offset += sizeBytes;
+    if (output[offset] === 0x0a) offset += 1;
+    results.push({ type: "success", lines: splitGitObjectLines(contents) });
+  }
+
+  return { results, processed: results.length };
+}
+
+async function readGitCatFileObjectBatch(
+  cwd: string,
+  objectSpecs: string[],
+): Promise<GitCatFileResult[]> {
+  if (objectSpecs.length === 0) return [];
+
+  try {
+    const output = await runGitCatFileBatch(cwd, objectSpecs);
+    const parsed = parseGitCatFileBatch(output, objectSpecs.length);
+    if (parsed.processed >= objectSpecs.length) return parsed.results;
+    const remaining = await readGitCatFileObjectBatch(
+      cwd,
+      objectSpecs.slice(parsed.processed),
+    );
+    return [...parsed.results, ...remaining];
+  } catch {
+    return objectSpecs.map(() => ({
+      type: "error" as const,
+      error: { type: "unknown" as const },
+    }));
+  }
+}
+
+async function readGitCatFileFallback(
+  cwd: string,
+  relativePath: string,
+): Promise<GitCatFileResult> {
+  const normalizedPath = relativePath.trim();
+  if (!normalizedPath || normalizedPath === "/dev/null") {
+    return { type: "error", error: { type: "not-found" } };
+  }
+  const absolutePath = path.resolve(cwd, normalizedPath);
+  const fileStat = await stat(absolutePath).catch(() => null);
+  if (!fileStat?.isFile()) {
+    return { type: "error", error: { type: "not-found" } };
+  }
+  if (fileStat.size > REVIEW_CAT_FILE_MAX_BYTES) {
+    return {
+      type: "error",
+      error: {
+        type: "too-large",
+        limitBytes: REVIEW_CAT_FILE_MAX_BYTES,
+      },
+    };
+  }
+  const contents = await readFile(absolutePath).catch(() => null);
+  if (contents === null) {
+    return { type: "error", error: { type: "unknown" } };
+  }
+  if (contents.byteLength > REVIEW_CAT_FILE_MAX_BYTES) {
+    return {
+      type: "error",
+      error: {
+        type: "too-large",
+        limitBytes: REVIEW_CAT_FILE_MAX_BYTES,
+      },
+    };
+  }
+  const text = contents.toString("utf8");
+  const safety = classifyReviewTextPayload({
+    path: normalizedPath,
+    text,
+    maxBytes: REVIEW_CAT_FILE_MAX_BYTES,
+  });
+  if (!safety.renderable) {
+    return { type: "error", error: { type: "unknown" } };
+  }
+  return { type: "success", lines: splitGitObjectLines(text) };
+}
+
+export async function readGitReviewCatFile(
+  input: GitReviewCatFileInput,
+): Promise<GitReviewCatFileOutput> {
+  const cwd = await ensureDirectory(input.cwd);
+  try {
+    await assertGitReviewSnapshotGeneration(
+      cwd,
+      input.snapshotGeneration,
+    );
+  } catch (error) {
+    if (!(error instanceof GitReviewStaleSnapshotError)) throw error;
+    return {
+      snapshotGeneration: input.snapshotGeneration,
+      results: input.requests.map(() => ({
+        type: "error",
+        error: { type: "unknown" },
+      })),
+    };
+  }
+
+  const results: GitCatFileResult[] = input.requests.map(() => ({
+    type: "error",
+    error: { type: "not-found" },
+  }));
+  const objectRequests = input.requests.flatMap((request, index) => {
+    const objectSpec = request.oid?.trim() ?? "";
+    if (!objectSpec || objectSpec.includes("\n") || objectSpec.includes("\r")) {
+      return [];
+    }
+    return [{ index, objectSpec }];
+  });
+
+  for (let offset = 0; offset < objectRequests.length; offset += 4) {
+    const batch = objectRequests.slice(offset, offset + 4);
+    const batchResults = await readGitCatFileObjectBatch(
+      cwd,
+      batch.map((request) => request.objectSpec),
+    );
+    batch.forEach((request, index) => {
+      results[request.index] =
+        batchResults[index] ?? { type: "error", error: { type: "unknown" } };
+    });
+  }
+
+  await Promise.all(
+    input.requests.map(async (request, index) => {
+      const result = results[index];
+      if (
+        result?.type !== "error" ||
+        result.error.type !== "not-found" ||
+        request.fallbackToDisk !== true
+      ) {
+        return;
+      }
+      results[index] = await readGitCatFileFallback(cwd, request.path);
+    }),
+  );
+  try {
+    await assertGitReviewSnapshotGeneration(cwd, input.snapshotGeneration);
+    return { snapshotGeneration: input.snapshotGeneration, results };
+  } catch (error) {
+    if (!(error instanceof GitReviewStaleSnapshotError)) throw error;
+    return {
+      snapshotGeneration: input.snapshotGeneration,
+      results: input.requests.map(() => ({
+        type: "error",
+        error: { type: "unknown" },
+      })),
+    };
+  }
+}
+
 async function readGitReviewSnapshotWithSignal(
   input: GitReviewSnapshotRequest,
   signal?: AbortSignal,
@@ -1166,6 +1706,21 @@ async function readGitReviewSnapshotWithSignal(
   const branchState = gitRepository
     ? await readGitBranchState(cwd)
     : { currentBranch: null, defaultBranch: null, branches: [] };
+  const snapshotGeneration = gitRepository
+    ? await readGitReviewSnapshotGeneration(cwd, signal)
+    : 0;
+
+  if (
+    gitRepository &&
+    input.snapshotGeneration !== undefined &&
+    input.snapshotGeneration !== null
+  ) {
+    await assertGitReviewSnapshotGeneration(
+      cwd,
+      input.snapshotGeneration,
+      signal,
+    );
+  }
 
   if (!gitRepository) {
     return {
@@ -1178,6 +1733,7 @@ async function readGitReviewSnapshotWithSignal(
       currentBranch: null,
       defaultBranch: null,
       errorMessage: null,
+      snapshotGeneration,
     };
   }
 
@@ -1194,6 +1750,7 @@ async function readGitReviewSnapshotWithSignal(
       baseRef,
       signal,
     );
+    await assertGitReviewSnapshotGeneration(cwd, snapshotGeneration, signal);
 
     return {
       cwd,
@@ -1205,8 +1762,10 @@ async function readGitReviewSnapshotWithSignal(
       currentBranch: branchState.currentBranch,
       defaultBranch: branchState.defaultBranch,
       errorMessage: null,
+      snapshotGeneration,
     };
   } catch (error) {
+    if (error instanceof GitReviewStaleSnapshotError) throw error;
     if (isNotGitRepositoryError(error)) {
       return {
         cwd,
@@ -1218,6 +1777,7 @@ async function readGitReviewSnapshotWithSignal(
         currentBranch: null,
         defaultBranch: null,
         errorMessage: null,
+        snapshotGeneration: 0,
       };
     }
 
@@ -1234,6 +1794,7 @@ async function readGitReviewSnapshotWithSignal(
         error instanceof Error
           ? error.message
           : "Could not load Git review snapshot.",
+      snapshotGeneration,
     };
   }
 }
@@ -1246,23 +1807,26 @@ export async function readGitReviewSnapshot(
   );
 }
 
-function filterGitReviewFileSummaries(
-  files: GitReviewFileSummary[],
-  requestedFiles?: string[],
+function buildRequestedGitReviewFileSummaries(
+  requestedFiles: NonNullable<ReviewDiffRequest["files"]>,
 ): GitReviewFileSummary[] {
-  const requestedPaths = new Set(
-    (requestedFiles ?? [])
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
-  );
-
-  if (requestedPaths.size === 0) return files;
-
-  return files.filter(
-    (entry) =>
-      requestedPaths.has(entry.path) ||
-      (entry.previousPath ? requestedPaths.has(entry.previousPath) : false),
-  );
+  return requestedFiles.flatMap((file): GitReviewFileSummary[] => {
+    const pathName = file.path.trim();
+    if (!pathName) return [];
+    const previousPath = file.previousPath?.trim() || null;
+    return [{
+      path: pathName,
+      previousPath,
+      status: file.status,
+      rawStatus: null,
+      oldOid: null,
+      newOid: null,
+      revision: file.revision?.trim() || null,
+      additions: null,
+      deletions: null,
+      safety: classifyReviewFileMetadata({ path: pathName }),
+    }];
+  });
 }
 
 function shouldLoadReviewFilePatch(file: GitReviewFileSummary): boolean {
@@ -1565,92 +2129,215 @@ export async function readGitReviewPatch(
 export async function readGitReviewDiff(
   input: ReviewDiffRequest,
 ): Promise<ReviewDiffResult> {
-  return runGitReviewRequest(input.requestId, async (signal) => {
-    const baseRef = input.baseBranch?.trim() || input.baseRef?.trim() || null;
-    const snapshot = await readGitReviewSnapshotWithSignal(
-      {
-        cwd: input.cwd,
+  try {
+    return await runGitReviewRequest(input.requestId, async (signal) => {
+      const cwd = await ensureDirectory(input.cwd);
+      const snapshotGeneration = input.snapshotGeneration;
+      if (snapshotGeneration === undefined || snapshotGeneration === null) {
+        throw new Error("Git review snapshot generation is required.");
+      }
+      if (!(await isGitRepository(cwd))) {
+        return {
+          type: "success",
+          cwd,
+          source: input.source,
+          patch: "",
+          files: [],
+          isGitRepository: false,
+          baseRef: null,
+          currentBranch: null,
+          defaultBranch: null,
+          errorMessage: null,
+          snapshotGeneration,
+        };
+      }
+
+      await assertGitReviewSnapshotGeneration(
+        cwd,
+        snapshotGeneration,
+        signal,
+      );
+      const requestedFiles = buildRequestedGitReviewFileSummaries(
+        input.files ?? [],
+      );
+      const baseRef = input.baseBranch?.trim() || input.baseRef?.trim() || null;
+      const patchResult = await readReviewPatchForFileSummaries({
+        cwd,
         source: input.source,
+        hideWhitespace: input.hideWhitespace,
         baseRef,
         commitSha: input.commitSha,
-        hideWhitespace: input.hideWhitespace,
-      },
-      signal,
-    );
-    const requestedFiles = filterGitReviewFileSummaries(
-      snapshot.files,
-      input.files,
-    );
-    const patchResult = await readReviewPatchForFileSummaries({
-      cwd: snapshot.cwd,
-      source: snapshot.source,
-      hideWhitespace: input.hideWhitespace,
-      baseRef: snapshot.baseRef,
-      commitSha: input.commitSha,
-      files: requestedFiles,
-      signal,
-    });
-    const filteredEntries = patchResult.errorMessage
-      ? buildFailedReviewDiffEntries(requestedFiles, {
-          loadStatus: patchResult.outputLimitExceeded
-            ? "diff-too-large"
-            : "load-failed",
-          errorMessage: patchResult.errorMessage,
-        })
-      : toReviewDiffEntries(patchResult.patch, requestedFiles);
-    const filteredPatch = filteredEntries
-      .map((entry) => entry.diff)
-      .filter((diff) => diff.trim().length > 0)
-      .join("\n");
+        files: requestedFiles,
+        signal,
+      });
+      const filteredEntries = patchResult.errorMessage
+        ? buildFailedReviewDiffEntries(requestedFiles, {
+            loadStatus: patchResult.outputLimitExceeded
+              ? "diff-too-large"
+              : "load-failed",
+            errorMessage: patchResult.errorMessage,
+          })
+        : toReviewDiffEntries(patchResult.patch, requestedFiles);
+      const filteredPatch = filteredEntries
+        .map((entry) => entry.diff)
+        .filter((diff) => diff.trim().length > 0)
+        .join("\n");
+      await assertGitReviewSnapshotGeneration(cwd, snapshotGeneration, signal);
 
-    return {
-      cwd: snapshot.cwd,
-      source: snapshot.source,
-      patch: filteredPatch,
-      files: filteredEntries,
-      isGitRepository: snapshot.isGitRepository,
-      baseRef: snapshot.baseRef,
-      currentBranch: snapshot.currentBranch,
-      defaultBranch: snapshot.defaultBranch,
-      errorMessage: snapshot.errorMessage,
-    };
-  });
+      return {
+        type: "success",
+        cwd,
+        source: input.source,
+        patch: filteredPatch,
+        files: filteredEntries,
+        isGitRepository: true,
+        baseRef,
+        currentBranch: null,
+        defaultBranch: null,
+        errorMessage: null,
+        snapshotGeneration,
+      };
+    });
+  } catch (error) {
+    if (!(error instanceof GitReviewStaleSnapshotError)) throw error;
+    return { type: "stale-snapshot", source: input.source };
+  }
+}
+
+async function readGitReviewStageCounts(cwd: string): Promise<{
+  stagedFileCount: number;
+  unstagedFileCount: number;
+  untrackedFileCount: number;
+}> {
+  const result = await runGitCommand(
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    cwd,
+  );
+  const records = result.stdout.split("\0").filter(Boolean);
+  let stagedFileCount = 0;
+  let unstagedFileCount = 0;
+  let untrackedFileCount = 0;
+
+  for (let index = 0; index < records.length; index += 1) {
+    const statusCode = (records[index] ?? "").slice(0, 2);
+    if (statusCode === "??") {
+      untrackedFileCount += 1;
+      continue;
+    }
+    if (statusCode[0] && statusCode[0] !== " ") stagedFileCount += 1;
+    if (statusCode[1] && statusCode[1] !== " ") unstagedFileCount += 1;
+    if (statusCode.includes("R") || statusCode.includes("C")) index += 1;
+  }
+
+  return { stagedFileCount, unstagedFileCount, untrackedFileCount };
 }
 
 export async function readGitReviewSummary(
   input: GitReviewSummaryRequest,
 ): Promise<GitReviewSummaryResult> {
-  const baseRef = input.baseBranch?.trim() || input.baseRef?.trim() || null;
-  const snapshot = await readGitReviewSnapshot({
-    cwd: input.cwd,
-    source: input.source,
-    baseRef,
-    commitSha: input.commitSha,
-    hideWhitespace: input.hideWhitespace,
-    requestId: input.requestId,
-  });
-  const additions = snapshot.files.reduce(
-    (total, file) => total + (file.additions ?? 0),
-    0,
-  );
-  const deletions = snapshot.files.reduce(
-    (total, file) => total + (file.deletions ?? 0),
-    0,
-  );
+  try {
+    const baseRef = input.baseBranch?.trim() || input.baseRef?.trim() || null;
+    const snapshot = await readGitReviewSnapshot({
+      cwd: input.cwd,
+      source: input.source,
+      baseRef,
+      commitSha: input.commitSha,
+      hideWhitespace: input.hideWhitespace,
+      requestId: input.requestId,
+      includeUntrackedFiles: input.includeUntrackedFiles,
+    });
+    if (snapshot.errorMessage) {
+      return {
+        type: "error",
+        source: input.source,
+        errorMessage: snapshot.errorMessage,
+      };
+    }
+    const stageCounts = snapshot.isGitRepository
+      ? await readGitReviewStageCounts(snapshot.cwd)
+      : {
+          stagedFileCount: 0,
+          unstagedFileCount: 0,
+          untrackedFileCount: 0,
+        };
+    if (snapshot.isGitRepository) {
+      await assertGitReviewSnapshotGeneration(
+        snapshot.cwd,
+        snapshot.snapshotGeneration,
+      );
+    }
 
-  return {
-    cwd: snapshot.cwd,
-    source: snapshot.source,
-    baseRef: snapshot.baseRef,
-    commitSha: input.commitSha?.trim() || null,
-    files: snapshot.files,
-    additions,
-    deletions,
-    isGitRepository: snapshot.isGitRepository,
-    currentBranch: snapshot.currentBranch,
-    defaultBranch: snapshot.defaultBranch,
-    errorMessage: snapshot.errorMessage,
-  };
+    return {
+      type: "success",
+      source: snapshot.source,
+      files: snapshot.files,
+      snapshotGeneration: snapshot.snapshotGeneration,
+      stageCounts,
+    };
+  } catch (error) {
+    if (error instanceof GitReviewStaleSnapshotError) throw error;
+    return {
+      type: "error",
+      source: input.source,
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : "Could not load the Git review summary.",
+    };
+  }
+}
+
+export async function readGitReviewRepositoryMetadata(
+  input: GitReviewRepositoryMetadataRequest,
+): Promise<GitReviewRepositoryMetadataResult> {
+  try {
+    const cwd = await ensureDirectory(input.cwd);
+    const gitRepository = await isGitRepository(cwd);
+    if (!gitRepository) {
+      return {
+        cwd,
+        root: null,
+        gitDir: null,
+        commonDir: null,
+        isGitRepository: false,
+        currentBranch: null,
+        defaultBranch: null,
+        errorMessage: null,
+      };
+    }
+
+    const [branchState, rootResult, gitDirResult, commonDirResult] =
+      await Promise.all([
+        readGitBranchState(cwd),
+        runGitCommand(["rev-parse", "--show-toplevel"], cwd),
+        runGitCommand(["rev-parse", "--git-dir"], cwd),
+        runGitCommand(["rev-parse", "--git-common-dir"], cwd),
+      ]);
+    return {
+      cwd,
+      root: path.resolve(cwd, rootResult.stdout.trim()),
+      gitDir: path.resolve(cwd, gitDirResult.stdout.trim()),
+      commonDir: path.resolve(cwd, commonDirResult.stdout.trim()),
+      isGitRepository: true,
+      currentBranch: branchState.currentBranch,
+      defaultBranch: branchState.defaultBranch,
+      errorMessage: null,
+    };
+  } catch (error) {
+    return {
+      cwd: input.cwd,
+      root: null,
+      gitDir: null,
+      commonDir: null,
+      isGitRepository: false,
+      currentBranch: null,
+      defaultBranch: null,
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : "Could not read Git repository metadata.",
+    };
+  }
 }
 
 export async function readBranchDiffStats(
@@ -1896,73 +2583,308 @@ export async function readGitReviewFileContents(
   }
 }
 
+interface GitReviewSearchAccumulator {
+  query: string;
+  limit: number;
+  matchingPaths: string[];
+  totalMatches: number;
+}
+
+function countSearchOccurrences(value: string, query: string): number {
+  if (!value || !query) return 0;
+  const normalizedValue = value.toLowerCase();
+  let count = 0;
+  let offset = 0;
+  for (;;) {
+    const index = normalizedValue.indexOf(query, offset);
+    if (index < 0) return count;
+    count += 1;
+    offset = index + Math.max(1, query.length);
+  }
+}
+
+function addGitReviewSearchMatches(
+  accumulator: GitReviewSearchAccumulator,
+  filePath: string,
+  count: number,
+): void {
+  if (count <= 0) return;
+  accumulator.totalMatches += count;
+  const available = Math.max(0, accumulator.limit - accumulator.matchingPaths.length);
+  const storedCount = Math.min(available, count);
+  for (let index = 0; index < storedCount; index += 1) {
+    accumulator.matchingPaths.push(filePath);
+  }
+}
+
+function normalizeGitPatchSearchPath(value: string): string | null {
+  const normalized = value.trim();
+  if (!normalized || normalized === "/dev/null") return null;
+  if (normalized.startsWith("b/")) return normalized.slice(2);
+  return normalized;
+}
+
+function scanGitReviewPatchLines(input: {
+  lines: readonly string[];
+  generatedPaths: ReadonlySet<string>;
+  accumulator: GitReviewSearchAccumulator;
+  state: { currentPath: string | null; inHunk: boolean };
+}): void {
+  for (const line of input.lines) {
+    if (line.startsWith("diff --git ")) {
+      input.state.currentPath = null;
+      input.state.inHunk = false;
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      input.state.currentPath = normalizeGitPatchSearchPath(line.slice(4));
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      input.state.inHunk = true;
+      continue;
+    }
+    const filePath = input.state.currentPath;
+    if (!filePath || !input.state.inHunk) continue;
+    if (input.generatedPaths.has(filePath)) continue;
+    const prefix = line.charAt(0);
+    if (prefix !== "+" && prefix !== "-" && prefix !== " ") continue;
+    addGitReviewSearchMatches(
+      input.accumulator,
+      filePath,
+      countSearchOccurrences(line.slice(1), input.accumulator.query),
+    );
+  }
+}
+
+function streamTrackedGitReviewSearch(input: {
+  cwd: string;
+  diffArgs: string[];
+  paths: string[];
+  generatedPaths: ReadonlySet<string>;
+  accumulator: GitReviewSearchAccumulator;
+  signal?: AbortSignal;
+}): Promise<void> {
+  if (input.paths.length === 0) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "git",
+      [
+        ...GIT_CONFIG_OVERRIDES,
+        "diff",
+        ...input.diffArgs,
+        "--unified=3",
+        "--",
+        ...input.paths,
+      ],
+      {
+        cwd: input.cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    const state = { currentPath: null as string | null, inHunk: false };
+    let pending = "";
+    let stderr = "";
+    let settled = false;
+    const timeout = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    const abort = () => child.kill("SIGKILL");
+    input.signal?.addEventListener("abort", abort, { once: true });
+
+    child.stdout.on("data", (chunk: string) => {
+      pending += chunk;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+      scanGitReviewPatchLines({
+        lines,
+        generatedPaths: input.generatedPaths,
+        accumulator: input.accumulator,
+        state,
+      });
+    });
+    child.stderr.on("data", (chunk: string) => {
+      if (stderr.length < 8_192) stderr += chunk;
+    });
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      input.signal?.removeEventListener("abort", abort);
+      reject(error);
+    });
+    child.once("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      input.signal?.removeEventListener("abort", abort);
+      if (pending) {
+        scanGitReviewPatchLines({
+          lines: [pending],
+          generatedPaths: input.generatedPaths,
+          accumulator: input.accumulator,
+          state,
+        });
+      }
+      if (input.signal?.aborted) {
+        reject(new DOMException("Git review search aborted", "AbortError"));
+        return;
+      }
+      if (exitCode === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(stderr.trim() || "Could not search the Git review diff."));
+    });
+  });
+}
+
 export async function searchGitReview(
   input: GitReviewSearchInput,
 ): Promise<GitReviewSearchResult> {
   const normalizedQuery = input.query.trim().toLowerCase();
   if (!normalizedQuery) {
     return {
+      type: "success",
+      source: input.source,
       query: input.query,
       matchingPaths: [],
+      totalMatches: 0,
+      isCapped: false,
+      snapshotGeneration: input.snapshotGeneration ?? 0,
     };
   }
 
-  const snapshot = await readGitReviewSnapshot({
-    cwd: input.cwd,
-    source: input.source,
-    baseRef: input.baseBranch ?? input.baseRef ?? null,
-    commitSha: input.commitSha ?? null,
-    hideWhitespace: input.hideWhitespace,
-  });
-
-  if (!snapshot.isGitRepository || snapshot.files.length === 0) {
-    return {
-      query: input.query,
-      matchingPaths: [],
-    };
-  }
-
-  const matchingPaths = new Set<string>();
-  await Promise.all(
-    snapshot.files.map(async (file) => {
-      const haystacks = [file.path, file.previousPath ?? ""];
-      if (
-        haystacks.some((value) => value.toLowerCase().includes(normalizedQuery))
-      ) {
-        matchingPaths.add(file.path);
-        return;
+  try {
+    return await runGitReviewRequest(input.requestId, async (signal) => {
+      const cwd = await ensureDirectory(input.cwd);
+      if (!(await isGitRepository(cwd))) {
+        return {
+          type: "success" as const,
+          source: input.source,
+          query: input.query,
+          matchingPaths: [],
+          totalMatches: 0,
+          isCapped: false,
+          snapshotGeneration: 0,
+        };
       }
+      const snapshotGeneration =
+        input.snapshotGeneration ??
+        (await readGitReviewSnapshotGeneration(cwd, signal));
+      await assertGitReviewSnapshotGeneration(cwd, snapshotGeneration, signal);
 
-      if (!file.safety.renderable) return;
-
-      const fullContents = await readGitReviewFileContents({
-        cwd: input.cwd,
+      const baseRef =
+        input.source === "branch"
+          ? await resolveBaseRef(
+              cwd,
+              input.baseBranch ?? input.baseRef ?? null,
+            )
+          : null;
+      const diffArgs = buildGitReviewSourceDiffArgs({
         source: input.source,
-        path: file.path,
-        previousPath: file.previousPath,
-        baseRef: input.baseBranch ?? input.baseRef ?? null,
-        commitSha: input.commitSha ?? null,
+        hideWhitespace: input.hideWhitespace,
+        baseRef,
+        commitSha: input.commitSha,
       });
-      if (!fullContents.safety.renderable) return;
-
-      const contentHaystacks = [
-        fullContents.oldText ?? "",
-        fullContents.newText ?? "",
-      ];
-      if (
-        contentHaystacks.some((value) =>
-          value.toLowerCase().includes(normalizedQuery),
-        )
-      ) {
-        matchingPaths.add(file.path);
+      const trackedPaths = diffArgs
+        ? (
+            await runGitCommand(
+              ["diff", ...diffArgs, "--name-only", "-z"],
+              cwd,
+              [0, 1],
+              { signal },
+            )
+          ).stdout.split("\0").filter(Boolean)
+        : [];
+      const untrackedPaths =
+        input.source === "unstaged"
+          ? (
+              await runGitCommand(
+                ["ls-files", "--others", "--exclude-standard", "-z"],
+                cwd,
+                [0],
+                { signal },
+              )
+            ).stdout.split("\0").filter(Boolean)
+          : [];
+      const paths = Array.from(new Set([...trackedPaths, ...untrackedPaths]));
+      const generatedPaths = await readGeneratedReviewPaths(cwd, paths, signal);
+      if (generatedPaths === null) {
+        throw new Error("Could not resolve generated-file attributes.");
       }
-    }),
-  );
 
-  return {
-    query: input.query,
-    matchingPaths: Array.from(matchingPaths).slice(0, input.limit ?? 250),
-  };
+      const accumulator: GitReviewSearchAccumulator = {
+        query: normalizedQuery,
+        limit: Math.max(0, Math.min(input.limit ?? 250, 250)),
+        matchingPaths: [],
+        totalMatches: 0,
+      };
+      for (const filePath of paths) {
+        addGitReviewSearchMatches(
+          accumulator,
+          filePath,
+          countSearchOccurrences(filePath, normalizedQuery) > 0 ? 1 : 0,
+        );
+      }
+
+      if (diffArgs && trackedPaths.length > 0) {
+        await streamTrackedGitReviewSearch({
+          cwd,
+          diffArgs,
+          paths: trackedPaths,
+          generatedPaths,
+          accumulator,
+          signal,
+        });
+      }
+      await mapWithConcurrency(untrackedPaths, 4, async (filePath) => {
+        if (generatedPaths.has(filePath)) return;
+        const patch = await readUntrackedFilePatch(
+          cwd,
+          filePath,
+          input.hideWhitespace,
+          signal,
+        );
+        scanGitReviewPatchLines({
+          lines: patch.split(/\r?\n/),
+          generatedPaths,
+          accumulator,
+          state: { currentPath: null, inHunk: false },
+        });
+      });
+      await assertGitReviewSnapshotGeneration(cwd, snapshotGeneration, signal);
+
+      return {
+        type: "success" as const,
+        source: input.source,
+        query: input.query,
+        matchingPaths: accumulator.matchingPaths,
+        totalMatches: accumulator.totalMatches,
+        isCapped: accumulator.totalMatches > accumulator.matchingPaths.length,
+        snapshotGeneration,
+      };
+    });
+  } catch (error) {
+    if (error instanceof GitReviewStaleSnapshotError) {
+      return {
+        type: "stale-snapshot",
+        source: input.source,
+        query: input.query,
+      };
+    }
+    return {
+      type: "error",
+      source: input.source,
+      query: input.query,
+      errorMessage:
+        error instanceof Error
+          ? error.message
+          : "Could not search the Git review.",
+    };
+  }
 }
 
 function parseBlamePorcelain(stdout: string): GitReviewBlameResult["lines"] {
@@ -2070,6 +2992,7 @@ export async function initializeGitRepositoryAndReadReviewSnapshot(
         }
       },
     );
+    invalidateGitReviewSnapshot(normalizedCwd);
   }
 
   return readGitReviewSnapshot({
@@ -2112,6 +3035,7 @@ export async function applyGitReviewPatch(
   try {
     await writeFile(patchFilePath, patchText, "utf8");
     await runGitCommand([...args, patchFilePath], cwd);
+    invalidateGitReviewSnapshot(cwd);
     return {
       status: "success",
       appliedPaths: toPatchPaths(input.diff),

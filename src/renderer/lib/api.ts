@@ -416,6 +416,14 @@ export function subscribeGitBranchChanges(
   return resolveRendererTransport().subscribeGitBranchChanges(callback);
 }
 
+export function subscribeGitReviewSummaries(
+  callback: (
+    event: import("../../shared/types").GitReviewLiveSummaryEvent,
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeGitReviewSummaries(callback);
+}
+
 export function subscribeAppUpdateStatus(
   callback: (status: import("./types").AppUpdateStatus) => void,
 ): () => void {

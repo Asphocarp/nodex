@@ -147,14 +147,19 @@ import {
   readBranchDiffStats,
   readGitReviewBlameFile,
   readGitReviewBranchCommits,
+  readGitReviewCatFile,
   readGitReviewDiff,
-  readGitReviewFileContents,
   readGitReviewPatch,
+  readGitReviewRepositoryMetadata,
   readGitReviewSnapshot,
   readGitReviewSummary,
   resolveGitMergeBase,
   searchGitReview,
 } from "./git-review-service";
+import {
+  subscribeGitReviewSummary,
+  type GitReviewLiveSubscription,
+} from "./git-review-live-service";
 import {
   createGhPr,
   createGhPrComment,
@@ -598,6 +603,8 @@ export function registerIpcHandlers(
     { cwd: string; dispose: () => void }
   >();
   const gitBranchWatchCleanupBound = new Set<number>();
+  const gitReviewWatches = new Map<string, GitReviewLiveSubscription>();
+  const gitReviewWatchCleanupBound = new Set<number>();
 
   const focusNotificationOriginWindow = (
     window: BrowserWindow | null,
@@ -617,6 +624,24 @@ export function registerIpcHandlers(
     if (!activeWatch) return;
     activeWatch.dispose();
     gitBranchWatches.delete(webContentsId);
+  };
+
+  const stopGitReviewWatch = (
+    webContentsId: number,
+    subscriptionId: string,
+  ) => {
+    const key = `${webContentsId}:${subscriptionId}`;
+    gitReviewWatches.get(key)?.dispose();
+    gitReviewWatches.delete(key);
+  };
+
+  const stopAllGitReviewWatches = (webContentsId: number) => {
+    const prefix = `${webContentsId}:`;
+    for (const [key, subscription] of gitReviewWatches) {
+      if (!key.startsWith(prefix)) continue;
+      subscription.dispose();
+      gitReviewWatches.delete(key);
+    }
   };
 
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
@@ -2192,6 +2217,54 @@ export function registerIpcHandlers(
     return readGitReviewSummary(input);
   });
 
+  registerHandle("git:review:repository-metadata", (_, input) => {
+    return readGitReviewRepositoryMetadata(input);
+  });
+
+  registerHandle("git:live-query:subscribe", (event, input) => {
+    const sender = event.sender;
+    const webContentsId = sender.id;
+    stopGitReviewWatch(webContentsId, input.subscriptionId);
+
+    if (!gitReviewWatchCleanupBound.has(webContentsId)) {
+      gitReviewWatchCleanupBound.add(webContentsId);
+      sender.once("destroyed", () => {
+        stopAllGitReviewWatches(webContentsId);
+        gitReviewWatchCleanupBound.delete(webContentsId);
+      });
+    }
+
+    const subscription = subscribeGitReviewSummary({
+      subscriptionId: input.subscriptionId,
+      request: input.request,
+      publish: (payload) => {
+        if (sender.isDestroyed()) {
+          stopGitReviewWatch(webContentsId, input.subscriptionId);
+          return;
+        }
+        safeSendToWebContents(sender, "git:live-query:event", [payload]);
+      },
+    });
+    gitReviewWatches.set(
+      `${webContentsId}:${input.subscriptionId}`,
+      subscription,
+    );
+  });
+
+  registerHandle("git:live-query:unsubscribe", (event, input) => {
+    stopGitReviewWatch(event.sender.id, input.subscriptionId);
+  });
+
+  registerHandle("git:live-query:recover", (event, input) => {
+    const key = `${event.sender.id}:${input.subscriptionId}`;
+    gitReviewWatches.get(key)?.recover();
+  });
+
+  registerHandle("git:live-query:refresh-repository", (event, input) => {
+    const key = `${event.sender.id}:${input.subscriptionId}`;
+    gitReviewWatches.get(key)?.refresh();
+  });
+
   registerHandle("git:review:diff", (_, input) => {
     return readGitReviewDiff(input);
   });
@@ -2212,8 +2285,8 @@ export function registerIpcHandlers(
     return resolveGitMergeBase(input);
   });
 
-  registerHandle("git:review:file-contents", (_, input) => {
-    return readGitReviewFileContents(input);
+  registerHandle("git:review:cat-file", (_, input) => {
+    return readGitReviewCatFile(input);
   });
 
   registerHandle("git:review:search", (_, input) => {

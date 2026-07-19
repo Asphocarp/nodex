@@ -5,6 +5,7 @@
 - Keep board views synchronized across Electron and browser clients.
 - Keep every mounted view of a Page converged on its one durable Y.Doc without whole-Page overwrite.
 - Keep Codex thread state synchronized across the main-process canonical conversation manager, bootstrap-only persisted-session recovery input, SQLite link metadata, and renderer owner/follower views.
+- Keep Review repository metadata, partial diffs, full context, and search on one repository generation without letting stale work replace a newer edit.
 - Provide safe recovery paths for destructive operations.
 
 ## Data Durability Model
@@ -103,6 +104,16 @@
 - Remote crash diagnostics are optional and separate from local logs. Sentry initializes only when diagnostics are enabled through Settings, `[server].diagnostics_enabled`, or `NODEX_SENTRY_ENABLED`; warn/error backend log entries may become scrubbed breadcrumbs, but Nodex does not ship raw JSONL logs to Sentry in v1. Renderer Session Replay initializes only when the separate Replay opt-in is also enabled, using the configured replay sample rates.
 - Remote product telemetry is optional and separate from local logs and Sentry diagnostics. The renderer dynamically loads Statsig only when telemetry is enabled through Settings, `[server].telemetry_enabled`, or `NODEX_TELEMETRY_ENABLED`; queued Statsig events flush through the app-close flush coordinator before Electron close. Filtered Statsig web analytics initializes only when the separate AutoCapture opt-in is enabled, and Nodex does not initialize Statsig Session Replay.
 - Detailed logging behavior, configuration, and extension guidelines live in `docs/product-specs/backend-logging-spec.md`.
+
+## Git Review Live-Read Reliability
+
+- Main owns repository change observation. Subscriptions for the same repository share one reference-counted watcher hub over the worktree and Git metadata roots. The hub classifies config, HEAD, index, remote-ref, working-tree, synced-branch, and worktree-topology changes, ignores object/log/lock churn, and debounces summary invalidation for 100ms.
+- A live-query subscription has its own publication generation, dirty/running state, retry count, recovery flag, timer, and cancellable request identity. A new invalidation advances generation immediately, so an older in-flight callback cannot publish even when the underlying Git command completes successfully. Refreshes serialize; transient summary failures retry up to three times at one-second intervals.
+- Watcher failure marks the subscription as requiring recovery. The renderer retains the last consistent summary, asks main to rebuild the watcher, and does not clear file rows while recovery is pending. Renderer destruction and unsubscribe dispose watchers and cancel the current Git request.
+- Repository `snapshotGeneration` is separate from live publication generation. A watched repository advances it as soon as a relevant event arrives, making normal diff/cat/search boundary checks constant-time instead of rescanning the index and worktree; isolated calls without a watcher retain a fingerprint fallback. Summary success supplies the generation; diff, cat-file, and search require it and validate it at both read boundaries. Diff/search return typed stale results and cat-file returns no usable object data when the repository changes mid-read.
+- Partial-diff requests coalesce after two microtasks and separate tracked from untracked work. Each path retains independent AbortSignal semantics; an empty group cancels main, and a 15-second group timeout terminates the Git request. Server search streams stdout rather than buffering a complete patch.
+- Full-context cells are keyed by complete comparison/generation identity and subscribe per row. Requests wait 40ms, keep each row request atomic, limit a `git cat-file --batch` invocation to four objects, cap each object at 5 MiB, and time out after 30 seconds. A late promise may write only while its WeakMap in-flight identity is still current. Failed or structurally unvalidated full context preserves the already rendered partial diff.
+- Manual Refresh and every successful Git mutation invalidate main's short-lived snapshot state. The next live publication changes cache identity; renderer code never patches a stale generation into the current view.
 
 ## Failure Modes and Handling
 - Oversized Page payloads return HTTP `413` before DB work.

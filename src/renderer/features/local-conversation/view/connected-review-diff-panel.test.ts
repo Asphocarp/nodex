@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 import type { CodexConversationSnapshot, CodexTurnDiffReviewTarget } from "@/lib/types";
 import { connectedReviewDiffPanelTestHelpers } from "./connected-review-diff-panel";
+import {
+  areReviewConversationProjectionsEqual,
+  buildReviewConversationProjection,
+  createReviewConversationProjectionSelector,
+} from "@/features/review/model/review-conversation-projection";
 
 function buildConversation(unifiedDiff: string): CodexConversationSnapshot {
   return {
@@ -57,6 +62,105 @@ function buildConversation(unifiedDiff: string): CodexConversationSnapshot {
 }
 
 describe("connected review diff panel", () => {
+  test("keeps the Review projection stable across unrelated agent prose", () => {
+    const patch = "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new";
+    const before = buildConversation(patch);
+    const after = structuredClone(before);
+    const existingItem = after.turns[0]?.items[0];
+    if (!existingItem) throw new Error("Expected a diff item.");
+    after.turns[0]?.items.push({
+      ...existingItem,
+      itemId: "message-2",
+      entryId: "message-2",
+      rawItem: { text: "Still editing unrelated files." },
+      markdownText: "Still editing unrelated files.",
+      createdAt: 3,
+      updatedAt: 3,
+    });
+
+    expect(
+      areReviewConversationProjectionsEqual(
+        buildReviewConversationProjection(before),
+        buildReviewConversationProjection(after),
+      ),
+    ).toBe(true);
+
+    const changedDiff = buildConversation(patch.replace("+new", "+newer"));
+    expect(
+      areReviewConversationProjectionsEqual(
+        buildReviewConversationProjection(before),
+        buildReviewConversationProjection(changedDiff),
+      ),
+    ).toBe(false);
+  });
+
+  test("returns the same projection object across 100 prose-only appends", () => {
+    const selector = createReviewConversationProjectionSelector();
+    let conversation = buildConversation(
+      "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+    );
+    const initial = selector(conversation);
+
+    for (let index = 0; index < 100; index += 1) {
+      const turn = conversation.turns[0];
+      const template = turn?.items[0];
+      if (!template) throw new Error("Expected a template item.");
+      const proseItem = {
+        ...template,
+        itemId: `message-${index}`,
+        entryId: `message-${index}`,
+        rawItem: { text: `Editing progress ${index}` },
+        markdownText: `Editing progress ${index}`,
+      };
+      conversation = {
+        ...conversation,
+        turns: [
+          ...(conversation.turns.slice(0, -1)),
+          { ...turn, items: [...turn.items, proseItem] },
+        ],
+      };
+      expect(selector(conversation)).toBe(initial);
+    }
+  });
+
+  test("keeps the previous completed diff when a new prose-only turn starts", () => {
+    const selector = createReviewConversationProjectionSelector();
+    const conversation = buildConversation(
+      "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+    );
+    const initial = selector(conversation);
+    const priorTurn = conversation.turns[0];
+    const template = priorTurn?.items[0];
+    if (!priorTurn || !template) throw new Error("Expected a prior turn.");
+    const nextConversation: CodexConversationSnapshot = {
+      ...conversation,
+      turns: [
+        priorTurn,
+        {
+          ...priorTurn,
+          turnId: "turn-2",
+          status: "inProgress",
+          itemIds: ["message-next"],
+          items: [{
+            ...template,
+            turnId: "turn-2",
+            itemId: "message-next",
+            entryId: "message-next",
+            type: "message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            rawItem: { text: "Starting another edit." },
+            markdownText: "Starting another edit.",
+          }],
+        },
+      ],
+    };
+
+    expect(selector(nextConversation)).toBe(initial);
+    expect(initial.lastTurnId).toBe("turn-1");
+    expect(initial.lastTurnPatch).toContain("+new");
+  });
+
   test("refreshes the selected turn diff when the underlying patch changes", () => {
     const selected: CodexTurnDiffReviewTarget = {
       type: "turnDiff",

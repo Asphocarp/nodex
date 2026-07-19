@@ -7,6 +7,7 @@ import {
 } from "@/lib/review-diff-comment-attachment-store";
 import { buildReviewFileSafety } from "../../../shared/review-file-safety";
 import { ReviewDiffPanel } from "./review-diff-panel";
+import { buildReviewConversationProjection } from "@/features/review/model/review-conversation-projection";
 
 function buildStoryConversation(): CodexConversationSnapshot {
   return {
@@ -199,15 +200,25 @@ function buildMetadataOnlyReviewConversation(input: {
   return conversation;
 }
 
+type ReviewStorySurfaceProps = Omit<
+  ComponentProps<typeof ReviewDiffPanel>,
+  "conversationProjection"
+> & {
+  conversation?: CodexConversationSnapshot | null;
+};
+
 function ReviewStorySurface({
   openControlLabel,
   pendingCommentAttachments,
+  conversation = null,
   ...args
-}: ComponentProps<typeof ReviewDiffPanel> & {
+}: ReviewStorySurfaceProps & {
   openControlLabel?: string;
   pendingCommentAttachments?: CodexReviewDiffCommentAttachment[];
 }) {
-  const storyThreadId = args.conversation?.threadId ?? args.threadId ?? null;
+  const conversationProjection = buildReviewConversationProjection(conversation);
+  const storyThreadId =
+    conversationProjection.threadId ?? args.threadId ?? null;
 
   useEffect(() => {
     if (!storyThreadId || !pendingCommentAttachments?.length) return;
@@ -229,7 +240,10 @@ function ReviewStorySurface({
 
   return (
     <div className="h-screen overflow-hidden bg-token-main-surface-primary">
-      <ReviewDiffPanel {...args} />
+      <ReviewDiffPanel
+        {...args}
+        conversationProjection={conversationProjection}
+      />
     </div>
   );
 }
@@ -269,7 +283,7 @@ function buildStoryPendingComment(input: {
 
 const meta = {
   title: "Workbench/Review Diff Panel",
-  component: ReviewDiffPanel,
+  component: ReviewStorySurface,
   args: {
     conversation: buildStoryConversation(),
     onStartThreadPrompt: async () => undefined,
@@ -279,7 +293,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
   },
-} satisfies Meta<typeof ReviewDiffPanel>;
+} satisfies Meta<typeof ReviewStorySurface>;
 
 export default meta;
 
@@ -503,4 +517,91 @@ export const RangeLocalComment: Story = {
       ]}
     />
   ),
+};
+
+export const LiveTrackedThenComplete: Story = {
+  args: {
+    initialSource: "unstaged",
+    initialFileTreeOpen: true,
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "The live summary may publish tracked files first and then atomically add untracked files without resetting already loaded rows.",
+      },
+    },
+  },
+};
+
+export const AgentStreamingIsolation: Story = {
+  args: {
+    conversation: buildReviewParityConversation(),
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Use this fixture while streaming assistant prose: the Review projection and file rows remain stable until a turn-diff item changes.",
+      },
+    },
+  },
+};
+
+export const ViewportGatedFullContent: Story = {
+  args: {
+    initialSource: "unstaged",
+    initialFileTreeOpen: true,
+    projectWorkspacePath: "/tmp/storybook/virtualized-tree",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A many-file partial review for checking that only expanded rows inside the virtualizer margin request full content.",
+      },
+    },
+  },
+};
+
+export const FullContentFallbackStates: Story = {
+  args: {
+    conversation: buildReviewParityConversation(),
+    projectWorkspacePath: "/tmp/storybook/full-content-fallback",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Inspect `data-review-full-content-state` while exercising loading, success, unavailable, and failed reads; every terminal fallback keeps the partial diff visible.",
+      },
+    },
+  },
+};
+
+export const StaleSnapshotRecovery: Story = {
+  args: {
+    initialSource: "unstaged",
+    projectWorkspacePath: "/tmp/storybook/stale-snapshot",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "A generation-refresh fixture: stale diff, full-content, and search responses must be discarded while the last consistent rows remain visible.",
+      },
+    },
+  },
+};
+
+export const GeneratedAttributesServerSearch: Story = {
+  args: {
+    initialSource: "unstaged",
+    initialFileTreeOpen: true,
+    projectWorkspacePath: "/tmp/storybook/generated-attributes",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Generated classification is intentionally unresolved in this fixture, forcing content search through the generation-bound server path.",
+      },
+    },
+  },
 };

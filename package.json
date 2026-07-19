@@ -82,6 +82,7 @@
   },
   "dependencies": {
     "@hono/node-server": "2.0.5",
+    "@parcel/watcher": "2.5.6",
     "@sentry/electron": "7.13.0",
     "better-sqlite3": "12.11.1",
     "electron-updater": "6.8.9",
