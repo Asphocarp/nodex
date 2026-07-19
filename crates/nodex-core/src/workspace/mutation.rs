@@ -23,7 +23,7 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
-use super::{ProjectWorkspaceApplyOutcome, session_lifecycle, session_mutation};
+use super::{ProjectWorkspaceApplyOutcome, session_lifecycle, session_mutation, thread};
 
 const MODULE_NAME: &str = "project_workspace";
 const MAX_ID_LENGTH: usize = 512;
@@ -305,6 +305,85 @@ pub(super) fn apply(
                     session_ids,
                     true,
                 ),
+                ProjectWorkspaceIntent::UpsertThread { thread_id, patch } => thread::upsert_thread(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    patch,
+                ),
+                ProjectWorkspaceIntent::DeleteThread { thread_id } => thread::delete_thread(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                ),
+                ProjectWorkspaceIntent::SetThreadPinned { thread_id, pinned } => {
+                    thread::set_thread_pinned(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        thread_id,
+                        *pinned,
+                    )
+                }
+                ProjectWorkspaceIntent::ReorderPinnedThreads { thread_ids } => {
+                    thread::reorder_pinned_threads(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        thread_ids,
+                    )
+                }
+                ProjectWorkspaceIntent::SetThreadUnread { thread_id, unread } => {
+                    thread::set_thread_unread(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        thread_id,
+                        *unread,
+                    )
+                }
+                ProjectWorkspaceIntent::ReplaceThreadDynamicToolCatalogs {
+                    thread_id,
+                    catalogs,
+                } => thread::replace_dynamic_tool_catalogs(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    catalogs,
+                ),
+                ProjectWorkspaceIntent::SetProjectPermissionMode { project_id, mode } => {
+                    thread::set_project_permission_mode(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        project_id,
+                        *mode,
+                    )
+                }
                 ProjectWorkspaceIntent::MutateSession { session_id, intent } => {
                     session_mutation::mutate_session(
                         transaction,

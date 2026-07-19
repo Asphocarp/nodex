@@ -1,0 +1,1925 @@
+use std::collections::BTreeSet;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use nodex_core_contracts::BoundModuleContext;
+use nodex_core_contracts::workspace::{
+    CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType,
+    ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceThread, ProjectWorkspaceThreadPatch,
+    ProjectWorkspaceThreadStatus,
+};
+use rusqlite::{Connection, OptionalExtension, params};
+
+use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
+
+use super::ProjectWorkspaceApplyOutcome;
+use super::mutation::{WorkspaceMutationEffects, finish_mutation, workspace_event_anchor};
+use super::session_mutation::sqlite_now;
+
+const MAX_ID_BYTES: usize = 512;
+const MAX_THREAD_NAME_UTF16: usize = 2_000;
+const MAX_SHORT_TEXT_BYTES: usize = 4_096;
+const MAX_PATH_BYTES: usize = 16_384;
+const MAX_PREVIEW_BYTES: usize = 1024 * 1024;
+const MAX_CATALOGS: usize = 64;
+const MAX_CATALOG_NAMESPACE_BYTES: usize = 256;
+const MAX_THREADS: usize = 100_000;
+const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
+
+const THREAD_COLUMNS: &str = "
+  thread.thread_id,
+  thread.project_id,
+  thread.forked_from_id,
+  thread.parent_thread_id,
+  thread.thread_name,
+  thread.thread_source,
+  thread.service_name,
+  thread.agent_nickname,
+  thread.agent_role,
+  thread.thread_preview,
+  thread.model_provider,
+  thread.cwd,
+  thread.managed_worktree_path,
+  thread.projectless_output_directory,
+  thread.projectless_workspace_browser_root,
+  thread.status_type,
+  thread.status_active_flags_json,
+  thread.archived,
+  pinned.pinned_order,
+  CASE WHEN unread.thread_id IS NULL THEN 0 ELSE 1 END,
+  thread.created_at,
+  thread.updated_at,
+  thread.linked_at
+";
+
+#[derive(Clone)]
+struct ThreadRow {
+    thread_id: String,
+    project_id: Option<String>,
+    forked_from_id: Option<String>,
+    parent_thread_id: Option<String>,
+    thread_name: Option<String>,
+    thread_source: Option<String>,
+    service_name: Option<String>,
+    agent_nickname: Option<String>,
+    agent_role: Option<String>,
+    thread_preview: String,
+    model_provider: String,
+    cwd: Option<String>,
+    managed_worktree_path: Option<String>,
+    projectless_output_directory: Option<String>,
+    projectless_workspace_browser_root: Option<String>,
+    status_type: String,
+    status_active_flags_json: String,
+    archived: i64,
+    pinned_order: Option<i64>,
+    has_unread_turn: i64,
+    created_at: i64,
+    updated_at: i64,
+    linked_at: String,
+}
+
+pub(super) fn read_thread(
+    connection: &Connection,
+    library_id: &str,
+    thread_id: &str,
+) -> Result<Option<ProjectWorkspaceThread>, StoreError> {
+    let sql = format!(
+        "SELECT {THREAD_COLUMNS} \
+         FROM codex_threads thread \
+         LEFT JOIN codex_pinned_threads pinned ON pinned.thread_id = thread.thread_id \
+         LEFT JOIN codex_unread_threads unread ON unread.thread_id = thread.thread_id \
+         WHERE thread.thread_id = ?1 \
+           AND (thread.project_id IS NULL OR EXISTS (\
+             SELECT 1 FROM projects project \
+             WHERE project.id = thread.project_id AND project.library_id = ?2\
+           ))"
+    );
+    connection
+        .query_row(&sql, params![thread_id, library_id], thread_row)
+        .optional()?
+        .map(|row| project_workspace_thread(connection, library_id, row))
+        .transpose()
+}
+
+pub(super) fn read_threads(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+    parent_thread_id: Option<&str>,
+    include_archived: bool,
+) -> Result<Vec<ProjectWorkspaceThread>, StoreError> {
+    if let Some(project_id) = project_id {
+        validate_id("project_id", project_id)?;
+        require_project(connection, library_id, project_id)?;
+    }
+    if let Some(parent_thread_id) = parent_thread_id {
+        validate_id("parent_thread_id", parent_thread_id)?;
+    }
+    let sql = format!(
+        "SELECT {THREAD_COLUMNS} \
+         FROM codex_threads thread \
+         LEFT JOIN codex_pinned_threads pinned ON pinned.thread_id = thread.thread_id \
+         LEFT JOIN codex_unread_threads unread ON unread.thread_id = thread.thread_id \
+         WHERE (thread.project_id IS NULL OR EXISTS (\
+             SELECT 1 FROM projects project \
+             WHERE project.id = thread.project_id AND project.library_id = ?1\
+           )) \
+           AND (?2 IS NULL OR thread.project_id = ?2) \
+           AND ((?3 IS NULL AND thread.parent_thread_id IS NULL) \
+             OR thread.parent_thread_id = ?3) \
+           AND (?4 = 1 OR thread.archived = 0) \
+         ORDER BY thread.updated_at DESC, thread.thread_id \
+         LIMIT ?5"
+    );
+    let rows = connection
+        .prepare(&sql)?
+        .query_map(
+            params![
+                library_id,
+                project_id,
+                parent_thread_id,
+                i64::from(include_archived),
+                i64::try_from(MAX_THREADS + 1).expect("thread bound fits i64"),
+            ],
+            thread_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.len() > MAX_THREADS {
+        return Err(corrupt("Codex Thread collection exceeds its Core bound"));
+    }
+    rows.into_iter()
+        .map(|row| project_workspace_thread(connection, library_id, row))
+        .collect()
+}
+
+pub(super) fn read_permission_mode(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Option<CodexPermissionMode>, StoreError> {
+    connection
+        .query_row(
+            "SELECT mode FROM codex_project_permission_mode_selections WHERE project_id = ?1",
+            [project_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .map(|mode| parse_permission_mode(&mode))
+        .transpose()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn upsert_thread(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+    patch: &ProjectWorkspaceThreadPatch,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("thread_id", thread_id)?;
+    let existing = read_stored_thread(connection, thread_id)?;
+    if let Some(existing) = &existing {
+        validate_stored_thread(existing)?;
+        thread_status(existing)?;
+        assert_project_visible(connection, library_id, existing.project_id.as_deref())?;
+    }
+
+    let project_id = merge_identity(
+        existing.as_ref().and_then(|row| row.project_id.clone()),
+        &patch.project_id,
+        "project_id",
+    )?;
+    if let Some(project_id) = project_id.as_deref() {
+        require_project(connection, library_id, project_id)?;
+    }
+    assert_linked_session_project(connection, library_id, thread_id, project_id.as_deref())?;
+
+    let forked_from_id = merge_identity(
+        existing.as_ref().and_then(|row| row.forked_from_id.clone()),
+        &patch.forked_from_id,
+        "forked_from_id",
+    )?;
+    let parent_thread_id = merge_identity(
+        existing
+            .as_ref()
+            .and_then(|row| row.parent_thread_id.clone()),
+        &patch.parent_thread_id,
+        "parent_thread_id",
+    )?;
+    if parent_thread_id.as_deref() == Some(thread_id) {
+        return Err(invalid("A Codex Thread cannot be its own parent"));
+    }
+    let thread_name = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.thread_name.clone()),
+        &patch.thread_name,
+        "thread_name",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    if thread_name
+        .as_deref()
+        .is_some_and(|name| name.encode_utf16().count() > MAX_THREAD_NAME_UTF16)
+    {
+        return Err(invalid("thread_name exceeds 2,000 UTF-16 code units"));
+    }
+    let thread_source = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.thread_source.clone()),
+        &patch.thread_source,
+        "thread_source",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let service_name = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.service_name.clone()),
+        &patch.service_name,
+        "service_name",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let agent_nickname = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.agent_nickname.clone()),
+        &patch.agent_nickname,
+        "agent_nickname",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let agent_role = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.agent_role.clone()),
+        &patch.agent_role,
+        "agent_role",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let cwd = merge_nullable_text(
+        existing.as_ref().and_then(|row| row.cwd.clone()),
+        &patch.cwd,
+        "cwd",
+        MAX_PATH_BYTES,
+        true,
+    )?;
+    let managed_worktree_path = merge_nullable_text(
+        existing
+            .as_ref()
+            .and_then(|row| row.managed_worktree_path.clone()),
+        &patch.managed_worktree_path,
+        "managed_worktree_path",
+        MAX_PATH_BYTES,
+        true,
+    )?;
+    let projectless_output_directory = merge_nullable_text(
+        existing
+            .as_ref()
+            .and_then(|row| row.projectless_output_directory.clone()),
+        &patch.projectless_output_directory,
+        "projectless_output_directory",
+        MAX_PATH_BYTES,
+        true,
+    )?;
+    let projectless_workspace_browser_root = merge_nullable_text(
+        existing
+            .as_ref()
+            .and_then(|row| row.projectless_workspace_browser_root.clone()),
+        &patch.projectless_workspace_browser_root,
+        "projectless_workspace_browser_root",
+        MAX_PATH_BYTES,
+        true,
+    )?;
+    let thread_preview = merge_required_text(
+        existing.as_ref().map(|row| row.thread_preview.as_str()),
+        patch.thread_preview.as_deref(),
+        "thread_preview",
+        MAX_PREVIEW_BYTES,
+        false,
+    )?;
+    let model_provider = merge_required_text(
+        existing.as_ref().map(|row| row.model_provider.as_str()),
+        patch.model_provider.as_deref(),
+        "model_provider",
+        MAX_SHORT_TEXT_BYTES,
+        true,
+    )?;
+    let status = match &patch.status {
+        Some(status) => validate_status(status.clone())?,
+        None => existing.as_ref().map(thread_status).transpose()?.unwrap_or(
+            ProjectWorkspaceThreadStatus {
+                status_type: CodexThreadStatusType::NotLoaded,
+                active_flags: Vec::new(),
+            },
+        ),
+    };
+    let archived = patch
+        .archived
+        .unwrap_or_else(|| existing.as_ref().is_some_and(|row| row.archived == 1));
+    let now_ms = unix_time_millis()?;
+    let created_at = if let Some(existing) = &existing {
+        if patch
+            .created_at
+            .is_some_and(|created_at| created_at != existing.created_at)
+        {
+            return Err(invalid("created_at is immutable after Thread creation"));
+        }
+        existing.created_at
+    } else {
+        patch.created_at.unwrap_or(now_ms)
+    };
+    let updated_at = patch.updated_at.unwrap_or(now_ms);
+    validate_timestamp("created_at", created_at)?;
+    validate_timestamp("updated_at", updated_at)?;
+    if updated_at < created_at {
+        return Err(invalid("updated_at must not precede created_at"));
+    }
+    let linked_at = if let Some(existing) = &existing {
+        if patch
+            .linked_at
+            .as_deref()
+            .map(validate_linked_at)
+            .transpose()?
+            .is_some_and(|linked_at| linked_at != existing.linked_at)
+        {
+            return Err(invalid("linked_at is immutable after Thread creation"));
+        }
+        existing.linked_at.clone()
+    } else {
+        patch
+            .linked_at
+            .as_deref()
+            .map(validate_linked_at)
+            .transpose()?
+            .map_or_else(|| sqlite_now(connection), Ok)?
+    };
+    let status_type = status_type_literal(status.status_type);
+    let active_flags_json = serde_json::to_string(&status.active_flags)
+        .map_err(|_| internal("Could not encode Codex Thread status flags"))?;
+
+    connection.execute(
+        "INSERT INTO codex_threads (\
+           thread_id, project_id, parent_thread_id, thread_name, thread_source, service_name, \
+           agent_nickname, agent_role, thread_preview, model_provider, cwd, \
+           managed_worktree_path, projectless_output_directory, \
+           projectless_workspace_browser_root, status_type, status_active_flags_json, archived, \
+           created_at, updated_at, linked_at, forked_from_id\
+         ) VALUES (\
+           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
+           ?18, ?19, ?20, ?21\
+         ) ON CONFLICT(thread_id) DO UPDATE SET \
+           project_id = excluded.project_id, parent_thread_id = excluded.parent_thread_id, \
+           thread_name = excluded.thread_name, thread_source = excluded.thread_source, \
+           service_name = excluded.service_name, agent_nickname = excluded.agent_nickname, \
+           agent_role = excluded.agent_role, thread_preview = excluded.thread_preview, \
+           model_provider = excluded.model_provider, cwd = excluded.cwd, \
+           managed_worktree_path = excluded.managed_worktree_path, \
+           projectless_output_directory = excluded.projectless_output_directory, \
+           projectless_workspace_browser_root = excluded.projectless_workspace_browser_root, \
+           status_type = excluded.status_type, \
+           status_active_flags_json = excluded.status_active_flags_json, \
+           archived = excluded.archived, updated_at = excluded.updated_at, \
+           forked_from_id = excluded.forked_from_id",
+        params![
+            thread_id,
+            project_id,
+            parent_thread_id,
+            thread_name,
+            thread_source,
+            service_name,
+            agent_nickname,
+            agent_role,
+            thread_preview,
+            model_provider,
+            cwd,
+            managed_worktree_path,
+            projectless_output_directory,
+            projectless_workspace_browser_root,
+            status_type,
+            active_flags_json,
+            i64::from(archived),
+            created_at,
+            updated_at,
+            linked_at,
+            forked_from_id,
+        ],
+    )?;
+    if archived {
+        connection.execute(
+            "DELETE FROM codex_unread_threads WHERE thread_id = ?1",
+            [thread_id],
+        )?;
+    }
+
+    let session_ids = linked_session_ids(connection, library_id, thread_id, project_id.as_deref())?;
+    let project_ids = affected_projects(
+        existing.as_ref().and_then(|row| row.project_id.as_deref()),
+        project_id.as_deref(),
+    );
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "upsert_thread",
+        project_ids,
+        session_ids,
+        vec![thread_id.to_owned()],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn delete_thread(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("thread_id", thread_id)?;
+    let thread = require_thread(connection, library_id, thread_id)?;
+    let session_ids = linked_session_ids(
+        connection,
+        library_id,
+        thread_id,
+        thread.project_id.as_deref(),
+    )?;
+    connection.execute(
+        "DELETE FROM codex_threads WHERE thread_id = ?1",
+        [thread_id],
+    )?;
+    let project_ids = thread.project_id.into_iter().collect();
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "delete_thread",
+        project_ids,
+        session_ids,
+        vec![thread_id.to_owned()],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn set_thread_pinned(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+    pinned: bool,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("thread_id", thread_id)?;
+    let thread = require_thread(connection, library_id, thread_id)?;
+    if thread.parent_thread_id.is_some() {
+        return Err(invalid(
+            "Child Codex Threads cannot be pinned in the sidebar",
+        ));
+    }
+    let now = sqlite_now(connection)?;
+    if pinned {
+        let next_order = connection.query_row(
+            "SELECT COALESCE(max(pinned_order), -1) + 1 FROM codex_pinned_threads",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        connection.execute(
+            "INSERT OR IGNORE INTO codex_pinned_threads(\
+               thread_id, pinned_order, created_at, updated_at\
+             ) VALUES (?1, ?2, ?3, ?3)",
+            params![thread_id, next_order, now],
+        )?;
+    } else {
+        connection.execute(
+            "DELETE FROM codex_pinned_threads WHERE thread_id = ?1",
+            [thread_id],
+        )?;
+    }
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "set_thread_pinned",
+        thread.project_id.into_iter().collect(),
+        Vec::new(),
+        vec![thread_id.to_owned()],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn reorder_pinned_threads(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_ids: &[String],
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    if thread_ids.len() > MAX_THREADS {
+        return Err(invalid("Pinned Codex Thread order exceeds its Core bound"));
+    }
+    let current = pinned_threads(connection, library_id)?;
+    let current_ids = current
+        .iter()
+        .map(|thread| thread.thread_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    let mut ordered = Vec::with_capacity(current.len());
+    for thread_id in thread_ids {
+        validate_id("thread_id", thread_id)?;
+        if current_ids.contains(thread_id.as_str()) && seen.insert(thread_id.as_str()) {
+            ordered.push(thread_id.clone());
+        }
+    }
+    ordered.extend(
+        current
+            .iter()
+            .map(|thread| &thread.thread_id)
+            .filter(|thread_id| !seen.contains(thread_id.as_str()))
+            .cloned(),
+    );
+    let now = sqlite_now(connection)?;
+    let mut update = connection.prepare(
+        "UPDATE codex_pinned_threads SET pinned_order = ?1, updated_at = ?2 \
+         WHERE thread_id = ?3",
+    )?;
+    for (index, thread_id) in ordered.iter().enumerate() {
+        update.execute(params![
+            i64::try_from(index).expect("pinned Thread order fits i64"),
+            now,
+            thread_id,
+        ])?;
+    }
+    let project_ids = current
+        .iter()
+        .filter_map(|thread| thread.project_id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "reorder_pinned_threads",
+        project_ids,
+        Vec::new(),
+        ordered,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn set_thread_unread(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+    unread: bool,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("thread_id", thread_id)?;
+    let thread = require_thread(connection, library_id, thread_id)?;
+    if unread && thread.archived {
+        return Err(invalid("An archived Codex Thread cannot be marked unread"));
+    }
+    if unread {
+        connection.execute(
+            "INSERT OR IGNORE INTO codex_unread_threads(thread_id) VALUES (?1)",
+            [thread_id],
+        )?;
+    } else {
+        connection.execute(
+            "DELETE FROM codex_unread_threads WHERE thread_id = ?1",
+            [thread_id],
+        )?;
+    }
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "set_thread_unread",
+        thread.project_id.into_iter().collect(),
+        Vec::new(),
+        vec![thread_id.to_owned()],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn replace_dynamic_tool_catalogs(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    thread_id: &str,
+    catalogs: &[ProjectWorkspaceDynamicToolCatalog],
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("thread_id", thread_id)?;
+    let thread = require_thread(connection, library_id, thread_id)?;
+    let catalogs = normalize_catalogs(catalogs)?;
+    connection.execute(
+        "DELETE FROM codex_thread_dynamic_tool_catalogs WHERE thread_id = ?1",
+        [thread_id],
+    )?;
+    let mut insert = connection.prepare(
+        "INSERT INTO codex_thread_dynamic_tool_catalogs(\
+           thread_id, namespace, toolset_revision\
+         ) VALUES (?1, ?2, ?3)",
+    )?;
+    for catalog in catalogs {
+        insert.execute(params![
+            thread_id,
+            catalog.namespace,
+            catalog.toolset_revision,
+        ])?;
+    }
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "replace_thread_dynamic_tool_catalogs",
+        thread.project_id.into_iter().collect(),
+        Vec::new(),
+        vec![thread_id.to_owned()],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn set_project_permission_mode(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    project_id: &str,
+    mode: CodexPermissionMode,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    validate_id("project_id", project_id)?;
+    require_project(connection, library_id, project_id)?;
+    let now = sqlite_now(connection)?;
+    connection.execute(
+        "INSERT INTO codex_project_permission_mode_selections(project_id, mode, updated_at) \
+         VALUES (?1, ?2, ?3) \
+         ON CONFLICT(project_id) DO UPDATE SET \
+           mode = excluded.mode, updated_at = excluded.updated_at",
+        params![project_id, permission_mode_literal(mode), now],
+    )?;
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "set_project_permission_mode",
+        vec![project_id.to_owned()],
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
+fn project_workspace_thread(
+    connection: &Connection,
+    library_id: &str,
+    row: ThreadRow,
+) -> Result<ProjectWorkspaceThread, StoreError> {
+    validate_stored_thread(&row)?;
+    let status = thread_status(&row)?;
+    let session_ids = linked_session_ids(
+        connection,
+        library_id,
+        &row.thread_id,
+        row.project_id.as_deref(),
+    )?;
+    if session_ids.len() > 1 {
+        return Err(corrupt(
+            "A Codex Thread is linked to multiple Project Sessions",
+        ));
+    }
+    let dynamic_tool_catalogs = read_dynamic_tool_catalogs(connection, &row.thread_id)?;
+    Ok(ProjectWorkspaceThread {
+        thread_id: row.thread_id,
+        project_id: row.project_id,
+        session_id: session_ids.into_iter().next(),
+        forked_from_id: row.forked_from_id,
+        parent_thread_id: row.parent_thread_id,
+        thread_name: row.thread_name,
+        thread_source: row.thread_source,
+        service_name: row.service_name,
+        agent_nickname: row.agent_nickname,
+        agent_role: row.agent_role,
+        thread_preview: row.thread_preview,
+        model_provider: row.model_provider,
+        cwd: row.cwd,
+        managed_worktree_path: row.managed_worktree_path,
+        projectless_output_directory: row.projectless_output_directory,
+        projectless_workspace_browser_root: row.projectless_workspace_browser_root,
+        status,
+        archived: row.archived == 1,
+        pinned_order: row.pinned_order,
+        has_unread_turn: row.has_unread_turn == 1,
+        dynamic_tool_catalogs,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        linked_at: row.linked_at,
+    })
+}
+
+fn thread_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadRow> {
+    Ok(ThreadRow {
+        thread_id: row.get(0)?,
+        project_id: row.get(1)?,
+        forked_from_id: row.get(2)?,
+        parent_thread_id: row.get(3)?,
+        thread_name: row.get(4)?,
+        thread_source: row.get(5)?,
+        service_name: row.get(6)?,
+        agent_nickname: row.get(7)?,
+        agent_role: row.get(8)?,
+        thread_preview: row.get(9)?,
+        model_provider: row.get(10)?,
+        cwd: row.get(11)?,
+        managed_worktree_path: row.get(12)?,
+        projectless_output_directory: row.get(13)?,
+        projectless_workspace_browser_root: row.get(14)?,
+        status_type: row.get(15)?,
+        status_active_flags_json: row.get(16)?,
+        archived: row.get(17)?,
+        pinned_order: row.get(18)?,
+        has_unread_turn: row.get(19)?,
+        created_at: row.get(20)?,
+        updated_at: row.get(21)?,
+        linked_at: row.get(22)?,
+    })
+}
+
+fn read_stored_thread(
+    connection: &Connection,
+    thread_id: &str,
+) -> Result<Option<ThreadRow>, StoreError> {
+    let sql = format!(
+        "SELECT {THREAD_COLUMNS} \
+         FROM codex_threads thread \
+         LEFT JOIN codex_pinned_threads pinned ON pinned.thread_id = thread.thread_id \
+         LEFT JOIN codex_unread_threads unread ON unread.thread_id = thread.thread_id \
+         WHERE thread.thread_id = ?1"
+    );
+    connection
+        .query_row(&sql, [thread_id], thread_row)
+        .optional()
+        .map_err(Into::into)
+}
+
+fn require_thread(
+    connection: &Connection,
+    library_id: &str,
+    thread_id: &str,
+) -> Result<ProjectWorkspaceThread, StoreError> {
+    read_thread(connection, library_id, thread_id)?
+        .ok_or_else(|| not_found("Codex Thread is unavailable in this Library"))
+}
+
+fn pinned_threads(
+    connection: &Connection,
+    library_id: &str,
+) -> Result<Vec<ProjectWorkspaceThread>, StoreError> {
+    let sql = format!(
+        "SELECT {THREAD_COLUMNS} \
+         FROM codex_threads thread \
+         JOIN codex_pinned_threads pinned ON pinned.thread_id = thread.thread_id \
+         LEFT JOIN codex_unread_threads unread ON unread.thread_id = thread.thread_id \
+         WHERE thread.archived = 0 AND thread.parent_thread_id IS NULL \
+           AND (thread.project_id IS NULL OR EXISTS (\
+             SELECT 1 FROM projects project \
+             WHERE project.id = thread.project_id AND project.library_id = ?1\
+           )) \
+         ORDER BY pinned.pinned_order, pinned.created_at, thread.thread_id \
+         LIMIT ?2"
+    );
+    let rows = connection
+        .prepare(&sql)?
+        .query_map(
+            params![
+                library_id,
+                i64::try_from(MAX_THREADS + 1).expect("thread bound fits i64"),
+            ],
+            thread_row,
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.len() > MAX_THREADS {
+        return Err(corrupt(
+            "Pinned Codex Thread collection exceeds its Core bound",
+        ));
+    }
+    rows.into_iter()
+        .map(|row| project_workspace_thread(connection, library_id, row))
+        .collect()
+}
+
+fn linked_session_ids(
+    connection: &Connection,
+    library_id: &str,
+    thread_id: &str,
+    thread_project_id: Option<&str>,
+) -> Result<Vec<String>, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT session.id, session.project_id, project.library_id \
+             FROM project_session_threads link \
+             JOIN project_sessions session ON session.id = link.session_id \
+             LEFT JOIN projects project ON project.id = session.project_id \
+             WHERE link.thread_id = ?1 \
+             ORDER BY link.linked_at, session.id LIMIT 2",
+        )?
+        .query_map([thread_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut ids = Vec::with_capacity(rows.len());
+    for (session_id, project_id, owner_library_id) in rows {
+        if project_id.as_deref() != thread_project_id {
+            return Err(corrupt(
+                "A linked Codex Thread and Project Session have different Projects",
+            ));
+        }
+        if project_id.is_some() && owner_library_id.as_deref() != Some(library_id) {
+            return Err(corrupt(
+                "A linked Codex Thread Session belongs to another Library",
+            ));
+        }
+        ids.push(session_id);
+    }
+    Ok(ids)
+}
+
+fn assert_linked_session_project(
+    connection: &Connection,
+    library_id: &str,
+    thread_id: &str,
+    project_id: Option<&str>,
+) -> Result<(), StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT session.project_id, project.library_id \
+             FROM project_session_threads link \
+             JOIN project_sessions session ON session.id = link.session_id \
+             LEFT JOIN projects project ON project.id = session.project_id \
+             WHERE link.thread_id = ?1 LIMIT 2",
+        )?
+        .query_map([thread_id], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?,
+                row.get::<_, Option<String>>(1)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rows.len() > 1 {
+        return Err(corrupt(
+            "A Codex Thread is linked to multiple Project Sessions",
+        ));
+    }
+    let Some((session_project_id, owner_library_id)) = rows.into_iter().next() else {
+        return Ok(());
+    };
+    if session_project_id.as_deref() != project_id {
+        return Err(invalid(
+            "Codex Thread Project must match its linked Project Session",
+        ));
+    }
+    if session_project_id.is_some() && owner_library_id.as_deref() != Some(library_id) {
+        return Err(corrupt(
+            "A linked Codex Thread Session belongs to another Library",
+        ));
+    }
+    Ok(())
+}
+
+fn read_dynamic_tool_catalogs(
+    connection: &Connection,
+    thread_id: &str,
+) -> Result<Vec<ProjectWorkspaceDynamicToolCatalog>, StoreError> {
+    let catalogs = connection
+        .prepare(
+            "SELECT namespace, toolset_revision \
+             FROM codex_thread_dynamic_tool_catalogs \
+             WHERE thread_id = ?1 ORDER BY namespace LIMIT ?2",
+        )?
+        .query_map(
+            params![
+                thread_id,
+                i64::try_from(MAX_CATALOGS + 1).expect("catalog bound fits i64"),
+            ],
+            |row| {
+                Ok(ProjectWorkspaceDynamicToolCatalog {
+                    namespace: row.get(0)?,
+                    toolset_revision: row.get(1)?,
+                })
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if catalogs.len() > MAX_CATALOGS {
+        return Err(corrupt(
+            "Stored Codex Thread dynamic tool catalogs exceed their Core bound",
+        ));
+    }
+    normalize_catalogs(&catalogs).map_err(|error| {
+        corrupt(format!(
+            "Stored Codex Thread dynamic tool catalog is invalid: {}",
+            error.message
+        ))
+    })
+}
+
+fn normalize_catalogs(
+    catalogs: &[ProjectWorkspaceDynamicToolCatalog],
+) -> Result<Vec<ProjectWorkspaceDynamicToolCatalog>, StoreError> {
+    if catalogs.len() > MAX_CATALOGS {
+        return Err(invalid("A Codex Thread has too many dynamic tool catalogs"));
+    }
+    let mut namespaces = BTreeSet::new();
+    let mut normalized = Vec::with_capacity(catalogs.len());
+    for catalog in catalogs {
+        let namespace = catalog.namespace.trim();
+        if namespace.is_empty() || namespace.len() > MAX_CATALOG_NAMESPACE_BYTES {
+            return Err(invalid("Dynamic tool namespace is invalid"));
+        }
+        if !namespaces.insert(namespace.to_owned()) {
+            return Err(invalid(
+                "A Codex Thread cannot bind multiple revisions of one dynamic tool namespace",
+            ));
+        }
+        if !(1..=MAX_SAFE_INTEGER).contains(&catalog.toolset_revision) {
+            return Err(invalid(
+                "Dynamic tool revision must be a positive safe integer",
+            ));
+        }
+        normalized.push(ProjectWorkspaceDynamicToolCatalog {
+            namespace: namespace.to_owned(),
+            toolset_revision: catalog.toolset_revision,
+        });
+    }
+    normalized.sort_by(|left, right| left.namespace.cmp(&right.namespace));
+    Ok(normalized)
+}
+
+fn validate_stored_thread(row: &ThreadRow) -> Result<(), StoreError> {
+    validate_stored_id("thread_id", &row.thread_id)?;
+    if let Some(project_id) = row.project_id.as_deref() {
+        validate_stored_id("project_id", project_id)?;
+    }
+    for (field, value) in [
+        ("forked_from_id", row.forked_from_id.as_deref()),
+        ("parent_thread_id", row.parent_thread_id.as_deref()),
+    ] {
+        if let Some(value) = value {
+            validate_stored_id(field, value)?;
+        }
+    }
+    for (field, value, bound) in [
+        (
+            "thread_name",
+            row.thread_name.as_deref(),
+            MAX_SHORT_TEXT_BYTES,
+        ),
+        (
+            "thread_source",
+            row.thread_source.as_deref(),
+            MAX_SHORT_TEXT_BYTES,
+        ),
+        (
+            "service_name",
+            row.service_name.as_deref(),
+            MAX_SHORT_TEXT_BYTES,
+        ),
+        (
+            "agent_nickname",
+            row.agent_nickname.as_deref(),
+            MAX_SHORT_TEXT_BYTES,
+        ),
+        (
+            "agent_role",
+            row.agent_role.as_deref(),
+            MAX_SHORT_TEXT_BYTES,
+        ),
+        ("cwd", row.cwd.as_deref(), MAX_PATH_BYTES),
+        (
+            "managed_worktree_path",
+            row.managed_worktree_path.as_deref(),
+            MAX_PATH_BYTES,
+        ),
+        (
+            "projectless_output_directory",
+            row.projectless_output_directory.as_deref(),
+            MAX_PATH_BYTES,
+        ),
+        (
+            "projectless_workspace_browser_root",
+            row.projectless_workspace_browser_root.as_deref(),
+            MAX_PATH_BYTES,
+        ),
+    ] {
+        if let Some(value) = value {
+            validate_stored_text(field, value, bound)?;
+        }
+    }
+    validate_stored_text("thread_preview", &row.thread_preview, MAX_PREVIEW_BYTES)?;
+    validate_stored_text("model_provider", &row.model_provider, MAX_SHORT_TEXT_BYTES)?;
+    if row
+        .thread_name
+        .as_deref()
+        .is_some_and(|name| name.encode_utf16().count() > MAX_THREAD_NAME_UTF16)
+    {
+        return Err(corrupt(
+            "Codex Thread thread_name exceeds 2,000 UTF-16 code units",
+        ));
+    }
+    if row.status_active_flags_json.len() > 256 {
+        return Err(corrupt("Codex Thread active flags exceed their Core bound"));
+    }
+    if row.archived != 0 && row.archived != 1 {
+        return Err(corrupt("Codex Thread archive state is invalid"));
+    }
+    if row.has_unread_turn != 0 && row.has_unread_turn != 1 {
+        return Err(corrupt("Codex Thread unread state is invalid"));
+    }
+    if row.archived == 1 && row.has_unread_turn == 1 {
+        return Err(corrupt("An archived Codex Thread is marked unread"));
+    }
+    if row.pinned_order.is_some_and(|order| order < 0) {
+        return Err(corrupt("Codex Thread pinned order is invalid"));
+    }
+    validate_stored_timestamp("created_at", row.created_at)?;
+    validate_stored_timestamp("updated_at", row.updated_at)?;
+    if row.updated_at < row.created_at {
+        return Err(corrupt("Codex Thread update time precedes creation"));
+    }
+    if row.linked_at.trim().is_empty() || row.linked_at.len() > 128 {
+        return Err(corrupt("Codex Thread link time is invalid"));
+    }
+    Ok(())
+}
+
+fn thread_status(row: &ThreadRow) -> Result<ProjectWorkspaceThreadStatus, StoreError> {
+    let status_type = parse_status_type(&row.status_type)?;
+    let active_flags =
+        serde_json::from_str::<Vec<CodexThreadActiveFlag>>(&row.status_active_flags_json)
+            .map_err(|_| corrupt("Codex Thread active flags are invalid"))?;
+    validate_status(ProjectWorkspaceThreadStatus {
+        status_type,
+        active_flags,
+    })
+    .map_err(|error| corrupt(error.message))
+}
+
+fn validate_status(
+    status: ProjectWorkspaceThreadStatus,
+) -> Result<ProjectWorkspaceThreadStatus, StoreError> {
+    if status.active_flags.len() > 2 {
+        return Err(invalid(
+            "Codex Thread active flags exceed their protocol bound",
+        ));
+    }
+    let unique = status.active_flags.iter().copied().collect::<BTreeSet<_>>();
+    if unique.len() != status.active_flags.len() {
+        return Err(invalid("Codex Thread active flags must be unique"));
+    }
+    if status.status_type != CodexThreadStatusType::Active && !status.active_flags.is_empty() {
+        return Err(invalid(
+            "Only an active Codex Thread may carry active status flags",
+        ));
+    }
+    Ok(status)
+}
+
+fn parse_status_type(value: &str) -> Result<CodexThreadStatusType, StoreError> {
+    match value {
+        "notLoaded" => Ok(CodexThreadStatusType::NotLoaded),
+        "idle" => Ok(CodexThreadStatusType::Idle),
+        "systemError" => Ok(CodexThreadStatusType::SystemError),
+        "active" => Ok(CodexThreadStatusType::Active),
+        _ => Err(corrupt("Codex Thread status type is invalid")),
+    }
+}
+
+fn status_type_literal(value: CodexThreadStatusType) -> &'static str {
+    match value {
+        CodexThreadStatusType::NotLoaded => "notLoaded",
+        CodexThreadStatusType::Idle => "idle",
+        CodexThreadStatusType::SystemError => "systemError",
+        CodexThreadStatusType::Active => "active",
+    }
+}
+
+fn parse_permission_mode(value: &str) -> Result<CodexPermissionMode, StoreError> {
+    match value {
+        "auto" => Ok(CodexPermissionMode::Auto),
+        "guardian-approvals" => Ok(CodexPermissionMode::GuardianApprovals),
+        "full-access" => Ok(CodexPermissionMode::FullAccess),
+        "custom" => Ok(CodexPermissionMode::Custom),
+        _ => Err(corrupt("Codex Project permission mode is invalid")),
+    }
+}
+
+fn permission_mode_literal(value: CodexPermissionMode) -> &'static str {
+    match value {
+        CodexPermissionMode::Auto => "auto",
+        CodexPermissionMode::GuardianApprovals => "guardian-approvals",
+        CodexPermissionMode::FullAccess => "full-access",
+        CodexPermissionMode::Custom => "custom",
+    }
+}
+
+fn merge_identity(
+    current: Option<String>,
+    patch: &Option<Option<String>>,
+    field: &str,
+) -> Result<Option<String>, StoreError> {
+    let Some(value) = patch else {
+        return Ok(current);
+    };
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    validate_id(field, value)?;
+    Ok(Some(value.clone()))
+}
+
+fn merge_nullable_text(
+    current: Option<String>,
+    patch: &Option<Option<String>>,
+    field: &str,
+    max_bytes: usize,
+    trim: bool,
+) -> Result<Option<String>, StoreError> {
+    let Some(value) = patch else {
+        return Ok(current);
+    };
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = if trim { value.trim() } else { value.as_str() };
+    if value.is_empty() {
+        return Ok(None);
+    }
+    validate_text(field, value, max_bytes)?;
+    Ok(Some(value.to_owned()))
+}
+
+fn merge_required_text(
+    current: Option<&str>,
+    patch: Option<&str>,
+    field: &str,
+    max_bytes: usize,
+    trim: bool,
+) -> Result<String, StoreError> {
+    let value = patch.or(current).unwrap_or_default();
+    let value = if trim { value.trim() } else { value };
+    validate_text(field, value, max_bytes)?;
+    Ok(value.to_owned())
+}
+
+fn validate_text(field: &str, value: &str, max_bytes: usize) -> Result<(), StoreError> {
+    if value.len() <= max_bytes && !value.contains('\0') {
+        return Ok(());
+    }
+    Err(invalid(format!(
+        "{field} must contain at most {max_bytes} bytes and no NUL"
+    )))
+}
+
+fn validate_linked_at(value: &str) -> Result<String, StoreError> {
+    let value = value.trim();
+    if !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control) {
+        return Ok(value.to_owned());
+    }
+    Err(invalid("linked_at must be a bounded timestamp string"))
+}
+
+fn validate_timestamp(field: &str, value: i64) -> Result<(), StoreError> {
+    if (0..=MAX_SAFE_INTEGER).contains(&value) {
+        return Ok(());
+    }
+    Err(invalid(format!(
+        "{field} must be a non-negative safe integer"
+    )))
+}
+
+fn validate_stored_timestamp(field: &str, value: i64) -> Result<(), StoreError> {
+    validate_timestamp(field, value)
+        .map_err(|_| corrupt(format!("Codex Thread {field} is invalid")))
+}
+
+fn validate_id(field: &str, value: &str) -> Result<(), StoreError> {
+    if !value.is_empty()
+        && value == value.trim()
+        && value.len() <= MAX_ID_BYTES
+        && !value.chars().any(char::is_control)
+    {
+        return Ok(());
+    }
+    Err(invalid(format!(
+        "{field} must be a canonical identity of at most {MAX_ID_BYTES} bytes"
+    )))
+}
+
+fn validate_stored_id(field: &str, value: &str) -> Result<(), StoreError> {
+    validate_id(field, value).map_err(|_| corrupt(format!("Codex Thread {field} is invalid")))
+}
+
+fn validate_stored_text(field: &str, value: &str, max_bytes: usize) -> Result<(), StoreError> {
+    validate_text(field, value, max_bytes)
+        .map_err(|_| corrupt(format!("Codex Thread {field} is invalid")))
+}
+
+fn require_project(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+) -> Result<(), StoreError> {
+    if connection
+        .query_row(
+            "SELECT 1 FROM projects WHERE id = ?1 AND library_id = ?2",
+            params![project_id, library_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some()
+    {
+        return Ok(());
+    }
+    Err(not_found("Project is unavailable in this Library"))
+}
+
+fn assert_project_visible(
+    connection: &Connection,
+    library_id: &str,
+    project_id: Option<&str>,
+) -> Result<(), StoreError> {
+    project_id.map_or(Ok(()), |project_id| {
+        require_project(connection, library_id, project_id)
+    })
+}
+
+fn affected_projects(previous: Option<&str>, next: Option<&str>) -> Vec<String> {
+    [previous, next]
+        .into_iter()
+        .flatten()
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_thread_mutation(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    operation_kind: &'static str,
+    project_ids: Vec<String>,
+    session_ids: Vec<String>,
+    thread_ids: Vec<String>,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let change_project_id = project_ids
+        .first()
+        .cloned()
+        .map_or_else(|| workspace_event_anchor(connection, library_id), Ok)?;
+    finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        WorkspaceMutationEffects {
+            operation_kind,
+            change_project_id,
+            project_ids,
+            session_ids,
+            thread_ids,
+            block_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
+            committed_at: sqlite_now(connection)?,
+        },
+    )
+}
+
+fn unix_time_millis() -> Result<i64, StoreError> {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| internal("System clock precedes the Unix epoch"))?
+        .as_millis();
+    i64::try_from(millis).map_err(|_| internal("System timestamp exceeds SQLite integer range"))
+}
+
+fn invalid(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::InvalidInput, message.into(), false)
+}
+
+fn not_found(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::NotFound, message.into(), false)
+}
+
+fn corrupt(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::StoreCorrupt, message.into(), false)
+}
+
+fn internal(message: impl Into<String>) -> StoreError {
+    StoreError::new(StoreErrorCode::Internal, message.into(), false)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use nodex_core_contracts::workspace::{
+        CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType, ProjectSessionIntent,
+        ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceIntent, ProjectWorkspaceRead,
+        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
+    };
+    use nodex_core_contracts::{
+        AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
+        ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
+    };
+    use tempfile::{TempDir, tempdir};
+
+    use crate::infrastructure::sqlite::with_immediate_transaction;
+    use crate::infrastructure::store::SqliteStoreKernel;
+    use crate::workspace::ProjectWorkspaceModule;
+
+    const NOW: &str = "2026-07-19T06:00:00.000Z";
+
+    fn context() -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project:default".to_owned())),
+            connection_id: "connection:workspace-thread".to_owned(),
+            adapter: AdapterKind::Test,
+        }
+    }
+
+    fn seeded_module() -> (TempDir, SqliteStoreKernel, ProjectWorkspaceModule) {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        fs::create_dir(home.join("assets")).expect("assets root");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) \
+                         VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Workspace identity");
+        let module = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("Workspace module");
+        (directory, kernel, module)
+    }
+
+    fn request(
+        operation_id: &str,
+        intent: ProjectWorkspaceIntent,
+    ) -> ModuleApplyRequest<ProjectWorkspaceIntent> {
+        ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent,
+        }
+    }
+
+    fn read(
+        module: &ProjectWorkspaceModule,
+        read: ProjectWorkspaceRead,
+    ) -> ProjectWorkspaceReadValue {
+        module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read,
+                },
+            )
+            .expect("Workspace read")
+            .value
+    }
+
+    fn create_thread(
+        module: &ProjectWorkspaceModule,
+        operation_id: &str,
+        thread_id: &str,
+        project_id: Option<&str>,
+        parent_thread_id: Option<&str>,
+    ) {
+        module
+            .apply(
+                &context(),
+                request(
+                    operation_id,
+                    ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: thread_id.to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(project_id.map(str::to_owned)),
+                            parent_thread_id: parent_thread_id.map(str::to_owned).map(Some),
+                            thread_name: Some(Some(thread_id.to_owned())),
+                            created_at: Some(100),
+                            updated_at: Some(100),
+                            linked_at: Some(NOW.to_owned()),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect("create Thread");
+    }
+
+    #[test]
+    fn owns_thread_execution_context_and_metadata_lifecycle() {
+        let (_directory, kernel, module) = seeded_module();
+        let upsert = request(
+            "thread-upsert-root",
+            ProjectWorkspaceIntent::UpsertThread {
+                thread_id: "thread-root".to_owned(),
+                patch: Box::new(ProjectWorkspaceThreadPatch {
+                    project_id: Some(Some("project:default".to_owned())),
+                    forked_from_id: Some(Some("thread-origin".to_owned())),
+                    thread_name: Some(Some("  Root Thread  ".to_owned())),
+                    thread_source: Some(Some("appServer".to_owned())),
+                    service_name: Some(Some("codex".to_owned())),
+                    agent_nickname: Some(Some("@Nash".to_owned())),
+                    agent_role: Some(Some("worker".to_owned())),
+                    thread_preview: Some("Persisted execution context".to_owned()),
+                    model_provider: Some("openai".to_owned()),
+                    cwd: Some(Some("/workspace/root".to_owned())),
+                    managed_worktree_path: Some(Some("/workspace/worktree".to_owned())),
+                    status: Some(ProjectWorkspaceThreadStatus {
+                        status_type: CodexThreadStatusType::Active,
+                        active_flags: vec![CodexThreadActiveFlag::WaitingOnApproval],
+                    }),
+                    created_at: Some(100),
+                    updated_at: Some(200),
+                    linked_at: Some(NOW.to_owned()),
+                    ..ProjectWorkspaceThreadPatch::default()
+                }),
+            },
+        );
+        let committed = module
+            .apply(&context(), upsert.clone())
+            .expect("upsert Thread");
+        let replay = module
+            .apply(&context(), upsert)
+            .expect("replay Thread upsert");
+        assert_eq!(
+            replay.committed.event_sequence,
+            committed.committed.event_sequence
+        );
+        assert!(replay.committed.receipt.mutation.duplicate);
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-catalogs-root",
+                    ProjectWorkspaceIntent::ReplaceThreadDynamicToolCatalogs {
+                        thread_id: "thread-root".to_owned(),
+                        catalogs: vec![
+                            ProjectWorkspaceDynamicToolCatalog {
+                                namespace: " zeta ".to_owned(),
+                                toolset_revision: 3,
+                            },
+                            ProjectWorkspaceDynamicToolCatalog {
+                                namespace: "nodex_app".to_owned(),
+                                toolset_revision: 5,
+                            },
+                        ],
+                    },
+                ),
+            )
+            .expect("replace dynamic catalogs");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-permission-root",
+                    ProjectWorkspaceIntent::SetProjectPermissionMode {
+                        project_id: "project:default".to_owned(),
+                        mode: CodexPermissionMode::FullAccess,
+                    },
+                ),
+            )
+            .expect("select permission mode");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-pin-root",
+                    ProjectWorkspaceIntent::SetThreadPinned {
+                        thread_id: "thread-root".to_owned(),
+                        pinned: true,
+                    },
+                ),
+            )
+            .expect("pin Thread");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-unread-root",
+                    ProjectWorkspaceIntent::SetThreadUnread {
+                        thread_id: "thread-root".to_owned(),
+                        unread: true,
+                    },
+                ),
+            )
+            .expect("mark Thread unread");
+
+        let ProjectWorkspaceReadValue::ExecutionContext {
+            context: execution_context,
+        } = read(
+            &module,
+            ProjectWorkspaceRead::ExecutionContext {
+                thread_id: "thread-root".to_owned(),
+            },
+        )
+        else {
+            panic!("execution context");
+        };
+        assert_eq!(
+            execution_context.permission_mode,
+            Some(CodexPermissionMode::FullAccess)
+        );
+        assert_eq!(
+            execution_context
+                .project
+                .as_ref()
+                .map(|project| project.id.as_str()),
+            Some("project:default")
+        );
+        assert_eq!(
+            execution_context.thread.thread_name.as_deref(),
+            Some("Root Thread")
+        );
+        assert_eq!(execution_context.thread.pinned_order, Some(0));
+        assert!(execution_context.thread.has_unread_turn);
+        assert_eq!(
+            execution_context
+                .thread
+                .dynamic_tool_catalogs
+                .iter()
+                .map(|catalog| catalog.namespace.as_str())
+                .collect::<Vec<_>>(),
+            vec!["nodex_app", "zeta"]
+        );
+
+        let duplicate_catalog = module
+            .apply(
+                &context(),
+                request(
+                    "thread-catalogs-invalid",
+                    ProjectWorkspaceIntent::ReplaceThreadDynamicToolCatalogs {
+                        thread_id: "thread-root".to_owned(),
+                        catalogs: vec![
+                            ProjectWorkspaceDynamicToolCatalog {
+                                namespace: "nodex_app".to_owned(),
+                                toolset_revision: 5,
+                            },
+                            ProjectWorkspaceDynamicToolCatalog {
+                                namespace: " nodex_app ".to_owned(),
+                                toolset_revision: 6,
+                            },
+                        ],
+                    },
+                ),
+            )
+            .expect_err("duplicate dynamic namespace must fail");
+        assert_eq!(duplicate_catalog.code, CoreErrorCode::InvalidInput);
+
+        let session_id = kernel
+            .writer()
+            .call(|connection| {
+                Ok(connection.query_row(
+                    "SELECT id FROM project_sessions WHERE project_id = 'project:default' LIMIT 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?)
+            })
+            .expect("default Session identity");
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-link-root",
+                    ProjectWorkspaceIntent::MutateSession {
+                        session_id,
+                        intent: ProjectSessionIntent::LinkThread {
+                            thread_id: "thread-root".to_owned(),
+                            expected_project_id: Some("project:default".to_owned()),
+                        },
+                    },
+                ),
+            )
+            .expect("link Thread to Session");
+        let mismatched_move = module
+            .apply(
+                &context(),
+                request(
+                    "thread-invalid-project-clear",
+                    ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread-root".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(None),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect_err("linked Thread cannot leave its Session Project");
+        assert_eq!(mismatched_move.code, CoreErrorCode::InvalidInput);
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-archive-root",
+                    ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: "thread-root".to_owned(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            status: Some(ProjectWorkspaceThreadStatus {
+                                status_type: CodexThreadStatusType::Idle,
+                                active_flags: Vec::new(),
+                            }),
+                            archived: Some(true),
+                            managed_worktree_path: Some(None),
+                            updated_at: Some(300),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                ),
+            )
+            .expect("archive Thread");
+        let ProjectWorkspaceReadValue::Thread { thread } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread-root".to_owned(),
+            },
+        ) else {
+            panic!("Thread read");
+        };
+        assert!(thread.archived);
+        assert!(!thread.has_unread_turn);
+        assert_eq!(thread.managed_worktree_path, None);
+
+        let visible = read(
+            &module,
+            ProjectWorkspaceRead::Threads {
+                project_id: Some("project:default".to_owned()),
+                include_archived: None,
+            },
+        );
+        let ProjectWorkspaceReadValue::Threads { threads } = visible else {
+            panic!("Thread collection");
+        };
+        assert!(threads.is_empty());
+
+        let stored = kernel
+            .writer()
+            .call(|connection| {
+                Ok(connection.query_row(
+                    "SELECT \
+                       (SELECT count(*) FROM codex_thread_dynamic_tool_catalogs \
+                        WHERE thread_id = 'thread-root'), \
+                       (SELECT count(*) FROM core_module_receipts \
+                        WHERE operation_id IN (\
+                          'thread-catalogs-invalid', 'thread-invalid-project-clear'\
+                        ))",
+                    [],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?)
+            })
+            .expect("Thread rollback evidence");
+        assert_eq!(stored, (2, 0));
+    }
+
+    #[test]
+    fn owns_root_child_projectless_pinned_order_and_delete_collections() {
+        let (_directory, _kernel, module) = seeded_module();
+        create_thread(
+            &module,
+            "thread-create-a",
+            "thread-a",
+            Some("project:default"),
+            None,
+        );
+        create_thread(
+            &module,
+            "thread-create-b",
+            "thread-b",
+            Some("project:default"),
+            None,
+        );
+        create_thread(
+            &module,
+            "thread-create-c",
+            "thread-c",
+            Some("project:default"),
+            None,
+        );
+        create_thread(
+            &module,
+            "thread-create-child",
+            "thread-child",
+            Some("project:default"),
+            Some("thread-a"),
+        );
+        create_thread(
+            &module,
+            "thread-create-projectless",
+            "thread-projectless",
+            None,
+            None,
+        );
+
+        for thread_id in ["thread-a", "thread-b", "thread-c"] {
+            module
+                .apply(
+                    &context(),
+                    request(
+                        &format!("thread-pin-{thread_id}"),
+                        ProjectWorkspaceIntent::SetThreadPinned {
+                            thread_id: thread_id.to_owned(),
+                            pinned: true,
+                        },
+                    ),
+                )
+                .expect("pin root Thread");
+        }
+        module
+            .apply(
+                &context(),
+                request(
+                    "thread-reorder-pinned",
+                    ProjectWorkspaceIntent::ReorderPinnedThreads {
+                        thread_ids: vec![
+                            "thread-c".to_owned(),
+                            "unknown-thread".to_owned(),
+                            "thread-a".to_owned(),
+                            "thread-c".to_owned(),
+                        ],
+                    },
+                ),
+            )
+            .expect("partial pinned order");
+        let pinned_orders = ["thread-c", "thread-a", "thread-b"]
+            .into_iter()
+            .map(|thread_id| {
+                let ProjectWorkspaceReadValue::Thread { thread } = read(
+                    &module,
+                    ProjectWorkspaceRead::Thread {
+                        thread_id: thread_id.to_owned(),
+                    },
+                ) else {
+                    panic!("Thread read");
+                };
+                thread.pinned_order
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(pinned_orders, vec![Some(0), Some(1), Some(2)]);
+
+        let ProjectWorkspaceReadValue::ChildThreads { threads } = read(
+            &module,
+            ProjectWorkspaceRead::ChildThreads {
+                parent_thread_id: "thread-a".to_owned(),
+                include_archived: None,
+            },
+        ) else {
+            panic!("child Thread collection");
+        };
+        assert_eq!(
+            threads
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["thread-child"]
+        );
+        let child_pin = module
+            .apply(
+                &context(),
+                request(
+                    "thread-pin-child",
+                    ProjectWorkspaceIntent::SetThreadPinned {
+                        thread_id: "thread-child".to_owned(),
+                        pinned: true,
+                    },
+                ),
+            )
+            .expect_err("child Thread cannot be pinned");
+        assert_eq!(child_pin.code, CoreErrorCode::InvalidInput);
+
+        let ProjectWorkspaceReadValue::Threads { threads: all_roots } = read(
+            &module,
+            ProjectWorkspaceRead::Threads {
+                project_id: None,
+                include_archived: None,
+            },
+        ) else {
+            panic!("all root Threads");
+        };
+        assert!(
+            all_roots
+                .iter()
+                .any(|thread| thread.thread_id == "thread-projectless")
+        );
+        assert!(
+            all_roots
+                .iter()
+                .all(|thread| thread.thread_id != "thread-child")
+        );
+        let ProjectWorkspaceReadValue::Threads {
+            threads: project_roots,
+        } = read(
+            &module,
+            ProjectWorkspaceRead::Threads {
+                project_id: Some("project:default".to_owned()),
+                include_archived: None,
+            },
+        )
+        else {
+            panic!("Project root Threads");
+        };
+        assert_eq!(project_roots.len(), 3);
+
+        let delete = request(
+            "thread-delete-b",
+            ProjectWorkspaceIntent::DeleteThread {
+                thread_id: "thread-b".to_owned(),
+            },
+        );
+        let committed = module
+            .apply(&context(), delete.clone())
+            .expect("delete Thread");
+        let replay = module
+            .apply(&context(), delete)
+            .expect("replay Thread delete");
+        assert_eq!(
+            replay.committed.event_sequence,
+            committed.committed.event_sequence
+        );
+        assert!(replay.committed.receipt.mutation.duplicate);
+        let missing = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Thread {
+                        thread_id: "thread-b".to_owned(),
+                    },
+                },
+            )
+            .expect_err("deleted Thread must be unavailable");
+        assert_eq!(missing.code, CoreErrorCode::NotFound);
+    }
+}

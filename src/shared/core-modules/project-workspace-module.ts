@@ -1,4 +1,7 @@
 import type {
+  CodexPermissionMode,
+  CodexThreadActiveFlag,
+  CodexThreadStatusType,
   PanelId,
   ProjectSessionPanelLayout,
   ProjectSessionPanelState,
@@ -14,6 +17,71 @@ import type {
   ModuleReadRequest,
   ModuleReadSnapshot,
 } from "./common";
+
+export interface ProjectWorkspaceDynamicToolCatalog {
+  readonly namespace: string;
+  readonly toolsetRevision: number;
+}
+
+export interface ProjectWorkspaceThreadStatus {
+  readonly statusType: CodexThreadStatusType;
+  readonly activeFlags: readonly CodexThreadActiveFlag[];
+}
+
+export interface ProjectWorkspaceThread {
+  readonly threadId: string;
+  readonly projectId: string | null;
+  readonly sessionId: string | null;
+  readonly forkedFromId: string | null;
+  readonly parentThreadId: string | null;
+  readonly threadName: string | null;
+  readonly threadSource: string | null;
+  readonly serviceName: string | null;
+  readonly agentNickname: string | null;
+  readonly agentRole: string | null;
+  readonly threadPreview: string;
+  readonly modelProvider: string;
+  readonly cwd: string | null;
+  readonly managedWorktreePath: string | null;
+  readonly projectlessOutputDirectory: string | null;
+  readonly projectlessWorkspaceBrowserRoot: string | null;
+  readonly status: ProjectWorkspaceThreadStatus;
+  readonly archived: boolean;
+  readonly pinnedOrder: number | null;
+  readonly hasUnreadTurn: boolean;
+  readonly dynamicToolCatalogs: readonly ProjectWorkspaceDynamicToolCatalog[];
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly linkedAt: string;
+}
+
+export interface ProjectWorkspaceExecutionContext {
+  readonly thread: ProjectWorkspaceThread;
+  readonly project: ProjectWorkspaceProject | null;
+  readonly permissionMode: CodexPermissionMode | null;
+}
+
+export interface ProjectWorkspaceThreadPatch {
+  readonly projectId?: string | null;
+  readonly forkedFromId?: string | null;
+  readonly parentThreadId?: string | null;
+  readonly threadName?: string | null;
+  readonly threadSource?: string | null;
+  readonly serviceName?: string | null;
+  readonly agentNickname?: string | null;
+  readonly agentRole?: string | null;
+  readonly threadPreview?: string;
+  readonly modelProvider?: string;
+  readonly cwd?: string | null;
+  readonly managedWorktreePath?: string | null;
+  readonly projectlessOutputDirectory?: string | null;
+  readonly projectlessWorkspaceBrowserRoot?: string | null;
+  readonly status?: ProjectWorkspaceThreadStatus;
+  readonly archived?: boolean;
+  readonly createdAt?: number;
+  readonly updatedAt?: number;
+  readonly linkedAt?: string;
+}
 
 export interface ProjectWorkspaceProject {
   readonly id: string;
@@ -86,6 +154,17 @@ export type ProjectWorkspaceRead =
     }
   | { readonly kind: "session"; readonly sessionId: string }
   | { readonly kind: "thread"; readonly threadId: string }
+  | {
+      readonly kind: "threads";
+      readonly projectId?: string;
+      readonly includeArchived?: boolean;
+    }
+  | {
+      readonly kind: "child_threads";
+      readonly parentThreadId: string;
+      readonly includeArchived?: boolean;
+    }
+  | { readonly kind: "execution_context"; readonly threadId: string }
   | { readonly kind: "managed_worktrees"; readonly projectId: string };
 
 export type ProjectWorkspaceReadValue =
@@ -107,9 +186,19 @@ export type ProjectWorkspaceReadValue =
     }
   | {
       readonly kind: "thread";
-      readonly threadId: string;
-      readonly sessionId: string | null;
-      readonly projectId: string | null;
+      readonly thread: ProjectWorkspaceThread;
+    }
+  | {
+      readonly kind: "threads";
+      readonly threads: readonly ProjectWorkspaceThread[];
+    }
+  | {
+      readonly kind: "child_threads";
+      readonly threads: readonly ProjectWorkspaceThread[];
+    }
+  | {
+      readonly kind: "execution_context";
+      readonly context: ProjectWorkspaceExecutionContext;
     }
   | {
       readonly kind: "managed_worktrees";
@@ -219,6 +308,36 @@ export type ProjectWorkspaceIntent =
       readonly kind: "reorder_pinned_sessions";
       readonly projectId: string | null;
       readonly sessionIds: readonly string[];
+    }
+  | {
+      readonly kind: "upsert_thread";
+      readonly threadId: string;
+      readonly patch: ProjectWorkspaceThreadPatch;
+    }
+  | { readonly kind: "delete_thread"; readonly threadId: string }
+  | {
+      readonly kind: "set_thread_pinned";
+      readonly threadId: string;
+      readonly pinned: boolean;
+    }
+  | {
+      readonly kind: "reorder_pinned_threads";
+      readonly threadIds: readonly string[];
+    }
+  | {
+      readonly kind: "set_thread_unread";
+      readonly threadId: string;
+      readonly unread: boolean;
+    }
+  | {
+      readonly kind: "replace_thread_dynamic_tool_catalogs";
+      readonly threadId: string;
+      readonly catalogs: readonly ProjectWorkspaceDynamicToolCatalog[];
+    }
+  | {
+      readonly kind: "set_project_permission_mode";
+      readonly projectId: string;
+      readonly mode: CodexPermissionMode;
     }
   | {
       readonly kind: "mutate_session";

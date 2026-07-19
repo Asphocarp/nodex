@@ -85,12 +85,14 @@ Library receipt and event represent the operation.
 
 The Project Workspace read boundary returns active Project execution contexts
 and non-archived startup Sessions, or resolves an exact Project, normalized
-Session panel/tab aggregate, thread owner, or managed-worktree set.
+Session panel/tab aggregate, complete Codex Thread descriptor, persisted Thread
+execution context, root/child Thread collection, or managed-worktree set.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Complete Codex launch metadata,
-Automation, and Store Administration remain migration work, so their unavailable
-operations do not fall back to direct native SQL.
+bindings and cross-Library rows fail closed. Durable Turn authority, background
+process and writable-root state, Automation, and Store Administration remain
+migration work, so their unavailable operations do not fall back to direct
+native SQL.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and
@@ -121,6 +123,19 @@ guard. These mutations share the Workspace transaction/receipt/event boundary.
 Electron remains responsible for starting Codex and coordinating an external
 app-server rename; native Core persists the accepted local metadata and never
 starts execution as part of a Session mutation.
+
+Workspace also owns the durable Codex Thread launch descriptor independently of
+its optional Session link. Presence-sensitive upsert patches cover Project,
+lineage, display/service/agent identity, working-directory/worktree and
+projectless coordinates, protocol-derived status, archive state, and immutable
+creation/link timestamps. Separate semantic intents own root-only global pin
+order, unread state, dynamic-tool catalog selection, Project permission-mode
+selection, and Thread deletion. An execution-context read combines the exact
+Thread, its Project binding, current permission mode, and sorted tool catalogs
+from one snapshot. Invalid protocol status, oversized metadata, cross-Library
+Projects, duplicate Session ownership, and a Thread/Session Project mismatch
+fail closed. Electron still hosts codex-app-server and supplies accepted runtime
+observations; reading or persisting this context never starts a process.
 
 Workspace owns the durable Session panel/tab aggregate as well. The versioned
 contract names the target panel, tab kind, optional browser identity, and target

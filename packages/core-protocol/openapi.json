@@ -600,6 +600,31 @@
           "test"
         ]
       },
+      "CodexPermissionMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "guardian-approvals",
+          "full-access",
+          "custom"
+        ]
+      },
+      "CodexThreadActiveFlag": {
+        "type": "string",
+        "enum": [
+          "waitingOnApproval",
+          "waitingOnUserInput"
+        ]
+      },
+      "CodexThreadStatusType": {
+        "type": "string",
+        "enum": [
+          "notLoaded",
+          "idle",
+          "systemError",
+          "active"
+        ]
+      },
       "CommittedCoreModuleEvent": {
         "type": "object",
         "required": [
@@ -4499,6 +4524,158 @@
               {
                 "type": "object",
                 "required": [
+                  "thread_id",
+                  "patch",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "upsert_thread"
+                    ]
+                  },
+                  "patch": {
+                    "$ref": "#/components/schemas/ProjectWorkspaceThreadPatch"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "delete_thread"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "pinned",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_thread_pinned"
+                    ]
+                  },
+                  "pinned": {
+                    "type": "boolean"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reorder_pinned_threads"
+                    ]
+                  },
+                  "thread_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "unread",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_thread_unread"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  },
+                  "unread": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "catalogs",
+                  "kind"
+                ],
+                "properties": {
+                  "catalogs": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/ProjectWorkspaceDynamicToolCatalog"
+                    }
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "replace_thread_dynamic_tool_catalogs"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_id",
+                  "mode",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_project_permission_mode"
+                    ]
+                  },
+                  "mode": {
+                    "$ref": "#/components/schemas/CodexPermissionMode"
+                  },
+                  "project_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "session_id",
                   "intent",
                   "kind"
@@ -5791,6 +5968,74 @@
               {
                 "type": "object",
                 "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "include_archived": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "threads"
+                    ]
+                  },
+                  "project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "parent_thread_id",
+                  "kind"
+                ],
+                "properties": {
+                  "include_archived": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "child_threads"
+                    ]
+                  },
+                  "parent_thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "execution_context"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "kind"
                 ],
@@ -6402,6 +6647,22 @@
       "ProjectWorkspaceApplyResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"
       },
+      "ProjectWorkspaceDynamicToolCatalog": {
+        "type": "object",
+        "required": [
+          "namespace",
+          "toolset_revision"
+        ],
+        "properties": {
+          "namespace": {
+            "type": "string"
+          },
+          "toolset_revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "ProjectWorkspaceEvent": {
         "type": "object",
         "required": [
@@ -6439,6 +6700,37 @@
         "enum": [
           "workspace_changed"
         ]
+      },
+      "ProjectWorkspaceExecutionContext": {
+        "type": "object",
+        "required": [
+          "thread"
+        ],
+        "properties": {
+          "permission_mode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CodexPermissionMode"
+              }
+            ]
+          },
+          "project": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectWorkspaceProject"
+              }
+            ]
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ProjectWorkspaceThread"
+          }
+        }
       },
       "ProjectWorkspaceProject": {
         "type": "object",
@@ -6651,6 +6943,286 @@
           },
           "updated_at": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceThread": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "thread_preview",
+          "model_provider",
+          "status",
+          "archived",
+          "has_unread_turn",
+          "dynamic_tool_catalogs",
+          "created_at",
+          "updated_at",
+          "linked_at"
+        ],
+        "properties": {
+          "agent_nickname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dynamic_tool_catalogs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectWorkspaceDynamicToolCatalog"
+            }
+          },
+          "forked_from_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_unread_turn": {
+            "type": "boolean"
+          },
+          "linked_at": {
+            "type": "string"
+          },
+          "managed_worktree_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_provider": {
+            "type": "string"
+          },
+          "parent_thread_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pinned_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectless_output_directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectless_workspace_browser_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "service_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectWorkspaceThreadStatus"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "thread_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thread_preview": {
+            "type": "string"
+          },
+          "thread_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ProjectWorkspaceThreadPatch": {
+        "type": "object",
+        "properties": {
+          "agent_nickname": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_role": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "forked_from_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "linked_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "managed_worktree_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_thread_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectless_output_directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projectless_workspace_browser_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "service_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectWorkspaceThreadStatus"
+              }
+            ]
+          },
+          "thread_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thread_preview": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thread_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ProjectWorkspaceThreadStatus": {
+        "type": "object",
+        "required": [
+          "status_type",
+          "active_flags"
+        ],
+        "properties": {
+          "active_flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CodexThreadActiveFlag"
+            }
+          },
+          "status_type": {
+            "$ref": "#/components/schemas/CodexThreadStatusType"
           }
         }
       },
@@ -8251,7 +8823,7 @@
                       {
                         "type": "object",
                         "required": [
-                          "thread_id",
+                          "thread",
                           "kind"
                         ],
                         "properties": {
@@ -8261,20 +8833,68 @@
                               "thread"
                             ]
                           },
-                          "project_id": {
-                            "type": [
-                              "string",
-                              "null"
+                          "thread": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceThread"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "threads",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "threads"
                             ]
                           },
-                          "session_id": {
-                            "type": [
-                              "string",
-                              "null"
+                          "threads": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceThread"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "threads",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "child_threads"
                             ]
                           },
-                          "thread_id": {
-                            "type": "string"
+                          "threads": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceThread"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "context",
+                          "kind"
+                        ],
+                        "properties": {
+                          "context": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceExecutionContext"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "execution_context"
+                            ]
                           }
                         }
                       },

@@ -3,6 +3,7 @@ mod panel_layout;
 mod read;
 mod session_lifecycle;
 mod session_mutation;
+mod thread;
 
 use std::path::PathBuf;
 

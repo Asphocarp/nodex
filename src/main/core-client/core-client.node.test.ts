@@ -152,6 +152,69 @@ describe("CoreClient over a Unix socket", () => {
         projects: [{ id: "project:default", database_id: expect.any(String) }],
         sessions: [{ project_id: "project:default" }],
       });
+      const threadInput = {
+        operationId: "node-workspace-thread-1",
+        intent: {
+          kind: "upsert_thread" as const,
+          thread_id: "thread:node-integration",
+          patch: {
+            project_id: "project:default",
+            thread_name: "Node integration thread",
+            thread_source: "appServer",
+            thread_preview: "Persisted by native Workspace",
+            model_provider: "openai",
+            cwd: path.join(nodexHome, "workspace"),
+            status: {
+              status_type: "active" as const,
+              active_flags: ["waitingOnApproval" as const],
+            },
+            created_at: 100,
+            updated_at: 200,
+            linked_at: "2026-07-19T06:00:00.000Z",
+          },
+        },
+      };
+      const threadCommitted = await client.workspaceApply(threadInput);
+      const threadReplay = await client.workspaceApply(threadInput);
+      expect(threadReplay.event_sequence).toBe(threadCommitted.event_sequence);
+      expect(threadReplay.receipt.duplicate).toBe(true);
+      await client.workspaceApply({
+        operationId: "node-workspace-thread-catalogs-1",
+        intent: {
+          kind: "replace_thread_dynamic_tool_catalogs",
+          thread_id: "thread:node-integration",
+          catalogs: [{ namespace: "nodex_app", toolset_revision: 5 }],
+        },
+      });
+      await client.workspaceApply({
+        operationId: "node-workspace-thread-permission-1",
+        intent: {
+          kind: "set_project_permission_mode",
+          project_id: "project:default",
+          mode: "guardian-approvals",
+        },
+      });
+      const executionContext = await client.workspaceRead({
+        kind: "execution_context",
+        thread_id: "thread:node-integration",
+      });
+      expect(executionContext.value).toMatchObject({
+        kind: "execution_context",
+        context: {
+          permission_mode: "guardian-approvals",
+          project: { id: "project:default" },
+          thread: {
+            thread_id: "thread:node-integration",
+            project_id: "project:default",
+            thread_name: "Node integration thread",
+            status: {
+              status_type: "active",
+              active_flags: ["waitingOnApproval"],
+            },
+            dynamic_tool_catalogs: [{ namespace: "nodex_app", toolset_revision: 5 }],
+          },
+        },
+      });
       const workspaceInput = {
         operationId: "node-workspace-create-1",
         intent: {

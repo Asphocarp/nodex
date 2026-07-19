@@ -65,6 +65,20 @@ import { readLibraryPageDetailInDatabase } from "./local-store/page-detail";
 import { listPageHistory } from "./local-store/page-history";
 import { createDocumentVersionCheckpoint } from "./local-store/document-versions";
 import { getOwnedDocumentDescriptor } from "./local-store/block-document-cutover";
+import {
+  getCodexThread,
+  setCodexThreadHasUnreadTurn,
+  setCodexThreadPinned,
+  upsertCodexThread,
+} from "./codex/codex-link-repository";
+import {
+  getCodexThreadDynamicToolCatalogs,
+  replaceCodexThreadDynamicToolCatalogs,
+} from "./codex/codex-dynamic-tool-catalog-repository";
+import {
+  getCodexProjectPermissionModeSelection,
+  putCodexProjectPermissionModeSelection,
+} from "./local-store/codex-project-permission-modes";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 import { DuplicatePageV3InputSchema } from "../shared/nodex-agent-tools";
 import {
@@ -2589,6 +2603,209 @@ describe("TypeScript/Rust content Module differential", () => {
         pinned_order: oracleCreatedProject.pinnedOrder,
       }),
     );
+
+    const threadId = "gate-c-thread-execution-context";
+    const threadLinkedAt = "2026-07-19T06:00:00.000Z";
+    upsertCodexThread({
+      projectId: oracleCreatedProject.id,
+      threadId,
+      forkedFromId: "gate-c-thread-origin",
+      threadSource: "appServer",
+      serviceName: "codex",
+      agentNickname: "@Nash",
+      agentRole: "worker",
+      threadName: "Gate C execution context",
+      threadPreview: "Persisted Thread launch metadata",
+      modelProvider: "openai",
+      cwd: workspaceRoot,
+      managedWorktreePath: path.join(workspaceRoot, ".worktrees", threadId),
+      statusType: "active",
+      statusActiveFlags: ["waitingOnApproval"],
+      createdAt: 100,
+      updatedAt: 200,
+      linkedAt: threadLinkedAt,
+    });
+    replaceCodexThreadDynamicToolCatalogs(threadId, [
+      { namespace: "zeta", toolsetRevision: 3 },
+      { namespace: "nodex_app", toolsetRevision: 5 },
+    ]);
+    putCodexProjectPermissionModeSelection(
+      oracleCreatedProject.id,
+      "guardian-approvals",
+      threadLinkedAt,
+    );
+    setCodexThreadPinned(threadId, true);
+    setCodexThreadHasUnreadTurn(threadId, true);
+
+    const candidateThreadInput = {
+      operationId: "gate-c-workspace-upsert-thread",
+      intent: {
+        kind: "upsert_thread" as const,
+        thread_id: threadId,
+        patch: {
+          project_id: candidateProjectId,
+          forked_from_id: "gate-c-thread-origin",
+          thread_source: "appServer",
+          service_name: "codex",
+          agent_nickname: "@Nash",
+          agent_role: "worker",
+          thread_name: "Gate C execution context",
+          thread_preview: "Persisted Thread launch metadata",
+          model_provider: "openai",
+          cwd: workspaceRoot,
+          managed_worktree_path: path.join(workspaceRoot, ".worktrees", threadId),
+          status: {
+            status_type: "active" as const,
+            active_flags: ["waitingOnApproval" as const],
+          },
+          created_at: 100,
+          updated_at: 200,
+          linked_at: threadLinkedAt,
+        },
+      },
+    };
+    const candidateThreadCommit = await stage(
+      "Project Workspace upsert Thread execution context",
+      candidate.workspaceApply(candidateThreadInput),
+    );
+    const candidateThreadReplay = await stage(
+      "Project Workspace replay Thread execution context",
+      candidate.workspaceApply(candidateThreadInput),
+    );
+    expect(candidateThreadReplay.event_sequence).toBe(
+      candidateThreadCommit.event_sequence,
+    );
+    expect(candidateThreadReplay.receipt.duplicate).toBe(true);
+    await stage(
+      "Project Workspace bind Thread dynamic tool catalogs",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-thread-catalogs",
+        intent: {
+          kind: "replace_thread_dynamic_tool_catalogs",
+          thread_id: threadId,
+          catalogs: [
+            { namespace: "zeta", toolset_revision: 3 },
+            { namespace: "nodex_app", toolset_revision: 5 },
+          ],
+        },
+      }),
+    );
+    await stage(
+      "Project Workspace select Codex permission mode",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-thread-permission",
+        intent: {
+          kind: "set_project_permission_mode",
+          project_id: candidateProjectId,
+          mode: "guardian-approvals",
+        },
+      }),
+    );
+    await stage(
+      "Project Workspace pin Codex Thread",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-thread-pin",
+        intent: {
+          kind: "set_thread_pinned",
+          thread_id: threadId,
+          pinned: true,
+        },
+      }),
+    );
+    await stage(
+      "Project Workspace mark Codex Thread unread",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-thread-unread",
+        intent: {
+          kind: "set_thread_unread",
+          thread_id: threadId,
+          unread: true,
+        },
+      }),
+    );
+
+    upsertCodexThread({
+      threadId,
+      serviceName: null,
+      managedWorktreePath: null,
+      threadPreview: "Persisted Thread launch metadata",
+      modelProvider: "openai",
+      statusType: "active",
+      statusActiveFlags: ["waitingOnApproval"],
+      updatedAt: 300,
+    });
+    await stage(
+      "Project Workspace clear nullable Thread launch metadata",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-thread-clear-launch-metadata",
+        intent: {
+          kind: "upsert_thread",
+          thread_id: threadId,
+          patch: {
+            service_name: null,
+            managed_worktree_path: null,
+            thread_preview: "Persisted Thread launch metadata",
+            model_provider: "openai",
+            status: {
+              status_type: "active",
+              active_flags: ["waitingOnApproval"],
+            },
+            updated_at: 300,
+          },
+        },
+      }),
+    );
+
+    const oracleThreadContext = getCodexThread(threadId);
+    const candidateThreadContext = await stage(
+      "Project Workspace read Thread execution context",
+      candidate.workspaceRead({ kind: "execution_context", thread_id: threadId }),
+    );
+    if (!oracleThreadContext || candidateThreadContext.value.kind !== "execution_context") {
+      throw new Error("Expected Thread execution contexts from both authorities");
+    }
+    const candidateContext = candidateThreadContext.value.context;
+    expect(candidateContext.permission_mode).toBe(
+      getCodexProjectPermissionModeSelection(oracleCreatedProject.id),
+    );
+    expect(candidateContext.project).toMatchObject({
+      id: candidateProjectId,
+      name: oracleCreatedProject.name,
+      database_id: expect.any(String),
+    });
+    expect(candidateContext.thread).toEqual({
+      thread_id: oracleThreadContext.threadId,
+      project_id: candidateProjectId,
+      session_id: null,
+      forked_from_id: oracleThreadContext.forkedFromId ?? null,
+      parent_thread_id: oracleThreadContext.source?.parentThreadId ?? null,
+      thread_name: oracleThreadContext.threadName ?? null,
+      thread_source: oracleThreadContext.threadSource ?? null,
+      service_name: oracleThreadContext.serviceName ?? null,
+      agent_nickname: oracleThreadContext.agentNickname ?? null,
+      agent_role: oracleThreadContext.agentRole ?? null,
+      thread_preview: oracleThreadContext.threadPreview,
+      model_provider: oracleThreadContext.modelProvider,
+      cwd: oracleThreadContext.cwd ?? null,
+      managed_worktree_path: oracleThreadContext.managedWorktreePath ?? null,
+      projectless_output_directory:
+        oracleThreadContext.projectlessOutputDirectory ?? null,
+      projectless_workspace_browser_root:
+        oracleThreadContext.projectlessWorkspaceBrowserRoot ?? null,
+      status: {
+        status_type: oracleThreadContext.statusType,
+        active_flags: oracleThreadContext.statusActiveFlags,
+      },
+      archived: oracleThreadContext.archived,
+      pinned_order: expect.any(Number),
+      has_unread_turn: oracleThreadContext.hasUnreadTurn,
+      dynamic_tool_catalogs: withSnakeCaseKeys(
+        getCodexThreadDynamicToolCatalogs(threadId),
+      ),
+      created_at: oracleThreadContext.createdAt,
+      updated_at: oracleThreadContext.updatedAt,
+      linked_at: oracleThreadContext.linkedAt,
+    });
 
     const oracleCreatedSessions = listProjectSessionSummaries(
       oracleCreatedProject.id,

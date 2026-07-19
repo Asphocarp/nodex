@@ -1,7 +1,7 @@
 use nodex_core_contracts::workspace::{
     ProjectLifecycle, ProjectSessionPanelId, ProjectSessionTabKind, ProjectSource,
-    ProjectWorkspaceProject, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
-    ProjectWorkspaceSessionSummary, ProjectWorkspaceSessionTab,
+    ProjectWorkspaceExecutionContext, ProjectWorkspaceProject, ProjectWorkspaceRead,
+    ProjectWorkspaceReadValue, ProjectWorkspaceSessionSummary, ProjectWorkspaceSessionTab,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -9,6 +9,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::panel_layout::{parse_panel_id, parse_panels};
 use super::session_mutation::parse_tab_kind;
+use super::thread::{read_permission_mode, read_thread, read_threads};
 
 const MAX_ID_LENGTH: usize = 512;
 const MAX_TAB_JSON_BYTES: usize = 2 * 1024 * 1024;
@@ -106,26 +107,62 @@ pub(super) fn read(
         }
         ProjectWorkspaceRead::Thread { thread_id } => {
             validate_id("thread_id", &thread_id)?;
-            let owner = connection
-                .query_row(
-                    "SELECT link.session_id, session.project_id \
-                     FROM project_session_threads link \
-                     JOIN project_sessions session ON session.id = link.session_id \
-                     JOIN codex_threads thread ON thread.thread_id = link.thread_id \
-                     WHERE link.thread_id = ?1 \
-                       AND (session.project_id IS NULL OR EXISTS (\
-                         SELECT 1 FROM projects owner \
-                         WHERE owner.id = session.project_id AND owner.library_id = ?2\
-                       )) \
-                     ORDER BY link.linked_at, link.session_id LIMIT 1",
-                    params![thread_id, library_id],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-                )
-                .optional()?;
             Ok(ProjectWorkspaceReadValue::Thread {
-                thread_id,
-                session_id: owner.as_ref().map(|owner| owner.0.clone()),
-                project_id: owner.and_then(|owner| owner.1),
+                thread: Box::new(
+                    read_thread(connection, library_id, &thread_id)?
+                        .ok_or_else(|| not_found("Codex Thread is unavailable in this Library"))?,
+                ),
+            })
+        }
+        ProjectWorkspaceRead::Threads {
+            project_id,
+            include_archived,
+        } => Ok(ProjectWorkspaceReadValue::Threads {
+            threads: read_threads(
+                connection,
+                library_id,
+                project_id.as_deref(),
+                None,
+                include_archived.unwrap_or(false),
+            )?,
+        }),
+        ProjectWorkspaceRead::ChildThreads {
+            parent_thread_id,
+            include_archived,
+        } => Ok(ProjectWorkspaceReadValue::ChildThreads {
+            threads: read_threads(
+                connection,
+                library_id,
+                None,
+                Some(&parent_thread_id),
+                include_archived.unwrap_or(false),
+            )?,
+        }),
+        ProjectWorkspaceRead::ExecutionContext { thread_id } => {
+            validate_id("thread_id", &thread_id)?;
+            let thread = read_thread(connection, library_id, &thread_id)?
+                .ok_or_else(|| not_found("Codex Thread is unavailable in this Library"))?;
+            let project = thread
+                .project_id
+                .as_deref()
+                .map(|project_id| {
+                    read_project(connection, library_id, project_id)?.ok_or_else(|| {
+                        corrupt("Codex Thread Project is unavailable in its Library")
+                    })
+                })
+                .transpose()?;
+            let permission_mode = thread
+                .project_id
+                .as_deref()
+                .map(|project_id| read_permission_mode(connection, project_id))
+                .transpose()?
+                .flatten();
+            Ok(ProjectWorkspaceReadValue::ExecutionContext {
+                context: Box::new(ProjectWorkspaceExecutionContext {
+                    thread,
+                    project,
+                    permission_mode,
+                }),
             })
         }
         ProjectWorkspaceRead::ManagedWorktrees { project_id } => {
@@ -172,7 +209,7 @@ fn read_projects(
         .collect()
 }
 
-fn read_project(
+pub(super) fn read_project(
     connection: &Connection,
     library_id: &str,
     project_id: &str,
@@ -745,21 +782,16 @@ mod tests {
         assert_eq!(panels["right"]["layout"]["root"]["id"], "main");
         assert!(tabs.is_empty());
 
-        let ProjectWorkspaceReadValue::Thread {
-            session_id,
-            project_id,
-            ..
-        } = read(
+        let ProjectWorkspaceReadValue::Thread { thread } = read(
             &module,
             ProjectWorkspaceRead::Thread {
                 thread_id: "thread-1".to_owned(),
             },
-        )
-        else {
+        ) else {
             panic!("thread snapshot");
         };
-        assert_eq!(session_id.as_deref(), Some("session-project"));
-        assert_eq!(project_id.as_deref(), Some("project-1"));
+        assert_eq!(thread.session_id.as_deref(), Some("session-project"));
+        assert_eq!(thread.project_id.as_deref(), Some("project-1"));
 
         let ProjectWorkspaceReadValue::ManagedWorktrees { roots } = read(
             &module,
@@ -784,21 +816,18 @@ mod tests {
             .expect_err("foreign Library Session must remain hidden");
         assert_eq!(foreign_session.code, CoreErrorCode::NotFound);
 
-        let ProjectWorkspaceReadValue::Thread {
-            session_id,
-            project_id,
-            ..
-        } = read(
-            &module,
-            ProjectWorkspaceRead::Thread {
-                thread_id: "thread-foreign".to_owned(),
-            },
-        )
-        else {
-            panic!("foreign thread snapshot");
-        };
-        assert_eq!(session_id, None);
-        assert_eq!(project_id, None);
+        let foreign_thread = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Thread {
+                        thread_id: "thread-foreign".to_owned(),
+                    },
+                },
+            )
+            .expect_err("foreign Library Thread must remain hidden");
+        assert_eq!(foreign_thread.code, CoreErrorCode::NotFound);
     }
 
     #[test]

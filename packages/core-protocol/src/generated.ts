@@ -296,6 +296,12 @@ export interface components {
         };
         /** @enum {string} */
         readonly ClientKind: "electron_host" | "native_cli" | "test";
+        /** @enum {string} */
+        readonly CodexPermissionMode: "auto" | "guardian-approvals" | "full-access" | "custom";
+        /** @enum {string} */
+        readonly CodexThreadActiveFlag: "waitingOnApproval" | "waitingOnUserInput";
+        /** @enum {string} */
+        readonly CodexThreadStatusType: "notLoaded" | "idle" | "systemError" | "active";
         readonly CommittedCoreModuleEvent: {
             readonly committed_at: string;
             readonly operation_id?: string | null;
@@ -1239,6 +1245,39 @@ export interface components {
                 readonly project_id?: string | null;
                 readonly session_ids: readonly string[];
             } | {
+                /** @enum {string} */
+                readonly kind: "upsert_thread";
+                readonly patch: components["schemas"]["ProjectWorkspaceThreadPatch"];
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "delete_thread";
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "set_thread_pinned";
+                readonly pinned: boolean;
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "reorder_pinned_threads";
+                readonly thread_ids: readonly string[];
+            } | {
+                /** @enum {string} */
+                readonly kind: "set_thread_unread";
+                readonly thread_id: string;
+                readonly unread: boolean;
+            } | {
+                readonly catalogs: readonly components["schemas"]["ProjectWorkspaceDynamicToolCatalog"][];
+                /** @enum {string} */
+                readonly kind: "replace_thread_dynamic_tool_catalogs";
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "set_project_permission_mode";
+                readonly mode: components["schemas"]["CodexPermissionMode"];
+                readonly project_id: string;
+            } | {
                 readonly intent: components["schemas"]["ProjectSessionIntent"];
                 /** @enum {string} */
                 readonly kind: "mutate_session";
@@ -1535,6 +1574,20 @@ export interface components {
                 readonly kind: "thread";
                 readonly thread_id: string;
             } | {
+                readonly include_archived?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "threads";
+                readonly project_id?: string | null;
+            } | {
+                readonly include_archived?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "child_threads";
+                readonly parent_thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "execution_context";
+                readonly thread_id: string;
+            } | {
                 /** @enum {string} */
                 readonly kind: "managed_worktrees";
                 readonly project_id: string;
@@ -1680,6 +1733,11 @@ export interface components {
         };
         readonly ProjectWorkspaceApplyRequest: components["schemas"]["ModuleApplyRequest_ProjectWorkspaceIntent"];
         readonly ProjectWorkspaceApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"];
+        readonly ProjectWorkspaceDynamicToolCatalog: {
+            readonly namespace: string;
+            /** Format: int64 */
+            readonly toolset_revision: number;
+        };
         readonly ProjectWorkspaceEvent: {
             readonly kind: components["schemas"]["ProjectWorkspaceEventKind"];
             readonly project_ids: readonly string[];
@@ -1688,6 +1746,11 @@ export interface components {
         };
         /** @enum {string} */
         readonly ProjectWorkspaceEventKind: "workspace_changed";
+        readonly ProjectWorkspaceExecutionContext: {
+            readonly permission_mode?: null | components["schemas"]["CodexPermissionMode"];
+            readonly project?: null | components["schemas"]["ProjectWorkspaceProject"];
+            readonly thread: components["schemas"]["ProjectWorkspaceThread"];
+        };
         readonly ProjectWorkspaceProject: {
             /** Format: int64 */
             readonly binding_revision: number;
@@ -1742,6 +1805,62 @@ export interface components {
             readonly state_key: number;
             readonly title: string;
             readonly updated_at: string;
+        };
+        readonly ProjectWorkspaceThread: {
+            readonly agent_nickname?: string | null;
+            readonly agent_role?: string | null;
+            readonly archived: boolean;
+            /** Format: int64 */
+            readonly created_at: number;
+            readonly cwd?: string | null;
+            readonly dynamic_tool_catalogs: readonly components["schemas"]["ProjectWorkspaceDynamicToolCatalog"][];
+            readonly forked_from_id?: string | null;
+            readonly has_unread_turn: boolean;
+            readonly linked_at: string;
+            readonly managed_worktree_path?: string | null;
+            readonly model_provider: string;
+            readonly parent_thread_id?: string | null;
+            /** Format: int64 */
+            readonly pinned_order?: number | null;
+            readonly project_id?: string | null;
+            readonly projectless_output_directory?: string | null;
+            readonly projectless_workspace_browser_root?: string | null;
+            readonly service_name?: string | null;
+            readonly session_id?: string | null;
+            readonly status: components["schemas"]["ProjectWorkspaceThreadStatus"];
+            readonly thread_id: string;
+            readonly thread_name?: string | null;
+            readonly thread_preview: string;
+            readonly thread_source?: string | null;
+            /** Format: int64 */
+            readonly updated_at: number;
+        };
+        readonly ProjectWorkspaceThreadPatch: {
+            readonly agent_nickname?: string | null;
+            readonly agent_role?: string | null;
+            readonly archived?: boolean | null;
+            /** Format: int64 */
+            readonly created_at?: number | null;
+            readonly cwd?: string | null;
+            readonly forked_from_id?: string | null;
+            readonly linked_at?: string | null;
+            readonly managed_worktree_path?: string | null;
+            readonly model_provider?: string | null;
+            readonly parent_thread_id?: string | null;
+            readonly project_id?: string | null;
+            readonly projectless_output_directory?: string | null;
+            readonly projectless_workspace_browser_root?: string | null;
+            readonly service_name?: string | null;
+            readonly status?: null | components["schemas"]["ProjectWorkspaceThreadStatus"];
+            readonly thread_name?: string | null;
+            readonly thread_preview?: string | null;
+            readonly thread_source?: string | null;
+            /** Format: int64 */
+            readonly updated_at?: number | null;
+        };
+        readonly ProjectWorkspaceThreadStatus: {
+            readonly active_flags: readonly components["schemas"]["CodexThreadActiveFlag"][];
+            readonly status_type: components["schemas"]["CodexThreadStatusType"];
         };
         readonly ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt: {
             readonly payload: {
@@ -2096,9 +2215,19 @@ export interface components {
                 } | {
                     /** @enum {string} */
                     readonly kind: "thread";
-                    readonly project_id?: string | null;
-                    readonly session_id?: string | null;
-                    readonly thread_id: string;
+                    readonly thread: components["schemas"]["ProjectWorkspaceThread"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "threads";
+                    readonly threads: readonly components["schemas"]["ProjectWorkspaceThread"][];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "child_threads";
+                    readonly threads: readonly components["schemas"]["ProjectWorkspaceThread"][];
+                } | {
+                    readonly context: components["schemas"]["ProjectWorkspaceExecutionContext"];
+                    /** @enum {string} */
+                    readonly kind: "execution_context";
                 } | {
                     /** @enum {string} */
                     readonly kind: "managed_worktrees";

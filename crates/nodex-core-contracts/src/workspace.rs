@@ -21,6 +21,17 @@ pub enum ProjectWorkspaceRead {
     Thread {
         thread_id: String,
     },
+    Threads {
+        project_id: Option<String>,
+        include_archived: Option<bool>,
+    },
+    ChildThreads {
+        parent_thread_id: String,
+        include_archived: Option<bool>,
+    },
+    ExecutionContext {
+        thread_id: String,
+    },
     ManagedWorktrees {
         project_id: String,
     },
@@ -45,13 +56,175 @@ pub enum ProjectWorkspaceReadValue {
         tabs: Vec<ProjectWorkspaceSessionTab>,
     },
     Thread {
-        thread_id: String,
-        session_id: Option<String>,
-        project_id: Option<String>,
+        thread: Box<ProjectWorkspaceThread>,
+    },
+    Threads {
+        threads: Vec<ProjectWorkspaceThread>,
+    },
+    ChildThreads {
+        threads: Vec<ProjectWorkspaceThread>,
+    },
+    ExecutionContext {
+        context: Box<ProjectWorkspaceExecutionContext>,
     },
     ManagedWorktrees {
         roots: Vec<String>,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceExecutionContext {
+    pub thread: ProjectWorkspaceThread,
+    pub project: Option<ProjectWorkspaceProject>,
+    pub permission_mode: Option<CodexPermissionMode>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThread {
+    pub thread_id: String,
+    pub project_id: Option<String>,
+    pub session_id: Option<String>,
+    pub forked_from_id: Option<String>,
+    pub parent_thread_id: Option<String>,
+    pub thread_name: Option<String>,
+    pub thread_source: Option<String>,
+    pub service_name: Option<String>,
+    pub agent_nickname: Option<String>,
+    pub agent_role: Option<String>,
+    pub thread_preview: String,
+    pub model_provider: String,
+    pub cwd: Option<String>,
+    pub managed_worktree_path: Option<String>,
+    pub projectless_output_directory: Option<String>,
+    pub projectless_workspace_browser_root: Option<String>,
+    pub status: ProjectWorkspaceThreadStatus,
+    pub archived: bool,
+    pub pinned_order: Option<i64>,
+    pub has_unread_turn: bool,
+    pub dynamic_tool_catalogs: Vec<ProjectWorkspaceDynamicToolCatalog>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub linked_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadStatus {
+    pub status_type: CodexThreadStatusType,
+    pub active_flags: Vec<CodexThreadActiveFlag>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CodexThreadStatusType {
+    NotLoaded,
+    Idle,
+    SystemError,
+    Active,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum CodexThreadActiveFlag {
+    WaitingOnApproval,
+    WaitingOnUserInput,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum CodexPermissionMode {
+    Auto,
+    GuardianApprovals,
+    FullAccess,
+    Custom,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceDynamicToolCatalog {
+    pub namespace: String,
+    pub toolset_revision: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceThreadPatch {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub project_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub forked_from_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parent_thread_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thread_name: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thread_source: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub service_name: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_nickname: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_role: Option<Option<String>>,
+    pub thread_preview: Option<String>,
+    pub model_provider: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cwd: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub managed_worktree_path: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub projectless_output_directory: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub projectless_workspace_browser_root: Option<Option<String>>,
+    pub status: Option<ProjectWorkspaceThreadStatus>,
+    pub archived: Option<bool>,
+    pub created_at: Option<i64>,
+    pub updated_at: Option<i64>,
+    pub linked_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -226,6 +399,32 @@ pub enum ProjectWorkspaceIntent {
         project_id: Option<String>,
         session_ids: Vec<String>,
     },
+    UpsertThread {
+        thread_id: String,
+        patch: Box<ProjectWorkspaceThreadPatch>,
+    },
+    DeleteThread {
+        thread_id: String,
+    },
+    SetThreadPinned {
+        thread_id: String,
+        pinned: bool,
+    },
+    ReorderPinnedThreads {
+        thread_ids: Vec<String>,
+    },
+    SetThreadUnread {
+        thread_id: String,
+        unread: bool,
+    },
+    ReplaceThreadDynamicToolCatalogs {
+        thread_id: String,
+        catalogs: Vec<ProjectWorkspaceDynamicToolCatalog>,
+    },
+    SetProjectPermissionMode {
+        project_id: String,
+        mode: CodexPermissionMode,
+    },
     MutateSession {
         session_id: String,
         intent: ProjectSessionIntent,
@@ -372,7 +571,7 @@ impl VersionedModuleContract for ProjectWorkspaceContract {
 mod tests {
     use serde_json::json;
 
-    use super::ProjectSessionIntent;
+    use super::{ProjectSessionIntent, ProjectWorkspaceIntent};
 
     #[test]
     fn optional_tab_updates_distinguish_absence_from_explicit_null() {
@@ -403,5 +602,36 @@ mod tests {
             panic!("tab update intent");
         };
         assert_eq!(config, Some(serde_json::Value::Null));
+    }
+
+    #[test]
+    fn thread_patch_distinguishes_absence_from_an_explicit_clear() {
+        let intent = serde_json::from_value::<ProjectWorkspaceIntent>(json!({
+            "kind": "upsert_thread",
+            "thread_id": "thread-1",
+            "patch": {
+                "project_id": null,
+                "managed_worktree_path": null,
+                "status": {
+                    "status_type": "active",
+                    "active_flags": ["waitingOnApproval"]
+                }
+            }
+        }))
+        .expect("presence-sensitive Thread patch");
+        let ProjectWorkspaceIntent::UpsertThread { patch, .. } = intent else {
+            panic!("upsert Thread intent");
+        };
+        assert_eq!(patch.project_id, Some(None));
+        assert_eq!(patch.managed_worktree_path, Some(None));
+        assert_eq!(patch.cwd, None);
+
+        let encoded = serde_json::to_value(ProjectWorkspaceIntent::UpsertThread {
+            thread_id: "thread-1".to_owned(),
+            patch,
+        })
+        .expect("Thread patch round trip");
+        assert_eq!(encoded["patch"]["project_id"], serde_json::Value::Null);
+        assert!(encoded["patch"].get("cwd").is_none());
     }
 }
