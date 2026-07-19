@@ -1,14 +1,16 @@
 use nodex_core_contracts::workspace::{
-    ProjectLifecycle, ProjectSource, ProjectWorkspaceProject, ProjectWorkspaceRead,
-    ProjectWorkspaceReadValue, ProjectWorkspaceSessionSummary,
+    ProjectLifecycle, ProjectSessionPanelId, ProjectSessionTabKind, ProjectSource,
+    ProjectWorkspaceProject, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+    ProjectWorkspaceSessionSummary, ProjectWorkspaceSessionTab,
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::Value;
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
+use super::panel_layout::{parse_panel_id, parse_panels};
+
 const MAX_ID_LENGTH: usize = 512;
-const MAX_PANEL_STATE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_TAB_JSON_BYTES: usize = 2 * 1024 * 1024;
 
 struct ProjectRow {
     id: String,
@@ -78,10 +80,23 @@ pub(super) fn read(
             validate_id("session_id", &session_id)?;
             let row = read_session(connection, library_id, &session_id)?
                 .ok_or_else(|| not_found("Project Session is unavailable"))?;
-            let panels = parse_panel_state(&row.panel_state_json)?;
+            let tabs = read_session_tabs(connection, &session_id, row.project_id.as_deref())?;
+            let right_tab_ids = tabs
+                .iter()
+                .filter(|tab| tab.panel_id == ProjectSessionPanelId::Right)
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>();
+            let bottom_tab_ids = tabs
+                .iter()
+                .filter(|tab| tab.panel_id == ProjectSessionPanelId::Bottom)
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>();
+            let panels = parse_panels(&row.panel_state_json, &right_tab_ids, &bottom_tab_ids)?
+                .into_value()?;
             Ok(ProjectWorkspaceReadValue::Session {
                 session: session_summary(row),
                 panels,
+                tabs,
             })
         }
         ProjectWorkspaceRead::Thread { thread_id } => {
@@ -345,16 +360,111 @@ fn session_summary(row: SessionRow) -> ProjectWorkspaceSessionSummary {
     }
 }
 
-fn parse_panel_state(value: &str) -> Result<Value, StoreError> {
-    if value.len() > MAX_PANEL_STATE_BYTES {
-        return Err(corrupt("Project Session panel state exceeds its bound"));
+fn read_session_tabs(
+    connection: &Connection,
+    session_id: &str,
+    session_project_id: Option<&str>,
+) -> Result<Vec<ProjectWorkspaceSessionTab>, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT id, session_id, project_id, browser_tab_id, panel_id, kind, title, \
+               \"order\", config_json, state_key, state_json, created_at, updated_at \
+             FROM project_session_tabs WHERE session_id = ?1 \
+             ORDER BY CASE panel_id WHEN 'right' THEN 0 ELSE 1 END, \
+               \"order\", created_at, id",
+        )?
+        .query_map([session_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, i64>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, String>(11)?,
+                row.get::<_, String>(12)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter()
+        .map(
+            |(
+                id,
+                session_id,
+                project_id,
+                browser_tab_id,
+                panel_id,
+                kind,
+                title,
+                order,
+                config_json,
+                state_key,
+                state_json,
+                created_at,
+                updated_at,
+            )| {
+                if config_json.len() > MAX_TAB_JSON_BYTES || state_json.len() > MAX_TAB_JSON_BYTES {
+                    return Err(corrupt("Project Session tab JSON exceeds its bound"));
+                }
+                let config = serde_json::from_str::<serde_json::Value>(&config_json)
+                    .map_err(|_| corrupt("Project Session tab config JSON is invalid"))?;
+                if !config.is_object() {
+                    return Err(corrupt("Project Session tab config must be an object"));
+                }
+                let state = serde_json::from_str::<serde_json::Value>(&state_json)
+                    .map_err(|_| corrupt("Project Session tab state JSON is invalid"))?;
+                if state_key < 0 {
+                    return Err(corrupt("Project Session tab state key is invalid"));
+                }
+                if project_id.as_deref() != session_project_id {
+                    return Err(corrupt(
+                        "Project Session tab Project differs from its owning Session",
+                    ));
+                }
+                let panel_id = parse_panel_id(&panel_id)?;
+                let kind = parse_tab_kind(&kind)?;
+                if matches!(kind, ProjectSessionTabKind::Browser)
+                    != browser_tab_id
+                        .as_deref()
+                        .is_some_and(|identity| !identity.trim().is_empty())
+                {
+                    return Err(corrupt("Project Session browser identity is invalid"));
+                }
+                Ok(ProjectWorkspaceSessionTab {
+                    id,
+                    session_id,
+                    project_id,
+                    browser_tab_id,
+                    panel_id,
+                    kind,
+                    title,
+                    order,
+                    config,
+                    state_key,
+                    state,
+                    created_at,
+                    updated_at,
+                })
+            },
+        )
+        .collect()
+}
+
+fn parse_tab_kind(value: &str) -> Result<ProjectSessionTabKind, StoreError> {
+    match value {
+        "db_view" => Ok(ProjectSessionTabKind::DbView),
+        "page_stage" => Ok(ProjectSessionTabKind::PageStage),
+        "terminal" => Ok(ProjectSessionTabKind::Terminal),
+        "browser" => Ok(ProjectSessionTabKind::Browser),
+        "review" => Ok(ProjectSessionTabKind::Review),
+        "files" => Ok(ProjectSessionTabKind::Files),
+        _ => Err(corrupt("Project Session tab kind is invalid")),
     }
-    let value = serde_json::from_str::<Value>(value)
-        .map_err(|_| corrupt("Project Session panel state JSON is invalid"))?;
-    if value.is_object() {
-        return Ok(value);
-    }
-    Err(corrupt("Project Session panel state must be an object"))
 }
 
 fn require_project(
@@ -613,16 +723,23 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "session-projectless");
 
-        let ProjectWorkspaceReadValue::Session { session, panels } = read(
+        let ProjectWorkspaceReadValue::Session {
+            session,
+            panels,
+            tabs,
+        } = read(
             &module,
             ProjectWorkspaceRead::Session {
                 session_id: "session-project".to_owned(),
             },
-        ) else {
+        )
+        else {
             panic!("session snapshot");
         };
         assert_eq!(session.display_title, "Thread preview");
-        assert_eq!(panels["right"]["layout"]["id"], "right");
+        assert_eq!(panels["right"]["layout"]["version"], 2);
+        assert_eq!(panels["right"]["layout"]["root"]["id"], "main");
+        assert!(tabs.is_empty());
 
         let ProjectWorkspaceReadValue::Thread {
             session_id,

@@ -3,6 +3,7 @@ import type {
   ProjectSessionPanelLayout,
   ProjectSessionPanelState,
   ProjectSessionTabConfig,
+  ProjectSessionTabKind,
 } from "../types";
 import type {
   CommittedModuleValue,
@@ -43,6 +44,22 @@ export interface ProjectWorkspaceSessionSummary {
   readonly updatedAt: string;
 }
 
+export interface ProjectWorkspaceSessionTab {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly projectId: string | null;
+  readonly browserTabId: string | null;
+  readonly panelId: PanelId;
+  readonly kind: ProjectSessionTabKind;
+  readonly title: string;
+  readonly order: number;
+  readonly config: ProjectSessionTabConfig;
+  readonly stateKey: number;
+  readonly state: unknown;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export type ProjectWorkspaceRead =
   | { readonly kind: "startup" }
   | { readonly kind: "project"; readonly projectId: string }
@@ -70,6 +87,7 @@ export type ProjectWorkspaceReadValue =
       readonly kind: "session";
       readonly session: ProjectWorkspaceSessionSummary;
       readonly panels: Readonly<Record<PanelId, ProjectSessionPanelState>>;
+      readonly tabs: readonly ProjectWorkspaceSessionTab[];
     }
   | {
       readonly kind: "thread";
@@ -88,12 +106,16 @@ export type ProjectSessionIntent =
   | { readonly kind: "set_unread"; readonly unread: boolean }
   | {
       readonly kind: "replace_panel_layout";
+      readonly panelId: PanelId;
       readonly layout: ProjectSessionPanelLayout;
     }
   | {
       readonly kind: "create_tab";
       readonly tabId: string;
-      readonly panelId: string;
+      readonly panelId: PanelId;
+      readonly targetLeafId?: string;
+      readonly browserTabId?: string;
+      readonly tabKind: ProjectSessionTabKind;
       readonly title: string;
       readonly config: ProjectSessionTabConfig;
     }
@@ -101,7 +123,8 @@ export type ProjectSessionIntent =
   | {
       readonly kind: "move_tab";
       readonly tabId: string;
-      readonly panelId: string;
+      readonly panelId: PanelId;
+      readonly targetLeafId?: string;
       readonly beforeTabId?: string;
     }
   | {

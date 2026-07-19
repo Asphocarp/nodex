@@ -5927,6 +5927,7 @@
           {
             "type": "object",
             "required": [
+              "panel_id",
               "layout",
               "kind"
             ],
@@ -5937,7 +5938,10 @@
                   "replace_panel_layout"
                 ]
               },
-              "layout": {}
+              "layout": {},
+              "panel_id": {
+                "$ref": "#/components/schemas/ProjectSessionPanelId"
+              }
             }
           },
           {
@@ -5945,11 +5949,18 @@
             "required": [
               "tab_id",
               "panel_id",
+              "tab_kind",
               "title",
               "config",
               "kind"
             ],
             "properties": {
+              "browser_tab_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "config": {},
               "kind": {
                 "type": "string",
@@ -5958,10 +5969,19 @@
                 ]
               },
               "panel_id": {
-                "type": "string"
+                "$ref": "#/components/schemas/ProjectSessionPanelId"
               },
               "tab_id": {
                 "type": "string"
+              },
+              "tab_kind": {
+                "$ref": "#/components/schemas/ProjectSessionTabKind"
+              },
+              "target_leaf_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "title": {
                 "type": "string"
@@ -6007,10 +6027,16 @@
                 ]
               },
               "panel_id": {
-                "type": "string"
+                "$ref": "#/components/schemas/ProjectSessionPanelId"
               },
               "tab_id": {
                 "type": "string"
+              },
+              "target_leaf_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           },
@@ -6056,6 +6082,24 @@
               }
             }
           }
+        ]
+      },
+      "ProjectSessionPanelId": {
+        "type": "string",
+        "enum": [
+          "right",
+          "bottom"
+        ]
+      },
+      "ProjectSessionTabKind": {
+        "type": "string",
+        "enum": [
+          "db_view",
+          "page_stage",
+          "terminal",
+          "browser",
+          "review",
+          "files"
         ]
       },
       "ProjectSource": {
@@ -6240,6 +6284,67 @@
           },
           "unread": {
             "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceSessionTab": {
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "panel_id",
+          "kind",
+          "title",
+          "order",
+          "config",
+          "state_key",
+          "state",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "browser_tab_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config": {},
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ProjectSessionTabKind"
+          },
+          "order": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "panel_id": {
+            "$ref": "#/components/schemas/ProjectSessionPanelId"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "state": {},
+          "state_key": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
           },
           "updated_at": {
             "type": "string"
@@ -7818,6 +7923,7 @@
                         "required": [
                           "session",
                           "panels",
+                          "tabs",
                           "kind"
                         ],
                         "properties": {
@@ -7830,6 +7936,12 @@
                           "panels": {},
                           "session": {
                             "$ref": "#/components/schemas/ProjectWorkspaceSessionSummary"
+                          },
+                          "tabs": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceSessionTab"
+                            }
                           }
                         }
                       },

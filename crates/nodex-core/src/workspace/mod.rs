@@ -1,4 +1,5 @@
 mod mutation;
+mod panel_layout;
 mod read;
 mod session_mutation;
 

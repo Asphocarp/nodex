@@ -1578,12 +1578,16 @@ export interface components {
             /** @enum {string} */
             readonly kind: "replace_panel_layout";
             readonly layout: unknown;
+            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
         } | {
+            readonly browser_tab_id?: string | null;
             readonly config: unknown;
             /** @enum {string} */
             readonly kind: "create_tab";
-            readonly panel_id: string;
+            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
             readonly tab_id: string;
+            readonly tab_kind: components["schemas"]["ProjectSessionTabKind"];
+            readonly target_leaf_id?: string | null;
             readonly title: string;
         } | {
             /** @enum {string} */
@@ -1593,8 +1597,9 @@ export interface components {
             readonly before_tab_id?: string | null;
             /** @enum {string} */
             readonly kind: "move_tab";
-            readonly panel_id: string;
+            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
             readonly tab_id: string;
+            readonly target_leaf_id?: string | null;
         } | {
             readonly expected_project_id?: string | null;
             /** @enum {string} */
@@ -1605,6 +1610,10 @@ export interface components {
             readonly kind: "unlink_thread";
             readonly thread_id: string;
         };
+        /** @enum {string} */
+        readonly ProjectSessionPanelId: "right" | "bottom";
+        /** @enum {string} */
+        readonly ProjectSessionTabKind: "db_view" | "page_stage" | "terminal" | "browser" | "review" | "files";
         readonly ProjectSource: {
             /** Format: int64 */
             readonly order: number;
@@ -1650,6 +1659,23 @@ export interface components {
             readonly project_id?: string | null;
             readonly thread_id?: string | null;
             readonly unread: boolean;
+            readonly updated_at: string;
+        };
+        readonly ProjectWorkspaceSessionTab: {
+            readonly browser_tab_id?: string | null;
+            readonly config: unknown;
+            readonly created_at: string;
+            readonly id: string;
+            readonly kind: components["schemas"]["ProjectSessionTabKind"];
+            /** Format: int64 */
+            readonly order: number;
+            readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
+            readonly project_id?: string | null;
+            readonly session_id: string;
+            readonly state: unknown;
+            /** Format: int64 */
+            readonly state_key: number;
+            readonly title: string;
             readonly updated_at: string;
         };
         readonly ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt: {
@@ -2001,6 +2027,7 @@ export interface components {
                     readonly kind: "session";
                     readonly panels: unknown;
                     readonly session: components["schemas"]["ProjectWorkspaceSessionSummary"];
+                    readonly tabs: readonly components["schemas"]["ProjectWorkspaceSessionTab"][];
                 } | {
                     /** @enum {string} */
                     readonly kind: "thread";

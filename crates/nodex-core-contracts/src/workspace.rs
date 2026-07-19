@@ -42,6 +42,7 @@ pub enum ProjectWorkspaceReadValue {
     Session {
         session: ProjectWorkspaceSessionSummary,
         panels: Value,
+        tabs: Vec<ProjectWorkspaceSessionTab>,
     },
     Thread {
         thread_id: String,
@@ -98,6 +99,41 @@ pub struct ProjectWorkspaceSessionSummary {
     pub updated_at: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectSessionPanelId {
+    Right,
+    Bottom,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectSessionTabKind {
+    DbView,
+    PageStage,
+    Terminal,
+    Browser,
+    Review,
+    Files,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceSessionTab {
+    pub id: String,
+    pub session_id: String,
+    pub project_id: Option<String>,
+    pub browser_tab_id: Option<String>,
+    pub panel_id: ProjectSessionPanelId,
+    pub kind: ProjectSessionTabKind,
+    pub title: String,
+    pub order: i64,
+    pub config: Value,
+    pub state_key: i64,
+    pub state: Value,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProjectWorkspaceIntent {
@@ -146,11 +182,15 @@ pub enum ProjectSessionIntent {
         unread: bool,
     },
     ReplacePanelLayout {
+        panel_id: ProjectSessionPanelId,
         layout: Value,
     },
     CreateTab {
         tab_id: String,
-        panel_id: String,
+        panel_id: ProjectSessionPanelId,
+        target_leaf_id: Option<String>,
+        browser_tab_id: Option<String>,
+        tab_kind: ProjectSessionTabKind,
         title: String,
         config: Value,
     },
@@ -159,7 +199,8 @@ pub enum ProjectSessionIntent {
     },
     MoveTab {
         tab_id: String,
-        panel_id: String,
+        panel_id: ProjectSessionPanelId,
+        target_leaf_id: Option<String>,
         before_tab_id: Option<String>,
     },
     LinkThread {

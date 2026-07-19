@@ -83,15 +83,14 @@ cross-Project compatibility rehome reuse Database internals inside that same
 SQLite transaction rather than composing public Module calls, so one durable
 Library receipt and event represent the operation.
 
-The first Project Workspace migration slice serves coherent store-backed read
-snapshots through the fixed Workspace `read` route. One read boundary returns
-active Project execution contexts and non-archived startup Sessions, or resolves
-an exact Project, Session panel state, thread owner, or managed-worktree set.
+The Project Workspace read boundary returns active Project execution contexts
+and non-archived startup Sessions, or resolves an exact Project, normalized
+Session panel/tab aggregate, thread owner, or managed-worktree set.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Panel/tab writes, complete Codex
-launch metadata, Automation, and Store Administration remain migration work, so
-their unavailable operations do not fall back to direct native SQL.
+bindings and cross-Library rows fail closed. Complete Codex launch metadata,
+Automation, and Store Administration remain migration work, so their unavailable
+operations do not fall back to direct native SQL.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and
@@ -122,6 +121,17 @@ guard. These mutations share the Workspace transaction/receipt/event boundary.
 Electron remains responsible for starting Codex and coordinating an external
 app-server rename; native Core persists the accepted local metadata and never
 starts execution as part of a Session mutation.
+
+Workspace owns the durable Session panel/tab aggregate as well. The versioned
+contract names the target panel, tab kind, optional browser identity, and target
+leaf instead of asking an Adapter to reconstruct those facts from JSON. Core
+validates kind-specific tab configuration against the Session Project, resolves
+and authorizes active Database Views, preserves review/Database-View uniqueness,
+normalizes bounded v2 split trees, and persists layout plus depth-first flat tab
+order in one receipt/event transaction. Create/focus, layout replacement,
+cross-panel move, and delete all keep each durable tab in exactly one leaf;
+delete/move prune non-final empty leaves while ordinary layout replacement may
+retain an explicitly visible empty leaf.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit

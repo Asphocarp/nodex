@@ -1085,12 +1085,14 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::workspace::{
-        ProjectLifecycle, ProjectSessionIntent, ProjectWorkspaceIntent,
+        ProjectLifecycle, ProjectSessionIntent, ProjectSessionPanelId, ProjectSessionTabKind,
+        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
-        ModuleApplyRequest, ProfileId, ProjectId, StoreEpoch,
+        ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
     };
+    use serde_json::json;
     use tempfile::{TempDir, tempdir};
 
     use crate::infrastructure::sqlite::with_immediate_transaction;
@@ -1684,6 +1686,256 @@ mod tests {
         assert_eq!((stored.1, stored.2, stored.3), (0, None, 0));
         assert_eq!(stored.4, "Thread title");
         assert_eq!((stored.5, stored.6, stored.7), (0, 0, 0));
+    }
+
+    #[test]
+    fn owns_split_panel_layouts_and_complete_tab_lifecycle_atomically() {
+        let (_directory, kernel, module) = seeded_module();
+        let created = module
+            .apply(
+                &context(),
+                create_request("workspace-create-tab-owner", "project-native"),
+            )
+            .expect("create tab owner Project");
+        let session_id = created.committed.value.affected_session_ids[0].clone();
+        let (database_tab_id, database_view_id) = kernel
+            .writer()
+            .call({
+                let session_id = session_id.clone();
+                move |connection| {
+                    connection
+                        .query_row(
+                            "SELECT id, json_extract(config_json, '$.databaseViewId') \
+                             FROM project_session_tabs WHERE session_id = ?1",
+                            [&session_id],
+                            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                        )
+                        .map_err(Into::into)
+                }
+            })
+            .expect("read default tab");
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-split-layout",
+                    &session_id,
+                    ProjectSessionIntent::ReplacePanelLayout {
+                        panel_id: ProjectSessionPanelId::Right,
+                        layout: json!({
+                            "version": 2,
+                            "root": {
+                                "type": "split",
+                                "id": "right-branch",
+                                "direction": "horizontal",
+                                "ratio": 0.05,
+                                "first": {
+                                    "type": "leaf",
+                                    "id": "main",
+                                    "tabIds": [database_tab_id],
+                                    "activeTabId": database_tab_id,
+                                    "mruTabIds": [database_tab_id]
+                                },
+                                "second": {
+                                    "type": "leaf",
+                                    "id": "target-leaf",
+                                    "tabIds": [],
+                                    "activeTabId": null,
+                                    "mruTabIds": []
+                                }
+                            },
+                            "activeLeafId": "target-leaf",
+                            "mruLeafIds": ["target-leaf", "main"],
+                            "maximizedLeafId": null
+                        }),
+                    },
+                ),
+            )
+            .expect("replace split layout");
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-create-terminal",
+                    &session_id,
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "terminal-tab".to_owned(),
+                        panel_id: ProjectSessionPanelId::Right,
+                        target_leaf_id: Some("target-leaf".to_owned()),
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::Terminal,
+                        title: "  Terminal  ".to_owned(),
+                        config: json!({
+                            "projectId": "project-native",
+                            "terminalSessionId": "terminal-session-1"
+                        }),
+                    },
+                ),
+            )
+            .expect("create terminal tab");
+        let browser_request = session_request(
+            "workspace-session-create-browser",
+            &session_id,
+            ProjectSessionIntent::CreateTab {
+                tab_id: "browser-tab".to_owned(),
+                panel_id: ProjectSessionPanelId::Right,
+                target_leaf_id: Some("target-leaf".to_owned()),
+                browser_tab_id: Some("browser-identity-1".to_owned()),
+                tab_kind: ProjectSessionTabKind::Browser,
+                title: "Browser".to_owned(),
+                config: json!({
+                    "projectId": "project-native",
+                    "url": "https://example.test",
+                    "deviceToolbarVisible": true
+                }),
+            },
+        );
+        let browser = module
+            .apply(&context(), browser_request.clone())
+            .expect("create browser tab");
+        let replay = module
+            .apply(&context(), browser_request)
+            .expect("replay browser tab creation");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replay.committed.event_sequence,
+            browser.committed.event_sequence
+        );
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-focus-database",
+                    &session_id,
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "duplicate-db-tab".to_owned(),
+                        panel_id: ProjectSessionPanelId::Bottom,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::DbView,
+                        title: "Duplicate DB".to_owned(),
+                        config: json!({
+                            "projectId": "project-native",
+                            "databaseViewId": database_view_id,
+                            "view": "kanban"
+                        }),
+                    },
+                ),
+            )
+            .expect("focus equivalent Database View tab");
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-move-terminal",
+                    &session_id,
+                    ProjectSessionIntent::MoveTab {
+                        tab_id: "terminal-tab".to_owned(),
+                        panel_id: ProjectSessionPanelId::Bottom,
+                        target_leaf_id: None,
+                        before_tab_id: None,
+                    },
+                ),
+            )
+            .expect("move terminal tab to bottom panel");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-delete-browser",
+                    &session_id,
+                    ProjectSessionIntent::DeleteTab {
+                        tab_id: "browser-tab".to_owned(),
+                    },
+                ),
+            )
+            .expect("delete browser tab");
+
+        let snapshot = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Session {
+                        session_id: session_id.clone(),
+                    },
+                },
+            )
+            .expect("read mutated Session");
+        let ProjectWorkspaceReadValue::Session { panels, tabs, .. } = snapshot.value else {
+            panic!("Session snapshot");
+        };
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(
+            tabs.iter().map(|tab| tab.id.as_str()).collect::<Vec<_>>(),
+            vec![database_tab_id.as_str(), "terminal-tab"]
+        );
+        assert_eq!(tabs[0].panel_id, ProjectSessionPanelId::Right);
+        assert_eq!(tabs[0].order, 0);
+        assert_eq!(tabs[1].panel_id, ProjectSessionPanelId::Bottom);
+        assert_eq!(tabs[1].order, 0);
+        assert_eq!(tabs[1].title, "Terminal");
+        assert_eq!(panels["right"]["layout"]["root"]["type"], "leaf");
+        assert_eq!(
+            panels["right"]["layout"]["root"]["tabIds"],
+            json!([database_tab_id])
+        );
+        assert_eq!(
+            panels["bottom"]["layout"]["root"]["tabIds"],
+            json!(["terminal-tab"])
+        );
+        assert_eq!(panels["bottom"]["collapsed"], false);
+
+        let invalid = module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-invalid-tab",
+                    &session_id,
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "invalid-tab".to_owned(),
+                        panel_id: ProjectSessionPanelId::Right,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::Terminal,
+                        title: "Invalid".to_owned(),
+                        config: json!({
+                            "projectId": "project:default",
+                            "terminalSessionId": "wrong-owner"
+                        }),
+                    },
+                ),
+            )
+            .expect_err("reject mismatched tab Project");
+        assert_eq!(invalid.code, CoreErrorCode::InvalidInput);
+        let rollback_counts = kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT \
+                           (SELECT count(*) FROM project_session_tabs WHERE id = 'invalid-tab'), \
+                           (SELECT count(*) FROM core_module_receipts \
+                            WHERE operation_id = 'workspace-session-invalid-tab'), \
+                           (SELECT count(*) FROM change_log \
+                            WHERE operation_id = 'workspace-session-invalid-tab')",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("read invalid tab rollback");
+        assert_eq!(rollback_counts, (0, 0, 0));
     }
 
     #[test]

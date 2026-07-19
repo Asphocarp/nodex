@@ -33,10 +33,13 @@ import {
   updateProject,
 } from "./local-store/projects";
 import {
+  createProjectSessionTab,
+  deleteProjectSessionTab,
   getProjectSession,
   listProjectSessionSummaries,
   listProjectlessSessionSummaries,
   markProjectSessionUnread,
+  moveProjectSessionTab,
   setProjectSessionPinned,
   updateProjectSession,
 } from "./local-store/project-sessions";
@@ -2697,6 +2700,236 @@ describe("TypeScript/Rust content Module differential", () => {
       unread: oracleMutatedSessionSummary.unread,
       thread_id: null,
     });
+
+    const oraclePanelSession = getProjectSession(oracleCreatedSession.id);
+    if (!oraclePanelSession) throw new Error("TypeScript panel Session disappeared");
+    const oracleDatabaseTab = oraclePanelSession.tabs.find((tab) => tab.kind === "db_view");
+    const candidateDatabaseTab = candidateMutatedSession.value.tabs.find(
+      (tab) => tab.kind === "db_view",
+    );
+    if (!oracleDatabaseTab || !candidateDatabaseTab) {
+      throw new Error("Default Database View tab disappeared");
+    }
+    const oracleSplitSession = updateProjectSession(oraclePanelSession.id, {
+      panels: {
+        right: {
+          layout: {
+            version: 2,
+            root: {
+              type: "split",
+              id: "gate-c-branch",
+              direction: "horizontal",
+              ratio: 0.5,
+              first: {
+                type: "leaf",
+                id: "main",
+                tabIds: [oracleDatabaseTab.id],
+                activeTabId: oracleDatabaseTab.id,
+                mruTabIds: [oracleDatabaseTab.id],
+              },
+              second: {
+                type: "leaf",
+                id: "gate-c-target",
+                tabIds: [],
+                activeTabId: null,
+                mruTabIds: [],
+              },
+            },
+            activeLeafId: "gate-c-target",
+            mruLeafIds: ["gate-c-target", "main"],
+            maximizedLeafId: null,
+          },
+        },
+      },
+    });
+    if (!oracleSplitSession) throw new Error("TypeScript split layout disappeared");
+    await stage(
+      "Project Workspace replace panel layout",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-split-layout",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "replace_panel_layout",
+            panel_id: "right",
+            layout: {
+              version: 2,
+              root: {
+                type: "split",
+                id: "gate-c-branch",
+                direction: "horizontal",
+                ratio: 0.5,
+                first: {
+                  type: "leaf",
+                  id: "main",
+                  tabIds: [candidateDatabaseTab.id],
+                  activeTabId: candidateDatabaseTab.id,
+                  mruTabIds: [candidateDatabaseTab.id],
+                },
+                second: {
+                  type: "leaf",
+                  id: "gate-c-target",
+                  tabIds: [],
+                  activeTabId: null,
+                  mruTabIds: [],
+                },
+              },
+              activeLeafId: "gate-c-target",
+              mruLeafIds: ["gate-c-target", "main"],
+              maximizedLeafId: null,
+            },
+          },
+        },
+      }),
+    );
+    createProjectSessionTab({
+      sessionId: oraclePanelSession.id,
+      projectId: oracleCreatedProject.id,
+      panelId: "right",
+      targetLeafId: "gate-c-target",
+      clientTabId: "gate-c-terminal-tab",
+      kind: "terminal",
+      title: "Gate C terminal",
+      config: {
+        projectId: oracleCreatedProject.id,
+        terminalSessionId: "gate-c-terminal-session",
+      },
+    });
+    await stage(
+      "Project Workspace create terminal tab",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-create-terminal-tab",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "create_tab",
+            tab_id: "gate-c-terminal-tab",
+            panel_id: "right",
+            target_leaf_id: "gate-c-target",
+            browser_tab_id: null,
+            tab_kind: "terminal",
+            title: "Gate C terminal",
+            config: {
+              projectId: candidateProjectId,
+              terminalSessionId: "gate-c-terminal-session",
+            },
+          },
+        },
+      }),
+    );
+    createProjectSessionTab({
+      sessionId: oraclePanelSession.id,
+      projectId: oracleCreatedProject.id,
+      panelId: "right",
+      targetLeafId: "gate-c-target",
+      clientTabId: "gate-c-browser-tab",
+      browserTabId: "gate-c-browser-identity",
+      kind: "browser",
+      title: "Gate C browser",
+      config: {
+        projectId: oracleCreatedProject.id,
+        url: "https://example.test/gate-c",
+      },
+    });
+    const candidateBrowserCreateInput = {
+      operationId: "gate-c-workspace-create-browser-tab",
+      intent: {
+        kind: "mutate_session" as const,
+        session_id: candidateCreatedSession.value.session.id,
+        intent: {
+          kind: "create_tab" as const,
+          tab_id: "gate-c-browser-tab",
+          panel_id: "right" as const,
+          target_leaf_id: "gate-c-target",
+          browser_tab_id: "gate-c-browser-identity",
+          tab_kind: "browser" as const,
+          title: "Gate C browser",
+          config: {
+            projectId: candidateProjectId,
+            url: "https://example.test/gate-c",
+          },
+        },
+      },
+    };
+    const candidateBrowserCreate = await stage(
+      "Project Workspace create browser tab",
+      candidate.workspaceApply(candidateBrowserCreateInput),
+    );
+    const candidateBrowserReplay = await stage(
+      "Project Workspace replay browser tab creation",
+      candidate.workspaceApply(candidateBrowserCreateInput),
+    );
+    expect(candidateBrowserReplay.event_sequence).toBe(
+      candidateBrowserCreate.event_sequence,
+    );
+    expect(candidateBrowserReplay.receipt.duplicate).toBe(true);
+    moveProjectSessionTab({
+      tabId: "gate-c-terminal-tab",
+      targetPanelId: "bottom",
+    });
+    await stage(
+      "Project Workspace move terminal tab",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-move-terminal-tab",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "move_tab",
+            tab_id: "gate-c-terminal-tab",
+            panel_id: "bottom",
+            target_leaf_id: null,
+            before_tab_id: null,
+          },
+        },
+      }),
+    );
+    expect(deleteProjectSessionTab("gate-c-browser-tab")).toBe(true);
+    await stage(
+      "Project Workspace delete browser tab",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-delete-browser-tab",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: {
+            kind: "delete_tab",
+            tab_id: "gate-c-browser-tab",
+          },
+        },
+      }),
+    );
+    const oraclePanelResult = getProjectSession(oraclePanelSession.id);
+    const candidatePanelResult = await stage(
+      "Project Workspace panel and tab snapshot",
+      candidate.workspaceRead({
+        kind: "session",
+        session_id: candidateCreatedSession.value.session.id,
+      }),
+    );
+    if (!oraclePanelResult || candidatePanelResult.value.kind !== "session") {
+      throw new Error("Expected final panel and tab snapshots from both authorities");
+    }
+    expect(normalizePanelTabs(candidatePanelResult.value.panels)).toEqual(
+      normalizePanelTabs(oraclePanelResult.panels),
+    );
+    expect(candidatePanelResult.value.tabs.map((tab) => ({
+      id: tab.kind === "db_view" ? "database-tab" : tab.id,
+      panelId: tab.panel_id,
+      kind: tab.kind,
+      title: tab.title,
+      order: tab.order,
+      stateKey: tab.state_key,
+    }))).toEqual(oraclePanelResult.tabs.map((tab) => ({
+      id: tab.kind === "db_view" ? "database-tab" : tab.id,
+      panelId: tab.panelId,
+      kind: tab.kind,
+      title: tab.title,
+      order: tab.order,
+      stateKey: tab.stateKey,
+    })));
 
     const oracleInitialDatabase = readDatabaseModuleV2(getDb(), {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
