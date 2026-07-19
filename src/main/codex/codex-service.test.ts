@@ -316,6 +316,12 @@ interface TestableCodexService {
     input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
     rendererClientId?: string | null,
   ) => Promise<void>;
+  resolveAutomationArchiveMessages: (
+    threadId: string,
+  ) => Promise<{
+    archivedUserMessage: string | null;
+    archivedAssistantMessage: string | null;
+  }>;
   captureAutomationArchiveMessages: (threadId: string) => Promise<boolean>;
   runScheduledAutomation: (
     automation: CodexScheduledAutomation,
@@ -4878,6 +4884,18 @@ describe("codex-service scheduled automations", () => {
             },
           ],
         });
+
+        await expect(
+          service.resolveAutomationArchiveMessages("thread-archive-capture"),
+        ).resolves.toEqual({
+          archivedUserMessage:
+            "Please summarize the repo.\nskill: Computer Use (/plugins/computer-use)",
+          archivedAssistantMessage: "Summary complete.",
+        });
+        expect(
+          getCodexAutomationRun("thread-archive-capture")
+            ?.archivedAssistantMessage,
+        ).toBe(null);
 
         expect(await service.captureAutomationArchiveMessages("thread-archive-capture")).toBe(true);
 

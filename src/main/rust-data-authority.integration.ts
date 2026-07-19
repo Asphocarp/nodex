@@ -15,6 +15,10 @@ import {
 } from "./core-client/database-module-adapter";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
+import {
+  createDesktopAutomationModuleBridge,
+  type DesktopAutomationModulePort,
+} from "./core-client/desktop-automation-module-bridge";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { closeDatabase, getDb } from "./local-store/database";
@@ -30,6 +34,25 @@ import {
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
+
+const unavailableAutomationPort = (): DesktopAutomationModulePort => {
+  const unavailable = async (): Promise<never> => {
+    throw new Error("TypeScript Automation fallback must not run");
+  };
+  return {
+    listDefinitions: unavailable,
+    createDefinition: unavailable,
+    updateDefinition: unavailable,
+    deleteDefinition: unavailable,
+    getRun: unavailable,
+    archiveRun: unavailable,
+    deleteRun: unavailable,
+    unarchiveRun: unavailable,
+    readInbox: unavailable,
+    setRunReadState: unavailable,
+    markAllRunsRead: unavailable,
+  };
+};
 
 const waitUntil = async (
   predicate: () => boolean,
@@ -410,6 +433,103 @@ describe("Electron native data authority", () => {
           )
           .map((project) => project.id),
       ).toEqual(pinnedOrder);
+      expect(listCurrentProcessFiles()).not.toContain(databasePath);
+      const automation = createDesktopAutomationModuleBridge({
+        authority: Promise.resolve(runtime),
+        typescript: unavailableAutomationPort(),
+      });
+      const automationDefinition = await automation.createDefinition({
+        kind: "cron",
+        name: "Electron Automation Adapter",
+        prompt: "Exercise the native Automation boundary.",
+        rrule: "FREQ=DAILY;BYHOUR=9",
+        cwds: [nodexHome],
+        executionEnvironment: "worktree",
+      });
+      expect(automationDefinition).toMatchObject({
+        id: "electron-automation-adapter",
+        status: "ACTIVE",
+        prompt: "Exercise the native Automation boundary.",
+      });
+      await expect(automation.listDefinitions()).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: automationDefinition.id }),
+        ]),
+      );
+      const begunAutomationRun = await runtime.rootClient.automationApply({
+        operationId: "electron-automation-run-begin",
+        intent: {
+          kind: "begin_run",
+          thread_id: "thread:electron-session",
+          automation_id: automationDefinition.id,
+          thread_title: "Electron Automation run",
+          source_cwd: nodexHome,
+        },
+      });
+      const begunAutomationRunRevision =
+        begunAutomationRun.value.runs[0]?.run_revision;
+      if (!begunAutomationRunRevision) {
+        throw new Error("Core omitted the begun Automation Run");
+      }
+      const reviewAutomationRun = await runtime.rootClient.automationApply({
+        operationId: "electron-automation-run-review",
+        intent: {
+          kind: "complete_run_for_review",
+          thread_id: "thread:electron-session",
+          expected_revision: begunAutomationRunRevision,
+          inbox_title: "Native report ready",
+          inbox_summary: "Review the native Automation run.",
+        },
+      });
+      expect(reviewAutomationRun.value.runs[0]).toMatchObject({
+        status: "PENDING_REVIEW",
+      });
+      await expect(automation.readInbox(10)).resolves.toMatchObject({
+        items: [{
+          automationId: automationDefinition.id,
+          threadId: "thread:electron-session",
+          description: "Review the native Automation run.",
+        }],
+        unreadRunCounts: { total: 1 },
+      });
+      await expect(automation.setRunReadState({
+        threadId: "thread:electron-session",
+        readAt: Date.now(),
+      })).resolves.toMatchObject({
+        threadId: "thread:electron-session",
+        readAt: expect.any(Number),
+      });
+      await expect(automation.archiveRun(
+        {
+          threadId: "thread:electron-session",
+          archivedReason: "manual",
+        },
+        {
+          archivedUserMessage: "Run the native report.",
+          archivedAssistantMessage: "Native report complete.",
+        },
+      )).resolves.toBe(true);
+      await expect(
+        automation.getRun("thread:electron-session"),
+      ).resolves.toMatchObject({
+        status: "ARCHIVED",
+        archivedUserMessage: "Run the native report.",
+        archivedAssistantMessage: "Native report complete.",
+        archivedReason: "manual",
+      });
+      await expect(
+        automation.unarchiveRun("thread:electron-session"),
+      ).resolves.toBe(true);
+      await expect(
+        automation.deleteRun("thread:electron-session"),
+      ).resolves.toBe(true);
+      await expect(
+        automation.deleteDefinition(automationDefinition.id),
+      ).resolves.toMatchObject({
+        success: true,
+        status: "deleted",
+        deletedRunCount: 0,
+      });
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         runtime.clientForProject(projectId).databaseRead({

@@ -134,6 +134,7 @@ import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   initializeDesktopDataAuthority,
   createCoreProjectWorkspaceAdapter,
+  createDesktopAutomationModuleBridge,
   createDesktopDatabaseModuleBridge,
   createDesktopLibraryModuleBridge,
   createDesktopDocumentSyncBridge,
@@ -146,6 +147,7 @@ import {
   type CoreEventSubscription,
   type DesktopDataAuthorityRuntime,
 } from "./core-client";
+import { createTypeScriptAutomationModulePort } from "./codex-scheduled-automation-ipc-handlers";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -1518,6 +1520,10 @@ export async function runMainAppStartup(
       await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
   }));
   registerIpcHandlers({
+    automationModule: createDesktopAutomationModuleBridge({
+      authority: dataAuthority,
+      typescript: createTypeScriptAutomationModulePort(),
+    }),
     documentSync: createDesktopDocumentSyncBridge({
       authority: dataAuthority,
       typescript: {

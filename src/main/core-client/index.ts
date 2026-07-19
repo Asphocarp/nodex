@@ -20,6 +20,13 @@ export {
   mapCoreLibraryEvent,
 } from "./desktop-library-module-bridge";
 export {
+  createDesktopAutomationModuleBridge,
+  type AutomationArchiveMessages,
+  type DesktopAutomationDefinitionDeleteResult,
+  type DesktopAutomationModuleBridgeInput,
+  type DesktopAutomationModulePort,
+} from "./desktop-automation-module-bridge";
+export {
   createDesktopDatabaseModuleBridge,
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,

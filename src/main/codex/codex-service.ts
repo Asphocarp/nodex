@@ -16119,14 +16119,20 @@ export class CodexService extends EventEmitter {
   }
 
   async captureAutomationArchiveMessages(threadId: string): Promise<boolean> {
+    const messages = await this.resolveAutomationArchiveMessages(threadId);
+    if (!hasAutomationArchiveMessages(messages)) return false;
+    return this.persistAutomationArchiveMessages(threadId, messages);
+  }
+
+  async resolveAutomationArchiveMessages(
+    threadId: string,
+  ): Promise<CodexAutomationArchiveMessages> {
     const localMessages = this.resolveAutomationArchiveMessagesFromTranscript(this.getThreadTranscript(threadId));
     if (hasAutomationArchiveMessages(localMessages)) {
-      return this.persistAutomationArchiveMessages(threadId, localMessages);
+      return localMessages;
     }
 
-    const fallbackMessages = await this.readAutomationArchiveMessagesFromThreadTurns(threadId);
-    if (!hasAutomationArchiveMessages(fallbackMessages)) return false;
-    return this.persistAutomationArchiveMessages(threadId, fallbackMessages);
+    return await this.readAutomationArchiveMessagesFromThreadTurns(threadId);
   }
 
   private resolveAutomationArchiveMessagesFromTranscript(

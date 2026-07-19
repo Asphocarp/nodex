@@ -135,6 +135,7 @@ import type { DesktopProjectWorkspacePort } from "./core-client/project-workspac
 import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
+import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -584,6 +585,7 @@ interface RegisterIpcHandlersOptions {
     DesktopDatabaseModuleBridge,
     "read" | "apply" | "readLibrary" | "applyLibrary"
   >;
+  automationModule?: DesktopAutomationModulePort;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
 }
@@ -3042,10 +3044,11 @@ export function registerIpcHandlers(
 
   registerCodexScheduledAutomationIpcHandlers({
     registerHandle,
+    automationModule: options.automationModule,
     runScheduledAutomationNow: (input, rendererClientId) =>
       codexService.runScheduledAutomationNow(input, rendererClientId),
-    captureAutomationArchiveMessages: (threadId) =>
-      codexService.captureAutomationArchiveMessages(threadId),
+    resolveAutomationArchiveMessages: (threadId) =>
+      codexService.resolveAutomationArchiveMessages(threadId),
     unarchiveThread: (threadId) => codexService.unarchiveThread(threadId),
     broadcastScheduledAutomationChanged,
     broadcastAutomationRunsUpdated: (event) => {

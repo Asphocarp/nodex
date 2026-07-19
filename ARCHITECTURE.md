@@ -124,6 +124,16 @@ each Page's primary-Database or recursive grant authority, requires its current
 Data Source workflow status, and returns the established deduplicated command-
 palette projection. It is intentionally separate from Library-wide semantic
 content search, whose raw Block/Document evidence serves CLI and Agent use cases.
+Scheduled Automation definition CRUD and the renderer run inbox now use one
+authority-selected Automation port. In the Rust branch the trusted root client
+maps the established camel-cased IPC model to revision-fenced Core intents;
+definition deletion and its run cascade share one native commit, and archive
+messages resolved from Codex transcripts are submitted with the archive
+transition instead of being persisted first. The TypeScript implementation is
+an explicit fallback behind the same port. Electron remains responsible for
+external Codex execution and Thread archive/unarchive coordination; scheduler
+lease dispatch and the remaining Codex-host Automation persistence call sites
+are separate cutover work.
 Project-scoped Database Module reads and writes select one cached Core client
 per Project. The Adapter translates only typed target/intent coordinates,
 preserves filter/sort/config/value domain JSON unchanged, and validates both
@@ -434,12 +444,13 @@ single Automation receipt/event commit or roll back together. Deterministic
 request failures persist as replayable rejected receipts without a change-log
 row, including across authenticated Adapter changes.
 
-This boundary currently runs only in migration probes. The TypeScript main
-process remains the sole production SQLite/Yjs authority until the explicit
-Profile cutover milestone; neither normal startup nor renderer behavior depends
-on the native daemon. Generated protocol artifacts are byte-verified, and
-dependency audits prevent UDS routes from importing SQLite, deep Modules from
-importing transport code, or the Electron client from reaching the local store.
+The Automation definition/run boundary is active behind the Electron Rust
+development selector. Due-lease scheduling, Scheduled Page occurrence/reminder
+delivery, and the remaining Codex-host writers are still exercised through
+native probes until their Host adapters cut over. Generated protocol artifacts
+are byte-verified, and dependency audits prevent UDS routes from importing
+SQLite, deep Modules from importing transport code, or the Electron client from
+reaching the local store.
 
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical product read models (`Page` detail payloads, internal full-board shapes, `PageSummary`/`BoardSummary` lightweight View projections, `Project`, and project session/tab/thread-link payloads). Page is a document-bearing Block and has no second storage identity; `Card` is reserved for visual components.

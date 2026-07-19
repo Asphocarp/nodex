@@ -2,6 +2,10 @@ import * as codexAutomationRunsStore from "./local-store/codex-automation-runs";
 import * as codexScheduledAutomationsStore from "./local-store/codex-scheduled-automations";
 import type { IpcApi } from "../shared/ipc-api";
 import type {
+  AutomationArchiveMessages,
+  DesktopAutomationModulePort,
+} from "./core-client/desktop-automation-module-bridge";
+import type {
   CodexAutomationRunsUpdatedEvent,
   CodexHeartbeatAutomationThreadStateChangedInput,
   CodexHeartbeatAutomationsEnabledChangedInput,
@@ -37,7 +41,10 @@ export interface CodexScheduledAutomationIpcRegistration {
     input: CodexScheduledAutomationRunNowInput,
     rendererClientId: string | null,
   ) => Promise<void>;
-  captureAutomationArchiveMessages: (threadId: string) => Promise<boolean>;
+  automationModule?: DesktopAutomationModulePort;
+  resolveAutomationArchiveMessages: (
+    threadId: string,
+  ) => Promise<AutomationArchiveMessages>;
   unarchiveThread: (threadId: string) => Promise<unknown>;
   broadcastScheduledAutomationChanged: (
     automationId: string,
@@ -53,9 +60,65 @@ export interface CodexScheduledAutomationIpcRegistration {
   ) => void;
 }
 
+export function createTypeScriptAutomationModulePort(): DesktopAutomationModulePort {
+  return {
+    listDefinitions: async () =>
+      codexScheduledAutomationsStore.listCodexScheduledAutomations(),
+    createDefinition: async (input) =>
+      codexScheduledAutomationsStore.createCodexScheduledAutomation(input),
+    updateDefinition: async (input) =>
+      codexScheduledAutomationsStore.updateCodexScheduledAutomation(input),
+    deleteDefinition: async (id) => {
+      const existing = codexScheduledAutomationsStore.getCodexScheduledAutomation(id);
+      const result =
+        codexScheduledAutomationsStore.deleteCodexScheduledAutomationWithStatus(id);
+      const success = result.status === "deleted" || result.status === "not_found";
+      const deletedRunCount = success
+        ? codexAutomationRunsStore.deleteCodexAutomationRunsForAutomation(id)
+        : 0;
+      return {
+        item: existing,
+        success,
+        status: result.status,
+        deletedRunCount,
+      };
+    },
+    getRun: async (threadId) =>
+      codexAutomationRunsStore.getCodexAutomationRun(threadId),
+    archiveRun: async (input, messages) => {
+      codexAutomationRunsStore.captureCodexAutomationArchiveMessages({
+        threadId: input.threadId,
+        archivedAssistantMessage: messages.archivedAssistantMessage,
+        archivedUserMessage: messages.archivedUserMessage,
+      });
+      return codexAutomationRunsStore.archiveCodexAutomationRun(
+        input.threadId,
+        input.archivedReason,
+      );
+    },
+    deleteRun: async (threadId) =>
+      codexAutomationRunsStore.deleteCodexAutomationRun(threadId),
+    unarchiveRun: async (threadId) =>
+      codexAutomationRunsStore.unarchiveCodexAutomationRun(threadId),
+    readInbox: async (limit) => ({
+      items: codexAutomationRunsStore.listCodexAutomationInboxItems(limit ?? 200),
+      unreadRunCounts: codexAutomationRunsStore.getCodexAutomationRunUnreadCounts(),
+    }),
+    setRunReadState: async (input) =>
+      codexAutomationRunsStore.setCodexAutomationRunReadAt(
+        input.threadId,
+        input.readAt,
+      ),
+    markAllRunsRead: async (input) =>
+      codexAutomationRunsStore.markAllCodexAutomationRunsRead(input.readAt),
+  };
+}
+
 export function registerCodexScheduledAutomationIpcHandlers(
   options: CodexScheduledAutomationIpcRegistration,
 ): void {
+  const automationModule =
+    options.automationModule ?? createTypeScriptAutomationModulePort();
   const broadcastAutomationRunChanged = (
     event: CodexAutomationRunsUpdatedEvent,
     eventOptions: { refreshAutomationList?: boolean } = {},
@@ -65,41 +128,42 @@ export function registerCodexScheduledAutomationIpcHandlers(
     options.broadcastScheduledAutomationChanged(event.automationId, null, "upsert");
   };
 
-  options.registerHandle("codex:scheduled-automations:list", () => ({
-    items: codexScheduledAutomationsStore.listCodexScheduledAutomations(),
+  options.registerHandle("codex:scheduled-automations:list", async () => ({
+    items: await automationModule.listDefinitions(),
   }));
 
-  options.registerHandle("codex:scheduled-automations:create", (_, input) => {
-    const automation = codexScheduledAutomationsStore.createCodexScheduledAutomation(input);
+  options.registerHandle("codex:scheduled-automations:create", async (_, input) => {
+    const automation = await automationModule.createDefinition(input);
     options.broadcastScheduledAutomationChanged(automation.id, automation.targetThreadId, "upsert");
     return { item: automation };
   });
 
-  options.registerHandle("codex:scheduled-automations:update", (_, input) => {
-    const automation = codexScheduledAutomationsStore.updateCodexScheduledAutomation(input);
+  options.registerHandle("codex:scheduled-automations:update", async (_, input) => {
+    const automation = await automationModule.updateDefinition(input);
     if (!automation) throw new Error("Scheduled automation update failed.");
     options.broadcastScheduledAutomationChanged(automation.id, automation.targetThreadId, "upsert");
     return { item: automation };
   });
 
-  options.registerHandle("codex:scheduled-automations:delete", (_, input) => {
-    const existing = codexScheduledAutomationsStore.getCodexScheduledAutomation(input.id);
-    const result = codexScheduledAutomationsStore.deleteCodexScheduledAutomationWithStatus(input.id);
-    const success = result.status === "deleted" || result.status === "not_found";
-    if (success) {
-      const deletedRunCount = codexAutomationRunsStore.deleteCodexAutomationRunsForAutomation(input.id);
-      if (deletedRunCount > 0) {
+  options.registerHandle("codex:scheduled-automations:delete", async (_, input) => {
+    const result = await automationModule.deleteDefinition(input.id);
+    if (result.success) {
+      if (result.deletedRunCount > 0) {
         options.broadcastAutomationRunsUpdated({
-          automationId: existing?.id ?? input.id,
+          automationId: result.item?.id ?? input.id,
           threadId: null,
           reason: "delete",
         });
       }
-      options.broadcastScheduledAutomationChanged(existing?.id ?? input.id, existing?.targetThreadId ?? null, "delete");
+      options.broadcastScheduledAutomationChanged(
+        result.item?.id ?? input.id,
+        result.item?.targetThreadId ?? null,
+        "delete",
+      );
     }
     return {
-      item: existing,
-      success,
+      item: result.item,
+      success: result.success,
       status: result.status,
     };
   });
@@ -126,20 +190,16 @@ export function registerCodexScheduledAutomationIpcHandlers(
   });
 
   options.registerHandle("codex:automation-runs:archive", async (_, input) => {
-    const run = codexAutomationRunsStore.getCodexAutomationRun(input.threadId);
-    let capturedMessages = false;
-    if (input.archivedAssistantMessage != null || input.archivedUserMessage != null) {
-      capturedMessages = codexAutomationRunsStore.captureCodexAutomationArchiveMessages({
-        threadId: input.threadId,
-        archivedAssistantMessage: input.archivedAssistantMessage,
-        archivedUserMessage: input.archivedUserMessage,
-      });
-    } else {
-      capturedMessages = await options.captureAutomationArchiveMessages(input.threadId);
-    }
-
-    const success = codexAutomationRunsStore.archiveCodexAutomationRun(input.threadId, input.archivedReason);
-    if (run && (success || capturedMessages)) {
+    const run = await automationModule.getRun(input.threadId);
+    const messages =
+      input.archivedAssistantMessage != null || input.archivedUserMessage != null
+        ? {
+            archivedAssistantMessage: input.archivedAssistantMessage ?? null,
+            archivedUserMessage: input.archivedUserMessage ?? null,
+          }
+        : await options.resolveAutomationArchiveMessages(input.threadId);
+    const success = await automationModule.archiveRun(input, messages);
+    if (run && success) {
       broadcastAutomationRunChanged({
         automationId: run.automationId,
         threadId: input.threadId,
@@ -151,9 +211,9 @@ export function registerCodexScheduledAutomationIpcHandlers(
     };
   });
 
-  options.registerHandle("codex:automation-runs:delete", (_, input) => {
-    const run = codexAutomationRunsStore.getCodexAutomationRun(input.threadId);
-    const success = codexAutomationRunsStore.deleteCodexAutomationRun(input.threadId);
+  options.registerHandle("codex:automation-runs:delete", async (_, input) => {
+    const run = await automationModule.getRun(input.threadId);
+    const success = await automationModule.deleteRun(input.threadId);
     if (success && run) {
       broadcastAutomationRunChanged({
         automationId: run.automationId,
@@ -165,9 +225,9 @@ export function registerCodexScheduledAutomationIpcHandlers(
   });
 
   options.registerHandle("codex:automation-runs:unarchive", async (_, input) => {
-    const run = codexAutomationRunsStore.getCodexAutomationRun(input.threadId);
+    const run = await automationModule.getRun(input.threadId);
     await options.unarchiveThread(input.threadId);
-    const success = codexAutomationRunsStore.unarchiveCodexAutomationRun(input.threadId);
+    const success = await automationModule.unarchiveRun(input.threadId);
     if (success && run) {
       broadcastAutomationRunChanged({
         automationId: run.automationId,
@@ -178,13 +238,12 @@ export function registerCodexScheduledAutomationIpcHandlers(
     return { success };
   });
 
-  options.registerHandle("codex:automation-runs:inbox-items", (_, limit) => ({
-    items: codexAutomationRunsStore.listCodexAutomationInboxItems(limit ?? 200),
-    unreadRunCounts: codexAutomationRunsStore.getCodexAutomationRunUnreadCounts(),
-  }));
+  options.registerHandle("codex:automation-runs:inbox-items", (_, limit) =>
+    automationModule.readInbox(limit ?? 200),
+  );
 
-  options.registerHandle("codex:automation-runs:set-read-state", (_, input) => {
-    const item = codexAutomationRunsStore.setCodexAutomationRunReadAt(input.threadId, input.readAt);
+  options.registerHandle("codex:automation-runs:set-read-state", async (_, input) => {
+    const item = await automationModule.setRunReadState(input);
     if (item) {
       broadcastAutomationRunChanged({
         automationId: item.automationId,
@@ -195,8 +254,8 @@ export function registerCodexScheduledAutomationIpcHandlers(
     return item;
   });
 
-  options.registerHandle("codex:automation-runs:mark-all-read", (_, input) => {
-    const changedCount = codexAutomationRunsStore.markAllCodexAutomationRunsRead(input.readAt);
+  options.registerHandle("codex:automation-runs:mark-all-read", async (_, input) => {
+    const changedCount = await automationModule.markAllRunsRead(input);
     if (changedCount > 0) {
       options.broadcastAutomationRunsUpdated({
         automationId: null,

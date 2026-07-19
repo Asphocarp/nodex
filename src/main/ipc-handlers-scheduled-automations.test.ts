@@ -100,7 +100,10 @@ beforeAll(async () => {
     runScheduledAutomationNow: async (input) => {
       runNowInputs.push(input);
     },
-    captureAutomationArchiveMessages: async () => false,
+    resolveAutomationArchiveMessages: async () => ({
+      archivedAssistantMessage: null,
+      archivedUserMessage: null,
+    }),
     unarchiveThread: async (threadId) => {
       unarchivedThreadIds.push(threadId);
       return true;
