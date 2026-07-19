@@ -13,7 +13,7 @@ import {
 } from "../../shared/command-keybindings";
 import type {
   BoardChangeEvent,
-  PersistedAtomUpdate,
+  PersistedAtomEvent,
   ProjectSessionsChangeEvent,
   ProjectsChangeEvent,
 } from "../../shared/ipc-api";
@@ -465,10 +465,15 @@ export function createElectronRendererTransport(
         callback(payload);
       });
     },
-    subscribePersistedAtomUpdates(callback: (update: PersistedAtomUpdate) => void) {
+    subscribePersistedAtomUpdates(callback: (update: PersistedAtomEvent) => void) {
       return bridge.on("persisted-atom:updated", (...args: unknown[]) => {
-        const payload = args[0] as PersistedAtomUpdate | undefined;
-        if (!payload || typeof payload.key !== "string") return;
+        const payload = args[0] as PersistedAtomEvent | undefined;
+        if (
+          !payload
+          || typeof payload.key !== "string"
+          || typeof payload.mutationId !== "string"
+          || typeof payload.revision !== "number"
+        ) return;
         callback(payload);
       });
     },

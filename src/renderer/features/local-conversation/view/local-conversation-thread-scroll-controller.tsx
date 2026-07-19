@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -27,6 +28,7 @@ import {
   THREAD_NEAR_BOTTOM_THRESHOLD_PX,
 } from "./local-conversation-turn-virtualization";
 import { useRemoteHostedPipHostLayoutReporter } from "./remote-hosted-pip-host-layout-reporter";
+import type { LocalConversationThreadRestoreSnapshot } from "./local-conversation-thread-view-state";
 
 const USER_SCROLL_WHEEL_DELTA_THRESHOLD_PX = 12;
 const USER_SCROLL_GRACE_WINDOW_MS = 1_000;
@@ -94,6 +96,7 @@ interface LocalConversationThreadScrollLayoutProps {
   footer?: ReactNode;
   scrollViewClassName?: string;
   contentWrapperClassName?: string;
+  initialRestoreSnapshot?: LocalConversationThreadRestoreSnapshot;
 }
 
 interface LocalConversationThreadScrollControllerContextValue
@@ -208,9 +211,10 @@ function LocalConversationThreadScrollControllerProvider({
   const pendingLatestTurnSubmitPlacementRef =
     useRef<PendingLatestTurnSubmitPlacement | null>(null);
 
-  useEffect(() => {
-    scrollElementRef.current = scrollElement;
-  }, [scrollElement]);
+  const registerScrollElement = useCallback((element: HTMLDivElement | null) => {
+    scrollElementRef.current = element;
+    setScrollElement(element);
+  }, []);
 
   useEffect(() => {
     responseSpacerStateRef.current = responseSpacerState;
@@ -610,7 +614,7 @@ function LocalConversationThreadScrollControllerProvider({
     notifyContentLayout,
     preserveScrollPositionForNextLayout,
     prepareLatestTurnSubmitPlacement,
-    registerScrollElement: setScrollElement,
+    registerScrollElement,
     registerResponseSpacerState,
     responseSpacerState,
     scrollElementIntoView,
@@ -643,7 +647,7 @@ function LocalConversationThreadScrollControllerProvider({
     scrollToBottom,
     scrollToDistanceFromBottomPx,
     setFooterResizeViewportPreserveDisabled,
-    setScrollElement,
+    registerScrollElement,
     setScrollMode,
     suppressAutoStickToBottom,
   ]);
@@ -676,6 +680,7 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   children,
   contentX,
   footer,
+  initialRestoreSnapshot,
   scrollViewClassName,
   contentWrapperClassName,
 }, ref) {
@@ -684,7 +689,23 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   const footerRef = useRef<HTMLDivElement | null>(null);
   const preserveScrollPositionForNextLayout = controller.preserveScrollPositionForNextLayout;
   const scrollElement = controller.scrollElement;
+  const restoredElementRef = useRef<HTMLDivElement | null>(null);
   useRemoteHostedPipHostLayoutReporter();
+
+  useLayoutEffect(() => {
+    if (!scrollElement || restoredElementRef.current === scrollElement) return;
+    restoredElementRef.current = scrollElement;
+    const distanceFromBottomPx = initialRestoreSnapshot?.distanceFromBottomPx ?? 0;
+    if (distanceFromBottomPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX) {
+      controller.suppressAutoStickToBottom();
+    } else {
+      controller.setScrollMode("stickToBottom");
+    }
+    controller.scrollToDistanceFromBottomPx(
+      distanceFromBottomPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX ? 0 : distanceFromBottomPx,
+      "auto",
+    );
+  }, [controller, initialRestoreSnapshot, scrollElement]);
 
   useImperativeHandle(ref, () => ({
     scrollToBottom: controller.scrollToBottom,

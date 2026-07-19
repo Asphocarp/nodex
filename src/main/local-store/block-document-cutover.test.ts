@@ -170,7 +170,7 @@ describe("owned Document descriptor lookup", () => {
     const tempDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "nodex-library-page-document-access-"),
     );
-    process.env.NODEX_DIR = tempDir;
+    process.env.NODEX_HOME = tempDir;
     try {
       await initializeDatabase();
       const owner = createProject({ name: "Compatibility owner" });
@@ -196,7 +196,7 @@ describe("owned Document descriptor lookup", () => {
     } finally {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
-      delete process.env.NODEX_DIR;
+      delete process.env.NODEX_HOME;
     }
   });
 });

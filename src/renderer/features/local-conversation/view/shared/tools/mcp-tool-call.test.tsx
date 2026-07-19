@@ -4,7 +4,11 @@ import type { ReactElement } from "react";
 import type { CodexMcpToolCallView, CodexTranscriptEntry, ProtocolMcpResourceReadResponse } from "../../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { installWindowApi } from "../../../../../test/browser-globals";
-import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
+import {
+  renderWithMaitai as render,
+  settleAsyncRender,
+  textContent,
+} from "../../../../../test/dom";
 import { createTestQueryClient, TestQueryProvider } from "../../../../../test/query";
 import { queryKeys } from "../../../../../lib/query-keys";
 import { CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL } from "../../../../../../shared/codex-mcp-tool-call";

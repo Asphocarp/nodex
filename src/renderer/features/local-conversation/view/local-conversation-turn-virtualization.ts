@@ -132,9 +132,11 @@ export interface ThreadLatestTurnFollowState {
 }
 
 export interface VirtualizedLatestTurnRestoreState {
-  followState: ThreadLatestTurnFollowState;
+  followMode: ThreadLatestTurnFollowMode;
+  isLatestTurnInProgress: boolean;
   latestTurnFollowContentHeightPx: number | null;
   latestTurnHeightPx: number | null;
+  latestTurnPhase: ThreadLatestTurnPhase;
   turnKey: string;
 }
 

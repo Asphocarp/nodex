@@ -7,7 +7,7 @@ import type {
   PageInput,
 } from "@/lib/types";
 import type { PageStagePageModel } from "@/lib/page-stage-page";
-import { render, settleAsyncRender } from "@/test/dom";
+import { renderWithMaitai as render, settleAsyncRender } from "@/test/dom";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
   plainTextToPortableRichText,

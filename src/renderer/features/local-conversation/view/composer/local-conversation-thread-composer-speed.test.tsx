@@ -14,12 +14,14 @@ import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ThreadComposer, __composerAddContextTestUtils } from "./local-conversation-thread-composer";
+import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 
 const CODEX_FAST_MODE_ICON_PATH =
   "M9.80999 17.8302C9.49666 18.1969 9.08999 18.3869 8.58999 18.4002C8.09666 18.4136 7.69666 18.2436 7.38999 17.8902C7.08999 17.5436 7.02666 17.0636 7.19999 16.4502L8.06999 13.2902H3.89999C3.43333 13.2902 3.06999 13.1602 2.80999 12.9002C2.55666 12.6336 2.42999 12.3136 2.42999 11.9402C2.42999 11.5602 2.55666 11.2169 2.80999 10.9102L10.16 2.18022C10.4733 1.81356 10.8767 1.62356 11.37 1.61022C11.87 1.59689 12.27 1.76689 12.57 2.12022C12.8767 2.47356 12.9433 2.95356 12.77 3.56023L11.87 6.78023H16.05C16.51 6.78023 16.87 6.91356 17.13 7.18023C17.3967 7.44023 17.53 7.76023 17.53 8.14023C17.53 8.52023 17.4 8.86023 17.14 9.16023L9.80999 17.8302ZM15.89 8.50023C15.93 8.44689 15.95 8.39356 15.95 8.34023C15.9567 8.28689 15.94 8.24356 15.9 8.21023C15.86 8.17023 15.8033 8.15023 15.73 8.15023H11.1C10.9133 8.15023 10.7533 8.10356 10.62 8.01023C10.4933 7.91689 10.4067 7.79023 10.36 7.63023C10.3133 7.47023 10.3167 7.29023 10.37 7.09023L11.33 3.62022C11.3567 3.52022 11.3467 3.44356 11.3 3.39022C11.2533 3.33022 11.19 3.30356 11.11 3.31022C11.0367 3.31689 10.9733 3.35356 10.92 3.42023L4.04999 11.5702C4.00999 11.6236 3.98666 11.6769 3.97999 11.7302C3.97999 11.7836 3.99999 11.8269 4.03999 11.8602C4.07999 11.8936 4.13999 11.9102 4.21999 11.9102H8.78999C9.00333 11.9102 9.17666 11.9569 9.30999 12.0502C9.44999 12.1436 9.54333 12.2736 9.58999 12.4402C9.63666 12.6002 9.63333 12.7802 9.57999 12.9802L8.63999 16.3902C8.61333 16.4902 8.62333 16.5702 8.66999 16.6302C8.71666 16.6836 8.77666 16.7069 8.84999 16.7002C8.92999 16.6936 8.99666 16.6602 9.04999 16.6002L15.89 8.50023Z";
 
 const storageMap = new Map<string, string>();
 const persistedAtomState = new Map<string, unknown>();
+let persistedAtomRevision = 0;
 type PersistedAtomListener = (...args: unknown[]) => void;
 const persistedAtomListeners = new Set<PersistedAtomListener>();
 
@@ -44,6 +46,7 @@ const localStorageRef = (globalThis as { localStorage: typeof mockStorage }).loc
 function resetStorage(): void {
   storageMap.clear();
   persistedAtomState.clear();
+  persistedAtomRevision = 0;
   persistedAtomListeners.clear();
   clearPersistedAtomStoreForTests();
   localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
@@ -60,16 +63,28 @@ function installComposerWindowApi(testInvoke?: TestInvoke): void {
       }
       switch (channel) {
         case "persisted-atom:sync-request":
-          return Object.fromEntries(persistedAtomState.entries());
+          return {
+            revision: persistedAtomRevision,
+            values: Object.fromEntries(persistedAtomState.entries()),
+          };
         case "persisted-atom:update": {
-          const update = args[0] as { key?: unknown; value?: unknown };
-          if (typeof update.key === "string") {
+          const update = args[0] as { key?: unknown; value?: unknown; mutationId?: unknown };
+          if (typeof update.key === "string" && typeof update.mutationId === "string") {
+            persistedAtomRevision += 1;
             persistedAtomState.set(update.key, update.value);
+            const event = {
+              key: update.key,
+              value: update.value,
+              mutationId: update.mutationId,
+              revision: persistedAtomRevision,
+              originRendererId: "test-renderer",
+            };
             for (const listener of persistedAtomListeners) {
-              listener({ key: update.key, value: update.value });
+              listener(event);
             }
+            return event;
           }
-          return Object.fromEntries(persistedAtomState.entries());
+          return null;
         }
         case "codex:permission:state:get":
           return {
@@ -304,12 +319,14 @@ async function renderComposer(
   await act(async () => {
     view = render(
       <AppProviders>
+        <TestComposerScopePath>
           <ThreadComposer
             model={buildModel(overrides)}
             actions={buildActions(actionOverrides)}
             errorMessage={null}
             onErrorMessage={() => {}}
           />
+        </TestComposerScopePath>
       </AppProviders>,
     );
   });
@@ -327,6 +344,11 @@ async function submitCurrentComposerDraft(view: ReturnType<typeof render>): Prom
     fireEvent.click(sendButton);
     await Promise.resolve();
   });
+}
+
+function readComposerText(view: ReturnType<typeof render>): string {
+  return view.container.querySelector<HTMLElement>('[data-codex-composer="true"]')
+    ?.textContent ?? "";
 }
 
 function buildActiveTurn(): NonNullable<ThreadFooterModel["activeTurn"]> {
@@ -433,6 +455,7 @@ describe("ThreadComposer speed menu", () => {
     });
     expect(queuedPrompts[0]).toBe("Follow up");
     expect(steeredPrompts.length).toBe(0);
+    await waitFor(() => expect(readComposerText(view)).toBe(""));
   });
 
   test("enter queues and cmd-enter steers while running in enter mode with queueing enabled", async () => {
@@ -613,6 +636,7 @@ describe("ThreadComposer speed menu", () => {
     });
     expect(sideChatInputs[0]).toBe("{\"prompt\":\"investigate this\"}");
     expect(sentPrompts.length).toBe(0);
+    await waitFor(() => expect(readComposerText(view)).toBe(""));
   });
 
   test("/side is unavailable inside an existing side chat", async () => {
@@ -659,6 +683,121 @@ describe("ThreadComposer speed menu", () => {
     expect(String((snapshot[0] as { title?: unknown }).title ?? "")).toBe(
       "'/side' is unavailable in side chats. Return to the main thread first",
     );
+    expect(readComposerText(view)).toBe("/side nested check");
+  });
+
+  test("preserves the complete prompt when send or side-task creation fails", async () => {
+    resetStorage();
+    const sendView = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "preserve failed send",
+          focusNonce: 1,
+          promptInput: {
+            text: "preserve failed send",
+            skills: [{ name: "Failure Context", path: "/skills/failure-context" }],
+          },
+        },
+      },
+      { onSendPrompt: async () => { throw new Error("transport failed"); } },
+    );
+    await submitCurrentComposerDraft(sendView);
+    await waitFor(() => expect(readComposerText(sendView)).toBe("preserve failed send"));
+    expect(sendView.container.textContent?.includes("Failure Context") ?? false).toBe(true);
+    sendView.unmount();
+
+    resetStorage();
+    const sideView = await renderComposer(
+      { composerIntent: { prompt: "/side preserve failed side", focusNonce: 2 } },
+      { onOpenSideChat: async () => { throw new Error("side failed"); } },
+    );
+    await submitCurrentComposerDraft(sideView);
+    await waitFor(() => expect(readComposerText(sideView)).toBe("/side preserve failed side"));
+  });
+
+  test("treats ordinary empty intent text as no-op and clearText as explicit deletion", async () => {
+    resetStorage();
+    const actions = buildActions();
+    const renderTree = (intent: NonNullable<ThreadFooterModel["composerIntent"]>) => (
+      <AppProviders>
+        <TestComposerScopePath>
+          <ThreadComposer
+            model={buildModel({ composerIntent: intent })}
+            actions={actions}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </TestComposerScopePath>
+      </AppProviders>
+    );
+    const view = render(renderTree({ prompt: "retained text", focusNonce: 1 }));
+    await settleComposerFrame();
+    expect(readComposerText(view)).toBe("retained text");
+
+    await act(async () => {
+      view.rerender(renderTree({ prompt: "", focusNonce: 2 }));
+      await Promise.resolve();
+    });
+    await settleComposerFrame();
+    expect(readComposerText(view)).toBe("retained text");
+
+    await act(async () => {
+      view.rerender(renderTree({ prompt: "", focusNonce: 3, clearText: true }));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(readComposerText(view)).toBe(""));
+  });
+
+  test("applies explicit attachment append and replace semantics once per nonce", async () => {
+    resetStorage();
+    const actions = buildActions();
+    const renderTree = (intent: NonNullable<ThreadFooterModel["composerIntent"]>) => (
+      <AppProviders>
+        <TestComposerScopePath>
+          <ThreadComposer
+            model={buildModel({ composerIntent: intent })}
+            actions={actions}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </TestComposerScopePath>
+      </AppProviders>
+    );
+    const firstIntent = {
+      prompt: "keep prompt",
+      focusNonce: 10,
+      promptInput: { text: "keep prompt", skills: [{ name: "Alpha", path: "/skills/alpha" }] },
+    };
+    const view = render(renderTree(firstIntent));
+    await settleComposerFrame();
+    expect(view.container.textContent?.includes("Alpha") ?? false).toBe(true);
+
+    await act(async () => {
+      view.rerender(renderTree({
+        prompt: "",
+        focusNonce: 11,
+        attachmentMode: "append",
+        promptInput: { text: "", skills: [{ name: "Beta", path: "/skills/beta" }] },
+      }));
+      await Promise.resolve();
+    });
+    await settleComposerFrame();
+    expect(readComposerText(view)).toBe("keep prompt");
+    expect(view.container.textContent?.includes("Alpha") ?? false).toBe(true);
+    expect(view.container.textContent?.includes("Beta") ?? false).toBe(true);
+
+    await act(async () => {
+      view.rerender(renderTree({
+        prompt: "",
+        focusNonce: 12,
+        attachmentMode: "replace",
+        promptInput: { text: "", skills: [{ name: "Beta", path: "/skills/beta" }] },
+      }));
+      await Promise.resolve();
+    });
+    await settleComposerFrame();
+    expect(view.container.textContent?.includes("Alpha") ?? false).toBe(false);
+    expect(view.container.textContent?.includes("Beta") ?? false).toBe(true);
   });
 
   test("shows the Codex-style fast indicator before the model label only when Fast is active", async () => {
@@ -1560,26 +1699,28 @@ describe("ThreadComposer speed menu", () => {
 
     const sentPrompts: string[] = [];
     const setGoalCalls: string[] = [];
+    const actions = buildActions({
+      onSendPrompt: async (prompt) => {
+        sentPrompts.push(prompt);
+      },
+      onSetThreadGoal: async (input) => {
+        setGoalCalls.push(JSON.stringify(input));
+        return null;
+      },
+    });
+    const conversation = {
+      ...baseConversation,
+      threadGoal: buildThreadGoal({ objective: "Keep the old goal" }),
+    };
     const view = await renderComposer(
       {
-        conversation: {
-          ...baseConversation,
-          threadGoal: buildThreadGoal({ objective: "Keep the old goal" }),
-        },
+        conversation,
         composerIntent: {
           prompt: "/goal Replace with the current composer objective",
           focusNonce: 1,
         },
       },
-      {
-        onSendPrompt: async (prompt) => {
-          sentPrompts.push(prompt);
-        },
-        onSetThreadGoal: async (input) => {
-          setGoalCalls.push(JSON.stringify(input));
-          return null;
-        },
-      },
+      actions,
     );
 
     await submitCurrentComposerDraft(view);
@@ -1587,6 +1728,32 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       expect(Boolean(view.getByText("Replace current goal?"))).toBe(true);
     });
+
+    await act(async () => {
+      view.rerender(
+        <AppProviders>
+          <TestComposerScopePath>
+            <ThreadComposer
+              model={buildModel({
+                conversation,
+                composerIntent: {
+                  prompt: "/goal A newer draft that must not replace the captured confirmation",
+                  focusNonce: 2,
+                },
+              })}
+              actions={actions}
+              errorMessage={null}
+              onErrorMessage={() => {}}
+            />
+          </TestComposerScopePath>
+        </AppProviders>,
+      );
+      await Promise.resolve();
+    });
+    await settleComposerFrame();
+    expect(readComposerText(view)).toBe(
+      "/goal A newer draft that must not replace the captured confirmation",
+    );
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Replace goal" }));
@@ -1603,6 +1770,7 @@ describe("ThreadComposer speed menu", () => {
     await waitFor(() => {
       expect(view.queryByText("Replace current goal?") === null).toBe(true);
     });
+    await waitFor(() => expect(readComposerText(view)).toBe(""));
   });
 
   test("keeps slash menu scroll position stable across hover and item recompute", async () => {
@@ -1656,18 +1824,20 @@ describe("ThreadComposer speed menu", () => {
       await act(async () => {
         view.rerender(
           <AppProviders>
-            <ThreadComposer
-              model={buildModel({
-                composerIntent: {
-                  prompt: "/",
-                  focusNonce: 1,
-                },
-                selectedModel: "gpt-5.5",
-              })}
-              actions={buildActions()}
-              errorMessage={null}
-              onErrorMessage={() => {}}
-            />
+            <TestComposerScopePath>
+              <ThreadComposer
+                model={buildModel({
+                  composerIntent: {
+                    prompt: "/",
+                    focusNonce: 1,
+                  },
+                  selectedModel: "gpt-5.5",
+                })}
+                actions={buildActions()}
+                errorMessage={null}
+                onErrorMessage={() => {}}
+              />
+            </TestComposerScopePath>
           </AppProviders>,
         );
         await Promise.resolve();

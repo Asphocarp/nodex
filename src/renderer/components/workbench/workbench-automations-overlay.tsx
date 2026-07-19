@@ -134,12 +134,12 @@ import {
   resolveAutomationsRouteState,
   type WorkbenchAutomationsTab,
 } from "./workbench-automations-routes";
+import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 
 interface WorkbenchAutomationsRouteShellProps {
   path: string;
   projects?: readonly Project[];
   externalHeader?: boolean;
-  headerPortalTarget?: HTMLElement | null;
   detailRailPortalTarget?: HTMLElement | null;
   onDetailRailOpenChange?: (open: boolean) => void;
   onPathChange: (path: string) => void;
@@ -2962,7 +2962,6 @@ export function WorkbenchAutomationsRouteShell({
   path,
   projects = [],
   externalHeader = false,
-  headerPortalTarget = null,
   detailRailPortalTarget = null,
   onDetailRailOpenChange,
   onPathChange,
@@ -3796,7 +3795,7 @@ export function WorkbenchAutomationsRouteShell({
       data-testid="automations-route-shell"
       className="main-surface flex h-full min-h-0 w-full overflow-hidden text-token-text-primary"
     >
-      {externalHeader && headerPortalTarget ? createPortal(routeHeader, headerPortalTarget) : null}
+      {externalHeader ? <AppShellHeaderContentRegistrar content={routeHeader} /> : null}
       {detailRailContent && detailRailPortalTarget ? createPortal(detailRailContent, detailRailPortalTarget) : null}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         {externalHeader ? <div aria-hidden="true" className="h-toolbar shrink-0" /> : routeHeader}

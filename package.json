@@ -169,6 +169,7 @@
     "eslint": "10.5.0",
     "eslint-plugin-better-tailwindcss": "4.6.0",
     "eslint-plugin-react-hooks": "7.1.1",
+    "jotai": "2.20.2",
     "js-yaml": "4.2.0",
     "jsdom": "29.1.1",
     "katex": "0.17.0",

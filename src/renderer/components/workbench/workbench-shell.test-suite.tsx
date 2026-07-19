@@ -10,7 +10,6 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
@@ -57,9 +56,10 @@ import type {
 } from "@/lib/use-workbench-state";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
+import { RendererStateProvider } from "../../app-providers";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
 import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
-import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
+import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import {
   __getNodexToastSnapshotForTests,
   __resetNodexToastStoreForTests,
@@ -887,30 +887,24 @@ vi.mock("@/features/local-conversation", () => ({
     if (activeThreadId) {
       propsByThreadId[activeThreadId] = props;
     }
-    const headerPortalTarget = useThreadHeaderPortalTarget();
     const summary = props.activeThreadSummary as { threadName?: string | null; threadPreview?: string | null } | null | undefined;
     const threadTitle = summary?.threadName ?? summary?.threadPreview ?? (props.isNewThreadTab ? "New thread" : "No thread");
     const [mockPrompt, setMockPrompt] = useState("");
-    const headerPortal = headerPortalTarget
-      ? createPortal(
-          createElement(
-            "div",
-            {
-              className: "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
-            },
-            createElement(
-              "div",
-              { className: "flex min-w-0 items-center gap-2 truncate text-base electron:font-medium" },
-              createElement(
-                "span",
-                { "data-testid": "thread-stage-title", className: "inline-flex max-w-[320px] min-w-[2ch] items-center overflow-hidden text-token-foreground" },
-                createElement("span", { className: "min-w-0 truncate" }, threadTitle),
-              ),
-            ),
-          ),
-          headerPortalTarget,
-        )
-      : null;
+    const headerContent = createElement(
+      "div",
+      {
+        className: "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
+      },
+      createElement(
+        "div",
+        { className: "flex min-w-0 items-center gap-2 truncate text-base electron:font-medium" },
+        createElement(
+          "span",
+          { "data-testid": "thread-stage-title", className: "inline-flex max-w-[320px] min-w-[2ch] items-center overflow-hidden text-token-foreground" },
+          createElement("span", { className: "min-w-0 truncate" }, threadTitle),
+        ),
+      ),
+    );
     const actions = props.actions as {
       onOpenSummaryGitReview?: (input: { source: GitReviewSource }) => void | Promise<void>;
       onStartThreadForSession?: (input: {
@@ -946,7 +940,9 @@ vi.mock("@/features/local-conversation", () => ({
     return createElement(
       Fragment,
       null,
-      headerPortal,
+      props.backgroundAgentDetail === true || props.sideChatContext
+        ? null
+        : createElement(AppShellHeaderContentRegistrar, { content: headerContent }),
       createElement(
         "div",
         { "data-thread-stage": "true" },
@@ -1141,13 +1137,11 @@ vi.mock("./workbench-shell-deps", () => ({
 
 let WorkbenchShell: (typeof import("./workbench-shell"))["WorkbenchShell"];
 let resolvePageStageSessionTabOrder: (typeof import("./workbench-shell"))["resolvePageStageSessionTabOrder"];
-let shouldSynchronouslyRevealSession: (typeof import("./workbench-shell"))["shouldSynchronouslyRevealSession"];
 
 beforeAll(async () => {
   const workbenchShellModule = await import("./workbench-shell");
   WorkbenchShell = workbenchShellModule.WorkbenchShell;
   resolvePageStageSessionTabOrder = workbenchShellModule.resolvePageStageSessionTabOrder;
-  shouldSynchronouslyRevealSession = workbenchShellModule.shouldSynchronouslyRevealSession;
 });
 
 function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): Project {
@@ -2843,7 +2837,9 @@ function renderWorkbench({
 
   const result = render(
     <TestQueryProvider>
-      <WorkbenchShellTestHarness />
+      <RendererStateProvider>
+        <WorkbenchShellTestHarness />
+      </RendererStateProvider>
     </TestQueryProvider>,
   );
   return {
@@ -3184,14 +3180,14 @@ async function moveSidebarPointer(clientX: number, clientY = 80): Promise<void> 
   await settleAsyncRender();
 }
 
-function getRetainedSessionIds(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll<HTMLElement>("[data-retained-session-id]"))
-    .map((element) => element.getAttribute("data-retained-session-id") ?? "");
+function getMountedSessionIds(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("[data-mounted-session-id]"))
+    .map((element) => element.getAttribute("data-mounted-session-id") ?? "");
 }
 
-function getActiveRetainedSessionRoot(container: HTMLElement): HTMLElement {
-  const root = container.querySelector<HTMLElement>('[data-retained-session-active="true"]');
-  if (!root) throw new Error("Expected an active retained session root");
+function getMountedSessionRoot(container: HTMLElement): HTMLElement {
+  const root = container.querySelector<HTMLElement>("[data-mounted-session-id]");
+  if (!root) throw new Error("Expected a mounted session root");
   return root;
 }
 
@@ -3242,30 +3238,6 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(JSON.stringify(order)).toBe(JSON.stringify(["second", "first"]));
   });
 
-  test("only reveals retained cached sessions synchronously", () => {
-    const cachedSession = makeSession({ id: "session:alpha:warm" });
-    const retainedEntries = [
-      { sessionId: "session:alpha:warm" },
-      { sessionId: "session:alpha:other" },
-    ];
-
-    expect(shouldSynchronouslyRevealSession({
-      sessionId: cachedSession.id,
-      cachedSession,
-      retainedEntries,
-    })).toBe(true);
-    expect(shouldSynchronouslyRevealSession({
-      sessionId: cachedSession.id,
-      cachedSession: null,
-      retainedEntries,
-    })).toBe(false);
-    expect(shouldSynchronouslyRevealSession({
-      sessionId: "session:alpha:cold-prefetch",
-      cachedSession,
-      retainedEntries,
-    })).toBe(false);
-  });
-
   test("loads project sessions and renders the Database View DB tab", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -3304,7 +3276,7 @@ describe(`workbench session shell / ${scope}`, () => {
     }));
   });
 
-  test("switches warm recent DB sessions across projects without cold list fetches or DB remount", async () => {
+  test("switches cached DB sessions with one mounted page and restores explicit scroll state", async () => {
     const alphaHome = makeSession({
       id: "session:alpha:home",
       title: "Alpha Home",
@@ -3347,7 +3319,7 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
     await waitFor(() => {
-      expect(getRetainedSessionIds(screen.container).includes(alphaHome.id)).toBe(true);
+      expect(getMountedSessionIds(screen.container)).toEqual([alphaHome.id]);
     });
     await waitFor(() => {
       expect(
@@ -3372,9 +3344,9 @@ describe(`workbench session shell / ${scope}`, () => {
       ).toBe("database-view:alpha:primary-kanban");
     });
 
-    const alphaSearch = within(getActiveRetainedSessionRoot(screen.container))
+    const alphaSearch = within(getMountedSessionRoot(screen.container))
       .getByLabelText("Mock DB search alpha") as HTMLInputElement;
-    const alphaScroll = within(getActiveRetainedSessionRoot(screen.container))
+    const alphaScroll = within(getMountedSessionRoot(screen.container))
       .getByTestId("mock-db-scroll-alpha");
     await act(async () => {
       fireEvent.input(alphaSearch, { target: { value: "status:hot" } });
@@ -3407,33 +3379,33 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list")).toBe(false);
     expect(invokeCalls.some((call) => call[0] === "board:summary:get" && call[1] === "alpha")).toBe(false);
 
-    const restoredAlphaSearch = within(getActiveRetainedSessionRoot(screen.container))
+    const restoredAlphaSearch = within(getMountedSessionRoot(screen.container))
       .getByLabelText("Mock DB search alpha") as HTMLInputElement;
-    const restoredAlphaScroll = within(getActiveRetainedSessionRoot(screen.container))
+    const restoredAlphaScroll = within(getMountedSessionRoot(screen.container))
       .getByTestId("mock-db-scroll-alpha");
-    expect(restoredAlphaSearch.value).toBe("status:hot");
+    expect(restoredAlphaSearch.value).toBe("");
     expect(restoredAlphaScroll.scrollTop).toBe(136);
     expect(restoredAlphaScroll.scrollLeft).toBe(28);
   });
 
-  test("caps retained session Activity entries at the active session plus three recent warm sessions", async () => {
+  test("mounts exactly one selected page while switching across five sessions", async () => {
     const sessions = [1, 2, 3, 4, 5].map((index) =>
       makeSession({
-        id: `session:alpha:retained-${index}`,
-        title: `Retained ${index}`,
+        id: `session:alpha:single-${index}`,
+        title: `Session ${index}`,
         order: index - 1,
         rightFullWidth: true,
       })
     );
     const screen = renderWorkbench({
       sessionsByProject: { alpha: sessions },
-      initialActiveProjectSessionId: "session:alpha:retained-1",
+      initialActiveProjectSessionId: "session:alpha:single-1",
       sidebar: { collapsed: false, width: 300 },
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const firstSearch = within(getActiveRetainedSessionRoot(screen.container))
+    const firstSearch = within(getMountedSessionRoot(screen.container))
       .getByLabelText("Mock DB search alpha") as HTMLInputElement;
     await act(async () => {
       fireEvent.input(firstSearch, { target: { value: "evict me" } });
@@ -3441,25 +3413,45 @@ describe(`workbench session shell / ${scope}`, () => {
     });
     expect(firstSearch.value).toBe("evict me");
 
-    await selectSidebarSession(screen.container, "Retained 2");
-    await selectSidebarSession(screen.container, "Retained 3");
-    await selectSidebarSession(screen.container, "Retained 4");
-    await selectSidebarSession(screen.container, "Retained 5");
+    await selectSidebarSession(screen.container, "Session 2");
+    await selectSidebarSession(screen.container, "Session 3");
+    await selectSidebarSession(screen.container, "Session 4");
+    await selectSidebarSession(screen.container, "Session 5");
 
-    expect(JSON.stringify(getRetainedSessionIds(screen.container))).toBe(JSON.stringify([
-      "session:alpha:retained-5",
-      "session:alpha:retained-4",
-      "session:alpha:retained-3",
-      "session:alpha:retained-2",
-    ]));
+    expect(getMountedSessionIds(screen.container)).toEqual(["session:alpha:single-5"]);
 
-    await selectSidebarSession(screen.container, "Retained 1");
-    const remountedSearch = within(getActiveRetainedSessionRoot(screen.container))
+    await selectSidebarSession(screen.container, "Session 1");
+    const remountedSearch = within(getMountedSessionRoot(screen.container))
       .getByLabelText("Mock DB search alpha") as HTMLInputElement;
     expect(remountedSearch.value).toBe("");
   });
 
-  test("passes inactive thread viewport state to full-width retained sessions", async () => {
+  test("regular right panels preserve the selected thread route and transcript", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:thread-regular",
+      threadId: "thread-regular",
+      title: "Regular thread",
+      order: 0,
+      rightFullWidth: false,
+    });
+    const namedSession = {
+      ...session,
+      thread: session.thread ? { ...session.thread, threadName: "Regular thread" } : null,
+    };
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [namedSession] },
+      initialActiveProjectSessionId: session.id,
+      sidebar: { collapsed: false, width: 300 },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByTestId("thread-stage-title").textContent).toBe("Regular thread");
+    expect(getConnectedThreadStagePropsByThreadId("thread-regular")?.routeActive).toBe(true);
+    expect(getConnectedThreadStagePropsByThreadId("thread-regular")?.threadBodyVisible).toBe(true);
+  });
+
+  test("keeps the selected route active while hiding only its full-width transcript", async () => {
     const first = makeAttachedSession({
       id: "session:alpha:thread-a",
       threadId: "thread-a",
@@ -3490,17 +3482,15 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(getConnectedThreadStagePropsByThreadId("thread-a")?.threadViewportActive).toBe(false);
+    expect(getConnectedThreadStagePropsByThreadId("thread-a")?.routeActive).toBe(true);
+    expect(getConnectedThreadStagePropsByThreadId("thread-a")?.threadBodyVisible).toBe(false);
 
     await selectSidebarSession(screen.container, "Thread B");
 
     expect(screen.getByTestId("thread-stage-title").textContent).toBe("Thread B");
-    expect(getConnectedThreadStagePropsByThreadId("thread-a")?.threadViewportActive).toBe(false);
-    expect(getConnectedThreadStagePropsByThreadId("thread-b")?.threadViewportActive).toBe(false);
-    expect(JSON.stringify(getRetainedSessionIds(screen.container))).toBe(JSON.stringify([
-      "session:alpha:thread-b",
-      "session:alpha:thread-a",
-    ]));
+    expect(getConnectedThreadStagePropsByThreadId("thread-b")?.routeActive).toBe(true);
+    expect(getConnectedThreadStagePropsByThreadId("thread-b")?.threadBodyVisible).toBe(false);
+    expect(getMountedSessionIds(screen.container)).toEqual(["session:alpha:thread-b"]);
   });
 
   test("renders Codex sidebar route rows inside the scroll area in captured order", async () => {
@@ -3817,7 +3807,7 @@ describe(`workbench session shell / ${scope}`, () => {
 
     await selectSidebarSession(screen.container, "Archive target");
     await selectSidebarSession(screen.container, "Database View");
-    expect(getRetainedSessionIds(screen.container).includes("session:alpha:archive-target")).toBe(true);
+    expect(getMountedSessionIds(screen.container)).toEqual(["session:alpha:database-view"]);
 
     const row = getThreadRow(screen.container, "Archive target");
     const archiveButton = within(row).getByRole("button", { name: "Archive chat" });
@@ -3830,7 +3820,7 @@ describe(`workbench session shell / ${scope}`, () => {
     await settleAsyncRender();
 
     expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Archive target"]')).toBe(null);
-    expect(getRetainedSessionIds(screen.container).includes("session:alpha:archive-target")).toBe(false);
+    expect(getMountedSessionIds(screen.container).includes("session:alpha:archive-target")).toBe(false);
     expect(invokeCalls.some((call) =>
       call[0] === "project-sessions:archive"
       && call[1] === "session:alpha:archive-target"
@@ -9781,7 +9771,7 @@ describe(`workbench session shell / ${scope}`, () => {
     )).toBe(true);
   });
 
-  test("panel tab cycling between durable page stages keeps editors mounted and active-scoped", async () => {
+  test("panel tab cycling mounts only the active durable page stage", async () => {
     const firstPageTab = makeSessionTab({
       id: "session:alpha:database-view:card-1",
       sessionId: "session:alpha:database-view",
@@ -9816,10 +9806,10 @@ describe(`workbench session shell / ${scope}`, () => {
       __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
     };
     expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(1);
-    expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
+    expect(state.__mockPageStageMountsByPageId?.["card-2"] ?? 0).toBe(0);
     expect(state.__mockPageStageUnmountsByPageId?.["card-1"] ?? 0).toBe(0);
     expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(true);
-    expect(state.__mockPageStagePropsByPageId?.["card-2"]?.isActivePanelTab).toBe(false);
+    expect(screen.container.querySelector('[aria-label="Mock editor card-2"]')).toBe(null);
 
     const firstEditor = screen.container.querySelector('[aria-label="Mock editor card-1"]');
     if (!(firstEditor instanceof HTMLElement)) {
@@ -9847,10 +9837,10 @@ describe(`workbench session shell / ${scope}`, () => {
     )).toBe(true);
     expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(1);
     expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
-    expect(state.__mockPageStageUnmountsByPageId?.["card-1"] ?? 0).toBe(0);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-1"]).toBe(1);
     expect(state.__mockPageStageUnmountsByPageId?.["card-2"] ?? 0).toBe(0);
-    expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(false);
     expect(state.__mockPageStagePropsByPageId?.["card-2"]?.isActivePanelTab).toBe(true);
+    expect(screen.container.querySelector('[aria-label="Mock editor card-1"]')).toBe(null);
 
     const secondEditor = screen.container.querySelector('[aria-label="Mock editor card-2"]');
     if (!(secondEditor instanceof HTMLElement)) {
@@ -9876,12 +9866,12 @@ describe(`workbench session shell / ${scope}`, () => {
       && input.leafId === "main"
       && input.tabId === firstPageTab.id
     )).toBe(true);
-    expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(1);
+    expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(2);
     expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
-    expect(state.__mockPageStageUnmountsByPageId?.["card-1"] ?? 0).toBe(0);
-    expect(state.__mockPageStageUnmountsByPageId?.["card-2"] ?? 0).toBe(0);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-1"]).toBe(1);
+    expect(state.__mockPageStageUnmountsByPageId?.["card-2"]).toBe(1);
     expect(state.__mockPageStagePropsByPageId?.["card-1"]?.isActivePanelTab).toBe(true);
-    expect(state.__mockPageStagePropsByPageId?.["card-2"]?.isActivePanelTab).toBe(false);
+    expect(screen.container.querySelector('[aria-label="Mock editor card-2"]')).toBe(null);
   });
 
   test("native panel tab cycle requests work while NFM editor content is focused", async () => {
@@ -10978,6 +10968,7 @@ describe(`workbench session shell / ${scope}`, () => {
 
   test("renders cross-project page-stage tabs from their target project", async () => {
     const session = makeSession({
+      rightLayout: makePanelLayout(["db-tab", "card-tab"], "card-tab"),
       tabs: [
         {
           id: "db-tab",

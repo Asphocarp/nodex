@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
-import { render } from "../../../../../test/dom";
+import { renderWithMaitai as render } from "../../../../../test/dom";
 import type {
   CodexConversationItem,
   CodexMcpServerElicitationRequest,

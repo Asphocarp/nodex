@@ -98,7 +98,7 @@ export const LongThreadStreaming: Story = {
     docs: {
       description: {
         story:
-          "Long transcript lifecycle check for the shared thread scroll shell: the core list owns windowing/pending reveal, the wrapper owns latest-turn follow and response spacer, and the footer catch-up state should stay stable during streaming.",
+          "Two-hundred-turn transcript lifecycle check for the shared thread scroll shell: the core list owns windowing/pending reveal, the wrapper owns latest-turn follow and response spacer, and the footer catch-up state should stay stable during streaming.",
       },
     },
   },

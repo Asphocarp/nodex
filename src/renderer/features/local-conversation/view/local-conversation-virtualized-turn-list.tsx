@@ -47,6 +47,7 @@ import {
   type LocalConversationThreadScrollControllerValue,
 } from "./local-conversation-thread-scroll-controller";
 import { LocalConversationTurnEntry } from "./local-conversation-turn-entry";
+import { useLocalConversationTurnCollapseOverride } from "./local-conversation-thread-view-state";
 
 const TURN_GAP_PX = 12;
 const OVERSCAN_TURNS = 2;
@@ -158,8 +159,7 @@ interface LocalConversationVirtualizedTurnListProps {
   projectWorkspacePath?: string | null;
   editableTurnId: string | null;
   canForkFromTurn: boolean;
-  collapsedAgentBodyByTurnId: Readonly<Record<string, boolean>>;
-  onSetTurnCollapsed: (turnId: string, collapsed: boolean) => void;
+  initialCollapsedAgentBodyByTurnSearchKey?: Readonly<Record<string, boolean>>;
   onEditLastTurnMessage?: (input: {
     threadId: string;
     turnId: string;
@@ -186,7 +186,10 @@ interface LocalConversationVirtualizedTurnListProps {
   initialRestoreState?: VirtualizedTurnListRestoreState | null;
   initialLatestTurnRestoreState?: VirtualizedLatestTurnRestoreState | null;
   onRestoreStateChange?: (state: VirtualizedTurnListRestoreState | null) => void;
-  onLatestTurnRestoreStateChange?: (state: VirtualizedLatestTurnRestoreState | null) => void;
+  onLatestTurnRestoreStateChange?: (
+    state: VirtualizedLatestTurnRestoreState | null,
+    distanceFromBottomPx: number,
+  ) => void;
   onVisibleContentReady?: () => void;
   onLoadOlderTurns?: () => Promise<"continue" | "stop">;
   isHistoryComplete?: boolean;
@@ -264,10 +267,9 @@ interface MeasuredTurnProps {
   backgroundAgentRows?: readonly ThreadComposerShellBackgroundAgentRowModel[];
   threadCwd: string | null;
   projectWorkspacePath?: string | null;
-  persistedCollapsed?: boolean;
+  initialCollapsedOverride?: boolean;
   canEditTurnUserPrefix: boolean;
   canForkTurn: boolean;
-  onSetTurnCollapsed: (turnId: string, collapsed: boolean) => void;
   onEditLastTurnMessage?: (input: {
     threadId: string;
     turnId: string;
@@ -302,10 +304,9 @@ function MeasuredTurnComponent({
   backgroundAgentRows,
   threadCwd,
   projectWorkspacePath,
-  persistedCollapsed,
+  initialCollapsedOverride,
   canEditTurnUserPrefix,
   canForkTurn,
-  onSetTurnCollapsed,
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
@@ -323,6 +324,12 @@ function MeasuredTurnComponent({
   latestTurnY,
   observeTurnElement,
 }: MeasuredTurnProps) {
+  const [collapsedOverride, setCollapsedOverride] =
+    useLocalConversationTurnCollapseOverride({
+      conversationId,
+      turnSearchKey: entry.turnSearchKey,
+      initialOverride: initialCollapsedOverride,
+    });
   const cleanupRef = useRef<(() => void) | null>(null);
   const handleElementRef = useCallback(
     (element: HTMLDivElement | null) => {
@@ -334,7 +341,7 @@ function MeasuredTurnComponent({
     [entry.turnKey, observeTurnElement],
   );
 
-  useEffect(
+  useLayoutEffect(
     () => () => {
       cleanupRef.current?.();
       cleanupRef.current = null;
@@ -355,10 +362,8 @@ function MeasuredTurnComponent({
         backgroundAgentRows={backgroundAgentRows}
         entry={entry}
         cwd={threadCwd}
-        persistedCollapsed={persistedCollapsed}
-        onSetCollapsed={(collapsed) => {
-          onSetTurnCollapsed(entry.turnKey, collapsed);
-        }}
+        persistedCollapsed={collapsedOverride ?? undefined}
+        onSetCollapsed={setCollapsedOverride}
         canEditTurnUserPrefix={canEditTurnUserPrefix}
         canForkTurn={canForkTurn}
         projectWorkspacePath={projectWorkspacePath}
@@ -397,10 +402,9 @@ const MeasuredTurn = memo(
     && left.backgroundAgentRows === right.backgroundAgentRows
     && left.threadCwd === right.threadCwd
     && left.projectWorkspacePath === right.projectWorkspacePath
-    && left.persistedCollapsed === right.persistedCollapsed
+    && left.initialCollapsedOverride === right.initialCollapsedOverride
     && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
     && left.canForkTurn === right.canForkTurn
-    && left.onSetTurnCollapsed === right.onSetTurnCollapsed
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
@@ -428,8 +432,7 @@ function LocalConversationVirtualizedTurnListCore({
   projectWorkspacePath,
   editableTurnId,
   canForkFromTurn,
-  collapsedAgentBodyByTurnId,
-  onSetTurnCollapsed,
+  initialCollapsedAgentBodyByTurnSearchKey,
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
@@ -1200,7 +1203,7 @@ function LocalConversationVirtualizedTurnListCore({
     restoreScrollDistanceFromBottomPx,
   ]);
 
-  useEffect(
+  useLayoutEffect(
     () => () => {
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
@@ -1247,10 +1250,11 @@ function LocalConversationVirtualizedTurnListCore({
               backgroundAgentRows={backgroundAgentRows}
               threadCwd={threadCwd}
               projectWorkspacePath={projectWorkspacePath}
-              persistedCollapsed={collapsedAgentBodyByTurnId[entry.turnKey]}
+              initialCollapsedOverride={
+                initialCollapsedAgentBodyByTurnSearchKey?.[entry.turnSearchKey]
+              }
               canEditTurnUserPrefix={entry.turnId !== null && editableTurnId === entry.turnId}
               canForkTurn={canForkFromTurn && entry.turn.status !== "inProgress"}
-              onSetTurnCollapsed={onSetTurnCollapsed}
               onEditLastTurnMessage={onEditLastTurnMessage}
               onForkTurnMessage={onForkTurnMessage}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
@@ -1299,7 +1303,7 @@ export function LocalConversationVirtualizedTurnList({
   const [latestTurnFollowState, setLatestTurnFollowState] =
     useState<ThreadLatestTurnFollowState>(() =>
       initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
-        ? initialLatestTurnRestoreState.followState
+        ? { followMode: initialLatestTurnRestoreState.followMode }
         : { followMode: "static" },
     );
   const [latestTurnFollowContentHeightPx, setLatestTurnFollowContentHeightPx] = useState<number | null>(
@@ -1319,7 +1323,7 @@ export function LocalConversationVirtualizedTurnList({
   );
   const pendingExpectedLatestTurnHeightPxRef = useRef<number | null>(
     initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
-    && shouldAllowResponseSpacerGrowth(initialLatestTurnRestoreState.followState.followMode)
+    && shouldAllowResponseSpacerGrowth(initialLatestTurnRestoreState.followMode)
       ? initialLatestTurnRestoreState.latestTurnHeightPx
       : null,
   );
@@ -1926,15 +1930,16 @@ export function LocalConversationVirtualizedTurnList({
     ],
   );
 
-  useEffect(
+  useLayoutEffect(
     () => () => {
       const scrollElement = baseScrollController.getScrollElement();
+      const currentDistanceFromBottomPx = scrollElement === null
+        ? baseScrollController.getLastScrollDistanceFromBottomPx()
+        : baseScrollController.getScrollDistanceFromBottomPx();
       const restoreState = latestTurnKeyRef.current === null
         ? null
         : resolveRestoredDistanceWithoutResponseSpacer({
-            distanceFromBottomPx: scrollElement === null
-              ? baseScrollController.getLastScrollDistanceFromBottomPx()
-              : baseScrollController.getScrollDistanceFromBottomPx(),
+            distanceFromBottomPx: currentDistanceFromBottomPx,
             latestTurnPhase: latestTurnPhaseRef.current,
             responseSpacerHeightPx: responseSpacerHeightMotion.get(),
             scrollPaddingBottomPx: scrollElement === null ? 0 : readScrollPaddingBottomPx(scrollElement),
@@ -1947,15 +1952,20 @@ export function LocalConversationVirtualizedTurnList({
         latestTurnKeyRef.current === null
           ? null
           : {
-              followState: restoreState?.scrollState ?? latestTurnFollowStateRef.current,
+              followMode: (
+                restoreState?.scrollState ?? latestTurnFollowStateRef.current
+              ).followMode,
+              isLatestTurnInProgress: isLatestTurnInProgressRef.current,
               latestTurnFollowContentHeightPx: latestTurnFollowContentHeightPxRef.current,
               latestTurnHeightPx: shouldAllowResponseSpacerGrowth(
                 (restoreState?.scrollState ?? latestTurnFollowStateRef.current).followMode,
               )
                 ? latestTurnHeightPxRef.current
                 : null,
+              latestTurnPhase: latestTurnPhaseRef.current,
               turnKey: latestTurnKeyRef.current,
             },
+        restoreState?.distanceFromBottomPx ?? currentDistanceFromBottomPx,
       );
       baseScrollController.setFooterResizeViewportPreserveDisabled(false);
     },

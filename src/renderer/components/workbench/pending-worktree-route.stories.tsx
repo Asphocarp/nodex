@@ -103,7 +103,7 @@ const meta = {
     resolution: null,
     busyAction: null,
     actionError: null,
-    headerPortalTarget: null,
+    externalHeader: false,
     onCancel: () => undefined,
     onContinue: () => undefined,
     onAutoFix: () => undefined,

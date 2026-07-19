@@ -36,16 +36,22 @@ vi.mock("./toggle-list-icon", () => ({
   ToggleListIcon: ({ className }: { className?: string }) => createElement("span", { className }, "L"),
 }));
 
-let mockInvokeImplementation: (...args: unknown[]) => Promise<unknown> = async () => [];
-const mockInvoke = (...args: unknown[]) => mockInvokeImplementation(...args);
-let threadIndexUpdateCallbacks: Array<() => void> = [];
+const apiMock: {
+  invokeImplementation: (...args: unknown[]) => Promise<unknown>;
+  threadIndexUpdateCallbacks: Array<() => void>;
+} = vi.hoisted(() => ({
+  invokeImplementation: async () => [],
+  threadIndexUpdateCallbacks: [] as Array<() => void>,
+}));
 
 vi.mock("../../lib/api", () => ({
-  invoke: mockInvoke,
+  invoke: (...args: unknown[]) => apiMock.invokeImplementation(...args),
   subscribeCommandPaletteThreadIndexUpdates: (callback: () => void) => {
-    threadIndexUpdateCallbacks.push(callback);
+    apiMock.threadIndexUpdateCallbacks.push(callback);
     return () => {
-      threadIndexUpdateCallbacks = threadIndexUpdateCallbacks.filter((entry) => entry !== callback);
+      apiMock.threadIndexUpdateCallbacks = apiMock.threadIndexUpdateCallbacks.filter(
+        (entry) => entry !== callback,
+      );
     };
   },
 }));
@@ -488,7 +494,7 @@ describe("CommandPaletteSurface", () => {
         preview: "",
       }),
     ];
-    mockInvokeImplementation = async (channel: unknown) => {
+    apiMock.invokeImplementation = async (channel: unknown) => {
       if (channel === "codex:threads:palette:search-content") {
         return [{
           threadId: "thr-content-hit",
@@ -527,7 +533,7 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
 
     expect(textContent(container).includes("backend snippet")).toBe(true);
-    mockInvokeImplementation = async () => [];
+    apiMock.invokeImplementation = async () => [];
   });
 
   test("reruns chat content search when the thread index updates", async () => {
@@ -541,8 +547,8 @@ describe("CommandPaletteSurface", () => {
       }),
     ];
     const searchedQueries: string[] = [];
-    threadIndexUpdateCallbacks = [];
-    mockInvokeImplementation = async (channel: unknown, input: unknown) => {
+    apiMock.threadIndexUpdateCallbacks = [];
+    apiMock.invokeImplementation = async (channel: unknown, input: unknown) => {
       if (channel === "codex:threads:palette:search-content") {
         const query = typeof input === "object" && input !== null && "query" in input
           ? String((input as { query?: unknown }).query ?? "")
@@ -580,14 +586,14 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
     await act(async () => {
-      for (const callback of threadIndexUpdateCallbacks) callback();
+      for (const callback of apiMock.threadIndexUpdateCallbacks) callback();
       await new Promise((resolve) => setTimeout(resolve, 280));
     });
     await settleAsyncRender();
 
     expect(searchedQueries.join(",")).toBe("refresh,refresh");
-    mockInvokeImplementation = async () => [];
-    threadIndexUpdateCallbacks = [];
+    apiMock.invokeImplementation = async () => [];
+    apiMock.threadIndexUpdateCallbacks = [];
   });
 
   test("skips disabled commands and updates aria-activedescendant during keyboard navigation", async () => {

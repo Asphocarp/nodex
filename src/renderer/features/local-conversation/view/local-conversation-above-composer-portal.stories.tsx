@@ -20,6 +20,7 @@ import {
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
 } from "./thread-stage-story-fixtures";
+import { TestThreadRouteScopePath } from "@/test/maitai-scope-harness";
 
 const STORY_CONTROLS: ThreadStageStoryControls = {
   preset: "background-activity",
@@ -500,12 +501,14 @@ function AboveComposerStoryFrame({
                 projectWorkspacePath={model.bodyModel.projectWorkspacePath}
                 threadCwd={model.footerModel.conversation?.cwd ?? null}
               />
-              <LocalConversationComposerShell
-                model={model.footerModel}
-                actions={buildActions()}
-                errorMessage={null}
-                onErrorMessage={() => { }}
-              />
+              <TestThreadRouteScopePath>
+                <LocalConversationComposerShell
+                  model={model.footerModel}
+                  actions={buildActions()}
+                  errorMessage={null}
+                  onErrorMessage={() => { }}
+                />
+              </TestThreadRouteScopePath>
             </div>
           </div>
         </div>

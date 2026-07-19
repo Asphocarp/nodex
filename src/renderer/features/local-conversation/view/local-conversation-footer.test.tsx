@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import { render } from "../../../test/dom";
+import { renderWithMaitai as render } from "../../../test/dom";
 import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import {
@@ -221,7 +221,7 @@ describe("LocalConversationFooter", () => {
       </TooltipProvider>,
     );
 
-    const planButton = view.getByLabelText("Plan");
+    const planButton = await view.findByLabelText("Plan");
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
     expect(formFooter !== null).toBe(true);
     expect(Boolean(formFooter?.contains(planButton))).toBe(true);

@@ -1,13 +1,16 @@
 import {
-  createContext,
   useCallback,
-  useContext,
-  useEffect,
   useLayoutEffect,
-  useState,
   type ReactNode,
 } from "react";
 import { applyCodexThemeVariant } from "./codex-theme-variant";
+import {
+  appScope,
+  atomWithExternalStore,
+  scopedAtomWithInitializer,
+  useScopedAtom,
+  useScopedAtomValue,
+} from "./maitai";
 
 type Theme = "light" | "dark" | "system";
 type Resolved = "light" | "dark";
@@ -21,10 +24,25 @@ interface ThemeContextValue {
 const STORAGE_KEY = "nodex-theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
-const ThemeContext = createContext<ThemeContextValue>({
-  theme: "system",
-  resolved: "light",
-  setTheme: () => { },
+const themePreferenceAtom = scopedAtomWithInitializer<Theme>(
+  appScope,
+  () => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === "light" || stored === "dark" || stored === "system"
+      ? stored
+      : "system";
+  },
+  { debugLabel: "theme-preference" },
+);
+
+const systemDarkAtom = atomWithExternalStore(appScope, {
+  debugLabel: "system-dark-preference",
+  getSnapshot: () => window.matchMedia(MEDIA_QUERY).matches,
+  subscribe: (listener) => {
+    const mediaQuery = window.matchMedia(MEDIA_QUERY);
+    mediaQuery.addEventListener("change", listener);
+    return () => mediaQuery.removeEventListener("change", listener);
+  },
 });
 
 function syncDocumentThemeClasses(resolved: Resolved): void {
@@ -41,44 +59,28 @@ function syncDocumentThemeClasses(resolved: Resolved): void {
 }
 
 function useThemeInternal(): ThemeContextValue {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "light" || stored === "dark" || stored === "system")
-      return stored;
-    return "system";
-  });
-
-  const [systemDark, setSystemDark] = useState(
-    () => window.matchMedia(MEDIA_QUERY).matches
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia(MEDIA_QUERY);
-    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
+  const [theme, setThemeState] = useScopedAtom(themePreferenceAtom);
+  const systemDark = useScopedAtomValue(systemDarkAtom);
 
   const resolved: Resolved =
     theme === "system" ? (systemDark ? "dark" : "light") : theme;
 
-  useLayoutEffect(() => {
-    syncDocumentThemeClasses(resolved);
-  }, [resolved]);
-
   const setTheme = useCallback((next: Theme) => {
     localStorage.setItem(STORAGE_KEY, next);
     setThemeState(next);
-  }, []);
+  }, [setThemeState]);
 
   return { theme, resolved, setTheme };
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const value = useThemeInternal();
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  useLayoutEffect(() => {
+    syncDocumentThemeClasses(value.resolved);
+  }, [value.resolved]);
+  return children;
 }
 
 export function useTheme(): ThemeContextValue {
-  return useContext(ThemeContext);
+  return useThemeInternal();
 }

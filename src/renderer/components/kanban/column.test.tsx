@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { createElement } from "react";
 import { fireEvent } from "@testing-library/react";
 import { Column } from "./column";
-import { render } from "@/test/dom";
+import { renderWithMaitai as render } from "@/test/dom";
 import { plainTextToPortableRichText } from "../../../shared/block-documents";
 
 describe("Column", () => {

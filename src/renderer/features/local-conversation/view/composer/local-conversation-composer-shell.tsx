@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "motion/react";
 import {
   useEffect,
+  useLayoutEffect,
   useState,
   useSyncExternalStore,
   type FormEvent,
@@ -74,6 +75,17 @@ import {
   subscribeAutoReviewApprovalNudgeState,
 } from "../../auto-review-approval-nudge-state";
 import { AutoReviewApprovalNudge } from "./auto-review-approval-nudge";
+import {
+  ComposerScope,
+  ThreadScope,
+  resolveComposerScopeIdentity,
+} from "@/lib/workbench-ui-scopes";
+import {
+  ScopeProvider,
+  useScopeHandle,
+  useScopedAtom,
+} from "@/lib/maitai";
+import { activeComposerFocusNonceAtom } from "./composer-draft-state";
 
 interface LocalConversationComposerShellProps {
   model: ThreadFooterModel;
@@ -995,7 +1007,31 @@ function ThreadGoalResumeConfirmationDialog({
   );
 }
 
-export function LocalConversationComposerShell({
+export function LocalConversationComposerShell(props: LocalConversationComposerShellProps) {
+  const requestedFocusNonce = props.model.composerIntent?.focusNonce
+    ?? props.model.newThreadComposerIntent?.focusNonce
+    ?? null;
+  const [activeFocusNonce, setActiveFocusNonce] = useScopedAtom(activeComposerFocusNonceAtom);
+  const threadHandle = useScopeHandle(ThreadScope);
+  useLayoutEffect(() => {
+    if (requestedFocusNonce === null || requestedFocusNonce === activeFocusNonce) return;
+    setActiveFocusNonce(requestedFocusNonce);
+  }, [activeFocusNonce, requestedFocusNonce, setActiveFocusNonce]);
+  const focusComposerNonce = requestedFocusNonce ?? activeFocusNonce;
+  const descriptor = resolveComposerScopeIdentity({
+    kind: props.model.isNewThreadTab ? "new-conversation" : "task",
+    stableIdentity: threadHandle.path,
+    focusComposerNonce,
+  });
+
+  return (
+    <ScopeProvider scope={ComposerScope} descriptor={descriptor}>
+      <ScopedLocalConversationComposerShell {...props} />
+    </ScopeProvider>
+  );
+}
+
+function ScopedLocalConversationComposerShell({
   model,
   actions,
   errorMessage,

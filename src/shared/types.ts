@@ -2002,6 +2002,8 @@ export interface CodexComposerIntent {
   prompt: string;
   focusNonce: number;
   promptInput?: CodexPromptInput;
+  clearText?: boolean;
+  attachmentMode?: "append" | "replace";
 }
 
 export interface CodexThreadActionResult {

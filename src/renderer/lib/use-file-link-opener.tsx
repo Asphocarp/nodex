@@ -1,9 +1,6 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
-  useState,
   type ReactNode,
 } from "react";
 import {
@@ -17,6 +14,11 @@ import {
   readFileLinkOpener,
   writeFileLinkOpener,
 } from "./file-link-opener-settings";
+import {
+  appScope,
+  scopedAtomWithInitializer,
+  useScopedAtom,
+} from "./maitai";
 
 interface FileLinkOpenerContextValue {
   opener: FileLinkOpenerId;
@@ -49,10 +51,11 @@ interface RecentHandledMouseUp {
   href: string;
 }
 
-const FileLinkOpenerContext = createContext<FileLinkOpenerContextValue>({
-  opener: "vscode",
-  setOpener: () => {},
-});
+const fileLinkOpenerAtom = scopedAtomWithInitializer(
+  appScope,
+  readFileLinkOpener,
+  { debugLabel: "file-link-opener" },
+);
 
 function isDesktopRuntime(): boolean {
   return typeof window !== "undefined" && !!window.api;
@@ -116,15 +119,17 @@ function shouldSkipDuplicateClickOpen(
 }
 
 function useFileLinkOpenerInternal(): FileLinkOpenerContextValue {
-  const [opener, setOpenerState] = useState<FileLinkOpenerId>(() =>
-    readFileLinkOpener(),
-  );
+  const [opener, setOpenerState] = useScopedAtom(fileLinkOpenerAtom);
 
   const setOpener = useCallback((value: FileLinkOpenerId) => {
     const next = writeFileLinkOpener(value);
     setOpenerState(next);
-  }, []);
+  }, [setOpenerState]);
 
+  return { opener, setOpener };
+}
+
+function useFileLinkOpenerDocumentBridge(opener: FileLinkOpenerId): void {
   useEffect(() => {
     if (!isDesktopRuntime()) return;
 
@@ -175,20 +180,16 @@ function useFileLinkOpenerInternal(): FileLinkOpenerContextValue {
     };
   }, [opener]);
 
-  return { opener, setOpener };
 }
 
 export function FileLinkOpenerProvider({ children }: { children: ReactNode }) {
   const value = useFileLinkOpenerInternal();
-  return (
-    <FileLinkOpenerContext.Provider value={value}>
-      {children}
-    </FileLinkOpenerContext.Provider>
-  );
+  useFileLinkOpenerDocumentBridge(value.opener);
+  return children;
 }
 
 export function useFileLinkOpener(): FileLinkOpenerContextValue {
-  return useContext(FileLinkOpenerContext);
+  return useFileLinkOpenerInternal();
 }
 
 export const fileLinkOpenerTestHelpers = {

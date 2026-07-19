@@ -417,7 +417,6 @@ function makeRetainedPageStageStoryTab({
     closable: true,
     reorderable: true,
     splittable: true,
-    retentionMode: "layout",
     renderPanel: (_closeTab, { active }) => (
       <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary text-token-foreground">
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-token-border px-3">

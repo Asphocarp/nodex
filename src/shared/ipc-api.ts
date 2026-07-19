@@ -471,9 +471,24 @@ export interface ProjectsChangeEvent {
 
 export type PersistedAtomState = Record<string, unknown>;
 
+/** Main-internal compatibility input for values that are not renderer mutations. */
 export interface PersistedAtomUpdate {
   key: string;
   value: unknown;
+}
+
+export interface PersistedAtomSnapshot {
+  revision: number;
+  values: PersistedAtomState;
+}
+
+export interface PersistedAtomMutation extends PersistedAtomUpdate {
+  mutationId: string;
+}
+
+export interface PersistedAtomEvent extends PersistedAtomMutation {
+  revision: number;
+  originRendererId: string | null;
 }
 
 export interface GitBranchState {
@@ -686,10 +701,10 @@ export interface IpcApi {
     args: [message: CodexDesktopMessageFromView];
     result: void;
   };
-  "persisted-atom:sync-request": { args: []; result: PersistedAtomState };
+  "persisted-atom:sync-request": { args: []; result: PersistedAtomSnapshot };
   "persisted-atom:update": {
-    args: [update: PersistedAtomUpdate];
-    result: PersistedAtomState;
+    args: [mutation: PersistedAtomMutation];
+    result: PersistedAtomEvent;
   };
   "projects:list": { args: []; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
@@ -1749,7 +1764,7 @@ export interface IpcApi {
 export interface IpcEvents {
   "git:live-query:event": GitReviewLiveEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
-  "persisted-atom:updated": PersistedAtomUpdate;
+  "persisted-atom:updated": PersistedAtomEvent;
   "board-changed": BoardChangeEvent;
   "page-target-changed": import("./page-target-events").PageTargetChangedEvent;
   "page-ownership-paths-changed": import("./page-ownership-path-events").PageOwnershipPathsChangedEvent;

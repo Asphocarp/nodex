@@ -1,15 +1,14 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback } from "react";
 import {
   readPasteResourceSettings,
   writePasteResourceSettings,
   type PasteResourceSettings,
 } from "./paste-resource-settings";
+import {
+  appScope,
+  scopedAtomWithInitializer,
+  useScopedAtom,
+} from "./maitai";
 
 interface PasteResourceSettingsContextValue {
   settings: PasteResourceSettings;
@@ -17,21 +16,19 @@ interface PasteResourceSettingsContextValue {
   updateSettings: (patch: Partial<PasteResourceSettings>) => void;
 }
 
-const PasteResourceSettingsContext = createContext<PasteResourceSettingsContextValue>({
-  settings: readPasteResourceSettings(),
-  setSettings: () => {},
-  updateSettings: () => {},
-});
+const pasteResourceSettingsAtom = scopedAtomWithInitializer(
+  appScope,
+  readPasteResourceSettings,
+  { debugLabel: "paste-resource-settings" },
+);
 
 function usePasteResourceSettingsInternal(): PasteResourceSettingsContextValue {
-  const [settings, setSettingsState] = useState<PasteResourceSettings>(() =>
-    readPasteResourceSettings(),
-  );
+  const [settings, setSettingsState] = useScopedAtom(pasteResourceSettingsAtom);
 
   const setSettings = useCallback((value: PasteResourceSettings) => {
     const next = writePasteResourceSettings(value);
     setSettingsState(next);
-  }, []);
+  }, [setSettingsState]);
 
   const updateSettings = useCallback((patch: Partial<PasteResourceSettings>) => {
     setSettingsState((current) => {
@@ -41,20 +38,11 @@ function usePasteResourceSettingsInternal(): PasteResourceSettingsContextValue {
       });
       return next;
     });
-  }, []);
+  }, [setSettingsState]);
 
   return { settings, setSettings, updateSettings };
 }
 
-export function PasteResourceSettingsProvider({ children }: { children: ReactNode }) {
-  const value = usePasteResourceSettingsInternal();
-  return (
-    <PasteResourceSettingsContext.Provider value={value}>
-      {children}
-    </PasteResourceSettingsContext.Provider>
-  );
-}
-
 export function usePasteResourceSettings(): PasteResourceSettingsContextValue {
-  return useContext(PasteResourceSettingsContext);
+  return usePasteResourceSettingsInternal();
 }

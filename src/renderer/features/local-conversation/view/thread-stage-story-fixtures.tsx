@@ -624,7 +624,7 @@ function buildStreamingConversation(
 }
 
 function buildLongThreadStreamingConversation(): CodexConversationSnapshot {
-  const olderTurns = Array.from({ length: 59 }, (_, index) =>
+  const olderTurns = Array.from({ length: 199 }, (_, index) =>
     buildStoryConversationTurn({
       turnId: `turn_story_long_${index + 1}`,
       status: "completed",

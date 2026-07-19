@@ -6,7 +6,7 @@ import {
   type RenderResult,
   waitFor,
 } from "@testing-library/react";
-import { render, textContent } from "../../test/dom";
+import { renderWithMaitai as render, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import {
   __resetNodexToastStoreForTests,

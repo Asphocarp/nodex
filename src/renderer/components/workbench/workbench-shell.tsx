@@ -1,5 +1,4 @@
 import {
-  Activity,
   Fragment,
   forwardRef,
   startTransition,
@@ -82,7 +81,6 @@ import {
   buildCodexHooksSettingsPath,
   type CodexHooksSettingsTarget,
 } from "@/lib/codex-hooks-route";
-import { isCodexGitSettings } from "../../../shared/codex-git-settings";
 import { WorkbenchAutomationsRouteShell, WorkbenchAutomationSidePanelTab } from "./workbench-automations-overlay";
 import { buildAutomationsPath } from "./workbench-automations-routes";
 import { PendingWorktreeRoute } from "./pending-worktree-route";
@@ -186,15 +184,7 @@ import {
   type SidebarCollapsibleSectionsState,
 } from "@/lib/sidebar-section-prefs";
 import { buildNewChatProjectSelectorOptions } from "@/lib/new-chat-project-selector";
-import {
-  readComposerEnterBehavior,
-  writeComposerEnterBehavior,
-  type ComposerEnterBehavior,
-} from "@/lib/composer-enter-behavior";
-import {
-  readThreadQueueFollowUpsEnabled,
-  writeThreadQueueFollowUpsEnabled,
-} from "@/lib/thread-composer-follow-up-mode";
+import type { ComposerEnterBehavior } from "@/lib/composer-enter-behavior";
 import {
   CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
   CODEX_SIDEBAR_PAGER_BUTTON_CLASS,
@@ -211,7 +201,14 @@ import {
   resolveSidebarProjectGroupCollapseAction,
   type SidebarProjectGroupCollapseAction,
 } from "@/lib/sidebar-project-group-collapse-action";
-import { ThreadHeaderPortalProvider } from "@/lib/thread-header-portal";
+import {
+  APP_SHELL_ROUTE_THREAD_SCOPE_DESCRIPTOR,
+  SelectedAppShellHeaderContent,
+  WorkbenchSessionScopePath,
+  createThreadScopeIdentityRegistry,
+  resolvePendingThreadScopeDescriptor,
+  resolveProjectSessionThreadScopeDescriptor,
+} from "@/lib/workbench-ui-scopes";
 import {
   getCachedProjectSessionDetail,
   prefetchProjectSessionDetail,
@@ -257,20 +254,7 @@ import {
   type BrowserSidebarBrowserUseStateSnapshot,
 } from "../../../shared/browser-sidebar";
 import { resolveSameLeafInsertionIndex } from "./panel-tab-dnd";
-import {
-  readWorktreeStartMode,
-  writeWorktreeStartMode,
-} from "@/lib/worktree-start-mode";
-import {
-  readWorktreeAutoBranchPrefix,
-  writeWorktreeAutoBranchPrefix,
-} from "@/lib/worktree-branch-prefix";
-import {
-  readSmartPrefixParsingEnabled,
-  readStripSmartPrefixFromTitleEnabled,
-  writeSmartPrefixParsingEnabled,
-  writeStripSmartPrefixFromTitleEnabled,
-} from "@/lib/smart-prefix-parsing";
+import { useWorkbenchPreferences } from "./use-workbench-preferences";
 import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "@/lib/types";
 import type {
   DatabasePage,
@@ -544,8 +528,6 @@ function reportSidebarProjectReorderError(): void {
   toast.danger("Couldn’t reorder project");
 }
 const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 126;
-const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
-const RETAINED_SESSION_CAP = 4;
 const ELECTRON_STABLE_WORKTREE_STATUS_TRANSPORT: StableWorktreeStatusDialogTransport = {
   list: () => invoke("codex:pending-worktrees:list"),
   subscribe: subscribeCodexPendingWorktreesChanged,
@@ -746,25 +728,6 @@ interface PageStageHistoryModalContext {
   pageNfm?: string;
 }
 
-interface RetainedSessionEntry {
-  sessionId: string;
-}
-
-interface BuildRetainedSessionEntriesInput {
-  activeSessionId: string | null;
-  activeSession: ProjectSession | null;
-  previousEntries: readonly RetainedSessionEntry[];
-  knownSessionIds: ReadonlySet<string>;
-  getSessionDetail: (sessionId: string) => ProjectSession | null | undefined;
-  cap: number;
-}
-
-interface ShouldSynchronouslyRevealSessionInput {
-  sessionId: string;
-  cachedSession: ProjectSession | null | undefined;
-  retainedEntries: readonly RetainedSessionEntry[];
-}
-
 type ProjectSessionTabDraft = Pick<ProjectSessionTabCreateInput, "kind" | "title" | "config">;
 
 const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
@@ -833,26 +796,6 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     Icon: SquareKanban,
   },
 ];
-
-function readThreadSummaryPanelPinnedOpen(): boolean {
-  if (typeof localStorage === "undefined") return true;
-  try {
-    const raw = localStorage.getItem(THREAD_SUMMARY_PANEL_STORAGE_KEY);
-    if (raw === null) return true;
-    return raw === "true";
-  } catch {
-    return true;
-  }
-}
-
-function writeThreadSummaryPanelPinnedOpen(open: boolean): void {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(THREAD_SUMMARY_PANEL_STORAGE_KEY, open ? "true" : "false");
-  } catch {
-    // Ignore storage failures; the in-memory state remains authoritative for this session.
-  }
-}
 
 function readRendererPlatform(): NodeJS.Platform | "browser" {
   if (typeof navigator === "undefined") return "browser";
@@ -1096,35 +1039,6 @@ export function WorkbenchStageToolbar({
   );
 }
 
-function isBunTestRuntime(): boolean {
-  const runtime = globalThis as typeof globalThis & {
-    Bun?: unknown;
-    process?: { argv?: string[] };
-  };
-  if (typeof runtime.Bun === "undefined") return false;
-
-  const argv = runtime.process?.argv ?? [];
-  return argv.some((item) => item.includes("bun")) && argv.some((item) => item.includes("test"));
-}
-
-function RetainedActivity({
-  mode,
-  children,
-}: {
-  mode: "visible" | "hidden";
-  children: ReactNode;
-}) {
-  if (isBunTestRuntime()) {
-    return (
-      <div hidden={mode === "hidden"} aria-hidden={mode === "hidden" ? "true" : undefined}>
-        {children}
-      </div>
-    );
-  }
-
-  return <Activity mode={mode}>{children}</Activity>;
-}
-
 function readInitialExpandedProjects(projects: Project[], activeProjectId: string): Set<string> {
   const initial = new Set<string>();
   if (activeProjectId) initial.add(activeProjectId);
@@ -1193,69 +1107,6 @@ interface SessionPanelRenderModelInput {
   processOutputActiveTabByPanel: Record<string, string>;
   panelCollapsedOverrides: Record<string, boolean>;
   activePlanKeyBySession: Record<string, string>;
-}
-
-function isRetainableProjectSession(
-  session: ProjectSession | null | undefined,
-  knownSessionIds: ReadonlySet<string>,
-): session is ProjectSession {
-  if (!session) return false;
-  if (!knownSessionIds.has(session.id)) return false;
-  if (session.archived) return false;
-  if (!Array.isArray(session.tabs)) return false;
-  return typeof session.panels === "object" && session.panels !== null;
-}
-
-function buildRetainedSessionEntries({
-  activeSessionId,
-  activeSession,
-  previousEntries,
-  knownSessionIds,
-  getSessionDetail,
-  cap,
-}: BuildRetainedSessionEntriesInput): RetainedSessionEntry[] {
-  const orderedSessionIds = activeSessionId
-    ? [
-        activeSessionId,
-        ...previousEntries
-          .map((entry) => entry.sessionId)
-          .filter((sessionId) => sessionId !== activeSessionId),
-      ]
-    : previousEntries.map((entry) => entry.sessionId);
-  const seenSessionIds = new Set<string>();
-  const nextEntries: RetainedSessionEntry[] = [];
-
-  for (const sessionId of orderedSessionIds) {
-    if (seenSessionIds.has(sessionId)) continue;
-    seenSessionIds.add(sessionId);
-
-    const detail = activeSession?.id === sessionId ? activeSession : getSessionDetail(sessionId);
-    if (!isRetainableProjectSession(detail, knownSessionIds)) continue;
-
-    nextEntries.push({ sessionId });
-    if (nextEntries.length >= cap) break;
-  }
-
-  return nextEntries;
-}
-
-function areRetainedSessionEntriesEqual(
-  currentEntries: readonly RetainedSessionEntry[],
-  nextEntries: readonly RetainedSessionEntry[],
-): boolean {
-  return currentEntries.length === nextEntries.length
-    && currentEntries.every((entry, index) => (
-      entry.sessionId === nextEntries[index]?.sessionId
-    ));
-}
-
-export function shouldSynchronouslyRevealSession({
-  sessionId,
-  cachedSession,
-  retainedEntries,
-}: ShouldSynchronouslyRevealSessionInput): boolean {
-  if (!cachedSession) return false;
-  return retainedEntries.some((entry) => entry.sessionId === sessionId);
 }
 
 const PANEL_FOCUS_AREA_SELECTOR = "[data-app-shell-focus-area=\"right-panel\"], [data-app-shell-focus-area=\"bottom-panel\"]";
@@ -2464,23 +2315,32 @@ export function WorkbenchShell({
   const [pendingProcessOutputOpen, setPendingProcessOutputOpen] = useState<ProcessOutputPanelTarget | null>(null);
   const [activePlanKeyBySession, setActivePlanKeyBySession] = useState<Record<string, string>>({});
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
-  const [
-    retainedSessionEntries,
-    setRetainedSessionEntries,
-    getRetainedSessionEntries,
-  ] = useDistinctState<RetainedSessionEntry[]>([], areRetainedSessionEntriesEqual);
   const [headerLeftWidth, setHeaderLeftWidth] = useState(0);
   const [, setHeaderLeftRailWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [automationsDetailRailOpen, setAutomationsDetailRailOpen] = useState(false);
   const automationsDetailRailRequestedWidth = useMotionValue(AUTOMATION_DETAIL_RAIL_DEFAULT_WIDTH);
-  const [threadHeaderPortalElement, setThreadHeaderPortalElement] = useState<HTMLDivElement | null>(null);
-  const [automationsHeaderPortalElement, setAutomationsHeaderPortalElement] = useState<HTMLDivElement | null>(null);
+  const [threadScopeIdentityRegistry] = useState(createThreadScopeIdentityRegistry);
   const [automationsDetailRailPortalElement, setAutomationsDetailRailPortalElement] = useState<HTMLDivElement | null>(null);
   const [rightPanelComposerOverlayTarget, setRightPanelComposerOverlayTarget] = useState<HTMLElement | null>(null);
   const terminalSessionVersion = useTerminalSessionStoreVersion();
-  const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
+  const {
+    threadSummaryPanelPinnedOpen,
+    toggleThreadSummaryPanelPinnedOpen,
+    threadQueueFollowUpsEnabled,
+    handleThreadQueueFollowUpsEnabledChange,
+    composerEnterBehavior,
+    handleComposerEnterBehaviorChange,
+    worktreeStartMode,
+    handleWorktreeStartModeChange,
+    worktreeAutoBranchPrefix,
+    handleWorktreeAutoBranchPrefixChange,
+    smartPrefixParsingEnabled,
+    handleSmartPrefixParsingEnabledChange,
+    stripSmartPrefixFromTitleEnabled,
+    handleStripSmartPrefixFromTitleEnabledChange,
+  } = useWorkbenchPreferences();
   const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
@@ -2619,14 +2479,6 @@ export function WorkbenchShell({
   const [newThreadComposerIntentsBySessionId, setNewThreadComposerIntentsBySessionId] =
     useState<Record<string, CodexComposerIntent>>({});
   const [processManagerOpen, setProcessManagerOpen] = useState(false);
-  const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
-  const [composerEnterBehavior, setComposerEnterBehavior] = useState<ComposerEnterBehavior>(readComposerEnterBehavior);
-  const [worktreeStartMode, setWorktreeStartMode] = useState<WorktreeStartMode>(readWorktreeStartMode);
-  const [worktreeAutoBranchPrefix, setWorktreeAutoBranchPrefix] = useState(readWorktreeAutoBranchPrefix);
-  const [smartPrefixParsingEnabled, setSmartPrefixParsingEnabled] = useState(readSmartPrefixParsingEnabled);
-  const [stripSmartPrefixFromTitleEnabled, setStripSmartPrefixFromTitleEnabled] = useState(
-    readStripSmartPrefixFromTitleEnabled,
-  );
   const [selectedTurnDiffReviewTarget, setSelectedTurnDiffReviewTarget] =
     useState<CodexTurnDiffReviewTarget | null>(null);
   const summaryGitReviewRequestKeyRef = useRef(0);
@@ -2761,10 +2613,6 @@ export function WorkbenchShell({
   const knownSessions = useMemo(
     () => [...Object.values(sessionsByProject).flat(), ...projectlessSessions],
     [projectlessSessions, sessionsByProject],
-  );
-  const knownSessionIds = useMemo(
-    () => new Set(knownSessions.map((session) => session.id)),
-    [knownSessions],
   );
   const processManagerThreads = useMemo<CodexBackgroundTerminalProcessThreadRef[]>(() => {
     const seen = new Set<string>();
@@ -3304,44 +3152,6 @@ export function WorkbenchShell({
     setSelectedTurnDiffReviewTarget(null);
   }, [activeSession?.thread?.threadId, selectedTurnDiffReviewTarget]);
 
-  const handleThreadQueueFollowUpsEnabledChange = useCallback((value: boolean) => {
-    setThreadQueueFollowUpsEnabled(writeThreadQueueFollowUpsEnabled(value));
-  }, []);
-
-  const handleComposerEnterBehaviorChange = useCallback((value: ComposerEnterBehavior) => {
-    setComposerEnterBehavior(writeComposerEnterBehavior(value));
-  }, []);
-
-  const handleWorktreeStartModeChange = useCallback((value: WorktreeStartMode) => {
-    setWorktreeStartMode(writeWorktreeStartMode(value));
-  }, []);
-
-  useEffect(() => {
-    let disposed = false;
-    void invoke("settings:git:get")
-      .then((settings) => {
-        if (disposed) return;
-        if (!isCodexGitSettings(settings)) return;
-        setWorktreeAutoBranchPrefix(writeWorktreeAutoBranchPrefix(settings.branchPrefix));
-      })
-      .catch(() => undefined);
-    return () => {
-      disposed = true;
-    };
-  }, []);
-
-  const handleWorktreeAutoBranchPrefixChange = useCallback((value: string) => {
-    setWorktreeAutoBranchPrefix(writeWorktreeAutoBranchPrefix(value));
-  }, []);
-
-  const handleSmartPrefixParsingEnabledChange = useCallback((value: boolean) => {
-    setSmartPrefixParsingEnabled(writeSmartPrefixParsingEnabled(value));
-  }, []);
-
-  const handleStripSmartPrefixFromTitleEnabledChange = useCallback((value: boolean) => {
-    setStripSmartPrefixFromTitleEnabled(writeStripSmartPrefixFromTitleEnabled(value));
-  }, []);
-
   const refreshProjectSessions = useCallback(async (projectId: string | null) => {
     const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
     seedProjectSessionDetails(queryClient, sessions);
@@ -3549,43 +3359,6 @@ export function WorkbenchShell({
       .catch(() => undefined);
   }, [activeSession, mergeSessionInState, queryClient, warmProjectSessionDbViewBoards]);
 
-  useEffect(() => {
-    setRetainedSessionEntries(buildRetainedSessionEntries({
-      activeSessionId: activeRenderSession?.id ?? null,
-      activeSession: activeRenderSession,
-      previousEntries: getRetainedSessionEntries(),
-      knownSessionIds,
-      getSessionDetail: (sessionId) => getCachedProjectSessionDetail(queryClient, sessionId),
-      cap: RETAINED_SESSION_CAP,
-    }));
-  }, [
-    activeRenderSession,
-    getRetainedSessionEntries,
-    knownSessionIds,
-    queryClient,
-    setRetainedSessionEntries,
-  ]);
-
-  const retainedSessionRenderEntries = useMemo(() => {
-    const entries: Array<{ session: ProjectSession; isActive: boolean }> = [];
-    if (activeRenderSession) {
-      entries.push({ session: activeRenderSession, isActive: true });
-    }
-
-    const activeId = activeRenderSession?.id ?? null;
-    for (const entry of retainedSessionEntries) {
-      if (entry.sessionId === activeId) continue;
-      if (!knownSessionIds.has(entry.sessionId)) continue;
-
-      const detail = getCachedProjectSessionDetail(queryClient, entry.sessionId);
-      if (!isRetainableProjectSession(detail, knownSessionIds)) continue;
-      entries.push({ session: detail, isActive: false });
-      if (entries.length >= RETAINED_SESSION_CAP) break;
-    }
-
-    return entries;
-  }, [activeRenderSession, knownSessionIds, queryClient, retainedSessionEntries]);
-
   const resolveSessionHasGitRepository = useCallback(async (session: ProjectSession): Promise<boolean> => {
     if (!canForkSessionLocally(session)) return false;
     const cwd = session.thread?.cwd?.trim();
@@ -3670,9 +3443,7 @@ export function WorkbenchShell({
       return;
     }
     const fallbackSession = activeSessions[0] ?? null;
-    startTransition(() => {
-      setActiveSessionId(fallbackSession?.id ?? null);
-    });
+    setActiveSessionId(fallbackSession?.id ?? null);
   }, [activeProject, activeSession, activeSessionId, activeSessions]);
 
   useEffect(() => {
@@ -3700,12 +3471,10 @@ export function WorkbenchShell({
     const sessions = sessionsByProject[projectId] ?? [];
     const fallbackSession = sessions[0] ?? null;
     recordShellNavigation(buildSnapshotForSession(fallbackSession, projectId));
-    startTransition(() => {
-      setActiveProjectId(projectId);
-      setDbProject(projectId);
-      setActiveSessionId(fallbackSession?.id ?? null);
-      setExpandedProjectIds((current) => new Set([...current, projectId]));
-    });
+    setActiveProjectId(projectId);
+    setDbProject(projectId);
+    setActiveSessionId(fallbackSession?.id ?? null);
+    setExpandedProjectIds((current) => new Set([...current, projectId]));
   }, [buildSnapshotForSession, recordShellNavigation, sessionsByProject, setDbProject]);
 
   const selectSession = useCallback((session: ProjectSession) => {
@@ -3724,15 +3493,7 @@ export function WorkbenchShell({
       }
     };
 
-    if (shouldSynchronouslyRevealSession({
-      sessionId: targetSession.id,
-      cachedSession,
-      retainedEntries: retainedSessionEntries,
-    })) {
-      revealSession();
-    } else {
-      startTransition(revealSession);
-    }
+    revealSession();
 
     if (targetSession.unread) {
       const threadId = targetSession.thread?.threadId ?? null;
@@ -3753,7 +3514,6 @@ export function WorkbenchShell({
     mergeSessionInState,
     queryClient,
     recordShellNavigation,
-    retainedSessionEntries,
     setDbProject,
     warmProjectSessionDbViewBoards,
     workbenchCodexControl,
@@ -4814,10 +4574,15 @@ export function WorkbenchShell({
     preserveEmptyLeafIds?: string[];
     preferredActiveLeafId?: string | null;
     preferredActiveTabId?: string | null;
+    closeTerminalRuntime?: boolean;
   } = {}) => {
     if (!activeSession) return;
     const closingTab = activeSession.tabs.find((tab) => tab.id === tabId) ?? null;
-    if (closingTab?.kind === "terminal" && "terminalSessionId" in closingTab.config) {
+    if (
+      options.closeTerminalRuntime !== false
+      && closingTab?.kind === "terminal"
+      && "terminalSessionId" in closingTab.config
+    ) {
       terminalSessionStore.close(closingTab.config.terminalSessionId);
     }
     const deleteInput = {
@@ -4849,7 +4614,7 @@ export function WorkbenchShell({
     );
     if (!tab) return;
 
-    await closeTab(tab.id);
+    await closeTab(tab.id, { closeTerminalRuntime: false });
   });
 
   useEffect(() => {
@@ -6886,6 +6651,15 @@ export function WorkbenchShell({
     await openAttachedThreadSessionResult(threadId, context);
   }, [openAttachedThreadSessionResult]);
 
+  const openResolvedPendingThreadSession = useCallback(async (
+    clientThreadId: string,
+    threadId: string,
+  ): Promise<boolean> => {
+    const stableKey = threadScopeIdentityRegistry.resolve({ clientThreadId });
+    threadScopeIdentityRegistry.register(stableKey, { clientThreadId, threadId });
+    return openAttachedThreadSessionResult(threadId);
+  }, [openAttachedThreadSessionResult, threadScopeIdentityRegistry]);
+
   const openAttachedThreadSessionById = useCallback(async (threadId: string) => {
     await openAttachedThreadSession(threadId);
   }, [openAttachedThreadSession]);
@@ -7902,13 +7676,11 @@ export function WorkbenchShell({
     model: SessionPanelRenderModel,
     visiblePageStagePageIdsByProject: ReadonlyMap<string, ReadonlySet<string>>,
     browserBoundsSyncTriggerByPanel: Partial<Record<PanelId, MotionValue<number>>> = {},
-    sessionIsActive = false,
   ): PanelGroupTabsByPanel => {
     // Rebuild terminal tab descriptors when the external session store changes.
     void terminalSessionVersion;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
       const transientPanelTab = isTransientPanelTab(tab);
-      const retentionMode = !transientPanelTab && tab.kind === "page_stage" ? "layout" : undefined;
       const title = !transientPanelTab
           && tab.kind === "terminal"
           && "terminalSessionId" in tab.config
@@ -7969,7 +7741,6 @@ export function WorkbenchShell({
                     ? true
                     : tab.preview === true || session.tabs.length > 1,
         preview: transientPanelTab ? undefined : tab.preview,
-        retentionMode,
         reorderable: transientPanelTab ? false : tab.preview === true ? false : true,
         splittable: !transientPanelTab && tab.preview !== true,
         contextMenuItems: !transientPanelTab && tab.kind === "browser"
@@ -8126,7 +7897,7 @@ export function WorkbenchShell({
               selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
               summaryGitReviewRequest={summaryGitReviewRequest}
               browserBoundsSyncTrigger={browserBoundsSyncTriggerByPanel[tab.panelId]}
-              isActivePanelTab={sessionIsActive && panelContext.active}
+              isActivePanelTab={panelContext.active}
             />
           );
         },
@@ -8212,7 +7983,6 @@ export function WorkbenchShell({
         right: rightPanelMotion.animatedSize,
         bottom: bottomPanelMotion.animatedSize,
       },
-      true,
     );
   }, [
     activePanelPageStagePageIdsByProject,
@@ -8715,12 +8485,8 @@ export function WorkbenchShell({
   }), [openSummaryOutputInSidePanel, openSummaryScheduledAutomation]);
 
   const toggleThreadSummaryPanel = useCallback(() => {
-    setThreadSummaryPanelPinnedOpen((current) => {
-      const next = !current;
-      writeThreadSummaryPanelPinnedOpen(next);
-      return next;
-    });
-  }, []);
+    toggleThreadSummaryPanelPinnedOpen();
+  }, [toggleThreadSummaryPanelPinnedOpen]);
   const threadSummaryHeaderAction = threadSummaryPanelMode !== "hidden" && activeSession ? (
     <ThreadSummaryPanelHeaderAction
       activeThreadId={activeSession.thread?.threadId ?? null}
@@ -9173,7 +8939,6 @@ export function WorkbenchShell({
       path={automationsPath}
       projects={projects}
       externalHeader
-      headerPortalTarget={automationsHeaderPortalElement}
       detailRailPortalTarget={automationsDetailRailPortalElement}
       onDetailRailOpenChange={setAutomationsDetailRailOpen}
       onPathChange={setAutomationsPath}
@@ -9230,9 +8995,10 @@ export function WorkbenchShell({
     <PendingWorktreeRoute
       clientThreadId={pendingWorktreeClientThreadId}
       agentMode={workbenchCodexControl.permissionMode}
-      headerPortalTarget={threadHeaderPortalElement}
+      externalHeader
       onClose={closePendingWorktreeRoute}
-      onOpenThread={openAttachedThreadSessionResult}
+      onOpenThread={(threadId) =>
+        openResolvedPendingThreadSession(pendingWorktreeClientThreadId, threadId)}
       onOpenPendingWorktree={setPendingWorktreeClientThreadId}
       onCancelToSource={handOffCancelledPendingWorktree}
       onEditEnvironment={(entry) => {
@@ -9423,11 +9189,9 @@ export function WorkbenchShell({
     />
   );
 
-  const renderRetainedSessionActivity = (entry: { session: ProjectSession; isActive: boolean }) => {
-    const { session, isActive } = entry;
-    const model = isActive && activeSessionPanelModel
-      ? activeSessionPanelModel
-      : buildSessionPanelRenderModel({
+  const renderActiveSession = (session: ProjectSession) => {
+    const model = activeSessionPanelModel
+      ?? buildSessionPanelRenderModel({
           session,
           previewTabsByPanel,
           sideChatTabsBySession,
@@ -9445,51 +9209,25 @@ export function WorkbenchShell({
           panelCollapsedOverrides,
           activePlanKeyBySession,
         });
-    const visiblePageStagePageIdsByProject = isActive
-      ? activePanelPageStagePageIdsByProject
-      : collectPanelPageStagePageIdsByProject(session, model);
-    const sessionPanelGroupTabs = isActive
-      ? panelGroupTabs
-      : buildPanelGroupTabsForSession(session, model, visiblePageStagePageIdsByProject, {}, false);
-    const latestShellMainContentWidth = shellMainContentWidth.get();
-    const latestShellBodyHeight = shellBodySize.height.get();
-    const inactiveRegularRightPanelWidth = clampRegularRightPanelWidth(
-      model.rightPanel.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
-      latestShellMainContentWidth,
-    );
-    const inactiveBottomPanelHeight = clampBottomPanelHeight(
-      model.bottomPanel.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
-      latestShellBodyHeight,
-    );
-    const sessionBottomPanelHeight = isActive
-      ? bottomPanelHeight
-      : inactiveBottomPanelHeight;
-    const sessionRightPanelTargetWidth = isActive
-      ? rightPanelTargetWidth
-      : model.rightPanelFullWidth
-        ? Math.max(latestShellMainContentWidth, inactiveRegularRightPanelWidth)
-        : inactiveRegularRightPanelWidth;
-    const sessionRightPanelMounted = isActive ? rightPanelMotion.mounted : model.sidePanelOpen;
-    const sessionBottomPanelMounted = isActive ? bottomPanelMotion.mounted : model.bottomPanelOpen;
-    const sessionRightPanelOpacity = isActive ? rightPanelMotion.opacity : 1;
-    const sessionBottomPanelOpacity = isActive ? bottomPanelMotion.opacity : 1;
-    const sessionRightPanelWidth = isActive ? rightPanelMotion.animatedSize : sessionRightPanelTargetWidth;
-    const sessionBottomPanelHeightStyle = isActive ? bottomPanelMotion.animatedSize : sessionBottomPanelHeight;
-    const sessionFrameBorderVisible = isActive
-      ? appShellMainContentFrameBorderVisible
-      : resolveCodexMainContentFrameBorder({
-          rightPanelOpen: model.sidePanelOpen,
-          headerEdgeScroll: false,
-        });
+    const sessionPanelGroupTabs = panelGroupTabs;
+    const sessionBottomPanelHeight = bottomPanelHeight;
+    const sessionRightPanelTargetWidth = rightPanelTargetWidth;
+    const sessionRightPanelMounted = rightPanelMotion.mounted;
+    const sessionBottomPanelMounted = bottomPanelMotion.mounted;
+    const sessionRightPanelOpacity = rightPanelMotion.opacity;
+    const sessionBottomPanelOpacity = bottomPanelMotion.opacity;
+    const sessionRightPanelWidth = rightPanelMotion.animatedSize;
+    const sessionBottomPanelHeightStyle = bottomPanelMotion.animatedSize;
+    const sessionFrameBorderVisible = appShellMainContentFrameBorderVisible;
     const sessionProject = session.projectId
       ? projects.find((project) => project.id === session.projectId) ?? activeProject
       : activeProject;
-    const sessionThreadSummaryPanelMounted = isActive ? threadSummaryPanelMounted : false;
-    const sessionThreadSummaryPanelOpen = isActive ? threadSummaryPanelOpen : false;
-    const sessionThreadSummaryPanelHideImmediately = isActive ? threadSummaryPanelHideImmediately : false;
-    const sessionThreadSummaryPanelContentShift = isActive ? threadSummaryPanelContentShift : 0;
-    const sessionRightPanelComposerOverlayEnabled = isActive && rightPanelComposerOverlayEnabled;
-    const sessionThreadPlanSidePanelState = isActive ? model.threadPlanSidePanelState : null;
+    const sessionThreadSummaryPanelMounted = threadSummaryPanelMounted;
+    const sessionThreadSummaryPanelOpen = threadSummaryPanelOpen;
+    const sessionThreadSummaryPanelHideImmediately = threadSummaryPanelHideImmediately;
+    const sessionThreadSummaryPanelContentShift = threadSummaryPanelContentShift;
+    const sessionRightPanelComposerOverlayEnabled = rightPanelComposerOverlayEnabled;
+    const sessionThreadPlanSidePanelState = model.threadPlanSidePanelState;
     const sessionAvailableRightPanelActions = filterAvailablePanelActions(
       PANEL_NEW_TAB_ACTIONS,
       session.tabs,
@@ -9502,15 +9240,22 @@ export function WorkbenchShell({
       "bottom",
       session.projectId,
     );
-    const sessionPanelTabScrollEndPaddingPx = isActive ? panelTabScrollEndPaddingPx : 0;
+    const sessionPanelTabScrollEndPaddingPx = panelTabScrollEndPaddingPx;
+    const threadScopeDescriptor = resolveProjectSessionThreadScopeDescriptor(
+      threadScopeIdentityRegistry,
+      session,
+    );
 
     return (
-      <RetainedActivity key={session.id} mode={isActive ? "visible" : "hidden"}>
+      <WorkbenchSessionScopePath
+        key={threadScopeDescriptor.stableKey}
+        thread={threadScopeDescriptor}
+        route={{ routeKey: "/thread", kind: "thread" }}
+        selected
+      >
         <div
-          aria-hidden={isActive ? undefined : "true"}
           className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
-          data-retained-session-id={session.id}
-          data-retained-session-active={isActive ? "true" : "false"}
+          data-mounted-session-id={session.id}
         >
           <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
             <section
@@ -9536,16 +9281,15 @@ export function WorkbenchShell({
                   data-app-shell-main-content-top-fade="full-bleed"
                   className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-20 h-4 bg-gradient-to-b from-token-main-surface-primary opacity-0 transition-opacity duration-200 browser:hidden"
                 />
-                {isActive && sessionError ? (
+                {sessionError ? (
                   <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
                 ) : null}
-                {isActive || session.thread ? (
-                  <ThreadHeaderPortalProvider target={isActive ? threadHeaderPortalElement : null}>
-                    <SessionThreadPage
+                <SessionThreadPage
                       session={session}
                       project={sessionProject}
                       projects={projects}
-                      threadViewportActive={isActive && !model.rightPanelFullWidth}
+                      routeActive
+                      threadBodyVisible={!model.rightPanelFullWidth}
                       onRefreshProjectSessions={refreshProjectSessions}
                       onEnsureBlankSessionForProject={ensureBlankSessionForProject}
                       onOpenPendingWorktree={setPendingWorktreeClientThreadId}
@@ -9566,15 +9310,15 @@ export function WorkbenchShell({
                       onForkFromTurnIntoWorktree={forkSessionFromTurnIntoWorktree}
                       worktreeStartMode={worktreeStartMode}
                       worktreeBranchPrefix={worktreeAutoBranchPrefix}
-                      searchOpenTick={isActive ? threadSearchOpenTick : 0}
+                      searchOpenTick={threadSearchOpenTick}
                       summaryPanelMounted={sessionThreadSummaryPanelMounted}
                       summaryPanelOpen={sessionThreadSummaryPanelOpen}
                       summaryPanelHideImmediately={sessionThreadSummaryPanelHideImmediately}
                       summaryPanelContentShift={sessionThreadSummaryPanelContentShift}
-                      summarySideChatRows={isActive ? threadSummarySideChatRows : []}
-                      summaryBrowserRows={isActive ? threadSummaryBrowserRows : []}
-                      summaryScheduledAutomation={isActive ? threadSummaryScheduledAutomation : null}
-                      summaryComputerUsePip={isActive ? remoteHostedPipSummaryControl.summaryComputerUsePip : null}
+                      summarySideChatRows={threadSummarySideChatRows}
+                      summaryBrowserRows={threadSummaryBrowserRows}
+                      summaryScheduledAutomation={threadSummaryScheduledAutomation}
+                      summaryComputerUsePip={remoteHostedPipSummaryControl.summaryComputerUsePip}
                       onOpenSummarySideChatRow={openSummarySideChatRow}
                       onOpenSummaryBrowserRow={openSummaryBrowserRow}
                       onOpenSummaryScheduledAutomation={openSummaryScheduledAutomation}
@@ -9583,7 +9327,7 @@ export function WorkbenchShell({
                       onOpenBackgroundTerminalOutput={openSummaryBackgroundTerminalOutput}
                       onToggleSummaryComputerUsePip={remoteHostedPipSummaryControl.onToggleSummaryComputerUsePip}
                       rightPanelComposerOverlayEnabled={sessionRightPanelComposerOverlayEnabled}
-                      rightPanelComposerOverlayTarget={isActive ? rightPanelComposerOverlayTarget : null}
+                      rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
                       onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
                       onOpenMcpAppSidePanel={openMcpAppSidePanel}
                       onOpenPlanInSidePanel={openPlanSidePanel}
@@ -9600,16 +9344,15 @@ export function WorkbenchShell({
                       }}
                       commandKeymapState={commandKeymapState}
                       isMac={isMacPlatform}
-                    />
-                  </ThreadHeaderPortalProvider>
-                ) : null}
+                  />
               </div>
             </section>
 
             {sessionRightPanelMounted ? (
               <motion.aside
+                key={session.id}
                 data-app-shell-focus-area="right-panel"
-                data-testid={isActive ? "session-right-panel" : undefined}
+                data-testid="session-right-panel"
                 data-right-panel-width-mode={model.rightPanelFullWidth ? "full" : "regular"}
                 className={cn(
                   "relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible",
@@ -9620,7 +9363,7 @@ export function WorkbenchShell({
                   width: sessionRightPanelWidth,
                 }}
               >
-                {isActive && model.sidePanelOpen && !model.rightPanelFullWidth ? (
+                {model.sidePanelOpen && !model.rightPanelFullWidth ? (
                   <div
                     role="separator"
                     aria-orientation="vertical"
@@ -9634,7 +9377,7 @@ export function WorkbenchShell({
 
                 <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
                   <motion.div
-                    ref={isActive ? setRightPanelComposerOverlayTarget : undefined}
+                    ref={setRightPanelComposerOverlayTarget}
                     data-right-panel-composer-overlay-host="true"
                     className={cn(
                       "absolute top-0 right-0 bottom-0 min-w-0 bg-token-main-surface-primary",
@@ -9651,9 +9394,9 @@ export function WorkbenchShell({
                       layout={model.rightPanel.layout}
                       tabItemsByLeafId={sessionPanelGroupTabs.right.itemsByLeafId}
                       activeTabIdsByLeafId={sessionPanelGroupTabs.right.activeTabIdsByLeafId}
-                      renderAfterTabs={(leafId) => isActive ? renderPanelNewTabButton(session, "right", leafId) : null}
-                      renderAfterList={() => isActive ? rightPanelHeaderAfterList : null}
-                      headerStartInsetPx={isActive ? rightPanelHeaderStartInsetWidth : 0}
+                      renderAfterTabs={(leafId) => renderPanelNewTabButton(session, "right", leafId)}
+                      renderAfterList={() => rightPanelHeaderAfterList}
+                      headerStartInsetPx={rightPanelHeaderStartInsetWidth}
                       tabScrollEndPaddingPx={sessionPanelTabScrollEndPaddingPx}
                       renderEmptyLeaf={(leafId) => (
                         <EmptyRightPane
@@ -9667,7 +9410,6 @@ export function WorkbenchShell({
                             && Boolean(findDbViewTabForProject(session, session.projectId))
                           }
                           onAction={(kind) => {
-                            if (!isActive) return;
                             if (kind === "side_chat") {
                               void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
                               return;
@@ -9683,40 +9425,38 @@ export function WorkbenchShell({
                             })();
                           }}
                           onOpenDestination={async (destination) => {
-                            if (!isActive) return;
                             await openPanelDestinationFromPicker(destination, "right", leafId);
                           }}
                         />
                       )}
                       onSelectTab={(leafId, tabId) => {
-                        if (isActive) void selectPanelTab("right", tabId, leafId);
+                        void selectPanelTab("right", tabId, leafId);
                       }}
                       onCloseTab={(leafId, tabId) => {
-                        if (isActive) void closePanelTab("right", tabId, leafId);
+                        void closePanelTab("right", tabId, leafId);
                       }}
                       onDirectCloseTab={(leafId, tabId) => {
-                        if (isActive) void closePanelTab("right", tabId, leafId);
+                        void closePanelTab("right", tabId, leafId);
                       }}
                       onPinTab={(leafId, tabId) => {
-                        if (isActive) void pinPreviewTab("right", tabId, leafId);
+                        void pinPreviewTab("right", tabId, leafId);
                       }}
                       onReorderTab={(leafId, tabId, targetIndex) => {
-                        if (isActive) void reorderTabs("right", tabId, targetIndex, leafId);
+                        void reorderTabs("right", tabId, targetIndex, leafId);
                       }}
                       onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) => {
-                        if (isActive) void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget);
+                        void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget);
                       }}
                       onSplitGroup={(leafId, side, tabId) => {
-                        if (isActive) void splitPanelGroup("right", leafId, side, tabId);
+                        void splitPanelGroup("right", leafId, side, tabId);
                       }}
                       onFocusGroup={(leafId) => {
-                        if (isActive) rememberFocusedPanelGroup("right", leafId);
+                        rememberFocusedPanelGroup("right", leafId);
                       }}
                       onActivateGroup={(leafId, tabId) => {
-                        if (isActive) void activatePanelGroup("right", leafId, tabId);
+                        void activatePanelGroup("right", leafId, tabId);
                       }}
                       onResizeGroup={(branchId, ratio) => {
-                        if (!isActive) return;
                         return resizePanelGroup("right", branchId, ratio);
                       }}
                     />
@@ -9729,14 +9469,14 @@ export function WorkbenchShell({
           {sessionBottomPanelMounted ? (
             <motion.section
               data-app-shell-focus-area="bottom-panel"
-              data-testid={isActive ? "session-bottom-panel" : undefined}
+              data-testid="session-bottom-panel"
               className="relative min-h-0 w-full shrink-0 overflow-visible"
               style={{
                 opacity: sessionBottomPanelOpacity,
                 height: sessionBottomPanelHeightStyle,
               }}
             >
-              {isActive && model.bottomPanelOpen ? (
+              {model.bottomPanelOpen ? (
                 <div
                   role="separator"
                   aria-orientation="horizontal"
@@ -9761,9 +9501,9 @@ export function WorkbenchShell({
                     layout={model.bottomPanel.layout}
                     tabItemsByLeafId={sessionPanelGroupTabs.bottom.itemsByLeafId}
                     activeTabIdsByLeafId={sessionPanelGroupTabs.bottom.activeTabIdsByLeafId}
-                    renderAfterTabs={(leafId) => isActive ? renderPanelNewTabButton(session, "bottom", leafId) : null}
+                    renderAfterTabs={(leafId) => renderPanelNewTabButton(session, "bottom", leafId)}
                     tabScrollEndPaddingPx={sessionPanelTabScrollEndPaddingPx}
-                    headerEndInsetPx={isActive ? bottomPanelGlobalHeaderInsetWidth : 0}
+                    headerEndInsetPx={bottomPanelGlobalHeaderInsetWidth}
                     renderEmptyLeaf={(leafId) => (
                       <EmptyRightPane
                         actions={sessionAvailableBottomPanelActions}
@@ -9773,7 +9513,6 @@ export function WorkbenchShell({
                         currentProjectId={session.projectId}
                         currentProjectDbViewExists={false}
                         onAction={(kind) => {
-                          if (!isActive) return;
                           if (kind === "side_chat") {
                             void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
                             return;
@@ -9789,44 +9528,42 @@ export function WorkbenchShell({
                           })();
                         }}
                         onOpenDestination={async (destination) => {
-                          if (!isActive) return;
                           await openPanelDestinationFromPicker(destination, "bottom", leafId);
                         }}
                       />
                     )}
                     onSelectTab={(leafId, tabId) => {
-                      if (isActive) void selectPanelTab("bottom", tabId, leafId);
+                      void selectPanelTab("bottom", tabId, leafId);
                     }}
                     onCloseTab={(leafId, tabId) => {
-                      if (isActive) void closePanelTab("bottom", tabId, leafId);
+                      void closePanelTab("bottom", tabId, leafId);
                     }}
                     onDirectCloseTab={(leafId, tabId) => {
-                      if (isActive) void closePanelTab("bottom", tabId, leafId);
+                      void closePanelTab("bottom", tabId, leafId);
                     }}
                     onPinTab={(leafId, tabId) => {
-                      if (isActive) void pinPreviewTab("bottom", tabId, leafId);
+                      void pinPreviewTab("bottom", tabId, leafId);
                     }}
                     onReorderTab={(leafId, tabId, targetIndex) => {
-                      if (isActive) void reorderTabs("bottom", tabId, targetIndex, leafId);
+                      void reorderTabs("bottom", tabId, targetIndex, leafId);
                     }}
                     onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) => {
-                      if (isActive) void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget);
+                      void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget);
                     }}
                     onSplitGroup={(leafId, side, tabId) => {
-                      if (isActive) void splitPanelGroup("bottom", leafId, side, tabId);
+                      void splitPanelGroup("bottom", leafId, side, tabId);
                     }}
                     onFocusGroup={(leafId) => {
-                      if (isActive) rememberFocusedPanelGroup("bottom", leafId);
+                      rememberFocusedPanelGroup("bottom", leafId);
                     }}
                     onActivateGroup={(leafId, tabId) => {
-                      if (isActive) void activatePanelGroup("bottom", leafId, tabId);
+                      void activatePanelGroup("bottom", leafId, tabId);
                     }}
                     onResizeGroup={(branchId, ratio) => {
-                      if (!isActive) return;
                       return resizePanelGroup("bottom", branchId, ratio);
                     }}
                   />
-                  {isActive && bottomPanelGlobalHeaderControls ? (
+                  {bottomPanelGlobalHeaderControls ? (
                     <div
                       data-testid="bottom-panel-global-header-actions"
                       className="pointer-events-none absolute top-0 right-0 z-30 flex h-toolbar items-center justify-end pr-2"
@@ -9841,7 +9578,7 @@ export function WorkbenchShell({
             </motion.section>
           ) : null}
         </div>
-      </RetainedActivity>
+      </WorkbenchSessionScopePath>
     );
   };
 
@@ -9913,26 +9650,19 @@ export function WorkbenchShell({
                 )}
                 style={{ marginRight: automationsDetailRailResolvedWidth }}
               >
-                {automationsRouteShell ? (
-                  <div
-                    ref={setAutomationsHeaderPortalElement}
-                    data-testid="automations-route-header-portal-target"
-                    className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
+                <div
+                  data-testid="thread-stage-header-content"
+                  className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
+                >
+                  <SelectedAppShellHeaderContent />
+                </div>
+                {!automationsRouteShell ? (
+                  <HeaderInlineActionRail
+                    slotPosition="center"
+                    data-testid="thread-stage-header-summary-actions"
+                    className="ms-auto"
                   />
-                ) : (
-                  <>
-                    <div
-                      ref={setThreadHeaderPortalElement}
-                      data-testid="thread-stage-header-portal-target"
-                      className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
-                    />
-                    <HeaderInlineActionRail
-                      slotPosition="center"
-                      data-testid="thread-stage-header-summary-actions"
-                      className="ms-auto"
-                    />
-                  </>
-                )}
+                ) : null}
               </motion.div>
             ) : null}
             <HeaderShellSlot
@@ -10164,7 +9894,19 @@ export function WorkbenchShell({
                 realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
               )}
             >
-              {pendingWorktreeRouteShell}
+              <WorkbenchSessionScopePath
+                thread={resolvePendingThreadScopeDescriptor(
+                  threadScopeIdentityRegistry,
+                  pendingWorktreeClientThreadId!,
+                )}
+                route={{
+                  routeKey: `/pending-worktree?clientThreadId=${encodeURIComponent(pendingWorktreeClientThreadId!)}`,
+                  kind: "pending-worktree",
+                }}
+                selected
+              >
+                {pendingWorktreeRouteShell}
+              </WorkbenchSessionScopePath>
             </main>
           ) : libraryRouteShell ? (
             <main
@@ -10183,7 +9925,13 @@ export function WorkbenchShell({
                   realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
                 )}
               >
-                {automationsRouteShell}
+                <WorkbenchSessionScopePath
+                  thread={APP_SHELL_ROUTE_THREAD_SCOPE_DESCRIPTOR}
+                  route={{ routeKey: automationsPath!, kind: "automations" }}
+                  selected
+                >
+                  {automationsRouteShell}
+                </WorkbenchSessionScopePath>
               </main>
               {automationsDetailRailMounted ? (
                 <motion.aside
@@ -10230,8 +9978,8 @@ export function WorkbenchShell({
                   realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
                 )}
               >
-                {retainedSessionRenderEntries.length > 0 ? (
-                  retainedSessionRenderEntries.map(renderRetainedSessionActivity)
+                {activeRenderSession ? (
+                  renderActiveSession(activeRenderSession)
                 ) : (
                   <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
                     Select a project session.
@@ -12408,7 +12156,8 @@ function SessionThreadPage({
   session,
   project,
   projects,
-  threadViewportActive,
+  routeActive,
+  threadBodyVisible,
   onRefreshProjectSessions,
   onEnsureBlankSessionForProject,
   onOpenPendingWorktree,
@@ -12461,7 +12210,8 @@ function SessionThreadPage({
   session: ProjectSession;
   project: Project | null;
   projects: Project[];
-  threadViewportActive: boolean;
+  routeActive: boolean;
+  threadBodyVisible: boolean;
   onRefreshProjectSessions: (projectId: string | null) => Promise<ProjectSession[]>;
   onEnsureBlankSessionForProject: (projectId: string | null) => Promise<ProjectSession>;
   onOpenPendingWorktree: (clientThreadId: string) => void;
@@ -12798,7 +12548,8 @@ function SessionThreadPage({
         rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
         rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-        threadViewportActive={threadViewportActive}
+        routeActive={routeActive}
+        threadBodyVisible={threadBodyVisible}
         actions={actions}
         onForkFromTurnIntoWorktree={canForkCurrentThreadIntoWorktree
           ? onForkFromTurnIntoWorktree

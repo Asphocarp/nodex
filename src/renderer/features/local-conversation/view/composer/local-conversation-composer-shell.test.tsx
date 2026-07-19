@@ -24,6 +24,9 @@ import {
   LocalConversationComposerShell,
   resolveComposerReplacementOwner,
 } from "./local-conversation-composer-shell";
+import { RendererStateProvider } from "@/app-providers";
+import { TestThreadRouteScopePath } from "@/test/maitai-scope-harness";
+import { TestQueryProvider } from "@/test/query";
 
 const STORY_CONTROLS: ThreadStageStoryControls = {
   preset: "background-activity",
@@ -124,6 +127,8 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
 }
 
 function installComposerShellWindowApi(testInvoke?: (channel: string, ...args: unknown[]) => Promise<unknown>): void {
+  let persistedRevision = 0;
+  const persistedValues: Record<string, unknown> = {};
   installWindowApi({
     invoke: async (channel: string, ...args: unknown[]) => {
       if (testInvoke) {
@@ -141,10 +146,16 @@ function installComposerShellWindowApi(testInvoke?: (channel: string, ...args: u
         case "git:branch:watch:stop":
           return true;
         case "persisted-atom:sync-request":
-          return {};
+          return { revision: persistedRevision, values: persistedValues };
         case "persisted-atom:update": {
-          const update = args[0] as { key: string; value: unknown };
-          return { [update.key]: update.value };
+          const update = args[0] as { key: string; value: unknown; mutationId: string };
+          persistedRevision += 1;
+          persistedValues[update.key] = update.value;
+          return {
+            ...update,
+            revision: persistedRevision,
+            originRendererId: "test-renderer",
+          };
         }
         case "codex:thread:goal:materialize-draft": {
           const draft = args[0] as { objective?: string };
@@ -170,18 +181,24 @@ function renderComposerShell(
   actions: ThreadStageActions = buildActions(),
 ) {
   return render(
-    <TooltipProvider>
-      <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
-        <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
-        <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
-        <LocalConversationComposerShell
-          model={model}
-          actions={actions}
-          errorMessage={null}
-          onErrorMessage={() => { }}
-        />
-      </div>
-    </TooltipProvider>,
+    <TestQueryProvider>
+      <RendererStateProvider>
+        <TestThreadRouteScopePath>
+          <TooltipProvider>
+            <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
+              <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
+              <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
+              <LocalConversationComposerShell
+                model={model}
+                actions={actions}
+                errorMessage={null}
+                onErrorMessage={() => { }}
+              />
+            </div>
+          </TooltipProvider>
+        </TestThreadRouteScopePath>
+      </RendererStateProvider>
+    </TestQueryProvider>,
   );
 }
 
@@ -271,20 +288,7 @@ describe("LocalConversationComposerShell", () => {
   test("renders queue rows, background terminals, and request cards in one shell", async () => {
     installComposerShellWindowApi();
     const model = buildComposerShellModel();
-    const view = render(
-      <TooltipProvider>
-        <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
-          <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
-          <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
-          <LocalConversationComposerShell
-            model={model}
-            actions={buildActions()}
-            errorMessage={null}
-            onErrorMessage={() => { }}
-          />
-        </div>
-      </TooltipProvider>,
-    );
+    const view = renderComposerShell(model);
     await settleAsyncRender();
 
     const renderedText = textContent(document.body);
@@ -510,24 +514,11 @@ describe("LocalConversationComposerShell", () => {
     installComposerShellWindowApi();
     const model = buildComposerShellModelWithGoalResumeConfirmation("paused");
     const dismissCalls: string[] = [];
-    const view = render(
-      <TooltipProvider>
-        <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
-          <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
-          <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
-          <LocalConversationComposerShell
-            model={model}
-            actions={buildActions({
-              onDismissThreadGoalResumeConfirmation: async (threadId) => {
-                dismissCalls.push(threadId);
-              },
-            })}
-            errorMessage={null}
-            onErrorMessage={() => { }}
-          />
-        </div>
-      </TooltipProvider>,
-    );
+    const view = renderComposerShell(model, buildActions({
+      onDismissThreadGoalResumeConfirmation: async (threadId) => {
+        dismissCalls.push(threadId);
+      },
+    }));
     await settleAsyncRender();
 
     expect(Boolean(textContent(document.body).includes("Resume paused goal?"))).toBe(true);
@@ -547,26 +538,13 @@ describe("LocalConversationComposerShell", () => {
     installComposerShellWindowApi();
     const model = buildComposerShellModelWithGoalResumeConfirmation("blocked");
     const setGoalCalls: unknown[] = [];
-    const view = render(
-      <TooltipProvider>
-        <div className="z-10 mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar pb-4">
-          <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
-          <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
-          <LocalConversationComposerShell
-            model={model}
-            actions={buildActions({
-              onDismissThreadGoalResumeConfirmation: async () => { },
-              onSetThreadGoal: async (input) => {
-                setGoalCalls.push(input);
-                return null;
-              },
-            })}
-            errorMessage={null}
-            onErrorMessage={() => { }}
-          />
-        </div>
-      </TooltipProvider>,
-    );
+    const view = renderComposerShell(model, buildActions({
+      onDismissThreadGoalResumeConfirmation: async () => { },
+      onSetThreadGoal: async (input) => {
+        setGoalCalls.push(input);
+        return null;
+      },
+    }));
     await settleAsyncRender();
 
     expect(Boolean(textContent(document.body).includes("Resume goal?"))).toBe(true);

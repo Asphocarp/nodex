@@ -1,4 +1,3 @@
-import { createPortal } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -18,6 +17,7 @@ import { UserMessageText } from "@/features/local-conversation/view/shared/user-
 import { THREAD_VISUAL_TOKENS } from "@/features/local-conversation/view/blocks/local-conversation-visual-tokens";
 import { WorktreeInitActivityList } from "@/features/local-conversation/view/shared/tools/worktree-init-activity-list";
 import { invoke, subscribeCodexPendingWorktreesChanged } from "@/lib/api";
+import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { RenameChatDialog } from "./rename-chat-dialog";
 import type {
   CodexPendingWorktreeEntry,
@@ -123,12 +123,12 @@ function PendingWorktreeRouteHeader({
   entry,
   onRename,
   onTogglePinned,
-  portalTarget,
+  external,
 }: {
   entry: CodexPendingWorktreeEntry;
   onRename: () => void;
   onTogglePinned: () => void;
-  portalTarget?: HTMLElement | null;
+  external: boolean;
 }) {
   const header = (
     <div className="flex h-toolbar min-w-0 items-center gap-1 px-1">
@@ -155,7 +155,7 @@ function PendingWorktreeRouteHeader({
       </button>
     </div>
   );
-  if (portalTarget) return createPortal(header, portalTarget);
+  if (external) return <AppShellHeaderContentRegistrar content={header} />;
   return <div className="shrink-0 border-b border-token-border px-4">{header}</div>;
 }
 
@@ -164,7 +164,7 @@ export interface PendingWorktreeRouteViewProps {
   resolution: CodexPendingWorktreeThreadResolution | null;
   busyAction?: PendingWorktreeRouteAction | null;
   actionError?: string | null;
-  headerPortalTarget?: HTMLElement | null;
+  externalHeader?: boolean;
   onCancel: () => void;
   onContinue: () => void;
   onAutoFix: () => void;
@@ -180,7 +180,7 @@ export function PendingWorktreeRouteView({
   resolution,
   busyAction = null,
   actionError = null,
-  headerPortalTarget = null,
+  externalHeader = false,
   onCancel,
   onContinue,
   onAutoFix,
@@ -278,7 +278,7 @@ export function PendingWorktreeRouteView({
     >
       <PendingWorktreeRouteHeader
         entry={entry}
-        portalTarget={headerPortalTarget}
+        external={externalHeader}
         onRename={() => setRenameOpen(true)}
         onTogglePinned={onTogglePinned}
       />
@@ -370,7 +370,7 @@ function PendingWorktreeRouteStatusSurface({
 export interface PendingWorktreeRouteProps {
   clientThreadId: string;
   agentMode?: CodexAgentMode;
-  headerPortalTarget?: HTMLElement | null;
+  externalHeader?: boolean;
   transport?: PendingWorktreeRouteTransport;
   onClose: () => void;
   onOpenThread: (threadId: string) => Promise<boolean | void>;
@@ -382,7 +382,7 @@ export interface PendingWorktreeRouteProps {
 export function PendingWorktreeRoute({
   clientThreadId,
   agentMode = "auto",
-  headerPortalTarget = null,
+  externalHeader = false,
   transport = ELECTRON_PENDING_WORKTREE_TRANSPORT,
   onClose,
   onOpenThread,
@@ -605,7 +605,7 @@ export function PendingWorktreeRoute({
       resolution={snapshot.resolution}
       busyAction={busyAction}
       actionError={actionError}
-      headerPortalTarget={headerPortalTarget}
+      externalHeader={externalHeader}
       onCancel={() => void runAction("cancel")}
       onContinue={() => void runAction("continue")}
       onAutoFix={() => void runAction("auto-fix")}

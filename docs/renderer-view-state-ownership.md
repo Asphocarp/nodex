@@ -1,0 +1,147 @@
+# Renderer view-state ownership
+
+This inventory is the migration contract for ADR 0022. It distinguishes
+renderer-local presentation from durable data and runtime authority. A field
+may move between renderer implementations, but it must not acquire a second
+writable owner.
+
+## Ownership vocabulary
+
+| Owner | Use for | Clear or disposal boundary |
+| --- | --- | --- |
+| React component | Transient state for one mounted interaction | Component cleanup |
+| Maitai App atom | Window-wide renderer presentation | Renderer shutdown or explicit domain cleanup |
+| Maitai Thread atom | Task presentation shared by its routes | ThreadScope eviction, max 20 |
+| Maitai Route atom | One task route's presentation | RouteScope eviction, max 20 per Thread |
+| Maitai Composer atom | Completed user-authored draft context | Successful action or ComposerScope eviction, max 100 per Route |
+| Maitai persisted atom | Renderer preference or authored draft with an explicit codec and sync policy | Explicit clear or storage reset |
+| TanStack Query | Main/server read models and request state | Query invalidation and garbage collection |
+| Runtime Module | Conversation, Browser, Terminal, editor, drag, and approval lifecycles | The Module's explicit lifecycle operation |
+
+## `useWorkbenchState` inventory
+
+The hook is the focused Workbench window-layout Module. One Maitai App atom owns
+its transactional aggregate; sessionStorage, localStorage, and explicit window
+layout snapshots are decode/write Adapters over that atom. These values are not
+Thread runtime or Query state. Session-local layout values do not live-apply
+across windows; profile preferences retain their existing durable scope unless
+a separate product change says otherwise.
+
+| Field or projection | Identity and lifetime | Persistence / cross-window | Target owner and disposition |
+| --- | --- | --- | --- |
+| `dbProjectId`, `activeProjectId` | Current renderer-window database Project selection | Window layout/session; no live cross-window apply | Workbench window-layout App atom |
+| `threadsProjectId` | Current renderer-window Threads Project filter | Window layout/session; no live cross-window apply | Workbench window-layout App atom |
+| `projectRefs` | Derived from durable Project IDs and display hashing | None | Pure derived projection over Query/project order |
+| `activeView`, `viewsByProject` | Database view choice per Project | Window layout/session; no live cross-window apply | Workbench window-layout App atom, keyed fields |
+| `activeSearchQuery`, `searchByProject` | Database search text per Project | Window layout/session; no live cross-window apply | Workbench window-layout App atom, keyed fields |
+| `activeDbViewPrefs`, `dbViewPrefsByProject` | Renderer view preferences per Project/view | Profile localStorage; no live cross-window apply today | Workbench window-layout App atom plus same-window storage Adapter |
+| `sidebar` | Sidebar collapsed state, width, and section disclosure | Profile localStorage; no live cross-window apply today | Workbench window-layout App atom; live drag sample remains component-local |
+| `dock` | Window-local dock width and split tree | Profile localStorage plus window snapshot | Workbench window-layout App atom; never duplicates durable Project-session panels |
+| `recentPageSessions`, `activeRecentSessionId` | Renderer-window recent Page navigation | sessionStorage/window snapshot | Workbench window-layout App atom; explicit close/prune clears entries |
+| `focusedStage`, `stageNavDirection` | Current renderer navigation/presentation | Window layout/session | Workbench window-layout App atom; direction is navigation state |
+| `pagesTabs`, `activePagesTabId` | Page-stage projection and selection | Tabs derive from recent sessions; selection is window layout | Pure projection plus Workbench window-layout selection field |
+| `threadsTabs`, `activeThreadsTabId` | Legacy stage tabs and selection | Window layout/session | Workbench window-layout App atom; not durable Project Session threads |
+| `filesTabs`, `activeFilesTabId` | Files-stage projection and selection | Window layout/session | Workbench window-layout App atom |
+| `stagePanelWidths` | Renderer stage widths by stage | Window layout/session | Workbench window-layout App atom; live resize sample remains component-local |
+| `slidingWindowPaneCount` | Renderer stage composition preference | Window layout/session | Workbench window-layout App atom |
+| setter/navigation methods | Operations over the preceding state | None | Focused Workbench Module methods over the one aggregate atom |
+| `buildLayoutSnapshot`, `replaceLayoutSnapshot` | Window-session serialization Adapter | Main-owned window-session transport | Adapter over the canonical Workbench window-layout App atom |
+
+## Root provider inventory
+
+Every provider currently mounted by `AppProviders` has an explicit disposition.
+Maitai is mounted once alongside the stable Query provider; it does not require
+all Context providers to disappear in the first lifecycle cutover.
+
+| Provider | Current state / authority | Persistence and synchronization | Disposition |
+| --- | --- | --- | --- |
+| `NodexQueryProvider` | One renderer `QueryClient`; main/server cache | Query policies and invalidation | Keep as deep server-state owner; pass the stable client into Maitai environment only |
+| `ThemeProvider` | Theme choice plus OS media query | localStorage; OS events | Theme is an App atom; OS preference is a read-only external atom; the remaining wrapper only applies root DOM classes |
+| `SansFontSizeProvider` | Global font-size preference | Existing renderer storage helper | App atom; the remaining wrapper only applies root CSS variables |
+| `CodeFontSizeProvider` | Global code-font-size preference | Existing renderer storage helper | App atom; the remaining wrapper only applies the root CSS variable |
+| `FileLinkOpenerProvider` | Global file-link opener preference and capability projection | Existing renderer storage/capability checks | Choice is an App atom; the remaining wrapper is the single document event/operation bridge |
+| NFM autolink settings | Global NFM autolink preferences | Existing renderer storage helper | Direct App atom; Context/Provider deleted |
+| Paste-resource settings | Global paste-resource preferences | Existing renderer storage helper | Direct App atom; Context/Provider deleted |
+| Spellcheck settings | Global spellcheck preference | localStorage | Direct App atom; Context/Provider deleted |
+| `CodexServiceTierSettingsProvider` | Global service-tier preference through an external store | localStorage, same-renderer publication, and browser storage events | Keep the focused external-store Module; its storage-event lifecycle is distinct from ordinary preference state |
+| `CodexThreadSettingsProvider` | App-local defaults plus main developer-detail projection | Existing renderer storage helper and `settings:codex-developer:update` | Keep the focused settings bridge; active Thread settings remain Codex/runtime-owned |
+| Page Stage collapsed properties | Page Stage presentation preference | Existing renderer storage helper | Direct App atom keyed by the existing preference identity; Context/Provider deleted |
+| Card property position | Global property-position preference | Existing renderer storage helper | Direct App atom; Context/Provider deleted |
+| `NodexTooltipProvider` | Radix tooltip timing/coordination | Mounted UI primitive state | Keep component/provider-local; not application state |
+
+`LocalConversationProvider` remains outside this list because it is a deep Codex
+runtime Module mounted by `App`, not a shallow view-state Context. `NodexToastProvider`
+is an application notification surface with its own mounted external-store
+lifecycle; it is not task state.
+
+## Task, Composer, transcript, and panel inventory
+
+| State category | Identity and lifetime | Persistence / synchronization | Canonical owner after migration | Clear or disposal event |
+| --- | --- | --- | --- | --- |
+| Selected Thread/Route/Composer identities | Stable parent-relative scope path | Renderer memory | Maitai ScopeNodes | Nested LRU or renderer shutdown |
+| Singular app-shell header content | Selected RouteScope | None | Route atom | Registrar layout cleanup or Route eviction |
+| Header actions | Mounted action ID and slot | None | Existing ordered keyed registry | Action unmount |
+| Rich Composer prompt | Composer identity plus optional `local:${threadId}` alias | `composer-prompt-drafts-v1`; eager hydration; `cross-window` | Maitai persisted App atom map | Successful submission or explicit clear; empty deletes aliases |
+| Completed Composer context and choices | ComposerScope identity | Renderer memory | Focused Composer atoms | Successful action or Composer eviction |
+| Composer upload/menu/hover/dictation/confirmation state | Current mounted form | None | React component | Unmount |
+| One-shot handoff/checkout Composer transfer | Server conversation ID | Renderer memory | App atom family | Consume once or conversation deletion |
+| Transcript restore snapshot | Server conversation ID | Renderer memory; no arbitrary cap | App atom family | Canonical conversation deletion or renderer shutdown |
+| Collapse override | Conversation ID plus stable turn search key | Renderer memory; no arbitrary cap | App atom family | Canonical conversation deletion or renderer shutdown |
+| Route-active and transcript-visible flags | Current selected route / full-width body visibility | Renderer memory | Route atom/derived presentation | Route unmount or panel visibility change |
+| Preview tabs, overlays, and route-local panel presentation | Thread/Route identity | Renderer memory unless an existing preference contract applies | Thread/Route atoms | Explicit close or scope eviction |
+| Durable Project-session panels and tabs | Project Session | SQLite + Query | Main/SQLite and TanStack Query | Domain close/delete operation |
+
+## Existing external stores and Modules
+
+The following seams are not migration-by-default candidates. Maitai may expose a
+read-only bridge only when scoped atom composition needs one.
+
+| Module or store | Authority | Disposition |
+| --- | --- | --- |
+| `local-conversation-store.ts` | Codex conversation, execution, requests, streaming, reconnect, and owner/follower coordination | Keep deep Module; never mirror writable snapshots |
+| `terminal-session-store.ts` / `use-terminal.ts` | PTY session, buffer, renderer attachment, resize/write/exit | Keep deep Module; view unmount detaches, explicit close destroys |
+| `browser-sidebar-webview-manager.ts` | Browser runtime identity and visible/hidden host claims | Keep deep Module; atoms may hold stable tab/runtime IDs only |
+| Block Document/Yjs/editor runtime | Y.Doc, provider, editor, UndoManager, write fences, relocation participants | Keep deep surface Modules per ADR 0008 |
+| `block-disclosure-state.ts` | Stable occurrence disclosure preference | Keep until a persisted atom Adapter exactly preserves ADR 0009 |
+| `kanban-store.ts`, `page-detail-store.ts`, `database-row-detail-store.ts` | Main-backed read models, optimistic journals, invalidation, grant-aware caches | Keep their deep external-store/Query ownership |
+| `review-full-content-store.ts` | Key-scoped row-local Git full-content lifecycle | Keep feature Module |
+| `page-draft-store.ts` | Cross-surface Page-form overlay projected into summary Cards, with key-local subscriptions and explicit clear on Page change/unmount | Keep focused draft-projection Module; it is not Page data authority or persistent state |
+| `reference-surface-state.ts` | Renderer-wide activation budget with editing/visibility priority, recency, capacity, and eligibility disposal | Keep focused capacity Module; replacing it with values alone would lose scheduling semantics |
+| `review-diff-comment-attachment-store.ts` | Review-to-Composer attachment command bridge with thread-keyed add/update/remove/clear and submit clear boundary | Keep focused bridge; Composer consumes it through the existing read-only Maitai external atom while all writes stay behind this Interface |
+| Toast, portal-host, date-clock, and gesture stores | UI primitive, mounted host, clock, or current gesture lifetimes | Keep local/deep when their lifecycle is narrower than App/Thread state |
+
+## Remaining Context and reactive-store audit
+
+The post-convergence search is intentionally not a zero-match rule. Remaining
+matches have one of these explicit lifecycles:
+
+| Match family | Disposition |
+| --- | --- |
+| Maitai store/scope Context | Infrastructure for one renderer store and the current scope path |
+| Local conversation Context/store and MCP/image/settings-navigation Contexts | Codex execution or mounted feature capability; keep deep feature Modules |
+| Block-reference, editor side-menu/text-action, thread-section, and mention Contexts | Nearest mounted editor/runtime capability; keep component/runtime scoped |
+| Sidebar reorder/DnD and content-search Contexts | One active interaction/search surface; keep mounted feature-local |
+| Workbench header action registry | Ordered multi-producer registry whose entries dispose on registrar unmount; keep separate from the singular Route header value |
+| Block Document surface/write-fence, disclosure, Page/detail/Database-row/Kanban stores | Collaborative runtime, write fence, persisted disclosure, Query/read model, or optimistic journal; keep deep owners |
+| Browser, Terminal, Review full-content/diff batching, Canvas, transport, and subscription hubs | Native/process/data runtime Modules with explicit attach, request, cancellation, or subscription lifecycles; keep |
+| Toast, portal host, date clock, resize/drag/visibility helpers | UI primitive or current mounted interaction lifetime; keep local/focused |
+| Plain `Map`/`Set` in projection, parsing, search, scheduling, and render-model helpers | Per-call computational data structures, not reactive owners |
+
+Workbench command-palette visibility, menus, dialogs, resize samples, hover,
+selection gestures, and pending drag/drop confirmations remain component-local.
+Persistent Composer/worktree/summary preferences were removed from the shell and
+now live in `use-workbench-preferences.ts` App atoms with same-window storage
+Adapters. Durable Project-session tabs/layout remain SQLite + Query authority;
+Browser, Terminal, side-chat execution, and Codex streams remain their runtime
+Modules. Panel preview/side-surface controller records stay in the Workbench
+panel Adapter because they coordinate imperative open/close/promote commands
+across the two durable panel trees; they are renderer-only and are pruned by
+their explicit close/session cleanup paths, not treated as runtime authority.
+
+## Prohibited retained or persisted values
+
+Maitai atoms must not retain or persist DOM nodes, refs, React roots, `File`,
+Promise, AbortController, editor/Tiptap/ProseMirror objects, Y.Doc/provider/
+UndoManager objects, Browser webview or webContents handles, xterm instances,
+Terminal buffers or PTYs, Query observers, mutable manager snapshots, drag
+participants, approval requests as authority, or native handles.

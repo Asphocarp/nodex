@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { render, settleAsyncRender, waitForStreamdownCodeHighlight } from "../../../../../test/dom";
+import {
+  renderWithMaitai as render,
+  settleAsyncRender,
+  waitForStreamdownCodeHighlight,
+} from "../../../../../test/dom";
 import { MarkdownRenderer } from "./markdown-renderer";
 
 const FENCED_TYPESCRIPT_CODE = [

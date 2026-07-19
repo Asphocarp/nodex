@@ -1,10 +1,9 @@
+import { useCallback } from "react";
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  type ReactNode,
-} from "react";
+  appScope,
+  scopedAtomWithInitializer,
+  useScopedAtom,
+} from "./maitai";
 
 interface SpellcheckContextValue {
   spellcheck: boolean;
@@ -13,16 +12,14 @@ interface SpellcheckContextValue {
 
 const STORAGE_KEY = "nodex-spellcheck";
 
-const SpellcheckContext = createContext<SpellcheckContextValue>({
-  spellcheck: true,
-  toggleSpellcheck: () => { },
-});
+const spellcheckAtom = scopedAtomWithInitializer(
+  appScope,
+  () => localStorage.getItem(STORAGE_KEY) !== "false",
+  { debugLabel: "spellcheck" },
+);
 
 function useSpellcheckInternal(): SpellcheckContextValue {
-  const [spellcheck, setSpellcheck] = useState<boolean>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored !== "false";
-  });
+  const [spellcheck, setSpellcheck] = useScopedAtom(spellcheckAtom);
 
   const toggleSpellcheck = useCallback(() => {
     setSpellcheck((prev) => {
@@ -30,20 +27,11 @@ function useSpellcheckInternal(): SpellcheckContextValue {
       localStorage.setItem(STORAGE_KEY, next ? "true" : "false");
       return next;
     });
-  }, []);
+  }, [setSpellcheck]);
 
   return { spellcheck, toggleSpellcheck };
 }
 
-export function SpellcheckProvider({ children }: { children: ReactNode }) {
-  const value = useSpellcheckInternal();
-  return (
-    <SpellcheckContext.Provider value={value}>
-      {children}
-    </SpellcheckContext.Provider>
-  );
-}
-
 export function useSpellcheck(): SpellcheckContextValue {
-  return useContext(SpellcheckContext);
+  return useSpellcheckInternal();
 }

@@ -18,13 +18,15 @@ function getThreadKey(threadId: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function getSnapshotForThread(threadId: string | null | undefined): CodexReviewDiffCommentAttachment[] {
+export function getReviewDiffCommentAttachmentsSnapshot(
+  threadId: string | null | undefined,
+): CodexReviewDiffCommentAttachment[] {
   const key = getThreadKey(threadId);
   if (!key) return EMPTY_ATTACHMENTS;
   return attachmentsByThreadId.get(key) ?? EMPTY_ATTACHMENTS;
 }
 
-function subscribe(listener: Listener): () => void {
+export function subscribeReviewDiffCommentAttachments(listener: Listener): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -35,8 +37,8 @@ export function useReviewDiffCommentAttachments(
   threadId: string | null | undefined,
 ): CodexReviewDiffCommentAttachment[] {
   return useSyncExternalStore(
-    subscribe,
-    () => getSnapshotForThread(threadId),
+    subscribeReviewDiffCommentAttachments,
+    () => getReviewDiffCommentAttachmentsSnapshot(threadId),
     () => EMPTY_ATTACHMENTS,
   );
 }

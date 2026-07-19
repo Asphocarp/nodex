@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import type {
   Project,
   WorkbenchLayoutSnapshot,
@@ -44,6 +50,11 @@ import {
   parseWorkbenchStageMap,
   parseWorkbenchViewMap,
 } from "./workbench-persisted-schemas";
+import {
+  appScope,
+  scopedAtom,
+  useScopedAtom,
+} from "./maitai";
 
 export type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 export type StageId = "db" | "pages" | "threads" | "files";
@@ -163,6 +174,12 @@ interface WorkbenchState {
   stagePanelWidths: StagePanelWidths;
   slidingWindowPaneCount: number;
 }
+
+const workbenchStateAtom = scopedAtom<WorkbenchState | null>(
+  appScope,
+  null,
+  { debugLabel: "workbench-window-layout" },
+);
 
 const DEFAULT_DOCK_WIDTH = 560;
 const DOCK_MIN_WIDTH = 360;
@@ -938,11 +955,25 @@ export function useWorkbenchState(
   projects: Project[],
   options: UseWorkbenchStateOptions = {},
 ) {
-  const [state, setState] = useState<WorkbenchState>(() =>
-    loadInitialState({
+  const [storedState, setStoredState] = useScopedAtom(workbenchStateAtom);
+  const initialStateRef = useRef<WorkbenchState | null>(null);
+  if (!initialStateRef.current) {
+    initialStateRef.current = loadInitialState({
       layoutSnapshot: options.initialLayoutSnapshot,
-    }),
-  );
+    });
+  }
+  const initialState = initialStateRef.current;
+  const state = storedState ?? initialState;
+  const setState = useCallback((update: WorkbenchState | ((previous: WorkbenchState) => WorkbenchState)) => {
+    setStoredState((current) => {
+      const previous = current ?? initialState;
+      return typeof update === "function" ? update(previous) : update;
+    });
+  }, [initialState, setStoredState]);
+
+  useLayoutEffect(() => {
+    setStoredState((current) => current ?? initialState);
+  }, [initialState, setStoredState]);
 
   useEffect(() => {
     if (projects.length === 0) return;
@@ -1058,7 +1089,7 @@ export function useWorkbenchState(
         slidingWindowPaneCount,
       };
     });
-  }, [projects]);
+  }, [projects, setState]);
 
   useEffect(() => {
     writeJson(WORKBENCH_STORAGE_KEY, {
@@ -1121,14 +1152,14 @@ export function useWorkbenchState(
       if (prev.dbProjectId === projectId) return prev;
       return { ...prev, dbProjectId: projectId };
     });
-  }, []);
+  }, [setState]);
 
   const setThreadsProjectId = useCallback((projectId: string) => {
     setState((prev) => {
       if (prev.threadsProjectId === projectId) return prev;
       return { ...prev, threadsProjectId: projectId };
     });
-  }, []);
+  }, [setState]);
 
   const setView = useCallback((projectId: string, view: WorkbenchView) => {
     setState((prev) => {
@@ -1141,7 +1172,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setSearchQuery = useCallback((projectId: string, query: string) => {
     setState((prev) => {
@@ -1154,7 +1185,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setDbViewPrefs = useCallback((
     projectId: string,
@@ -1177,7 +1208,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setSidebarCollapsed = useCallback((collapsed: boolean) => {
     setState((prev) => {
@@ -1190,7 +1221,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setSidebarWidth = useCallback((width: number) => {
     const nextWidth = clampCodexSidebarWidth(width);
@@ -1204,7 +1235,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setSidebarCollapsibleSectionCollapsed = useCallback((
     sectionId: SidebarCollapsibleSectionId,
@@ -1223,7 +1254,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setDockWidth = useCallback((width: number) => {
     const nextWidth = clamp(width, DOCK_MIN_WIDTH, DOCK_MAX_WIDTH);
@@ -1237,7 +1268,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setDockTree = useCallback((tree: DockTreeNode) => {
     setState((prev) => ({
@@ -1247,7 +1278,7 @@ export function useWorkbenchState(
         tree,
       },
     }));
-  }, []);
+  }, [setState]);
 
   const setFocusedStage = useCallback((
     _projectId: string,
@@ -1276,7 +1307,7 @@ export function useWorkbenchState(
         stageNavDirection: direction,
       };
     });
-  }, []);
+  }, [setState]);
 
   const focusAdjacentStage = useCallback((_projectId: string, direction: -1 | 1) => {
     setState((prev) => {
@@ -1294,7 +1325,7 @@ export function useWorkbenchState(
         stageNavDirection: direction > 0 ? "right" : "left",
       };
     });
-  }, []);
+  }, [setState]);
 
   const switchToStageIndex = useCallback((projectId: string, index: number) => {
     if (index < 0 || index >= STAGE_ORDER.length) return;
@@ -1316,7 +1347,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const setSidebarSectionExpanded = useCallback((projectId: string, sectionId: string, expanded: boolean) => {
     setState((prev) => {
@@ -1333,7 +1364,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const isSidebarSectionExpanded = useCallback((projectId: string, sectionId: string): boolean => {
     const value = state.sidebarSectionExpandedByProject[projectId]?.[sectionId];
@@ -1355,7 +1386,7 @@ export function useWorkbenchState(
         },
       };
     });
-  }, []);
+  }, [setState]);
 
   const isSidebarSectionShowAll = useCallback((projectId: string, sectionId: string): boolean => {
     const value = state.sidebarSectionShowAllByProject[projectId]?.[sectionId];
@@ -1370,7 +1401,7 @@ export function useWorkbenchState(
         activePagesTabId: tabId,
       };
     });
-  }, []);
+  }, [setState]);
 
   const setActiveThreadsTab = useCallback((projectId: string, tabId: string) => {
     setState((prev) => {
@@ -1381,7 +1412,7 @@ export function useWorkbenchState(
         activeThreadsTabId: tabId,
       };
     });
-  }, []);
+  }, [setState]);
 
   const setThreadsTabs = useCallback((projectId: string, tabs: ThreadsStageTab[]) => {
     const normalizedTabs = ensureThreadsTabs(tabs);
@@ -1402,7 +1433,7 @@ export function useWorkbenchState(
         activeThreadsTabId: nextActive,
       };
     });
-  }, []);
+  }, [setState]);
 
   const setActiveFilesTab = useCallback((_projectId: string, tabId: string) => {
     const normalizedTabId = tabId === "diff" ? tabId : "diff";
@@ -1413,7 +1444,7 @@ export function useWorkbenchState(
         activeFilesTabId: normalizedTabId,
       };
     });
-  }, []);
+  }, [setState]);
 
   const setStagePanelWidths = useCallback((_projectId: string, widths: StagePanelWidths) => {
     setState((prev) => {
@@ -1439,7 +1470,7 @@ export function useWorkbenchState(
         stagePanelWidths: nextProjectWidths,
       };
     });
-  }, []);
+  }, [setState]);
 
   const setSlidingWindowPaneCount = useCallback((paneCount: number) => {
     const nextPaneCount = clampSlidingWindowPaneCount(paneCount);
@@ -1450,7 +1481,7 @@ export function useWorkbenchState(
         slidingWindowPaneCount: nextPaneCount,
       };
     });
-  }, []);
+  }, [setState]);
 
   const stepSlidingWindowPaneCount = useCallback((action: SlidingWindowPaneCountAction) => {
     setState((prev) => {
@@ -1476,7 +1507,7 @@ export function useWorkbenchState(
         slidingWindowPaneCount: nextWindowState.slidingWindowPaneCount,
       };
     });
-  }, []);
+  }, [setState]);
 
   const cycleProjects = useCallback((direction: -1 | 1) => {
     setState((prev) => {
@@ -1492,14 +1523,14 @@ export function useWorkbenchState(
         dbProjectId: prev.projectOrder[nextIndex],
       };
     });
-  }, []);
+  }, [setState]);
 
   const switchToProjectIndex = useCallback((index: number) => {
     setState((prev) => {
       if (index < 0 || index >= prev.projectOrder.length) return prev;
       return { ...prev, dbProjectId: prev.projectOrder[index] };
     });
-  }, []);
+  }, [setState]);
 
   const recordRecentPageLeave = useCallback(
     (projectId: string, pageId: string, titleSnapshot: string): string | null => {
@@ -1518,7 +1549,7 @@ export function useWorkbenchState(
 
       return sessionId;
     },
-    [],
+    [setState],
   );
 
   const selectRecentPageSession = useCallback((sessionId: string) => {
@@ -1533,7 +1564,7 @@ export function useWorkbenchState(
         activePagesTabId: `session:${target.id}`,
       };
     });
-  }, []);
+  }, [setState]);
 
   const setActiveRecentPageSession = useCallback((sessionId: string | null) => {
     setState((prev) => {
@@ -1550,7 +1581,7 @@ export function useWorkbenchState(
         activeRecentSessionId: nextActiveRecentSessionId,
       };
     });
-  }, []);
+  }, [setState]);
 
   const closeRecentPageSession = useCallback((sessionId: string) => {
     setState((prev) => {
@@ -1573,7 +1604,7 @@ export function useWorkbenchState(
         activePagesTabId: nextActivePagesTabId,
       };
     });
-  }, []);
+  }, [setState]);
 
   const reorderRecentPageSessions = useCallback((orderedSessionIds: string[]) => {
     setState((prev) => {
@@ -1587,7 +1618,7 @@ export function useWorkbenchState(
         recentPageSessions: nextRecent,
       };
     });
-  }, []);
+  }, [setState]);
 
   const isSidebarStageExpanded = useCallback(
     (projectId: string, stageId: SidebarGroupId): boolean => {
@@ -1630,7 +1661,7 @@ export function useWorkbenchState(
 
   const replaceLayoutSnapshot = useCallback((layoutSnapshot: WorkbenchLayoutSnapshot) => {
     setState(loadInitialState({ layoutSnapshot }));
-  }, []);
+  }, [setState]);
 
   return {
     dbProjectId: state.dbProjectId,

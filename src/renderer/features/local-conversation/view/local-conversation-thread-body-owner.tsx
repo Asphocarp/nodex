@@ -1,11 +1,12 @@
 import {
-  startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { appScope, useScopeHandle } from "@/lib/maitai";
 import {
   CheckmarkIcon,
   RefreshIcon,
@@ -55,10 +56,12 @@ import {
   useLocalConversationThreadScrollController,
 } from "./local-conversation-thread-scroll-controller";
 import {
-  readLocalConversationVirtualizedTurnRestoreSnapshot,
-  writeLocalConversationVirtualizedTurnRestoreSnapshot,
-  type LocalConversationVirtualizedTurnRestoreSnapshot,
-} from "./local-conversation-virtualized-turn-restore-store";
+  localConversationTurnCollapseOverrideFamily,
+  normalizeThreadRestoreDistanceFromBottomPx,
+  resolveLatestTurnCollapseTransition,
+  setLocalConversationTurnCollapseOverride,
+  type LocalConversationThreadRestoreSnapshot,
+} from "./local-conversation-thread-view-state";
 import type {
   VirtualizedLatestTurnRestoreState,
   VirtualizedTurnListRestoreState,
@@ -75,10 +78,16 @@ const PROGRESS_PHASES = [
   { key: "startingThread", label: "Thread" },
 ] as const;
 
-const DEFER_TURN_COUNT_THRESHOLD = 40;
-
 function turnHasUserMessage(turn: CodexConversationTurn): boolean {
   return turn.items.some((item) => item.kind === "userMessage" || item.semanticKind === "userMessage");
+}
+
+function turnEntryHasMcpApp(
+  entry: LocalConversationVirtualizedTurnListEntry | undefined,
+): boolean {
+  return entry?.turn.items.some(
+    (item) => item.mcpToolCall?.mcpAppResourceUri != null,
+  ) === true;
 }
 
 function resolveLatestEditableTurnId(turns: CodexConversationTurn[]): string | null {
@@ -266,16 +275,6 @@ function ThreadStartProgressPanel({
   );
 }
 
-function DeferredThreadBodyPlaceholder() {
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="h-16 rounded-2xl bg-token-foreground/4" />
-      <div className="h-32 rounded-2xl bg-token-foreground/4" />
-      <div className="h-20 rounded-2xl bg-token-foreground/4" />
-    </div>
-  );
-}
-
 interface LocalConversationThreadBodyOwnerProps {
   body: ThreadBodyModel;
   projectId: string;
@@ -308,6 +307,12 @@ interface LocalConversationThreadBodyOwnerProps {
   planSidePanelState?: ThreadPlanSidePanelState | null;
   onErrorMessage: (message: string | null) => void;
   initialUiState?: ThreadBodyUiStateOverrides;
+  initialRestoreSnapshot: LocalConversationThreadRestoreSnapshot;
+  onRestoreSnapshotChange: (
+    update: (
+      current: LocalConversationThreadRestoreSnapshot,
+    ) => LocalConversationThreadRestoreSnapshot,
+  ) => void;
   turnDiffHoverPreviewDisabled?: boolean;
 }
 
@@ -344,37 +349,15 @@ export function LocalConversationThreadBodyOwner({
   planSidePanelState,
   onErrorMessage,
   initialUiState,
+  initialRestoreSnapshot,
+  onRestoreSnapshotChange,
   turnDiffHoverPreviewDisabled = false,
 }: LocalConversationThreadBodyOwnerProps) {
-  const {
-    getLastScrollDistanceFromBottomPx,
-    scrollElement,
-  } = useLocalConversationThreadScrollController();
-  const restoreSnapshotRef = useRef<{
-    snapshot: LocalConversationVirtualizedTurnRestoreSnapshot | null;
-    threadId: string | null;
-  } | null>(null);
-  if (restoreSnapshotRef.current?.threadId !== threadId) {
-    restoreSnapshotRef.current = {
-      snapshot: readLocalConversationVirtualizedTurnRestoreSnapshot(threadId),
-      threadId,
-    };
-  }
-  const initialRestoreSnapshot = restoreSnapshotRef.current.snapshot;
+  const { scrollElement } = useLocalConversationThreadScrollController();
+  const appHandle = useScopeHandle(appScope);
   const setupProgressLogRef = useRef<HTMLDivElement>(null);
   const contentRootRef = useRef<HTMLDivElement | null>(null);
   const listApiRef = useRef<LocalConversationVirtualizedTurnListApi | null>(null);
-  const virtualizedTurnRestoreStateRef =
-    useRef<VirtualizedTurnListRestoreState | null>(
-      initialRestoreSnapshot?.virtualizedTurnList ?? null,
-    );
-  const latestTurnRestoreStateRef =
-    useRef<VirtualizedLatestTurnRestoreState | null>(
-      initialRestoreSnapshot?.latestTurn ?? null,
-    );
-  const [collapsedAgentBodyByTurnId, setCollapsedAgentBodyByTurnId] = useState<
-    Record<string, boolean>
-  >(() => initialUiState?.collapsedAgentBodyByTurnId ?? {});
   const [forkDialogState, setForkDialogState] = useState<{
     threadId: string;
     turnId: string;
@@ -383,12 +366,6 @@ export function LocalConversationThreadBodyOwner({
   const forkSubmissionInFlightRef = useRef(false);
   const [isRestoringArchivedThread, setIsRestoringArchivedThread] = useState(false);
   const [isOlderHistoryLoading, setIsOlderHistoryLoading] = useState(false);
-  const [isDeferredBodyReady, setIsDeferredBodyReady] = useState(
-    () =>
-      !threadId ||
-      body.turnCount < DEFER_TURN_COUNT_THRESHOLD ||
-      body.emptyState.type !== "none",
-  );
   const conversation = useMemo(
     () =>
       threadId
@@ -440,62 +417,62 @@ export function LocalConversationThreadBodyOwner({
     [turnEntries],
   );
   const userMessageNavigationItems = useMemo(
-    () => isDeferredBodyReady
-      ? buildThreadUserMessageNavigationItems(turnEntries)
-      : [],
-    [isDeferredBodyReady, turnEntries],
+    () => buildThreadUserMessageNavigationItems(turnEntries),
+    [turnEntries],
   );
   const currentTurnEntriesRef = useRef(turnEntries);
   currentTurnEntriesRef.current = turnEntries;
+  const latestTurnSearchKey = turnEntries.at(-1)?.turnSearchKey ?? null;
+  const previousLatestTurnSearchKeyRef = useRef(latestTurnSearchKey);
 
-  useEffect(() => {
-    virtualizedTurnRestoreStateRef.current =
-      initialRestoreSnapshot?.virtualizedTurnList ?? null;
-    latestTurnRestoreStateRef.current =
-      initialRestoreSnapshot?.latestTurn ?? null;
-  }, [
-    body.threadId,
-    initialRestoreSnapshot?.latestTurn,
-    initialRestoreSnapshot?.virtualizedTurnList,
-  ]);
+  useLayoutEffect(() => {
+    const previousLatestTurnSearchKey = previousLatestTurnSearchKeyRef.current;
+    previousLatestTurnSearchKeyRef.current = latestTurnSearchKey;
+    if (
+      !threadId
+      || previousLatestTurnSearchKey === null
+      || previousLatestTurnSearchKey === latestTurnSearchKey
+    ) {
+      return;
+    }
 
-  const writeRestoreSnapshot = useCallback(
-    (input?: {
-      latestTurn?: VirtualizedLatestTurnRestoreState | null;
-      virtualizedTurnList?: VirtualizedTurnListRestoreState | null;
-    }) => {
-      if (!threadId) return;
-      const latestTurn =
-        input && "latestTurn" in input
-          ? input.latestTurn ?? null
-          : latestTurnRestoreStateRef.current;
-      const virtualizedTurnList =
-        input && "virtualizedTurnList" in input
-          ? input.virtualizedTurnList ?? null
-          : virtualizedTurnRestoreStateRef.current;
-      writeLocalConversationVirtualizedTurnRestoreSnapshot(threadId, {
-        distanceFromBottomPx: getLastScrollDistanceFromBottomPx(),
-        latestTurn,
-        virtualizedTurnList,
-      });
-    },
-    [getLastScrollDistanceFromBottomPx, threadId],
-  );
+    const turnSearchKeysToCollapse = resolveLatestTurnCollapseTransition({
+      entries: turnEntries.map((entry) => ({
+        hasMcpApp: turnEntryHasMcpApp(entry),
+        turnSearchKey: entry.turnSearchKey,
+      })),
+      latestTurnSearchKey,
+      previousLatestTurnSearchKey,
+    });
+    for (const turnSearchKey of turnSearchKeysToCollapse) {
+      setLocalConversationTurnCollapseOverride(appHandle, {
+        conversationId: threadId,
+        turnSearchKey,
+      }, true);
+    }
+  }, [appHandle, latestTurnSearchKey, threadId, turnEntries]);
 
   const handleVirtualizedTurnRestoreStateChange = useCallback(
     (state: VirtualizedTurnListRestoreState | null) => {
-      virtualizedTurnRestoreStateRef.current = state;
-      writeRestoreSnapshot({ virtualizedTurnList: state });
+      onRestoreSnapshotChange((current) => ({
+        ...current,
+        virtualizedTurnList: state,
+      }));
     },
-    [writeRestoreSnapshot],
+    [onRestoreSnapshotChange],
   );
 
   const handleLatestTurnRestoreStateChange = useCallback(
-    (state: VirtualizedLatestTurnRestoreState | null) => {
-      latestTurnRestoreStateRef.current = state;
-      writeRestoreSnapshot({ latestTurn: state });
+    (state: VirtualizedLatestTurnRestoreState | null, distanceFromBottomPx: number) => {
+      onRestoreSnapshotChange((current) => ({
+        ...current,
+        distanceFromBottomPx: normalizeThreadRestoreDistanceFromBottomPx(
+          distanceFromBottomPx,
+        ),
+        latestTurn: state,
+      }));
     },
-    [writeRestoreSnapshot],
+    [onRestoreSnapshotChange],
   );
 
   const handleLoadOlderTurns = useCallback(async () => {
@@ -513,13 +490,6 @@ export function LocalConversationThreadBodyOwner({
     }
   }, [body.threadId, threadId, turnPagination?.hasLoadedOldest]);
 
-  useEffect(
-    () => () => {
-      writeRestoreSnapshot();
-    },
-    [writeRestoreSnapshot],
-  );
-
   const searchSource = useMemo(
     () =>
       createLocalConversationSearchSource({
@@ -528,11 +498,17 @@ export function LocalConversationThreadBodyOwner({
         scrollAdapter: {
           scrollToTurn: async (turnKey, options) => {
             if (options?.signal?.aborted) return;
-            if (collapsedAgentBodyByTurnId[turnKey] === true) {
-              setCollapsedAgentBodyByTurnId((current) => ({
-                ...current,
-                [turnKey]: false,
-              }));
+            const targetEntry = currentTurnEntriesRef.current.find(
+              (entry) => entry.turnKey === turnKey,
+            );
+            if (threadId && targetEntry) {
+              const collapseKey = {
+                conversationId: threadId,
+                turnSearchKey: targetEntry.turnSearchKey,
+              };
+              if (appHandle.get(localConversationTurnCollapseOverrideFamily(collapseKey)) !== false) {
+                setLocalConversationTurnCollapseOverride(appHandle, collapseKey, false);
+              }
               await new Promise<void>((resolve) => {
                 requestAnimationFrame(() => {
                   resolve();
@@ -552,16 +528,13 @@ export function LocalConversationThreadBodyOwner({
             ) ?? null,
         },
       }),
-    [body.threadId, collapsedAgentBodyByTurnId],
+    [appHandle, body.threadId, threadId],
   );
 
   useEffect(() => {
     clearContentSearchMarks(contentRootRef.current);
-    setCollapsedAgentBodyByTurnId(
-      initialUiState?.collapsedAgentBodyByTurnId ?? {},
-    );
     setForkDialogState(null);
-  }, [body.threadId, initialUiState?.collapsedAgentBodyByTurnId]);
+  }, [body.threadId]);
 
   useEffect(() => {
     if (!body.showThreadStartProgressPanel) return;
@@ -577,45 +550,6 @@ export function LocalConversationThreadBodyOwner({
     threadStartProgress?.outputText,
     threadStartProgress?.updatedAt,
   ]);
-
-  useEffect(() => {
-    const shouldDefer =
-      body.emptyState.type === "none" &&
-      !body.showThreadStartProgressPanel &&
-      body.turnCount >= DEFER_TURN_COUNT_THRESHOLD;
-
-    if (!shouldDefer) {
-      setIsDeferredBodyReady(true);
-      return;
-    }
-
-    setIsDeferredBodyReady(false);
-    let cancelled = false;
-    const frameHandle = window.requestAnimationFrame(() => {
-      if (cancelled) return;
-      startTransition(() => {
-        setIsDeferredBodyReady(true);
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(frameHandle);
-    };
-  }, [body.emptyState.type, body.showThreadStartProgressPanel, body.threadId, body.turnCount]);
-
-  const handleAgentBodyCollapsedChange = useCallback(
-    (turnId: string, collapsed: boolean) => {
-      setCollapsedAgentBodyByTurnId((current) => {
-        if (current[turnId] === collapsed) return current;
-        return {
-          ...current,
-          [turnId]: collapsed,
-        };
-      });
-    },
-    [],
-  );
 
   const contentSearchSource = useMemo<ContentSearchLocalSource>(() => ({
     domain: "conversation",
@@ -889,47 +823,47 @@ export function LocalConversationThreadBodyOwner({
             data-thread-find-target="conversation"
             className={LOCAL_CONVERSATION_CONTENT_CLASS_NAME}
           >
-            {isDeferredBodyReady ? (
-              <LocalConversationVirtualizedTurnList
-                entries={virtualizedEntries}
-                conversationId={conversation?.threadId ?? body.threadId ?? ""}
-                threadCwd={conversation?.cwd ?? null}
-                projectWorkspacePath={projectWorkspacePath}
-                editableTurnId={editableTurnId}
-                canForkFromTurn={canForkFromTurn}
-                collapsedAgentBodyByTurnId={collapsedAgentBodyByTurnId}
-                onSetTurnCollapsed={handleAgentBodyCollapsedChange}
-                onEditLastTurnMessage={handleEditLastUserTurn}
-                onForkTurnMessage={handleForkFromTurn}
-                onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
-                onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
-                onOpenSideChat={actions.onOpenSideChat}
-                onOpenThread={actions.onOpenThread}
-                onOpenSummaryScheduledAutomation={actions.onOpenSummaryScheduledAutomation}
-                onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
-                onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
-                onClosePlanSidePanel={actions.onClosePlanSidePanel}
-                planSidePanelState={planSidePanelState}
-                childMemberships={childMemberships}
-                backgroundAgentRows={backgroundAgentRows}
-                turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
-                initialScrollOffset={initialRestoreSnapshot?.distanceFromBottomPx ?? 0}
-                initialRestoreState={initialRestoreSnapshot?.virtualizedTurnList ?? null}
-                initialLatestTurnRestoreState={initialRestoreSnapshot?.latestTurn ?? null}
-                latestTurnSynchronousMeasurementKey={body.latestTurnId ?? body.turnCount}
-                onLatestTurnRestoreStateChange={handleLatestTurnRestoreStateChange}
-                onRestoreStateChange={handleVirtualizedTurnRestoreStateChange}
-                onLoadOlderTurns={handleLoadOlderTurns}
-                isHistoryComplete={turnPagination?.hasLoadedOldest ?? true}
-                isOlderHistoryLoading={isOlderHistoryLoading}
-                scrollElement={scrollElement}
-                onApiChange={(api) => {
-                  listApiRef.current = api;
-                }}
-              />
-            ) : (
-              <DeferredThreadBodyPlaceholder />
-            )}
+            <LocalConversationVirtualizedTurnList
+              key={conversation?.threadId ?? body.threadId ?? "unattached"}
+              entries={virtualizedEntries}
+              conversationId={conversation?.threadId ?? body.threadId ?? ""}
+              threadCwd={conversation?.cwd ?? null}
+              projectWorkspacePath={projectWorkspacePath}
+              editableTurnId={editableTurnId}
+              canForkFromTurn={canForkFromTurn}
+              initialCollapsedAgentBodyByTurnSearchKey={
+                initialUiState?.collapsedAgentBodyByTurnId
+              }
+              onEditLastTurnMessage={handleEditLastUserTurn}
+              onForkTurnMessage={handleForkFromTurn}
+              onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+              onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
+              onOpenSideChat={actions.onOpenSideChat}
+              onOpenThread={actions.onOpenThread}
+              onOpenSummaryScheduledAutomation={actions.onOpenSummaryScheduledAutomation}
+              onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+              onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
+              onClosePlanSidePanel={actions.onClosePlanSidePanel}
+              planSidePanelState={planSidePanelState}
+              childMemberships={childMemberships}
+              backgroundAgentRows={backgroundAgentRows}
+              turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+              initialScrollOffset={normalizeThreadRestoreDistanceFromBottomPx(
+                initialRestoreSnapshot.distanceFromBottomPx,
+              )}
+              initialRestoreState={initialRestoreSnapshot.virtualizedTurnList}
+              initialLatestTurnRestoreState={initialRestoreSnapshot.latestTurn}
+              latestTurnSynchronousMeasurementKey={body.latestTurnId ?? body.turnCount}
+              onLatestTurnRestoreStateChange={handleLatestTurnRestoreStateChange}
+              onRestoreStateChange={handleVirtualizedTurnRestoreStateChange}
+              onLoadOlderTurns={handleLoadOlderTurns}
+              isHistoryComplete={turnPagination?.hasLoadedOldest ?? true}
+              isOlderHistoryLoading={isOlderHistoryLoading}
+              scrollElement={scrollElement}
+              onApiChange={(api) => {
+                listApiRef.current = api;
+              }}
+            />
           </div>
         )}
       </div>

@@ -6,7 +6,7 @@ import {
   setDateMentionClockStoreForTest,
 } from "@/lib/nfm/date-mention-clock";
 import {
-  render,
+  renderWithMaitai as render,
   settleAsyncRender,
   textContent,
   waitForStreamdownCodeHighlight,

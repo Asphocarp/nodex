@@ -6,7 +6,7 @@ import {
 } from "../../../../components/ui/toast";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
-import { render, settleAsyncRender } from "../../../../test/dom";
+import { renderWithMaitai as render, settleAsyncRender } from "../../../../test/dom";
 import type { CodexTranscriptEntry, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import {
   TurnDiffInProgressInlineSummary,

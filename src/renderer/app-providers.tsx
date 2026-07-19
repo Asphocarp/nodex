@@ -1,17 +1,18 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { NodexTooltipProvider } from "./components/ui/tooltip";
-import { CardPropertyPositionProvider } from "./lib/use-card-property-position";
 import { CodeFontSizeProvider } from "./lib/use-code-font-size";
 import { FileLinkOpenerProvider } from "./lib/use-file-link-opener";
-import { NfmAutolinkSettingsProvider } from "./lib/use-nfm-autolink-settings";
-import { PasteResourceSettingsProvider } from "./lib/use-paste-resource-settings";
-import { PageStageCollapsedPropertiesProvider } from "./lib/use-page-stage-collapsed-properties";
 import { SansFontSizeProvider } from "./lib/use-sans-font-size";
-import { SpellcheckProvider } from "./lib/use-spellcheck";
 import { CodexServiceTierSettingsProvider } from "./lib/use-codex-service-tier-settings";
 import { CodexThreadSettingsProvider } from "./lib/use-codex-thread-settings";
 import { NodexQueryProvider } from "./lib/query-client";
 import { ThemeProvider } from "./lib/use-theme";
+import {
+  createMaitaiStore,
+  MaitaiProvider,
+  preloadEagerPersistedAtoms,
+} from "./lib/maitai";
 import {
   isCodexCompactWindowUrl,
   resolveCodexRendererOs,
@@ -104,31 +105,33 @@ export function initializeRendererDocument(options?: RendererDocumentOptions): v
 export function AppProviders({ children }: AppProvidersProps) {
   return (
     <NodexQueryProvider>
-      <ThemeProvider>
-        <SansFontSizeProvider>
-          <CodeFontSizeProvider>
-            <FileLinkOpenerProvider>
-              <NfmAutolinkSettingsProvider>
-                <PasteResourceSettingsProvider>
-                  <SpellcheckProvider>
-                    <CodexServiceTierSettingsProvider>
-                      <CodexThreadSettingsProvider>
-                        <PageStageCollapsedPropertiesProvider>
-                          <CardPropertyPositionProvider>
-                            <NodexTooltipProvider>
-                              {children}
-                            </NodexTooltipProvider>
-                          </CardPropertyPositionProvider>
-                        </PageStageCollapsedPropertiesProvider>
-                      </CodexThreadSettingsProvider>
-                    </CodexServiceTierSettingsProvider>
-                  </SpellcheckProvider>
-                </PasteResourceSettingsProvider>
-              </NfmAutolinkSettingsProvider>
-            </FileLinkOpenerProvider>
-          </CodeFontSizeProvider>
-        </SansFontSizeProvider>
-      </ThemeProvider>
+      <RendererStateProvider>
+        <ThemeProvider>
+          <SansFontSizeProvider>
+            <CodeFontSizeProvider>
+              <FileLinkOpenerProvider>
+                <CodexServiceTierSettingsProvider>
+                  <CodexThreadSettingsProvider>
+                    <NodexTooltipProvider>
+                      {children}
+                    </NodexTooltipProvider>
+                  </CodexThreadSettingsProvider>
+                </CodexServiceTierSettingsProvider>
+              </FileLinkOpenerProvider>
+            </CodeFontSizeProvider>
+          </SansFontSizeProvider>
+        </ThemeProvider>
+      </RendererStateProvider>
     </NodexQueryProvider>
   );
+}
+
+export function RendererStateProvider({ children }: AppProvidersProps) {
+  const queryClient = useQueryClient();
+  const [store] = useState(() => {
+    const nextStore = createMaitaiStore({ queryClient });
+    void preloadEagerPersistedAtoms(nextStore);
+    return nextStore;
+  });
+  return <MaitaiProvider store={store}>{children}</MaitaiProvider>;
 }

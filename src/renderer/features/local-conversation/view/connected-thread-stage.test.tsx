@@ -1,9 +1,12 @@
 import { describe, expect, vi, test } from "vitest";
+import type { ReactNode } from "react";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
+import { RendererStateProvider } from "../../../app-providers";
+import { WorkbenchSessionScopePath } from "../../../lib/workbench-ui-scopes";
 import type {
   CodexConnectionState,
   CodexConversationChildMembership,
@@ -16,6 +19,26 @@ import type { ThreadStageActions, ThreadStageRouteInput } from "../thread-stage-
 
 let invokeCalls: Array<{ channel: string; args: unknown[]; threadId?: string; active?: boolean }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
+
+function ThreadStageScope({ children }: { children: ReactNode }) {
+  return (
+    <RendererStateProvider>
+      <WorkbenchSessionScopePath
+        thread={{
+          stableKey: "session:connected-thread-stage-test",
+          phase: "attached",
+          projectSessionId: "connected-thread-stage-test",
+          clientThreadId: null,
+          threadId: "thread_1",
+        }}
+        route={{ routeKey: "/thread", kind: "thread" }}
+        selected
+      >
+        {children}
+      </WorkbenchSessionScopePath>
+    </RendererStateProvider>
+  );
+}
 
 vi.mock("../local-conversation-deps", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
@@ -259,7 +282,11 @@ function buildActions(): ThreadStageActions {
 
 async function renderStage(
   summary: CodexThreadSummary,
-  options: { backgroundAgentDetail?: boolean; threadViewportActive?: boolean } = {},
+  options: {
+    backgroundAgentDetail?: boolean;
+    routeActive?: boolean;
+    threadBodyVisible?: boolean;
+  } = {},
 ) {
   const {
     __resetLocalConversationStoreForTests,
@@ -270,8 +297,9 @@ async function renderStage(
 
   const view = render(
     <TestQueryProvider>
-      <TooltipProvider>
-        <LocalConversationProvider>
+      <ThreadStageScope>
+        <TooltipProvider>
+          <LocalConversationProvider>
           <ConnectedThreadStage
             projectId="project_1"
             projectWorkspacePath="/tmp/project"
@@ -293,11 +321,13 @@ async function renderStage(
             composerEnterBehavior="enter"
             searchOpenTick={0}
             backgroundAgentDetail={options.backgroundAgentDetail === true}
-            threadViewportActive={options.threadViewportActive}
+            routeActive={options.routeActive}
+            threadBodyVisible={options.threadBodyVisible}
             actions={buildActions()}
           />
-        </LocalConversationProvider>
-      </TooltipProvider>
+          </LocalConversationProvider>
+        </TooltipProvider>
+      </ThreadStageScope>
     </TestQueryProvider>,
   );
   await settleAsyncRender();
@@ -346,8 +376,9 @@ async function renderNewThreadHome(overrides?: {
 
   const view = render(
     <TestQueryProvider>
-      <TooltipProvider>
-        <LocalConversationProvider>
+      <ThreadStageScope>
+        <TooltipProvider>
+          <LocalConversationProvider>
           <ConnectedThreadStage
           projectId="project_1"
           projectWorkspacePath="/tmp/nodex"
@@ -412,8 +443,9 @@ async function renderNewThreadHome(overrides?: {
           searchOpenTick={0}
           actions={buildActions()}
           />
-        </LocalConversationProvider>
-      </TooltipProvider>
+          </LocalConversationProvider>
+        </TooltipProvider>
+      </ThreadStageScope>
     </TestQueryProvider>,
   );
   await settleAsyncRender();
@@ -564,7 +596,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
     invokeCalls = [];
     hostMessageListener = null;
 
-    await renderStage(buildThreadSummary(false), { threadViewportActive: false });
+    await renderStage(buildThreadSummary(false), { routeActive: false });
     await act(async () => {
       await settleAsyncRender();
     });
@@ -586,7 +618,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       ...buildThreadSummary(false),
       statusType: "active",
       statusActiveFlags: ["waitingOnApproval"],
-    }, { threadViewportActive: false });
+    }, { routeActive: false });
     await act(async () => {
       await settleAsyncRender();
     });
@@ -601,6 +633,29 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       invokeCalls.some((call) =>
         call.channel === "codex:thread:resume:request" &&
         call.threadId === "thread_active"),
+    ).toBe(true);
+  });
+
+  test("keeps route lifecycle and composer mounted while the transcript is hidden", async () => {
+    installAsyncRequestAnimationFrame();
+    invokeCalls = [];
+    hostMessageListener = null;
+
+    const view = await renderStage(buildThreadSummary(false), {
+      routeActive: true,
+      threadBodyVisible: false,
+    });
+    await act(async () => {
+      await settleAsyncRender();
+    });
+
+    expect(view.container.querySelector("[data-local-conversation-transcript='true']")).toBe(null);
+    expect(view.container.querySelector("[data-thread-find-composer='true']") !== null).toBe(true);
+    expect(
+      invokeCalls.some((call) =>
+        call.channel === "codex:thread:view-active:set"
+        && call.threadId === "thread_active"
+        && call.active === true),
     ).toBe(true);
   });
 });

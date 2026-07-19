@@ -124,6 +124,78 @@ describe("LocalConversationThreadScrollLayout", () => {
     expect(shiftedContent?.style.transform.includes("translateX(-158px)")).toBe(true);
   });
 
+  test("restores native bottom distance before paint and normalizes the 24px boundary", async () => {
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight",
+    );
+    const originalClientHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientHeight",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.localConversationThreadBody === "true" ? 1_000 : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.localConversationThreadBody === "true" ? 500 : 0;
+      },
+    });
+
+    try {
+      const restored = render(
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationThreadScrollLayout
+            initialRestoreSnapshot={{
+              distanceFromBottomPx: 120,
+              latestTurn: null,
+              virtualizedTurnList: null,
+            }}
+          >
+            <div>Restored thread</div>
+          </LocalConversationThreadScrollLayout>
+        </EnsureLocalConversationThreadScrollController>,
+      );
+      const restoredViewport = restored.container.querySelector(
+        "[data-local-conversation-thread-body='true']",
+      ) as HTMLDivElement | null;
+      await settleAsyncRender();
+      expect(restoredViewport?.scrollTop ?? 0).toBe(-120);
+      restored.unmount();
+
+      const nearBottom = render(
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationThreadScrollLayout
+            initialRestoreSnapshot={{
+              distanceFromBottomPx: 24,
+              latestTurn: null,
+              virtualizedTurnList: null,
+            }}
+          >
+            <div>Near-bottom thread</div>
+          </LocalConversationThreadScrollLayout>
+        </EnsureLocalConversationThreadScrollController>,
+      );
+      const nearBottomViewport = nearBottom.container.querySelector(
+        "[data-local-conversation-thread-body='true']",
+      ) as HTMLDivElement | null;
+      await settleAsyncRender();
+      expect(nearBottomViewport?.scrollTop ?? -1).toBe(0);
+      nearBottom.unmount();
+    } finally {
+      if (originalScrollHeight) {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", originalScrollHeight);
+      }
+      if (originalClientHeight) {
+        Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+      }
+    }
+  });
+
   test("measures sticky footer height into Codex scroll padding", () => {
     Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
       configurable: true,

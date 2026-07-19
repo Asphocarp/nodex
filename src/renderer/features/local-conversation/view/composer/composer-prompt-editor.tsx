@@ -147,9 +147,11 @@ function createPromptPlaceholderPlugin(placeholderRef: { current: string }): Plu
 }
 
 function createPromptEditorState(value: string, placeholderRef: { current: string }): EditorState {
+  const doc = buildPromptDoc(value);
   return EditorState.create({
     schema: promptSchema,
-    doc: buildPromptDoc(value),
+    doc,
+    selection: getPromptDocEndSelection(doc),
     // Direct EditorView handlers own composer shortcuts first. Unconsumed
     // editing keys fall through to ProseMirror's structural commands.
     plugins: [
@@ -346,6 +348,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       });
 
       viewRef.current = view;
+      emitSlashTriggerState(view);
 
       return () => {
         view.destroy();

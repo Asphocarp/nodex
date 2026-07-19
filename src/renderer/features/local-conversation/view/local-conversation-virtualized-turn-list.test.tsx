@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
+import { useState, type ReactNode } from "react";
+import { NodexTooltipProvider } from "../../../components/ui/tooltip";
+import { createMaitaiStore, MaitaiProvider } from "../../../lib/maitai";
 import { render } from "../../../test/dom";
 import type {
   CodexConversationItem,
@@ -10,11 +12,23 @@ import {
   LocalConversationVirtualizedTurnList,
   type LocalConversationVirtualizedTurnListEntry,
 } from "./local-conversation-virtualized-turn-list";
-import type { VirtualizedTurnListRestoreState } from "./local-conversation-turn-virtualization";
+import type {
+  VirtualizedLatestTurnRestoreState,
+  VirtualizedTurnListRestoreState,
+} from "./local-conversation-turn-virtualization";
 
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+
+function TooltipProvider({ children }: { readonly children: ReactNode }) {
+  const [store] = useState(() => createMaitaiStore());
+  return (
+    <MaitaiProvider store={store}>
+      <NodexTooltipProvider>{children}</NodexTooltipProvider>
+    </MaitaiProvider>
+  );
+}
 
 function makeRect(input: Partial<DOMRectReadOnly>): DOMRect {
   const left = input.left ?? 0;
@@ -192,6 +206,11 @@ function buildTurnEntries(texts: readonly string[]): LocalConversationVirtualize
 
 function renderVirtualizedTurnList(input: {
   entries: LocalConversationVirtualizedTurnListEntry[];
+  initialLatestTurnRestoreState?: VirtualizedLatestTurnRestoreState;
+  onLatestTurnRestoreStateChange?: (
+    state: VirtualizedLatestTurnRestoreState | null,
+    distanceFromBottomPx: number,
+  ) => void;
   onRestoreStateChange?: (state: VirtualizedTurnListRestoreState | null) => void;
 }) {
   return render(
@@ -203,8 +222,8 @@ function renderVirtualizedTurnList(input: {
           threadCwd="/tmp/project"
           editableTurnId={null}
           canForkFromTurn={true}
-          collapsedAgentBodyByTurnId={{}}
-          onSetTurnCollapsed={() => {}}
+          initialLatestTurnRestoreState={input.initialLatestTurnRestoreState}
+          onLatestTurnRestoreStateChange={input.onLatestTurnRestoreStateChange}
           onRestoreStateChange={input.onRestoreStateChange}
           scrollElement={null}
         />
@@ -276,6 +295,56 @@ describe("LocalConversationVirtualizedTurnList", () => {
     expect(restoreStateRef.current?.turnHeightsByKey.turn_1 ?? 0).toBe(96);
     expect(restoreStateRef.current?.turnHeightsByKey.turn_2 ?? 0).toBe(112);
     expect(restoreStateRef.current?.turnHeightsByKey.turn_3 ?? 0).toBe(128);
+  });
+
+  test("captures the complete running latest-turn restore state during layout cleanup", () => {
+    installQueuedRequestAnimationFrame();
+    installTurnBlockSizes({ turn_1: 480 });
+    const entries = buildTurnEntries(["Working on the task."]);
+    const latestEntry = entries[0];
+    if (!latestEntry) throw new Error("expected latest entry");
+    latestEntry.turn = {
+      ...latestEntry.turn,
+      status: "inProgress",
+      firstTurnWorkItemStartedAtMs: 10,
+      items: latestEntry.turn.items.map((item) =>
+        item.kind === "assistantMessage"
+          ? { ...item, assistantPhase: "commentary" }
+          : item,
+      ),
+    };
+    let captured: {
+      state: VirtualizedLatestTurnRestoreState | null;
+      distanceFromBottomPx: number;
+    } | null = null;
+    const view = renderVirtualizedTurnList({
+      entries,
+      initialLatestTurnRestoreState: {
+        followMode: "prework_watch",
+        isLatestTurnInProgress: true,
+        latestTurnFollowContentHeightPx: 320,
+        latestTurnHeightPx: 480,
+        latestTurnPhase: "prework",
+        turnKey: "turn_1",
+      },
+      onLatestTurnRestoreStateChange: (state, distanceFromBottomPx) => {
+        captured = { state, distanceFromBottomPx };
+      },
+    });
+
+    view.unmount();
+
+    expect(captured).toEqual({
+      distanceFromBottomPx: 0,
+      state: {
+        followMode: "prework_watch",
+        isLatestTurnInProgress: true,
+        latestTurnFollowContentHeightPx: 320,
+        latestTurnHeightPx: 480,
+        latestTurnPhase: "prework",
+        turnKey: "turn_1",
+      },
+    });
   });
 
   test("ignores zero-height initial mounted measurements", () => {

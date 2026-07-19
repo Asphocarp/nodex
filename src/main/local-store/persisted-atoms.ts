@@ -1,11 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { getNodexHome } from "./config";
-import type { PersistedAtomState, PersistedAtomUpdate } from "../../shared/ipc-api";
+import type {
+  PersistedAtomEvent,
+  PersistedAtomMutation,
+  PersistedAtomSnapshot,
+  PersistedAtomState,
+  PersistedAtomUpdate,
+} from "../../shared/ipc-api";
 
 const PERSISTED_ATOMS_FILE_NAME = "persisted-atoms-v1.json";
 
 let stateCache: PersistedAtomState | null = null;
+let revision = 0;
 let persistedAtomsPathOverrideForTests: string | null = null;
 
 function getPersistedAtomsPath(): string {
@@ -46,24 +53,56 @@ export function readPersistedAtomState(): PersistedAtomState {
   return { ...stateCache };
 }
 
-export function updatePersistedAtom(update: PersistedAtomUpdate): PersistedAtomState {
-  const key = update.key.trim();
-  if (!key) return readPersistedAtomState();
+export function readPersistedAtomSnapshot(): PersistedAtomSnapshot {
+  return {
+    revision,
+    values: readPersistedAtomState(),
+  };
+}
+
+export function commitPersistedAtomMutation(
+  mutation: PersistedAtomMutation,
+  originRendererId: string | null,
+): PersistedAtomEvent {
+  const key = mutation.key.trim();
+  const mutationId = mutation.mutationId.trim();
+  if (!key) throw new Error("Persisted atom mutation key must not be empty");
+  if (!mutationId) throw new Error("Persisted atom mutation id must not be empty");
 
   const next = {
     ...readPersistedAtomState(),
-    [key]: update.value,
+    [key]: mutation.value,
   };
-  stateCache = next;
   writePersistedAtomsFile(next);
-  return { ...next };
+  stateCache = next;
+  revision += 1;
+  return {
+    key,
+    value: mutation.value,
+    mutationId,
+    revision,
+    originRendererId,
+  };
+}
+
+export function updatePersistedAtom(update: PersistedAtomUpdate): PersistedAtomState {
+  const key = update.key.trim();
+  if (!key) return readPersistedAtomState();
+  commitPersistedAtomMutation({
+    key,
+    value: update.value,
+    mutationId: `main:${crypto.randomUUID()}`,
+  }, null);
+  return readPersistedAtomState();
 }
 
 export function resetPersistedAtomStateForTests(): void {
   stateCache = null;
+  revision = 0;
 }
 
 export function setPersistedAtomsPathOverrideForTests(pathOverride: string | null): void {
   persistedAtomsPathOverrideForTests = pathOverride;
   stateCache = null;
+  revision = 0;
 }

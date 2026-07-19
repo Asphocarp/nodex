@@ -178,6 +178,48 @@ describe("TerminalSessionStore", () => {
     expect(versionEvents).toBe(0);
   });
 
+  test("closes an explicit terminal runtime at most once", () => {
+    const { calls, listeners } = installTerminalApiMock();
+    const store = new TerminalSessionStore();
+
+    store.close("session:one:terminal:close-once");
+    listeners["terminal-exit"]?.({
+      sessionId: "session:one:terminal:close-once",
+      exitCode: 0,
+    } satisfies TerminalExitEvent);
+    store.close("session:one:terminal:close-once");
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+      ["terminal-close", "session:one:terminal:close-once"],
+    ]));
+  });
+
+  test("preserves session buffer while renderer subscribers detach and reattach", () => {
+    const { calls, listeners } = installTerminalApiMock();
+    const store = new TerminalSessionStore();
+    store.ensureEventSubscriptions();
+
+    listeners["terminal-attached"]?.({
+      sessionId: "session:one:terminal:reattach",
+      snapshot: makeSnapshot({
+        sessionId: "session:one:terminal:reattach",
+        buffer: "before detach\n",
+      }),
+    } satisfies TerminalAttachedEvent);
+    const unsubscribe = store.subscribe("session:one:terminal:reattach", () => undefined);
+    unsubscribe();
+
+    listeners["terminal-data"]?.({
+      sessionId: "session:one:terminal:reattach",
+      data: "while detached\n",
+    } satisfies TerminalDataEvent);
+
+    expect(store.getSnapshot("session:one:terminal:reattach").buffer).toBe(
+      "before detach\nwhile detached\n",
+    );
+    expect(calls.some((call) => (call as unknown[])[0] === "terminal-close")).toBe(false);
+  });
+
   test("notifies exit subscribers and removes renderer session state", () => {
     const { listeners } = installTerminalApiMock();
     const store = new TerminalSessionStore();

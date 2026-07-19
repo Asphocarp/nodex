@@ -231,7 +231,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect((webview as HTMLElement).isConnected).toBe(true);
   });
 
-  test("reuses the same guest across panel and background sync without resetting src or parent", () => {
+  test("preserves one navigated guest across visible A to hidden B to visible A claims", () => {
     const manager = createManager();
 
     const firstGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
@@ -251,6 +251,7 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     const webview = root?.querySelector("webview");
     const originalParent = webview?.parentElement;
     expect(webview !== null).toBe(true);
+    (webview as BrowserSidebarWebviewElement).getURL = () => "https://example.com/navigated";
 
     const secondGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
     manager.syncWebview({
@@ -268,6 +269,25 @@ describe("BrowserSidebarRendererWebviewManager", () => {
 
     expect(getManagerRoot() === root).toBe(true);
     expect(webview?.parentElement === originalParent).toBe(true);
+    expect(webview?.getAttribute("src")).toBe("https://example.com/first");
+
+    const thirdGeneration = manager.claimMountGeneration({ browserConversationId: "session-1", browserTabId: "tab-browser" });
+    manager.syncWebview({
+      browserConversationId: "session-1",
+      projectId: "alpha",
+      browserTabId: "tab-browser",
+      hostKind: "panel",
+      initialUrl: "https://example.com/stale-durable-url",
+      bounds: visibleBounds,
+      mountGeneration: thirdGeneration,
+      isVisible: true,
+      shouldPaint: true,
+      onHostCreated: () => undefined,
+    });
+
+    expect(getManagerRoot() === root).toBe(true);
+    expect(root?.querySelector("webview") === webview).toBe(true);
+    expect((webview as BrowserSidebarWebviewElement).getURL?.()).toBe("https://example.com/navigated");
     expect(webview?.getAttribute("src")).toBe("https://example.com/first");
   });
 
@@ -332,5 +352,43 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect(created.length).toBe(1);
     expect(destroyed.length).toBe(1);
     expect(destroyed[0]?.webContentsId).toBe(101);
+  });
+
+  test("destroys an explicitly closed runtime host at most once", () => {
+    const manager = createManager();
+    const identity = {
+      browserConversationId: "session-1",
+      browserTabId: "tab-browser",
+    } as const;
+    const mountGeneration = manager.claimMountGeneration(identity);
+    manager.syncWebview({
+      ...identity,
+      projectId: "alpha",
+      hostKind: "panel",
+      initialUrl: "https://example.com",
+      bounds: visibleBounds,
+      mountGeneration,
+      onHostCreated: () => undefined,
+    });
+    const root = getManagerRoot();
+    if (!root) throw new Error("Expected managed Browser host");
+    const remove = root.remove.bind(root);
+    let removeCount = 0;
+    root.remove = () => {
+      removeCount += 1;
+      remove();
+    };
+    const request = {
+      ...identity,
+      mountGeneration,
+      reason: "closed",
+      teardownId: "explicit-close",
+    } as const;
+
+    manager.destroyWebviewAtHostRequest(request, () => undefined);
+    manager.destroyWebviewAtHostRequest(request, () => undefined);
+
+    expect(removeCount).toBe(1);
+    expect(root.isConnected).toBe(false);
   });
 });

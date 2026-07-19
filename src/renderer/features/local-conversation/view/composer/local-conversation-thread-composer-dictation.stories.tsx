@@ -8,6 +8,7 @@ import {
   type ThreadStageStoryControls,
 } from "../thread-stage-story-fixtures";
 import { ThreadComposer } from "./local-conversation-thread-composer";
+import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 
 type DictationStoryState = "idle" | "unavailable" | "recording" | "transcribing" | "keyboardHold";
 
@@ -185,12 +186,14 @@ function ComposerDictationStory({ state }: ComposerDictationStoryProps) {
         </div>
       </div>
       <TooltipProvider>
-        <ThreadComposer
-          model={buildModel(state)}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
+        <TestComposerScopePath>
+          <ThreadComposer
+            model={buildModel(state)}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </TestComposerScopePath>
       </TooltipProvider>
     </div>
   );

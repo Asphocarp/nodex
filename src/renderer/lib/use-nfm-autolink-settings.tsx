@@ -1,15 +1,14 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback } from "react";
 import {
   readNfmAutolinkSettings,
   writeNfmAutolinkSettings,
   type NfmAutolinkSettings,
 } from "./nfm-autolink-settings";
+import {
+  appScope,
+  scopedAtomWithInitializer,
+  useScopedAtom,
+} from "./maitai";
 
 interface NfmAutolinkSettingsContextValue {
   settings: NfmAutolinkSettings;
@@ -17,21 +16,19 @@ interface NfmAutolinkSettingsContextValue {
   updateSettings: (patch: Partial<NfmAutolinkSettings>) => void;
 }
 
-const NfmAutolinkSettingsContext = createContext<NfmAutolinkSettingsContextValue>({
-  settings: readNfmAutolinkSettings(),
-  setSettings: () => {},
-  updateSettings: () => {},
-});
+const nfmAutolinkSettingsAtom = scopedAtomWithInitializer(
+  appScope,
+  readNfmAutolinkSettings,
+  { debugLabel: "nfm-autolink-settings" },
+);
 
 function useNfmAutolinkSettingsInternal(): NfmAutolinkSettingsContextValue {
-  const [settings, setSettingsState] = useState<NfmAutolinkSettings>(() =>
-    readNfmAutolinkSettings(),
-  );
+  const [settings, setSettingsState] = useScopedAtom(nfmAutolinkSettingsAtom);
 
   const setSettings = useCallback((value: NfmAutolinkSettings) => {
     const next = writeNfmAutolinkSettings(value);
     setSettingsState(next);
-  }, []);
+  }, [setSettingsState]);
 
   const updateSettings = useCallback((patch: Partial<NfmAutolinkSettings>) => {
     setSettingsState((current) => {
@@ -41,20 +38,11 @@ function useNfmAutolinkSettingsInternal(): NfmAutolinkSettingsContextValue {
       });
       return next;
     });
-  }, []);
+  }, [setSettingsState]);
 
   return { settings, setSettings, updateSettings };
 }
 
-export function NfmAutolinkSettingsProvider({ children }: { children: ReactNode }) {
-  const value = useNfmAutolinkSettingsInternal();
-  return (
-    <NfmAutolinkSettingsContext.Provider value={value}>
-      {children}
-    </NfmAutolinkSettingsContext.Provider>
-  );
-}
-
 export function useNfmAutolinkSettings(): NfmAutolinkSettingsContextValue {
-  return useContext(NfmAutolinkSettingsContext);
+  return useNfmAutolinkSettingsInternal();
 }

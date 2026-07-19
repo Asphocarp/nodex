@@ -1,0 +1,187 @@
+import { StrictMode, useLayoutEffect } from "react";
+import { render } from "@testing-library/react";
+import { describe, expect, test } from "vitest";
+import {
+  AppShellHeaderContentRegistrar,
+  ComposerScope,
+  IdentityPromotionConflict,
+  SelectedAppShellHeaderContent,
+  WorkbenchSessionScopePath,
+  createThreadScopeIdentityRegistry,
+  resolveComposerScopeIdentity,
+  resolvePendingThreadScopeDescriptor,
+  type ThreadScopeDescriptor,
+} from "./workbench-ui-scopes";
+import {
+  createMaitaiStore,
+  MaitaiProvider,
+  ScopeProvider,
+  scopedAtom,
+  useScopeHandle,
+  type ScopeHandle,
+} from "./maitai";
+
+const composerSignal = scopedAtom(ComposerScope, "empty", { debugLabel: "composer-signal-test" });
+
+function descriptor(stableKey: `session:${string}`, threadId: string): ThreadScopeDescriptor {
+  return {
+    stableKey,
+    phase: "attached",
+    projectSessionId: stableKey.slice("session:".length),
+    clientThreadId: null,
+    threadId,
+  };
+}
+
+describe("Workbench Maitai scopes", () => {
+  test("keeps client identity stable when a server thread attaches", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    expect(registry.resolve({ clientThreadId: "pending-1" })).toBe("client:pending-1");
+    expect(registry.resolve({
+      projectSessionId: "session-1",
+      clientThreadId: "pending-1",
+      threadId: "thread-1",
+    })).toBe("client:pending-1");
+    expect(registry.resolve({ projectSessionId: "session-1" })).toBe("client:pending-1");
+    expect(registry.resolve({ threadId: "thread-1", projectSessionId: "session-1" }))
+      .toBe("client:pending-1");
+  });
+
+  test("direct, duplicate, and stale attachment metadata preserve one session identity", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-1" }))
+      .toBe("session:session-1");
+    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-1" }))
+      .toBe("session:session-1");
+    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-stale" }))
+      .toBe("session:session-1");
+    expect(registry.resolve({ threadId: "thread-stale" })).toBe("session:session-1");
+  });
+
+  test("rejects promotion conflicts instead of merging two identity graphs", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    registry.resolve({ projectSessionId: "session-1" });
+    registry.resolve({ clientThreadId: "pending-1" });
+    expect(() => registry.resolve({
+      projectSessionId: "session-1",
+      clientThreadId: "pending-1",
+    })).toThrow(IdentityPromotionConflict);
+  });
+
+  test("allocates pending work from its immutable client identity", () => {
+    const registry = createThreadScopeIdentityRegistry();
+    expect(resolvePendingThreadScopeDescriptor(registry, " pending-1 ")).toEqual({
+      stableKey: "client:pending-1",
+      phase: "pending",
+      projectSessionId: null,
+      clientThreadId: "pending-1",
+      threadId: null,
+    });
+  });
+
+  test("derives exact composer entry identities and fresh nonces", () => {
+    expect(resolveComposerScopeIdentity({ kind: "new-conversation" }).identity)
+      .toBe("new-conversation");
+    expect(resolveComposerScopeIdentity({ kind: "panel-new-conversation" }).identity)
+      .toBe("panel-new-conversation");
+    expect(resolveComposerScopeIdentity({
+      kind: "preview",
+      attachmentIdentity: "page-1",
+    }).identity).toBe("preview:page-1");
+    expect(resolveComposerScopeIdentity({
+      kind: "task",
+      stableIdentity: "session-1",
+      focusComposerNonce: 3,
+    }).identity).toBe("task:session-1:3");
+  });
+
+  test("pending-to-attached preserves the ThreadScope and Composer signal", () => {
+    const store = createMaitaiStore();
+    const handles: ScopeHandle[] = [];
+    function Probe() {
+      const handle = useScopeHandle(ComposerScope);
+      useLayoutEffect(() => {
+        handles.push(handle);
+      }, [handle]);
+      return null;
+    }
+    const tree = (thread: ThreadScopeDescriptor) => (
+      <MaitaiProvider store={store}>
+        <WorkbenchSessionScopePath
+          thread={thread}
+          route={{ routeKey: "/thread", kind: "thread" }}
+          selected
+        >
+          <ScopeProvider
+            scope={ComposerScope}
+            descriptor={{ identity: "task:client:pending-1", focusComposerNonce: null }}
+          >
+            <Probe />
+          </ScopeProvider>
+        </WorkbenchSessionScopePath>
+      </MaitaiProvider>
+    );
+    const pending: ThreadScopeDescriptor = {
+      stableKey: "client:pending-1",
+      phase: "pending",
+      projectSessionId: null,
+      clientThreadId: "pending-1",
+      threadId: null,
+    };
+    const view = render(tree(pending));
+    handles[0]?.set(composerSignal, "authored draft");
+    const firstConcrete = handles[0]?.resolve(composerSignal);
+    view.rerender(tree({
+      ...pending,
+      phase: "attached",
+      projectSessionId: "session-1",
+      threadId: "thread-1",
+    }));
+    expect(handles.at(-1)?.resolve(composerSignal)).toBe(firstConcrete);
+    expect(handles.at(-1)?.get(composerSignal)).toBe("authored draft");
+
+    view.unmount();
+    render(tree({
+      ...pending,
+      phase: "attached",
+      projectSessionId: "session-1",
+      threadId: "thread-1",
+    }));
+    expect(handles.at(-1)?.get(composerSignal)).toBe("authored draft");
+  });
+
+  test("selected route renders one isolated header under StrictMode", () => {
+    const store = createMaitaiStore();
+    const tree = (selected: "a" | "b", includeA = true) => (
+      <StrictMode>
+        <MaitaiProvider store={store}>
+          <SelectedAppShellHeaderContent />
+          {includeA ? (
+            <WorkbenchSessionScopePath
+              thread={descriptor("session:a", "thread-a")}
+              route={{ routeKey: "/thread", kind: "thread" }}
+              selected={selected === "a"}
+            >
+              <AppShellHeaderContentRegistrar content={<h1 data-testid="thread-stage-title">A</h1>} />
+            </WorkbenchSessionScopePath>
+          ) : null}
+          <WorkbenchSessionScopePath
+            thread={descriptor("session:b", "thread-b")}
+            route={{ routeKey: "/thread", kind: "thread" }}
+            selected={selected === "b"}
+          >
+            <AppShellHeaderContentRegistrar content={<h1 data-testid="thread-stage-title">B</h1>} />
+          </WorkbenchSessionScopePath>
+        </MaitaiProvider>
+      </StrictMode>
+    );
+    const view = render(tree("a"));
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["A"]);
+    view.rerender(tree("b"));
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["B"]);
+    view.rerender(tree("b", false));
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["B"]);
+    view.rerender(tree("a"));
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["A"]);
+  });
+});

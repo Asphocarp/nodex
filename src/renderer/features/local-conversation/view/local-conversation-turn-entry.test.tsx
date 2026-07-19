@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render as renderDom } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import { settleAsyncRender } from "../../../test/dom";
+import {
+  renderWithMaitai as renderDom,
+  settleAsyncRender,
+} from "../../../test/dom";
 import type {
   CodexConversationItem,
   CodexConversationTurn,

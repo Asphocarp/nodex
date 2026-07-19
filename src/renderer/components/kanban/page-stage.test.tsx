@@ -10,7 +10,11 @@ import {
 import type { DatabasePage } from "@/lib/types";
 import type { PageStagePageModel } from "@/lib/page-stage-page";
 import type { PageStageProps } from "./page-stage/types";
-import { render, settleAsyncRender, textContent } from "@/test/dom";
+import {
+  renderWithMaitai as render,
+  settleAsyncRender,
+  textContent,
+} from "@/test/dom";
 import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
   createPageDocument,

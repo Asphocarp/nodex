@@ -22,10 +22,7 @@ import {
   resolveProjectScopedPageOwnershipPath,
   resolveProjectScopedPageTarget,
 } from "./local-store/reference-reads";
-import {
-  readPersistedAtomState,
-  updatePersistedAtom,
-} from "./local-store/persisted-atoms";
+import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
 import * as sqlInspection from "./local-store/sql-inspection";
@@ -1382,15 +1379,21 @@ export function registerIpcHandlers(
     listHistory: (request) => blockMutationWriter.listPageHistory(request),
   });
 
-  registerHandle("persisted-atom:sync-request", () => readPersistedAtomState());
-  registerHandle("persisted-atom:update", (_, update) => {
-    const state = updatePersistedAtom(update);
-    safeBroadcastToWindows(
-      BrowserWindow.getAllWindows(),
-      "persisted-atom:updated",
-      [update],
-    );
-    return state;
+  registerPersistedAtomIpc({
+    registerSync: (listener) => {
+      registerHandle("persisted-atom:sync-request", listener);
+    },
+    registerMutation: (listener) => {
+      registerHandle("persisted-atom:update", (event, mutation) =>
+        listener(String(event.sender.id), mutation));
+    },
+    broadcast: (persistedEvent) => {
+      safeBroadcastToWindows(
+        BrowserWindow.getAllWindows(),
+        "persisted-atom:updated",
+        [persistedEvent],
+      );
+    },
   });
 
   // Projects

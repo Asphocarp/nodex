@@ -1,5 +1,4 @@
-import { useForm, useStore } from "@tanstack/react-form";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   formatCodexModelLabel,
   formatCodexReasoningEffortLabel,
@@ -7,7 +6,6 @@ import {
 } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type {
-  CodexLiveFileAttachment,
   CodexPermissionState,
   CodexPromptInput,
   CodexReasoningEffort,
@@ -113,7 +111,6 @@ import {
   addReviewDiffCommentAttachment,
   clearReviewDiffCommentAttachments,
   removeReviewDiffCommentAttachment,
-  useReviewDiffCommentAttachments,
 } from "@/lib/review-diff-comment-attachment-store";
 import {
   formatReviewDiffCommentLineLabel,
@@ -141,6 +138,33 @@ import {
   COMPOSER_FOOTER_PLAN_ACCESSORY_BUTTON_CLASS_NAME,
   ComposerFooterAccessoryDivider,
 } from "../shared/composer-footer-controls";
+import {
+  clearComposerCompletedDraftAtom,
+  composerAddedFilesAtom,
+  composerConsumedIntentNonceAtom,
+  composerDraftInitializedAtom,
+  composerDraftTransferFamily,
+  composerFileAttachmentsAtom,
+  composerGoalModeActiveAtom,
+  composerImageAttachmentsAtom,
+  composerPastedTextAttachmentsAtom,
+  composerResetGenerationAtom,
+  composerReviewCommentAttachmentsFamily,
+  composerSkillMentionsAtom,
+  useComposerPromptDraft,
+  type ComposerCompletedDraftSnapshot,
+  type ComposerFileAttachment,
+  type ComposerImageAttachment,
+  type ComposerPastedTextAttachment,
+  type ComposerSkillMentionAttachment,
+} from "./composer-draft-state";
+import {
+  useScopedAtom,
+  useScopedAtomValue,
+  useScopeHandle,
+  useSetScopedAtom,
+} from "@/lib/maitai";
+import { ComposerScope } from "@/lib/workbench-ui-scopes";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -220,40 +244,13 @@ const COMPOSER_IMAGE_FILE_EXTENSIONS = new Set([
   "heif",
 ]);
 
-interface ComposerFileAttachment {
-  uiId: string;
-  attachment: CodexLiveFileAttachment;
-}
-
-interface ComposerImageAttachment {
-  id: string;
-  filename: string;
-  path: string;
-  dataUrl: string;
-}
-
-interface ComposerPastedTextAttachment {
-  id: string;
-  text: string;
-  file?: CodexLiveFileAttachment;
-  preview?: string;
-  hostId?: string;
-  characterCount?: number;
-}
-
-interface ComposerSkillMentionAttachment {
-  id: string;
-  name: string;
-  path: string;
-}
-
 interface ComposerAttachmentState {
-  fileAttachments: ComposerFileAttachment[];
-  addedFiles: ComposerFileAttachment[];
-  imageAttachments: ComposerImageAttachment[];
-  pastedTextAttachments: ComposerPastedTextAttachment[];
-  skillMentions: ComposerSkillMentionAttachment[];
-  commentAttachments: CodexReviewDiffCommentAttachment[];
+  fileAttachments: readonly ComposerFileAttachment[];
+  addedFiles: readonly ComposerFileAttachment[];
+  imageAttachments: readonly ComposerImageAttachment[];
+  pastedTextAttachments: readonly ComposerPastedTextAttachment[];
+  skillMentions: readonly ComposerSkillMentionAttachment[];
+  commentAttachments: readonly CodexReviewDiffCommentAttachment[];
 }
 
 interface ThreadGoalSubmissionDraft extends ComposerThreadGoalDraft {
@@ -264,7 +261,6 @@ interface ThreadGoalSubmissionDraft extends ComposerThreadGoalDraft {
 
 interface ThreadGoalReplacementConfirmationState {
   draft: ThreadGoalSubmissionDraft;
-  reset?: () => void;
 }
 
 function createComposerAttachmentId(prefix: string): string {
@@ -309,7 +305,7 @@ function buildComposerPromptInput(input: {
     name: attachment.name,
     path: attachment.path,
   }));
-  const commentAttachments = input.attachments.commentAttachments;
+  const commentAttachments = [...input.attachments.commentAttachments];
 
   if (
     images.length === 0
@@ -1048,16 +1044,235 @@ function IntelligenceSelectorDropdown({
   );
 }
 
-export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }: ThreadComposerProps) {
+function replaceReviewCommentAttachments(
+  threadId: string | null,
+  attachments: readonly CodexReviewDiffCommentAttachment[],
+): void {
+  clearReviewDiffCommentAttachments(threadId);
+  for (const attachment of attachments) addReviewDiffCommentAttachment(threadId, attachment);
+}
+
+function appendUniqueBy<Value>(
+  current: readonly Value[],
+  incoming: readonly Value[],
+  getKey: (value: Value) => string,
+): readonly Value[] {
+  const next = new Map(current.map((value) => [getKey(value), value] as const));
+  for (const value of incoming) next.set(getKey(value), value);
+  return [...next.values()];
+}
+
+function applyCompletedDraftSnapshot(input: {
+  snapshot: ComposerCompletedDraftSnapshot;
+  setFileAttachments: (value: readonly ComposerFileAttachment[]) => void;
+  setAddedFiles: (value: readonly ComposerFileAttachment[]) => void;
+  setImageAttachments: (value: readonly ComposerImageAttachment[]) => void;
+  setPastedTextAttachments: (value: readonly ComposerPastedTextAttachment[]) => void;
+  setSkillMentions: (value: readonly ComposerSkillMentionAttachment[]) => void;
+  setGoalModeActive: (value: boolean) => void;
+  threadId: string | null;
+}): void {
+  input.setFileAttachments(input.snapshot.fileAttachments);
+  input.setAddedFiles(input.snapshot.addedFiles);
+  input.setImageAttachments(input.snapshot.imageAttachments);
+  input.setPastedTextAttachments(input.snapshot.pastedTextAttachments);
+  input.setSkillMentions(input.snapshot.skillMentions);
+  input.setGoalModeActive(input.snapshot.goalModeActive);
+  replaceReviewCommentAttachments(input.threadId, input.snapshot.commentAttachments);
+}
+
+interface HydratedThreadComposerProps extends ThreadComposerProps {
+  readonly prompt: string;
+  readonly setPrompt: (prompt: string) => void;
+  readonly clearSubmittedDraft: () => void;
+}
+
+export function ThreadComposer(props: ThreadComposerProps) {
+  const { model, actions, onErrorMessage } = props;
+  const composerThreadId = model.conversation?.threadId ?? model.threadId;
+  const promptDraft = useComposerPromptDraft(composerThreadId);
+  const [initialized, setInitialized] = useScopedAtom(composerDraftInitializedAtom);
+  const [consumedIntentNonce, setConsumedIntentNonce] = useScopedAtom(
+    composerConsumedIntentNonceAtom,
+  );
+  const [, setFileAttachments] = useScopedAtom(composerFileAttachmentsAtom);
+  const [, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
+  const [, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
+  const [, setPastedTextAttachments] = useScopedAtom(
+    composerPastedTextAttachmentsAtom,
+  );
+  const [, setSkillMentions] = useScopedAtom(composerSkillMentionsAtom);
+  const [, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
+  const resetGeneration = useScopedAtomValue(composerResetGenerationAtom);
+  const clearCompletedDraft = useSetScopedAtom(clearComposerCompletedDraftAtom);
+  const composerHandle = useScopeHandle(ComposerScope);
+  const transferDefinition = composerDraftTransferFamily(
+    composerThreadId ?? `inactive:${composerHandle.path}`,
+  );
+  const [transfer, setTransfer] = useScopedAtom(transferDefinition);
+  const consumedIntentNonceRef = useRef(consumedIntentNonce);
+  const consumedTransferIdRef = useRef<string | null>(null);
+  const intent = model.composerIntent ?? model.newThreadComposerIntent ?? null;
+
+  useLayoutEffect(() => {
+    if (promptDraft.loadable.status === "loading") return;
+
+    if (
+      transfer
+      && composerThreadId
+      && transfer.targetConversationId === composerThreadId
+      && consumedTransferIdRef.current !== transfer.transferId
+    ) {
+      consumedTransferIdRef.current = transfer.transferId;
+      applyCompletedDraftSnapshot({
+        snapshot: transfer,
+        setFileAttachments,
+        setAddedFiles,
+        setImageAttachments,
+        setPastedTextAttachments,
+        setSkillMentions,
+        setGoalModeActive,
+        threadId: composerThreadId,
+      });
+      void promptDraft.setPrompt(transfer.prompt).catch((error: unknown) => {
+        onErrorMessage(error instanceof Error ? error.message : "Could not restore composer draft");
+      });
+      setTransfer(null);
+    }
+
+    if (intent && consumedIntentNonceRef.current !== intent.focusNonce) {
+      consumedIntentNonceRef.current = intent.focusNonce;
+      const restored = buildComposerAttachmentStateFromPromptInput(intent.promptInput);
+      const append = intent.attachmentMode === "append";
+      if (append) {
+        setFileAttachments((current) => appendUniqueBy(
+          current,
+          restored.fileAttachments,
+          (attachment) => attachment.attachment.fsPath ?? attachment.attachment.path ?? attachment.uiId,
+        ));
+        setAddedFiles((current) => appendUniqueBy(
+          current,
+          restored.addedFiles,
+          (attachment) => attachment.attachment.fsPath ?? attachment.attachment.path ?? attachment.uiId,
+        ));
+        setImageAttachments((current) => appendUniqueBy(
+          current,
+          restored.imageAttachments,
+          (attachment) => attachment.path || attachment.dataUrl,
+        ));
+        setPastedTextAttachments((current) => appendUniqueBy(
+          current,
+          restored.pastedTextAttachments,
+          (attachment) => attachment.id,
+        ));
+        setSkillMentions((current) => appendUniqueBy(
+          current,
+          restored.skillMentions,
+          (attachment) => attachment.path,
+        ));
+        for (const attachment of restored.commentAttachments) {
+          addReviewDiffCommentAttachment(composerThreadId, attachment);
+        }
+      } else {
+        setFileAttachments(restored.fileAttachments);
+        setAddedFiles(restored.addedFiles);
+        setImageAttachments(restored.imageAttachments);
+        setPastedTextAttachments(restored.pastedTextAttachments);
+        setSkillMentions(restored.skillMentions);
+        replaceReviewCommentAttachments(composerThreadId, restored.commentAttachments);
+      }
+
+      if (intent.prompt.length > 0 || intent.clearText === true) {
+        void promptDraft.setPrompt(intent.clearText === true ? "" : intent.prompt)
+          .catch((error: unknown) => {
+            onErrorMessage(error instanceof Error ? error.message : "Could not apply composer intent");
+          });
+      }
+      setConsumedIntentNonce(intent.focusNonce);
+      if (composerThreadId) {
+        actions.onConsumeComposerIntent(composerThreadId, intent.focusNonce);
+      } else if (model.newThreadTarget?.sessionId) {
+        actions.onConsumeNewThreadComposerIntent?.(
+          model.newThreadTarget.sessionId,
+          intent.focusNonce,
+        );
+      }
+    }
+
+    if (!initialized) setInitialized(true);
+  }, [
+    actions,
+    composerThreadId,
+    initialized,
+    intent,
+    model.newThreadTarget?.sessionId,
+    onErrorMessage,
+    promptDraft,
+    setAddedFiles,
+    setConsumedIntentNonce,
+    setFileAttachments,
+    setGoalModeActive,
+    setImageAttachments,
+    setInitialized,
+    setPastedTextAttachments,
+    setSkillMentions,
+    setTransfer,
+    transfer,
+  ]);
+
+  const setPrompt = useCallback((nextPrompt: string) => {
+    void promptDraft.setPrompt(nextPrompt).catch((error: unknown) => {
+      onErrorMessage(error instanceof Error ? error.message : "Could not save composer draft");
+    });
+  }, [onErrorMessage, promptDraft]);
+  const clearSubmittedDraft = useCallback(() => {
+    clearCompletedDraft();
+    clearReviewDiffCommentAttachments(composerThreadId);
+    void promptDraft.clear().catch((error: unknown) => {
+      onErrorMessage(error instanceof Error ? error.message : "Could not clear composer draft");
+    });
+  }, [clearCompletedDraft, composerThreadId, onErrorMessage, promptDraft]);
+
+  if (promptDraft.loadable.status === "loading" || !initialized) {
+    return (
+      <div
+        data-composer-draft-hydration="loading"
+        className="min-h-24 rounded-[20px] border border-token-border bg-token-main-surface-primary"
+      />
+    );
+  }
+
+  return (
+    <HydratedThreadComposer
+      key={resetGeneration}
+      {...props}
+      prompt={promptDraft.prompt}
+      setPrompt={setPrompt}
+      clearSubmittedDraft={clearSubmittedDraft}
+    />
+  );
+}
+
+function HydratedThreadComposer({
+  model,
+  actions,
+  errorMessage,
+  onErrorMessage,
+  prompt,
+  setPrompt,
+  clearSubmittedDraft,
+}: HydratedThreadComposerProps) {
   const canStartNewThread = canStartNewThreadTarget(model);
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
   const [dictationToastMessage, setDictationToastMessage] = useState<string | null>(null);
-  const [fileAttachments, setFileAttachments] = useState<ComposerFileAttachment[]>([]);
-  const [addedFiles, setAddedFiles] = useState<ComposerFileAttachment[]>([]);
-  const [imageAttachments, setImageAttachments] = useState<ComposerImageAttachment[]>([]);
-  const [pastedTextAttachments, setPastedTextAttachments] = useState<ComposerPastedTextAttachment[]>([]);
-  const [skillMentions, setSkillMentions] = useState<ComposerSkillMentionAttachment[]>([]);
+  const [fileAttachments, setFileAttachments] = useScopedAtom(composerFileAttachmentsAtom);
+  const [addedFiles, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
+  const [imageAttachments, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
+  const [pastedTextAttachments, setPastedTextAttachments] = useScopedAtom(
+    composerPastedTextAttachmentsAtom,
+  );
+  const [skillMentions, setSkillMentions] = useScopedAtom(composerSkillMentionsAtom);
   const [slashTrigger, setSlashTrigger] = useState<ComposerSlashTriggerState>(() => inactiveSlashTrigger());
   const [inlineSlashHighlightIntent, setInlineSlashHighlightIntent] = useState<ComposerSlashCommandHighlightIntent>({
     commandId: null,
@@ -1067,7 +1282,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [slashDialogOpen, setSlashDialogOpen] = useState(false);
   const [desktopPetVisible, setDesktopPetVisible] = useState(false);
   const [planKeywordSuggestionDismissed, setPlanKeywordSuggestionDismissed] = useState(false);
-  const [goalModeActive, setGoalModeActive] = useState(false);
+  const [goalModeActive, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
   const [goalReplacementConfirmation, setGoalReplacementConfirmation] = useState<ThreadGoalReplacementConfirmationState | null>(null);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const appendPromptToHistoryRef = useRef<(text: string) => void>(() => {});
@@ -1076,7 +1291,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const attachmentGenerationRef = useRef(0);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
-  const commentAttachments = useReviewDiffCommentAttachments(composerThreadId);
+  const commentAttachments = useScopedAtomValue(
+    composerReviewCommentAttachmentsFamily(composerThreadId),
+  );
   const attachmentState = useMemo<ComposerAttachmentState>(() => ({
     fileAttachments,
     addedFiles,
@@ -1089,22 +1306,18 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const incrementAttachmentGeneration = useCallback(() => {
     attachmentGenerationRef.current += 1;
   }, []);
-  const resetComposerAttachments = useCallback(() => {
-    incrementAttachmentGeneration();
-    setFileAttachments([]);
-    setAddedFiles([]);
-    setImageAttachments([]);
-    setPastedTextAttachments([]);
-    setSkillMentions([]);
-  }, [incrementAttachmentGeneration]);
   const recordSuccessfulPromptSubmit = useCallback((text: string) => {
     appendPromptToHistoryRef.current(text);
     resetPromptHistorySelectionRef.current();
   }, []);
+  const completeSuccessfulSubmission = useCallback((text: string) => {
+    recordSuccessfulPromptSubmit(text);
+    incrementAttachmentGeneration();
+    clearSubmittedDraft();
+  }, [clearSubmittedDraft, incrementAttachmentGeneration, recordSuccessfulPromptSubmit]);
 
   const submitThreadGoalDraft = useCallback(async (
     draft: ThreadGoalSubmissionDraft,
-    reset?: () => void,
   ): Promise<boolean> => {
     if (draft.hasUnsupportedAttachments) {
       toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
@@ -1158,11 +1371,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           worktreeStartMode: target.worktreeStartMode,
           worktreeBranchPrefix: target.worktreeBranchPrefix,
         });
-        recordSuccessfulPromptSubmit(draft.objective);
-        setGoalModeActive(false);
-        reset?.();
-        resetComposerAttachments();
-        clearReviewDiffCommentAttachments(composerThreadId);
+        completeSuccessfulSubmission(draft.objective);
         return true;
       } catch (error) {
         onErrorMessage(error instanceof Error ? error.message : "Could not start thread goal");
@@ -1201,11 +1410,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         status: "active",
       });
       materialized = null;
-      recordSuccessfulPromptSubmit(draft.objective);
-      setGoalModeActive(false);
-      reset?.();
-      resetComposerAttachments();
-      clearReviewDiffCommentAttachments(composerThreadId);
+      completeSuccessfulSubmission(draft.objective);
       return true;
     } catch {
       await cleanupMaterializedThreadGoalDraft(materialized);
@@ -1218,18 +1423,15 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     }
   }, [
     actions,
-    composerThreadId,
+    completeSuccessfulSubmission,
     model.conversation,
     onErrorMessage,
-    recordSuccessfulPromptSubmit,
-    resetComposerAttachments,
     model.newThreadTarget,
   ]);
 
   const submitPrompt = useCallback(async (
     input: {
       prompt: string;
-      reset?: () => void;
       submitAction: StageThreadsComposerSubmitAction | null;
     },
   ) => {
@@ -1253,7 +1455,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
     if (goalDraftResult.status === "empty") {
       setGoalModeActive(false);
-      input.reset?.();
       return;
     }
 
@@ -1269,12 +1470,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       ) {
         setGoalReplacementConfirmation({
           draft: submissionDraft,
-          reset: input.reset,
         });
         return;
       }
 
-      await submitThreadGoalDraft(submissionDraft, input.reset);
+      await submitThreadGoalDraft(submissionDraft);
       return;
     }
 
@@ -1309,10 +1509,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
               }
             : undefined,
         });
-        recordSuccessfulPromptSubmit(sideChatPrompt);
-        input.reset?.();
-        resetComposerAttachments();
-        clearReviewDiffCommentAttachments(composerThreadId);
+        completeSuccessfulSubmission(sideChatPrompt);
       } catch {
         toast.danger("Failed to open side chat", {
           id: "side-chat-open-failed",
@@ -1375,10 +1572,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           promptInput,
         });
       }
-      recordSuccessfulPromptSubmit(nextPrompt);
-      input.reset?.();
-      resetComposerAttachments();
-      clearReviewDiffCommentAttachments(composerThreadId);
+      completeSuccessfulSubmission(nextPrompt);
     } catch (error) {
       onErrorMessage(error instanceof Error ? error.message : "Could not send prompt");
     } finally {
@@ -1388,7 +1582,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     actions,
     attachmentState,
     canStartNewThread,
-    composerThreadId,
+    completeSuccessfulSubmission,
     goalModeActive,
     hasAttachments,
     model.activeTurn,
@@ -1397,31 +1591,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     model.newThreadTarget,
     model.selectedCollaborationMode,
     onErrorMessage,
-    recordSuccessfulPromptSubmit,
-    resetComposerAttachments,
+    setGoalModeActive,
     submitThreadGoalDraft,
   ]);
-
-  const promptForm = useForm({
-    defaultValues: { prompt: "" },
-    onSubmit: async ({ value, formApi }) => {
-      const actionState = resolveStageThreadsComposerActionState({
-        canSendPrompt: model.conversation !== null || canStartNewThread,
-        isThreadRunning: model.isThreadRunning,
-        busyAction,
-        hasDraftContent: value.prompt.trim().length > 0 || hasAttachments || goalModeActive,
-        isQueueingEnabled: model.isQueueingEnabled,
-      });
-      await submitPrompt({
-        prompt: value.prompt,
-        submitAction: actionState.primarySubmitAction,
-        reset: () => {
-          formApi.reset();
-        },
-      });
-    },
-  });
-  const prompt = useStore(promptForm.store, (state) => state.values.prompt);
   const isDictationSupported = useMemo(
     () =>
       model.dictation.isEnabled
@@ -1444,19 +1616,19 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     }
 
     const nextPrompt = `${prompt}${normalizedTranscript}`;
-    promptForm.setFieldValue("prompt", nextPrompt);
+    setPrompt(nextPrompt);
     return nextPrompt;
-  }, [prompt, promptForm]);
+  }, [prompt, setPrompt]);
 
   const insertComposerTextAtSelection = useCallback((text: string) => {
     const editor = promptEditorRef.current;
     if (!editor) {
-      promptForm.setFieldValue("prompt", `${prompt}${text}`);
+      setPrompt(`${prompt}${text}`);
       return;
     }
 
     editor.insertText(text);
-  }, [prompt, promptForm]);
+  }, [prompt, setPrompt]);
 
   const handleInsertPluginMention = useCallback((plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => {
     const pluginName = plugin.name.trim();
@@ -1472,7 +1644,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       },
     ]);
     insertComposerTextAtSelection(`${prompt.trim().length === 0 ? "" : " "}@${pluginName} `);
-  }, [incrementAttachmentGeneration, insertComposerTextAtSelection, prompt]);
+  }, [incrementAttachmentGeneration, insertComposerTextAtSelection, prompt, setSkillMentions]);
 
   const handleToggleDesktopPet = useCallback(() => {
     setDesktopPetVisible((current) => !current);
@@ -1492,7 +1664,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     if (nextMode) {
       void actions.onCollaborationModeChange(nextMode);
     }
-  }, [actions, model.collaborationModes, model.selectedCollaborationMode]);
+  }, [actions, model.collaborationModes, model.selectedCollaborationMode, setGoalModeActive]);
 
   const clearFooterGoal = useCallback(() => {
     const savedGoal = model.conversation?.threadGoal ?? null;
@@ -1511,7 +1683,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         toast.danger(getThreadGoalMessage("composer.threadGoal.clearError"));
       }
     })();
-  }, [actions.onClearThreadGoal, model.conversation?.threadGoal]);
+  }, [actions.onClearThreadGoal, model.conversation?.threadGoal, setGoalModeActive]);
 
   const handlePickComposerFiles = useCallback(async () => {
     const imagesOnly = model.isCloudNewThreadTarget;
@@ -1572,7 +1744,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     } catch (error) {
       onErrorMessage(error instanceof Error ? error.message : "Could not add files");
     }
-  }, [model.isCloudNewThreadTarget, onErrorMessage]);
+  }, [model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments, setImageAttachments]);
 
   const showDictationToast = useCallback((message: string) => {
     setDictationToastMessage(message);
@@ -1603,9 +1775,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         void submitPrompt({
           prompt: nextPrompt,
           submitAction: actionState.primarySubmitAction,
-          reset: () => {
-            promptForm.reset();
-          },
         });
       }, 0);
     },
@@ -1697,51 +1866,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   ]);
 
   useEffect(() => {
-    resetComposerAttachments();
-  }, [model.conversation?.threadId, model.isNewThreadTab, resetComposerAttachments]);
-
-  useEffect(() => {
-    const composerIntent = model.composerIntent;
-    const threadId = model.conversation?.threadId ?? model.body.threadId;
-    const newThreadSessionId = model.isNewThreadTab ? model.newThreadTarget?.sessionId ?? null : null;
-    if (!composerIntent || (!threadId && !newThreadSessionId)) return;
-
-    const restoredAttachments = buildComposerAttachmentStateFromPromptInput(composerIntent.promptInput);
-    incrementAttachmentGeneration();
-    setFileAttachments(restoredAttachments.fileAttachments);
-    setAddedFiles(restoredAttachments.addedFiles);
-    setImageAttachments(restoredAttachments.imageAttachments);
-    setPastedTextAttachments(restoredAttachments.pastedTextAttachments);
-    setSkillMentions(restoredAttachments.skillMentions);
-    if (threadId) {
-      clearReviewDiffCommentAttachments(threadId);
-      for (const attachment of restoredAttachments.commentAttachments) {
-        addReviewDiffCommentAttachment(threadId, attachment);
-      }
-    }
-    promptForm.setFieldValue("prompt", composerIntent.prompt);
-    requestAnimationFrame(() => {
-      promptEditorRef.current?.focusAtEnd();
-    });
-    if (threadId) {
-      actions.onConsumeComposerIntent(threadId, composerIntent.focusNonce);
-      return;
-    }
-    if (newThreadSessionId) {
-      actions.onConsumeNewThreadComposerIntent?.(newThreadSessionId, composerIntent.focusNonce);
-    }
-  }, [
-    actions,
-    incrementAttachmentGeneration,
-    model.body.threadId,
-    model.composerIntent,
-    model.conversation?.threadId,
-    model.isNewThreadTab,
-    model.newThreadTarget?.sessionId,
-    promptForm,
-  ]);
-
-  useEffect(() => {
     let cancelled = false;
 
     void invoke("codex:permission:state:get", model.projectId)
@@ -1777,29 +1901,29 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     setFileAttachments((current) => current.filter((attachment) =>
       attachment.uiId !== attachmentId
     ));
-  }, [incrementAttachmentGeneration]);
+  }, [incrementAttachmentGeneration, setFileAttachments]);
 
   const handleRemoveAddedFile = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
     setAddedFiles((current) => current.filter((attachment) =>
       attachment.uiId !== attachmentId
     ));
-  }, [incrementAttachmentGeneration]);
+  }, [incrementAttachmentGeneration, setAddedFiles]);
 
   const handleRemoveImageAttachment = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
     setImageAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
-  }, [incrementAttachmentGeneration]);
+  }, [incrementAttachmentGeneration, setImageAttachments]);
 
   const handleRemovePastedTextAttachment = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
     setPastedTextAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
-  }, [incrementAttachmentGeneration]);
+  }, [incrementAttachmentGeneration, setPastedTextAttachments]);
 
   const handleRemoveSkillMention = useCallback((attachmentId: string) => {
     incrementAttachmentGeneration();
     setSkillMentions((current) => current.filter((attachment) => attachment.id !== attachmentId));
-  }, [incrementAttachmentGeneration]);
+  }, [incrementAttachmentGeneration, setSkillMentions]);
 
   const handleRemoveCommentAttachment = useCallback((attachmentId: string) => {
     removeReviewDiffCommentAttachment(composerThreadId, attachmentId);
@@ -1844,7 +1968,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     }
     setPlanKeywordSuggestionDismissed(false);
     return true;
-  }, [actions, model.collaborationModes, model.selectedCollaborationMode]);
+  }, [actions, model.collaborationModes, model.selectedCollaborationMode, setGoalModeActive]);
   const showPlanKeywordSuggestion = shouldShowComposerPlanKeywordSuggestion({
     prompt,
     currentMode: model.selectedCollaborationMode,
@@ -2060,9 +2184,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     void submitPrompt({
       prompt,
       submitAction: submitIntent.submitAction,
-      reset: () => {
-        promptForm.reset();
-      },
     });
     return true;
   }, [
@@ -2080,7 +2201,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     handlePromptHistoryKeyDown,
     planModeAvailable,
     prompt,
-    promptForm,
     selectSlashCommand,
     slashMatches,
     slashMenuOpen,
@@ -2114,7 +2234,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     if (!confirmation || busyAction !== null) return;
 
     void (async () => {
-      const succeeded = await submitThreadGoalDraft(confirmation.draft, confirmation.reset);
+      const succeeded = await submitThreadGoalDraft(confirmation.draft);
       if (succeeded) {
         setGoalReplacementConfirmation(null);
       }
@@ -2309,9 +2429,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                   value={prompt}
                   placeholder={promptPlaceholder}
                   disabled={isPromptEditorDisabled}
-                  onChange={(nextPrompt) => {
-                    promptForm.setFieldValue("prompt", nextPrompt);
-                  }}
+                  onChange={setPrompt}
                   onKeyDown={handleKeyDown}
                   onSlashTriggerChange={handleSlashTriggerChange}
                 />
@@ -2464,7 +2582,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                           )}
                           onClick={composerActionState.action === "stop"
                             ? () => void handleInterrupt()
-                            : () => void promptForm.handleSubmit()}
+                            : () => void submitPrompt({
+                                prompt,
+                                submitAction: composerActionState.primarySubmitAction,
+                              })}
                           disabled={composerActionState.action === "stop"
                             ? composerActionState.disabled
                             : composerActionState.disabled || !canRunPrimaryAction}

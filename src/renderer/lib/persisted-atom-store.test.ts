@@ -38,6 +38,7 @@ describe("persisted atom renderer store", () => {
   });
 
   test("uses the Electron IPC bridge and subscribes to atom update events", async () => {
+    let revision = 0;
     let bridgeState: Record<string, unknown> = { alpha: "one" };
     const persistedAtomListenerRef: { current: BridgeListener | null } = { current: null };
     const invokedChannels: string[] = [];
@@ -47,15 +48,20 @@ describe("persisted atom renderer store", () => {
       invoke: async (channel: string, ...args: unknown[]) => {
         invokedChannels.push(channel);
         if (channel === "persisted-atom:sync-request") {
-          return bridgeState;
+          return { revision, values: bridgeState };
         }
         if (channel === "persisted-atom:update") {
-          const update = args[0] as { key: string; value: unknown };
+          const update = args[0] as { key: string; value: unknown; mutationId: string };
+          revision += 1;
           bridgeState = {
             ...bridgeState,
             [update.key]: update.value,
           };
-          return bridgeState;
+          return {
+            ...update,
+            revision,
+            originRendererId: "renderer-1",
+          };
         }
         return null;
       },
@@ -76,12 +82,53 @@ describe("persisted atom renderer store", () => {
     const unsubscribe = subscribeAtom("gamma", (value) => {
       seen.push(String(value));
     });
-    persistedAtomListenerRef.current?.({ key: "gamma", value: "three" });
+    revision += 1;
+    persistedAtomListenerRef.current?.({
+      key: "gamma",
+      value: "three",
+      mutationId: "remote-1",
+      revision,
+      originRendererId: "renderer-2",
+    });
 
     expect(seen.join("|")).toBe("three");
     await writeAtom("beta", "two");
     expect(await readAtom("beta", "fallback")).toBe("two");
     expect(invokedChannels.join("|")).toBe("persisted-atom:sync-request|persisted-atom:update");
     unsubscribe();
+  });
+
+  test("does not let an older hydration snapshot overwrite an intervening event", async () => {
+    const resolveSyncRef: { current: ((value: unknown) => void) | null } = { current: null };
+    const persistedAtomListenerRef: { current: BridgeListener | null } = { current: null };
+    installWindowApi({
+      invoke: (channel: string) => {
+        if (channel !== "persisted-atom:sync-request") return Promise.resolve(null);
+        return new Promise((resolve) => {
+          resolveSyncRef.current = resolve;
+        });
+      },
+      on: (channel: string, listener: BridgeListener) => {
+        if (channel !== "persisted-atom:updated") return () => {};
+        persistedAtomListenerRef.current = listener;
+        return () => {
+          persistedAtomListenerRef.current = null;
+        };
+      },
+    });
+    clearPersistedAtomStoreForTests();
+
+    const pendingRead = readAtom("draft", "fallback");
+    persistedAtomListenerRef.current?.({
+      key: "draft",
+      value: "newer broadcast",
+      mutationId: "remote-2",
+      revision: 2,
+      originRendererId: "renderer-2",
+    });
+    resolveSyncRef.current?.({ revision: 1, values: { draft: "older hydration" } });
+
+    await expect(pendingRead).resolves.toBe("newer broadcast");
+    await expect(readAtom("draft", "fallback")).resolves.toBe("newer broadcast");
   });
 });

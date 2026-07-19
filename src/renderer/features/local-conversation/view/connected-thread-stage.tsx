@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
+import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
 import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex-thread-title";
 import { buildCodexTurnOccurrenceKey } from "../../../../shared/codex-turn-identity";
 import type {
@@ -153,7 +152,8 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   summaryPanelOpen?: boolean;
   summaryPanelHideImmediately?: boolean;
   summaryPanelContentShift?: number;
-  threadViewportActive?: boolean;
+  routeActive?: boolean;
+  threadBodyVisible?: boolean;
 }
 
 function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
@@ -244,6 +244,7 @@ function ConnectedThreadStageBody({
   contentShiftX,
   footer,
   initialUiState,
+  transcriptVisible = true,
   turnDiffHoverPreviewDisabled = false,
 }: {
   activeThreadId: string | null;
@@ -258,6 +259,7 @@ function ConnectedThreadStageBody({
   contentShiftX?: number;
   footer?: ReactNode;
   initialUiState?: ThreadBodyUiStateOverrides;
+  transcriptVisible?: boolean;
   turnDiffHoverPreviewDisabled?: boolean;
 }) {
   const turns = useConversationTurns(activeThreadId);
@@ -316,6 +318,7 @@ function ConnectedThreadStageBody({
     () => ({
       projectId: input.projectId,
       hostId,
+      sessionId: input.sessionId ?? null,
       threadId: activeThreadId,
       isSideChat: Boolean(input.sideChatContext),
       cwd,
@@ -344,6 +347,7 @@ function ConnectedThreadStageBody({
       conversationSnapshot?.canonicalRequests,
       cwd,
       input.projectId,
+      input.sessionId,
       hostId,
       input.projectWorkspacePath,
       input.searchOpenTick,
@@ -367,6 +371,7 @@ function ConnectedThreadStageBody({
       contentShiftX={contentShiftX}
       footer={footer}
       initialUiState={initialUiState}
+      transcriptVisible={transcriptVisible}
       planSidePanelState={input.planSidePanelState ?? null}
       turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
     />
@@ -664,7 +669,8 @@ export function ConnectedThreadStage({
   summaryPanelOpen = false,
   summaryPanelHideImmediately = false,
   summaryPanelContentShift = 0,
-  threadViewportActive = true,
+  routeActive = true,
+  threadBodyVisible = routeActive,
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -675,7 +681,6 @@ export function ConnectedThreadStage({
     input.threadStartProgress &&
     resolveThreadStartProgressPresentation(input.threadStartProgress) === "panel",
   );
-  const threadHeaderPortalTarget = useThreadHeaderPortalTarget();
   const resumeState = useConversationResumeState(activeThreadId);
   const streamRole = useConversationStreamRole(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
@@ -709,17 +714,17 @@ export function ConnectedThreadStage({
     || requests.length > 0
     || primaryRequest,
   );
-  const threadLifecycleActive = threadViewportActive || activeThreadHasRuntimeWork;
+  const threadLifecycleActive = routeActive || activeThreadHasRuntimeWork;
   const newestCanonicalRequest = conversation?.canonicalRequests?.at(-1) ?? null;
   const latestTurn = turns.at(-1) ?? null;
   const latestTurnKey = latestTurn
     ? buildCodexTurnOccurrenceKey(latestTurn.turnId, turns.length - 1)
     : null;
   const markActiveConversationAsRead = useCallback((requireWindowFocus: boolean) => {
-    if (!threadViewportActive || !activeThreadId || !conversation?.hasUnreadTurn) return;
+    if (!routeActive || !threadBodyVisible || !activeThreadId || !conversation?.hasUnreadTurn) return;
     if (requireWindowFocus && typeof document !== "undefined" && !document.hasFocus()) return;
     void markLocalConversationAsRead(activeThreadId).catch(() => {});
-  }, [activeThreadId, conversation?.hasUnreadTurn, threadViewportActive]);
+  }, [activeThreadId, conversation?.hasUnreadTurn, routeActive, threadBodyVisible]);
   const markActiveConversationAsReadOnFocus = useEffectEvent(() => {
     markActiveConversationAsRead(true);
   });
@@ -794,7 +799,8 @@ export function ConnectedThreadStage({
     latestTurn?.status,
     latestTurnKey,
     newestCanonicalRequest,
-    threadViewportActive,
+    routeActive,
+    threadBodyVisible,
   ]);
 
   useEffect(() => {
@@ -834,7 +840,7 @@ export function ConnectedThreadStage({
     return (
       <LocalConversationNewThreadHomeScreen
         hero={<NewThreadHomeHero input={input} actions={actions} />}
-        body={showNewThreadHomeBody ? (
+        body={showNewThreadHomeBody && threadBodyVisible ? (
           <ConnectedThreadStageBody
             activeThreadId={activeThreadId}
             input={input}
@@ -845,6 +851,7 @@ export function ConnectedThreadStage({
               : onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}
             initialUiState={initialUiState}
+            transcriptVisible={threadBodyVisible}
             turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
           />
         ) : null}
@@ -886,21 +893,21 @@ export function ConnectedThreadStage({
     );
   }
 
-  const threadHeaderPortal = !isSideChat && threadHeaderPortalTarget
-    ? createPortal(
-        <ConnectedThreadStageHeader
-          activeThreadId={activeThreadId}
-          input={input}
-          actions={actions}
-          onErrorMessage={setErrorMessage}
-        />,
-        threadHeaderPortalTarget,
-      )
-    : null;
+  const ownsAppShellHeader = !isSideChat && !backgroundAgentDetail;
+  const threadHeaderContent = ownsAppShellHeader ? (
+    <ConnectedThreadStageHeader
+      activeThreadId={activeThreadId}
+      input={input}
+      actions={actions}
+      onErrorMessage={setErrorMessage}
+    />
+  ) : null;
 
   return (
     <>
-      {threadHeaderPortal}
+      {ownsAppShellHeader ? (
+        <AppShellHeaderContentRegistrar content={threadHeaderContent} />
+      ) : null}
       <LocalConversationStageScreen
         onReadInteraction={() => markActiveConversationAsRead(false)}
         header={null}
@@ -928,6 +935,7 @@ export function ConnectedThreadStage({
               />
             )}
             initialUiState={initialUiState}
+            transcriptVisible={threadBodyVisible}
             turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
           />
         )}

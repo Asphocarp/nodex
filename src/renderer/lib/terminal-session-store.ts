@@ -88,6 +88,7 @@ export class TerminalSessionStore {
   private readonly listenersBySession = new Map<string, Set<TerminalStoreListener>>();
   private readonly exitListeners = new Set<TerminalExitListener>();
   private readonly versionListeners = new Set<StoreVersionListener>();
+  private readonly closingSessionIds = new Set<string>();
   private eventUnsubscribers: Array<() => void> = [];
   private eventSubscriptionsReady = false;
   private version = 0;
@@ -163,6 +164,7 @@ export class TerminalSessionStore {
   }
 
   async createOrAttach(input: TerminalCreateRequest): Promise<void> {
+    this.closingSessionIds.delete(input.sessionId);
     this.ensureEventSubscriptions();
     this.mergeSnapshot(input.sessionId, {
       conversationId: input.conversationId ?? null,
@@ -177,6 +179,7 @@ export class TerminalSessionStore {
   }
 
   async attach(input: TerminalAttachRequest): Promise<void> {
+    this.closingSessionIds.delete(input.sessionId);
     this.ensureEventSubscriptions();
     this.mergeSnapshot(input.sessionId, {
       conversationId: input.conversationId ?? null,
@@ -189,6 +192,7 @@ export class TerminalSessionStore {
   }
 
   async runAction(input: TerminalRunActionRequest): Promise<void> {
+    this.closingSessionIds.delete(input.sessionId);
     this.ensureEventSubscriptions();
     this.mergeSnapshot(input.sessionId, {
       conversationId: input.conversationId ?? null,
@@ -236,6 +240,8 @@ export class TerminalSessionStore {
   }
 
   close(sessionId: string): void {
+    if (this.closingSessionIds.has(sessionId)) return;
+    this.closingSessionIds.add(sessionId);
     if (hasApi()) {
       void window.api!.invoke("terminal-close", sessionId);
     }

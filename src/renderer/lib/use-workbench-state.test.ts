@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
-import { createElement, useEffect } from "react";
+import { createElement, useEffect, type ReactElement } from "react";
 import {
   useWorkbenchState,
   workbenchStorageKeys,
@@ -9,6 +9,7 @@ import {
 import { createDefaultWorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
 import type { Project, WorkbenchLayoutSnapshot } from "./types";
 import { render, settleAsyncRender } from "../test/dom";
+import { createMaitaiStore, MaitaiProvider } from "./maitai";
 
 const storageMap = new Map<string, string>();
 
@@ -73,6 +74,15 @@ function resetStorage(): void {
     storage.removeItem(workbenchStorageKeys.recent);
     storage.removeItem(workbenchStorageKeys.dbViewPrefs);
   }
+}
+
+function renderWithRendererState(element: ReactElement) {
+  return render(
+    createElement(
+      MaitaiProvider,
+      { store: createMaitaiStore(), children: element },
+    ),
+  );
 }
 
 describe("use-workbench-state helpers", () => {
@@ -455,7 +465,7 @@ describe("use-workbench-state helpers", () => {
       return latestState;
     }
 
-    render(createElement(Harness));
+    renderWithRendererState(createElement(Harness));
     await settleAsyncRender();
 
     await act(async () => {
@@ -469,6 +479,39 @@ describe("use-workbench-state helpers", () => {
     expect(state.recentPageSessions.length).toBe(2);
     expect(state.recentPageSessions[0]?.pageId).toBe("page-1");
     expect(state.recentPageSessions[1]?.pageId).toBe("page-2");
+  });
+
+  test("shares one window layout across consumers and retains it across view remount", async () => {
+    resetStorage();
+    const store = createMaitaiStore();
+    const captured: Array<ReturnType<typeof useWorkbenchState> | null> = [null, null];
+
+    function Probe({ index }: { index: number }) {
+      captured[index] = useWorkbenchState(PROJECTS);
+      return null;
+    }
+
+    const tree = (indices: number[]) => createElement(
+      MaitaiProvider,
+      {
+        store,
+        children: indices.map((index) => createElement(Probe, { key: index, index })),
+      },
+    );
+    const view = render(tree([0, 1]));
+    await settleAsyncRender();
+
+    await act(async () => {
+      captured[0]?.setDbProject("ops");
+      await Promise.resolve();
+    });
+
+    expect(captured[0]?.dbProjectId).toBe("ops");
+    expect(captured[1]?.dbProjectId).toBe("ops");
+
+    view.rerender(tree([1]));
+    await settleAsyncRender();
+    expect(captured[1]?.dbProjectId).toBe("ops");
   });
 
   test("findRecentPageSession matches pages by project and page id", () => {
@@ -838,7 +881,7 @@ describe("use-workbench-state helpers", () => {
       return null;
     }
 
-    render(createElement(Harness));
+    renderWithRendererState(createElement(Harness));
     await settleAsyncRender();
 
     const layout: WorkbenchLayoutSnapshot = {
@@ -913,7 +956,7 @@ describe("use-workbench-state helpers", () => {
       return null;
     }
 
-    render(createElement(Harness));
+    renderWithRendererState(createElement(Harness));
     await settleAsyncRender();
 
     if (!capturedRef.current) throw new Error("missing workbench state");
@@ -938,7 +981,7 @@ describe("use-workbench-state helpers", () => {
       return null;
     }
 
-    render(createElement(Harness));
+    renderWithRendererState(createElement(Harness));
     await settleAsyncRender();
 
     if (!capturedRef.current) throw new Error("missing workbench state");

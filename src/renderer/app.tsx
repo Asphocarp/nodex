@@ -3,6 +3,7 @@ import { WorkbenchShell } from "@/components/workbench/workbench-shell";
 import { LocalConversationProvider } from "@/features/local-conversation";
 import { DesktopNotificationController } from "@/features/local-conversation/desktop-notification-controller";
 import { HeartbeatAutomationController } from "@/features/local-conversation/heartbeat-automation-controller";
+import { LocalConversationViewStateCleanupController } from "@/features/local-conversation/view/local-conversation-view-state-cleanup-controller";
 import type {
   ContentSearchDomain,
   ContentSearchOpenRequest,
@@ -1202,6 +1203,7 @@ function WorkbenchApp({
 
   return (
     <LocalConversationProvider>
+      <LocalConversationViewStateCleanupController />
       <DesktopNotificationController
       activeThreadId={activeThreadsTabId}
       focusedStage={focusedStage}

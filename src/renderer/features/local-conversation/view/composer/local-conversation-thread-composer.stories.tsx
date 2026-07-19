@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import { writeAtom } from "@/lib/persisted-atom-store";
+import { useSetScopedAtom } from "@/lib/maitai";
 import type {
   CodexCollaborationModeKind,
   CodexModelOption,
@@ -21,7 +22,13 @@ import {
   type ThreadStageStoryControls,
 } from "../thread-stage-story-fixtures";
 import { ThreadComposer } from "./local-conversation-thread-composer";
+import {
+  composerFileAttachmentsAtom,
+  composerPastedTextAttachmentsAtom,
+  composerSkillMentionsAtom,
+} from "./composer-draft-state";
 import { PROMPT_HISTORY_ATOM_KEY } from "./thread-composer-prompt-history";
+import { TestComposerScopePath } from "@/test/maitai-scope-harness";
 
 interface ComposerSendButtonStoryProps {
   isQueueingEnabled: boolean;
@@ -39,6 +46,7 @@ interface ComposerSendButtonStoryProps {
   addContextState: "default" | "ideConnected" | "plugins";
   savedGoalState: "none" | "active";
   seedPromptHistory: boolean;
+  seedCompletedContext: boolean;
 }
 
 const LONG_PROMPT_STORY_DRAFT = Array.from(
@@ -287,6 +295,49 @@ function buildActions(): ThreadStageActions {
   };
 }
 
+function ComposerCompletedContextSeeder({ enabled }: { enabled: boolean }) {
+  const setFileAttachments = useSetScopedAtom(composerFileAttachmentsAtom);
+  const setPastedTextAttachments = useSetScopedAtom(composerPastedTextAttachmentsAtom);
+  const setSkillMentions = useSetScopedAtom(composerSkillMentionsAtom);
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      setFileAttachments([]);
+      setPastedTextAttachments([]);
+      setSkillMentions([]);
+      return;
+    }
+
+    setFileAttachments([{
+      uiId: "story-file-view-state-ownership",
+      attachment: {
+        label: "renderer-view-state-ownership.md",
+        path: "docs/renderer-view-state-ownership.md",
+        fsPath: "/workspace/nodex/docs/renderer-view-state-ownership.md",
+      },
+    }]);
+    setPastedTextAttachments([{
+      id: "story-pasted-acceptance-notes",
+      text: "Verify one header, restored draft context, and stable transcript geometry after A → B → A.",
+      preview: "Verify one header, restored draft context…",
+      characterCount: 88,
+    }]);
+    setSkillMentions([{
+      id: "story-skill-feature-dev",
+      name: "feature-dev",
+      path: "/workspace/.agents/skills/feature-dev/SKILL.md",
+    }]);
+
+    return () => {
+      setFileAttachments([]);
+      setPastedTextAttachments([]);
+      setSkillMentions([]);
+    };
+  }, [enabled, setFileAttachments, setPastedTextAttachments, setSkillMentions]);
+
+  return null;
+}
+
 function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
   useEffect(() => {
     void writeAtom(
@@ -322,12 +373,15 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
       </div>
       <TooltipProvider>
         <div className={surfaceWidthClassName}>
-          <ThreadComposer
-            model={buildModel(args)}
-            actions={buildActions()}
-            errorMessage={null}
-            onErrorMessage={() => { }}
-          />
+          <TestComposerScopePath>
+            <ComposerCompletedContextSeeder enabled={args.seedCompletedContext} />
+            <ThreadComposer
+              model={buildModel(args)}
+              actions={buildActions()}
+              errorMessage={null}
+              onErrorMessage={() => { }}
+            />
+          </TestComposerScopePath>
         </div>
       </TooltipProvider>
     </div>
@@ -353,6 +407,7 @@ const meta = {
     addContextState: "default",
     savedGoalState: "none",
     seedPromptHistory: false,
+    seedCompletedContext: false,
   },
   argTypes: {
     isQueueingEnabled: {
@@ -408,6 +463,9 @@ const meta = {
       options: ["none", "active"],
     },
     seedPromptHistory: {
+      control: "boolean",
+    },
+    seedCompletedContext: {
       control: "boolean",
     },
   },
@@ -505,6 +563,21 @@ export const LongPromptScroll: Story = {
     composerEnterBehavior: "cmdIfMultiline",
     draftPrompt: LONG_PROMPT_STORY_DRAFT,
     surfaceWidth: "narrow",
+  },
+};
+
+export const RestoredDraftAndCompletedContext: Story = {
+  args: {
+    draftPrompt: "Continue the renderer lifecycle migration and preserve this authored draft across task remounts.",
+    seedCompletedContext: true,
+    surfaceWidth: "narrow",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Composer restoration acceptance state with authored prompt text plus completed file, pasted-text, and skill context owned by the current ComposerScope.",
+      },
+    },
   },
 };
 

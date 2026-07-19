@@ -200,7 +200,7 @@ export interface RendererTransport {
   ) => () => void;
   subscribePersistedAtomUpdates: (
     callback: (
-      update: import("../../shared/ipc-api").PersistedAtomUpdate,
+      update: import("../../shared/ipc-api").PersistedAtomEvent,
     ) => void,
   ) => () => void;
   getWindowFocusState: () => Promise<boolean>;

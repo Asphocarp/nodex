@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
+import { useState, type ReactNode } from "react";
+import { NodexTooltipProvider } from "../../../components/ui/tooltip";
+import { createMaitaiStore, MaitaiProvider } from "../../../lib/maitai";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
 import type {
@@ -17,6 +19,15 @@ const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElemen
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const originalRangeGetClientRects = Range.prototype.getClientRects;
 const originalRangeGetBoundingClientRect = Range.prototype.getBoundingClientRect;
+
+function TooltipProvider({ children }: { readonly children: ReactNode }) {
+  const [store] = useState(() => createMaitaiStore());
+  return (
+    <MaitaiProvider store={store}>
+      <NodexTooltipProvider>{children}</NodexTooltipProvider>
+    </MaitaiProvider>
+  );
+}
 
 async function flushIdleCallbacks() {
   const callbacks = idleCallbacks;
@@ -1078,46 +1089,47 @@ describe("LocalConversationThreadBody", () => {
     expect(Boolean(queryByText("Working"))).toBe(false);
   });
 
-  test("defers mounting long threads before rendering the virtualized transcript", async () => {
-    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
-    const longTurns = Array.from({ length: 40 }, (_, index) =>
-      buildTurn({
-        turnId: `turn_${index + 1}`,
-        items: [
-          buildUserEntry({
-            turnId: `turn_${index + 1}`,
-            itemId: `user_${index + 1}`,
-            markdownText: `Request ${index + 1}`,
-            createdAt: index * 10 + 1,
-            updatedAt: index * 10 + 1,
-          }),
-          buildAssistantEntry({
-            turnId: `turn_${index + 1}`,
-            itemId: `assistant_${index + 1}`,
-            markdownText: `Assistant turn ${index + 1}`,
-            createdAt: index * 10 + 2,
-            updatedAt: index * 10 + 2,
-          }),
-        ],
-      }),
-    );
-
-    const { queryByText } = render(
-      <TooltipProvider>
-        <LocalConversationThreadBody
-          model={buildModel({
-            conversation: buildConversation({
-              turns: longTurns,
+  test.each([40, 200])(
+    "immediately mounts a virtualized transcript with %i turns",
+    async (turnCount) => {
+      const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+      const longTurns = Array.from({ length: turnCount }, (_, index) =>
+        buildTurn({
+          turnId: `turn_${index + 1}`,
+          items: [
+            buildUserEntry({
+              turnId: `turn_${index + 1}`,
+              itemId: `user_${index + 1}`,
+              markdownText: `Request ${index + 1}`,
+              createdAt: index * 10 + 1,
+              updatedAt: index * 10 + 1,
             }),
-          })}
-          actions={buildActions()}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
+            buildAssistantEntry({
+              turnId: `turn_${index + 1}`,
+              itemId: `assistant_${index + 1}`,
+              markdownText: `Assistant turn ${index + 1}`,
+              createdAt: index * 10 + 2,
+              updatedAt: index * 10 + 2,
+            }),
+          ],
+        }),
+      );
 
-    expect(Boolean(queryByText("Assistant turn 40"))).toBe(false);
-    await settleAsyncRender();
-    expect(Boolean(queryByText("Assistant turn 40"))).toBe(true);
-  });
+      const { queryByText } = render(
+        <TooltipProvider>
+          <LocalConversationThreadBody
+            model={buildModel({
+              conversation: buildConversation({
+                turns: longTurns,
+              }),
+            })}
+            actions={buildActions()}
+            onErrorMessage={() => {}}
+          />
+        </TooltipProvider>,
+      );
+
+      expect(Boolean(queryByText(`Assistant turn ${turnCount}`))).toBe(true);
+    },
+  );
 });

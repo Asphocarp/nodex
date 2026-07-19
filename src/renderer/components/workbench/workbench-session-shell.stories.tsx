@@ -1370,6 +1370,23 @@ export const CollapsedRightPanel: Story = {
   },
 };
 
+export const NarrowLongThreadHeaderWithRightPanel: Story = {
+  args: {
+    thread: "attached",
+    rightPanel: "regular",
+    sidebar: "expanded",
+    sidebarWidth: 520,
+    longNames: true,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Narrow main-thread acceptance state with a long task title, maximum-width sidebar, and regular right panel. The fixed toolbar must show exactly one clipped title row while switching tasks; no second title may enter vertically.",
+      },
+    },
+  },
+};
+
 export const CollapsedSidebarThreadChrome: Story = {
   args: {
     thread: "attached",

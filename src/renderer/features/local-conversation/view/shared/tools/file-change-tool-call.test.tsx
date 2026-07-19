@@ -7,7 +7,11 @@ import {
   installMeasuredResizeObserver,
   installWindowApi,
 } from "../../../../../test/browser-globals";
-import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
+import {
+  renderWithMaitai as render,
+  settleAsyncRender,
+  textContent,
+} from "../../../../../test/dom";
 import type { CodexFileChange, CodexFileChangeView, CodexTranscriptEntry } from "../../../../../lib/types";
 import { projectCodexCanonicalTurnItemViews } from "../../../../../../shared/codex-canonical-item-projector";
 import {

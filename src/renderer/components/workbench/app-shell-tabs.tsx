@@ -70,7 +70,6 @@ export interface AppShellTabItem {
   contextLabel?: string;
   icon?: ComponentType<{ className?: string }>;
   closable?: boolean;
-  retentionMode?: "layout";
   preview?: boolean;
   reorderable?: boolean;
   splittable?: boolean;
@@ -231,10 +230,6 @@ export function AppShellTabs({
   const dndSessionId = panelTabDnd?.sessionId;
   const dndPanelId = panelTabDnd?.panelId;
   const dndLeafId = panelTabDnd?.leafId;
-  const retainedTabs = tabs.filter((tab) => tab.retentionMode === "layout");
-  const activeTabIsRetained = activeTab?.retentionMode === "layout";
-  const activeTabDomId = activeTab?.id ?? null;
-  const previousActiveTabIdRef = useRef(activeTabDomId);
   if (tabs.length > retainedTabCount) {
     setRetainedTabCount(tabs.length);
   }
@@ -244,12 +239,6 @@ export function AppShellTabs({
     trailingWidthPx: afterTabsInlineWidthPx,
     lockedWidthPx: lockedTabWidthPx,
   });
-  const panelTabs = activeTab
-    ? activeTabIsRetained
-      ? retainedTabs
-      : [activeTab, ...retainedTabs]
-    : [];
-
   const exitTabCloseMode = useCallback(() => {
     setLockedTabWidthPx(null);
   }, []);
@@ -303,19 +292,6 @@ export function AppShellTabs({
     exitTabCloseMode();
   }, [exitTabCloseMode, panelTabDnd?.activeDragId]);
 
-  useLayoutEffect(() => {
-    const previousActiveTabId = previousActiveTabIdRef.current;
-    previousActiveTabIdRef.current = activeTabDomId;
-    if (!previousActiveTabId || previousActiveTabId === activeTabDomId) return;
-
-    const activeElement = document.activeElement;
-    if (!(activeElement instanceof HTMLElement)) return;
-    if (!bodyRef.current?.contains(activeElement)) return;
-    if (!activeElement.closest("[hidden], [aria-hidden='true']")) return;
-
-    activeElement.blur();
-  }, [activeTabDomId]);
-
   useEffect(() => {
     if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
     const element = bodyRef.current;
@@ -355,7 +331,7 @@ export function AppShellTabs({
     pinTab(activeTab.id);
   };
 
-  const renderPanel = (tab: AppShellTabItem, isActive: boolean, retained: boolean) => {
+  const renderPanel = (tab: AppShellTabItem) => {
     const panelId = makeTabPanelId(controllerId, tab.id);
     const dataTabId = tab.domTabId ?? tab.id;
 
@@ -363,16 +339,14 @@ export function AppShellTabs({
       <AppShellTabPanel
         key={`panel:${tab.id}`}
         tab={tab}
-        isActive={isActive}
-        retained={retained}
         panelId={panelId}
         controllerId={panelTabDnd?.panelId ?? controllerId}
         dataTabId={dataTabId}
         bodyOverlay={bodyOverlay}
-        onPointerDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
-        onKeyDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
+        onPointerDownCapture={pinPreviewTabFromPanelEvent}
+        onKeyDownCapture={pinPreviewTabFromPanelEvent}
       >
-        {tab.renderPanel(() => closeTab(tab.id), { active: isActive })}
+        {tab.renderPanel(() => closeTab(tab.id), { active: true })}
       </AppShellTabPanel>
     );
   };
@@ -480,7 +454,7 @@ export function AppShellTabs({
 
         {activeTab ? (
           <div ref={bodyRef} className="relative min-h-0 flex-1 overflow-hidden">
-            {panelTabs.map((tab) => renderPanel(tab, tab.id === activeTab.id, tab.retentionMode === "layout"))}
+            {renderPanel(activeTab)}
           </div>
         ) : null}
       </div>
@@ -490,8 +464,6 @@ export function AppShellTabs({
 
 function AppShellTabPanel({
   tab,
-  isActive,
-  retained,
   panelId,
   controllerId,
   dataTabId,
@@ -501,8 +473,6 @@ function AppShellTabPanel({
   children,
 }: {
   tab: AppShellTabItem;
-  isActive: boolean;
-  retained: boolean;
   panelId: string;
   controllerId: string;
   dataTabId: string;
@@ -515,25 +485,17 @@ function AppShellTabPanel({
 
   return (
     <div
-      role={isActive ? "tabpanel" : undefined}
-      id={isActive ? panelId : undefined}
-      aria-label={isActive ? makeAppShellTabAccessibleLabel(tab, title) : undefined}
-      aria-hidden={isActive ? undefined : "true"}
-      inert={isActive ? undefined : true}
-      data-app-shell-tab-panel-controller={isActive ? controllerId : undefined}
-      data-tab-id={isActive ? dataTabId : undefined}
-      data-app-shell-tabpanel-preview={isActive && tab.preview ? "true" : undefined}
-      data-app-shell-tabpanel-retained={!isActive && retained ? tab.id : undefined}
-      className={cn(
-        "h-full min-h-0",
-        isActive
-          ? "relative"
-          : "invisible pointer-events-none absolute inset-0 overflow-hidden",
-      )}
+      role="tabpanel"
+      id={panelId}
+      aria-label={makeAppShellTabAccessibleLabel(tab, title)}
+      data-app-shell-tab-panel-controller={controllerId}
+      data-tab-id={dataTabId}
+      data-app-shell-tabpanel-preview={tab.preview ? "true" : undefined}
+      className="relative h-full min-h-0"
       onPointerDownCapture={onPointerDownCapture}
       onKeyDownCapture={onKeyDownCapture}
     >
-      {isActive ? bodyOverlay : null}
+      {bodyOverlay}
       {children}
     </div>
   );

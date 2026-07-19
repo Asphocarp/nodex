@@ -5,6 +5,9 @@ import { render } from "../../../../test/dom";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ThreadComposer } from "./local-conversation-thread-composer";
+import { RendererStateProvider } from "@/app-providers";
+import { TestComposerScopePath } from "@/test/maitai-scope-harness";
+import { TestQueryProvider } from "@/test/query";
 
 class MockMediaRecorder {
   public mimeType = "audio/webm";
@@ -171,14 +174,20 @@ async function renderThreadComposer(input?: {
   actions?: Partial<ThreadStageActions>;
 }) {
   const rendered = render(
-    <TooltipProvider>
-      <ThreadComposer
-        model={buildModel(input?.model)}
-        actions={buildActions(input?.actions)}
-        errorMessage={null}
-        onErrorMessage={() => {}}
-      />
-    </TooltipProvider>,
+    <TestQueryProvider>
+      <RendererStateProvider>
+        <TestComposerScopePath>
+          <TooltipProvider>
+            <ThreadComposer
+              model={buildModel(input?.model)}
+              actions={buildActions(input?.actions)}
+              errorMessage={null}
+              onErrorMessage={() => {}}
+            />
+          </TooltipProvider>
+        </TestComposerScopePath>
+      </RendererStateProvider>
+    </TestQueryProvider>,
   );
 
   await act(async () => {

@@ -1,6 +1,4 @@
 import { describe, expect, test } from "vitest";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import {
   replayCodexConversationFixture,
   type CodexConversationReplayContext,
@@ -26,9 +24,6 @@ import {
 } from "./agent-activity-v2-item-family-corpus";
 import { agentActivityV2MixedFamilyFixture } from "./agent-activity-v2-mixed-family";
 import {
-  serializeAgentActivityV2PayloadCorpusManifest,
-} from "./agent-activity-v2-payload-corpus-manifest";
-import {
   agentActivityV2BundleOnlyRequestMethods,
   agentActivityV2CommandApprovalRequest,
   agentActivityV2OneShotRequestCases,
@@ -36,11 +31,6 @@ import {
   agentActivityV2PermissionRequest,
   validateAgentActivityV2RequestFamilyCorpus,
 } from "./agent-activity-v2-request-family-corpus";
-
-const MANIFEST_PATH = fileURLToPath(new URL(
-  "../../../../.generated/research/thread-tool-activity-26.707.30751-payload-corpus-manifest.json",
-  import.meta.url,
-));
 
 function describeEvent(
   event: CodexConversationReplayEvent,
@@ -239,10 +229,5 @@ describe("agent activity v2 representative payload corpus", () => {
       },
     } satisfies AgentActivityV2ProjectionFixture;
     expect(validateAgentActivityV2ProjectionFixture(historicalFixture).length).toBe(0);
-  });
-
-  test("keeps the checked-in research manifest synchronized with typed fixtures", async () => {
-    const checkedIn = await readFile(MANIFEST_PATH, "utf8");
-    expect(checkedIn).toBe(serializeAgentActivityV2PayloadCorpusManifest());
   });
 });

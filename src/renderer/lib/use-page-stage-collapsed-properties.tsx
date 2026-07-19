@@ -1,16 +1,15 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback } from "react";
 import {
   readPageStageCollapsedProperties,
   togglePageStageCollapsedProperty,
   writePageStageCollapsedProperties,
   type PageStageCollapsibleProperty,
 } from "./page-stage-collapsed-properties";
+import {
+  appScope,
+  scopedAtomWithInitializer,
+  useScopedAtom,
+} from "./maitai";
 
 interface PageStageCollapsedPropertiesContextValue {
   collapsedProperties: PageStageCollapsibleProperty[];
@@ -18,21 +17,21 @@ interface PageStageCollapsedPropertiesContextValue {
   toggleCollapsedProperty: (value: PageStageCollapsibleProperty) => void;
 }
 
-const PageStageCollapsedPropertiesContext = createContext<PageStageCollapsedPropertiesContextValue>({
-  collapsedProperties: readPageStageCollapsedProperties(),
-  setCollapsedProperties: () => {},
-  toggleCollapsedProperty: () => {},
-});
+const pageStageCollapsedPropertiesAtom = scopedAtomWithInitializer(
+  appScope,
+  readPageStageCollapsedProperties,
+  { debugLabel: "page-stage-collapsed-properties" },
+);
 
 function usePageStageCollapsedPropertiesInternal(): PageStageCollapsedPropertiesContextValue {
-  const [collapsedProperties, setCollapsedPropertiesState] = useState<PageStageCollapsibleProperty[]>(() =>
-    readPageStageCollapsedProperties(),
+  const [collapsedProperties, setCollapsedPropertiesState] = useScopedAtom(
+    pageStageCollapsedPropertiesAtom,
   );
 
   const setCollapsedProperties = useCallback((value: PageStageCollapsibleProperty[]) => {
     const next = writePageStageCollapsedProperties(value);
     setCollapsedPropertiesState(next);
-  }, []);
+  }, [setCollapsedPropertiesState]);
 
   const toggleCollapsedProperty = useCallback((value: PageStageCollapsibleProperty) => {
     setCollapsedPropertiesState((current) => {
@@ -40,7 +39,7 @@ function usePageStageCollapsedPropertiesInternal(): PageStageCollapsedProperties
       writePageStageCollapsedProperties(next);
       return next;
     });
-  }, []);
+  }, [setCollapsedPropertiesState]);
 
   return {
     collapsedProperties,
@@ -49,16 +48,6 @@ function usePageStageCollapsedPropertiesInternal(): PageStageCollapsedProperties
   };
 }
 
-export function PageStageCollapsedPropertiesProvider({ children }: { children: ReactNode }) {
-  const value = usePageStageCollapsedPropertiesInternal();
-
-  return (
-    <PageStageCollapsedPropertiesContext.Provider value={value}>
-      {children}
-    </PageStageCollapsedPropertiesContext.Provider>
-  );
-}
-
 export function usePageStageCollapsedProperties(): PageStageCollapsedPropertiesContextValue {
-  return useContext(PageStageCollapsedPropertiesContext);
+  return usePageStageCollapsedPropertiesInternal();
 }

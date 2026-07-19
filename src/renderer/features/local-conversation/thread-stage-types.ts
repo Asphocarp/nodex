@@ -893,6 +893,7 @@ export type ThreadSummaryPanelMode = "hidden" | "pinned" | "popover";
 export interface ThreadBodySurfaceModel {
   projectId: string;
   hostId: string;
+  sessionId?: string | null;
   threadId: string | null;
   isSideChat: boolean;
   cwd: string | null;

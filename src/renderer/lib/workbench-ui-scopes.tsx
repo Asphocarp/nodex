@@ -1,0 +1,264 @@
+import {
+  useCallback,
+  useLayoutEffect,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import type { ProjectSession } from "../../shared/types";
+import {
+  ScopeProvider,
+  appScope,
+  defineScope,
+  scopedAtom,
+  useScopeHandle,
+  useScopedAtomValue,
+  useSetScopedAtom,
+  type ScopeHandle,
+} from "./maitai";
+
+export type ThreadScopeStableKey = `session:${string}` | `client:${string}`;
+
+export interface ThreadScopeDescriptor {
+  readonly stableKey: ThreadScopeStableKey;
+  readonly phase: "new" | "pending" | "attached";
+  readonly projectSessionId: string | null;
+  readonly clientThreadId: string | null;
+  readonly threadId: string | null;
+}
+
+export interface RouteScopeDescriptor {
+  readonly routeKey: string;
+  readonly kind: "thread" | "automations" | "settings" | "library" | "pending-worktree";
+}
+
+export interface ComposerScopeDescriptor {
+  readonly identity: string;
+  readonly focusComposerNonce: number | null;
+}
+
+export const APP_SHELL_ROUTE_THREAD_SCOPE_DESCRIPTOR: ThreadScopeDescriptor = {
+  stableKey: "session:app-shell-routes",
+  phase: "new",
+  projectSessionId: null,
+  clientThreadId: null,
+  threadId: null,
+};
+
+export const ThreadScope = defineScope({
+  debugLabel: "ThreadScope",
+  parent: appScope,
+  retain: { max: 20 },
+  getKey: (descriptor: ThreadScopeDescriptor) => descriptor.stableKey,
+});
+
+export const RouteScope = defineScope({
+  debugLabel: "RouteScope",
+  parent: ThreadScope,
+  retain: { max: 20 },
+  getKey: (descriptor: RouteScopeDescriptor) => descriptor.routeKey,
+});
+
+export const ComposerScope = defineScope({
+  debugLabel: "ComposerScope",
+  parent: RouteScope,
+  retain: { max: 100 },
+  getKey: (descriptor: ComposerScopeDescriptor) => descriptor.identity,
+});
+
+const selectedRouteScopeHandleAtom = scopedAtom<ScopeHandle | null>(
+  appScope,
+  null,
+  { debugLabel: "selected-route-scope-handle" },
+);
+
+export const appShellHeaderContentAtom = scopedAtom<ReactNode>(
+  RouteScope,
+  null,
+  { debugLabel: "app-shell-header-content" },
+);
+
+export class IdentityPromotionConflict extends Error {
+  constructor(readonly stableKeys: readonly ThreadScopeStableKey[]) {
+    super(`Thread scope identity promotion conflict: ${stableKeys.join(" versus ")}`);
+    this.name = "IdentityPromotionConflict";
+  }
+}
+
+export interface ThreadScopeIdentityRegistry {
+  resolve(input: {
+    readonly projectSessionId?: string | null;
+    readonly clientThreadId?: string | null;
+    readonly threadId?: string | null;
+  }): ThreadScopeStableKey;
+  register(
+    stableKey: ThreadScopeStableKey,
+    aliases: {
+      readonly projectSessionId?: string | null;
+      readonly clientThreadId?: string | null;
+      readonly threadId?: string | null;
+    },
+  ): void;
+}
+
+export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry {
+  const aliases = new Map<string, ThreadScopeStableKey>();
+  const aliasKeys = (input: {
+    readonly projectSessionId?: string | null;
+    readonly clientThreadId?: string | null;
+    readonly threadId?: string | null;
+  }) => [
+    input.projectSessionId?.trim() ? `session:${input.projectSessionId.trim()}` : null,
+    input.clientThreadId?.trim() ? `client:${input.clientThreadId.trim()}` : null,
+    input.threadId?.trim() ? `thread:${input.threadId.trim()}` : null,
+  ].filter((value): value is string => value !== null);
+
+  const register = (
+    stableKey: ThreadScopeStableKey,
+    input: {
+      readonly projectSessionId?: string | null;
+      readonly clientThreadId?: string | null;
+      readonly threadId?: string | null;
+    },
+  ) => {
+    const known = new Set(
+      aliasKeys(input).flatMap((alias) => aliases.get(alias) ?? []),
+    );
+    if (known.size > 0 && (!known.has(stableKey) || known.size > 1)) {
+      throw new IdentityPromotionConflict([...known, stableKey]);
+    }
+    for (const alias of aliasKeys(input)) aliases.set(alias, stableKey);
+  };
+
+  return {
+    resolve(input) {
+      const known = new Set(
+        aliasKeys(input).flatMap((alias) => aliases.get(alias) ?? []),
+      );
+      if (known.size > 1) throw new IdentityPromotionConflict([...known]);
+      const existing = known.values().next().value as ThreadScopeStableKey | undefined;
+      if (existing) {
+        register(existing, input);
+        return existing;
+      }
+      const clientThreadId = input.clientThreadId?.trim();
+      const projectSessionId = input.projectSessionId?.trim();
+      const stableKey = clientThreadId
+        ? `client:${clientThreadId}` as const
+        : projectSessionId
+          ? `session:${projectSessionId}` as const
+          : null;
+      if (!stableKey) throw new Error("Thread scope identity requires a session or client thread id");
+      register(stableKey, input);
+      return stableKey;
+    },
+    register,
+  };
+}
+
+export function resolveProjectSessionThreadScopeDescriptor(
+  registry: ThreadScopeIdentityRegistry,
+  session: ProjectSession,
+): ThreadScopeDescriptor {
+  const threadId = session.thread?.threadId?.trim() || null;
+  return {
+    stableKey: registry.resolve({
+      projectSessionId: session.id,
+      threadId,
+    }),
+    phase: threadId ? "attached" : "new",
+    projectSessionId: session.id,
+    clientThreadId: null,
+    threadId,
+  };
+}
+
+export function resolvePendingThreadScopeDescriptor(
+  registry: ThreadScopeIdentityRegistry,
+  clientThreadId: string,
+): ThreadScopeDescriptor {
+  const normalizedClientThreadId = clientThreadId.trim();
+  if (!normalizedClientThreadId) {
+    throw new Error("Pending thread scope identity requires a client thread id");
+  }
+  return {
+    stableKey: registry.resolve({ clientThreadId: normalizedClientThreadId }),
+    phase: "pending",
+    projectSessionId: null,
+    clientThreadId: normalizedClientThreadId,
+    threadId: null,
+  };
+}
+
+export function resolveComposerScopeIdentity(input: {
+  readonly kind: "new-conversation" | "panel-new-conversation" | "preview" | "task";
+  readonly stableIdentity?: string | null;
+  readonly attachmentIdentity?: string | null;
+  readonly focusComposerNonce?: number | null;
+}): ComposerScopeDescriptor {
+  const base = input.kind === "preview"
+    ? `preview:${input.attachmentIdentity?.trim() || "empty"}`
+    : input.kind === "task"
+      ? `task:${input.stableIdentity?.trim() || "unknown"}`
+      : input.kind;
+  const nonce = input.focusComposerNonce ?? null;
+  return {
+    identity: nonce === null ? base : `${base}:${nonce}`,
+    focusComposerNonce: nonce,
+  };
+}
+
+export function WorkbenchSessionScopePath({
+  thread,
+  route,
+  selected,
+  children,
+}: {
+  readonly thread: ThreadScopeDescriptor;
+  readonly route: RouteScopeDescriptor;
+  readonly selected: boolean;
+  readonly children: ReactNode;
+}) {
+  return (
+    <ScopeProvider scope={ThreadScope} descriptor={thread}>
+      <ScopeProvider scope={RouteScope} descriptor={route}>
+        <SelectedRouteScopeRegistrar selected={selected} />
+        {children}
+      </ScopeProvider>
+    </ScopeProvider>
+  );
+}
+
+export function AppShellHeaderContentRegistrar({ content }: { readonly content: ReactNode }) {
+  const setContent = useSetScopedAtom(appShellHeaderContentAtom);
+  useLayoutEffect(() => {
+    setContent(content);
+    return () => setContent(null);
+  }, [content, setContent]);
+  return null;
+}
+
+export function SelectedAppShellHeaderContent() {
+  const selectedRoute = useScopedAtomValue(selectedRouteScopeHandleAtom);
+  const subscribe = useCallback(
+    (listener: () => void) => selectedRoute?.sub(appShellHeaderContentAtom, listener) ?? (() => undefined),
+    [selectedRoute],
+  );
+  const getSnapshot = useCallback(
+    () => selectedRoute?.get(appShellHeaderContentAtom) ?? null,
+    [selectedRoute],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+function SelectedRouteScopeRegistrar({ selected }: { readonly selected: boolean }) {
+  const routeHandle = useScopeHandle(RouteScope);
+  const setSelectedRoute = useSetScopedAtom(selectedRouteScopeHandleAtom);
+  useLayoutEffect(() => {
+    if (!selected) return;
+    setSelectedRoute(routeHandle);
+    return () => {
+      setSelectedRoute((current) => current === routeHandle ? null : current);
+    };
+  }, [routeHandle, selected, setSelectedRoute]);
+  return null;
+}
