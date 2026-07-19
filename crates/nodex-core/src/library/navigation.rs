@@ -70,6 +70,33 @@ pub(super) fn read(
                 &page_id,
             )?),
         }),
+        LibraryRead::PageContent { page_id } => Ok(LibraryReadValue::PageContent {
+            value: Box::new(super::content::page_content(
+                connection,
+                library_id,
+                store_epoch,
+                event_head,
+                &page_id,
+            )?),
+        }),
+        LibraryRead::Search {
+            query,
+            include_archived,
+            source_kinds,
+            block_types,
+            cursor,
+            limit,
+        } => super::content::search(
+            connection,
+            library_id,
+            event_head,
+            &query,
+            include_archived,
+            source_kinds,
+            block_types,
+            cursor,
+            limit,
+        ),
     }
 }
 

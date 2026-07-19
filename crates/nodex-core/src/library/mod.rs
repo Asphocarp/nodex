@@ -621,6 +621,49 @@ mod tests {
                 .expect("Library read")
                 .value
         };
+        let LibraryReadValue::PageContent { value } = read(LibraryRead::PageContent {
+            page_id: ROOT_PAGE.to_owned(),
+        }) else {
+            panic!("Page content");
+        };
+        assert_eq!(value.document_head_seq, 1);
+        assert_eq!(value.body_nfm, "");
+        assert!(value.references.is_empty());
+        assert!(value.asset_refs.is_empty());
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE document_materializations SET projected_seq = 0 \
+                     WHERE document_id = ?1",
+                    [ROOT_DOCUMENT],
+                )?;
+                Ok(())
+            })
+            .expect("make Page materialization stale");
+        let error = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageContent {
+                        page_id: ROOT_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("stale Page content projection");
+        assert_eq!(error.code, CoreErrorCode::RevisionConflict);
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE document_materializations SET projected_seq = 1 \
+                     WHERE document_id = ?1",
+                    [ROOT_DOCUMENT],
+                )?;
+                Ok(())
+            })
+            .expect("restore Page materialization");
         let LibraryReadValue::Children { items, .. } = read(LibraryRead::Children {
             parent: LibraryNavigationParent::Library,
             cursor: None,
@@ -698,6 +741,7 @@ mod tests {
         assert_eq!(error.code, CoreErrorCode::RevisionConflict);
     }
 }
+mod content;
 mod cursor;
 mod mutation;
 mod navigation;

@@ -597,6 +597,43 @@ export interface components {
         };
         /** @enum {string} */
         readonly LibraryCatalogKind: "page" | "database";
+        /** @enum {string} */
+        readonly LibraryContentAssetKind: "image" | "attachment";
+        readonly LibraryContentAssetReference: {
+            readonly kind: components["schemas"]["LibraryContentAssetKind"];
+            readonly managedFileName?: string | null;
+            readonly source: string;
+            readonly sourceBlockId: string;
+        };
+        readonly LibraryContentReference: {
+            readonly displayHint?: string | null;
+            /** @enum {string} */
+            readonly kind: "block";
+            readonly sourceBlockId: string;
+            readonly targetBlockId: string;
+        } | {
+            readonly databaseViewId: string;
+            readonly displayHint?: string | null;
+            /** @enum {string} */
+            readonly kind: "database_view";
+            readonly sourceBlockId: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "thread";
+            readonly sourceBlockId: string;
+            readonly targetThreadId: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "legacy_card_projection";
+            readonly projectHint?: string | null;
+            readonly sourceBlockId: string;
+            readonly targetBlockId: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "legacy_database_query";
+            readonly projectHint: string;
+            readonly sourceBlockId: string;
+        };
         readonly LibraryEvent: {
             readonly database_ids: readonly string[];
             readonly kind: components["schemas"]["LibraryEventKind"];
@@ -661,6 +698,33 @@ export interface components {
         readonly LibraryPageAccessContext: {
             /** @enum {string} */
             readonly kind: "library";
+        };
+        readonly LibraryPageContent: {
+            readonly access_context: components["schemas"]["LibraryPageAccessContext"];
+            readonly asset_refs: readonly components["schemas"]["LibraryContentAssetReference"][];
+            readonly body_nfm: string;
+            /** Format: int64 */
+            readonly change_log_seq: number;
+            /** Format: int64 */
+            readonly document_generation: number;
+            /** Format: int64 */
+            readonly document_head_seq: number;
+            readonly document_id: string;
+            readonly library_id: string;
+            /** Format: int64 */
+            readonly metadata_revision: number;
+            readonly page_id: string;
+            readonly plain_text: string;
+            readonly preview: string;
+            readonly references: readonly components["schemas"]["LibraryContentReference"][];
+            readonly rich_title: unknown;
+            readonly schema_key: string;
+            /** Format: int64 */
+            readonly schema_version: number;
+            readonly store_epoch: string;
+            readonly title: string;
+            /** Format: int32 */
+            readonly version: number;
         };
         readonly LibraryPageDataSourceContext: {
             /** @enum {string} */
@@ -738,6 +802,24 @@ export interface components {
             readonly kind: "view";
             readonly view_id: string;
         };
+        readonly LibrarySearchHit: {
+            readonly block_id: string;
+            readonly block_type: string;
+            /** Format: int64 */
+            readonly document_generation: number;
+            readonly document_id: string;
+            readonly excerpt: string;
+            readonly field_key: string;
+            readonly owner_page_id: string;
+            readonly project_id: string;
+            /** Format: int64 */
+            readonly projected_seq: number;
+            /** Format: double */
+            readonly rank: number;
+            readonly source_kind: components["schemas"]["LibrarySearchSourceKind"];
+        };
+        /** @enum {string} */
+        readonly LibrarySearchSourceKind: "document_title" | "document_block";
         readonly LibraryWriteParent: {
             readonly before?: null | components["schemas"]["LibraryPlacementAnchor"];
             /** @enum {string} */
@@ -1174,6 +1256,20 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "page_detail";
                 readonly page_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_content";
+                readonly page_id: string;
+            } | {
+                readonly block_types?: readonly string[] | null;
+                readonly cursor?: string | null;
+                readonly include_archived: boolean;
+                /** @enum {string} */
+                readonly kind: "search";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly query: string;
+                readonly source_kinds?: readonly components["schemas"]["LibrarySearchSourceKind"][] | null;
             };
             /** Format: int32 */
             readonly version: number;
@@ -1632,6 +1728,16 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_detail";
                     readonly value: components["schemas"]["LibraryPageDetail"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_content";
+                    readonly value: components["schemas"]["LibraryPageContent"];
+                } | {
+                    readonly has_more: boolean;
+                    readonly items: readonly components["schemas"]["LibrarySearchHit"][];
+                    /** @enum {string} */
+                    readonly kind: "search";
+                    readonly next_cursor?: string | null;
                 };
                 /** Format: int32 */
                 readonly version: number;

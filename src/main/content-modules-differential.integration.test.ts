@@ -29,6 +29,7 @@ import {
   applyLibraryModuleInDatabase,
   readLibraryModuleInDatabase,
 } from "./local-store/library-module-runtime";
+import { searchDocumentBlockUnits } from "./local-store/block-document-projections";
 import { readLibraryPageDetailInDatabase } from "./local-store/page-detail";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 
@@ -97,6 +98,74 @@ const withoutVolatileFields = (value: unknown): unknown => {
       .filter(([key]) => key !== "createdAt" && key !== "updatedAt")
       .map(([key, entry]) => [key, withoutVolatileFields(entry)]),
   );
+};
+
+const readOraclePageContent = (
+  database: ReturnType<typeof getDb>,
+  pageId: string,
+) => {
+  const row = database.prepare(`
+    SELECT page.library_id AS libraryId, metadata.store_epoch AS storeEpoch,
+      (SELECT COALESCE(MAX(seq), 0) FROM change_log) AS changeLogSeq,
+      page.block_id AS pageId, page.metadata_revision AS metadataRevision,
+      document.id AS documentId, document.generation AS documentGeneration,
+      document.head_seq AS documentHeadSeq, document.schema_key AS schemaKey,
+      document.schema_version AS schemaVersion, materialization.title,
+      materialization.title_rich_json AS richTitleJson,
+      materialization.nfm AS bodyNfm, materialization.plain_text AS plainText,
+      materialization.preview, materialization.references_json AS referencesJson,
+      materialization.asset_refs_json AS assetRefsJson
+    FROM pages page
+    INNER JOIN documents document ON document.id = page.document_id
+    INNER JOIN document_materializations materialization
+      ON materialization.document_id = document.id
+      AND materialization.generation = document.generation
+      AND materialization.projected_seq = document.head_seq
+      AND materialization.schema_version = document.schema_version
+    INNER JOIN block_store_metadata metadata ON metadata.id = 1
+    WHERE page.block_id = ? AND page.lifecycle <> 'deleted'
+      AND document.readiness = 'ready'
+  `).get(pageId) as {
+    readonly libraryId: string;
+    readonly storeEpoch: string;
+    readonly changeLogSeq: number;
+    readonly pageId: string;
+    readonly metadataRevision: number;
+    readonly documentId: string;
+    readonly documentGeneration: number;
+    readonly documentHeadSeq: number;
+    readonly schemaKey: string;
+    readonly schemaVersion: number;
+    readonly title: string;
+    readonly richTitleJson: string;
+    readonly bodyNfm: string;
+    readonly plainText: string;
+    readonly preview: string;
+    readonly referencesJson: string;
+    readonly assetRefsJson: string;
+  } | undefined;
+  if (!row) throw new Error(`Page ${pageId} has no exact TypeScript content projection`);
+  return {
+    version: 1,
+    library_id: row.libraryId,
+    store_epoch: row.storeEpoch,
+    change_log_seq: row.changeLogSeq,
+    page_id: row.pageId,
+    metadata_revision: row.metadataRevision,
+    document_id: row.documentId,
+    document_generation: row.documentGeneration,
+    document_head_seq: row.documentHeadSeq,
+    schema_key: row.schemaKey,
+    schema_version: row.schemaVersion,
+    title: row.title,
+    rich_title: JSON.parse(row.richTitleJson) as unknown,
+    body_nfm: row.bodyNfm,
+    plain_text: row.plainText,
+    preview: row.preview,
+    references: JSON.parse(row.referencesJson) as unknown,
+    asset_refs: JSON.parse(row.assetRefsJson) as unknown,
+    access_context: { kind: "library" },
+  };
 };
 
 afterEach(async () => {
@@ -211,6 +280,18 @@ describe("TypeScript/Rust content Module differential", () => {
         values: oracleImportedContext.values,
       }),
     );
+    const oracleImportedContent = readOraclePageContent(getDb(), sourcePage.id);
+    const candidateImportedContent = await stage(
+      "Library imported Page content",
+      candidate.libraryRead({
+        kind: "page_content",
+        page_id: sourcePage.id,
+      }),
+    );
+    if (candidateImportedContent.value.kind !== "page_content") {
+      throw new Error("Expected imported Rust Page content");
+    }
+    expect(candidateImportedContent.value.value).toEqual(oracleImportedContent);
 
     const oracleLibraryRead = (
       read: Parameters<typeof readLibraryModuleInDatabase>[1]["read"],
@@ -328,6 +409,76 @@ describe("TypeScript/Rust content Module differential", () => {
         revision: property.revision,
       })),
       data_source_context: { kind: "standalone" },
+    });
+    const oracleContent = readOraclePageContent(getDb(), pageId);
+    const candidateContent = await stage("Library Page content", candidate.libraryRead({
+      kind: "page_content",
+      page_id: pageId,
+    }));
+    if (candidateContent.value.kind !== "page_content") {
+      throw new Error("Expected Rust Page content");
+    }
+    expect(candidateContent.value.value).toEqual(oracleContent);
+
+    const oracleSearch = searchDocumentBlockUnits(getDb(), {
+      libraryId: coordinates.libraryId,
+      query: "Gate C",
+      ownerType: "page",
+      includeArchived: true,
+      sourceKinds: ["document_title"],
+      limit: 100,
+    });
+    const firstSearch = await stage("Library search first page", candidate.libraryRead({
+      kind: "search",
+      query: "Gate C",
+      include_archived: true,
+      source_kinds: ["document_title"],
+      block_types: null,
+      cursor: null,
+      limit: 1,
+    }));
+    if (firstSearch.value.kind !== "search") {
+      throw new Error("Expected Rust Library search");
+    }
+    const staleSearchCursor = firstSearch.value.next_cursor;
+    if (!staleSearchCursor) {
+      throw new Error("Expected a paged Rust Library search cursor");
+    }
+    const secondSearch = firstSearch.value.has_more
+      ? await stage("Library search next page", candidate.libraryRead({
+          kind: "search",
+          query: "Gate C",
+          include_archived: true,
+          source_kinds: ["document_title"],
+          block_types: null,
+          cursor: firstSearch.value.next_cursor,
+          limit: 100,
+        }))
+      : null;
+    if (secondSearch && secondSearch.value.kind !== "search") {
+      throw new Error("Expected paged Rust Library search");
+    }
+    const candidateSearch = [
+      ...firstSearch.value.items,
+      ...(secondSearch?.value.kind === "search" ? secondSearch.value.items : []),
+    ];
+    expect(candidateSearch).toHaveLength(oracleSearch.length);
+    candidateSearch.forEach((hit, index) => {
+      const oracleHit = oracleSearch[index];
+      expect(oracleHit).toBeDefined();
+      expect(hit).toMatchObject({
+        project_id: oracleHit?.projectId,
+        owner_page_id: oracleHit?.ownerBlockId,
+        document_id: oracleHit?.documentId,
+        block_id: oracleHit?.blockId,
+        block_type: oracleHit?.blockType,
+        document_generation: oracleHit?.generation,
+        projected_seq: oracleHit?.projectedSeq,
+        source_kind: oracleHit?.sourceKind,
+        field_key: oracleHit?.fieldKey,
+        excerpt: oracleHit?.excerpt,
+      });
+      expect(hit.rank).toBeCloseTo(oracleHit?.rank ?? Number.NaN, 10);
     });
 
     const databaseId = parseDatabaseId(createUuidV7());
@@ -575,6 +726,18 @@ describe("TypeScript/Rust content Module differential", () => {
     })).rejects.toMatchObject({
       name: CoreModuleResponseError.name,
       coreError: { code: "idempotency_key_reused" },
+    });
+    await expect(candidate.libraryRead({
+      kind: "search",
+      query: "Gate C",
+      include_archived: true,
+      source_kinds: ["document_title"],
+      block_types: null,
+      cursor: staleSearchCursor,
+      limit: 100,
+    })).rejects.toMatchObject({
+      name: CoreModuleResponseError.name,
+      coreError: { code: "revision_conflict" },
     });
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });

@@ -1843,6 +1843,170 @@
           "database"
         ]
       },
+      "LibraryContentAssetKind": {
+        "type": "string",
+        "enum": [
+          "image",
+          "attachment"
+        ]
+      },
+      "LibraryContentAssetReference": {
+        "type": "object",
+        "required": [
+          "sourceBlockId",
+          "kind",
+          "source"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/LibraryContentAssetKind"
+          },
+          "managedFileName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceBlockId": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryContentReference": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "sourceBlockId",
+              "targetBlockId",
+              "kind"
+            ],
+            "properties": {
+              "displayHint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "block"
+                ]
+              },
+              "sourceBlockId": {
+                "type": "string"
+              },
+              "targetBlockId": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "sourceBlockId",
+              "databaseViewId",
+              "kind"
+            ],
+            "properties": {
+              "databaseViewId": {
+                "type": "string"
+              },
+              "displayHint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "database_view"
+                ]
+              },
+              "sourceBlockId": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "sourceBlockId",
+              "targetThreadId",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "thread"
+                ]
+              },
+              "sourceBlockId": {
+                "type": "string"
+              },
+              "targetThreadId": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "sourceBlockId",
+              "targetBlockId",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "legacy_card_projection"
+                ]
+              },
+              "projectHint": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sourceBlockId": {
+                "type": "string"
+              },
+              "targetBlockId": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "sourceBlockId",
+              "projectHint",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "legacy_database_query"
+                ]
+              },
+              "projectHint": {
+                "type": "string"
+              },
+              "sourceBlockId": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
       "LibraryEvent": {
         "type": "object",
         "required": [
@@ -2100,6 +2264,100 @@
             }
           }
         ]
+      },
+      "LibraryPageContent": {
+        "type": "object",
+        "required": [
+          "version",
+          "library_id",
+          "store_epoch",
+          "change_log_seq",
+          "page_id",
+          "metadata_revision",
+          "document_id",
+          "document_generation",
+          "document_head_seq",
+          "schema_key",
+          "schema_version",
+          "title",
+          "rich_title",
+          "body_nfm",
+          "plain_text",
+          "preview",
+          "references",
+          "asset_refs",
+          "access_context"
+        ],
+        "properties": {
+          "access_context": {
+            "$ref": "#/components/schemas/LibraryPageAccessContext"
+          },
+          "asset_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryContentAssetReference"
+            }
+          },
+          "body_nfm": {
+            "type": "string"
+          },
+          "change_log_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "metadata_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "plain_text": {
+            "type": "string"
+          },
+          "preview": {
+            "type": "string"
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryContentReference"
+            }
+          },
+          "rich_title": {},
+          "schema_key": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "store_epoch": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "LibraryPageDataSourceContext": {
         "oneOf": [
@@ -2385,6 +2643,67 @@
               }
             }
           }
+        ]
+      },
+      "LibrarySearchHit": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "owner_page_id",
+          "document_id",
+          "block_id",
+          "block_type",
+          "document_generation",
+          "projected_seq",
+          "source_kind",
+          "field_key",
+          "excerpt",
+          "rank"
+        ],
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "block_type": {
+            "type": "string"
+          },
+          "document_generation": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "field_key": {
+            "type": "string"
+          },
+          "owner_page_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "projected_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "rank": {
+            "type": "number",
+            "format": "double"
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/LibrarySearchSourceKind"
+          }
+        }
+      },
+      "LibrarySearchSourceKind": {
+        "type": "string",
+        "enum": [
+          "document_title",
+          "document_block"
         ]
       },
       "LibraryWriteParent": {
@@ -4232,6 +4551,78 @@
                   },
                   "page_id": {
                     "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_content"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "query",
+                  "include_archived",
+                  "kind"
+                ],
+                "properties": {
+                  "block_types": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "include_archived": {
+                    "type": "boolean"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "search"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "source_kinds": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "$ref": "#/components/schemas/LibrarySearchSourceKind"
+                    }
                   }
                 }
               }
@@ -6245,6 +6636,55 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryPageDetail"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "value",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_content"
+                            ]
+                          },
+                          "value": {
+                            "$ref": "#/components/schemas/LibraryPageContent"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "has_more",
+                          "kind"
+                        ],
+                        "properties": {
+                          "has_more": {
+                            "type": "boolean"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibrarySearchHit"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "search"
+                            ]
+                          },
+                          "next_cursor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           }
                         }
                       }

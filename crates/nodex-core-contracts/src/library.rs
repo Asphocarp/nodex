@@ -73,6 +73,17 @@ pub enum LibraryRead {
     PageDetail {
         page_id: String,
     },
+    PageContent {
+        page_id: String,
+    },
+    Search {
+        query: String,
+        include_archived: bool,
+        source_kinds: Option<Vec<LibrarySearchSourceKind>>,
+        block_types: Option<Vec<String>>,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -190,6 +201,108 @@ pub struct LibraryPageDetail {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageContent {
+    pub version: u32,
+    pub library_id: String,
+    pub store_epoch: String,
+    pub change_log_seq: i64,
+    pub page_id: String,
+    pub metadata_revision: i64,
+    pub document_id: String,
+    pub document_generation: i64,
+    pub document_head_seq: i64,
+    pub schema_key: String,
+    pub schema_version: i64,
+    pub title: String,
+    pub rich_title: Value,
+    pub body_nfm: String,
+    pub plain_text: String,
+    pub preview: String,
+    pub references: Vec<LibraryContentReference>,
+    pub asset_refs: Vec<LibraryContentAssetReference>,
+    pub access_context: LibraryPageAccessContext,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryContentReference {
+    Block {
+        #[serde(rename = "sourceBlockId")]
+        source_block_id: String,
+        #[serde(rename = "targetBlockId")]
+        target_block_id: String,
+        #[serde(rename = "displayHint", skip_serializing_if = "Option::is_none")]
+        display_hint: Option<String>,
+    },
+    DatabaseView {
+        #[serde(rename = "sourceBlockId")]
+        source_block_id: String,
+        #[serde(rename = "databaseViewId")]
+        database_view_id: String,
+        #[serde(rename = "displayHint", skip_serializing_if = "Option::is_none")]
+        display_hint: Option<String>,
+    },
+    Thread {
+        #[serde(rename = "sourceBlockId")]
+        source_block_id: String,
+        #[serde(rename = "targetThreadId")]
+        target_thread_id: String,
+    },
+    LegacyCardProjection {
+        #[serde(rename = "sourceBlockId")]
+        source_block_id: String,
+        #[serde(rename = "targetBlockId")]
+        target_block_id: String,
+        #[serde(rename = "projectHint", skip_serializing_if = "Option::is_none")]
+        project_hint: Option<String>,
+    },
+    LegacyDatabaseQuery {
+        #[serde(rename = "sourceBlockId")]
+        source_block_id: String,
+        #[serde(rename = "projectHint")]
+        project_hint: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LibraryContentAssetKind {
+    Image,
+    Attachment,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryContentAssetReference {
+    pub source_block_id: String,
+    pub kind: LibraryContentAssetKind,
+    pub source: String,
+    pub managed_file_name: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibrarySearchSourceKind {
+    DocumentTitle,
+    DocumentBlock,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibrarySearchHit {
+    pub project_id: String,
+    pub owner_page_id: String,
+    pub document_id: String,
+    pub block_id: String,
+    pub block_type: String,
+    pub document_generation: i64,
+    pub projected_seq: i64,
+    pub source_kind: LibrarySearchSourceKind,
+    pub field_key: String,
+    pub excerpt: String,
+    pub rank: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryReadValue {
     Metadata {
@@ -216,6 +329,14 @@ pub enum LibraryReadValue {
     },
     PageDetail {
         value: Box<LibraryPageDetail>,
+    },
+    PageContent {
+        value: Box<LibraryPageContent>,
+    },
+    Search {
+        items: Vec<LibrarySearchHit>,
+        next_cursor: Option<String>,
+        has_more: bool,
     },
 }
 
