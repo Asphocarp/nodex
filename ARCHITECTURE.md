@@ -93,9 +93,10 @@ execution context, root/child Thread collection, managed-worktree set, durable
 sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Store Administration and the
-remaining Store replacement/maintenance operations remain migration work;
-unavailable semantics do not fall back to direct native SQL. Automation now
+bindings and cross-Library rows fail closed. Store Administration's public
+restore, deletion, retention, and general maintenance operations remain
+migration work; unavailable semantics do not fall back to direct native SQL.
+Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
 occurrence surface. Store Administration owns v83 readiness and backup listing,
 plus online SQLite backup creation through the same generated `read`/`apply`
@@ -104,8 +105,8 @@ v2-compatible manifest last, validates the immutable snapshot, fsyncs database,
 assets, manifest, and directories, then commits its receipt/event. A retry after
 filesystem publication but before the SQLite receipt adopts only an exact
 operation/request-fingerprint match. Restore, deletion, retention, and general
-maintenance remain unavailable until their journaled filesystem/task semantics
-are complete on the shared generation fence.
+maintenance remain unavailable until their complete filesystem/task semantics
+are integrated with the shared generation fence.
 
 Every native Module now holds a stable `StoreWriter`/`StoreReaders` facade,
 not a generation-local connection or channel. The shared store runtime admits
@@ -115,9 +116,14 @@ maintenance first changes admission to `maintenance_in_progress`, drains both
 counts, joins the FIFO writer, and drops the complete reader pool before its
 Core-owned closure runs. It then opens and atomically publishes a replacement
 generation, so all pre-existing Module facades resume without reconstruction.
-Restore still requires its staged replacement journal, semantic validation,
-store-epoch rotation, Document cache/subscription reset, and failure recovery
-before it can use this seam publicly.
+The Core-owned replacement journal records only validated operation identity
+and controlled staging/rollback directory names. Startup reconciles it after
+the Profile lock but before opening SQLite: prepared candidates remain
+adoptable, every interrupted install phase restores the complete source while
+preserving the candidate, and committed installations remain live until their
+matching Store Administration receipt makes cleanup safe. Public restore still
+requires full backup/reference validation, store-epoch rotation, and Document
+cache/subscription plus runtime-descriptor reset before it can use this seam.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and

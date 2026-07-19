@@ -7,4 +7,5 @@ pub mod schema;
 pub mod sqlite;
 pub mod store;
 pub mod store_lock;
+pub mod store_replacement;
 pub mod writer;

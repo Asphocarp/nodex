@@ -75,8 +75,8 @@
   files, the immutable candidate must pass schema-owner, integrity, and foreign
   key validation, and every file plus containing directory is flushed before
   publication. Native restore/delete/prune/maintenance remain closed while
-  their journal, reconciliation, and task semantics are implemented on the
-  generation fence.
+  their remaining semantic validation and task coordination are implemented on
+  the generation fence.
 - Native SQLite handles are generation-stable facades. Exclusive maintenance
   rejects new reads/writes with a typed retryable error, waits for all accepted
   operations (including queued writer jobs and checked-out readers), joins the
@@ -86,6 +86,16 @@
   fenced if reopen fails. Document caches and realtime listeners are separate
   generation-bound state and must be reset by the restore coordinator before
   native restore is promoted.
+- Native whole-store replacement has a bounded, mode-restricted, atomically
+  fsynced journal whose paths are controlled staging/rollback directory names,
+  never caller-authored paths. It is inspected under the Profile lock before
+  any SQLite connection opens. A prepared candidate must be a Rust-owned v83
+  Store with a regular no-symlink asset tree. An interruption before file
+  movement returns the journal to `prepared`; an interruption during install
+  restores DB, WAL, SHM, and assets while moving the candidate back to staging.
+  A committed installed epoch is never rolled back: startup leaves it pending
+  until the exact Store Administration receipt exists, then removes only the
+  journal-owned staging and rollback trees.
 - Whole-store backups include `nodex.db` and managed asset files from one quiesced boundary. The asset gate first drains accepted uploads/materialization and rejects new mutations; the FIFO writer then crosses a barrier, destroys its Y.Doc cache, and closes the worker SQLite connection. The main connection also closes and fails lazy access until a standalone read-only backup source finishes.
 - Manual and scheduled backups are managed by `local-store/backups.ts` and use SQLite's online backup API. The staged DB and every asset file/directory are fsynced before the backup directory rename is published.
 - Restore requires explicit confirmation. Its optional pre-restore safety backup is created after the same asset/writer fence is acquired and before replacement, without reopening a write window between those operations.
