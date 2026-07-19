@@ -308,8 +308,11 @@ export interface components {
         readonly AutomationDefinitionStatus: "ACTIVE" | "PAUSED" | "DELETED";
         readonly AutomationEvent: {
             readonly automation_ids: readonly string[];
+            readonly database_ids: readonly string[];
+            readonly document_ids: readonly string[];
             readonly kind: components["schemas"]["AutomationEventKind"];
             readonly lease_ids: readonly string[];
+            readonly page_ids: readonly string[];
             readonly reminder_lease_ids: readonly string[];
             readonly run_ids: readonly string[];
             readonly snooze_ids: readonly number[];
@@ -1263,6 +1266,28 @@ export interface components {
                 readonly reason_code: string;
                 /** Format: int64 */
                 readonly retry_delay_ms?: number | null;
+            } | {
+                readonly created_page_id: string;
+                /** @enum {string} */
+                readonly kind: "complete_page_occurrence";
+                /** Format: int64 */
+                readonly occurrence_start_ms: number;
+                readonly page_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "skip_page_occurrence";
+                /** Format: int64 */
+                readonly occurrence_start_ms: number;
+                readonly page_id: string;
+            } | {
+                readonly created_page_id?: string | null;
+                /** @enum {string} */
+                readonly kind: "update_page_occurrence";
+                /** Format: int64 */
+                readonly occurrence_start_ms: number;
+                readonly page_id: string;
+                readonly scope: components["schemas"]["PageOccurrenceUpdateScope"];
+                readonly updates: components["schemas"]["PageOccurrenceSchedulePatch"];
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -1968,6 +1993,30 @@ export interface components {
         };
         readonly OwnedDocumentReadRequest: components["schemas"]["ModuleReadRequest_OwnedDocumentRead"];
         readonly OwnedDocumentReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"];
+        /** @enum {string} */
+        readonly PageOccurrenceMutationCode: "page_not_found" | "page_not_scheduled" | "page_not_recurring" | "authorization_denied" | "invalid_occurrence_request";
+        readonly PageOccurrenceMutationResult: {
+            /** Format: int64 */
+            readonly change_log_seq?: number | null;
+            readonly code?: null | components["schemas"]["PageOccurrenceMutationCode"];
+            readonly created_page_id?: string | null;
+            readonly duplicate: boolean;
+            readonly error?: string | null;
+            readonly operation_id: string;
+            readonly success: boolean;
+        };
+        readonly PageOccurrenceSchedulePatch: {
+            readonly is_all_day?: boolean | null;
+            readonly recurrence?: null | components["schemas"]["PageRecurrenceConfig"];
+            readonly reminders?: readonly components["schemas"]["PageReminderConfig"][] | null;
+            readonly schedule_timezone?: string | null;
+            /** Format: int64 */
+            readonly scheduled_end_ms?: number | null;
+            /** Format: int64 */
+            readonly scheduled_start_ms?: number | null;
+        };
+        /** @enum {string} */
+        readonly PageOccurrenceUpdateScope: "this" | "this_and_future" | "all";
         readonly PageRecurrenceConfig: {
             readonly byWeekdays?: readonly number[];
             readonly endCondition?: null | components["schemas"]["PageRecurrenceEndCondition"];
@@ -2369,7 +2418,10 @@ export interface components {
                 readonly event_sequence: number;
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_automation_ids: readonly string[];
+                    readonly affected_database_ids: readonly string[];
+                    readonly affected_document_ids: readonly string[];
                     readonly affected_lease_ids: readonly string[];
+                    readonly affected_page_ids: readonly string[];
                     readonly affected_reminder_lease_ids: readonly string[];
                     readonly affected_run_ids: readonly string[];
                     readonly affected_snooze_ids: readonly number[];
@@ -2380,6 +2432,7 @@ export interface components {
                     readonly claimed_leases: readonly components["schemas"]["AutomationLease"][];
                     readonly definitions: readonly components["schemas"]["AutomationDefinition"][];
                     readonly deleted_run_ids: readonly string[];
+                    readonly page_occurrence_mutation?: null | components["schemas"]["PageOccurrenceMutationResult"];
                     readonly reminder_leases: readonly components["schemas"]["ReminderLease"][];
                     readonly reminder_snoozes: readonly components["schemas"]["ReminderSnooze"][];
                     readonly run_bulk?: null | components["schemas"]["AutomationRunBulkResult"];

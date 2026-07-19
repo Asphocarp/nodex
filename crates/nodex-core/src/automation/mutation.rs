@@ -5,7 +5,8 @@ use nodex_core_contracts::automation::{
     AutomationCommitValue, AutomationDefinition, AutomationDefinitionInput,
     AutomationDefinitionKind, AutomationDefinitionStatus, AutomationEvent, AutomationEventKind,
     AutomationExecutionEnvironment, AutomationIntent, AutomationLease, AutomationLeaseStatus,
-    AutomationReceipt, AutomationRun, AutomationRunBulkResult, ReminderLease, ReminderSnooze,
+    AutomationReceipt, AutomationRun, AutomationRunBulkResult, PageOccurrenceMutationResult,
+    ReminderLease, ReminderSnooze,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -69,6 +70,10 @@ struct MutationEffects {
     reminder_snoozes: Vec<ReminderSnooze>,
     reminder_lease_ids: Vec<String>,
     snooze_ids: Vec<i64>,
+    page_occurrence_mutation: Option<PageOccurrenceMutationResult>,
+    page_ids: Vec<String>,
+    document_ids: Vec<String>,
+    database_ids: Vec<String>,
     committed_at: String,
 }
 
@@ -78,10 +83,12 @@ pub(super) fn apply(
     library_id: &str,
     context: &BoundModuleContext,
     request: ModuleApplyRequest<AutomationIntent>,
+    assets_root: &Path,
 ) -> Result<AutomationApplyOutcome, StoreError> {
     let profile_id = profile_id.to_owned();
     let library_id = library_id.to_owned();
     let context = context.clone();
+    let assets_root = assets_root.to_path_buf();
     writer.call(move |connection| {
         with_immediate_transaction(connection, |transaction| {
             assert_identity(transaction, &profile_id, &library_id)?;
@@ -102,12 +109,23 @@ pub(super) fn apply(
             }
             validate_id("operation_id", &request.operation_id)?;
             require_trusted_host(&context, &request.intent)?;
-            let fingerprint = serde_json::to_vec(&(
-                &context,
-                request.version,
-                &request.store_epoch,
-                &request.intent,
-            ))
+            let fingerprint = if is_page_occurrence_intent(&request.intent) {
+                serde_json::to_vec(&(
+                    &profile_id,
+                    &library_id,
+                    &context.project_id,
+                    request.version,
+                    &request.store_epoch,
+                    &request.intent,
+                ))
+            } else {
+                serde_json::to_vec(&(
+                    &context,
+                    request.version,
+                    &request.store_epoch,
+                    &request.intent,
+                ))
+            }
             .map_err(|_| internal("Automation mutation cannot be fingerprinted"))?;
             let request_hash = sha256(&fingerprint);
             if let Some(stored) =
@@ -125,6 +143,9 @@ pub(super) fn apply(
                 >(stored.result)
                 .map_err(|_| corrupt("Stored Automation receipt is invalid"))?;
                 committed.receipt.mutation.duplicate = true;
+                if let Some(result) = committed.value.page_occurrence_mutation.as_mut() {
+                    result.duplicate = true;
+                }
                 return Ok(AutomationApplyOutcome {
                     committed,
                     event: None,
@@ -246,6 +267,61 @@ pub(super) fn apply(
                             reminder_snoozes: effects.snoozes,
                             reminder_lease_ids: effects.lease_ids,
                             snooze_ids: effects.snooze_ids,
+                            page_occurrence_mutation: None,
+                            page_ids: Vec::new(),
+                            document_ids: Vec::new(),
+                            database_ids: Vec::new(),
+                            committed_at: effects.committed_at,
+                        },
+                    )
+                }
+                intent @ (AutomationIntent::CompletePageOccurrence { .. }
+                | AutomationIntent::SkipPageOccurrence { .. }
+                | AutomationIntent::UpdatePageOccurrence { .. }) => {
+                    let effects = super::occurrence_mutation::apply(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        intent,
+                        &assets_root,
+                    )?;
+                    if !effects.result.success {
+                        return finish_occurrence_rejection(
+                            transaction,
+                            &context,
+                            &store_epoch,
+                            &request.operation_id,
+                            &request_hash,
+                            effects,
+                        );
+                    }
+                    finish_mutation(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        MutationEffects {
+                            operation_kind: effects.operation_kind,
+                            automation_ids: Vec::new(),
+                            definitions: Vec::new(),
+                            claimed_leases: Vec::new(),
+                            lease_ids: Vec::new(),
+                            runs: Vec::new(),
+                            deleted_run_ids: Vec::new(),
+                            run_ids: Vec::new(),
+                            run_bulk: None,
+                            reminder_leases: Vec::new(),
+                            reminder_snoozes: Vec::new(),
+                            reminder_lease_ids: Vec::new(),
+                            snooze_ids: Vec::new(),
+                            page_occurrence_mutation: Some(effects.result),
+                            page_ids: effects.page_ids,
+                            document_ids: effects.document_ids,
+                            database_ids: effects.database_ids,
                             committed_at: effects.committed_at,
                         },
                     )
@@ -284,6 +360,10 @@ pub(super) fn apply(
                             reminder_snoozes: Vec::new(),
                             reminder_lease_ids: Vec::new(),
                             snooze_ids: Vec::new(),
+                            page_occurrence_mutation: None,
+                            page_ids: Vec::new(),
+                            document_ids: Vec::new(),
+                            database_ids: Vec::new(),
                             committed_at: effects.committed_at,
                         },
                     )
@@ -364,6 +444,10 @@ fn create_definition(
             reminder_snoozes: Vec::new(),
             reminder_lease_ids: Vec::new(),
             snooze_ids: Vec::new(),
+            page_occurrence_mutation: None,
+            page_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
             committed_at,
         },
     )
@@ -473,6 +557,10 @@ fn update_definition(
             reminder_snoozes: Vec::new(),
             reminder_lease_ids: Vec::new(),
             snooze_ids: Vec::new(),
+            page_occurrence_mutation: None,
+            page_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
             committed_at,
         },
     )
@@ -534,6 +622,10 @@ fn delete_definition(
             reminder_snoozes: Vec::new(),
             reminder_lease_ids: Vec::new(),
             snooze_ids: Vec::new(),
+            page_occurrence_mutation: None,
+            page_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
             committed_at,
         },
     )
@@ -675,6 +767,10 @@ fn claim_due(
             reminder_snoozes: Vec::new(),
             reminder_lease_ids: Vec::new(),
             snooze_ids: Vec::new(),
+            page_occurrence_mutation: None,
+            page_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
             committed_at,
         },
     )
@@ -779,6 +875,10 @@ fn settle_lease(
             reminder_snoozes: Vec::new(),
             reminder_lease_ids: Vec::new(),
             snooze_ids: Vec::new(),
+            page_occurrence_mutation: None,
+            page_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
             committed_at,
         },
     )
@@ -792,7 +892,7 @@ fn finish_mutation(
     store_epoch: &str,
     operation_id: &str,
     request_hash: &str,
-    effects: MutationEffects,
+    mut effects: MutationEffects,
 ) -> Result<AutomationApplyOutcome, StoreError> {
     let project_id = event_project_id(connection, library_id, context)?;
     let payload = json!({
@@ -804,22 +904,34 @@ fn finish_mutation(
         "runIds": effects.run_ids,
         "reminderLeaseIds": effects.reminder_lease_ids,
         "snoozeIds": effects.snooze_ids,
+        "pageIds": effects.page_ids,
+        "documentIds": effects.document_ids,
+        "databaseIds": effects.database_ids,
     });
     connection.execute(
         "INSERT INTO change_log(\
            project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
            database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'automation.changed', ?3, '[]', '[]', '[]', ?4, ?5)",
+         ) VALUES (?1, ?2, 'automation.changed', ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             project_id,
             store_epoch,
             operation_id,
+            serde_json::to_string(&effects.page_ids)
+                .map_err(|_| internal("Automation affected Page IDs cannot be encoded"))?,
+            serde_json::to_string(&effects.document_ids)
+                .map_err(|_| internal("Automation affected Document IDs cannot be encoded"))?,
+            serde_json::to_string(&effects.database_ids)
+                .map_err(|_| internal("Automation affected Database IDs cannot be encoded"))?,
             serde_json::to_string(&payload)
                 .map_err(|_| internal("Automation event payload cannot be encoded"))?,
             effects.committed_at,
         ],
     )?;
     let event_sequence = connection.last_insert_rowid();
+    if let Some(result) = effects.page_occurrence_mutation.as_mut() {
+        result.change_log_seq = Some(event_sequence);
+    }
     let committed = CommittedModuleValue {
         value: AutomationCommitValue {
             affected_automation_ids: effects.automation_ids.clone(),
@@ -830,6 +942,7 @@ fn finish_mutation(
             run_bulk: effects.run_bulk,
             reminder_leases: effects.reminder_leases,
             reminder_snoozes: effects.reminder_snoozes,
+            page_occurrence_mutation: effects.page_occurrence_mutation,
         },
         receipt: AutomationReceipt {
             mutation: ModuleMutationReceipt {
@@ -841,6 +954,9 @@ fn finish_mutation(
             affected_run_ids: effects.run_ids.clone(),
             affected_reminder_lease_ids: effects.reminder_lease_ids.clone(),
             affected_snooze_ids: effects.snooze_ids.clone(),
+            affected_page_ids: effects.page_ids.clone(),
+            affected_document_ids: effects.document_ids.clone(),
+            affected_database_ids: effects.database_ids.clone(),
         },
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
@@ -876,9 +992,85 @@ fn finish_mutation(
                 run_ids: effects.run_ids,
                 reminder_lease_ids: effects.reminder_lease_ids,
                 snooze_ids: effects.snooze_ids,
+                page_ids: effects.page_ids,
+                document_ids: effects.document_ids,
+                database_ids: effects.database_ids,
             }),
         }),
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_occurrence_rejection(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    effects: super::occurrence_mutation::OccurrenceMutationEffects,
+) -> Result<AutomationApplyOutcome, StoreError> {
+    let event_head =
+        connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let committed = CommittedModuleValue {
+        value: AutomationCommitValue {
+            affected_automation_ids: Vec::new(),
+            definitions: Vec::new(),
+            claimed_leases: Vec::new(),
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_bulk: None,
+            reminder_leases: Vec::new(),
+            reminder_snoozes: Vec::new(),
+            page_occurrence_mutation: Some(effects.result),
+        },
+        receipt: AutomationReceipt {
+            mutation: ModuleMutationReceipt {
+                operation_id: operation_id.to_owned(),
+                duplicate: false,
+            },
+            affected_automation_ids: Vec::new(),
+            affected_lease_ids: Vec::new(),
+            affected_run_ids: Vec::new(),
+            affected_reminder_lease_ids: Vec::new(),
+            affected_snooze_ids: Vec::new(),
+            affected_page_ids: effects.page_ids,
+            affected_document_ids: Vec::new(),
+            affected_database_ids: Vec::new(),
+        },
+        event_sequence: event_head,
+        store_epoch: StoreEpoch(store_epoch.to_owned()),
+    };
+    let result = serde_json::to_value(&committed)
+        .map_err(|_| internal("Automation rejection result cannot be encoded"))?;
+    insert_module_receipt(
+        connection,
+        NewModuleReceipt {
+            module_name: MODULE_NAME,
+            operation_id,
+            context,
+            operation_kind: effects.operation_kind,
+            store_epoch,
+            request_hash,
+            result: &result,
+            event_sequence: None,
+            committed_at: &effects.committed_at,
+        },
+    )?;
+    Ok(AutomationApplyOutcome {
+        committed,
+        event: None,
+    })
+}
+
+fn is_page_occurrence_intent(intent: &AutomationIntent) -> bool {
+    matches!(
+        intent,
+        AutomationIntent::CompletePageOccurrence { .. }
+            | AutomationIntent::SkipPageOccurrence { .. }
+            | AutomationIntent::UpdatePageOccurrence { .. }
+    )
 }
 
 fn normalize_definition(
@@ -1294,7 +1486,8 @@ mod tests {
     use nodex_core_contracts::automation::{
         AutomationDefinitionInput, AutomationDefinitionKind, AutomationDefinitionStatus,
         AutomationIntent, AutomationLeaseStatus, AutomationRead, AutomationReadValue,
-        AutomationRunStatus, ReminderLeaseStatus,
+        AutomationRunStatus, PageOccurrenceSchedulePatch, PageOccurrenceUpdateScope,
+        ReminderLeaseStatus,
     };
     use nodex_core_contracts::database::{DatabaseIntent, DatabaseTransferTarget};
     use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
@@ -1303,7 +1496,7 @@ mod tests {
         ModuleReadRequest, ProfileId, ProjectId, StoreEpoch,
     };
     use rusqlite::params;
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tempfile::{TempDir, tempdir};
 
     use crate::automation::AutomationModule;
@@ -2354,6 +2547,378 @@ mod tests {
             stale.code,
             nodex_core_contracts::CoreErrorCode::StoreCorrupt
         );
+    }
+
+    #[test]
+    fn occurrence_mutations_clone_advance_reject_and_replay_atomically() {
+        let harness = harness();
+        let start = "2026-07-17T09:00:00Z"
+            .parse::<chrono::DateTime<Utc>>()
+            .expect("start");
+        let end = "2026-07-17T10:00:00Z"
+            .parse::<chrono::DateTime<Utc>>()
+            .expect("end");
+        seed_scheduled_page(
+            &harness,
+            "page:occurrence-mutation",
+            "Occurrence authority",
+            start,
+            end,
+            json!({ "frequency": "daily", "interval": 1 }),
+            json!([{ "offsetMinutes": 30 }]),
+        );
+        let context = project_context(&harness);
+        let created_page_id = "018f1000-0000-7000-8000-000000000101";
+        let completed = apply_with_context(
+            &harness,
+            &context,
+            "occurrence:complete",
+            AutomationIntent::CompletePageOccurrence {
+                page_id: "page:occurrence-mutation".to_owned(),
+                occurrence_start_ms: start.timestamp_millis(),
+                created_page_id: created_page_id.to_owned(),
+            },
+        )
+        .expect("complete occurrence");
+        let result = completed
+            .committed
+            .value
+            .page_occurrence_mutation
+            .as_ref()
+            .expect("occurrence result");
+        assert!(result.success);
+        assert_eq!(result.created_page_id.as_deref(), Some(created_page_id));
+        assert_eq!(
+            result.change_log_seq,
+            Some(completed.committed.event_sequence)
+        );
+        assert_eq!(
+            completed.committed.receipt.affected_page_ids,
+            vec![
+                created_page_id.to_owned(),
+                "page:occurrence-mutation".to_owned()
+            ]
+        );
+        let authority = harness
+            .kernel
+            .readers()
+            .read_default({
+                let created_page_id = created_page_id.to_owned();
+                move |connection| {
+                    connection
+                        .query_row(
+                            "SELECT source.scheduled_start, source.scheduled_end, clone.lifecycle, \
+                               clone_schedule.scheduled_start, clone_schedule.scheduled_end, \
+                               clone_schedule.recurrence_json, clone_schedule.reminders_json, \
+                               document.readiness, document.authority, materialization.title \
+                             FROM scheduled_page_index source \
+                             JOIN blocks clone ON clone.id = ?1 \
+                             JOIN scheduled_page_index clone_schedule ON clone_schedule.page_block_id = clone.id \
+                             JOIN block_documents ownership ON ownership.block_id = clone.id \
+                             JOIN documents document ON document.id = ownership.document_id \
+                             JOIN document_materializations materialization ON materialization.document_id = document.id \
+                             WHERE source.page_block_id = 'page:occurrence-mutation'",
+                            [created_page_id],
+                            |row| {
+                                Ok((
+                                    row.get::<_, String>(0)?,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, String>(2)?,
+                                    row.get::<_, String>(3)?,
+                                    row.get::<_, String>(4)?,
+                                    row.get::<_, String>(5)?,
+                                    row.get::<_, String>(6)?,
+                                    row.get::<_, String>(7)?,
+                                    row.get::<_, String>(8)?,
+                                    row.get::<_, String>(9)?,
+                                ))
+                            },
+                        )
+                        .map_err(Into::into)
+                }
+            })
+            .expect("read occurrence authority");
+        assert_eq!(authority.0, "2026-07-18T09:00:00.000Z");
+        assert_eq!(authority.1, "2026-07-18T10:00:00.000Z");
+        assert_eq!(authority.2, "archived");
+        assert_eq!(authority.3, "2026-07-17T09:00:00.000Z");
+        assert_eq!(authority.4, "2026-07-17T10:00:00.000Z");
+        assert_eq!(authority.5, "null");
+        assert_eq!(authority.6, "[]");
+        assert_eq!(authority.7, "ready");
+        assert_eq!(authority.8, "ydoc_primary");
+        assert_eq!(authority.9, "Occurrence authority");
+
+        let replay = apply_with_context(
+            &harness,
+            &BoundModuleContext {
+                connection_id: "another-connection".to_owned(),
+                adapter: AdapterKind::NativeCli,
+                ..context.clone()
+            },
+            "occurrence:complete",
+            AutomationIntent::CompletePageOccurrence {
+                page_id: "page:occurrence-mutation".to_owned(),
+                occurrence_start_ms: start.timestamp_millis(),
+                created_page_id: created_page_id.to_owned(),
+            },
+        )
+        .expect("cross-Adapter exact replay");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(
+            replay
+                .committed
+                .value
+                .page_occurrence_mutation
+                .expect("replay outcome")
+                .duplicate
+        );
+
+        let rejected = apply_with_context(
+            &harness,
+            &context,
+            "occurrence:rejected",
+            AutomationIntent::UpdatePageOccurrence {
+                page_id: "page:occurrence-mutation".to_owned(),
+                occurrence_start_ms: start.timestamp_millis(),
+                scope: PageOccurrenceUpdateScope::All,
+                created_page_id: Some("018f1000-0000-7000-8000-000000000102".to_owned()),
+                updates: PageOccurrenceSchedulePatch {
+                    is_all_day: Some(false),
+                    ..PageOccurrenceSchedulePatch::default()
+                },
+            },
+        )
+        .expect("durable rejection");
+        assert!(rejected.event.is_none());
+        assert!(
+            !rejected
+                .committed
+                .value
+                .page_occurrence_mutation
+                .as_ref()
+                .expect("rejection outcome")
+                .success
+        );
+        let rejection_replay = apply_with_context(
+            &harness,
+            &context,
+            "occurrence:rejected",
+            AutomationIntent::UpdatePageOccurrence {
+                page_id: "page:occurrence-mutation".to_owned(),
+                occurrence_start_ms: start.timestamp_millis(),
+                scope: PageOccurrenceUpdateScope::All,
+                created_page_id: Some("018f1000-0000-7000-8000-000000000102".to_owned()),
+                updates: PageOccurrenceSchedulePatch {
+                    is_all_day: Some(false),
+                    ..PageOccurrenceSchedulePatch::default()
+                },
+            },
+        )
+        .expect("replay rejection");
+        assert!(
+            rejection_replay
+                .committed
+                .value
+                .page_occurrence_mutation
+                .expect("replayed rejection")
+                .duplicate
+        );
+    }
+
+    #[test]
+    fn occurrence_update_scopes_and_skip_preserve_series_boundaries() {
+        let harness = harness();
+        let context = project_context(&harness);
+        let start = "2026-07-17T09:00:00Z"
+            .parse::<chrono::DateTime<Utc>>()
+            .expect("start");
+        let end = start + Duration::hours(1);
+
+        seed_scheduled_page(
+            &harness,
+            "page:detach-occurrence",
+            "Detach occurrence",
+            start,
+            end,
+            json!({ "frequency": "daily", "interval": 1 }),
+            json!([{ "offsetMinutes": 30 }]),
+        );
+        let detached_page_id = "018f1000-0000-7000-8000-000000000201";
+        let detached_occurrence = start + Duration::days(1);
+        let detached_start = detached_occurrence + Duration::hours(2);
+        let detached = apply_with_context(
+            &harness,
+            &context,
+            "occurrence:update-this",
+            AutomationIntent::UpdatePageOccurrence {
+                page_id: "page:detach-occurrence".to_owned(),
+                occurrence_start_ms: detached_occurrence.timestamp_millis(),
+                scope: PageOccurrenceUpdateScope::This,
+                created_page_id: Some(detached_page_id.to_owned()),
+                updates: PageOccurrenceSchedulePatch {
+                    scheduled_start_ms: Some(Some(detached_start.timestamp_millis())),
+                    scheduled_end_ms: Some(Some(
+                        (detached_start + Duration::hours(1)).timestamp_millis(),
+                    )),
+                    ..PageOccurrenceSchedulePatch::default()
+                },
+            },
+        )
+        .expect("detach one occurrence");
+        assert!(
+            detached
+                .committed
+                .value
+                .page_occurrence_mutation
+                .expect("detach result")
+                .success
+        );
+
+        seed_scheduled_page(
+            &harness,
+            "page:split-occurrence",
+            "Split occurrence",
+            start,
+            end,
+            json!({ "frequency": "daily", "interval": 1 }),
+            json!([]),
+        );
+        let split_page_id = "018f1000-0000-7000-8000-000000000202";
+        let split_occurrence = start + Duration::days(2);
+        let split_start = split_occurrence + Duration::hours(4);
+        let split = apply_with_context(
+            &harness,
+            &context,
+            "occurrence:update-this-and-future",
+            AutomationIntent::UpdatePageOccurrence {
+                page_id: "page:split-occurrence".to_owned(),
+                occurrence_start_ms: split_occurrence.timestamp_millis(),
+                scope: PageOccurrenceUpdateScope::ThisAndFuture,
+                created_page_id: Some(split_page_id.to_owned()),
+                updates: PageOccurrenceSchedulePatch {
+                    scheduled_start_ms: Some(Some(split_start.timestamp_millis())),
+                    scheduled_end_ms: Some(Some(
+                        (split_start + Duration::hours(1)).timestamp_millis(),
+                    )),
+                    ..PageOccurrenceSchedulePatch::default()
+                },
+            },
+        )
+        .expect("split series");
+        assert_eq!(
+            split
+                .committed
+                .value
+                .page_occurrence_mutation
+                .expect("split result")
+                .created_page_id
+                .as_deref(),
+            Some(split_page_id)
+        );
+
+        seed_scheduled_page(
+            &harness,
+            "page:skip-once",
+            "Skip once",
+            start,
+            end,
+            Value::Null,
+            json!([]),
+        );
+        let skipped = apply_with_context(
+            &harness,
+            &context,
+            "occurrence:skip-once",
+            AutomationIntent::SkipPageOccurrence {
+                page_id: "page:skip-once".to_owned(),
+                occurrence_start_ms: start.timestamp_millis(),
+            },
+        )
+        .expect("skip one-time Page");
+        assert!(
+            skipped
+                .committed
+                .value
+                .page_occurrence_mutation
+                .expect("skip result")
+                .success
+        );
+
+        let authority = harness
+            .kernel
+            .readers()
+            .read_default({
+                let detached_page_id = detached_page_id.to_owned();
+                let split_page_id = split_page_id.to_owned();
+                move |connection| {
+                    let detached = connection.query_row(
+                        "SELECT scheduled_start, recurrence_json FROM scheduled_page_index \
+                         WHERE page_block_id = ?1",
+                        [&detached_page_id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )?;
+                    let exception_count =
+                        connection.query_row(
+                            "SELECT COUNT(*) FROM recurrence_exceptions \
+                         WHERE page_id = 'page:detach-occurrence' \
+                           AND occurrence_start = ?1 AND exception_type = 'skip'",
+                            [detached_occurrence
+                                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)],
+                            |row| row.get::<_, i64>(0),
+                        )?;
+                    let source_recurrence = connection.query_row(
+                        "SELECT recurrence_json FROM scheduled_page_index \
+                         WHERE page_block_id = 'page:split-occurrence'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )?;
+                    let split_clone = connection.query_row(
+                        "SELECT scheduled_start, recurrence_json FROM scheduled_page_index \
+                         WHERE page_block_id = ?1",
+                        [&split_page_id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )?;
+                    let skipped_schedule = connection.query_row(
+                        "SELECT scheduled_start, scheduled_end FROM scheduled_page_index \
+                         WHERE page_block_id = 'page:skip-once'",
+                        [],
+                        |row| {
+                            Ok((
+                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, Option<String>>(1)?,
+                            ))
+                        },
+                    )?;
+                    Ok((
+                        detached,
+                        exception_count,
+                        source_recurrence,
+                        split_clone,
+                        skipped_schedule,
+                    ))
+                }
+            })
+            .expect("read occurrence scope authority");
+        assert_eq!(authority.0.0, "2026-07-18T11:00:00.000Z");
+        assert_eq!(authority.0.1, "null");
+        assert_eq!(authority.1, 1);
+        assert_eq!(
+            serde_json::from_str::<Value>(&authority.2)
+                .expect("source recurrence")
+                .pointer("/endCondition/untilDate")
+                .and_then(Value::as_str),
+            Some("2026-07-18")
+        );
+        assert_eq!(authority.3.0, "2026-07-19T13:00:00.000Z");
+        assert_eq!(
+            serde_json::from_str::<Value>(&authority.3.1)
+                .expect("clone recurrence")
+                .get("frequency")
+                .and_then(Value::as_str),
+            Some("daily")
+        );
+        assert_eq!(authority.4, (None, None));
     }
 
     #[test]

@@ -1693,7 +1693,7 @@ fn map_tags_between_properties(
     Ok(Value::Array(mapped))
 }
 
-fn refresh_transferred_page_projection(
+pub(crate) fn refresh_transferred_page_projection(
     connection: &Connection,
     page_id: &str,
     target_membership_id: Option<&str>,

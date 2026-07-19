@@ -83,7 +83,7 @@ struct PropertyValue {
 }
 
 #[derive(Clone)]
-struct RecurrenceException {
+pub(super) struct RecurrenceException {
     occurrence_start_ms: i64,
     exception_type: String,
     override_start_ms: Option<i64>,
@@ -152,7 +152,7 @@ pub(super) fn read_occurrences(
         return Err(invalid("Scheduled Page occurrence read limit is invalid"));
     }
     require_active_project(connection, library_id, project_id)?;
-    let rows = read_scheduled_rows(connection, library_id, window_start_ms, window_end_ms)?;
+    let rows = read_scheduled_rows(connection, library_id, window_start_ms, window_end_ms, None)?;
     let search_tokens = normalize_search_tokens(search_query.unwrap_or_default());
     let mut items = Vec::new();
 
@@ -293,6 +293,7 @@ fn read_scheduled_rows(
     library_id: &str,
     window_start_ms: i64,
     window_end_ms: i64,
+    page_id: Option<&str>,
 ) -> Result<Vec<ScheduledRow>, StoreError> {
     let window_start = timestamp_to_iso(window_start_ms)?;
     let window_end = timestamp_to_iso(window_end_ms)?;
@@ -340,44 +341,65 @@ fn read_scheduled_rows(
            AND schedule.scheduled_start IS NOT NULL AND schedule.scheduled_end IS NOT NULL \
            AND schedule.scheduled_start < ?2 \
            AND (schedule.recurrence_json <> 'null' OR schedule.scheduled_end > ?3) \
+           AND (?4 IS NULL OR schedule.page_block_id = ?4) \
          ORDER BY schedule.scheduled_start, schedule.page_block_id",
     )?;
     statement
-        .query_map(params![library_id, window_end, window_start], |row| {
-            Ok(ScheduledRow {
-                page_id: row.get(0)?,
-                storage_project_id: row.get(1)?,
-                index_lifecycle: row.get(2)?,
-                block_lifecycle: row.get(3)?,
-                metadata_revision: row.get(4)?,
-                source_metadata_revision: row.get(5)?,
-                scheduled_start: row.get(6)?,
-                scheduled_end: row.get(7)?,
-                is_all_day: row.get::<_, i64>(8)? == 1,
-                recurrence_json: row.get(9)?,
-                reminders_json: row.get(10)?,
-                schedule_timezone: row.get(11)?,
-                block_created_at: row.get(12)?,
-                block_updated_at: row.get(13)?,
-                document_generation: row.get(14)?,
-                document_head_seq: row.get(15)?,
-                document_schema_version: row.get(16)?,
-                document_readiness: row.get(17)?,
-                document_authority: row.get(18)?,
-                materialization_generation: row.get(19)?,
-                materialization_projected_seq: row.get(20)?,
-                materialization_schema_version: row.get(21)?,
-                title: row.get(22)?,
-                rich_title_json: row.get(23)?,
-                description: row.get(24)?,
-                materialization_updated_at: row.get(25)?,
-                membership_id: row.get(26)?,
-                data_source_id: row.get(27)?,
-                view_order: row.get(28)?,
-            })
-        })?
+        .query_map(
+            params![library_id, window_end, window_start, page_id],
+            |row| {
+                Ok(ScheduledRow {
+                    page_id: row.get(0)?,
+                    storage_project_id: row.get(1)?,
+                    index_lifecycle: row.get(2)?,
+                    block_lifecycle: row.get(3)?,
+                    metadata_revision: row.get(4)?,
+                    source_metadata_revision: row.get(5)?,
+                    scheduled_start: row.get(6)?,
+                    scheduled_end: row.get(7)?,
+                    is_all_day: row.get::<_, i64>(8)? == 1,
+                    recurrence_json: row.get(9)?,
+                    reminders_json: row.get(10)?,
+                    schedule_timezone: row.get(11)?,
+                    block_created_at: row.get(12)?,
+                    block_updated_at: row.get(13)?,
+                    document_generation: row.get(14)?,
+                    document_head_seq: row.get(15)?,
+                    document_schema_version: row.get(16)?,
+                    document_readiness: row.get(17)?,
+                    document_authority: row.get(18)?,
+                    materialization_generation: row.get(19)?,
+                    materialization_projected_seq: row.get(20)?,
+                    materialization_schema_version: row.get(21)?,
+                    title: row.get(22)?,
+                    rich_title_json: row.get(23)?,
+                    description: row.get(24)?,
+                    materialization_updated_at: row.get(25)?,
+                    membership_id: row.get(26)?,
+                    data_source_id: row.get(27)?,
+                    view_order: row.get(28)?,
+                })
+            },
+        )?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(Into::into)
+}
+
+pub(super) fn read_scheduled_page(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<Option<ScheduledPageOccurrence>, StoreError> {
+    let rows = read_scheduled_rows(
+        connection,
+        library_id,
+        -62_135_596_800_000,
+        253_402_300_799_999,
+        Some(page_id),
+    )?;
+    rows.first()
+        .map(|row| validate_and_project(connection, row))
+        .transpose()
 }
 
 fn validate_and_project(
@@ -599,7 +621,7 @@ fn read_intrinsic_properties(
     Ok(values)
 }
 
-fn read_exceptions(
+pub(super) fn read_exceptions(
     connection: &Connection,
     page_id: &str,
 ) -> Result<Vec<RecurrenceException>, StoreError> {
@@ -733,6 +755,75 @@ fn expand_occurrences(
     }
     occurrences.sort_by_key(|item| item.start_ms);
     Ok(occurrences)
+}
+
+pub(super) fn next_schedule_after(
+    page: &ScheduledPageOccurrence,
+    after_occurrence_start_ms: i64,
+    exceptions: &[RecurrenceException],
+) -> Result<Option<(i64, i64)>, StoreError> {
+    if page.recurrence.is_none() {
+        return Ok(None);
+    }
+    let scan_start = after_occurrence_start_ms.checked_add(1).ok_or_else(|| {
+        corrupt("Scheduled Page next-occurrence scan exceeds the timestamp range")
+    })?;
+    let zone = ScheduleZone::parse(page.schedule_timezone.as_deref())?;
+    let scan_end = add_years(zone, scan_start, 5)?;
+    let occurrences = expand_occurrences(
+        page.occurrence_start_ms,
+        page.occurrence_end_ms,
+        page.is_all_day,
+        page.recurrence.as_ref(),
+        &page.reminders,
+        page.schedule_timezone.as_deref(),
+        exceptions,
+        scan_start,
+        scan_end,
+    )?;
+    Ok(occurrences
+        .into_iter()
+        .find(|occurrence| occurrence.start_ms > after_occurrence_start_ms)
+        .map(|occurrence| (occurrence.start_ms, occurrence.end_ms)))
+}
+
+pub(super) fn local_date_key(
+    timestamp_ms: i64,
+    timezone: Option<&str>,
+) -> Result<String, StoreError> {
+    Ok(ScheduleZone::parse(timezone)?
+        .local_naive(timestamp_ms)?
+        .date()
+        .format("%Y-%m-%d")
+        .to_string())
+}
+
+pub(super) fn shift_date_key(value: &str, days: i64) -> Result<String, StoreError> {
+    let date = NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| invalid("Recurrence end date is invalid"))?;
+    date.checked_add_signed(Duration::days(days))
+        .map(|value| value.format("%Y-%m-%d").to_string())
+        .ok_or_else(|| invalid("Recurrence end date exceeds the calendar range"))
+}
+
+pub(super) fn validate_recurrence_input(
+    recurrence: &PageRecurrenceConfig,
+) -> Result<(), StoreError> {
+    validate_recurrence(recurrence).map_err(|_| invalid("Recurrence config is invalid"))
+}
+
+pub(super) fn validate_reminders_input(reminders: &[PageReminderConfig]) -> Result<(), StoreError> {
+    let value = serde_json::to_value(reminders)
+        .map_err(|_| invalid("Reminder config cannot be encoded"))?;
+    parse_reminders(&value)
+        .map(|_| ())
+        .map_err(|_| invalid("Reminder config is invalid"))
+}
+
+pub(super) fn validate_timezone_input(timezone: Option<&str>) -> Result<(), StoreError> {
+    ScheduleZone::parse(timezone)
+        .map(|_| ())
+        .map_err(|_| invalid("Schedule timezone is invalid"))
 }
 
 fn weekly_match(

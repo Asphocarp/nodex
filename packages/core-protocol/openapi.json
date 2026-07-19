@@ -677,10 +677,25 @@
           "lease_ids",
           "run_ids",
           "reminder_lease_ids",
-          "snooze_ids"
+          "snooze_ids",
+          "page_ids",
+          "document_ids",
+          "database_ids"
         ],
         "properties": {
           "automation_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "database_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "document_ids": {
             "type": "array",
             "items": {
               "type": "string"
@@ -690,6 +705,12 @@
             "$ref": "#/components/schemas/AutomationEventKind"
           },
           "lease_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "page_ids": {
             "type": "array",
             "items": {
               "type": "string"
@@ -4613,6 +4634,93 @@
                     "minimum": 0
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "occurrence_start_ms",
+                  "created_page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "created_page_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "complete_page_occurrence"
+                    ]
+                  },
+                  "occurrence_start_ms": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "occurrence_start_ms",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "skip_page_occurrence"
+                    ]
+                  },
+                  "occurrence_start_ms": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "occurrence_start_ms",
+                  "scope",
+                  "updates",
+                  "kind"
+                ],
+                "properties": {
+                  "created_page_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "update_page_occurrence"
+                    ]
+                  },
+                  "occurrence_start_ms": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "page_id": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "$ref": "#/components/schemas/PageOccurrenceUpdateScope"
+                  },
+                  "updates": {
+                    "$ref": "#/components/schemas/PageOccurrenceSchedulePatch"
+                  }
+                }
               }
             ]
           },
@@ -7672,6 +7780,122 @@
       "OwnedDocumentReadResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_ModuleReadSnapshot_OwnedDocumentReadValue"
       },
+      "PageOccurrenceMutationCode": {
+        "type": "string",
+        "enum": [
+          "page_not_found",
+          "page_not_scheduled",
+          "page_not_recurring",
+          "authorization_denied",
+          "invalid_occurrence_request"
+        ]
+      },
+      "PageOccurrenceMutationResult": {
+        "type": "object",
+        "required": [
+          "success",
+          "operation_id",
+          "duplicate"
+        ],
+        "properties": {
+          "change_log_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "code": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PageOccurrenceMutationCode"
+              }
+            ]
+          },
+          "created_page_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duplicate": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PageOccurrenceSchedulePatch": {
+        "type": "object",
+        "properties": {
+          "is_all_day": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PageRecurrenceConfig"
+              }
+            ]
+          },
+          "reminders": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PageReminderConfig"
+            }
+          },
+          "schedule_timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scheduled_end_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "scheduled_start_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "PageOccurrenceUpdateScope": {
+        "type": "string",
+        "enum": [
+          "this",
+          "this_and_future",
+          "all"
+        ]
+      },
       "PageRecurrenceConfig": {
         "type": "object",
         "required": [
@@ -9383,7 +9607,10 @@
                           "affected_lease_ids",
                           "affected_run_ids",
                           "affected_reminder_lease_ids",
-                          "affected_snooze_ids"
+                          "affected_snooze_ids",
+                          "affected_page_ids",
+                          "affected_document_ids",
+                          "affected_database_ids"
                         ],
                         "properties": {
                           "affected_automation_ids": {
@@ -9392,7 +9619,25 @@
                               "type": "string"
                             }
                           },
+                          "affected_database_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_document_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
                           "affected_lease_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_page_ids": {
                             "type": "array",
                             "items": {
                               "type": "string"
@@ -9459,6 +9704,16 @@
                         "items": {
                           "type": "string"
                         }
+                      },
+                      "page_occurrence_mutation": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PageOccurrenceMutationResult"
+                          }
+                        ]
                       },
                       "reminder_leases": {
                         "type": "array",

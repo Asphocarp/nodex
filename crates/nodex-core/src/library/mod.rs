@@ -770,6 +770,8 @@ mod content;
 mod cursor;
 mod history;
 pub(crate) use history::require_page_read_access;
+pub(crate) use history::require_page_write_access;
+pub(crate) use page_copy::{OccurrencePageCloneInput, clone_page_for_occurrence};
 mod mutation;
 mod navigation;
 mod page_copy;

@@ -24,7 +24,12 @@ import { primaryCanvasBlockId } from "../shared/block-documents";
 import { createUuidV7 } from "../shared/uuid-v7";
 import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
 import { createPage } from "./local-store/database-pages";
-import { listPageOccurrences } from "./local-store/page-occurrences";
+import {
+  completePageOccurrence,
+  listPageOccurrences,
+  skipPageOccurrence,
+  updatePageOccurrence,
+} from "./local-store/page-occurrences";
 import { applyAuthoritativePageSchedulePatchInTransaction } from "./local-store/page-schedule-authority";
 import { snoozeReminder } from "./local-store/reminders";
 import {
@@ -345,6 +350,44 @@ describe("TypeScript/Rust content Module differential", () => {
           scheduledEnd: new Date(reminderOccurrenceStart.getTime() + 60 * 60_000),
           recurrence: { frequency: "daily", interval: 1 },
           reminders: [{ offsetMinutes: 0 }, { offsetMinutes: 30 }],
+          scheduleTimezone: "UTC",
+        },
+      });
+    })();
+    const skippedScheduledPage = await createPage(coordinates.projectId, "triage", {
+      title: "Gate C skipped occurrence authority",
+    });
+    const skippedOccurrenceStart = new Date(
+      reminderOccurrenceStart.getTime() + 10 * 60_000,
+    );
+    const updatedScheduledPage = await createPage(coordinates.projectId, "triage", {
+      title: "Gate C updated occurrence authority",
+    });
+    const updatedOccurrenceStart = new Date(
+      reminderOccurrenceStart.getTime() + 20 * 60_000,
+    );
+    oracle.transaction(() => {
+      applyAuthoritativePageSchedulePatchInTransaction(oracle, {
+        projectId: coordinates.projectId,
+        pageId: skippedScheduledPage.id,
+        operationId: "gate-c-skipped-scheduled-page",
+        patch: {
+          scheduledStart: skippedOccurrenceStart,
+          scheduledEnd: new Date(skippedOccurrenceStart.getTime() + 60 * 60_000),
+          recurrence: { frequency: "daily", interval: 1 },
+          reminders: [],
+          scheduleTimezone: "UTC",
+        },
+      });
+      applyAuthoritativePageSchedulePatchInTransaction(oracle, {
+        projectId: coordinates.projectId,
+        pageId: updatedScheduledPage.id,
+        operationId: "gate-c-updated-scheduled-page",
+        patch: {
+          scheduledStart: updatedOccurrenceStart,
+          scheduledEnd: new Date(updatedOccurrenceStart.getTime() + 60 * 60_000),
+          recurrence: { frequency: "daily", interval: 1 },
+          reminders: [],
           scheduleTimezone: "UTC",
         },
       });
@@ -5215,6 +5258,185 @@ describe("TypeScript/Rust content Module differential", () => {
     expect(rustSnooze?.due_at_ms).toBeLessThanOrEqual(
       new Date(oracleSnooze.dueAt).getTime() + 5_000,
     );
+
+    const completedOccurrencePageId = createUuidV7();
+    const oracleCompletedOccurrence = await completePageOccurrence(
+      coordinates.projectId,
+      {
+        operationId: "gate-c-occurrence-complete",
+        pageId: scheduledPage.id,
+        occurrenceStart: reminderOccurrenceStart,
+        createdPageId: completedOccurrencePageId,
+        source: "calendar",
+      },
+      "gate-c-occurrence-session",
+    );
+    const candidateCompletedOccurrence = await stage(
+      "Automation complete scheduled Page occurrence",
+      candidate.automationApply({
+        operationId: "gate-c-occurrence-complete",
+        intent: {
+          kind: "complete_page_occurrence",
+          page_id: scheduledPage.id,
+          occurrence_start_ms: reminderOccurrenceStart.getTime(),
+          created_page_id: completedOccurrencePageId,
+        },
+      }),
+    );
+    expect(candidateCompletedOccurrence.value.page_occurrence_mutation).toMatchObject({
+      success: oracleCompletedOccurrence.success,
+      created_page_id: oracleCompletedOccurrence.createdPageId,
+      code: oracleCompletedOccurrence.code ?? null,
+    });
+
+    const oracleSkippedOccurrence = await skipPageOccurrence(
+      coordinates.projectId,
+      {
+        operationId: "gate-c-occurrence-skip",
+        pageId: skippedScheduledPage.id,
+        occurrenceStart: skippedOccurrenceStart,
+        source: "calendar",
+      },
+      "gate-c-occurrence-session",
+    );
+    const candidateSkippedOccurrence = await stage(
+      "Automation skip scheduled Page occurrence",
+      candidate.automationApply({
+        operationId: "gate-c-occurrence-skip",
+        intent: {
+          kind: "skip_page_occurrence",
+          page_id: skippedScheduledPage.id,
+          occurrence_start_ms: skippedOccurrenceStart.getTime(),
+        },
+      }),
+    );
+    expect(candidateSkippedOccurrence.value.page_occurrence_mutation).toMatchObject({
+      success: oracleSkippedOccurrence.success,
+      created_page_id: oracleSkippedOccurrence.createdPageId ?? null,
+      code: oracleSkippedOccurrence.code ?? null,
+    });
+
+    const movedOccurrenceStart = new Date(
+      updatedOccurrenceStart.getTime() + 2 * 60 * 60_000,
+    );
+    const movedOccurrenceEnd = new Date(
+      movedOccurrenceStart.getTime() + 90 * 60_000,
+    );
+    const oracleUpdatedOccurrence = await updatePageOccurrence(
+      coordinates.projectId,
+      {
+        operationId: "gate-c-occurrence-update-all",
+        pageId: updatedScheduledPage.id,
+        occurrenceStart: updatedOccurrenceStart,
+        source: "calendar",
+        scope: "all",
+        updates: {
+          scheduledStart: movedOccurrenceStart,
+          scheduledEnd: movedOccurrenceEnd,
+          reminders: [{ offsetMinutes: 45 }],
+        },
+      },
+      "gate-c-occurrence-session",
+    );
+    const candidateUpdatedOccurrence = await stage(
+      "Automation update scheduled Page series",
+      candidate.automationApply({
+        operationId: "gate-c-occurrence-update-all",
+        intent: {
+          kind: "update_page_occurrence",
+          page_id: updatedScheduledPage.id,
+          occurrence_start_ms: updatedOccurrenceStart.getTime(),
+          scope: "all",
+          updates: {
+            scheduled_start_ms: movedOccurrenceStart.getTime(),
+            scheduled_end_ms: movedOccurrenceEnd.getTime(),
+            reminders: [{ offsetMinutes: 45 }],
+          },
+        },
+      }),
+    );
+    expect(candidateUpdatedOccurrence.value.page_occurrence_mutation).toMatchObject({
+      success: oracleUpdatedOccurrence.success,
+      created_page_id: oracleUpdatedOccurrence.createdPageId ?? null,
+      code: oracleUpdatedOccurrence.code ?? null,
+    });
+
+    const finalOccurrenceWindowEnd = new Date(
+      occurrenceWindowEnd.getTime() + 2 * 24 * 60 * 60_000,
+    );
+    const oracleFinalOccurrences = await listPageOccurrences(
+      coordinates.projectId,
+      occurrenceWindowStart,
+      finalOccurrenceWindowEnd,
+    );
+    const candidateFinalOccurrences = await stage(
+      "Automation occurrence mutations final authority",
+      candidate.automationRead({
+        kind: "occurrences",
+        window_start_ms: occurrenceWindowStart.getTime(),
+        window_end_ms: finalOccurrenceWindowEnd.getTime(),
+        search_query: null,
+        limit: 100,
+      }),
+    );
+    if (candidateFinalOccurrences.value.kind !== "occurrences") {
+      throw new Error("Expected final scheduled Page occurrence snapshot");
+    }
+    expect(
+      candidateFinalOccurrences.value.items.map(comparableOccurrence),
+    ).toEqual(oracleFinalOccurrences.map(comparableOccurrence));
+
+    const oracleCompletedDetail = readLibraryPageDetailInDatabase(
+      getDb(),
+      completedOccurrencePageId,
+      "app_window",
+    );
+    if (!oracleCompletedDetail.ok) {
+      throw new Error(oracleCompletedDetail.error.message);
+    }
+    const candidateCompletedDetail = await stage(
+      "Automation completed occurrence clone authority",
+      candidate.libraryRead({
+        kind: "page_detail",
+        page_id: completedOccurrencePageId,
+      }),
+    );
+    if (candidateCompletedDetail.value.kind !== "page_detail") {
+      throw new Error("Expected completed occurrence Page detail");
+    }
+    expect(
+      withoutVolatileFields(candidateCompletedDetail.value.value.page),
+    ).toEqual(withoutVolatileFields(oracleCompletedDetail.value.page));
+    const oracleCompletedContext = oracleCompletedDetail.value.dataSourceContext;
+    if (oracleCompletedContext.kind !== "member") {
+      throw new Error("Expected completed occurrence Data Source membership");
+    }
+    const candidateCompletedContext =
+      candidateCompletedDetail.value.value.data_source_context;
+    if (candidateCompletedContext.kind !== "member") {
+      throw new Error("Expected native completed occurrence membership");
+    }
+    expect(
+      withoutVolatileFields({
+        ...candidateCompletedContext,
+        membership: {
+          ...candidateCompletedContext.membership,
+          membership_id: "<allocated>",
+        },
+      }),
+    ).toEqual(withoutVolatileFields({
+      kind: "member",
+      membership: {
+        membership_id: "<allocated>",
+        data_source_id: oracleCompletedContext.membership.dataSourceId,
+        revision: oracleCompletedContext.membership.revision,
+        created_at: oracleCompletedContext.membership.createdAt,
+      },
+      database: oracleCompletedContext.database,
+      data_source: oracleCompletedContext.dataSource,
+      properties: oracleCompletedContext.properties,
+      values: oracleCompletedContext.values,
+    }));
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);

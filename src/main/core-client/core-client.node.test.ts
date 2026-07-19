@@ -372,6 +372,38 @@ describe("CoreClient over a Unix socket", () => {
         buildId: "node-native-cli-test",
         projectId: "project:default",
       });
+      const missingOccurrenceInput = {
+        operationId: "node-occurrence-missing-1",
+        intent: {
+          kind: "update_page_occurrence" as const,
+          page_id: "page:missing-occurrence",
+          occurrence_start_ms: Date.UTC(2026, 6, 18, 9),
+          scope: "all" as const,
+          updates: { is_all_day: false },
+        },
+      };
+      const missingOccurrence = await client.automationApply(
+        missingOccurrenceInput,
+      );
+      expect(missingOccurrence.value.page_occurrence_mutation).toMatchObject({
+        success: false,
+        duplicate: false,
+        change_log_seq: null,
+        code: "page_not_found",
+      });
+      const missingOccurrenceReplay = await nativeCli.automationApply(
+        missingOccurrenceInput,
+      );
+      expect(missingOccurrenceReplay.event_sequence).toBe(
+        missingOccurrence.event_sequence,
+      );
+      expect(
+        missingOccurrenceReplay.value.page_occurrence_mutation,
+      ).toMatchObject({
+        success: false,
+        duplicate: true,
+        code: "page_not_found",
+      });
       const unauthorizedClaim = nativeCli.automationApply({
         operationId: "node-native-cli-automation-claim-1",
         intent: {

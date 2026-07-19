@@ -67,6 +67,33 @@ struct CopyPlan {
     documents: Vec<CopyDocument>,
 }
 
+struct ExplicitRootIdentity<'a> {
+    page_id: &'a str,
+    document_id: &'a str,
+}
+
+pub(crate) struct OccurrencePageCloneInput<'a> {
+    pub(crate) operation_id: &'a str,
+    pub(crate) source_page_id: &'a str,
+    pub(crate) new_page_id: &'a str,
+    pub(crate) lifecycle: &'a str,
+    pub(crate) status: &'a str,
+    pub(crate) scheduled_start: &'a str,
+    pub(crate) scheduled_end: &'a str,
+    pub(crate) is_all_day: bool,
+    pub(crate) recurrence_json: &'a str,
+    pub(crate) reminders_json: &'a str,
+    pub(crate) schedule_timezone: Option<&'a str>,
+    pub(crate) primary_rank_key: Option<&'a str>,
+    pub(crate) now: &'a str,
+}
+
+pub(crate) struct OccurrencePageCloneResult {
+    pub(crate) page_id: String,
+    pub(crate) database_id: String,
+    pub(crate) affected_document_ids: Vec<String>,
+}
+
 fn write_parent(
     destination: &LibraryPageCopyDestination,
 ) -> Result<LibraryWriteParent, StoreError> {
@@ -214,6 +241,7 @@ pub(super) fn copy_page(
         &source.0,
         source_page_id,
         &source.5,
+        None,
     )?;
     let target_page_id = plan
         .block_ids
@@ -238,108 +266,16 @@ pub(super) fn copy_page(
         &now,
     )?;
 
-    let mut document_heads = BTreeMap::new();
-    for document in &plan.documents {
-        let target_authority =
-            read_document_authority(connection, &document.target_document_id)?
-                .ok_or_else(|| corrupt("Staged Page copy has no Document authority"))?;
-        let CopyDocumentBody::Yjs {
-            schema,
-            title,
-            materialization,
-        } = &document.body
-        else {
-            let source_authority =
-                read_document_authority(connection, &document.source_document_id)?
-                    .ok_or_else(|| corrupt("Canvas copy source authority disappeared"))?;
-            let head_seq = clone_canvas_genesis(
-                connection,
-                &source_authority,
-                &target_authority,
-                assets_root,
-            )?;
-            document_heads.insert(document.target_document_id.clone(), head_seq);
-            continue;
-        };
-        let remapped_blocks = remap_blocks(&materialization.block_tree, &plan.block_ids)?;
-        let prepared = prepare_yjs_clone_genesis(
-            &document.target_document_id,
-            &document.owner_type,
-            *schema,
-            title.as_deref(),
-            &remapped_blocks,
-        )?;
-        let full_state = prepared.engine.full_state_v1();
-        let update_id = format!(
-            "library-page-copy:{}:{}",
-            sha256(operation_id.as_bytes()),
-            sha256(document.source_document_id.as_bytes())
-        );
-        let persisted = persist_yjs_genesis(
-            connection,
-            PersistYjsGenesis {
-                authority: &target_authority,
-                materialization: &prepared.materialization,
-                update_id: &update_id,
-                client_session_id: "library-module",
-                update: &prepared.update_v1,
-                state_vector: &prepared.state_vector_v1,
-                full_state: &full_state,
-                store_epoch,
-                operation_id: &update_id,
-                emit_event: false,
-            },
-        )?;
-        document_heads.insert(document.target_document_id.clone(), persisted.head_seq);
-        if document.owner_type == "page" {
-            let root = document.source_owner_id == source_page_id;
-            let containing_document_id = if root {
-                resolved_parent
-                    .document
-                    .as_ref()
-                    .map(|parent| parent.authority.head.id.as_str())
-            } else {
-                document
-                    .source_containing_document_id
-                    .as_ref()
-                    .and_then(|source| plan.document_ids.get(source))
-                    .map(String::as_str)
-            };
-            let top_level_rank = if root && resolved_parent.document.is_none() {
-                connection
-                    .query_row(
-                        "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
-                        [&document.target_owner_id],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?
-            } else {
-                None
-            };
-            insert_page_read_model(
-                connection,
-                &document.target_owner_id,
-                &resolved_parent.project_id,
-                &document.target_document_id,
-                if containing_document_id.is_some() {
-                    "document"
-                } else {
-                    "space"
-                },
-                containing_document_id,
-                top_level_rank.as_deref(),
-                &prepared.materialization,
-                persisted.head_seq,
-                &now,
-            )?;
-            reset_page_intrinsic_projection(
-                connection,
-                &document.target_owner_id,
-                &resolved_parent.project_id,
-                &now,
-            )?;
-        }
-    }
+    let document_heads = persist_copy_documents(
+        connection,
+        &plan,
+        source_page_id,
+        &resolved_parent,
+        store_epoch,
+        operation_id,
+        &now,
+        assets_root,
+    )?;
 
     let data_source_placement = data_source_destination
         .as_ref()
@@ -491,12 +427,414 @@ pub(super) fn copy_page(
     )
 }
 
+pub(crate) fn clone_page_for_occurrence(
+    connection: &Connection,
+    library_id: &str,
+    store_epoch: &str,
+    assets_root: &Path,
+    input: OccurrencePageCloneInput<'_>,
+) -> Result<OccurrencePageCloneResult, StoreError> {
+    if !matches!(input.lifecycle, "active" | "archived") {
+        return Err(invalid("Occurrence clone lifecycle is invalid"));
+    }
+    let source = connection
+        .query_row(
+            "SELECT block.project_id, block.lifecycle, page.document_id, document.generation, \
+               document.head_seq, document.readiness, document.authority, membership.id, \
+               membership.data_source_id, source.home_database_block_id \
+             FROM pages page JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+             JOIN documents document ON document.id = page.document_id \
+               AND document.project_id = block.project_id \
+             JOIN data_source_page_memberships membership ON membership.page_block_id = page.block_id \
+               AND membership.removed_at IS NULL \
+             JOIN data_sources source ON source.id = membership.data_source_id \
+               AND source.home_database_block_id = block.containing_database_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2",
+            params![input.source_page_id, library_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Occurrence source Page is unavailable"))?;
+    if source.1 == "deleted" || source.5 != "ready" || source.6 != "ydoc_primary" {
+        return Err(not_found("Occurrence source Page is unavailable"));
+    }
+    let target_document_id = format!("document:{}", input.new_page_id);
+    let plan = build_copy_plan(
+        connection,
+        input.operation_id,
+        &source.0,
+        input.source_page_id,
+        &source.2,
+        Some(ExplicitRootIdentity {
+            page_id: input.new_page_id,
+            document_id: &target_document_id,
+        }),
+    )?;
+    assert_fresh_identities(connection, &plan)?;
+    let resolved_parent = super::mutation::ResolvedWriteParent {
+        parent_key: format!("library:{library_id}"),
+        page_id: None,
+        project_id: source.0.clone(),
+        document: None,
+        before_block_id: None,
+    };
+    stage_copy_authority(
+        connection,
+        library_id,
+        &resolved_parent,
+        input.source_page_id,
+        input.new_page_id,
+        &plan,
+        &LibraryWriteParent::Library { before: None },
+        input.now,
+    )?;
+    let document_heads = persist_copy_documents(
+        connection,
+        &plan,
+        input.source_page_id,
+        &resolved_parent,
+        store_epoch,
+        input.operation_id,
+        input.now,
+        assets_root,
+    )?;
+
+    connection.execute(
+        "DELETE FROM top_level_block_placements WHERE block_id = ?1",
+        [input.new_page_id],
+    )?;
+    connection.execute(
+        "DELETE FROM library_block_placements WHERE block_id = ?1",
+        [input.new_page_id],
+    )?;
+    let block_changed = connection.execute(
+        "UPDATE blocks SET lifecycle = ?1, location_kind = 'database', \
+           containing_document_id = NULL, containing_database_id = ?2, updated_at = ?3 \
+         WHERE id = ?4 AND project_id = ?5 AND type = 'page'",
+        params![
+            input.lifecycle,
+            source.9,
+            input.now,
+            input.new_page_id,
+            source.0,
+        ],
+    )?;
+    let page_changed = connection.execute(
+        "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, lifecycle = ?2, \
+           updated_at = ?3 WHERE block_id = ?4 AND library_id = ?5",
+        params![
+            source.8,
+            input.lifecycle,
+            input.now,
+            input.new_page_id,
+            library_id,
+        ],
+    )?;
+    if block_changed != 1 || page_changed != 1 {
+        return Err(corrupt("Occurrence clone root placement disappeared"));
+    }
+    let membership_id = format!(
+        "membership:{}",
+        sha256(format!("{}\0{}", source.8, input.new_page_id).as_bytes())
+    );
+    connection.execute(
+        "INSERT INTO data_source_page_memberships( \
+           id, data_source_id, page_block_id, revision, created_at, removed_at \
+         ) VALUES (?1, ?2, ?3, 1, ?4, NULL)",
+        params![membership_id, source.8, input.new_page_id, input.now],
+    )?;
+
+    let database_values = connection
+        .prepare(
+            "SELECT value.property_id, value.value_type, value.value_json \
+             FROM data_source_property_values value \
+             JOIN data_source_properties property ON property.data_source_id = value.data_source_id \
+               AND property.id = value.property_id AND property.lifecycle = 'active' \
+             WHERE value.data_source_id = ?1 AND value.membership_id = ?2 ORDER BY value.property_id",
+        )?
+        .query_map(params![source.8, source.7], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut required = BTreeSet::new();
+    for (property_id, value_type, value_json) in database_values {
+        let next_value = match property_id.as_str() {
+            "status" => {
+                required.insert("status");
+                serde_json::to_string(input.status)
+                    .map_err(|_| internal("Occurrence status JSON"))?
+            }
+            "scheduled_start" => {
+                required.insert("scheduled_start");
+                serde_json::to_string(input.scheduled_start)
+                    .map_err(|_| internal("Occurrence start JSON"))?
+            }
+            "scheduled_end" => {
+                required.insert("scheduled_end");
+                serde_json::to_string(input.scheduled_end)
+                    .map_err(|_| internal("Occurrence end JSON"))?
+            }
+            _ => value_json,
+        };
+        connection.execute(
+            "INSERT INTO data_source_property_values( \
+               data_source_id, membership_id, property_id, value_type, value_json, revision, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+            params![
+                source.8,
+                membership_id,
+                property_id,
+                value_type,
+                next_value,
+                input.now,
+            ],
+        )?;
+    }
+    if required.len() != 3 {
+        return Err(corrupt(
+            "Occurrence source Page is missing required schedule properties",
+        ));
+    }
+    let recurrence = serde_json::from_str::<serde_json::Value>(input.recurrence_json)
+        .map_err(|_| corrupt("Occurrence clone recurrence JSON is invalid"))?;
+    let reminders = serde_json::from_str::<serde_json::Value>(input.reminders_json)
+        .map_err(|_| corrupt("Occurrence clone reminder JSON is invalid"))?;
+    let intrinsic_overrides = [
+        (
+            "schedule.isAllDay",
+            serde_json::Value::Bool(input.is_all_day),
+        ),
+        ("recurrence.config", recurrence),
+        ("reminders.config", reminders),
+        (
+            "schedule.timezone",
+            input
+                .schedule_timezone
+                .map_or(serde_json::Value::Null, |value| {
+                    serde_json::Value::String(value.to_owned())
+                }),
+        ),
+    ];
+    for (property_key, value) in intrinsic_overrides {
+        let changed = connection.execute(
+            "UPDATE block_properties SET value_json = ?1, updated_at = ?2 \
+             WHERE block_id = ?3 AND project_id = ?4 AND property_key = ?5",
+            params![
+                serde_json::to_string(&value).map_err(|_| internal("Occurrence intrinsic JSON"))?,
+                input.now,
+                input.new_page_id,
+                source.0,
+                property_key,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(corrupt(
+                "Occurrence source Page is missing a required intrinsic property",
+            ));
+        }
+    }
+
+    let positions = connection
+        .prepare(
+            "SELECT position.view_id, position.group_key, position.rank_key, \
+               CASE WHEN container.default_view_id = view.id THEN 1 ELSE 0 END \
+             FROM database_view_page_positions position \
+             JOIN database_views view ON view.id = position.view_id AND view.lifecycle = 'active' \
+             JOIN database_containers container ON container.block_id = view.database_block_id \
+             WHERE position.page_block_id = ?1 AND view.database_block_id = ?2 \
+               AND view.data_source_id = ?3 ORDER BY position.view_id",
+        )?
+        .query_map(params![input.source_page_id, source.9, source.8], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (view_id, group_key, rank_key, primary) in positions {
+        let rank_key = if primary == 1 {
+            input
+                .primary_rank_key
+                .ok_or_else(|| invalid("Occurrence clone requires a primary View rank"))?
+        } else {
+            rank_key.as_str()
+        };
+        connection.execute(
+            "INSERT INTO database_view_page_positions( \
+               view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
+            params![
+                view_id,
+                input.new_page_id,
+                if primary == 1 {
+                    Some(input.status)
+                } else {
+                    group_key.as_deref()
+                },
+                rank_key,
+                input.now,
+            ],
+        )?;
+    }
+    reset_page_intrinsic_projection(connection, input.new_page_id, &source.0, input.now)?;
+    crate::database::refresh_copied_page_projection(
+        connection,
+        input.new_page_id,
+        Some(&membership_id),
+        Some(&source.8),
+        input.now,
+    )?;
+
+    Ok(OccurrencePageCloneResult {
+        page_id: input.new_page_id.to_owned(),
+        database_id: source.9,
+        affected_document_ids: document_heads.into_keys().collect(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn persist_copy_documents(
+    connection: &Connection,
+    plan: &CopyPlan,
+    source_page_id: &str,
+    resolved_parent: &super::mutation::ResolvedWriteParent,
+    store_epoch: &str,
+    operation_id: &str,
+    now: &str,
+    assets_root: &Path,
+) -> Result<BTreeMap<String, i64>, StoreError> {
+    let mut document_heads = BTreeMap::new();
+    for document in &plan.documents {
+        let target_authority =
+            read_document_authority(connection, &document.target_document_id)?
+                .ok_or_else(|| corrupt("Staged Page copy has no Document authority"))?;
+        let CopyDocumentBody::Yjs {
+            schema,
+            title,
+            materialization,
+        } = &document.body
+        else {
+            let source_authority =
+                read_document_authority(connection, &document.source_document_id)?
+                    .ok_or_else(|| corrupt("Canvas copy source authority disappeared"))?;
+            let head_seq = clone_canvas_genesis(
+                connection,
+                &source_authority,
+                &target_authority,
+                assets_root,
+            )?;
+            document_heads.insert(document.target_document_id.clone(), head_seq);
+            continue;
+        };
+        let remapped_blocks = remap_blocks(&materialization.block_tree, &plan.block_ids)?;
+        let prepared = prepare_yjs_clone_genesis(
+            &document.target_document_id,
+            &document.owner_type,
+            *schema,
+            title.as_deref(),
+            &remapped_blocks,
+        )?;
+        let full_state = prepared.engine.full_state_v1();
+        let update_id = format!(
+            "library-page-copy:{}:{}",
+            sha256(operation_id.as_bytes()),
+            sha256(document.source_document_id.as_bytes())
+        );
+        let persisted = persist_yjs_genesis(
+            connection,
+            PersistYjsGenesis {
+                authority: &target_authority,
+                materialization: &prepared.materialization,
+                update_id: &update_id,
+                client_session_id: "library-module",
+                update: &prepared.update_v1,
+                state_vector: &prepared.state_vector_v1,
+                full_state: &full_state,
+                store_epoch,
+                operation_id: &update_id,
+                emit_event: false,
+            },
+        )?;
+        document_heads.insert(document.target_document_id.clone(), persisted.head_seq);
+        if document.owner_type != "page" {
+            continue;
+        }
+        let root = document.source_owner_id == source_page_id;
+        let containing_document_id = if root {
+            resolved_parent
+                .document
+                .as_ref()
+                .map(|parent| parent.authority.head.id.as_str())
+        } else {
+            document
+                .source_containing_document_id
+                .as_ref()
+                .and_then(|source| plan.document_ids.get(source))
+                .map(String::as_str)
+        };
+        let top_level_rank = if root && resolved_parent.document.is_none() {
+            connection
+                .query_row(
+                    "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
+                    [&document.target_owner_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+        } else {
+            None
+        };
+        insert_page_read_model(
+            connection,
+            &document.target_owner_id,
+            &resolved_parent.project_id,
+            &document.target_document_id,
+            if containing_document_id.is_some() {
+                "document"
+            } else {
+                "space"
+            },
+            containing_document_id,
+            top_level_rank.as_deref(),
+            &prepared.materialization,
+            persisted.head_seq,
+            now,
+        )?;
+        reset_page_intrinsic_projection(
+            connection,
+            &document.target_owner_id,
+            &resolved_parent.project_id,
+            now,
+        )?;
+    }
+    Ok(document_heads)
+}
+
 fn build_copy_plan(
     connection: &Connection,
     operation_id: &str,
     source_project_id: &str,
     source_page_id: &str,
     source_root_document_id: &str,
+    explicit_root: Option<ExplicitRootIdentity<'_>>,
 ) -> Result<CopyPlan, StoreError> {
     let mut pending = VecDeque::from([source_page_id.to_owned()]);
     let mut documents = Vec::new();
@@ -625,7 +963,14 @@ fn build_copy_plan(
         .map(|source_id| {
             (
                 source_id.clone(),
-                stable_uuid_v7(operation_id, "block", source_id),
+                if source_id == source_page_id {
+                    explicit_root.as_ref().map_or_else(
+                        || stable_uuid_v7(operation_id, "block", source_id),
+                        |identity| identity.page_id.to_owned(),
+                    )
+                } else {
+                    stable_uuid_v7(operation_id, "block", source_id)
+                },
             )
         })
         .collect::<BTreeMap<_, _>>();
@@ -634,7 +979,14 @@ fn build_copy_plan(
         .map(|document| {
             (
                 document.1.clone(),
-                stable_uuid_v7(operation_id, "document", &document.1),
+                if document.1 == source_root_document_id {
+                    explicit_root.as_ref().map_or_else(
+                        || stable_uuid_v7(operation_id, "document", &document.1),
+                        |identity| identity.document_id.to_owned(),
+                    )
+                } else {
+                    stable_uuid_v7(operation_id, "document", &document.1)
+                },
             )
         })
         .collect::<BTreeMap<_, _>>();

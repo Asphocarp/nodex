@@ -1,5 +1,6 @@
 mod mutation;
 mod occurrence;
+mod occurrence_mutation;
 mod read;
 mod reminder;
 mod run;
@@ -14,6 +15,7 @@ use nodex_core_contracts::{
     ModuleReadSnapshot, StoreEpoch,
 };
 use rusqlite::OptionalExtension;
+use std::path::PathBuf;
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
@@ -30,6 +32,7 @@ pub struct AutomationModule {
     library_id: String,
     readers: Option<StoreReaders>,
     writer: Option<StoreWriter>,
+    assets_root: Option<PathBuf>,
 }
 
 impl AutomationModule {
@@ -43,6 +46,13 @@ impl AutomationModule {
             library_id: library_id.into(),
             readers: Some(kernel.readers()),
             writer: Some(kernel.writer()),
+            assets_root: Some(
+                kernel
+                    .database_path()
+                    .parent()
+                    .expect("Profile database has a parent")
+                    .join("assets"),
+            ),
         }
     }
 
@@ -95,8 +105,18 @@ impl AutomationModule {
         let Some(writer) = &self.writer else {
             return Err(unavailable("Automation Module has no durable store"));
         };
-        mutation::apply(writer, &self.profile_id, &self.library_id, context, request)
-            .map_err(core_error)
+        let Some(assets_root) = &self.assets_root else {
+            return Err(unavailable("Automation Module has no managed asset root"));
+        };
+        mutation::apply(
+            writer,
+            &self.profile_id,
+            &self.library_id,
+            context,
+            request,
+            assets_root,
+        )
+        .map_err(core_error)
     }
 
     fn validate_context(&self, context: &BoundModuleContext) -> Result<(), CoreError> {
@@ -119,6 +139,7 @@ impl Default for AutomationModule {
             library_id: "probe-library".to_owned(),
             readers: None,
             writer: None,
+            assets_root: None,
         }
     }
 }

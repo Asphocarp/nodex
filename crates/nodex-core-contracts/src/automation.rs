@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
@@ -270,6 +270,67 @@ pub struct ReminderSnooze {
     pub consumed_at_ms: Option<i64>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PageOccurrenceUpdateScope {
+    This,
+    ThisAndFuture,
+    All,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct PageOccurrenceSchedulePatch {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub scheduled_start_ms: Option<Option<i64>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub scheduled_end_ms: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_all_day: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub recurrence: Option<Option<PageRecurrenceConfig>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reminders: Option<Vec<PageReminderConfig>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub schedule_timezone: Option<Option<String>>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PageOccurrenceMutationCode {
+    PageNotFound,
+    PageNotScheduled,
+    PageNotRecurring,
+    AuthorizationDenied,
+    InvalidOccurrenceRequest,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct PageOccurrenceMutationResult {
+    pub success: bool,
+    pub operation_id: String,
+    pub duplicate: bool,
+    pub change_log_seq: Option<i64>,
+    pub created_page_id: Option<String>,
+    pub code: Option<PageOccurrenceMutationCode>,
+    pub error: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AutomationRead {
@@ -444,6 +505,22 @@ pub enum AutomationIntent {
         retry_delay_ms: Option<u64>,
         reason_code: String,
     },
+    CompletePageOccurrence {
+        page_id: String,
+        occurrence_start_ms: i64,
+        created_page_id: String,
+    },
+    SkipPageOccurrence {
+        page_id: String,
+        occurrence_start_ms: i64,
+    },
+    UpdatePageOccurrence {
+        page_id: String,
+        occurrence_start_ms: i64,
+        scope: PageOccurrenceUpdateScope,
+        created_page_id: Option<String>,
+        updates: PageOccurrenceSchedulePatch,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -456,6 +533,7 @@ pub struct AutomationCommitValue {
     pub run_bulk: Option<AutomationRunBulkResult>,
     pub reminder_leases: Vec<ReminderLease>,
     pub reminder_snoozes: Vec<ReminderSnooze>,
+    pub page_occurrence_mutation: Option<PageOccurrenceMutationResult>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -467,6 +545,9 @@ pub struct AutomationReceipt {
     pub affected_run_ids: Vec<String>,
     pub affected_reminder_lease_ids: Vec<String>,
     pub affected_snooze_ids: Vec<i64>,
+    pub affected_page_ids: Vec<String>,
+    pub affected_document_ids: Vec<String>,
+    pub affected_database_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -477,12 +558,23 @@ pub struct AutomationEvent {
     pub run_ids: Vec<String>,
     pub reminder_lease_ids: Vec<String>,
     pub snooze_ids: Vec<i64>,
+    pub page_ids: Vec<String>,
+    pub document_ids: Vec<String>,
+    pub database_ids: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AutomationEventKind {
     AutomationChanged,
+}
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 pub struct AutomationContract;
@@ -582,5 +674,25 @@ mod tests {
                 "untilDate": "2026-07-31",
             })
         );
+    }
+
+    #[test]
+    fn occurrence_patch_preserves_omitted_and_explicit_null_fields() {
+        let patch = serde_json::from_value::<PageOccurrenceSchedulePatch>(serde_json::json!({
+            "scheduled_start_ms": null,
+            "schedule_timezone": "UTC"
+        }))
+        .expect("patch");
+        assert_eq!(patch.scheduled_start_ms, Some(None));
+        assert_eq!(patch.scheduled_end_ms, None);
+        assert_eq!(patch.schedule_timezone, Some(Some("UTC".to_owned())));
+
+        let serialized = serde_json::to_value(patch).expect("patch serializes");
+        assert!(
+            serialized
+                .get("scheduled_start_ms")
+                .is_some_and(Value::is_null)
+        );
+        assert!(serialized.get("scheduled_end_ms").is_none());
     }
 }

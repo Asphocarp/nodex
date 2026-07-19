@@ -239,7 +239,17 @@ be reclaimed, completion atomically records the existing unique reminder
 receipt and consumes due Project-owned snoozes, and failure retains bounded
 retry evidence. Recursive-grant duplicates collapse to one delivery coordinate
 and prefer the active content-owning Project. The complete/skip/update
-occurrence mutation aggregate remains TypeScript-owned until its native slice.
+occurrence aggregate now enters the same Automation writer boundary. Callers
+provide one logical operation identity and preallocate a UUID-v7 whenever the
+intent may clone a Page. Complete clones the exact occurrence as an archived
+`ship` Page and advances or excepts the recurring source; skip records the same
+recurrence identity and advances only the current occurrence; update owns
+one-time, whole-series, detached-occurrence, and this-and-future split
+semantics. Recursive owned Documents, Data Source values, View placement,
+schedule projections, recurrence exceptions, the source transition, and the
+single Automation receipt/event commit or roll back together. Deterministic
+request failures persist as replayable rejected receipts without a change-log
+row, including across authenticated Adapter changes.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit
@@ -504,7 +514,7 @@ Workbench reopen flow:
 - Recurrence exceptions and reminder receipts are Page/Library-scoped and
   persisted in SQLite; Project is evaluated access context.
 - Every occurrence complete/skip/update request carries a caller-generated logical `operationId`. Complete and clone-capable update scopes also carry a preallocated UUID-v7 `createdPageId` as semantic intent. The semantic hash excludes transport actor/session, so IPC/HTTP failover and window/process restart replay the first committed or rejected result. Reusing the operation ID with another Page, created Page identity, occurrence, scope, update, or command kind is a typed collision.
-- Completing an occurrence creates an archived Page whose status is `done`; archived Pages stay out of board/sidebar/toggle-list flows but still surface in calendar occurrence queries.
+- Completing an occurrence creates an archived Page whose status is `ship`; archived Pages stay out of board/sidebar/toggle-list flows but still surface in calendar occurrence queries.
 - Status and manual View movement are Database operations with exact property/View revisions and logical anchors; stale intent fails as one typed conflict.
 - Metadata concurrency is field/path scoped. Scalar Block/Database properties compare their own revision, set-like values preserve add/remove intent, and a stale claim returns a typed conflict without mutating unrelated fields. Title/body concurrency is Yjs-based and never uses a whole-Page revision.
 - Library-scoped Block, Document, Database, projection, and history evidence is
