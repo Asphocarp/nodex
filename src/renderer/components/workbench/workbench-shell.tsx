@@ -9867,7 +9867,6 @@ export function WorkbenchShell({
             onOpenThread={openAttachedThreadSession}
             onOpenOutput={openProcessManagerOutput}
           />
-          <ThreadHeaderPortalProvider target={threadHeaderPortalElement}>
           <motion.div
             ref={workbenchRootRef}
             className="relative flex flex-col text-token-text-primary"
@@ -10257,7 +10256,6 @@ export function WorkbenchShell({
           )}
         </div>
           </motion.div>
-          </ThreadHeaderPortalProvider>
         </ContentSearchProvider>
       </NodexTooltipProvider>
     </HeaderActionProvider>

@@ -8996,6 +8996,10 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(tab.querySelector('[data-subagent-avatar-seed="thread-child"]') !== null).toBe(true);
     expect(screen.container.querySelector('[data-background-agent-side-panel-tab="background-agent:thread-child"]') !== null).toBe(true);
     expect(textContent(screen.container).includes("Thread:thread-child")).toBe(true);
+    const globalHeaderTitles = within(screen.getByTestId("workbench-global-header"))
+      .getAllByTestId("thread-stage-title");
+    expect(globalHeaderTitles).toHaveLength(1);
+    expect(globalHeaderTitles[0]?.textContent).toBe("Alpha thread");
     expect(invokeCalls.some((call) => call[0] === "codex:thread:ensure-session")).toBe(false);
     expect(JSON.stringify(hydrateBackgroundSubagentThreadsCalls)).toBe(JSON.stringify([{ threadIds: ["thread-child"] }]));
     expect(requestThreadStreamSnapshotCalls.filter((threadId) => threadId === "thread-child").length >= 1).toBe(true);

@@ -1573,7 +1573,7 @@ export const RegularRightAndBottomMotionParity: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Regular side panel plus open bottom panel, showing the animated right header slot for bottom/side toggles while the summary toggle remains in the thread header lane and both panel shells use Codex spring geometry.",
+        story: "Regular side panel plus open bottom panel, showing one active-thread title in the global header, the animated right header slot for bottom/side toggles, and the summary toggle in the thread header lane while both panel shells use Codex spring geometry.",
       },
     },
   },
