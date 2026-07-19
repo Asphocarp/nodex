@@ -80,8 +80,8 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
   getVersion: async () => {
     throw new Error("TypeScript Document history must not run");
   },
-  restoreVersion: async () => {
-    throw new Error("TypeScript Document history must not run");
+  applyDocumentMutation: async () => {
+    throw new Error("TypeScript Document mutation must not run");
   },
 });
 
@@ -627,6 +627,78 @@ describe("Desktop Document sync bridge", () => {
         && "kind" in event
         && event.kind === "relocation-lease-prepare"
       )).toHaveLength(prepareCount);
+  });
+
+  test("commits a merge-friendly public Document operation without a lease", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const request = {
+      version: 1 as const,
+      mutationId: "document-operation:merge-friendly",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      documentId: subscribeRequest.documentId,
+      generation: 1,
+      expectedHeadSeq: 2,
+      clientSessionId: subscribeRequest.clientSessionId,
+      actor: { kind: "electron_renderer" },
+      operations: [{
+        kind: "insert_block" as const,
+        block: {
+          id: "block:inserted",
+          type: "paragraph",
+          props: {},
+          content: [],
+          children: [],
+        },
+      }],
+    };
+    projectClient.enqueueDocumentApply({
+      store_epoch: request.storeEpoch,
+      event_sequence: 9,
+      value: {
+        document_id: request.documentId,
+        generation: 1,
+        head_seq: 3,
+        outcome: "committed",
+        committed_at: "2026-07-19T21:18:00.000Z",
+        mutation_effect: {
+          base_head_seq: 2,
+          touched_block_ids: ["block:inserted"],
+          created_block_ids: ["block:inserted"],
+          deleted_block_ids: [],
+          updated_block_ids: [],
+          moved_block_ids: [],
+          write_fence_block_ids: [],
+          title_changed: false,
+          coordination: "merge_friendly",
+        },
+      },
+      receipt: {
+        operation_id: request.mutationId,
+        duplicate: false,
+        document_id: request.documentId,
+        generation: 1,
+        head_seq: 3,
+      },
+    });
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+
+    await expect(bridge.applyDocumentMutation(request)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        mutationKind: "document_operation_batch",
+        coordination: "merge_friendly",
+      },
+    });
+    expect(projectClient.documentApplies).toHaveLength(1);
+    expect(projectClient.documentApplies[0]?.intent).toMatchObject({
+      kind: "apply_operation_batch",
+      write_fence_prepared: false,
+    });
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

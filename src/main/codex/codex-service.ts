@@ -629,7 +629,7 @@ import {
 } from "../codex-scheduled-automation-runtime";
 import { computeCodexScheduledAutomationIntervalMs } from "../local-store/codex-scheduled-automation-schedule";
 import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
-import { createTypeScriptAutomationModulePort } from "../core-client/typescript-automation-module-port";
+import { createTypeScriptAutomationModulePort } from "../typescript-automation-module-port";
 import { CodexScheduledAutomationRetryError } from "../codex-scheduled-automation-scheduler";
 import {
   buildCodexNewConversationParams,

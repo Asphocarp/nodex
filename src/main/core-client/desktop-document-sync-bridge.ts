@@ -16,7 +16,10 @@ import type {
 import type {
   DocumentHistoryCommandResult,
 } from "../../shared/block-documents/document-history-transport";
-import type { DocumentOperationCommandResult } from "../../shared/block-documents/document-operations";
+import type {
+  DocumentMutationRequest,
+  DocumentOperationCommandResult,
+} from "../../shared/block-documents/document-operations";
 import { documentMutationFailure } from "../../shared/block-documents/document-operation-transport";
 import type {
   CanvasSceneMutationCommandResult,
@@ -148,6 +151,9 @@ export interface DesktopDocumentSyncPort {
   restoreVersion(
     request: PrepareDocumentVersionRestore,
   ): Promise<DocumentOperationCommandResult>;
+  applyDocumentMutation(
+    request: DocumentMutationRequest,
+  ): Promise<DocumentOperationCommandResult>;
 }
 
 export interface DesktopDocumentSyncBridgeInput {
@@ -196,8 +202,8 @@ export interface DesktopDocumentSyncBridgeInput {
     getVersion(
       request: GetDocumentVersion,
     ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
-    restoreVersion(
-      request: PrepareDocumentVersionRestore,
+    applyDocumentMutation(
+      request: DocumentMutationRequest,
     ): Promise<DocumentOperationCommandResult>;
   };
 }
@@ -216,7 +222,7 @@ interface NativeSubscription {
   headSeq?: number;
 }
 
-interface NativeRestoreLeaseBoundary {
+interface NativeDocumentMutationLeaseBoundary {
   readonly leaseId: string;
   readonly projectId: string;
   readonly documentId: string;
@@ -368,13 +374,16 @@ export function createDesktopDocumentSyncBridge(
   const subscriptions = new Map<string, NativeSubscription>();
   const bindings = new Map<string, string>();
   const boundTargets = new Set<number>();
-  const restoreLeaseBoundaries = new Map<string, NativeRestoreLeaseBoundary>();
-  let restoreLeaseSequence = 0;
+  const documentMutationLeaseBoundaries = new Map<
+    string,
+    NativeDocumentMutationLeaseBoundary
+  >();
+  let documentMutationLeaseSequence = 0;
 
-  const publishRestoreLeaseEvent = (
+  const publishDocumentMutationLeaseEvent = (
     event: DocumentRelocationLeaseEvent,
   ): void => {
-    const boundary = restoreLeaseBoundaries.get(event.leaseId);
+    const boundary = documentMutationLeaseBoundaries.get(event.leaseId);
     if (!boundary) return;
     const subscription = [...subscriptions.values()].find(
       (candidate) =>
@@ -418,7 +427,7 @@ export function createDesktopDocumentSyncBridge(
     ]);
   };
   const relocationLeaseCoordinator = new DocumentRelocationLeaseCoordinator({
-    publishEvent: publishRestoreLeaseEvent,
+    publishEvent: publishDocumentMutationLeaseEvent,
   });
 
   const adapterFor = (
@@ -582,6 +591,166 @@ export function createDesktopDocumentSyncBridge(
     } catch (error) {
       return canvasSceneTransportUnavailable(error, mutationId);
     }
+  };
+
+  const applyDocumentMutation = async (
+    request: DocumentMutationRequest,
+  ): Promise<DocumentOperationCommandResult> => {
+    let runtime: DesktopDataAuthorityRuntime;
+    try {
+      runtime = await input.authority;
+    } catch (error) {
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "unknown",
+          error instanceof Error ? error.message : String(error),
+          { mutationId: request.mutationId, retryable: true },
+        ),
+      };
+    }
+    if (runtime.backend === "typescript") {
+      return await input.typescript.applyDocumentMutation(request);
+    }
+    const adapter = adapterFor(runtime, {
+      kind: "project",
+      projectId: request.projectId,
+    });
+    const replayOrFence = await adapter.applyDocumentMutation(request, false);
+    if (
+      replayOrFence.ok
+      || replayOrFence.error.code !== "write_fence_required"
+    ) {
+      return replayOrFence;
+    }
+
+    documentMutationLeaseSequence += 1;
+    const leaseId = `native-document-mutation:${documentMutationLeaseSequence.toString(36)}:${createHash("sha256")
+      .update(request.mutationId)
+      .digest("hex")
+      .slice(0, 16)}`;
+    const boundary: NativeDocumentMutationLeaseBoundary = {
+      leaseId,
+      projectId: request.projectId,
+      documentId: request.documentId,
+      storeEpoch: request.storeEpoch,
+      generation: request.generation,
+      headSeq: request.expectedHeadSeq,
+    };
+    documentMutationLeaseBoundaries.set(leaseId, boundary);
+    let prepared;
+    try {
+      prepared = await relocationLeaseCoordinator.prepare({
+        leaseId,
+        documents: [{
+          documentId: request.documentId,
+          generation: request.generation,
+          expectedHeadSeq: request.expectedHeadSeq,
+        }],
+      });
+    } catch (error) {
+      relocationLeaseCoordinator.cancel(leaseId);
+      documentMutationLeaseBoundaries.delete(leaseId);
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "document_write_lease_timeout",
+          error instanceof Error ? error.message : String(error),
+          { mutationId: request.mutationId, retryable: true },
+        ),
+      };
+    }
+    if (!prepared.ok) {
+      documentMutationLeaseBoundaries.delete(leaseId);
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "document_write_lease_timeout",
+          prepared.error.message,
+          { mutationId: request.mutationId, retryable: true },
+        ),
+      };
+    }
+    const resolved = prepared.value.resolvedHeads.find(
+      (head) => head.documentId === request.documentId,
+    );
+    if (!resolved) {
+      relocationLeaseCoordinator.cancel(leaseId);
+      documentMutationLeaseBoundaries.delete(leaseId);
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "unknown",
+          "Document mutation lease omitted its resolved head",
+          { mutationId: request.mutationId, retryable: true },
+        ),
+      };
+    }
+    if (resolved.headSeq !== request.expectedHeadSeq) {
+      relocationLeaseCoordinator.cancel(leaseId);
+      documentMutationLeaseBoundaries.delete(leaseId);
+      return {
+        ok: false,
+        error: documentMutationFailure(
+          "document_head_conflict",
+          `Document ${request.documentId} advanced while editors flushed for the mutation`,
+          {
+            mutationId: request.mutationId,
+            expectedHeadSeq: request.expectedHeadSeq,
+            actualHeadSeq: resolved.headSeq,
+          },
+        ),
+      };
+    }
+
+    const committed = await adapter.applyDocumentMutation(request, true);
+    if (!committed.ok) {
+      relocationLeaseCoordinator.cancel(leaseId);
+      documentMutationLeaseBoundaries.delete(leaseId);
+      return committed;
+    }
+    boundary.headSeq = committed.value.headSeq;
+    for (const [key, subscription] of subscriptions) {
+      if (
+        subscription.scope.kind !== "project"
+        || subscription.scope.projectId !== request.projectId
+        || subscription.documentId !== request.documentId
+      ) {
+        continue;
+      }
+      adoptSubscriptionBoundary(key, {
+        storeEpoch: committed.value.storeEpoch,
+        generation: committed.value.generation,
+        headSeq: committed.value.headSeq,
+      });
+    }
+    const released = relocationLeaseCoordinator.release(leaseId);
+    if (!released.ok) {
+      for (const subscription of subscriptions.values()) {
+        if (
+          subscription.scope.kind !== "project"
+          || subscription.scope.projectId !== request.projectId
+          || subscription.documentId !== request.documentId
+        ) {
+          continue;
+        }
+        safeSendToWebContents(
+          subscription.target,
+          DOCUMENT_SYNC_EVENT_CHANNEL,
+          [{
+            kind: "relocation-lease-release",
+            leaseId,
+            documentId: request.documentId,
+            clientSessionId: subscription.clientSessionId,
+            storeEpoch: committed.value.storeEpoch,
+            generation: committed.value.generation,
+            headSeq: committed.value.headSeq,
+          }],
+        );
+      }
+    }
+    documentMutationLeaseBoundaries.delete(leaseId);
+    return committed;
   };
 
   return {
@@ -795,7 +964,7 @@ export function createDesktopDocumentSyncBridge(
       }
       const subscription = nativeLeaseSubscription(target, scope, parsed);
       if (!subscription) return documentSyncUnauthorized();
-      const boundary = restoreLeaseBoundaries.get(parsed.leaseId);
+      const boundary = documentMutationLeaseBoundaries.get(parsed.leaseId);
       if (
         !boundary
         || scope.kind !== "project"
@@ -1029,162 +1198,7 @@ export function createDesktopDocumentSyncBridge(
         projectId: request.projectId,
       }).getVersion(request);
     },
-    restoreVersion: async (request) => {
-      let runtime: DesktopDataAuthorityRuntime;
-      try {
-        runtime = await input.authority;
-      } catch (error) {
-        return {
-          ok: false,
-          error: documentMutationFailure(
-            "unknown",
-            error instanceof Error ? error.message : String(error),
-            { mutationId: request.mutationId, retryable: true },
-          ),
-        };
-      }
-      if (runtime.backend === "typescript") {
-        return await input.typescript.restoreVersion(request);
-      }
-      const adapter = adapterFor(runtime, {
-        kind: "project",
-        projectId: request.projectId,
-      });
-      const replayOrFence = await adapter.restoreVersion(request, false);
-      if (
-        replayOrFence.ok
-        || replayOrFence.error.code !== "write_fence_required"
-      ) {
-        return replayOrFence;
-      }
-
-      restoreLeaseSequence += 1;
-      const leaseId = `native-document-restore:${restoreLeaseSequence.toString(36)}:${createHash("sha256")
-        .update(request.mutationId)
-        .digest("hex")
-        .slice(0, 16)}`;
-      const boundary: NativeRestoreLeaseBoundary = {
-        leaseId,
-        projectId: request.projectId,
-        documentId: request.documentId,
-        storeEpoch: request.storeEpoch,
-        generation: request.generation,
-        headSeq: request.expectedHeadSeq,
-      };
-      restoreLeaseBoundaries.set(leaseId, boundary);
-      let prepared;
-      try {
-        prepared = await relocationLeaseCoordinator.prepare({
-          leaseId,
-          documents: [{
-            documentId: request.documentId,
-            generation: request.generation,
-            expectedHeadSeq: request.expectedHeadSeq,
-          }],
-        });
-      } catch (error) {
-        relocationLeaseCoordinator.cancel(leaseId);
-        restoreLeaseBoundaries.delete(leaseId);
-        return {
-          ok: false,
-          error: documentMutationFailure(
-            "document_write_lease_timeout",
-            error instanceof Error ? error.message : String(error),
-            { mutationId: request.mutationId, retryable: true },
-          ),
-        };
-      }
-      if (!prepared.ok) {
-        restoreLeaseBoundaries.delete(leaseId);
-        return {
-          ok: false,
-          error: documentMutationFailure(
-            "document_write_lease_timeout",
-            prepared.error.message,
-            { mutationId: request.mutationId, retryable: true },
-          ),
-        };
-      }
-      const resolved = prepared.value.resolvedHeads.find(
-        (head) => head.documentId === request.documentId,
-      );
-      if (!resolved) {
-        relocationLeaseCoordinator.cancel(leaseId);
-        restoreLeaseBoundaries.delete(leaseId);
-        return {
-          ok: false,
-          error: documentMutationFailure(
-            "unknown",
-            "Document restore lease omitted its resolved head",
-            { mutationId: request.mutationId, retryable: true },
-          ),
-        };
-      }
-      if (resolved.headSeq !== request.expectedHeadSeq) {
-        relocationLeaseCoordinator.cancel(leaseId);
-        restoreLeaseBoundaries.delete(leaseId);
-        return {
-          ok: false,
-          error: documentMutationFailure(
-            "document_head_conflict",
-            `Document ${request.documentId} advanced while editors flushed for restore`,
-            {
-              mutationId: request.mutationId,
-              expectedHeadSeq: request.expectedHeadSeq,
-              actualHeadSeq: resolved.headSeq,
-            },
-          ),
-        };
-      }
-
-      const committed = await adapter.restoreVersion(request, true);
-      if (!committed.ok) {
-        relocationLeaseCoordinator.cancel(leaseId);
-        restoreLeaseBoundaries.delete(leaseId);
-        return committed;
-      }
-      boundary.headSeq = committed.value.headSeq;
-      for (const [key, subscription] of subscriptions) {
-        if (
-          subscription.scope.kind !== "project"
-          || subscription.scope.projectId !== request.projectId
-          || subscription.documentId !== request.documentId
-        ) {
-          continue;
-        }
-        adoptSubscriptionBoundary(key, {
-          storeEpoch: committed.value.storeEpoch,
-          generation: committed.value.generation,
-          headSeq: committed.value.headSeq,
-        });
-      }
-      const released = relocationLeaseCoordinator.release(leaseId);
-      if (!released.ok) {
-        for (const subscription of subscriptions.values()) {
-          if (
-            subscription.scope.kind !== "project"
-            || subscription.scope.projectId !== request.projectId
-            || subscription.documentId !== request.documentId
-          ) {
-            continue;
-          }
-          safeSendToWebContents(
-            subscription.target,
-            DOCUMENT_SYNC_EVENT_CHANNEL,
-            [{
-              kind: "relocation-lease-release",
-              leaseId,
-              documentId: request.documentId,
-              clientSessionId: subscription.clientSessionId,
-              storeEpoch: committed.value.storeEpoch,
-              generation: committed.value.generation,
-              headSeq: committed.value.headSeq,
-            }],
-          );
-        }
-      }
-      restoreLeaseBoundaries.delete(leaseId);
-      return committed;
-    },
+    applyDocumentMutation,
+    restoreVersion: async (request) => await applyDocumentMutation(request),
   };
 }

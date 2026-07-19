@@ -2202,6 +2202,176 @@
           "reusable_template"
         ]
       },
+      "DocumentBlockOperation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "title",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_title"
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "rich_title",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_rich_title"
+                ]
+              },
+              "rich_title": {
+                "type": "array",
+                "items": {}
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "block": {},
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "insert_block"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "patch",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "update_block"
+                ]
+              },
+              "patch": {
+                "$ref": "#/components/schemas/DocumentBlockUpdatePatch"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "delete_block"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "kind"
+            ],
+            "properties": {
+              "before_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "block_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_block"
+                ]
+              },
+              "parent_block_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "DocumentBlockUpdatePatch": {
+        "type": "object",
+        "required": [
+          "content",
+          "unset_content"
+        ],
+        "properties": {
+          "block_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {
+            "$ref": "#/components/schemas/DocumentOptionalValue"
+          },
+          "props": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "unset_content": {
+            "type": "boolean"
+          }
+        }
+      },
       "DocumentCheckpointEffect": {
         "type": "object",
         "required": [
@@ -2319,6 +2489,40 @@
             }
           }
         }
+      },
+      "DocumentOptionalValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "absent"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "value"
+                ]
+              },
+              "value": {}
+            }
+          }
+        ]
       },
       "DocumentOwnerCommand": {
         "oneOf": [
@@ -5803,6 +6007,92 @@
                     "enum": [
                       "apply_semantic_mutation"
                     ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "expected_head_seq",
+                  "operations",
+                  "actor",
+                  "write_fence_prepared",
+                  "kind"
+                ],
+                "properties": {
+                  "actor": {},
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_operation_batch"
+                    ]
+                  },
+                  "operations": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/DocumentBlockOperation"
+                    }
+                  },
+                  "write_fence_prepared": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "expected_head_seq",
+                  "nfm",
+                  "actor",
+                  "write_fence_prepared",
+                  "kind"
+                ],
+                "properties": {
+                  "actor": {},
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "expected_head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "replace_from_nfm"
+                    ]
+                  },
+                  "nfm": {
+                    "type": "string"
+                  },
+                  "rich_title": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {}
+                  },
+                  "write_fence_prepared": {
+                    "type": "boolean"
                   }
                 }
               },

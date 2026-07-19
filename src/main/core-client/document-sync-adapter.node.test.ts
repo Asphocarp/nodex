@@ -498,6 +498,98 @@ describe("Core Document sync adapter", () => {
     });
   });
 
+  test("maps a public operation batch with presence-sensitive Block patches", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    const request = {
+      version: 1 as const,
+      mutationId: "document-operation:batch",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      documentId: "document:one",
+      generation: 1,
+      expectedHeadSeq: 2,
+      clientSessionId: "renderer:document",
+      actor: { kind: "electron_renderer", clientId: "renderer:document" },
+      operations: [{
+        kind: "insert_block" as const,
+        block: {
+          id: "block:inserted",
+          type: "paragraph",
+          props: {},
+          content: [],
+          children: [],
+        },
+      }, {
+        kind: "update_block" as const,
+        blockId: "block:existing",
+        patch: { content: null },
+      }],
+    };
+    client.enqueueDocumentApply({
+      store_epoch: request.storeEpoch,
+      event_sequence: 10,
+      value: {
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+        outcome: "committed",
+        committed_at: "2026-07-19T21:13:00.000Z",
+        mutation_effect: {
+          base_head_seq: 2,
+          touched_block_ids: ["block:existing", "block:inserted"],
+          created_block_ids: ["block:inserted"],
+          deleted_block_ids: [],
+          updated_block_ids: ["block:existing"],
+          moved_block_ids: [],
+          write_fence_block_ids: ["block:existing"],
+          title_changed: false,
+          coordination: "write_fence",
+        },
+      },
+      receipt: {
+        operation_id: request.mutationId,
+        duplicate: false,
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+      },
+    });
+
+    await expect(adapter.applyDocumentMutation(request, true)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        mutationKind: "document_operation_batch",
+        coordination: "write_fence",
+        createdBlockIds: ["block:inserted"],
+        updatedBlockIds: ["block:existing"],
+      },
+    });
+    expect(client.documentApplies).toEqual([{
+      operationId: request.mutationId,
+      clientSessionId: request.clientSessionId,
+      intent: {
+        kind: "apply_operation_batch",
+        document_id: request.documentId,
+        generation: request.generation,
+        expected_head_seq: request.expectedHeadSeq,
+        operations: [{
+          kind: "insert_block",
+          block: request.operations[0]?.block,
+        }, {
+          kind: "update_block",
+          block_id: "block:existing",
+          patch: {
+            content: { kind: "value", value: null },
+            unset_content: false,
+          },
+        }],
+        actor: request.actor,
+        write_fence_prepared: true,
+      },
+    }]);
+  });
+
   test("rejects a Core restore effect that omits a changed Block from touched IDs", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);

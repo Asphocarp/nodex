@@ -492,24 +492,43 @@ describe("Electron native data authority", () => {
       ) {
         throw new Error("Expected native Synced Block version detail");
       }
-      const changed = await runtime.clientForProject(projectId).documentApply({
-        operationId: "electron-document-history-change",
+      const changeRequest = {
+        version: 1 as const,
+        mutationId: "electron-document-history-change",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        documentId: nativeSourceDocumentId,
+        generation: 1,
+        expectedHeadSeq: 1,
         clientSessionId: "renderer:electron-document-history",
-        intent: {
-          kind: "apply_semantic_mutation",
-          document_id: nativeSourceDocumentId,
-          generation: 1,
-          expected_head_seq: 1,
-          commands: [{
-            kind: "delete_block",
-            block_id: nativeContentBlockId,
-          }],
+        actor: {
+          kind: "electron_renderer",
+          clientId: "renderer:electron-document-history",
         },
+        operations: [{
+          kind: "delete_block" as const,
+          blockId: nativeContentBlockId,
+        }],
+      };
+      await expect(projectDocuments.applyDocumentMutation(
+        changeRequest,
+        false,
+      )).resolves.toMatchObject({
+        ok: false,
+        error: { code: "write_fence_required", retryable: true },
       });
-      expect(changed.value).toMatchObject({
-        document_id: nativeSourceDocumentId,
-        head_seq: 2,
-        outcome: "committed",
+      const changed = await projectDocuments.applyDocumentMutation(
+        changeRequest,
+        true,
+      );
+      expect(changed).toMatchObject({
+        ok: true,
+        value: {
+          mutationId: changeRequest.mutationId,
+          headSeq: 2,
+          deletedBlockIds: [nativeContentBlockId],
+          coordination: "write_fence",
+        },
       });
       const restoreRequest = {
         version: 1 as const,
@@ -570,7 +589,14 @@ describe("Electron native data authority", () => {
           `Core restored history list failed: ${restoredVersions.error.message}`,
         );
       }
-      expect(restoredVersions.value).toHaveLength(3);
+      expect(restoredVersions.value).toHaveLength(4);
+      expect(restoredVersions.value).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          baseHeadSeq: 2,
+          revisionKind: "operation",
+          sourceMutationId: changeRequest.mutationId,
+        }),
+      ]));
       const restoredVersion = restoredVersions.value.find(
         (version) =>
           version.baseHeadSeq === 3

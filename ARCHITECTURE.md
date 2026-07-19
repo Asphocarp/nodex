@@ -142,6 +142,17 @@ writer transaction. Release carries the committed head back to each frozen
 provider. Renderer/connection audit identity and the host lease are excluded
 from semantic retry identity, so a reconnect or later head cannot hide an
 already-committed receipt.
+Public stable-ID Document batches and whole-NFM replacements use the same native
+boundary. The Adapter translates the established renderer contract into typed
+Core operations, including an explicit absent/value wrapper for nullable Block
+content. Core prepares the relative Yrs update at the exact generation/head,
+derives the semantic Block effect, and requests a host fence only when the
+operation invalidates existing Yjs structs; merge-friendly insertion commits
+without freezing providers. Every committed public operation records its
+attributed `operation` checkpoint and receipt with the update/event in the same
+transaction. Mutation identity excludes the renewable connection, actor, and
+fence proof so reconnect replay returns the original audit/effect rather than
+executing again.
 Project-scoped Page History reads also use the Library Module Adapter: the
 renderer request selects the exact Project client, Core evaluates recursive
 resource access in one read snapshot, and the Adapter maps the typed native

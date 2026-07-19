@@ -134,9 +134,9 @@ import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-syn
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
-import { createTypeScriptAutomationModulePort } from "./core-client/typescript-automation-module-port";
+import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
-import { createTypeScriptStoreAdministrationPort } from "./core-client/typescript-store-administration-port";
+import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -1576,6 +1576,7 @@ export function registerIpcHandlers(
       };
     },
     applyMutation: (request) =>
+      options.documentSync?.applyDocumentMutation(request) ??
       documentSyncHub.applyDocumentMutation(request),
   });
 

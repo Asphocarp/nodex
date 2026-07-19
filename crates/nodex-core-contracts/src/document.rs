@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -95,6 +97,23 @@ pub enum OwnedDocumentIntent {
         expected_head_seq: i64,
         commands: Vec<DocumentSemanticCommand>,
     },
+    ApplyOperationBatch {
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        operations: Vec<DocumentBlockOperation>,
+        actor: Value,
+        write_fence_prepared: bool,
+    },
+    ReplaceFromNfm {
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        nfm: String,
+        rich_title: Option<Vec<Value>>,
+        actor: Value,
+        write_fence_prepared: bool,
+    },
     ExecutePreparedAgentSemanticMutation {
         authorization: Box<AgentPreparedExecution>,
         mutation: Box<AgentDocumentSemanticMutation>,
@@ -160,6 +179,51 @@ pub enum DocumentSemanticCommand {
     ReplaceBody {
         nested_markdown: String,
         expected_etag: String,
+    },
+    DeleteBlock {
+        block_id: String,
+    },
+    MoveBlock {
+        block_id: String,
+        parent_block_id: Option<String>,
+        before_block_id: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DocumentOptionalValue {
+    Absent,
+    Value { value: Value },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentBlockUpdatePatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub props: Option<BTreeMap<String, Value>>,
+    pub content: DocumentOptionalValue,
+    pub unset_content: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DocumentBlockOperation {
+    SetTitle {
+        title: String,
+    },
+    SetRichTitle {
+        rich_title: Vec<Value>,
+    },
+    InsertBlock {
+        block: Value,
+        parent_block_id: Option<String>,
+        before_block_id: Option<String>,
+    },
+    UpdateBlock {
+        block_id: String,
+        patch: DocumentBlockUpdatePatch,
     },
     DeleteBlock {
         block_id: String,

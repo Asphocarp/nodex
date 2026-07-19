@@ -3,7 +3,7 @@ import type {
   AutomationArchiveMessages,
   DesktopAutomationModulePort,
 } from "./core-client/desktop-automation-module-bridge";
-import { createTypeScriptAutomationModulePort } from "./core-client/typescript-automation-module-port";
+import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import type {
   CodexAutomationRunsUpdatedEvent,
   CodexHeartbeatAutomationThreadStateChangedInput,

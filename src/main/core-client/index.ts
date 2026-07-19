@@ -29,7 +29,6 @@ export {
   type DesktopAutomationModuleBridgeInput,
   type DesktopAutomationModulePort,
 } from "./desktop-automation-module-bridge";
-export { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 export {
   createDesktopStoreAdministrationBridge,
   mapCoreStoreAdministrationEvent,
@@ -38,7 +37,6 @@ export {
   type DesktopStoreAdministrationPort,
   type DesktopStoreMaintenanceTask,
 } from "./desktop-store-administration-bridge";
-export { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
 export {
   createDesktopDatabaseModuleBridge,
   mapCoreDatabaseEvent,

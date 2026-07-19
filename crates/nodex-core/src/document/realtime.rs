@@ -611,6 +611,8 @@ fn intent_document_id(intent: &OwnedDocumentIntent) -> Option<&str> {
     match intent {
         OwnedDocumentIntent::ApplyYjsUpdate { document_id, .. }
         | OwnedDocumentIntent::ApplySemanticMutation { document_id, .. }
+        | OwnedDocumentIntent::ApplyOperationBatch { document_id, .. }
+        | OwnedDocumentIntent::ReplaceFromNfm { document_id, .. }
         | OwnedDocumentIntent::ApplyCanvasMutation { document_id, .. }
         | OwnedDocumentIntent::CreateCheckpoint { document_id, .. }
         | OwnedDocumentIntent::RestoreVersion { document_id, .. } => Some(document_id),

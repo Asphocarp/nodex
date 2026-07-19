@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import * as runsStore from "../local-store/codex-automation-runs";
-import * as definitionsStore from "../local-store/codex-scheduled-automations";
-import { blockMutationWriter } from "../block-mutation-writer";
-import { listPageOccurrences } from "../local-store/page-occurrences";
-import { snoozeReminder } from "../local-store/reminders";
+import * as runsStore from "./local-store/codex-automation-runs";
+import * as definitionsStore from "./local-store/codex-scheduled-automations";
+import { blockMutationWriter } from "./block-mutation-writer";
+import { listPageOccurrences } from "./local-store/page-occurrences";
+import { snoozeReminder } from "./local-store/reminders";
 import type {
   DesktopAutomationClaim,
   DesktopAutomationModulePort,
-} from "./desktop-automation-module-bridge";
+} from "./core-client/desktop-automation-module-bridge";
 
 export function createTypeScriptAutomationModulePort(): DesktopAutomationModulePort {
   const claims = new Map<string, DesktopAutomationClaim>();

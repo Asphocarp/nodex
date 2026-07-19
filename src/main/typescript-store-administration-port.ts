@@ -1,5 +1,5 @@
-import * as backups from "../local-store/backups";
-import type { DesktopStoreAdministrationPort } from "./desktop-store-administration-bridge";
+import * as backups from "./local-store/backups";
+import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 
 export function createTypeScriptStoreAdministrationPort(): DesktopStoreAdministrationPort {
   return {

@@ -152,8 +152,8 @@ import {
   type DesktopDataAuthorityRuntime,
   type DesktopStoreAdministrationPort,
 } from "./core-client";
-import { createTypeScriptAutomationModulePort } from "./core-client/typescript-automation-module-port";
-import { createTypeScriptStoreAdministrationPort } from "./core-client/typescript-store-administration-port";
+import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
+import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
 import {
   startStoreAdministrationBackupScheduler,
   type StoreAdministrationBackupScheduler,
@@ -1695,7 +1695,7 @@ export async function runMainAppStartup(
           await blockMutationWriter.listDocumentVersions(request),
         getVersion: async (request) =>
           await blockMutationWriter.getDocumentVersion(request),
-        restoreVersion: async (request) =>
+        applyDocumentMutation: async (request) =>
           await documentSyncHub.applyDocumentMutation(request),
       },
     }),

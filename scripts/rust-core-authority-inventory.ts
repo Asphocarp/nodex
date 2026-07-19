@@ -152,7 +152,7 @@ const capabilityRules: readonly CapabilityRule[] = [
     callerNeed: "all Adapters need one generated contract vocabulary without acquiring domain authority",
   },
   {
-    pattern: /^(?:bin\/nodex\.mjs|src\/main\/(?:bootstrap|main-runtime|http-server|ipc-handlers|document-sync-http|browser-sidebar-service|clipboard-image-writer)\.ts|src\/main\/[^/]+-(?:http|ipc-handlers)\.ts$|src\/main\/local-store\/config\.ts$|src\/main\/logging\/logger\.ts$)/,
+    pattern: /^(?:bin\/nodex\.mjs|src\/main\/(?:bootstrap|main-runtime|http-server|ipc-handlers|document-sync-http|browser-sidebar-service|clipboard-image-writer|rust-data-authority(?:\.integration)?)\.ts|src\/main\/core-client\/|src\/main\/[^/]+-(?:http|ipc-handlers)\.ts$|src\/main\/local-store\/config\.ts$|src\/main\/logging\/logger\.ts$)/,
     module: "Adapter",
     intent: "bind host identity and proxy accepted Module read/apply operations",
     callerNeed: "Desktop, HTTP, IPC, and legacy CLI clients need stable transport contracts without store access",
@@ -170,7 +170,7 @@ const capabilityRules: readonly CapabilityRule[] = [
     callerNeed: "Core needs behaviorally equivalent schema, mutation, and validation semantics",
   },
   {
-    pattern: /(?:backup|restore|maintenance|schema|database-file-migration|database-identity-cutover|workflow-status-cutover|sql-inspection|block-retention|block-store-metadata|database\.ts$)/,
+    pattern: /(?:administration|backup|restore|maintenance|schema|database-file-migration|database-identity-cutover|workflow-status-cutover|sql-inspection|block-retention|block-store-metadata|database\.ts$)/,
     module: "Store Administration",
     intent: "inspect, migrate, fence, retain, back up, or restore the Profile store",
     callerNeed: "trusted maintenance callers need whole-store lifecycle operations with one exclusive authority",
@@ -206,7 +206,7 @@ const capabilityRules: readonly CapabilityRule[] = [
     callerNeed: "the Desktop executor needs due work and atomic completion/failure transitions",
   },
   {
-    pattern: /(?:project|session|codex|worktree|persisted-atoms|source-root|thread-link|sidebar-chat)/,
+    pattern: /(?:project|session|codex|worktree|persisted-atom|source-root|thread-link|sidebar-chat)/,
     module: "Project Workspace",
     intent: "read or mutate coherent Project execution context",
     callerNeed: "Desktop and Codex hosts need scoped Projects, sessions, layouts, thread links, and launch authority",

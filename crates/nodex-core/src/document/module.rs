@@ -10,8 +10,9 @@ use nodex_core_contracts::agent::{
     AgentResourceKind, AgentResourceTarget, AgentTurnProvenance,
 };
 use nodex_core_contracts::document::{
-    AgentDocumentSemanticMutation, DocumentCheckpointEffect, DocumentCommitOutcome,
-    DocumentInvalidationReason, DocumentMutationCoordination, DocumentMutationEffect,
+    AgentDocumentSemanticMutation, DocumentBlockOperation as ContractDocumentBlockOperation,
+    DocumentCheckpointEffect, DocumentCommitOutcome, DocumentInvalidationReason,
+    DocumentMutationCoordination, DocumentMutationEffect, DocumentOptionalValue,
     DocumentOwnerCommand, DocumentRevisionKind, DocumentSemanticCommand, OwnedDocumentCommitValue,
     OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
     OwnedDocumentReceipt,
@@ -28,6 +29,7 @@ use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, Transact};
 
 use crate::domain::block_materialization::MaterializedBlockNode;
+use crate::domain::rich_text::RichTextItem;
 use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationLease, PreparedAgentOperationRegistry,
 };
@@ -56,6 +58,11 @@ use super::history::{
     NewDocumentCheckpoint, get_document_version, insert_canvas_checkpoint,
     insert_document_checkpoint, list_document_versions, prepare_canvas_revision,
     prepare_document_revision, prepare_version_restore, record_document_revision_edit,
+};
+use super::operations::{
+    DocumentBlockOperation as EngineDocumentBlockOperation,
+    DocumentBlockUpdatePatch as EngineDocumentBlockUpdatePatch, DocumentOperationError,
+    DocumentOperationErrorCode, prepare_document_operation_update, prepare_nfm_replacement_update,
 };
 use super::owners::execute_owner_command;
 use super::persistence::{
@@ -92,9 +99,11 @@ struct PreparedAgentExecutionJob {
     mutation: AgentDocumentSemanticMutation,
 }
 
-struct RestoreCheckpoint {
+struct DocumentCommitCheckpoint {
     actor: Value,
-    label: String,
+    cause: &'static str,
+    label: Option<String>,
+    revision_kind: &'static str,
 }
 
 struct AgentSemanticPreflight {
@@ -399,6 +408,44 @@ impl OwnedDocumentModule {
                 expected_head_seq,
                 commands,
                 None,
+            ),
+            OwnedDocumentIntent::ApplyOperationBatch {
+                document_id,
+                generation,
+                expected_head_seq,
+                operations,
+                actor,
+                write_fence_prepared,
+            } => self.apply_operation_batch(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                document_id,
+                generation,
+                expected_head_seq,
+                operations,
+                actor,
+                write_fence_prepared,
+            ),
+            OwnedDocumentIntent::ReplaceFromNfm {
+                document_id,
+                generation,
+                expected_head_seq,
+                nfm,
+                rich_title,
+                actor,
+                write_fence_prepared,
+            } => self.replace_from_nfm(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                document_id,
+                generation,
+                expected_head_seq,
+                nfm,
+                rich_title,
+                actor,
+                write_fence_prepared,
             ),
             OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
                 authorization,
@@ -1594,6 +1641,196 @@ impl OwnedDocumentModule {
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn apply_operation_batch(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        contract_operations: Vec<ContractDocumentBlockOperation>,
+        actor: Value,
+        write_fence_prepared: bool,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        validate_document_actor(&actor)?;
+        let fingerprint = serde_json::to_vec(&(
+            "nodex.document.operation-batch.v1",
+            &context.profile_id,
+            &context.library_id,
+            &context.project_id,
+            &expected_store_epoch,
+            &document_id,
+            generation,
+            expected_head_seq,
+            &contract_operations,
+        ))
+        .map_err(|_| invalid("Document operation batch cannot be fingerprinted"))?;
+        let operations = contract_document_operations(contract_operations)?;
+        let update_id = format!("document-mutation:{operation_id}");
+        self.apply_document_update(
+            DocumentUpdateJob {
+                context: context.clone(),
+                operation_id,
+                expected_store_epoch,
+                document_id,
+                generation,
+                operation_kind: "apply_operation_batch",
+                request_hash: sha256(&fingerprint),
+                publication: UpdatePublication::Updated,
+                prepared_agent: None,
+            },
+            move |connection, authority, engine, materialization, _store_epoch| {
+                assert_document_head(authority, generation, expected_head_seq)?;
+                let schema = registered_yjs_schema(authority)?;
+                let prepared = match prepare_document_operation_update(
+                    &authority.head.id,
+                    schema,
+                    &engine.full_state_v1(),
+                    &engine.state_vector_v1(),
+                    &operations,
+                    false,
+                ) {
+                    Ok(prepared) => prepared,
+                    Err(error) if error.code() == DocumentOperationErrorCode::NoChange => {
+                        return Ok(PreparedUpdate::NoChange);
+                    }
+                    Err(error) => return Err(document_operation_store_error(error)),
+                };
+                let mutation_effect = document_mutation_effect(
+                    &authority.owner_block_id,
+                    authority.head.head_seq,
+                    materialization,
+                    &prepared.materialization,
+                    &prepared.write_fence_block_ids,
+                    prepared.title_write_fence_required,
+                    false,
+                );
+                assert_fresh_document_block_ids(
+                    connection,
+                    authority,
+                    &mutation_effect.created_block_ids,
+                )?;
+                require_document_write_fence(mutation_effect.coordination, write_fence_prepared)?;
+                Ok(PreparedUpdate::Apply {
+                    base_head_seq: authority.head.head_seq,
+                    update_id,
+                    touched_block_ids: mutation_effect.touched_block_ids.clone(),
+                    update: prepared.update_v1,
+                    write_fence_block_ids: prepared.write_fence_block_ids,
+                    title_write_fence_required: prepared.title_write_fence_required,
+                    mutation_effect: Some(Box::new(mutation_effect)),
+                })
+            },
+            Some(DocumentCommitCheckpoint {
+                actor,
+                cause: "document_operation_batch",
+                label: None,
+                revision_kind: "operation",
+            }),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn replace_from_nfm(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        document_id: String,
+        generation: i64,
+        expected_head_seq: i64,
+        nfm: String,
+        contract_rich_title: Option<Vec<Value>>,
+        actor: Value,
+        write_fence_prepared: bool,
+    ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        validate_document_actor(&actor)?;
+        let fingerprint = serde_json::to_vec(&(
+            "nodex.document.replace-from-nfm.v1",
+            &context.profile_id,
+            &context.library_id,
+            &context.project_id,
+            &expected_store_epoch,
+            &document_id,
+            generation,
+            expected_head_seq,
+            &nfm,
+            &contract_rich_title,
+        ))
+        .map_err(|_| invalid("Document NFM replacement cannot be fingerprinted"))?;
+        let rich_title = contract_rich_title.map(contract_rich_text).transpose()?;
+        let allocation_seed = operation_id.clone();
+        let update_id = format!("document-mutation:{operation_id}");
+        self.apply_document_update(
+            DocumentUpdateJob {
+                context: context.clone(),
+                operation_id,
+                expected_store_epoch,
+                document_id,
+                generation,
+                operation_kind: "replace_from_nfm",
+                request_hash: sha256(&fingerprint),
+                publication: UpdatePublication::Updated,
+                prepared_agent: None,
+            },
+            move |connection, authority, engine, materialization, _store_epoch| {
+                assert_document_head(authority, generation, expected_head_seq)?;
+                let schema = registered_yjs_schema(authority)?;
+                let mut allocation_index = 0_u64;
+                let prepared = match prepare_nfm_replacement_update(
+                    &authority.head.id,
+                    schema,
+                    &engine.full_state_v1(),
+                    &engine.state_vector_v1(),
+                    &nfm,
+                    rich_title.as_deref(),
+                    &mut || {
+                        allocation_index += 1;
+                        allocate_document_block_id(&allocation_seed, allocation_index)
+                    },
+                ) {
+                    Ok(prepared) => prepared,
+                    Err(error) if error.code() == DocumentOperationErrorCode::NoChange => {
+                        return Ok(PreparedUpdate::NoChange);
+                    }
+                    Err(error) => return Err(document_operation_store_error(error)),
+                };
+                let mutation_effect = document_mutation_effect(
+                    &authority.owner_block_id,
+                    authority.head.head_seq,
+                    materialization,
+                    &prepared.materialization,
+                    &prepared.write_fence_block_ids,
+                    prepared.title_write_fence_required,
+                    true,
+                );
+                assert_fresh_document_block_ids(
+                    connection,
+                    authority,
+                    &mutation_effect.created_block_ids,
+                )?;
+                require_document_write_fence(mutation_effect.coordination, write_fence_prepared)?;
+                Ok(PreparedUpdate::Apply {
+                    base_head_seq: authority.head.head_seq,
+                    update_id,
+                    touched_block_ids: mutation_effect.touched_block_ids.clone(),
+                    update: prepared.update_v1,
+                    write_fence_block_ids: prepared.write_fence_block_ids,
+                    title_write_fence_required: prepared.title_write_fence_required,
+                    mutation_effect: Some(Box::new(mutation_effect)),
+                })
+            },
+            Some(DocumentCommitCheckpoint {
+                actor,
+                cause: "replace_document_from_nfm",
+                label: None,
+                revision_kind: "operation",
+            }),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn create_checkpoint(
         &self,
         context: &BoundModuleContext,
@@ -1758,7 +1995,7 @@ impl OwnedDocumentModule {
         actor: Value,
         write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
-        validate_restore_actor(&actor)?;
+        validate_document_actor(&actor)?;
         let sync_engine = self
             .readers
             .read_default(|connection| {
@@ -1820,9 +2057,11 @@ impl OwnedDocumentModule {
         let checkpoint_operation_id = operation_id.clone();
         let checkpoint_context = context.clone();
         let before_restore_actor = restore_checkpoint_actor(&actor, &operation_id, &version_id)?;
-        let after_restore_checkpoint = RestoreCheckpoint {
+        let after_restore_checkpoint = DocumentCommitCheckpoint {
             actor,
-            label: format!("Restored {version_id}"),
+            cause: "after_restore",
+            label: Some(format!("Restored {version_id}")),
+            revision_kind: "restore",
         };
         self.apply_document_update(
             DocumentUpdateJob {
@@ -1844,13 +2083,14 @@ impl OwnedDocumentModule {
                 else {
                     return Ok(PreparedUpdate::NoChange);
                 };
-                let mutation_effect = document_restore_effect(
+                let mutation_effect = document_mutation_effect(
                     &authority.owner_block_id,
                     authority.head.head_seq,
                     materialization,
                     &prepared.materialization,
                     &prepared.write_fence_block_ids,
                     prepared.title_write_fence_required,
+                    true,
                 );
                 let now = sqlite_now(connection)?;
                 let safety_label = format!("Before restore {version_id}");
@@ -2109,7 +2349,7 @@ impl OwnedDocumentModule {
         &self,
         job: DocumentUpdateJob,
         prepare: F,
-        restore_checkpoint: Option<RestoreCheckpoint>,
+        commit_checkpoint: Option<DocumentCommitCheckpoint>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError>
     where
         F: FnOnce(
@@ -2374,28 +2614,31 @@ impl OwnedDocumentModule {
                         title_write_fence_required,
                     },
                 )?;
-                if matches!(
-                    job.publication,
-                    UpdatePublication::Invalidated(DocumentInvalidationReason::Restored)
-                ) {
-                    let mut restored_authority = authority.clone();
-                    restored_authority.head.head_seq = persisted.head_seq;
-                    restored_authority.head.state_vector = persisted.state_vector.clone();
-                    restored_authority.head.state_hash = persisted.state_hash.clone();
+                if commit_checkpoint.is_some() {
+                    let mut committed_authority = authority.clone();
+                    committed_authority.head.head_seq = persisted.head_seq;
+                    committed_authority.head.state_vector = persisted.state_vector.clone();
+                    committed_authority.head.state_hash = persisted.state_hash.clone();
                     insert_document_checkpoint(
                         &transaction,
-                        &restored_authority,
+                        &committed_authority,
                         &materialization,
                         NewDocumentCheckpoint {
                             operation_id: &job.operation_id,
-                            cause: "after_restore",
-                            label: restore_checkpoint
+                            cause: commit_checkpoint
                                 .as_ref()
-                                .map(|checkpoint| checkpoint.label.as_str()),
-                            revision_kind: "restore",
+                                .map(|checkpoint| checkpoint.cause)
+                                .unwrap_or("operation"),
+                            label: commit_checkpoint
+                                .as_ref()
+                                .and_then(|checkpoint| checkpoint.label.as_deref()),
+                            revision_kind: commit_checkpoint
+                                .as_ref()
+                                .map(|checkpoint| checkpoint.revision_kind)
+                                .unwrap_or("operation"),
                             source_mutation_id: Some(&job.operation_id),
                             source_change_seq: Some(persisted.event_sequence),
-                            actor: restore_checkpoint
+                            actor: commit_checkpoint
                                 .as_ref()
                                 .map(|checkpoint| &checkpoint.actor),
                             context: &job.context,
@@ -2547,13 +2790,14 @@ fn flatten_semantic_coordinates<'a>(
     }
 }
 
-fn document_restore_effect(
+fn document_mutation_effect(
     owner_block_id: &str,
     base_head_seq: i64,
     before: &DocumentMaterialization,
     after: &DocumentMaterialization,
     write_fence_block_ids: &[String],
     title_write_fence_required: bool,
+    force_write_fence: bool,
 ) -> DocumentMutationEffect {
     let mut before_coordinates = Vec::new();
     flatten_semantic_coordinates(&before.block_tree, None, &mut before_coordinates);
@@ -2677,6 +2921,11 @@ fn document_restore_effect(
     if title_changed {
         touched_block_ids.insert(owner_block_id.to_owned());
     }
+    let coordination = if force_write_fence || !durable_write_fences.is_empty() {
+        DocumentMutationCoordination::WriteFence
+    } else {
+        DocumentMutationCoordination::MergeFriendly
+    };
     DocumentMutationEffect {
         base_head_seq,
         touched_block_ids: touched_block_ids.into_iter().collect(),
@@ -2686,30 +2935,131 @@ fn document_restore_effect(
         moved_block_ids,
         write_fence_block_ids: durable_write_fences.into_iter().collect(),
         title_changed,
-        coordination: DocumentMutationCoordination::WriteFence,
+        coordination,
     }
 }
 
-fn validate_restore_actor(actor: &Value) -> Result<(), CoreError> {
+fn contract_document_operations(
+    operations: Vec<ContractDocumentBlockOperation>,
+) -> Result<Vec<EngineDocumentBlockOperation>, CoreError> {
+    operations
+        .into_iter()
+        .map(|operation| match operation {
+            ContractDocumentBlockOperation::SetTitle { title } => {
+                Ok(EngineDocumentBlockOperation::SetTitle { title })
+            }
+            ContractDocumentBlockOperation::SetRichTitle { rich_title } => {
+                Ok(EngineDocumentBlockOperation::SetRichTitle {
+                    rich_title: contract_rich_text(rich_title)?,
+                })
+            }
+            ContractDocumentBlockOperation::InsertBlock {
+                block,
+                parent_block_id,
+                before_block_id,
+            } => Ok(EngineDocumentBlockOperation::InsertBlock {
+                block: serde_json::from_value(block)
+                    .map_err(|_| invalid("Inserted Document Block is invalid"))?,
+                parent_block_id,
+                before_block_id,
+            }),
+            ContractDocumentBlockOperation::UpdateBlock { block_id, patch } => {
+                Ok(EngineDocumentBlockOperation::UpdateBlock {
+                    block_id,
+                    patch: EngineDocumentBlockUpdatePatch {
+                        block_type: patch.block_type,
+                        props: patch.props,
+                        content: match patch.content {
+                            DocumentOptionalValue::Absent => None,
+                            DocumentOptionalValue::Value { value } => Some(value),
+                        },
+                        unset_content: patch.unset_content,
+                    },
+                })
+            }
+            ContractDocumentBlockOperation::DeleteBlock { block_id } => {
+                Ok(EngineDocumentBlockOperation::DeleteBlock { block_id })
+            }
+            ContractDocumentBlockOperation::MoveBlock {
+                block_id,
+                parent_block_id,
+                before_block_id,
+            } => Ok(EngineDocumentBlockOperation::MoveBlock {
+                block_id,
+                parent_block_id,
+                before_block_id,
+            }),
+        })
+        .collect()
+}
+
+fn contract_rich_text(values: Vec<Value>) -> Result<Vec<RichTextItem>, CoreError> {
+    serde_json::from_value(Value::Array(values))
+        .map_err(|_| invalid("Document rich title is invalid"))
+}
+
+fn assert_fresh_document_block_ids(
+    connection: &rusqlite::Connection,
+    authority: &DocumentAuthorityRow,
+    block_ids: &[String],
+) -> Result<(), StoreError> {
+    for block_id in block_ids {
+        let existing = connection
+            .query_row(
+                "SELECT source FROM (\
+                   SELECT 'active_or_tombstoned' AS source FROM blocks WHERE id = ?1 \
+                   UNION ALL \
+                   SELECT 'retired' AS source FROM retired_block_identities WHERE block_id = ?1\
+                 ) LIMIT 1",
+                [block_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(source) = existing {
+            return Err(invalid_store(format!(
+                "Duplicate Block identity {block_id} already exists as {source} in Project {}",
+                authority.head.project_id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn document_operation_store_error(error: DocumentOperationError) -> StoreError {
+    let code = match error.code() {
+        DocumentOperationErrorCode::StaleStateVector => StoreErrorCode::HeadConflict,
+        _ => StoreErrorCode::InvalidInput,
+    };
+    StoreError::new(code, error.to_string(), false)
+}
+
+fn validate_document_actor(actor: &Value) -> Result<(), CoreError> {
     let encoded = serde_json::to_vec(actor)
-        .map_err(|_| invalid("Document restore actor must be portable JSON"))?;
+        .map_err(|_| invalid("Document mutation actor must be portable JSON"))?;
     if actor.is_object() && encoded.len() <= 64 * 1024 {
         return Ok(());
     }
     Err(invalid(
-        "Document restore actor must be a bounded portable object",
+        "Document mutation actor must be a bounded portable object",
     ))
 }
 
-fn require_restore_write_fence(prepared: bool) -> Result<(), StoreError> {
-    if prepared {
+fn require_document_write_fence(
+    coordination: DocumentMutationCoordination,
+    prepared: bool,
+) -> Result<(), StoreError> {
+    if coordination == DocumentMutationCoordination::MergeFriendly || prepared {
         return Ok(());
     }
     Err(StoreError::new(
         StoreErrorCode::RevisionConflict,
-        "Document restore requires a trusted current-head write fence",
+        "Document mutation requires a trusted current-head write fence",
         true,
     ))
+}
+
+fn require_restore_write_fence(prepared: bool) -> Result<(), StoreError> {
+    require_document_write_fence(DocumentMutationCoordination::WriteFence, prepared)
 }
 
 fn restore_checkpoint_actor(
@@ -2717,7 +3067,7 @@ fn restore_checkpoint_actor(
     mutation_id: &str,
     source_version_id: &str,
 ) -> Result<Value, CoreError> {
-    validate_restore_actor(actor)?;
+    validate_document_actor(actor)?;
     let mut enriched = actor.as_object().expect("validated restore actor").clone();
     enriched.insert(
         "restoreMutationId".to_owned(),
@@ -2728,7 +3078,7 @@ fn restore_checkpoint_actor(
         Value::String(source_version_id.to_owned()),
     );
     let enriched = Value::Object(enriched);
-    validate_restore_actor(&enriched)?;
+    validate_document_actor(&enriched)?;
     Ok(enriched)
 }
 
@@ -3742,8 +4092,11 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::document::{
-        AgentDocumentSemanticMutation, DeletableOwnedSourceKind, DocumentCommitOutcome,
-        DocumentHeadRevision, DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticCommand,
+        AgentDocumentSemanticMutation, DeletableOwnedSourceKind,
+        DocumentBlockOperation as ContractDocumentBlockOperation,
+        DocumentBlockUpdatePatch as ContractDocumentBlockUpdatePatch, DocumentCommitOutcome,
+        DocumentHeadRevision, DocumentMutationCoordination, DocumentOptionalValue,
+        DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticCommand,
         DocumentVersionCursor, OwnedDocumentIntent, OwnedDocumentRead,
     };
     use nodex_core_contracts::workspace::{
@@ -6123,6 +6476,290 @@ mod tests {
                 Ok::<_, StoreError>(())
             })
             .unwrap();
+    }
+
+    #[test]
+    fn public_document_mutations_classify_fence_checkpoint_and_replay() {
+        let seeded = seeded_module();
+        let inserted_block_id = "019bf52d-6870-7000-8000-000000000101";
+        let insert_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "document-operation:insert".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplyOperationBatch {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: 1,
+                operations: vec![ContractDocumentBlockOperation::InsertBlock {
+                    block: paragraph(inserted_block_id, "Inserted through Core"),
+                    parent_block_id: None,
+                    before_block_id: None,
+                }],
+                actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
+                write_fence_prepared: false,
+            },
+        };
+        let inserted = seeded
+            .module
+            .apply(&context(), insert_request)
+            .expect("merge-friendly insertion");
+        let insert_effect = inserted
+            .committed
+            .value
+            .mutation_effect
+            .as_ref()
+            .expect("insert effect");
+        assert_eq!(inserted.committed.value.head_seq, 2);
+        assert_eq!(insert_effect.created_block_ids, [inserted_block_id]);
+        assert_eq!(
+            insert_effect.coordination,
+            DocumentMutationCoordination::MergeFriendly
+        );
+        assert!(insert_effect.write_fence_block_ids.is_empty());
+
+        let update_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "document-operation:update".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ApplyOperationBatch {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: 2,
+                operations: vec![ContractDocumentBlockOperation::UpdateBlock {
+                    block_id: inserted_block_id.to_owned(),
+                    patch: ContractDocumentBlockUpdatePatch {
+                        block_type: None,
+                        props: None,
+                        content: DocumentOptionalValue::Value {
+                            value: json!([{
+                                "type": "text",
+                                "text": "Updated through Core",
+                                "styles": {},
+                            }]),
+                        },
+                        unset_content: false,
+                    },
+                }],
+                actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
+                write_fence_prepared: false,
+            },
+        };
+        let unfenced = seeded
+            .module
+            .apply(&context(), update_request.clone())
+            .expect_err("content replacement requires a fence");
+        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
+
+        let mut fenced_update = update_request.clone();
+        let OwnedDocumentIntent::ApplyOperationBatch {
+            write_fence_prepared,
+            ..
+        } = &mut fenced_update.intent
+        else {
+            unreachable!()
+        };
+        *write_fence_prepared = true;
+        let updated = seeded
+            .module
+            .apply(&context(), fenced_update)
+            .expect("fenced content replacement");
+        let update_effect = updated
+            .committed
+            .value
+            .mutation_effect
+            .as_ref()
+            .expect("update effect");
+        assert_eq!(updated.committed.value.head_seq, 3);
+        assert_eq!(update_effect.updated_block_ids, [inserted_block_id]);
+        assert_eq!(update_effect.write_fence_block_ids, [inserted_block_id]);
+        assert_eq!(
+            update_effect.coordination,
+            DocumentMutationCoordination::WriteFence
+        );
+
+        let mut replay = update_request;
+        let OwnedDocumentIntent::ApplyOperationBatch { actor, .. } = &mut replay.intent else {
+            unreachable!()
+        };
+        *actor = json!({ "kind": "electron_renderer", "clientId": "renderer:reconnected" });
+        let replayed = seeded
+            .module
+            .apply(&context_for("renderer-session:reconnected"), replay)
+            .expect("receipt replay bypasses a new fence");
+        assert!(replayed.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replayed.committed.value.mutation_effect,
+            updated.committed.value.mutation_effect
+        );
+
+        let current_nfm = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT nfm FROM document_materializations WHERE document_id = ?1",
+                        [DOCUMENT_ID],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .unwrap();
+        let nfm_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "document-operation:nfm".to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ReplaceFromNfm {
+                document_id: DOCUMENT_ID.to_owned(),
+                generation: 1,
+                expected_head_seq: 3,
+                nfm: current_nfm,
+                rich_title: Some(vec![json!({
+                    "type": "text",
+                    "text": "Native NFM title",
+                    "styles": {},
+                })]),
+                actor: json!({ "kind": "electron_renderer", "clientId": "renderer:test" }),
+                write_fence_prepared: false,
+            },
+        };
+        let unfenced_nfm = seeded
+            .module
+            .apply(&context(), nfm_request.clone())
+            .expect_err("whole-NFM replacement requires a fence");
+        assert_eq!(unfenced_nfm.code, CoreErrorCode::RevisionConflict);
+        let mut fenced_nfm = nfm_request;
+        let OwnedDocumentIntent::ReplaceFromNfm {
+            write_fence_prepared,
+            ..
+        } = &mut fenced_nfm.intent
+        else {
+            unreachable!()
+        };
+        *write_fence_prepared = true;
+        let replaced = seeded
+            .module
+            .apply(&context(), fenced_nfm)
+            .expect("fenced whole-NFM replacement");
+        let replace_effect = replaced
+            .committed
+            .value
+            .mutation_effect
+            .as_ref()
+            .expect("NFM effect");
+        assert!(replace_effect.title_changed);
+        assert_eq!(
+            replace_effect.coordination,
+            DocumentMutationCoordination::WriteFence
+        );
+
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let checkpoints = connection.query_row(
+                    "SELECT count(*) FROM document_versions \
+                     WHERE source_mutation_id IN (\
+                       'document-operation:insert', \
+                       'document-operation:update', \
+                       'document-operation:nfm'\
+                     ) AND revision_kind = 'operation'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(checkpoints, 3);
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn public_document_mutation_cannot_reactivate_a_tombstoned_identity() {
+        let seeded = seeded_module();
+        let original_block_id = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = ?1 ORDER BY ordinal LIMIT 1",
+                        [DOCUMENT_ID],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .unwrap();
+        let replacement_root_id = "019bf52d-6870-7000-8000-000000000102";
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "document-operation:add-second-root".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![ContractDocumentBlockOperation::InsertBlock {
+                            block: paragraph(replacement_root_id, "Replacement root"),
+                            parent_block_id: None,
+                            before_block_id: None,
+                        }],
+                        actor: json!({ "kind": "test" }),
+                        write_fence_prepared: false,
+                    },
+                },
+            )
+            .expect("second editable root");
+        seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "document-operation:delete-original".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 2,
+                        operations: vec![ContractDocumentBlockOperation::DeleteBlock {
+                            block_id: original_block_id.clone(),
+                        }],
+                        actor: json!({ "kind": "test" }),
+                        write_fence_prepared: true,
+                    },
+                },
+            )
+            .expect("delete original root");
+        let reactivation = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "document-operation:reactivate".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 3,
+                        operations: vec![ContractDocumentBlockOperation::InsertBlock {
+                            block: paragraph(&original_block_id, "Reused identity"),
+                            parent_block_id: None,
+                            before_block_id: None,
+                        }],
+                        actor: json!({ "kind": "test" }),
+                        write_fence_prepared: false,
+                    },
+                },
+            )
+            .expect_err("ordinary operations cannot reactivate tombstones");
+        assert_eq!(reactivation.code, CoreErrorCode::InvalidInput);
+        assert!(reactivation.message.contains("Duplicate Block identity"));
     }
 
     #[test]

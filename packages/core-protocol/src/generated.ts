@@ -687,6 +687,44 @@ export interface components {
         };
         /** @enum {string} */
         readonly DeletableOwnedSourceKind: "synced_block" | "reusable_template";
+        readonly DocumentBlockOperation: {
+            /** @enum {string} */
+            readonly kind: "set_title";
+            readonly title: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "set_rich_title";
+            readonly rich_title: readonly unknown[];
+        } | {
+            readonly before_block_id?: string | null;
+            readonly block: unknown;
+            /** @enum {string} */
+            readonly kind: "insert_block";
+            readonly parent_block_id?: string | null;
+        } | {
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "update_block";
+            readonly patch: components["schemas"]["DocumentBlockUpdatePatch"];
+        } | {
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "delete_block";
+        } | {
+            readonly before_block_id?: string | null;
+            readonly block_id: string;
+            /** @enum {string} */
+            readonly kind: "move_block";
+            readonly parent_block_id?: string | null;
+        };
+        readonly DocumentBlockUpdatePatch: {
+            readonly block_type?: string | null;
+            readonly content: components["schemas"]["DocumentOptionalValue"];
+            readonly props?: {
+                readonly [key: string]: unknown;
+            } | null;
+            readonly unset_content: boolean;
+        };
         readonly DocumentCheckpointEffect: {
             readonly checkpoint: unknown;
             readonly duplicate: boolean;
@@ -715,6 +753,14 @@ export interface components {
             readonly touched_block_ids: readonly string[];
             readonly updated_block_ids: readonly string[];
             readonly write_fence_block_ids: readonly string[];
+        };
+        readonly DocumentOptionalValue: {
+            /** @enum {string} */
+            readonly kind: "absent";
+        } | {
+            /** @enum {string} */
+            readonly kind: "value";
+            readonly value: unknown;
         };
         readonly DocumentOwnerCommand: {
             readonly before?: null | components["schemas"]["DocumentSpaceAnchor"];
@@ -1573,6 +1619,29 @@ export interface components {
                 readonly generation: number;
                 /** @enum {string} */
                 readonly kind: "apply_semantic_mutation";
+            } | {
+                readonly actor: unknown;
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly expected_head_seq: number;
+                /** Format: int64 */
+                readonly generation: number;
+                /** @enum {string} */
+                readonly kind: "apply_operation_batch";
+                readonly operations: readonly components["schemas"]["DocumentBlockOperation"][];
+                readonly write_fence_prepared: boolean;
+            } | {
+                readonly actor: unknown;
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly expected_head_seq: number;
+                /** Format: int64 */
+                readonly generation: number;
+                /** @enum {string} */
+                readonly kind: "replace_from_nfm";
+                readonly nfm: string;
+                readonly rich_title?: readonly unknown[] | null;
+                readonly write_fence_prepared: boolean;
             } | {
                 readonly authorization: components["schemas"]["AgentPreparedExecution"];
                 /** @enum {string} */
