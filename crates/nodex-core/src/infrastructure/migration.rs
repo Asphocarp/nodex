@@ -399,6 +399,11 @@ fn validate_live_yjs_documents(
         .collect()
 }
 
+pub(crate) fn validate_v83_restore_documents(connection: &Connection) -> Result<usize, StoreError> {
+    validate_v83_metadata(connection)?;
+    validate_live_yjs_documents(connection).map(|fingerprints| fingerprints.len())
+}
+
 fn validate_live_yjs_document(
     repository: &DocumentReadRepository<'_>,
     head: &DocumentHeadRow,

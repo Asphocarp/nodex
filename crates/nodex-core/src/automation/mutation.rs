@@ -102,7 +102,7 @@ pub(super) fn apply(
                 .ok_or_else(|| corrupt("Profile store epoch is unavailable"))?;
             if request.store_epoch.0 != store_epoch {
                 return Err(StoreError::new(
-                    StoreErrorCode::Conflict,
+                    StoreErrorCode::StaleStoreEpoch,
                     "Automation mutation targets a stale store epoch",
                     true,
                 ));

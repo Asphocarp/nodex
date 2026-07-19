@@ -130,7 +130,7 @@ pub(super) fn apply(
             let store_epoch = read_store_epoch(transaction)?;
             if request.store_epoch.0 != store_epoch {
                 return Err(StoreError::new(
-                    StoreErrorCode::Conflict,
+                    StoreErrorCode::StaleStoreEpoch,
                     "Project Workspace mutation targets a stale store epoch",
                     true,
                 ));

@@ -93,20 +93,25 @@ execution context, root/child Thread collection, managed-worktree set, durable
 sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Store Administration's public
-restore, deletion, retention, and general maintenance operations remain
-migration work; unavailable semantics do not fall back to direct native SQL.
+bindings and cross-Library rows fail closed. Store Administration's deletion,
+retention, and general maintenance operations remain migration work;
+unavailable semantics do not fall back to direct native SQL.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
-occurrence surface. Store Administration owns v83 readiness and backup listing,
-plus online SQLite backup creation through the same generated `read`/`apply`
-boundary. A backup uses a deterministic operation-owned directory, publishes a
-v2-compatible manifest last, validates the immutable snapshot, fsyncs database,
-assets, manifest, and directories, then commits its receipt/event. A retry after
-filesystem publication but before the SQLite receipt adopts only an exact
-operation/request-fingerprint match. Restore, deletion, retention, and general
-maintenance remain unavailable until their complete filesystem/task semantics
-are integrated with the shared generation fence.
+occurrence surface. Store Administration owns v83 readiness, backup listing,
+online SQLite backup creation, and whole-store restore through the same
+generated `read`/`apply` boundary. A backup uses a deterministic operation-owned
+directory, publishes a v2-compatible manifest last, validates the immutable
+snapshot, fsyncs database, assets, manifest, and directories, then commits its
+receipt/event. A retry after filesystem publication but before the SQLite
+receipt adopts only an exact operation/request-fingerprint match. Restore
+semantically validates the complete v83 Document/Canvas/projection/managed-asset
+closure, optionally creates a safety backup inside one maintenance generation,
+installs through the Core-owned journal, rotates `storeEpoch`, resets Document
+cache and realtime state, republishes the runtime descriptor, and clears the
+old in-memory event replay before committing its receipt/event. Deletion,
+retention, and general maintenance remain unavailable until their complete
+filesystem/task semantics are integrated with the same fence.
 
 Every native Module now holds a stable `StoreWriter`/`StoreReaders` facade,
 not a generation-local connection or channel. The shared store runtime admits
@@ -121,9 +126,11 @@ and controlled staging/rollback directory names. Startup reconciles it after
 the Profile lock but before opening SQLite: prepared candidates remain
 adoptable, every interrupted install phase restores the complete source while
 preserving the candidate, and committed installations remain live until their
-matching Store Administration receipt makes cleanup safe. Public restore still
-requires full backup/reference validation, store-epoch rotation, and Document
-cache/subscription plus runtime-descriptor reset before it can use this seam.
+matching Store Administration receipt makes cleanup safe. Public restore uses
+that pending committed journal as a durable pre-receipt boundary: an exact
+retry finalizes the receipt without reinstalling files, while a different
+request cannot adopt it. Any pre-commit installation or runtime-reset failure
+restores the complete source and resets the runtime back to its source epoch.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and

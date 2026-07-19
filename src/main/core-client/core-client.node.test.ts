@@ -79,6 +79,7 @@ describe("CoreClient over a Unix socket", () => {
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-client-"));
     const children = [spawnCore(nodexHome), spawnCore(nodexHome)];
     let subscription: CoreEventSubscription | undefined;
+    let documentSubscription: CoreEventSubscription | undefined;
 
     try {
       const descriptors = await Promise.all(children.map(readDescriptor));
@@ -500,6 +501,73 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
 
+      documentSubscription = await client.openDocumentEventStream(
+        {
+          documentId: "document:node-integration",
+          clientSessionId: "session:before-store-restore",
+          after: 0,
+        },
+        () => undefined,
+        () => undefined,
+        () => undefined,
+      );
+      const restoreInput = {
+        operationId: "node-administration-restore-1",
+        intent: {
+          kind: "restore_backup" as const,
+          backup_id: backupCommitted.value.backup_id!,
+          create_safety_backup: true,
+        },
+      };
+      const restored = await client.administrationApply(restoreInput);
+      expect(restored.receipt.duplicate).toBe(false);
+      expect(restored.value.backup_id).toBe(backupCommitted.value.backup_id);
+      expect(restored.value.safety_backup_id).toEqual(expect.any(String));
+      expect(restored.store_epoch).not.toBe(client.handshake.store_epoch);
+
+      const replacedConnection = readCoreRuntimeConnection(nodexHome);
+      expect(replacedConnection.descriptor.store_epoch).toBe(restored.store_epoch);
+      expect(replacedConnection.descriptor.readiness_generation).toBe(2);
+      const reconnected = await CoreClient.connect({
+        nodexHome,
+        clientKind: "test",
+        buildId: "node-restored-client-test",
+        projectId: "project:default",
+      });
+      expect(reconnected.handshake.store_epoch).toBe(restored.store_epoch);
+
+      await expect(
+        client.libraryApply({
+          operationId: "node-old-epoch-after-restore",
+          intent: {
+            kind: "create_page",
+            page_id: "page:stale-after-restore",
+            document_id: "document:stale-after-restore",
+            title: "Stale",
+            parent: { kind: "library", before: null },
+          },
+        }),
+      ).rejects.toMatchObject({ coreError: { code: "stale_store_epoch" } });
+      await expect(
+        client.documentSync({
+          documentId: "document:node-integration",
+          clientSessionId: "session:before-store-restore",
+          stateVector: new Uint8Array(),
+        }),
+      ).rejects.toMatchObject({ coreError: { code: "unauthorized" } });
+      const restoreReplay = await client.administrationApply(restoreInput);
+      expect(restoreReplay.receipt.duplicate).toBe(true);
+      expect(restoreReplay.store_epoch).toBe(restored.store_epoch);
+      await expect(
+        reconnected.workspaceRead({
+          kind: "project",
+          project_id: "project:node-integration",
+        }),
+      ).rejects.toMatchObject({ coreError: { code: "not_found" } });
+
+      documentSubscription.close();
+      await documentSubscription.done;
+      documentSubscription = undefined;
       subscription.close();
       await subscription.done;
       subscription = undefined;
@@ -510,6 +578,7 @@ describe("CoreClient over a Unix socket", () => {
       expect(existsSync(path.join(nodexHome, "run/core/core.json"))).toBe(false);
       expect(existsSync(path.join(nodexHome, "run/core/core.auth"))).toBe(false);
     } finally {
+      documentSubscription?.close();
       subscription?.close();
       for (const child of children) {
         if (child.exitCode === null) child.kill();

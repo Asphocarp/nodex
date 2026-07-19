@@ -146,6 +146,15 @@ impl OwnedDocumentModule {
         }
     }
 
+    pub fn reset_for_store_replacement(&self) -> Result<(), CoreError> {
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| core_error(internal("Owned Document runtime cache lock failed")))?;
+        *cache = DocumentRuntimeCache::new();
+        Ok(())
+    }
+
     pub fn read(
         &self,
         context: &BoundModuleContext,
@@ -460,7 +469,7 @@ impl OwnedDocumentModule {
                     connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 if read_store_epoch(&transaction)? != expected_store_epoch.0 {
                     return Err(StoreError::new(
-                        StoreErrorCode::Conflict,
+                        StoreErrorCode::StaleStoreEpoch,
                         "Document compaction targets a stale store epoch",
                         true,
                     ));
@@ -505,7 +514,7 @@ impl OwnedDocumentModule {
                 let store_epoch = read_store_epoch(&transaction)?;
                 if store_epoch != expected_store_epoch.0 {
                     return Err(StoreError::new(
-                        StoreErrorCode::Conflict,
+                        StoreErrorCode::StaleStoreEpoch,
                         "Document owner command targets a stale store epoch",
                         true,
                     ));
@@ -615,7 +624,7 @@ impl OwnedDocumentModule {
                 let store_epoch = read_store_epoch(&transaction)?;
                 if store_epoch != expected_store_epoch.0 {
                     return Err(StoreError::new(
-                        StoreErrorCode::Conflict,
+                        StoreErrorCode::StaleStoreEpoch,
                         "Owned Document preparation targets a stale store epoch",
                         true,
                     ));
@@ -939,7 +948,7 @@ impl OwnedDocumentModule {
                 let store_epoch = read_store_epoch(&transaction)?;
                 if store_epoch != expected_store_epoch.0 {
                     return Err(StoreError::new(
-                        StoreErrorCode::Conflict,
+                        StoreErrorCode::StaleStoreEpoch,
                         "Canvas mutation targets a stale store epoch",
                         true,
                     ));
@@ -1334,7 +1343,7 @@ impl OwnedDocumentModule {
                 let store_epoch = read_store_epoch(&transaction)?;
                 if store_epoch != expected_store_epoch.0 {
                     return Err(StoreError::new(
-                        StoreErrorCode::Conflict,
+                        StoreErrorCode::StaleStoreEpoch,
                         "Document checkpoint targets a stale store epoch",
                         true,
                     ));
@@ -1576,7 +1585,7 @@ impl OwnedDocumentModule {
                 let store_epoch = read_store_epoch(&transaction)?;
                 if store_epoch != expected_store_epoch.0 {
                     return Err(StoreError::new(
-                        StoreErrorCode::Conflict,
+                        StoreErrorCode::StaleStoreEpoch,
                         "Canvas restore targets a stale store epoch",
                         true,
                     ));
@@ -1770,7 +1779,7 @@ impl OwnedDocumentModule {
                 let store_epoch = read_store_epoch(&transaction)?;
                 if store_epoch != job.expected_store_epoch.0 {
                     return Err(StoreError::new(
-                        StoreErrorCode::Conflict,
+                        StoreErrorCode::StaleStoreEpoch,
                         "Owned Document mutation targets a stale store epoch",
                         true,
                     ));
@@ -2422,7 +2431,8 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::InvalidInput => CoreErrorCode::InvalidInput,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::NotFound => CoreErrorCode::NotFound,
-        StoreErrorCode::Conflict => CoreErrorCode::StaleStoreEpoch,
+        StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
+        StoreErrorCode::Conflict => CoreErrorCode::RevisionConflict,
         StoreErrorCode::GenerationConflict => CoreErrorCode::GenerationConflict,
         StoreErrorCode::HeadConflict => CoreErrorCode::HeadConflict,
         StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,

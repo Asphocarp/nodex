@@ -69,7 +69,7 @@ pub(crate) fn execute_owner_command(
         .ok_or_else(|| unauthorized("Document owner command requires a bound Project"))?;
     if read_store_epoch(connection)? != store_epoch {
         return Err(StoreError::new(
-            StoreErrorCode::Conflict,
+            StoreErrorCode::StaleStoreEpoch,
             "Document owner command targets a stale store epoch",
             true,
         ));

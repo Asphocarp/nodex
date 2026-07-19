@@ -324,7 +324,7 @@ fn read_display_hint(value: &Option<String>) -> Result<Option<String>, DerivedRe
     Ok(Some(value.clone()))
 }
 
-fn parse_asset_source(source: &str) -> Option<String> {
+pub(crate) fn parse_asset_source(source: &str) -> Option<String> {
     let encoded = source.strip_prefix(NODEX_ASSET_SCHEME)?;
     if encoded.is_empty() || encoded.contains('/') {
         return None;

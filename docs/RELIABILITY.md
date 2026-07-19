@@ -67,25 +67,29 @@
 
 ## Backup and Restore
 - The native Rust Core migration lane exposes v83 readiness, backup inventory,
-  and manual online backup creation over its private generated Module route.
+  manual online backup creation, and whole-store restore over its private
+  generated Module route.
   Backup identity is derived from Profile plus operation identity; the manifest
   binds the full request fingerprint, so an interruption after directory
   publication but before receipt commit is adopted on exact retry and rejected
   on collision. Staging and managed-asset trees refuse symlinks and special
   files, the immutable candidate must pass schema-owner, integrity, and foreign
   key validation, and every file plus containing directory is flushed before
-  publication. Native restore/delete/prune/maintenance remain closed while
-  their remaining semantic validation and task coordination are implemented on
-  the generation fence.
+  publication. Restore validates the selected immutable v83 backup plus every
+  reconstructed ready Document, Canvas scene and current projection,
+  Profile/Library identity, and referenced managed asset before file movement.
+  Native delete/prune/general-maintenance remain closed while their
+  filesystem/task semantics are implemented on the generation fence.
 - Native SQLite handles are generation-stable facades. Exclusive maintenance
   rejects new reads/writes with a typed retryable error, waits for all accepted
   operations (including queued writer jobs and checked-out readers), joins the
   writer, and drops idle readers before invoking filesystem work. A fresh
   writer/pool generation is published before the fence reopens, so existing
   Modules cannot retain a connection to a replaced database. The store remains
-  fenced if reopen fails. Document caches and realtime listeners are separate
-  generation-bound state and must be reset by the restore coordinator before
-  native restore is promoted.
+  fenced if reopen fails. Native restore resets the Document runtime cache,
+  subscriptions, replay, and Awareness state; atomically republishes the runtime
+  descriptor with the new epoch/readiness generation; and clears the old
+  process-local event replay before the fence reopens.
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before
@@ -95,7 +99,11 @@
   restores DB, WAL, SHM, and assets while moving the candidate back to staging.
   A committed installed epoch is never rolled back: startup leaves it pending
   until the exact Store Administration receipt exists, then removes only the
-  journal-owned staging and rollback trees.
+  journal-owned staging and rollback trees. If the process survives a failure
+  between journal commit and receipt commit, the exact old-epoch restore retry
+  finalizes the receipt/event without reinstalling the Store. An installation
+  or runtime-reset failure before journal commit restores the complete source
+  DB/WAL/SHM/assets set and resets the process runtime to the source epoch.
 - Whole-store backups include `nodex.db` and managed asset files from one quiesced boundary. The asset gate first drains accepted uploads/materialization and rejects new mutations; the FIFO writer then crosses a barrier, destroys its Y.Doc cache, and closes the worker SQLite connection. The main connection also closes and fails lazy access until a standalone read-only backup source finishes.
 - Manual and scheduled backups are managed by `local-store/backups.ts` and use SQLite's online backup API. The staged DB and every asset file/directory are fsynced before the backup directory rename is published.
 - Restore requires explicit confirmation. Its optional pre-restore safety backup is created after the same asset/writer fence is acquired and before replacement, without reopening a write window between those operations.

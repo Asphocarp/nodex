@@ -1,6 +1,7 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use nodex_core_contracts::administration::{
     SchemaOwner, StoreAdministrationIntent, StoreAdministrationRead, StoreAdministrationReadValue,
@@ -12,7 +13,7 @@ use nodex_core_contracts::{
 };
 use tempfile::TempDir;
 
-use crate::infrastructure::sqlite::with_immediate_transaction;
+use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::store::SqliteStoreKernel;
 
 use super::StoreAdministrationModule;
@@ -29,6 +30,12 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::new_with_hook(|_| Ok(()))
+    }
+
+    fn new_with_hook(
+        hook: impl Fn(&str) -> Result<(), StoreError> + Send + Sync + 'static,
+    ) -> Self {
         let home = tempfile::tempdir().expect("Profile home");
         let kernel = SqliteStoreKernel::open(home.path()).expect("fresh store");
         kernel
@@ -65,7 +72,8 @@ impl Fixture {
                 })
             })
             .expect("identity");
-        let module = StoreAdministrationModule::new(PROFILE_ID, LIBRARY_ID, &kernel);
+        let module = StoreAdministrationModule::new(PROFILE_ID, LIBRARY_ID, &kernel)
+            .with_store_replacement_hook(hook);
         Self {
             _home: home,
             kernel,
@@ -120,6 +128,28 @@ impl Fixture {
                 },
             )
             .expect("create backup")
+    }
+
+    fn restore_backup(
+        &self,
+        operation_id: &str,
+        backup_id: &str,
+        create_safety_backup: bool,
+    ) -> super::StoreAdministrationApplyOutcome {
+        self.module
+            .apply(
+                &self.context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: StoreAdministrationIntent::RestoreBackup {
+                        backup_id: backup_id.to_owned(),
+                        create_safety_backup,
+                    },
+                },
+            )
+            .expect("restore backup")
     }
 }
 
@@ -324,4 +354,419 @@ fn adopts_a_published_backup_after_a_pre_receipt_crash_boundary() {
     );
     assert!(!adopted.committed.receipt.mutation.duplicate);
     assert!(adopted.event.is_some());
+}
+
+#[test]
+fn restores_database_assets_epoch_and_exact_retry_with_a_safety_backup() {
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.home().join("assets")).expect("assets root");
+    fs::write(fixture.home().join("assets/managed.bin"), b"backup asset").expect("backup asset");
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE administration_restore_probe(\
+                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
+                 ) STRICT; \
+                 INSERT INTO administration_restore_probe(id, marker) VALUES (1, 'backup');",
+            )?;
+            Ok(())
+        })
+        .expect("restore probe");
+    let target = fixture.create_backup(
+        "administration:create-backup:restore-target",
+        Some("restore target"),
+        true,
+    );
+    let backup_id = target.committed.value.backup_id.expect("target backup");
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute(
+                "UPDATE administration_restore_probe SET marker = 'current' WHERE id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("current marker");
+    fs::write(fixture.home().join("assets/managed.bin"), b"current asset").expect("current asset");
+
+    let restored = fixture.restore_backup("administration:restore-backup:1", &backup_id, true);
+    let installed_epoch = restored.committed.store_epoch.0.clone();
+    let safety_backup_id = restored
+        .committed
+        .value
+        .safety_backup_id
+        .clone()
+        .expect("safety backup");
+    assert_ne!(installed_epoch, STORE_EPOCH);
+    assert_eq!(
+        restored.committed.value.backup_id.as_deref(),
+        Some(backup_id.as_str())
+    );
+    assert_eq!(
+        restored.committed.receipt.safety_backup_id.as_deref(),
+        Some(safety_backup_id.as_str())
+    );
+    assert!(restored.event.is_some());
+    let (marker, live_epoch) = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            Ok((
+                connection.query_row(
+                    "SELECT marker FROM administration_restore_probe WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                connection.query_row(
+                    "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+            ))
+        })
+        .expect("restored authority");
+    assert_eq!(marker, "backup");
+    assert_eq!(live_epoch, installed_epoch);
+    assert_eq!(
+        fs::read(fixture.home().join("assets/managed.bin")).expect("restored asset"),
+        b"backup asset"
+    );
+    assert!(
+        fixture
+            .home()
+            .join("backups")
+            .join(&safety_backup_id)
+            .exists()
+    );
+    assert!(
+        !fixture
+            .home()
+            .join(".core-store-restore-journal.json")
+            .exists()
+    );
+
+    let retry = fixture.restore_backup("administration:restore-backup:1", &backup_id, true);
+    assert!(retry.committed.receipt.mutation.duplicate);
+    assert_eq!(retry.committed.store_epoch.0, installed_epoch);
+    assert!(retry.event.is_none());
+
+    let stale = fixture
+        .module
+        .apply(
+            &fixture.context(),
+            ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: "administration:create-backup:stale-after-restore".to_owned(),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: StoreAdministrationIntent::CreateBackup {
+                    label: None,
+                    include_assets: false,
+                },
+            },
+        )
+        .expect_err("old epoch must be stale");
+    assert_eq!(stale.code, CoreErrorCode::StaleStoreEpoch);
+}
+
+#[test]
+fn replacement_hook_failure_rolls_back_the_complete_source_store() {
+    let observed_epochs = Arc::new(Mutex::new(Vec::new()));
+    let hook_epochs = Arc::clone(&observed_epochs);
+    let fixture = Fixture::new_with_hook(move |store_epoch| {
+        hook_epochs
+            .lock()
+            .expect("hook epochs")
+            .push(store_epoch.to_owned());
+        if store_epoch == STORE_EPOCH {
+            return Ok(());
+        }
+        Err(StoreError::new(
+            StoreErrorCode::Internal,
+            "injected replacement hook failure",
+            false,
+        ))
+    });
+    fs::create_dir(fixture.home().join("assets")).expect("assets root");
+    fs::write(fixture.home().join("assets/managed.bin"), b"backup asset").expect("backup asset");
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE administration_restore_probe(\
+                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
+                 ) STRICT; \
+                 INSERT INTO administration_restore_probe(id, marker) VALUES (1, 'backup');",
+            )?;
+            Ok(())
+        })
+        .expect("restore probe");
+    let target = fixture.create_backup("administration:create-backup:hook-failure", None, true);
+    let backup_id = target.committed.value.backup_id.expect("target backup");
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute(
+                "UPDATE administration_restore_probe SET marker = 'current' WHERE id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("current marker");
+    fs::write(fixture.home().join("assets/managed.bin"), b"current asset").expect("current asset");
+
+    let error = fixture
+        .module
+        .apply(
+            &fixture.context(),
+            ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: "administration:restore-backup:hook-failure".to_owned(),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: StoreAdministrationIntent::RestoreBackup {
+                    backup_id,
+                    create_safety_backup: false,
+                },
+            },
+        )
+        .expect_err("hook failure must reject restore");
+    assert_eq!(error.code, CoreErrorCode::CoreUnavailable);
+    let (marker, store_epoch) = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            Ok((
+                connection.query_row(
+                    "SELECT marker FROM administration_restore_probe WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                connection.query_row(
+                    "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+            ))
+        })
+        .expect("rolled back source");
+    assert_eq!(marker, "current");
+    assert_eq!(store_epoch, STORE_EPOCH);
+    assert_eq!(
+        fs::read(fixture.home().join("assets/managed.bin")).expect("source asset"),
+        b"current asset"
+    );
+    let epochs = observed_epochs.lock().expect("observed epochs");
+    assert_eq!(epochs.len(), 2);
+    assert_ne!(epochs[0], STORE_EPOCH);
+    assert_eq!(epochs[1], STORE_EPOCH);
+}
+
+#[test]
+fn adopts_a_committed_restore_after_the_pre_receipt_crash_boundary() {
+    let fixture = Fixture::new();
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE administration_restore_adoption(\
+                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
+                 ) STRICT; \
+                 INSERT INTO administration_restore_adoption(id, marker) VALUES (1, 'backup');",
+            )?;
+            Ok(())
+        })
+        .expect("restore adoption probe");
+    let target =
+        fixture.create_backup("administration:create-backup:restore-adoption", None, false);
+    let backup_id = target.committed.value.backup_id.expect("target backup");
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute(
+                "UPDATE administration_restore_adoption SET marker = 'current' WHERE id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("current marker");
+
+    let operation_id = "administration:restore-backup:adopt-committed";
+    let create_safety_backup = false;
+    let fingerprint = serde_json::to_vec(&(
+        PROFILE_ID,
+        LIBRARY_ID,
+        CORE_CONTRACT_VERSION,
+        "restore_backup",
+        &backup_id,
+        create_safety_backup,
+    ))
+    .expect("restore request fingerprint");
+    let request_hash = super::sha256(&fingerprint);
+    let home = fixture.home().to_path_buf();
+    let backup_id_for_install = backup_id.clone();
+    let installation = fixture
+        .kernel
+        .maintenance()
+        .run(move |_| {
+            super::restore::install_restore(super::restore::InstallRestoreRequest {
+                profile_home: &home,
+                profile_id: PROFILE_ID,
+                library_id: LIBRARY_ID,
+                operation_id,
+                request_hash: &request_hash,
+                requested_store_epoch: STORE_EPOCH,
+                backup_id: &backup_id_for_install,
+                create_safety_backup,
+                existing_journal: None,
+                replacement_hook: &|_| Ok(()),
+            })
+        })
+        .expect("committed file replacement");
+    assert_ne!(installation.installed_epoch, STORE_EPOCH);
+    assert!(
+        fixture
+            .home()
+            .join(".core-store-restore-journal.json")
+            .exists()
+    );
+    let receipt_count = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            connection
+                .query_row(
+                    "SELECT count(*) FROM core_module_receipts \
+                     WHERE module_name = 'store_administration' AND operation_id = ?1",
+                    [operation_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(Into::into)
+        })
+        .expect("receipt count before restore adoption");
+    assert_eq!(receipt_count, 0);
+
+    let adopted = fixture.restore_backup(operation_id, &backup_id, create_safety_backup);
+    assert!(!adopted.committed.receipt.mutation.duplicate);
+    assert_eq!(
+        adopted.committed.store_epoch.0,
+        installation.installed_epoch
+    );
+    assert!(adopted.event.is_some());
+    assert!(
+        !fixture
+            .home()
+            .join(".core-store-restore-journal.json")
+            .exists()
+    );
+    let marker = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            connection
+                .query_row(
+                    "SELECT marker FROM administration_restore_adoption WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(Into::into)
+        })
+        .expect("adopted restore marker");
+    assert_eq!(marker, "backup");
+}
+
+#[test]
+fn rejects_a_corrupt_restore_candidate_without_touching_the_live_store() {
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.home().join("assets")).expect("assets root");
+    fs::write(fixture.home().join("assets/managed.bin"), b"backup asset").expect("backup asset");
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute_batch(
+                "CREATE TABLE administration_restore_corruption(\
+                   id INTEGER PRIMARY KEY CHECK (id = 1), marker TEXT NOT NULL\
+                 ) STRICT; \
+                 INSERT INTO administration_restore_corruption(id, marker) VALUES (1, 'backup');",
+            )?;
+            Ok(())
+        })
+        .expect("restore corruption probe");
+    let target = fixture.create_backup("administration:create-backup:corrupt-restore", None, true);
+    let backup_id = target.committed.value.backup_id.expect("target backup");
+    fixture
+        .kernel
+        .writer()
+        .call(|connection| {
+            connection.execute(
+                "UPDATE administration_restore_corruption SET marker = 'current' WHERE id = 1",
+                [],
+            )?;
+            Ok(())
+        })
+        .expect("current marker");
+    fs::write(fixture.home().join("assets/managed.bin"), b"current asset").expect("current asset");
+    fs::write(
+        fixture
+            .home()
+            .join("backups")
+            .join(&backup_id)
+            .join("nodex.db"),
+        b"not a SQLite database",
+    )
+    .expect("corrupt backup database");
+
+    let error = fixture
+        .module
+        .apply(
+            &fixture.context(),
+            ModuleApplyRequest {
+                version: CORE_CONTRACT_VERSION,
+                operation_id: "administration:restore-backup:corrupt".to_owned(),
+                store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                intent: StoreAdministrationIntent::RestoreBackup {
+                    backup_id,
+                    create_safety_backup: false,
+                },
+            },
+        )
+        .expect_err("corrupt candidate must be rejected");
+    assert_eq!(error.code, CoreErrorCode::StoreCorrupt);
+    let (marker, store_epoch) = fixture
+        .kernel
+        .readers()
+        .read_default(|connection| {
+            Ok((
+                connection.query_row(
+                    "SELECT marker FROM administration_restore_corruption WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                connection.query_row(
+                    "SELECT store_epoch FROM block_store_metadata WHERE id = 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+            ))
+        })
+        .expect("unchanged live store");
+    assert_eq!(marker, "current");
+    assert_eq!(store_epoch, STORE_EPOCH);
+    assert_eq!(
+        fs::read(fixture.home().join("assets/managed.bin")).expect("live asset"),
+        b"current asset"
+    );
+    assert!(
+        !fixture
+            .home()
+            .join(".core-store-restore-journal.json")
+            .exists()
+    );
 }

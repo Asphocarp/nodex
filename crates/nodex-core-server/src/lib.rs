@@ -26,7 +26,7 @@ use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
 };
-use nodex_core::infrastructure::sqlite::with_immediate_transaction;
+use nodex_core::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use nodex_core::infrastructure::store::SqliteStoreKernel;
 use nodex_core::library::LibraryModule;
 use nodex_core::workspace::ProjectWorkspaceModule;
@@ -89,7 +89,8 @@ impl RuntimePaths {
 
 struct ServerState {
     auth_header: String,
-    descriptor: RuntimeDescriptor,
+    descriptor: Arc<Mutex<RuntimeDescriptor>>,
+    profile_id: String,
     schema_version: u32,
     library_id: String,
     library: LibraryModule,
@@ -100,10 +101,18 @@ struct ServerState {
     document: OwnedDocumentModule,
     document_realtime: OwnedDocumentRealtimeAdapter,
     _store: SqliteStoreKernel,
-    events: Mutex<Vec<EventEnvelope>>,
+    events: Arc<Mutex<Vec<EventEnvelope>>>,
     event_sender: broadcast::Sender<EventEnvelope>,
     document_sender: broadcast::Sender<DocumentTransportPublication>,
     shutdown: Notify,
+}
+
+fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
+    state
+        .descriptor
+        .lock()
+        .expect("runtime descriptor mutex poisoned")
+        .clone()
 }
 
 #[derive(Clone)]
@@ -166,10 +175,11 @@ async fn authenticate(
 }
 
 async fn health(State(state): State<Arc<ServerState>>) -> Json<HealthResponse> {
+    let descriptor = descriptor_snapshot(&state);
     Json(HealthResponse {
         status: nodex_core_protocol::CoreReadiness::Ready,
-        pid: state.descriptor.pid,
-        start_nonce: state.descriptor.start_nonce.clone(),
+        pid: descriptor.pid,
+        start_nonce: descriptor.start_nonce,
     })
 }
 
@@ -177,16 +187,17 @@ async fn handshake(
     State(state): State<Arc<ServerState>>,
     Json(request): Json<HandshakeRequest>,
 ) -> Result<Json<HandshakeResponse>, ApiError> {
+    let descriptor = descriptor_snapshot(&state);
     let compatible = request.protocol_min <= PROTOCOL_MAX
         && request.protocol_max >= PROTOCOL_MIN
         && request
             .expected_profile_id
             .as_ref()
-            .is_none_or(|id| id == &state.descriptor.profile_id)
+            .is_none_or(|id| id == &descriptor.profile_id)
         && request
             .expected_start_nonce
             .as_ref()
-            .is_none_or(|nonce| nonce == &state.descriptor.start_nonce);
+            .is_none_or(|nonce| nonce == &descriptor.start_nonce);
     if !compatible {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -208,13 +219,13 @@ async fn handshake(
 
     Ok(Json(HandshakeResponse {
         protocol_version: PROTOCOL_MAX,
-        build_id: state.descriptor.build_id.clone(),
-        pid: state.descriptor.pid,
-        start_nonce: state.descriptor.start_nonce.clone(),
-        profile_id: state.descriptor.profile_id.clone(),
+        build_id: descriptor.build_id,
+        pid: descriptor.pid,
+        start_nonce: descriptor.start_nonce,
+        profile_id: descriptor.profile_id,
         library_id: state.library_id.clone(),
         connection_binding,
-        store_epoch: state.descriptor.store_epoch.clone(),
+        store_epoch: descriptor.store_epoch,
         schema_version: state.schema_version,
         event_head: state
             .events
@@ -553,7 +564,7 @@ fn binary_document_apply(state: &ServerState, headers: &HeaderMap, bytes: &[u8])
                     "client session",
                 )?;
                 require_same_identity(
-                    &state.descriptor.store_epoch,
+                    &descriptor_snapshot(state).store_epoch,
                     &metadata.store_epoch,
                     "store epoch",
                 )?;
@@ -598,7 +609,7 @@ fn binary_document_apply(state: &ServerState, headers: &HeaderMap, bytes: &[u8])
                     "client session",
                 )?;
                 require_same_identity(
-                    &state.descriptor.store_epoch,
+                    &descriptor_snapshot(state).store_epoch,
                     &metadata.store_epoch,
                     "store epoch",
                 )?;
@@ -820,7 +831,7 @@ fn module_context(
     let connection_id = required_header(headers, CONNECTION_HEADER, "Connection")?;
     let adapter = bound_adapter(state, headers, &connection_id)?;
     Ok(BoundModuleContext {
-        profile_id: ProfileId(state.descriptor.profile_id.clone()),
+        profile_id: ProfileId(state.profile_id.clone()),
         library_id: LibraryId(state.library_id.clone()),
         project_id: optional_header(headers, PROJECT_HEADER, "Project")?.map(ProjectId),
         connection_id,
@@ -903,7 +914,7 @@ fn document_context(
     let connection_id = required_header(headers, CONNECTION_HEADER, "Connection")?;
     let adapter = bound_adapter(state, headers, &connection_id)?;
     Ok(BoundModuleContext {
-        profile_id: ProfileId(state.descriptor.profile_id.clone()),
+        profile_id: ProfileId(state.profile_id.clone()),
         library_id: LibraryId(state.library_id.clone()),
         project_id: Some(ProjectId(required_header(
             headers,
@@ -1162,6 +1173,9 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.sync_all()?;
     drop(file);
     fs::rename(&temporary, path)?;
+    if let Some(parent) = path.parent() {
+        File::open(parent)?.sync_all()?;
+    }
     Ok(())
 }
 
@@ -1339,32 +1353,93 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("{}", serde_json::to_string(&descriptor)?);
 
+    let descriptor = Arc::new(Mutex::new(descriptor));
+    let events = Arc::new(Mutex::new(Vec::new()));
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
     let automation = AutomationModule::new(&identity.profile_id, &identity.library_id, &store);
-    let administration =
-        StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store);
     let document = OwnedDocumentModule::new(
-        descriptor.profile_id.clone(),
+        identity.profile_id.clone(),
         identity.library_id.clone(),
         &store,
     );
+    let document_realtime = OwnedDocumentRealtimeAdapter::new(document.clone());
+    let replacement_document = document.clone();
+    let replacement_realtime = document_realtime.clone();
+    let replacement_descriptor = Arc::clone(&descriptor);
+    let replacement_events = Arc::clone(&events);
+    let replacement_descriptor_path = paths.descriptor.clone();
+    let administration =
+        StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store)
+            .with_store_replacement_hook(move |store_epoch| {
+                replacement_document
+                    .reset_for_store_replacement()
+                    .map_err(store_replacement_hook_error)?;
+                replacement_realtime
+                    .reset_for_store_replacement()
+                    .map_err(store_replacement_hook_error)?;
+                let mut descriptor = replacement_descriptor.lock().map_err(|_| {
+                    StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Core runtime descriptor lock failed during Store replacement",
+                        false,
+                    )
+                })?;
+                let mut events = replacement_events.lock().map_err(|_| {
+                    StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Core event replay lock failed during Store replacement",
+                        false,
+                    )
+                })?;
+                let mut next = descriptor.clone();
+                next.store_epoch = store_epoch.to_owned();
+                next.readiness_generation =
+                    next.readiness_generation.checked_add(1).ok_or_else(|| {
+                        StoreError::new(
+                            StoreErrorCode::Internal,
+                            "Core readiness generation overflowed during Store replacement",
+                            false,
+                        )
+                    })?;
+                let bytes = format!(
+                    "{}\n",
+                    serde_json::to_string(&next).map_err(|error| {
+                        StoreError::new(
+                            StoreErrorCode::Internal,
+                            format!("Core runtime descriptor could not be encoded: {error}"),
+                            false,
+                        )
+                    })?
+                );
+                atomic_write(&replacement_descriptor_path, bytes.as_bytes()).map_err(|error| {
+                    StoreError::new(
+                        StoreErrorCode::Internal,
+                        format!("Core runtime descriptor could not be replaced: {error}"),
+                        false,
+                    )
+                })?;
+                events.clear();
+                *descriptor = next;
+                Ok(())
+            });
     let state = Arc::new(ServerState {
         auth_header: format!("Bearer {auth}"),
+        profile_id: identity.profile_id,
         library_id: identity.library_id,
         library,
         database,
         workspace,
         automation,
         administration,
-        document_realtime: OwnedDocumentRealtimeAdapter::new(document.clone()),
+        document_realtime,
         document,
         _store: store,
         schema_version,
         descriptor,
-        events: Mutex::new(Vec::new()),
+        events,
         event_sender,
         document_sender,
         shutdown: Notify::new(),
@@ -1378,4 +1453,8 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     cleanup(&paths, &start_nonce);
     drop(lock);
     result.map_err(Into::into)
+}
+
+fn store_replacement_hook_error(error: CoreError) -> StoreError {
+    StoreError::new(StoreErrorCode::Internal, error.message, error.retryable)
 }

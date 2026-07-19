@@ -184,6 +184,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
         StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
+        StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
         StoreErrorCode::Conflict
         | StoreErrorCode::HeadConflict
         | StoreErrorCode::RevisionConflict => CoreErrorCode::RevisionConflict,

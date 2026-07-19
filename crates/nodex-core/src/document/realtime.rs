@@ -96,6 +96,12 @@ impl OwnedDocumentRealtimeAdapter {
         }
     }
 
+    pub fn reset_for_store_replacement(&self) -> Result<(), CoreError> {
+        let mut state = self.lock_state()?;
+        *state = RealtimeState::default();
+        Ok(())
+    }
+
     pub fn subscribe(
         &self,
         context: &BoundModuleContext,

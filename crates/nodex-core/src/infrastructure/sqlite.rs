@@ -28,6 +28,7 @@ pub enum StoreErrorCode {
     MissingDependencies,
     NotFound,
     RevisionConflict,
+    StaleStoreEpoch,
     Unauthorized,
     WriterQueueFull,
     WriterClosed,

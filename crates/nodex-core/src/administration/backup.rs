@@ -18,6 +18,11 @@ const BACKUP_ASSETS_DIRECTORY_NAME: &str = "assets";
 const BACKUP_MANIFEST_FILE_NAME: &str = "manifest.json";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
+pub(super) struct ValidatedRestoreBackup {
+    directory: PathBuf,
+    manifest: BackupManifest,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BackupManifest {
@@ -85,6 +90,52 @@ pub(super) fn create_backup(
     label: Option<&str>,
     include_assets: bool,
 ) -> Result<BackupRecord, StoreError> {
+    create_backup_with_trigger(
+        connection,
+        profile_home,
+        profile_id,
+        operation_id,
+        request_hash,
+        label,
+        include_assets,
+        "manual",
+    )
+}
+
+pub(super) fn create_safety_backup(
+    connection: &Connection,
+    profile_home: &Path,
+    profile_id: &str,
+    restore_operation_id: &str,
+    request_hash: &str,
+    restored_backup_id: &str,
+) -> Result<BackupRecord, StoreError> {
+    let role_digest = Sha256::digest(format!("pre-restore\0{restore_operation_id}"));
+    let operation_id = format!("pre-restore-{}", hex(&role_digest));
+    let label = format!("Before restoring {restored_backup_id}");
+    create_backup_with_trigger(
+        connection,
+        profile_home,
+        profile_id,
+        &operation_id,
+        request_hash,
+        Some(&label),
+        true,
+        "pre-restore",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_backup_with_trigger(
+    connection: &Connection,
+    profile_home: &Path,
+    profile_id: &str,
+    operation_id: &str,
+    request_hash: &str,
+    label: Option<&str>,
+    include_assets: bool,
+    trigger: &str,
+) -> Result<BackupRecord, StoreError> {
     let root = prepare_backup_root(profile_home)?;
     let backup_id = backup_id(profile_id, operation_id);
     let final_directory = root.join(&backup_id);
@@ -115,6 +166,7 @@ pub(super) fn create_backup(
         request_hash,
         label,
         include_assets,
+        trigger,
     );
     let record = match result {
         Ok(record) => record,
@@ -138,6 +190,7 @@ fn stage_backup(
     request_hash: &str,
     label: Option<&str>,
     include_assets: bool,
+    trigger: &str,
 ) -> Result<BackupRecord, StoreError> {
     let database_path = staging_directory.join(BACKUP_DATABASE_FILE_NAME);
     connection.backup(MAIN_DB, &database_path, None)?;
@@ -162,7 +215,7 @@ fn stage_backup(
         version: BACKUP_MANIFEST_VERSION,
         id: backup_id.to_owned(),
         created_at,
-        trigger: "manual".to_owned(),
+        trigger: trigger.to_owned(),
         label: label.map(str::to_owned),
         includes_assets: include_assets,
         db_bytes,
@@ -187,9 +240,7 @@ fn adopt_published_backup(
     request_hash: &str,
     expected_backup_id: &str,
 ) -> Result<BackupRecord, StoreError> {
-    require_directory(directory, "Published backup")?;
-    let manifest = read_manifest(directory)?;
-    validate_manifest(&manifest)?;
+    let manifest = validate_published_backup(directory, expected_backup_id)?;
     if manifest.id != expected_backup_id
         || manifest.core_operation_id.as_deref() != Some(operation_id)
         || manifest.core_request_hash.as_deref() != Some(request_hash)
@@ -198,6 +249,97 @@ fn adopt_published_backup(
             StoreErrorCode::IdempotencyKeyReused,
             "Backup identity is already bound to another Store Administration request",
             false,
+        ));
+    }
+    Ok(to_record(&manifest))
+}
+
+pub(super) fn resolve_backup_for_restore(
+    profile_home: &Path,
+    backup_id: &str,
+) -> Result<ValidatedRestoreBackup, StoreError> {
+    if !is_safe_backup_id(backup_id) {
+        return Err(StoreError::new(
+            StoreErrorCode::InvalidInput,
+            "Restore backup identity is invalid",
+            false,
+        ));
+    }
+    let root = profile_home.join("backups");
+    require_directory(&root, "Backup root")?;
+    let directory = root.join(backup_id);
+    if !directory.exists() {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Restore backup was not found",
+            false,
+        ));
+    }
+    let manifest = validate_published_backup(&directory, backup_id)?;
+    Ok(ValidatedRestoreBackup {
+        directory,
+        manifest,
+    })
+}
+
+pub(super) fn stage_restore_candidate(
+    profile_home: &Path,
+    backup: &ValidatedRestoreBackup,
+    staging_directory_name: &str,
+) -> Result<String, StoreError> {
+    validate_restore_staging_name(staging_directory_name)?;
+    let root = profile_home.join("backups");
+    require_directory(&root, "Backup root")?;
+    let staging = root.join(staging_directory_name);
+    remove_owned_restore_staging(&root, &staging)?;
+    fs::create_dir(&staging).map_err(io_error)?;
+    let result = (|| {
+        let database = staging.join(BACKUP_DATABASE_FILE_NAME);
+        fs::copy(backup.directory.join(BACKUP_DATABASE_FILE_NAME), &database).map_err(io_error)?;
+        sync_file(&database)?;
+        let assets = staging.join(BACKUP_ASSETS_DIRECTORY_NAME);
+        if backup.manifest.includes_assets {
+            copy_assets(
+                &backup.directory.join(BACKUP_ASSETS_DIRECTORY_NAME),
+                &assets,
+            )?;
+        } else {
+            fs::create_dir(&assets).map_err(io_error)?;
+            sync_directory(&assets)?;
+        }
+        let (schema_version, store_epoch) = validate_backup_database(&database)?;
+        if backup.manifest.store_schema_version != Some(schema_version)
+            || backup.manifest.store_epoch.as_deref() != Some(store_epoch.as_str())
+        {
+            return Err(corrupt(
+                "Restore staging Store diverges from its backup manifest",
+            ));
+        }
+        sync_tree(&staging)?;
+        Ok(store_epoch)
+    })();
+    match result {
+        Ok(store_epoch) => {
+            sync_directory(&root)?;
+            Ok(store_epoch)
+        }
+        Err(error) => {
+            remove_owned_restore_staging(&root, &staging)?;
+            Err(error)
+        }
+    }
+}
+
+fn validate_published_backup(
+    directory: &Path,
+    expected_backup_id: &str,
+) -> Result<BackupManifest, StoreError> {
+    require_directory(directory, "Published backup")?;
+    let manifest = read_manifest(directory)?;
+    validate_manifest(&manifest)?;
+    if manifest.id != expected_backup_id {
+        return Err(corrupt(
+            "Published backup manifest identity does not match its directory",
         ));
     }
     let database_path = directory.join(BACKUP_DATABASE_FILE_NAME);
@@ -220,7 +362,7 @@ fn adopt_published_backup(
     {
         return Err(corrupt("Published backup manifest byte counts are invalid"));
     }
-    Ok(to_record(&manifest))
+    Ok(manifest)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -363,34 +505,43 @@ fn inspect_directory(root: &Path) -> Result<u64, StoreError> {
 }
 
 fn validate_backup_database(path: &Path) -> Result<(u32, String), StoreError> {
-    let connection = open_immutable_reader(path)?;
-    validate_store(&connection)?;
-    let schema_version =
-        connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
-    if schema_version != u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32") {
-        return Err(StoreError::new(
-            StoreErrorCode::UnsupportedSchema,
-            format!("Backup uses unsupported store schema v{schema_version}"),
-            false,
-        ));
-    }
-    let metadata = connection
-        .query_row(
-            "SELECT metadata.schema_owner, block.store_epoch \
-             FROM core_store_metadata metadata \
-             JOIN block_store_metadata block ON block.id = metadata.id \
-             WHERE metadata.id = 1",
-            [],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?;
-    let Some((owner, store_epoch)) = metadata else {
-        return Err(corrupt("Backup is missing Rust Core store metadata"));
-    };
-    if owner != "rust_core" || store_epoch.is_empty() {
-        return Err(corrupt("Backup Rust Core metadata is invalid"));
-    }
-    Ok((schema_version, store_epoch))
+    let result = (|| {
+        let connection = open_immutable_reader(path)?;
+        validate_store(&connection)?;
+        let schema_version =
+            connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
+        if schema_version != u32::try_from(CORE_SCHEMA_VERSION).expect("schema version fits u32") {
+            return Err(StoreError::new(
+                StoreErrorCode::UnsupportedSchema,
+                format!("Backup uses unsupported store schema v{schema_version}"),
+                false,
+            ));
+        }
+        let metadata = connection
+            .query_row(
+                "SELECT metadata.schema_owner, block.store_epoch \
+                 FROM core_store_metadata metadata \
+                 JOIN block_store_metadata block ON block.id = metadata.id \
+                 WHERE metadata.id = 1",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        let Some((owner, store_epoch)) = metadata else {
+            return Err(corrupt("Backup is missing Rust Core store metadata"));
+        };
+        if owner != "rust_core" || store_epoch.is_empty() {
+            return Err(corrupt("Backup Rust Core metadata is invalid"));
+        }
+        Ok((schema_version, store_epoch))
+    })();
+    result.map_err(|error| match error.code {
+        StoreErrorCode::InvalidProfile | StoreErrorCode::SqliteFailure => corrupt(format!(
+            "Backup SQLite validation failed: {}",
+            error.message
+        )),
+        _ => error,
+    })
 }
 
 fn write_manifest(directory: &Path, manifest: &BackupManifest) -> Result<(), StoreError> {
@@ -521,6 +672,46 @@ fn remove_owned_staging_directory(root: &Path, staging: &Path) -> Result<(), Sto
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(invalid_profile(
             "Backup staging path is not an owned directory",
+        ));
+    }
+    fs::remove_dir_all(staging).map_err(io_error)?;
+    sync_directory(root)
+}
+
+fn validate_restore_staging_name(name: &str) -> Result<(), StoreError> {
+    if name.starts_with(".restore-")
+        && name.len() > ".restore-".len()
+        && name.len() <= 160
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'.')
+    {
+        return Ok(());
+    }
+    Err(invalid_profile(
+        "Restore staging directory identity is invalid",
+    ))
+}
+
+fn remove_owned_restore_staging(root: &Path, staging: &Path) -> Result<(), StoreError> {
+    if staging.parent() != Some(root) {
+        return Err(invalid_profile(
+            "Restore staging path is outside its owner root",
+        ));
+    }
+    let name = staging
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| invalid_profile("Restore staging identity is invalid"))?;
+    validate_restore_staging_name(name)?;
+    let metadata = match fs::symlink_metadata(staging) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(invalid_profile(
+            "Restore staging path is not an owned directory",
         ));
     }
     fs::remove_dir_all(staging).map_err(io_error)?;
