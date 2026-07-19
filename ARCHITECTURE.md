@@ -80,7 +80,10 @@ development selector can serve the full desktop workflow. The first active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
 IPC pair and the Project catalog boundary. Library reads use the Library
 connection, writes derive the actor Project from the trusted invoking window,
-and committed Core events become renderer Library invalidations. Project
+and committed Core events become renderer Library or Workspace invalidations.
+The event bridge is backend-neutral and active for both authority choices, so
+Rust Session and Project receipts refresh existing renderer subscriptions.
+Project
 catalog reads, creation, metadata/source updates, sidebar and pinned ordering,
 and archival all pass through one Workspace Adapter. Its Session startup/list
 and exact-snapshot reads hydrate the existing camel-cased IPC model from Core

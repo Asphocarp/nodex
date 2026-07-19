@@ -39,7 +39,7 @@ function createHarness() {
     broadcast: (channel, payload) => {
       broadcasts.push({ channel, payload });
     },
-    resolveThreadIdForSession: (sessionId) => sessionThreads.get(sessionId) ?? null,
+    resolveThreadIdForSession: async (sessionId) => sessionThreads.get(sessionId) ?? null,
     sendToSender: (sender, channel, payload) => {
       sentMessages.push({ channel, payload, senderId: sender.id });
     },
@@ -87,7 +87,7 @@ function createBrowserUseSnapshot(
 }
 
 describe("RemoteHostedPipService", () => {
-  test("derives stream state from active BrowserUse capture tabs", () => {
+  test("derives stream state from active BrowserUse capture tabs", async () => {
     const { broadcasts, sentMessages, service } = createHarness();
     const sender = new FakeSender(7);
 
@@ -117,7 +117,7 @@ describe("RemoteHostedPipService", () => {
       },
     ]));
 
-    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
       createBrowserUseTab(),
     ]));
 
@@ -134,12 +134,12 @@ describe("RemoteHostedPipService", () => {
       },
     ]));
 
-    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
       createBrowserUseTab({ title: "Same stream, new metadata" }),
     ]));
     expect(broadcasts.length).toBe(1);
 
-    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
       createBrowserUseTab({ released: true }),
     ]));
 
@@ -155,10 +155,10 @@ describe("RemoteHostedPipService", () => {
     }));
   });
 
-  test("ignores BrowserUse tabs that cannot back a real PiP stream", () => {
+  test("ignores BrowserUse tabs that cannot back a real PiP stream", async () => {
     const { broadcasts, service } = createHarness();
 
-    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
       createBrowserUseTab({ captureActive: false, browserTabId: "tab-inactive" }),
       createBrowserUseTab({ released: true, browserTabId: "tab-released" }),
       createBrowserUseTab({ browserTabId: "tab-detached", webContentsId: null }),
@@ -169,7 +169,7 @@ describe("RemoteHostedPipService", () => {
     expect(broadcasts.length).toBe(0);
   });
 
-  test("publishes any-active changes for the renderer's active thread", () => {
+  test("publishes any-active changes for the renderer's active thread", async () => {
     const { broadcasts, service } = createHarness();
     const sender = new FakeSender(9);
 
@@ -177,7 +177,7 @@ describe("RemoteHostedPipService", () => {
       type: "remote-hosted-pip-active-thread-changed",
       conversationId: "thread-2",
     });
-    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
       createBrowserUseTab({ browserConversationId: "session-1" }),
     ]));
 
@@ -203,10 +203,10 @@ describe("RemoteHostedPipService", () => {
     ]));
   });
 
-  test("tracks equal browser tab ids as distinct conversation-scoped PiP sources", () => {
+  test("tracks equal browser tab ids as distinct conversation-scoped PiP sources", async () => {
     const { service } = createHarness();
 
-    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
       createBrowserUseTab({ browserConversationId: "session-1", browserTabId: "shared" }),
       createBrowserUseTab({ browserConversationId: "session-2", browserTabId: "shared", webContentsId: 202 }),
     ]));
@@ -215,13 +215,37 @@ describe("RemoteHostedPipService", () => {
       JSON.stringify(["thread-1", "thread-2"]),
     );
 
-    service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
       createBrowserUseTab({ browserConversationId: "session-2", browserTabId: "shared", webContentsId: 202 }),
     ]));
 
     expect(JSON.stringify(service.getBrowserUsePipConversationIds())).toBe(
       JSON.stringify(["thread-2"]),
     );
+  });
+
+  test("does not let an older async Session snapshot replace a newer one", async () => {
+    let resolveOlder: ((threadId: string) => void) | undefined;
+    const olderThread = new Promise<string>((resolve) => {
+      resolveOlder = resolve;
+    });
+    const service = new RemoteHostedPipService({
+      broadcast: () => undefined,
+      resolveThreadIdForSession: async (sessionId) =>
+        sessionId === "session-1" ? await olderThread : "thread-2",
+      sendToSender: () => undefined,
+    });
+
+    const older = service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+      createBrowserUseTab({ browserConversationId: "session-1" }),
+    ]));
+    await service.handleBrowserUseStateSnapshot(createBrowserUseSnapshot([
+      createBrowserUseTab({ browserConversationId: "session-2" }),
+    ]));
+    resolveOlder?.("thread-1");
+    await older;
+
+    expect(service.getBrowserUsePipConversationIds()).toEqual(["thread-2"]);
   });
 
   test("broadcasts visibility requests from renderer messages", () => {

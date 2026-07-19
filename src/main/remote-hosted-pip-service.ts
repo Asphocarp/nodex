@@ -24,7 +24,7 @@ interface RemoteHostedPipServiceDeps {
     channel: Channel,
     payload: IpcEvents[Channel],
   ) => void;
-  resolveThreadIdForSession: (sessionId: string) => string | null;
+  resolveThreadIdForSession: (sessionId: string) => Promise<string | null>;
   sendToSender: <Channel extends RemoteHostedPipMessageChannel>(
     sender: RemoteHostedPipWebContentsLike,
     channel: Channel,
@@ -48,6 +48,7 @@ export class RemoteHostedPipService {
   private readonly hostLayoutsBySender = new Map<number, RemoteHostedPipHostLayout>();
   private readonly publishedStreamStateByConversationId = new Map<string, PublishedStreamState>();
   private readonly trackedSenderIds = new Set<number>();
+  private browserUseSnapshotGeneration = 0;
   private isVisible = true;
 
   constructor(private readonly deps: RemoteHostedPipServiceDeps) {}
@@ -74,10 +75,14 @@ export class RemoteHostedPipService {
     }
   }
 
-  handleBrowserUseStateSnapshot(snapshot: BrowserSidebarBrowserUseStateSnapshot): void {
+  async handleBrowserUseStateSnapshot(
+    snapshot: BrowserSidebarBrowserUseStateSnapshot,
+  ): Promise<void> {
+    const generation = ++this.browserUseSnapshotGeneration;
     const previousConversationIds = new Set(this.activeSourceConversationIdBySourceId.values());
     const previousAnyActive = this.hasAnyActiveSource();
-    const nextSources = this.resolveBrowserUsePipSources(snapshot);
+    const nextSources = await this.resolveBrowserUsePipSources(snapshot);
+    if (generation !== this.browserUseSnapshotGeneration) return;
 
     this.activeSourceConversationIdBySourceId.clear();
     for (const source of nextSources) {
@@ -154,20 +159,22 @@ export class RemoteHostedPipService {
     });
   }
 
-  private resolveBrowserUsePipSources(
+  private async resolveBrowserUsePipSources(
     snapshot: BrowserSidebarBrowserUseStateSnapshot,
-  ): BrowserUsePipSource[] {
-    return snapshot.tabs.flatMap((tab) => {
-      const source = this.resolveBrowserUsePipSource(tab);
-      return source ? [source] : [];
-    });
+  ): Promise<BrowserUsePipSource[]> {
+    const sources = await Promise.all(
+      snapshot.tabs.map(async (tab) => await this.resolveBrowserUsePipSource(tab)),
+    );
+    return sources.filter((source): source is BrowserUsePipSource => source !== null);
   }
 
-  private resolveBrowserUsePipSource(tab: BrowserUseTabState): BrowserUsePipSource | null {
+  private async resolveBrowserUsePipSource(
+    tab: BrowserUseTabState,
+  ): Promise<BrowserUsePipSource | null> {
     if (tab.released) return null;
     if (!tab.captureActive) return null;
     if (tab.webContentsId === null) return null;
-    const conversationId = this.deps.resolveThreadIdForSession(
+    const conversationId = await this.deps.resolveThreadIdForSession(
       tab.browserConversationId,
     );
     if (!conversationId) return null;

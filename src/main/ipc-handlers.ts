@@ -192,6 +192,7 @@ import type {
 } from "../shared/types";
 import type {
   BrowserBrowsingDataKind,
+  BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarCommand,
   BrowserSidebarWebviewDestroyed,
   BrowserSidebarWebviewHostCreated,
@@ -355,17 +356,33 @@ function sendIpcEvent<Channel extends keyof IpcEvents>(
   safeSendToWebContents(sender, channel, [payload]);
 }
 
+let resolveRemoteHostedPipThreadId = async (
+  sessionId: string,
+): Promise<string | null> =>
+  projectSessionService.getProjectSession(sessionId)?.thread?.threadId ?? null;
+
 const remoteHostedPipService = new RemoteHostedPipService({
   broadcast: (channel, payload) => {
     broadcastIpcEvent(channel, payload);
   },
-  resolveThreadIdForSession: (sessionId) =>
-    projectSessionService.getProjectSession(sessionId)?.thread?.threadId ??
-    null,
+  resolveThreadIdForSession: async (sessionId) =>
+    await resolveRemoteHostedPipThreadId(sessionId),
   sendToSender: (sender, channel, payload) => {
     sendIpcEvent(sender as Electron.WebContents, channel, payload);
   },
 });
+
+function refreshRemoteHostedPipState(
+  snapshot: BrowserSidebarBrowserUseStateSnapshot,
+): void {
+  void remoteHostedPipService.handleBrowserUseStateSnapshot(snapshot).catch(
+    (error) => {
+      ipcPayloadLogger.warn("Could not resolve remote hosted PIP Thread state", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  );
+}
 
 function buildNativeContextMenuTemplate(
   items: NativeContextMenuItem[],
@@ -492,7 +509,7 @@ function ensureBrowserSidebarEventBridge(): void {
     broadcastBrowserSidebarEvent("localServers", snapshot),
   );
   browserSidebarService.on("browserUseState", (snapshot) => {
-    remoteHostedPipService.handleBrowserUseStateSnapshot(snapshot);
+    refreshRemoteHostedPipState(snapshot);
     broadcastBrowserSidebarEvent("browserUseState", snapshot);
   });
   browserSidebarService.on("browserUseViewport", (event) =>
@@ -513,9 +530,7 @@ function ensureBrowserSidebarEventBridge(): void {
   browserSidebarService.on("destroyWebview", (event) =>
     broadcastBrowserSidebarEvent("destroyWebview", event),
   );
-  remoteHostedPipService.handleBrowserUseStateSnapshot(
-    browserSidebarService.getBrowserUseStateSnapshot(),
-  );
+  refreshRemoteHostedPipState(browserSidebarService.getBrowserUseStateSnapshot());
 }
 
 function broadcastCommandKeymapState(state: CommandKeymapState): void {
@@ -637,7 +652,6 @@ function assertValidOccurrenceUpdateIpcInput(
 export function registerIpcHandlers(
   options: RegisterIpcHandlersOptions = {},
 ): void {
-  ensureBrowserSidebarEventBridge();
   const documentSyncHub = options.documentSyncHub ?? defaultDocumentSyncHub;
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace ?? {
@@ -731,6 +745,9 @@ export function registerIpcHandlers(
       detachProjectSessionThread: async (sessionId) =>
         projectSessionService.detachProjectSessionThread(sessionId),
     };
+  resolveRemoteHostedPipThreadId = async (sessionId) =>
+    (await projectWorkspace.getProjectSession(sessionId))?.thread?.threadId ?? null;
+  ensureBrowserSidebarEventBridge();
 
   const gitBranchWatches = new Map<
     number,
@@ -910,10 +927,10 @@ export function registerIpcHandlers(
       codexService.discardPendingForkSidePanelTransfer(pendingWorktreeId);
     },
   );
-  registerHandle("codex:fork-side-panel-transfer:consume", (_, input) => {
+  registerHandle("codex:fork-side-panel-transfer:consume", async (_, input) => {
     const consumed = codexService.consumeForkSidePanelTransfer(input);
     if (!consumed) return false;
-    const session = projectSessionService.getProjectSession(
+    const session = await projectWorkspace.getProjectSession(
       input.targetProjectSessionId,
     );
     if (session) {

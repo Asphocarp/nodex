@@ -1,4 +1,5 @@
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
+import type { CoreEventEnvelope } from "./types";
 import {
   createCoreProjectWorkspaceAdapter,
   type DesktopProjectWorkspacePort,
@@ -109,5 +110,23 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).upsertProjectSessionThreadLink(threadInput),
     detachProjectSessionThread: async (sessionId) =>
       await (await resolve()).detachProjectSessionThread(sessionId),
+  };
+}
+
+export interface CoreProjectWorkspaceInvalidation {
+  readonly projectIds: readonly string[];
+  readonly sessionIds: readonly string[];
+  readonly threadIds: readonly string[];
+}
+
+export function mapCoreProjectWorkspaceEvent(
+  envelope: CoreEventEnvelope,
+): CoreProjectWorkspaceInvalidation | null {
+  const payload = envelope.event.payload;
+  if (payload.module !== "project_workspace") return null;
+  return {
+    projectIds: payload.event.project_ids,
+    sessionIds: payload.event.session_ids,
+    threadIds: payload.event.thread_ids,
   };
 }

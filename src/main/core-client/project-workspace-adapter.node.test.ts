@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { createCoreProjectWorkspaceAdapter } from "./project-workspace-adapter";
+import { mapCoreProjectWorkspaceEvent } from "./desktop-project-workspace-bridge";
 import { FakeCoreClient } from "./testing/fake-core-client";
 
 const project = (overrides: Record<string, unknown> = {}) => ({
@@ -86,6 +87,32 @@ const thread = {
 };
 
 describe("Core Project Workspace adapter", () => {
+  test("maps Workspace events into authority-neutral invalidations", () => {
+    expect(mapCoreProjectWorkspaceEvent({
+      protocol_version: 1,
+      event: {
+        version: 1,
+        sequence: 3,
+        store_epoch: "epoch:test",
+        operation_id: "operation:workspace",
+        committed_at: "2026-07-19T15:02:00.000Z",
+        payload: {
+          module: "project_workspace",
+          event: {
+            kind: "workspace_changed",
+            project_ids: ["project:one"],
+            session_ids: ["session:one"],
+            thread_ids: ["thread:one"],
+          },
+        },
+      },
+    })).toEqual({
+      projectIds: ["project:one"],
+      sessionIds: ["session:one"],
+      threadIds: ["thread:one"],
+    });
+  });
+
   test("maps Project reads and preserves Date values at the IPC boundary", async () => {
     const client = new FakeCoreClient();
     client.enqueueWorkspaceRead({

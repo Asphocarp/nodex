@@ -129,9 +129,11 @@ import { buildWorkbenchViewMenu } from "./application-menu";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   initializeDesktopDataAuthority,
+  createCoreProjectWorkspaceAdapter,
   createDesktopLibraryModuleBridge,
   createDesktopProjectWorkspaceBridge,
   mapCoreLibraryEvent,
+  mapCoreProjectWorkspaceEvent,
   type CoreEventEnvelope,
   type CoreEventSubscription,
   type DesktopDataAuthorityRuntime,
@@ -657,7 +659,7 @@ function resolvePendingPageDeepLink(): void {
   flushPendingPageDeepLink();
 }
 
-function resolvePendingSessionDeepLink(): void {
+async function resolvePendingSessionDeepLink(): Promise<void> {
   if (!databaseReady) {
     return;
   }
@@ -668,8 +670,12 @@ function resolvePendingSessionDeepLink(): void {
   }
 
   const sessionId = pendingSessionDeepLinkSessionId;
-  const session = projectSessionService.getProjectSession(sessionId);
   pendingSessionDeepLinkSessionId = null;
+  const session = desktopDataAuthorityRuntime?.backend === "rust"
+    ? await createCoreProjectWorkspaceAdapter(
+        desktopDataAuthorityRuntime.rootClient,
+      ).getProjectSession(sessionId)
+    : projectSessionService.getProjectSession(sessionId);
   if (!session) {
     return;
   }
@@ -701,7 +707,7 @@ function queueSessionDeepLink(sessionId: string): void {
   }
 
   focusLastWindow();
-  resolvePendingSessionDeepLink();
+  void resolvePendingSessionDeepLink();
 }
 
 function handleIncomingDeepLink(value: string): boolean {
@@ -1000,6 +1006,45 @@ function retainRestorableWindowSessions(): void {
   }
 }
 
+let databaseNotifierBridgesRegistered = false;
+
+function registerDatabaseNotifierBridges(): void {
+  if (databaseNotifierBridgesRegistered) return;
+  databaseNotifierBridgesRegistered = true;
+
+  dbNotifier.on("board-changed", (event) => {
+    broadcastToWindows("board-changed", event);
+  });
+  dbNotifier.on("page-target-changed", (event) => {
+    broadcastToWindows("page-target-changed", event);
+  });
+  dbNotifier.on("page-ownership-paths-changed", (event) => {
+    broadcastToWindows("page-ownership-paths-changed", event);
+  });
+  dbNotifier.on("database-changed", (event) => {
+    broadcastToWindows("database-changed", event);
+  });
+  dbNotifier.on("library-navigation-changed", (event) => {
+    broadcastToWindows("library-navigation-changed", event);
+  });
+  dbNotifier.on("project-sessions-changed", (event) => {
+    recordDevRuntimeMetricCounter(
+      "db.project_sessions_changed.broadcast",
+      {
+        projectId: event.projectId,
+        changeType: event.changeType,
+        sessionId: event.sessionId ?? null,
+        windowCount: openWindows.size,
+      },
+      { groupBy: ["projectId", "changeType", "windowCount"] },
+    );
+    broadcastToWindows("project-sessions-changed", event);
+  });
+  dbNotifier.on("projects-changed", (event) => {
+    broadcastToWindows("projects-changed", event);
+  });
+}
+
 async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void> {
   await initializeDatabase({
     onMigrationProgress: (progress) => {
@@ -1012,7 +1057,7 @@ async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void>
   startDocumentRevisionMaintenanceRuntime();
   databaseReady = true;
   resolvePendingPageDeepLink();
-  resolvePendingSessionDeepLink();
+  await resolvePendingSessionDeepLink();
 
   startHttpServer(serverPort);
 
@@ -1080,38 +1125,6 @@ async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void>
     });
   });
 
-  dbNotifier.on("board-changed", (event) => {
-    broadcastToWindows("board-changed", event);
-  });
-  dbNotifier.on("page-target-changed", (event) => {
-    broadcastToWindows("page-target-changed", event);
-  });
-  dbNotifier.on("page-ownership-paths-changed", (event) => {
-    broadcastToWindows("page-ownership-paths-changed", event);
-  });
-  dbNotifier.on("database-changed", (event) => {
-    broadcastToWindows("database-changed", event);
-  });
-  dbNotifier.on("library-navigation-changed", (event) => {
-    broadcastToWindows("library-navigation-changed", event);
-  });
-  dbNotifier.on("project-sessions-changed", (event) => {
-    recordDevRuntimeMetricCounter(
-      "db.project_sessions_changed.broadcast",
-      {
-        projectId: event.projectId,
-        changeType: event.changeType,
-        sessionId: event.sessionId ?? null,
-        windowCount: openWindows.size,
-      },
-      { groupBy: ["projectId", "changeType", "windowCount"] },
-    );
-    broadcastToWindows("project-sessions-changed", event);
-  });
-  dbNotifier.on("projects-changed", (event) => {
-    broadcastToWindows("projects-changed", event);
-  });
-
   registerDesktopActivationHandler();
 
   setAppInitializationStep({ phase: "done" });
@@ -1123,6 +1136,7 @@ async function initializeDesktopApp(
   authority: Promise<DesktopDataAuthorityRuntime>,
 ): Promise<void> {
   desktopDataAuthorityRuntime = await authority;
+  registerDatabaseNotifierBridges();
   if (desktopDataAuthorityRuntime.backend === "typescript") {
     await initializeTypeScriptDesktopApp(serverPort);
     return;
@@ -1147,6 +1161,8 @@ async function initializeDesktopApp(
         affectedDatabaseIds: [],
         affectedViewIds: [],
       });
+      dbNotifier.notifyProjectsChanged("update");
+      dbNotifier.notifyProjectSessionsChanged(null, "update");
     },
   );
   void coreEventSubscription.done.catch((error) => {
@@ -1156,6 +1172,7 @@ async function initializeDesktopApp(
     });
   });
   databaseReady = true;
+  await resolvePendingSessionDeepLink();
   registerDesktopActivationHandler();
   setAppInitializationStep({ phase: "done" });
   maybeStartAutomaticAppUpdateChecks();
@@ -1163,12 +1180,34 @@ async function initializeDesktopApp(
 
 function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   if (desktopDataAuthorityRuntime?.backend !== "rust") return;
-  const event = mapCoreLibraryEvent(
+  const libraryEvent = mapCoreLibraryEvent(
     envelope,
     desktopDataAuthorityRuntime.rootClient.handshake.library_id,
   );
-  if (!event) return;
-  broadcastToWindows("library-navigation-changed", event);
+  if (libraryEvent) {
+    dbNotifier.notifyLibraryNavigationChanged(libraryEvent);
+    return;
+  }
+  const workspaceEvent = mapCoreProjectWorkspaceEvent(envelope);
+  if (!workspaceEvent) return;
+  const projectId = workspaceEvent.projectIds.length === 1
+    ? workspaceEvent.projectIds[0]
+    : undefined;
+  dbNotifier.notifyProjectsChanged("update", projectId);
+  const sessionProjectId = projectId ?? null;
+  if (workspaceEvent.sessionIds.length === 0) {
+    if (workspaceEvent.threadIds.length > 0) {
+      dbNotifier.notifyProjectSessionsChanged(sessionProjectId, "thread");
+    }
+    return;
+  }
+  for (const sessionId of workspaceEvent.sessionIds) {
+    dbNotifier.notifyProjectSessionsChanged(
+      sessionProjectId,
+      "update",
+      sessionId,
+    );
+  }
 }
 
 let desktopActivationHandlerRegistered = false;
