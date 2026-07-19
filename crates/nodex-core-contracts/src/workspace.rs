@@ -570,6 +570,9 @@ pub enum ProjectWorkspaceIntent {
     ReorderProjects {
         project_ids: Vec<String>,
     },
+    ReorderPinnedProjects {
+        project_ids: Vec<String>,
+    },
     SetProjectPinned {
         project_id: String,
         pinned: bool,

@@ -229,6 +229,17 @@ pub(super) fn apply(
                     &request_hash,
                     project_ids,
                 ),
+                ProjectWorkspaceIntent::ReorderPinnedProjects { project_ids } => {
+                    reorder_pinned_projects(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        project_ids,
+                    )
+                }
                 ProjectWorkspaceIntent::SetProjectPinned { project_id, pinned } => {
                     set_project_pinned(
                         transaction,
@@ -978,6 +989,83 @@ fn set_project_pinned(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn reorder_pinned_projects(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    project_ids: &[String],
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    if project_ids.len() > MAX_PROJECT_ORDER_SIZE {
+        return Err(invalid("Pinned Project order exceeds its bound"));
+    }
+    for project_id in project_ids {
+        validate_id("project_id", project_id)?;
+    }
+    let requested = project_ids.iter().cloned().collect::<BTreeSet<_>>();
+    if requested.len() != project_ids.len() {
+        return Err(invalid(
+            "Pinned Project order contains duplicate identities",
+        ));
+    }
+    let current = connection
+        .prepare(
+            "SELECT project.id FROM pinned_project_order pinned \
+             JOIN projects project ON project.id = pinned.project_id \
+             WHERE project.library_id = ?1 AND project.lifecycle <> 'archived' \
+             ORDER BY pinned.\"order\", project.created, project.id",
+        )?
+        .query_map([library_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if requested != current.iter().cloned().collect::<BTreeSet<_>>() {
+        return Err(StoreError::new(
+            StoreErrorCode::Conflict,
+            "Pinned Project order must contain exactly the current pinned Projects",
+            true,
+        ));
+    }
+    let now = sqlite_now(connection)?;
+    for (order, project_id) in project_ids.iter().enumerate() {
+        let changed = connection.execute(
+            "UPDATE pinned_project_order SET \"order\" = ?1, updated = ?2 \
+             WHERE project_id = ?3",
+            params![
+                i64::try_from(order).map_err(|_| internal("Pinned Project order"))?,
+                now,
+                project_id,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(corrupt("Pinned Project order changed during mutation"));
+        }
+    }
+    let change_project_id = project_ids
+        .first()
+        .cloned()
+        .map_or_else(|| workspace_event_anchor(connection, library_id), Ok)?;
+    finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        WorkspaceMutationEffects {
+            operation_kind: "reorder_pinned_projects",
+            change_project_id,
+            project_ids: project_ids.to_vec(),
+            session_ids: Vec::new(),
+            thread_ids: Vec::new(),
+            block_ids: Vec::new(),
+            document_ids: Vec::new(),
+            database_ids: Vec::new(),
+            committed_at: now,
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn finish_project_mutation(
     connection: &Connection,
     context: &BoundModuleContext,
@@ -1704,6 +1792,42 @@ mod tests {
                 ),
             )
             .expect("pin Project");
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-pin-secondary",
+                    ProjectWorkspaceIntent::SetProjectPinned {
+                        project_id: "project-secondary".to_owned(),
+                        pinned: true,
+                    },
+                ),
+            )
+            .expect("pin secondary Project");
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-reorder-pinned",
+                    ProjectWorkspaceIntent::ReorderPinnedProjects {
+                        project_ids: vec![
+                            "project-secondary".to_owned(),
+                            "project-native".to_owned(),
+                        ],
+                    },
+                ),
+            )
+            .expect("reorder pinned Projects");
+        let pinned_projects = kernel
+            .writer()
+            .call(|connection| {
+                Ok(connection
+                    .prepare("SELECT project_id FROM pinned_project_order ORDER BY \"order\"")?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .expect("read pinned Project order");
+        assert_eq!(pinned_projects, ["project-secondary", "project-native"]);
         module
             .apply(
                 &context(),

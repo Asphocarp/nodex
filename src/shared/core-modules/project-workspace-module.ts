@@ -411,6 +411,10 @@ export type ProjectWorkspaceIntent =
     }
   | { readonly kind: "reorder_projects"; readonly projectIds: readonly string[] }
   | {
+      readonly kind: "reorder_pinned_projects";
+      readonly projectIds: readonly string[];
+    }
+  | {
       readonly kind: "set_project_pinned";
       readonly projectId: string;
       readonly pinned: boolean;

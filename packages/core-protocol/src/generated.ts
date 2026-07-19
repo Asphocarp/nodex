@@ -1590,6 +1590,10 @@ export interface components {
                 readonly project_ids: readonly string[];
             } | {
                 /** @enum {string} */
+                readonly kind: "reorder_pinned_projects";
+                readonly project_ids: readonly string[];
+            } | {
+                /** @enum {string} */
                 readonly kind: "set_project_pinned";
                 readonly pinned: boolean;
                 readonly project_id: string;

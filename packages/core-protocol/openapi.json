@@ -5866,6 +5866,27 @@
               {
                 "type": "object",
                 "required": [
+                  "project_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reorder_pinned_projects"
+                    ]
+                  },
+                  "project_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "pinned",
                   "kind"
