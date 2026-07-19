@@ -154,6 +154,10 @@ import {
   startStoreAdministrationBackupScheduler,
   type StoreAdministrationBackupScheduler,
 } from "./store-administration-backup-scheduler";
+import {
+  startStoreAdministrationMaintenanceScheduler,
+  type StoreAdministrationMaintenanceScheduler,
+} from "./store-administration-maintenance-scheduler";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -190,6 +194,8 @@ let desktopAutomationModule: DesktopAutomationModulePort | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
+let storeAdministrationMaintenanceScheduler:
+  StoreAdministrationMaintenanceScheduler | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
 const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
@@ -1189,6 +1195,7 @@ async function initializeDesktopApp(
   databaseReady = true;
   await resolvePendingSessionDeepLink();
   configureRuntimeBackupScheduler(getBackupSettings());
+  startRuntimeStoreMaintenanceScheduler();
   await codexService.synchronizeAutomationRuntime();
   startRuntimeScheduledAutomationScheduler();
   registerDesktopActivationHandler();
@@ -1283,6 +1290,8 @@ function configureRuntimeBackupScheduler(settings: {
 }): void {
   storeAdministrationBackupScheduler?.dispose();
   storeAdministrationBackupScheduler = null;
+  storeAdministrationMaintenanceScheduler?.dispose();
+  storeAdministrationMaintenanceScheduler = null;
   const administration = desktopStoreAdministration;
   if (!administration) return;
   storeAdministrationBackupScheduler = startStoreAdministrationBackupScheduler({
@@ -1291,6 +1300,21 @@ function configureRuntimeBackupScheduler(settings: {
     intervalHours: settings.intervalHours,
     retentionCount: settings.retentionCount,
   });
+}
+
+function startRuntimeStoreMaintenanceScheduler(): void {
+  if (
+    desktopDataAuthorityRuntime?.backend !== "rust"
+    || !desktopStoreAdministration
+    || storeAdministrationMaintenanceScheduler
+  ) {
+    return;
+  }
+  storeAdministrationMaintenanceScheduler =
+    startStoreAdministrationMaintenanceScheduler({
+      administration: desktopStoreAdministration,
+      readBlockRetentionCount: () => getHistorySettings().retentionCount,
+    });
 }
 
 let desktopActivationHandlerRegistered = false;

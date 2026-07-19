@@ -26,7 +26,9 @@ pub use block_document::{
     encode_block_document,
 };
 pub use compaction::DocumentCompactionResult;
-pub(crate) use maintenance::{compact_eligible_documents, prune_document_history_pass};
+pub(crate) use maintenance::{
+    compact_eligible_documents, finalize_idle_document_revisions, prune_document_history_pass,
+};
 pub use materialization::{
     BlockDocumentKind, BlockDocumentSchemaMetadata, DocumentBlockSearchUnit,
     DocumentMaterialization, DocumentMaterializationError, DocumentSearchMarkerKind,

@@ -35,6 +35,7 @@ use crate::infrastructure::writer::{StoreMaintenance, StoreReaders, StoreWriter}
 const MODULE_NAME: &str = "store_administration";
 const MAX_OPERATION_ID_BYTES: usize = 512;
 const MAX_LABEL_CHARS: usize = 512;
+const DEFAULT_BLOCK_RETENTION_COUNT: usize = 10_000;
 
 type StoreReplacementHook = Arc<dyn Fn(&str) -> Result<(), StoreError> + Send + Sync>;
 
@@ -222,7 +223,7 @@ impl StoreAdministrationModule {
             StoreAdministrationIntent::RestoreBackup { .. } => ("restore", None, None),
             StoreAdministrationIntent::DeleteBackup { .. } => ("delete_backup", None, None),
             StoreAdministrationIntent::PruneBackups { .. } => ("prune_backups", None, None),
-            StoreAdministrationIntent::RunMaintenance { tasks } => (
+            StoreAdministrationIntent::RunMaintenance { tasks, .. } => (
                 "maintenance",
                 None,
                 Some(normalize_maintenance_tasks(tasks)?),
@@ -543,6 +544,18 @@ impl StoreAdministrationModule {
                 "Store Administration Module has no durable writer",
             ));
         };
+        let StoreAdministrationIntent::RunMaintenance {
+            block_retention_count,
+            ..
+        } = &request.intent
+        else {
+            unreachable!("apply validates the Store Administration intent")
+        };
+        if block_retention_count.is_some() && !tasks.contains(&MaintenanceTask::BlockRetention) {
+            return Err(invalid(
+                "block retention policy requires the block_retention task",
+            ));
+        }
         let fingerprint = serde_json::to_vec(&(
             &self.profile_id,
             &self.library_id,
@@ -550,6 +563,7 @@ impl StoreAdministrationModule {
             &request.store_epoch,
             "run_maintenance",
             &tasks,
+            block_retention_count,
         ))
         .map_err(|_| unavailable("Store maintenance request cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
@@ -559,6 +573,13 @@ impl StoreAdministrationModule {
         let operation_id = request.operation_id;
         let requested_store_epoch = request.store_epoch.0;
         let tasks_for_write = tasks.clone();
+        let block_retention_count = block_retention_count
+            .as_ref()
+            .map(|count| {
+                usize::try_from(*count)
+                    .map_err(|_| invalid("block retention count exceeds platform bounds"))
+            })
+            .transpose()?;
         let verifies_integrity = tasks.iter().any(|task| {
             matches!(
                 task,
@@ -575,7 +596,7 @@ impl StoreAdministrationModule {
                 return Ok(outcome);
             }
             for task in &tasks_for_write {
-                run_maintenance_task(connection, *task)?;
+                run_maintenance_task(connection, &finish_context, *task, block_retention_count)?;
             }
             let committed_at = sqlite_now(connection)?;
             finish_maintenance(
@@ -1121,7 +1142,9 @@ fn finish_cleanup_operation(
 
 fn run_maintenance_task(
     connection: &mut Connection,
+    context: &BoundModuleContext,
     task: MaintenanceTask,
+    block_retention_count: Option<usize>,
 ) -> Result<(), StoreError> {
     match task {
         MaintenanceTask::IntegrityCheck => {
@@ -1145,6 +1168,9 @@ fn run_maintenance_task(
                 )));
             }
         }
+        MaintenanceTask::DocumentRevisionFinalize => {
+            crate::document::finalize_idle_document_revisions(connection, context)?;
+        }
         MaintenanceTask::DocumentCompaction => {
             crate::document::compact_eligible_documents(connection)?;
         }
@@ -1152,7 +1178,10 @@ fn run_maintenance_task(
             crate::document::prune_document_history_pass(connection)?;
         }
         MaintenanceTask::BlockRetention => {
-            crate::document::run_block_retention_pass(connection)?;
+            crate::document::run_block_retention_pass(
+                connection,
+                block_retention_count.unwrap_or(DEFAULT_BLOCK_RETENTION_COUNT),
+            )?;
         }
     }
     Ok(())
@@ -1419,16 +1448,17 @@ fn normalize_label(label: &Option<String>) -> Result<Option<String>, CoreError> 
 fn normalize_maintenance_tasks(
     tasks: &[MaintenanceTask],
 ) -> Result<Vec<MaintenanceTask>, CoreError> {
-    const ORDER: [MaintenanceTask; 5] = [
+    const ORDER: [MaintenanceTask; 6] = [
         MaintenanceTask::IntegrityCheck,
         MaintenanceTask::ForeignKeyCheck,
+        MaintenanceTask::DocumentRevisionFinalize,
         MaintenanceTask::DocumentCompaction,
         MaintenanceTask::HistoryRetention,
         MaintenanceTask::BlockRetention,
     ];
     if tasks.is_empty() || tasks.len() > ORDER.len() {
         return Err(invalid(
-            "maintenance tasks must contain one to five unique tasks",
+            "maintenance tasks must contain one to six unique tasks",
         ));
     }
     let mut normalized = Vec::new();

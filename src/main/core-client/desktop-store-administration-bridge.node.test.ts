@@ -118,6 +118,17 @@ describe("Desktop Store Administration bridge", () => {
       kind: "delete_backup",
       backup_id: backup.backup_id,
     });
+
+    client.enqueueAdministrationApply(committed({}));
+    await bridge.runMaintenance({
+      tasks: ["document_revision_finalize", "block_retention"],
+      blockRetentionCount: 37,
+    });
+    expect(client.administrationApplies[2]?.intent).toEqual({
+      kind: "run_maintenance",
+      tasks: ["document_revision_finalize", "block_retention"],
+      block_retention_count: 37,
+    });
   });
 
   test("maps Store Administration events and selects the explicit fallback", async () => {

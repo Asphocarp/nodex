@@ -16,7 +16,6 @@ use super::{
     read_document_authority, reconstruct_yjs_engine, schema_metadata,
 };
 
-const DEFAULT_RETAIN_NEWEST_DELETED_BLOCKS: usize = 10_000;
 const MAX_CANDIDATES_PER_PROJECT: usize = 100;
 const MAX_RETAINED_DOCUMENT_VERSIONS_TO_INSPECT: usize = 10_000;
 
@@ -110,12 +109,6 @@ enum CandidateOutcome {
 }
 
 pub(crate) fn run_block_retention_pass(
-    connection: &mut Connection,
-) -> Result<BlockRetentionSummary, StoreError> {
-    run_block_retention_pass_with_policy(connection, DEFAULT_RETAIN_NEWEST_DELETED_BLOCKS)
-}
-
-fn run_block_retention_pass_with_policy(
     connection: &mut Connection,
     retain_newest_deleted_blocks: usize,
 ) -> Result<BlockRetentionSummary, StoreError> {
@@ -1305,7 +1298,7 @@ mod tests {
                      ) VALUES (?1, 'epoch:test', 'block_deleted', '[\"block:collectible\"]', ?2)",
                     params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
                 )?;
-                let summary = run_block_retention_pass_with_policy(connection, 0)?;
+                let summary = run_block_retention_pass(connection, 0)?;
                 assert_eq!(
                     summary,
                     BlockRetentionSummary {
@@ -1371,7 +1364,7 @@ mod tests {
                      )",
                     params![PROJECT_ID, "2026-01-01T00:00:00.000Z"],
                 )?;
-                let summary = run_block_retention_pass_with_policy(connection, 0)?;
+                let summary = run_block_retention_pass(connection, 0)?;
                 assert_eq!(summary.retained_candidates, 1);
                 assert_eq!(summary.collected_blocks, 0);
                 assert_eq!(
@@ -1403,7 +1396,7 @@ mod tests {
                      INSERT INTO extension_reference(id, target_block_id) \
                      VALUES ('extension:1', 'block:unknown-root');",
                 )?;
-                let summary = run_block_retention_pass_with_policy(connection, 0)?;
+                let summary = run_block_retention_pass(connection, 0)?;
                 assert_eq!(summary.retained_candidates, 1);
                 assert_eq!(summary.collected_blocks, 0);
                 Ok(())
@@ -1439,7 +1432,7 @@ mod tests {
                         serde_json::to_string(&[OWNED_CHILD_ID]).expect("touched IDs")
                     ],
                 )?;
-                let summary = run_block_retention_pass_with_policy(connection, 0)?;
+                let summary = run_block_retention_pass(connection, 0)?;
                 assert_eq!(summary.collected_candidates, 1);
                 assert_eq!(summary.collected_blocks, 2);
                 assert_eq!(
@@ -1481,7 +1474,7 @@ mod tests {
             .kernel
             .writer()
             .call(|connection| {
-                let summary = run_block_retention_pass_with_policy(connection, 0)?;
+                let summary = run_block_retention_pass(connection, 0)?;
                 assert_eq!(summary.retained_candidates, 1);
                 assert_eq!(
                     connection.query_row(
@@ -1511,7 +1504,7 @@ mod tests {
                        SELECT RAISE(ABORT, 'injected retention failure'); \
                      END;",
                 )?;
-                assert!(run_block_retention_pass_with_policy(connection, 0).is_err());
+                assert!(run_block_retention_pass(connection, 0).is_err());
                 assert_eq!(
                     connection.query_row(
                         "SELECT count(*) FROM blocks \

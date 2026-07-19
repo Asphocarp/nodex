@@ -1,12 +1,20 @@
 use rusqlite::{Connection, TransactionBehavior, params};
 
-use crate::infrastructure::document_repository::DocumentSyncEngine;
+use nodex_core_contracts::BoundModuleContext;
+
+use crate::infrastructure::document_repository::{DocumentReadiness, DocumentSyncEngine};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::compaction::compact_yjs_document;
-use super::history::prune_document_history;
+use super::history::{
+    NewDocumentCheckpoint, insert_canvas_checkpoint, insert_document_checkpoint,
+    prune_document_history,
+};
 use super::persistence::read_document_authority;
 use super::runtime::reconstruct_yjs_engine;
+use super::{
+    BlockDocumentSchema, decode_block_document, load_canvas_scene, materialize_decoded_document,
+};
 
 const MINIMUM_UPDATE_COUNT: i64 = 128;
 const MINIMUM_UPDATE_BYTES: i64 = 2 * 1024 * 1024;
@@ -14,6 +22,8 @@ const MAXIMUM_DOCUMENTS: usize = 8;
 const MAXIMUM_TAIL_BYTES: i64 = 32 * 1024 * 1024;
 const SCAN_LIMIT: i64 = 128;
 const MAXIMUM_HISTORY_DOCUMENTS: usize = 10_000;
+const MAXIMUM_REVISION_SESSIONS: i64 = 200;
+const REVISION_IDLE_MILLISECONDS: i64 = 120_000;
 
 #[derive(Debug)]
 struct CompactionCandidate {
@@ -21,6 +31,120 @@ struct CompactionCandidate {
     generation: i64,
     head_seq: i64,
     update_bytes: i64,
+}
+
+pub(crate) fn finalize_idle_document_revisions(
+    connection: &mut Connection,
+    context: &BoundModuleContext,
+) -> Result<usize, StoreError> {
+    let now = connection.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
+        row.get::<_, String>(0)
+    })?;
+    let sessions = connection
+        .prepare(
+            "SELECT document_id, generation, last_edit_at \
+             FROM document_revision_sessions \
+             ORDER BY last_edit_at, document_id LIMIT ?1",
+        )?
+        .query_map([MAXIMUM_REVISION_SESSIONS], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut finalized = 0usize;
+    for (document_id, session_generation, last_edit_at) in sessions {
+        let idle = connection
+            .query_row(
+                "SELECT (julianday(?1) - julianday(?2)) * 86400000 >= ?3",
+                params![now, last_edit_at, REVISION_IDLE_MILLISECONDS],
+                |row| row.get::<_, Option<bool>>(0),
+            )?
+            .ok_or_else(|| corrupt("Document revision session timestamp is invalid"))?;
+        if !idle {
+            continue;
+        }
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(authority) = read_document_authority(&transaction, &document_id)? else {
+            transaction.execute(
+                "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                [&document_id],
+            )?;
+            transaction.commit()?;
+            continue;
+        };
+        if authority.head.generation != session_generation
+            || authority.head.readiness != DocumentReadiness::Ready
+        {
+            transaction.execute(
+                "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+                [&document_id],
+            )?;
+            transaction.commit()?;
+            continue;
+        }
+        let already_covered = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM document_versions \
+             WHERE document_id = ?1 AND generation = ?2 AND base_head_seq = ?3)",
+            params![
+                document_id,
+                authority.head.generation,
+                authority.head.head_seq
+            ],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !already_covered {
+            let operation_id = format!(
+                "revision-idle:{}:{}:{}",
+                authority.head.id, authority.head.generation, authority.head.head_seq
+            );
+            let checkpoint = NewDocumentCheckpoint {
+                operation_id: &operation_id,
+                cause: "idle_edit",
+                label: None,
+                revision_kind: "automatic",
+                source_change_seq: None,
+                context,
+                now: &now,
+            };
+            match authority.head.sync_engine {
+                DocumentSyncEngine::Yjs => {
+                    let schema = BlockDocumentSchema::from_identity(
+                        &authority.head.schema_key,
+                        authority.head.schema_version,
+                    )
+                    .ok_or_else(|| corrupt("Document revision schema is unsupported"))?;
+                    let engine = reconstruct_yjs_engine(&transaction, &authority.head)?;
+                    let decoded = decode_block_document(engine.document(), schema)
+                        .map_err(|_| corrupt("Document revision authority cannot be decoded"))?;
+                    let materialization = materialize_decoded_document(&decoded).map_err(|_| {
+                        corrupt("Document revision authority cannot be materialized")
+                    })?;
+                    insert_document_checkpoint(
+                        &transaction,
+                        &authority,
+                        &materialization,
+                        checkpoint,
+                    )?;
+                }
+                DocumentSyncEngine::CanvasScene => {
+                    let loaded = load_canvas_scene(&transaction, &authority)?;
+                    insert_canvas_checkpoint(&transaction, &authority, &loaded.scene, checkpoint)?;
+                }
+            }
+            finalized = finalized
+                .checked_add(1)
+                .ok_or_else(|| corrupt("Document revision finalization count overflowed"))?;
+        }
+        transaction.execute(
+            "DELETE FROM document_revision_sessions WHERE document_id = ?1",
+            [&document_id],
+        )?;
+        transaction.commit()?;
+    }
+    Ok(finalized)
 }
 
 pub(crate) fn compact_eligible_documents(connection: &mut Connection) -> Result<usize, StoreError> {
@@ -125,4 +249,131 @@ pub(crate) fn prune_document_history_pass(
 
 fn corrupt(message: impl Into<String>) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use nodex_core_contracts::{AdapterKind, BoundModuleContext, LibraryId, ProfileId};
+    use rusqlite::params;
+
+    use crate::document::{
+        PersistYjsGenesis, persist_yjs_genesis, prepare_page_yjs_genesis, read_document_authority,
+    };
+    use crate::infrastructure::store::SqliteStoreKernel;
+
+    use super::finalize_idle_document_revisions;
+
+    #[test]
+    fn finalizes_an_idle_revision_session_at_the_current_document_head() {
+        let home = tempfile::tempdir().expect("Profile home");
+        let kernel = SqliteStoreKernel::open(home.path()).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO profiles(id, created_at, updated_at) \
+                     VALUES ('profile:revision-maintenance', ?1, ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                connection.execute(
+                    "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                     VALUES ('library:revision-maintenance', \
+                       'profile:revision-maintenance', ?1, ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                connection.execute(
+                    "INSERT INTO projects(id, library_id, name, created, updated) \
+                     VALUES ('project:revision-maintenance', \
+                       'library:revision-maintenance', 'Revision maintenance', ?1, ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                connection.execute(
+                    "INSERT INTO blocks( \
+                       id, project_id, type, lifecycle, location_kind, created_at, updated_at \
+                     ) VALUES ('page:revision-maintenance', 'project:revision-maintenance', \
+                       'page', 'active', 'space', ?1, ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                connection.execute(
+                    "INSERT INTO documents( \
+                       id, project_id, schema_key, schema_version, created_at, updated_at \
+                     ) VALUES ('document:revision-maintenance', \
+                       'project:revision-maintenance', 'nodex.page', 2, ?1, ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                connection.execute(
+                    "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+                     VALUES ('page:revision-maintenance', 'document:revision-maintenance', \
+                       'project:revision-maintenance', ?1)",
+                    ["2026-07-19T00:00:00.000Z"],
+                )?;
+                let authority =
+                    read_document_authority(connection, "document:revision-maintenance")?
+                        .expect("pending Document authority");
+                let genesis = prepare_page_yjs_genesis(
+                    "document:revision-maintenance",
+                    "Idle history",
+                    "019c0000-0000-7000-8000-000000000099",
+                )?;
+                let persisted = persist_yjs_genesis(
+                    connection,
+                    PersistYjsGenesis {
+                        authority: &authority,
+                        materialization: &genesis.materialization,
+                        update_id: "genesis:revision-maintenance",
+                        client_session_id: "client:revision-maintenance",
+                        update: &genesis.update_v1,
+                        state_vector: &genesis.state_vector_v1,
+                        full_state: &genesis.engine.full_state_v1(),
+                        store_epoch: "epoch:revision-maintenance",
+                        operation_id: "operation:revision-maintenance-genesis",
+                        emit_event: false,
+                    },
+                )?;
+                connection.execute(
+                    "INSERT INTO document_revision_sessions( \
+                       document_id, generation, dirty_head_seq, burst_started_at, \
+                       last_edit_at, last_checkpoint_at, client_session_id \
+                     ) VALUES (?1, 1, ?2, ?3, ?3, NULL, ?4)",
+                    params![
+                        "document:revision-maintenance",
+                        persisted.head_seq,
+                        "2020-01-01T00:00:00.000Z",
+                        "client:revision-maintenance"
+                    ],
+                )?;
+                let finalized = finalize_idle_document_revisions(
+                    connection,
+                    &BoundModuleContext {
+                        profile_id: ProfileId("profile:revision-maintenance".to_owned()),
+                        library_id: LibraryId("library:revision-maintenance".to_owned()),
+                        project_id: None,
+                        connection_id: "connection:revision-maintenance".to_owned(),
+                        adapter: AdapterKind::ElectronHost,
+                    },
+                )?;
+                assert_eq!(finalized, 1);
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT count(*) FROM document_revision_sessions \
+                         WHERE document_id = 'document:revision-maintenance'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    0
+                );
+                assert_eq!(
+                    connection.query_row(
+                        "SELECT cause FROM document_versions \
+                         WHERE document_id = 'document:revision-maintenance' \
+                         ORDER BY created_at DESC LIMIT 1",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )?,
+                    "idle_edit"
+                );
+                Ok(())
+            })
+            .expect("idle revision maintenance");
+    }
 }

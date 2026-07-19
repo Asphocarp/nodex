@@ -49,10 +49,12 @@ export type StoreAdministrationIntent =
       readonly tasks: readonly (
         | "integrity_check"
         | "foreign_key_check"
+        | "document_revision_finalize"
         | "document_compaction"
         | "history_retention"
         | "block_retention"
       )[];
+      readonly blockRetentionCount?: number;
     };
 
 export interface StoreAdministrationCommitValue {

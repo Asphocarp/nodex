@@ -206,13 +206,25 @@ impl Fixture {
         operation_id: &str,
         tasks: Vec<MaintenanceTask>,
     ) -> Result<super::StoreAdministrationApplyOutcome, nodex_core_contracts::CoreError> {
+        self.run_maintenance_with_policy(operation_id, tasks, None)
+    }
+
+    fn run_maintenance_with_policy(
+        &self,
+        operation_id: &str,
+        tasks: Vec<MaintenanceTask>,
+        block_retention_count: Option<u64>,
+    ) -> Result<super::StoreAdministrationApplyOutcome, nodex_core_contracts::CoreError> {
         self.module.apply(
             &self.context(),
             ModuleApplyRequest {
                 version: CORE_CONTRACT_VERSION,
                 operation_id: operation_id.to_owned(),
                 store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
-                intent: StoreAdministrationIntent::RunMaintenance { tasks },
+                intent: StoreAdministrationIntent::RunMaintenance {
+                    tasks,
+                    block_retention_count,
+                },
             },
         )
     }
@@ -1028,6 +1040,7 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
         MaintenanceTask::BlockRetention,
         MaintenanceTask::HistoryRetention,
         MaintenanceTask::DocumentCompaction,
+        MaintenanceTask::DocumentRevisionFinalize,
         MaintenanceTask::ForeignKeyCheck,
         MaintenanceTask::IntegrityCheck,
     ];
@@ -1039,6 +1052,7 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
         [
             MaintenanceTask::IntegrityCheck,
             MaintenanceTask::ForeignKeyCheck,
+            MaintenanceTask::DocumentRevisionFinalize,
             MaintenanceTask::DocumentCompaction,
             MaintenanceTask::HistoryRetention,
             MaintenanceTask::BlockRetention,
@@ -1061,6 +1075,7 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
             vec![
                 MaintenanceTask::IntegrityCheck,
                 MaintenanceTask::ForeignKeyCheck,
+                MaintenanceTask::DocumentRevisionFinalize,
                 MaintenanceTask::DocumentCompaction,
                 MaintenanceTask::HistoryRetention,
                 MaintenanceTask::BlockRetention,
@@ -1080,6 +1095,32 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
         )
         .expect_err("duplicate maintenance task");
     assert_eq!(duplicate.code, CoreErrorCode::InvalidInput);
+
+    let orphaned_policy = fixture
+        .run_maintenance_with_policy(
+            "administration:maintenance:orphaned-policy",
+            vec![MaintenanceTask::IntegrityCheck],
+            Some(0),
+        )
+        .expect_err("Block retention policy without its task");
+    assert_eq!(orphaned_policy.code, CoreErrorCode::InvalidInput);
+
+    let policy = fixture
+        .run_maintenance_with_policy(
+            "administration:maintenance:policy",
+            vec![MaintenanceTask::BlockRetention],
+            Some(0),
+        )
+        .expect("configured Block retention");
+    assert!(!policy.committed.receipt.mutation.duplicate);
+    let policy_collision = fixture
+        .run_maintenance_with_policy(
+            "administration:maintenance:policy",
+            vec![MaintenanceTask::BlockRetention],
+            Some(1),
+        )
+        .expect_err("Block retention policy collision");
+    assert_eq!(policy_collision.code, CoreErrorCode::IdempotencyKeyReused);
 }
 
 #[test]

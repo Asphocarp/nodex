@@ -96,6 +96,7 @@ pub enum StoreAdministrationIntent {
     },
     RunMaintenance {
         tasks: Vec<MaintenanceTask>,
+        block_retention_count: Option<u64>,
     },
 }
 
@@ -104,6 +105,7 @@ pub enum StoreAdministrationIntent {
 pub enum MaintenanceTask {
     IntegrityCheck,
     ForeignKeyCheck,
+    DocumentRevisionFinalize,
     DocumentCompaction,
     HistoryRetention,
     BlockRetention,

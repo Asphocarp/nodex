@@ -149,7 +149,11 @@ native restore has already rotated the Store epoch and invalidated every
 long-lived Core client; Electron therefore returns the committed restore result
 and performs a controlled relaunch so startup can bind a fresh descriptor,
 client connection, and collaboration handshake. Backup settings remain
-Profile-local host configuration rather than SQLite authority.
+Profile-local host configuration rather than SQLite authority. In the native
+branch the same port schedules bounded idle-revision finalization, Document
+compaction/history retention, and physical Block retention; each Block pass
+samples the Profile-local retained-tombstone setting and binds it into the Core
+operation fingerprint.
 Project-scoped Database Module reads and writes select one cached Core client
 per Project. The Adapter translates only typed target/intent coordinates,
 preserves filter/sort/config/value domain JSON unchanged, and validates both
@@ -275,8 +279,9 @@ and automatic-retention pruning commit a durable logical tombstone before
 best-effort physical cleanup, so a crash cannot make a deleted backup visible or
 restorable and an exact retry finishes cleanup. Maintenance normalizes task
 order inside the Module and owns integrity/foreign-key verification, bounded
-eligible Document compaction, revision retention, and physical Block retention.
-Block retention preserves the newest 10,000 deleted Blocks per Project, then
+idle Document-revision finalization, eligible Document compaction, revision
+retention, and physical Block retention. Block retention preserves the
+configured newest deleted Blocks per Project, then
 handles at most 100 older roots per pass in independent IMMEDIATE transactions.
 It derives each recursive deleted ownership closure from registered Documents,
 reconstructs current Yrs/Canvas authority, decodes bounded retained history,

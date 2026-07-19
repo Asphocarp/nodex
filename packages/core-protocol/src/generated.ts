@@ -1283,7 +1283,7 @@ export interface components {
             readonly page_id: string;
         };
         /** @enum {string} */
-        readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_compaction" | "history_retention" | "block_retention";
+        readonly MaintenanceTask: "integrity_check" | "foreign_key_check" | "document_revision_finalize" | "document_compaction" | "history_retention" | "block_retention";
         readonly ModuleApplyRequest_AutomationIntent: {
             readonly intent: {
                 readonly automation_id: string;
@@ -1776,6 +1776,8 @@ export interface components {
                 /** Format: int32 */
                 readonly retain_count: number;
             } | {
+                /** Format: int64 */
+                readonly block_retention_count?: number | null;
                 /** @enum {string} */
                 readonly kind: "run_maintenance";
                 readonly tasks: readonly components["schemas"]["MaintenanceTask"][];

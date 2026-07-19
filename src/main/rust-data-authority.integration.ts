@@ -569,6 +569,15 @@ describe("Electron native data authority", () => {
           expect.objectContaining({ id: nativeBackup.id }),
         ]),
       );
+      await expect(administration.runMaintenance({
+        tasks: [
+          "document_revision_finalize",
+          "document_compaction",
+          "history_retention",
+          "block_retention",
+        ],
+        blockRetentionCount: 0,
+      })).resolves.toBeUndefined();
       await expect(administration.deleteBackup(nativeBackup.id)).resolves.toEqual({
         success: true,
         deletedBackupId: nativeBackup.id,

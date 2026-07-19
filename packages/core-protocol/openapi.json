@@ -4605,6 +4605,7 @@
         "enum": [
           "integrity_check",
           "foreign_key_check",
+          "document_revision_finalize",
           "document_compaction",
           "history_retention",
           "block_retention"
@@ -6714,6 +6715,14 @@
                   "kind"
                 ],
                 "properties": {
+                  "block_retention_count": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int64",
+                    "minimum": 0
+                  },
                   "kind": {
                     "type": "string",
                     "enum": [

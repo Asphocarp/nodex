@@ -24,6 +24,11 @@ export type DesktopStoreMaintenanceTask = Extract<
   { readonly kind: "run_maintenance" }
 >["tasks"][number];
 
+export interface DesktopStoreMaintenanceInput {
+  readonly tasks: readonly DesktopStoreMaintenanceTask[];
+  readonly blockRetentionCount?: number;
+}
+
 export interface DesktopStoreAdministrationPort {
   listBackups(): Promise<BackupRecord[]>;
   createBackup(input?: CreateBackupInput): Promise<BackupRecord>;
@@ -32,7 +37,7 @@ export interface DesktopStoreAdministrationPort {
   ): Promise<{ success: true; deletedBackupId: string }>;
   restoreBackup(input: RestoreBackupInput): Promise<RestoreBackupResult>;
   pruneBackups(retainCount: number): Promise<void>;
-  runMaintenance(tasks: readonly DesktopStoreMaintenanceTask[]): Promise<void>;
+  runMaintenance(input: DesktopStoreMaintenanceInput): Promise<void>;
 }
 
 export interface DesktopStoreAdministrationBridgeInput {
@@ -134,10 +139,21 @@ const createCorePort = (
         },
       });
     },
-    runMaintenance: async (tasks) => {
+    runMaintenance: async (input) => {
       await client.administrationApply({
         operationId: operationId("run-maintenance"),
-        intent: { kind: "run_maintenance", tasks: [...tasks] },
+        intent: {
+          kind: "run_maintenance",
+          tasks: [...input.tasks],
+          ...(input.blockRetentionCount === undefined
+            ? {}
+            : {
+                block_retention_count: Math.max(
+                  0,
+                  Math.trunc(input.blockRetentionCount),
+                ),
+              }),
+        },
       });
     },
   };
@@ -164,8 +180,8 @@ export function createDesktopStoreAdministrationBridge(
       await (await resolve()).restoreBackup(restoreInput),
     pruneBackups: async (retainCount) =>
       await (await resolve()).pruneBackups(retainCount),
-    runMaintenance: async (tasks) =>
-      await (await resolve()).runMaintenance(tasks),
+    runMaintenance: async (maintenanceInput) =>
+      await (await resolve()).runMaintenance(maintenanceInput),
   };
 }
 
