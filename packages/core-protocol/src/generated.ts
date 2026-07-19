@@ -264,6 +264,59 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        readonly AgentConsentRequirement: "none" | "resource";
+        readonly AgentDocumentSemanticMutation: {
+            readonly commands: readonly components["schemas"]["DocumentSemanticCommand"][];
+            readonly document_id: string;
+            /** Format: int64 */
+            readonly expected_head_seq: number;
+            /** Format: int64 */
+            readonly generation: number;
+        };
+        /** @enum {string} */
+        readonly AgentEffectClass: "write" | "destructive";
+        /**
+         * @description Stable, user-visible mutation scope. Incidental ranks and internal Document
+         *     heads deliberately remain outside this value.
+         */
+        readonly AgentOperationFootprint: {
+            readonly deleted_roots: readonly string[];
+            readonly effect_class: components["schemas"]["AgentEffectClass"];
+            readonly ownership_transformations: readonly components["schemas"]["AgentOwnershipTransformation"][];
+            readonly targets: readonly components["schemas"]["AgentResourceTarget"][];
+            readonly updated_roots: readonly string[];
+        };
+        readonly AgentOperationPreparation: {
+            readonly consent: components["schemas"]["AgentConsentRequirement"];
+            /** Format: int64 */
+            readonly expires_at_unix_ms?: number | null;
+            readonly footprint: components["schemas"]["AgentOperationFootprint"];
+            readonly state: components["schemas"]["AgentOperationPreparationState"];
+            readonly token?: string | null;
+        };
+        /** @enum {string} */
+        readonly AgentOperationPreparationState: "prepared" | "committed_replay";
+        readonly AgentOwnershipTransformation: {
+            readonly before_id?: string | null;
+            readonly parent_id?: string | null;
+            readonly resource_id: string;
+        };
+        readonly AgentPreparedExecution: {
+            readonly provenance: components["schemas"]["AgentTurnProvenance"];
+            /** @description Exact receipt replay may omit a token. A new mutation cannot. */
+            readonly token?: string | null;
+        };
+        /** @enum {string} */
+        readonly AgentResourceKind: "library" | "page" | "database";
+        readonly AgentResourceTarget: {
+            readonly id: string;
+            readonly kind: components["schemas"]["AgentResourceKind"];
+        };
+        readonly AgentTurnProvenance: {
+            readonly authority: components["schemas"]["ProjectWorkspaceTurnAuthority"];
+            readonly profile_id: string;
+        };
         readonly AutomationApplyRequest: components["schemas"]["ModuleApplyRequest_AutomationIntent"];
         readonly AutomationApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt"];
         readonly AutomationDefinition: {
@@ -430,6 +483,28 @@ export interface components {
             readonly store_epoch: components["schemas"]["StoreEpoch"];
             /** Format: int32 */
             readonly version: number;
+        };
+        readonly CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt: {
+            /** Format: int64 */
+            readonly event_sequence: number;
+            readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly generation: number;
+                /** Format: int64 */
+                readonly head_seq: number;
+            };
+            readonly store_epoch: components["schemas"]["StoreEpoch"];
+            readonly value: {
+                readonly canvas?: unknown;
+                readonly document_id: string;
+                /** Format: int64 */
+                readonly generation: number;
+                /** Format: int64 */
+                readonly head_seq: number;
+                readonly outcome: components["schemas"]["DocumentCommitOutcome"];
+                readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
+            };
         };
         readonly CoreError: {
             readonly code: components["schemas"]["CoreErrorCode"];
@@ -1390,6 +1465,11 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "apply_semantic_mutation";
             } | {
+                readonly authorization: components["schemas"]["AgentPreparedExecution"];
+                /** @enum {string} */
+                readonly kind: "execute_prepared_agent_semantic_mutation";
+                readonly mutation: components["schemas"]["AgentDocumentSemanticMutation"];
+            } | {
                 readonly document_id: string;
                 /** Format: int64 */
                 readonly expected_head_seq: number;
@@ -1884,6 +1964,13 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "get_version";
                 readonly version_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "prepare_agent_semantic_mutation";
+                readonly mutation: components["schemas"]["AgentDocumentSemanticMutation"];
+                readonly operation_id: string;
+                readonly provenance: components["schemas"]["AgentTurnProvenance"];
+                readonly store_epoch: components["schemas"]["StoreEpoch"];
             };
             /** Format: int32 */
             readonly version: number;
@@ -2768,6 +2855,11 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "version";
                     readonly value: unknown;
+                } | {
+                    readonly committed?: null | components["schemas"]["CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"];
+                    /** @enum {string} */
+                    readonly kind: "agent_semantic_mutation_preparation";
+                    readonly preparation: components["schemas"]["AgentOperationPreparation"];
                 };
                 /** Format: int32 */
                 readonly version: number;

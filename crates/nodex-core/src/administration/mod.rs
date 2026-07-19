@@ -1489,6 +1489,7 @@ fn core_error(error: StoreError) -> CoreError {
         | StoreErrorCode::RuntimeIncompatible => CoreErrorCode::SchemaUnsupported,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
         StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
+        StoreErrorCode::ResourceExhausted => CoreErrorCode::ResourceExhausted,
         StoreErrorCode::WriterQueueFull
         | StoreErrorCode::WriterClosed
         | StoreErrorCode::ReaderPoolTimeout

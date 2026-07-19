@@ -475,6 +475,206 @@
   },
   "components": {
     "schemas": {
+      "AgentConsentRequirement": {
+        "type": "string",
+        "enum": [
+          "none",
+          "resource"
+        ]
+      },
+      "AgentDocumentSemanticMutation": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "generation",
+          "expected_head_seq",
+          "commands"
+        ],
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentSemanticCommand"
+            }
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "expected_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "generation": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AgentEffectClass": {
+        "type": "string",
+        "enum": [
+          "write",
+          "destructive"
+        ]
+      },
+      "AgentOperationFootprint": {
+        "type": "object",
+        "description": "Stable, user-visible mutation scope. Incidental ranks and internal Document\nheads deliberately remain outside this value.",
+        "required": [
+          "effect_class",
+          "targets",
+          "updated_roots",
+          "deleted_roots",
+          "ownership_transformations"
+        ],
+        "properties": {
+          "deleted_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "effect_class": {
+            "$ref": "#/components/schemas/AgentEffectClass"
+          },
+          "ownership_transformations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentOwnershipTransformation"
+            }
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentResourceTarget"
+            }
+          },
+          "updated_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AgentOperationPreparation": {
+        "type": "object",
+        "required": [
+          "state",
+          "consent",
+          "footprint"
+        ],
+        "properties": {
+          "consent": {
+            "$ref": "#/components/schemas/AgentConsentRequirement"
+          },
+          "expires_at_unix_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "footprint": {
+            "$ref": "#/components/schemas/AgentOperationFootprint"
+          },
+          "state": {
+            "$ref": "#/components/schemas/AgentOperationPreparationState"
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AgentOperationPreparationState": {
+        "type": "string",
+        "enum": [
+          "prepared",
+          "committed_replay"
+        ]
+      },
+      "AgentOwnershipTransformation": {
+        "type": "object",
+        "required": [
+          "resource_id"
+        ],
+        "properties": {
+          "before_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentPreparedExecution": {
+        "type": "object",
+        "required": [
+          "provenance"
+        ],
+        "properties": {
+          "provenance": {
+            "$ref": "#/components/schemas/AgentTurnProvenance"
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact receipt replay may omit a token. A new mutation cannot."
+          }
+        }
+      },
+      "AgentResourceKind": {
+        "type": "string",
+        "enum": [
+          "library",
+          "page",
+          "database"
+        ]
+      },
+      "AgentResourceTarget": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentResourceKind"
+          }
+        }
+      },
+      "AgentTurnProvenance": {
+        "type": "object",
+        "required": [
+          "profile_id",
+          "authority"
+        ],
+        "properties": {
+          "authority": {
+            "$ref": "#/components/schemas/ProjectWorkspaceTurnAuthority"
+          },
+          "profile_id": {
+            "type": "string"
+          }
+        }
+      },
       "AutomationApplyRequest": {
         "$ref": "#/components/schemas/ModuleApplyRequest_AutomationIntent"
       },
@@ -1181,6 +1381,88 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt": {
+        "type": "object",
+        "required": [
+          "value",
+          "receipt",
+          "event_sequence",
+          "store_epoch"
+        ],
+        "properties": {
+          "event_sequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "receipt": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ModuleMutationReceipt"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "document_id",
+                  "generation",
+                  "head_seq"
+                ],
+                "properties": {
+                  "document_id": {
+                    "type": "string"
+                  },
+                  "generation": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "head_seq": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              }
+            ]
+          },
+          "store_epoch": {
+            "$ref": "#/components/schemas/StoreEpoch"
+          },
+          "value": {
+            "type": "object",
+            "required": [
+              "document_id",
+              "generation",
+              "head_seq",
+              "outcome"
+            ],
+            "properties": {
+              "canvas": {},
+              "document_id": {
+                "type": "string"
+              },
+              "generation": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "outcome": {
+                "$ref": "#/components/schemas/DocumentCommitOutcome"
+              },
+              "owner_effect": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentOwnerEffect"
+                  }
+                ]
+              }
+            }
           }
         }
       },
@@ -5111,6 +5393,28 @@
               {
                 "type": "object",
                 "required": [
+                  "authorization",
+                  "mutation",
+                  "kind"
+                ],
+                "properties": {
+                  "authorization": {
+                    "$ref": "#/components/schemas/AgentPreparedExecution"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "execute_prepared_agent_semantic_mutation"
+                    ]
+                  },
+                  "mutation": {
+                    "$ref": "#/components/schemas/AgentDocumentSemanticMutation"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "document_id",
                   "generation",
                   "expected_head_seq",
@@ -7300,6 +7604,36 @@
                   },
                   "version_id": {
                     "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "operation_id",
+                  "store_epoch",
+                  "provenance",
+                  "mutation",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "prepare_agent_semantic_mutation"
+                    ]
+                  },
+                  "mutation": {
+                    "$ref": "#/components/schemas/AgentDocumentSemanticMutation"
+                  },
+                  "operation_id": {
+                    "type": "string"
+                  },
+                  "provenance": {
+                    "$ref": "#/components/schemas/AgentTurnProvenance"
+                  },
+                  "store_epoch": {
+                    "$ref": "#/components/schemas/StoreEpoch"
                   }
                 }
               }
@@ -11243,6 +11577,34 @@
                             ]
                           },
                           "value": {}
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "preparation",
+                          "kind"
+                        ],
+                        "properties": {
+                          "committed": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/CommittedModuleValue_OwnedDocumentCommitValue_OwnedDocumentReceipt"
+                              }
+                            ]
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "agent_semantic_mutation_preparation"
+                            ]
+                          },
+                          "preparation": {
+                            "$ref": "#/components/schemas/AgentOperationPreparation"
+                          }
                         }
                       }
                     ]

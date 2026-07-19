@@ -600,6 +600,9 @@ fn intent_document_id(intent: &OwnedDocumentIntent) -> Option<&str> {
         | OwnedDocumentIntent::ApplyCanvasMutation { document_id, .. }
         | OwnedDocumentIntent::CreateCheckpoint { document_id, .. }
         | OwnedDocumentIntent::RestoreVersion { document_id, .. } => Some(document_id),
+        OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation { mutation, .. } => {
+            Some(&mutation.document_id)
+        }
         OwnedDocumentIntent::PrepareOwner { .. }
         | OwnedDocumentIntent::ApplyOwnerCommand { .. } => None,
     }

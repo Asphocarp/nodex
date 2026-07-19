@@ -1,23 +1,33 @@
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nodex_core_contracts::agent::{
+    AgentConsentRequirement, AgentEffectClass, AgentOperationFootprint, AgentOperationPreparation,
+    AgentOperationPreparationState, AgentOwnershipTransformation, AgentPreparedExecution,
+    AgentResourceKind, AgentResourceTarget, AgentTurnProvenance,
+};
 use nodex_core_contracts::document::{
-    DocumentCommitOutcome, DocumentInvalidationReason, DocumentOwnerCommand,
-    OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead,
-    OwnedDocumentReadValue, OwnedDocumentReceipt,
+    AgentDocumentSemanticMutation, DocumentCommitOutcome, DocumentInvalidationReason,
+    DocumentOwnerCommand, DocumentSemanticCommand, OwnedDocumentCommitValue, OwnedDocumentEvent,
+    OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload, ModuleApplyRequest,
-    ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
+    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
+    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, CoreModuleEventPayload,
+    ModuleApplyRequest, ModuleMutationReceipt, ModuleReadRequest, ModuleReadSnapshot, StoreEpoch,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior};
+use serde::Serialize;
 use serde_json::{Value, json};
 use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, Transact};
 
+use crate::infrastructure::agent_operations::{
+    PreparedAgentOperationBinding, PreparedAgentOperationLease, PreparedAgentOperationRegistry,
+};
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
 };
@@ -27,6 +37,7 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
+use crate::workspace::validate_persisted_turn_authority;
 
 use super::canvas::{
     ensure_canvas_scene, load_canvas_scene, persist_canvas_mutation, validate_canvas_authority,
@@ -57,6 +68,7 @@ use super::{
 };
 
 const MODULE_NAME: &str = "owned_document";
+const MAX_AGENT_FOOTPRINT_ROOTS: usize = 2_048;
 static DOCUMENT_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 struct DocumentUpdateJob {
@@ -68,6 +80,32 @@ struct DocumentUpdateJob {
     operation_kind: &'static str,
     request_hash: String,
     publication: UpdatePublication,
+    prepared_agent: Option<PreparedAgentExecutionJob>,
+}
+
+struct PreparedAgentExecutionJob {
+    authorization: AgentPreparedExecution,
+    mutation: AgentDocumentSemanticMutation,
+}
+
+struct AgentSemanticPreflight {
+    footprint: AgentOperationFootprint,
+    consent: AgentConsentRequirement,
+    binding: PreparedAgentOperationBinding,
+}
+
+enum AgentSemanticPreparationResult {
+    Prepared {
+        store_epoch: String,
+        event_head: i64,
+        preflight: AgentSemanticPreflight,
+    },
+    CommittedReplay {
+        store_epoch: String,
+        event_head: i64,
+        footprint: AgentOperationFootprint,
+        committed: CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -122,6 +160,7 @@ pub struct OwnedDocumentModule {
     readers: StoreReaders,
     cache: Arc<Mutex<DocumentRuntimeCache>>,
     fail_after_commit: Arc<AtomicBool>,
+    prepared_agent_operations: PreparedAgentOperationRegistry,
     assets_root: PathBuf,
 }
 
@@ -138,6 +177,7 @@ impl OwnedDocumentModule {
             readers: kernel.readers(),
             cache: Arc::new(Mutex::new(DocumentRuntimeCache::new())),
             fail_after_commit: Arc::new(AtomicBool::new(false)),
+            prepared_agent_operations: PreparedAgentOperationRegistry::new(),
             assets_root: kernel
                 .database_path()
                 .parent()
@@ -152,6 +192,9 @@ impl OwnedDocumentModule {
             .lock()
             .map_err(|_| core_error(internal("Owned Document runtime cache lock failed")))?;
         *cache = DocumentRuntimeCache::new();
+        self.prepared_agent_operations
+            .invalidate_all()
+            .map_err(core_error)?;
         Ok(())
     }
 
@@ -290,6 +333,18 @@ impl OwnedDocumentModule {
                     })
                 })
                 .map_err(core_error),
+            OwnedDocumentRead::PrepareAgentSemanticMutation {
+                operation_id,
+                store_epoch,
+                provenance,
+                mutation,
+            } => self.prepare_agent_semantic_mutation(
+                context,
+                operation_id,
+                store_epoch,
+                *provenance,
+                *mutation,
+            ),
         }
     }
 
@@ -340,6 +395,20 @@ impl OwnedDocumentModule {
                 generation,
                 expected_head_seq,
                 commands,
+                None,
+            ),
+            OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                authorization,
+                mutation,
+            } => self.apply_semantic_mutation(
+                context,
+                request.operation_id,
+                request.store_epoch,
+                mutation.document_id,
+                mutation.generation,
+                mutation.expected_head_seq,
+                mutation.commands,
+                Some(*authorization),
             ),
             OwnedDocumentIntent::ApplyCanvasMutation {
                 document_id,
@@ -450,6 +519,184 @@ impl OwnedDocumentModule {
 
     pub fn inject_failure_after_next_commit(&self) {
         self.fail_after_commit.store(true, Ordering::Release);
+    }
+
+    fn prepare_agent_semantic_mutation(
+        &self,
+        context: &BoundModuleContext,
+        operation_id: String,
+        expected_store_epoch: StoreEpoch,
+        provenance: AgentTurnProvenance,
+        mutation: AgentDocumentSemanticMutation,
+    ) -> Result<ModuleReadSnapshot<OwnedDocumentReadValue>, CoreError> {
+        validate_agent_transport_context(context, &provenance)?;
+        let request_hash = sha256(&agent_semantic_request_fingerprint(
+            &operation_id,
+            &expected_store_epoch,
+            &provenance,
+            &mutation,
+        )?);
+        let cache = Arc::clone(&self.cache);
+        let context = context.clone();
+        let preparation = self
+            .readers
+            .read_default(|connection| {
+                let transaction = connection.unchecked_transaction()?;
+                let store_epoch = read_store_epoch(&transaction)?;
+                if store_epoch != expected_store_epoch.0 {
+                    return Err(StoreError::new(
+                        StoreErrorCode::StaleStoreEpoch,
+                        "Prepared Agent operation targets a stale store epoch",
+                        true,
+                    ));
+                }
+                let event_head = read_event_head(&transaction)?;
+                if let Some(stored) = read_module_receipt(&transaction, MODULE_NAME, &operation_id)?
+                {
+                    if stored.request_hash != request_hash {
+                        return Err(StoreError::new(
+                            StoreErrorCode::IdempotencyKeyReused,
+                            "operation_id is already bound to another Owned Document intent",
+                            false,
+                        ));
+                    }
+                    let mut committed = serde_json::from_value::<
+                        CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>,
+                    >(stored.result)
+                    .map_err(|_| corrupt_receipt())?;
+                    committed.receipt.mutation.duplicate = true;
+                    let authority = read_document_authority(&transaction, &mutation.document_id)?
+                        .ok_or_else(corrupt_receipt)?;
+                    let footprint = nominal_agent_semantic_footprint(
+                        &authority.owner_block_id,
+                        &mutation.commands,
+                    )?;
+                    transaction.commit()?;
+                    return Ok(AgentSemanticPreparationResult::CommittedReplay {
+                        store_epoch,
+                        event_head,
+                        footprint,
+                        committed,
+                    });
+                }
+
+                let authority_fingerprint = validate_persisted_turn_authority(
+                    &transaction,
+                    &context.library_id.0,
+                    &provenance,
+                )?;
+                let authority = read_document_authority(&transaction, &mutation.document_id)?
+                    .ok_or_else(|| not_found("Owned Document was not found"))?;
+                authorize_agent_page_document(&transaction, &provenance, &authority)?;
+                if authority.head.generation != mutation.generation {
+                    return Err(StoreError::new(
+                        StoreErrorCode::GenerationConflict,
+                        "Owned Document generation does not match",
+                        false,
+                    ));
+                }
+                let engine = cache
+                    .lock()
+                    .map_err(|_| internal("Document cache lock failed"))?
+                    .clone_engine(&transaction, &authority.head)?;
+                let schema = registered_yjs_schema(&authority)?;
+                let materialization = materialize_engine(&engine, schema)?;
+                prepare_semantic_update(
+                    &transaction,
+                    &authority,
+                    &engine,
+                    &materialization,
+                    &store_epoch,
+                    mutation.expected_head_seq,
+                    &mutation.commands,
+                    &operation_id,
+                    &operation_id,
+                    &provenance.authority.actor_project_id,
+                )?;
+                let footprint = agent_semantic_footprint(
+                    &authority.owner_block_id,
+                    &mutation.commands,
+                    &materialization,
+                )?;
+                let authority_revisions_hash = agent_authority_revisions_hash(
+                    &transaction,
+                    &authority_fingerprint,
+                    &store_epoch,
+                    &authority,
+                    &footprint,
+                )?;
+                let consent =
+                    agent_page_consent_requirement(&transaction, &provenance, &authority)?;
+                let binding = PreparedAgentOperationBinding {
+                    connection_id: context.connection_id.clone(),
+                    request_hash: request_hash.clone(),
+                    authority_revisions_hash,
+                    footprint_hash: hash_serializable(
+                        &footprint,
+                        "Agent operation footprint cannot be fingerprinted",
+                    )?,
+                    effect_class: footprint.effect_class,
+                };
+                transaction.commit()?;
+                Ok(AgentSemanticPreparationResult::Prepared {
+                    store_epoch,
+                    event_head,
+                    preflight: AgentSemanticPreflight {
+                        footprint,
+                        consent,
+                        binding,
+                    },
+                })
+            })
+            .map_err(core_error)?;
+
+        match preparation {
+            AgentSemanticPreparationResult::CommittedReplay {
+                store_epoch,
+                event_head,
+                footprint,
+                committed,
+            } => Ok(ModuleReadSnapshot {
+                version: CORE_CONTRACT_VERSION,
+                store_epoch: StoreEpoch(store_epoch),
+                event_head,
+                value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+                    preparation: AgentOperationPreparation {
+                        state: AgentOperationPreparationState::CommittedReplay,
+                        consent: AgentConsentRequirement::None,
+                        footprint,
+                        token: None,
+                        expires_at_unix_ms: None,
+                    },
+                    committed: Some(Box::new(committed)),
+                },
+            }),
+            AgentSemanticPreparationResult::Prepared {
+                store_epoch,
+                event_head,
+                preflight,
+            } => {
+                let issued = self
+                    .prepared_agent_operations
+                    .issue(preflight.binding)
+                    .map_err(core_error)?;
+                Ok(ModuleReadSnapshot {
+                    version: CORE_CONTRACT_VERSION,
+                    store_epoch: StoreEpoch(store_epoch),
+                    event_head,
+                    value: OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+                        preparation: AgentOperationPreparation {
+                            state: AgentOperationPreparationState::Prepared,
+                            consent: preflight.consent,
+                            footprint: preflight.footprint,
+                            token: Some(issued.token),
+                            expires_at_unix_ms: Some(issued.expires_at_unix_ms),
+                        },
+                        committed: None,
+                    },
+                })
+            }
+        }
     }
 
     pub fn compact(
@@ -1127,6 +1374,7 @@ impl OwnedDocumentModule {
                 operation_kind: "apply_yjs_update",
                 request_hash,
                 publication: UpdatePublication::Updated,
+                prepared_agent: None,
             },
             move |connection, authority, engine, materialization, store_epoch| {
                 if base_head_seq > authority.head.head_seq {
@@ -1220,21 +1468,51 @@ impl OwnedDocumentModule {
         document_id: String,
         generation: i64,
         expected_head_seq: i64,
-        commands: Vec<nodex_core_contracts::document::DocumentSemanticCommand>,
+        commands: Vec<DocumentSemanticCommand>,
+        prepared_agent: Option<AgentPreparedExecution>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
-        let fingerprint = serde_json::to_vec(&(
-            context,
-            expected_store_epoch.clone(),
-            &document_id,
+        if let Some(authorization) = prepared_agent.as_ref() {
+            validate_agent_transport_context(context, &authorization.provenance)?;
+        }
+        let mutation = AgentDocumentSemanticMutation {
+            document_id: document_id.clone(),
             generation,
             expected_head_seq,
-            &commands,
-        ))
-        .map_err(|_| invalid("Owned Document semantic request cannot be fingerprinted"))?;
+            commands: commands.clone(),
+        };
+        let fingerprint = if let Some(authorization) = prepared_agent.as_ref() {
+            agent_semantic_request_fingerprint(
+                &operation_id,
+                &expected_store_epoch,
+                &authorization.provenance,
+                &mutation,
+            )?
+        } else {
+            serde_json::to_vec(&(
+                context,
+                expected_store_epoch.clone(),
+                &document_id,
+                generation,
+                expected_head_seq,
+                &commands,
+            ))
+            .map_err(|_| invalid("Owned Document semantic request cannot be fingerprinted"))?
+        };
         let allocation_seed = operation_id.clone();
+        let etag_project_id = prepared_agent
+            .as_ref()
+            .map(|authorization| authorization.provenance.authority.actor_project_id.clone());
+        let mutation_context = if prepared_agent.is_some() {
+            BoundModuleContext {
+                adapter: AdapterKind::Agent,
+                ..context.clone()
+            }
+        } else {
+            context.clone()
+        };
         self.apply_document_update(
             DocumentUpdateJob {
-                context: context.clone(),
+                context: mutation_context,
                 operation_id: operation_id.clone(),
                 expected_store_epoch,
                 document_id,
@@ -1242,71 +1520,26 @@ impl OwnedDocumentModule {
                 operation_kind: "apply_semantic_mutation",
                 request_hash: sha256(&fingerprint),
                 publication: UpdatePublication::Updated,
+                prepared_agent: prepared_agent.map(|authorization| PreparedAgentExecutionJob {
+                    authorization,
+                    mutation,
+                }),
             },
             move |connection, authority, engine, materialization, store_epoch| {
-                let requires_structural_barrier =
-                    commands.iter().any(|command| {
-                        matches!(
-                        command,
-                        nodex_core_contracts::document::DocumentSemanticCommand::DeleteBlock {
-                            ..
-                        } | nodex_core_contracts::document::DocumentSemanticCommand::MoveBlock {
-                            ..
-                        }
-                    )
-                    });
-                if expected_head_seq > authority.head.head_seq
-                    || (requires_structural_barrier && expected_head_seq != authority.head.head_seq)
-                {
-                    return Err(StoreError::new(
-                        StoreErrorCode::HeadConflict,
-                        "Semantic mutation crossed its required Document head barrier",
-                        true,
-                    ));
-                }
-                let schema = BlockDocumentSchema::from_identity(
-                    &authority.head.schema_key,
-                    authority.head.schema_version,
-                )
-                .ok_or_else(|| {
-                    StoreError::new(
-                        StoreErrorCode::UnsupportedSchema,
-                        "Owned Document schema is unsupported",
-                        false,
-                    )
-                })?;
-                let full_state = engine.full_state_v1();
-                let state_vector = engine.state_vector_v1();
-                let mut allocation_index = 0_u64;
-                let prepared = prepare_semantic_mutation(
+                prepare_semantic_update(
                     connection,
-                    SemanticMutationContext {
-                        document_id: &authority.head.id,
-                        project_id: &authority.head.project_id,
-                        store_epoch,
-                        schema,
-                        full_state_v1: &full_state,
-                        state_vector_v1: &state_vector,
-                        materialization,
-                    },
+                    authority,
+                    engine,
+                    materialization,
+                    store_epoch,
+                    expected_head_seq,
                     &commands,
-                    &mut || {
-                        allocation_index += 1;
-                        allocate_document_block_id(&allocation_seed, allocation_index)
-                    },
-                );
-                match prepared {
-                    Ok(prepared) => Ok(PreparedUpdate::Apply {
-                        base_head_seq: authority.head.head_seq,
-                        update_id: operation_id,
-                        touched_block_ids: prepared.touched_block_ids,
-                        update: prepared.update_v1,
-                        write_fence_block_ids: prepared.write_fence_block_ids,
-                        title_write_fence_required: prepared.title_write_fence_required,
-                    }),
-                    Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
-                    Err(error) => Err(semantic_error(error)),
-                }
+                    &allocation_seed,
+                    &operation_id,
+                    etag_project_id
+                        .as_deref()
+                        .unwrap_or(&authority.head.project_id),
+                )
             },
         )
     }
@@ -1517,6 +1750,7 @@ impl OwnedDocumentModule {
                 operation_kind: "restore_version",
                 request_hash: sha256(&fingerprint),
                 publication: UpdatePublication::Invalidated(DocumentInvalidationReason::Restored),
+                prepared_agent: None,
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
@@ -1772,6 +2006,7 @@ impl OwnedDocumentModule {
     {
         let cache = Arc::clone(&self.cache);
         let fail_after_commit = Arc::clone(&self.fail_after_commit);
+        let prepared_agent_operations = self.prepared_agent_operations.clone();
         self.writer
             .call(move |connection| {
                 let transaction =
@@ -1813,7 +2048,23 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &job.document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_yjs(&job.context, &authority)?;
+                let agent_authority_fingerprint = if let Some(prepared_agent) =
+                    job.prepared_agent.as_ref()
+                {
+                    authorize_agent_page_document(
+                        &transaction,
+                        &prepared_agent.authorization.provenance,
+                        &authority,
+                    )?;
+                    Some(validate_persisted_turn_authority(
+                        &transaction,
+                        &job.context.library_id.0,
+                        &prepared_agent.authorization.provenance,
+                    )?)
+                } else {
+                    authorize_yjs(&job.context, &authority)?;
+                    None
+                };
                 if authority.head.generation != job.generation {
                     return Err(StoreError::new(
                         StoreErrorCode::GenerationConflict,
@@ -1844,6 +2095,42 @@ impl OwnedDocumentModule {
                     &base_materialization,
                     &store_epoch,
                 )?;
+                let mut prepared_agent_lease = if let Some(prepared_agent) =
+                    job.prepared_agent.as_ref()
+                {
+                    let footprint = agent_semantic_footprint(
+                        &authority.owner_block_id,
+                        &prepared_agent.mutation.commands,
+                        &base_materialization,
+                    )?;
+                    let authority_revisions_hash = agent_authority_revisions_hash(
+                        &transaction,
+                        agent_authority_fingerprint
+                            .as_deref()
+                            .expect("Agent authority was revalidated"),
+                        &store_epoch,
+                        &authority,
+                        &footprint,
+                    )?;
+                    let binding = PreparedAgentOperationBinding {
+                        connection_id: job.context.connection_id.clone(),
+                        request_hash: job.request_hash.clone(),
+                        authority_revisions_hash,
+                        footprint_hash: hash_serializable(
+                            &footprint,
+                            "Agent operation footprint cannot be fingerprinted",
+                        )?,
+                        effect_class: footprint.effect_class,
+                    };
+                    let token = prepared_agent
+                        .authorization
+                        .token
+                        .as_deref()
+                        .ok_or_else(stale_agent_operation)?;
+                    Some(prepared_agent_operations.acquire(token, &binding)?)
+                } else {
+                    None
+                };
                 if let PreparedUpdate::Recovery { artifact_id } = &prepared {
                     let artifact_id = artifact_id.clone();
                     transaction.commit()?;
@@ -1884,6 +2171,7 @@ impl OwnedDocumentModule {
                         None,
                     )?;
                     transaction.commit()?;
+                    consume_prepared_agent_lease(&mut prepared_agent_lease)?;
                     cache
                         .lock()
                         .map_err(|_| internal("Document cache lock failed"))?
@@ -1918,6 +2206,7 @@ impl OwnedDocumentModule {
                         None,
                     )?;
                     transaction.commit()?;
+                    consume_prepared_agent_lease(&mut prepared_agent_lease)?;
                     cache
                         .lock()
                         .map_err(|_| internal("Document cache lock failed"))?
@@ -2021,6 +2310,7 @@ impl OwnedDocumentModule {
                     Some(persisted.event_sequence),
                 )?;
                 transaction.commit()?;
+                consume_prepared_agent_lease(&mut prepared_agent_lease)?;
                 if fail_after_commit.swap(false, Ordering::AcqRel) {
                     cache
                         .lock()
@@ -2233,6 +2523,532 @@ fn authority_descriptor(authority: &DocumentAuthorityRow, store_epoch: &str) -> 
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn prepare_semantic_update(
+    connection: &rusqlite::Connection,
+    authority: &DocumentAuthorityRow,
+    engine: &super::YrsDocumentEngine,
+    materialization: &DocumentMaterialization,
+    store_epoch: &str,
+    expected_head_seq: i64,
+    commands: &[DocumentSemanticCommand],
+    allocation_seed: &str,
+    update_id: &str,
+    etag_project_id: &str,
+) -> Result<PreparedUpdate, StoreError> {
+    let requires_structural_barrier = commands.iter().any(|command| {
+        matches!(
+            command,
+            DocumentSemanticCommand::DeleteBlock { .. } | DocumentSemanticCommand::MoveBlock { .. }
+        )
+    });
+    if expected_head_seq > authority.head.head_seq
+        || (requires_structural_barrier && expected_head_seq != authority.head.head_seq)
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::HeadConflict,
+            "Semantic mutation crossed its required Document head barrier",
+            true,
+        ));
+    }
+    let schema = BlockDocumentSchema::from_identity(
+        &authority.head.schema_key,
+        authority.head.schema_version,
+    )
+    .ok_or_else(|| {
+        StoreError::new(
+            StoreErrorCode::UnsupportedSchema,
+            "Owned Document schema is unsupported",
+            false,
+        )
+    })?;
+    let full_state = engine.full_state_v1();
+    let state_vector = engine.state_vector_v1();
+    let mut allocation_index = 0_u64;
+    let prepared = prepare_semantic_mutation(
+        connection,
+        SemanticMutationContext {
+            document_id: &authority.head.id,
+            project_id: etag_project_id,
+            store_epoch,
+            schema,
+            full_state_v1: &full_state,
+            state_vector_v1: &state_vector,
+            materialization,
+        },
+        commands,
+        &mut || {
+            allocation_index += 1;
+            allocate_document_block_id(allocation_seed, allocation_index)
+        },
+    );
+    match prepared {
+        Ok(prepared) => Ok(PreparedUpdate::Apply {
+            base_head_seq: authority.head.head_seq,
+            update_id: update_id.to_owned(),
+            touched_block_ids: prepared.touched_block_ids,
+            update: prepared.update_v1,
+            write_fence_block_ids: prepared.write_fence_block_ids,
+            title_write_fence_required: prepared.title_write_fence_required,
+        }),
+        Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
+        Err(error) => Err(semantic_error(error)),
+    }
+}
+
+fn validate_agent_transport_context(
+    context: &BoundModuleContext,
+    provenance: &AgentTurnProvenance,
+) -> Result<(), CoreError> {
+    let authority = &provenance.authority;
+    let valid = matches!(
+        context.adapter,
+        AdapterKind::ElectronHost | AdapterKind::Test
+    ) && context.profile_id.0 == provenance.profile_id
+        && context.library_id.0 == authority.library_id
+        && context.project_id.as_ref().map(|id| id.0.as_str())
+            == Some(authority.actor_project_id.as_str())
+        && !context.connection_id.is_empty()
+        && context.connection_id.len() <= 512;
+    if valid {
+        return Ok(());
+    }
+    Err(CoreError {
+        code: CoreErrorCode::Unauthorized,
+        message: "Prepared Agent operation is not bound to its trusted Electron context".to_owned(),
+        retryable: false,
+        recovery: CoreErrorRecovery::None,
+    })
+}
+
+fn authorize_agent_page_document(
+    connection: &rusqlite::Connection,
+    provenance: &AgentTurnProvenance,
+    authority: &DocumentAuthorityRow,
+) -> Result<(), StoreError> {
+    if authority.owner_type != "page" || authority.owner_lifecycle != "active" {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Prepared Agent semantic mutations require an active Page",
+            false,
+        ));
+    }
+    if authority.head.readiness != DocumentReadiness::Ready
+        || authority.head.authority != DocumentAuthority::YdocPrimary
+        || authority.head.sync_engine != DocumentSyncEngine::Yjs
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Prepared Agent target is not live Yjs authority",
+            false,
+        ));
+    }
+    let page_library_id = connection
+        .query_row(
+            "SELECT library_id FROM pages WHERE block_id = ?1",
+            [&authority.owner_block_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Prepared Agent Page authority is missing",
+                false,
+            )
+        })?;
+    if page_library_id != provenance.authority.library_id {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Prepared Agent target is outside its persisted Library authority",
+            false,
+        ));
+    }
+    registered_yjs_schema(authority)?;
+    Ok(())
+}
+
+fn agent_semantic_request_fingerprint(
+    operation_id: &str,
+    store_epoch: &StoreEpoch,
+    provenance: &AgentTurnProvenance,
+    mutation: &AgentDocumentSemanticMutation,
+) -> Result<Vec<u8>, CoreError> {
+    if operation_id.is_empty() || operation_id.len() > 512 || operation_id.trim() != operation_id {
+        return Err(invalid("Prepared Agent operation_id is invalid"));
+    }
+    serde_json::to_vec(&(
+        "nodex.agent.document.semantic.v1",
+        operation_id,
+        store_epoch,
+        provenance,
+        mutation,
+    ))
+    .map_err(|_| invalid("Prepared Agent semantic request cannot be fingerprinted"))
+}
+
+fn nominal_agent_semantic_footprint(
+    owner_page_id: &str,
+    commands: &[DocumentSemanticCommand],
+) -> Result<AgentOperationFootprint, StoreError> {
+    build_agent_semantic_footprint(owner_page_id, commands, None)
+}
+
+fn agent_semantic_footprint(
+    owner_page_id: &str,
+    commands: &[DocumentSemanticCommand],
+    materialization: &DocumentMaterialization,
+) -> Result<AgentOperationFootprint, StoreError> {
+    build_agent_semantic_footprint(owner_page_id, commands, Some(materialization))
+}
+
+fn build_agent_semantic_footprint(
+    owner_page_id: &str,
+    commands: &[DocumentSemanticCommand],
+    materialization: Option<&DocumentMaterialization>,
+) -> Result<AgentOperationFootprint, StoreError> {
+    let mut updated_roots = HashSet::<String>::new();
+    let mut deleted_roots = HashSet::<String>::new();
+    let mut ownership_transformations = Vec::new();
+    let mut destructive = false;
+    let mut children = HashMap::<Option<String>, Vec<String>>::new();
+    let mut parents = HashMap::<String, Option<String>>::new();
+    if let Some(materialization) = materialization {
+        for unit in &materialization.search_units {
+            children
+                .entry(unit.parent_block_id.clone())
+                .or_default()
+                .push(unit.block_id.clone());
+            parents.insert(unit.block_id.clone(), unit.parent_block_id.clone());
+        }
+    }
+    for command in commands {
+        match command {
+            DocumentSemanticCommand::SetTitle { .. }
+            | DocumentSemanticCommand::PatchBody { .. } => {
+                updated_roots.insert(owner_page_id.to_owned());
+            }
+            DocumentSemanticCommand::ReplaceBody { .. } => {
+                destructive = true;
+                updated_roots.insert(owner_page_id.to_owned());
+            }
+            DocumentSemanticCommand::DeleteBlock { block_id } => {
+                destructive = true;
+                let parent = parents
+                    .get(block_id)
+                    .and_then(Clone::clone)
+                    .unwrap_or_else(|| owner_page_id.to_owned());
+                updated_roots.insert(parent);
+                let mut pending = VecDeque::from([block_id.clone()]);
+                while let Some(candidate) = pending.pop_front() {
+                    if !deleted_roots.insert(candidate.clone()) {
+                        continue;
+                    }
+                    if let Some(descendants) = children.get(&Some(candidate)) {
+                        pending.extend(descendants.iter().cloned());
+                    }
+                }
+            }
+            DocumentSemanticCommand::MoveBlock {
+                block_id,
+                parent_block_id,
+                before_block_id,
+            } => {
+                updated_roots.insert(block_id.clone());
+                updated_roots.insert(
+                    parent_block_id
+                        .clone()
+                        .unwrap_or_else(|| owner_page_id.to_owned()),
+                );
+                if let Some(previous_parent) = parents.get(block_id).and_then(Clone::clone) {
+                    updated_roots.insert(previous_parent);
+                }
+                ownership_transformations.push(AgentOwnershipTransformation {
+                    resource_id: block_id.clone(),
+                    parent_id: parent_block_id.clone(),
+                    before_id: before_block_id.clone(),
+                });
+            }
+        }
+    }
+    let mut updated_roots = updated_roots.into_iter().collect::<Vec<_>>();
+    let mut deleted_roots = deleted_roots.into_iter().collect::<Vec<_>>();
+    updated_roots.sort();
+    deleted_roots.sort();
+    let footprint_size = updated_roots
+        .len()
+        .checked_add(deleted_roots.len())
+        .and_then(|size| size.checked_add(ownership_transformations.len()))
+        .ok_or_else(|| exhausted_store("Agent operation footprint size overflowed"))?;
+    if footprint_size > MAX_AGENT_FOOTPRINT_ROOTS {
+        return Err(exhausted_store(
+            "Agent operation footprint exceeds its Core bound",
+        ));
+    }
+    Ok(AgentOperationFootprint {
+        effect_class: if destructive {
+            AgentEffectClass::Destructive
+        } else {
+            AgentEffectClass::Write
+        },
+        targets: vec![AgentResourceTarget {
+            kind: AgentResourceKind::Page,
+            id: owner_page_id.to_owned(),
+        }],
+        updated_roots,
+        deleted_roots,
+        ownership_transformations,
+    })
+}
+
+fn agent_authority_revisions_hash(
+    connection: &rusqlite::Connection,
+    turn_authority_fingerprint: &str,
+    store_epoch: &str,
+    authority: &DocumentAuthorityRow,
+    footprint: &AgentOperationFootprint,
+) -> Result<String, StoreError> {
+    let page_revision = connection
+        .query_row(
+            "SELECT page.library_id, page.parent_kind, page.parent_id, page.parent_revision, \
+               page.metadata_revision, block.location_revision, block.metadata_revision, \
+               block.lifecycle \
+             FROM pages page JOIN blocks block ON block.id = page.block_id \
+             WHERE page.block_id = ?1",
+            [&authority.owner_block_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, String>(7)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page authority is missing",
+                false,
+            )
+        })?;
+    let mut resource_ids = footprint.updated_roots.clone();
+    resource_ids.extend(footprint.deleted_roots.iter().cloned());
+    for transformation in &footprint.ownership_transformations {
+        resource_ids.push(transformation.resource_id.clone());
+        resource_ids.extend(transformation.parent_id.iter().cloned());
+        resource_ids.extend(transformation.before_id.iter().cloned());
+    }
+    resource_ids.push(authority.owner_block_id.clone());
+    resource_ids.sort();
+    resource_ids.dedup();
+    let mut revisions = Vec::with_capacity(resource_ids.len());
+    for resource_id in resource_ids {
+        let revision = connection
+            .query_row(
+                "SELECT project_id, lifecycle, location_revision, metadata_revision, \
+                   containing_document_id, containing_database_id \
+                 FROM blocks WHERE id = ?1",
+                [&resource_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "Agent operation footprint no longer resolves to current Block authority",
+                    true,
+                )
+            })?;
+        revisions.push((resource_id, revision));
+    }
+    hash_serializable(
+        &(
+            "nodex.agent.authority-revisions.v1",
+            turn_authority_fingerprint,
+            store_epoch,
+            &authority.head.id,
+            authority.head.generation,
+            authority.head.head_seq,
+            &authority.head.state_hash,
+            &authority.head.project_id,
+            &authority.owner_block_id,
+            &authority.owner_lifecycle,
+            page_revision,
+            revisions,
+        ),
+        "Agent authority revisions cannot be fingerprinted",
+    )
+}
+
+fn agent_page_consent_requirement(
+    connection: &rusqlite::Connection,
+    provenance: &AgentTurnProvenance,
+    authority: &DocumentAuthorityRow,
+) -> Result<AgentConsentRequirement, StoreError> {
+    use nodex_core_contracts::workspace::ProjectWorkspaceTurnAuthorityScope;
+
+    if provenance.authority.scope == ProjectWorkspaceTurnAuthorityScope::Library {
+        return Ok(AgentConsentRequirement::None);
+    }
+    let project_id = &provenance.authority.actor_project_id;
+    if authority.head.project_id == *project_id {
+        return Ok(AgentConsentRequirement::None);
+    }
+    let primary_database_id = connection
+        .query_row(
+            "SELECT COALESCE(project.database_block_id, binding.database_block_id) \
+             FROM projects project LEFT JOIN project_database_bindings binding \
+               ON binding.project_id = project.id AND binding.lifecycle = 'active' \
+             WHERE project.id = ?1",
+            [project_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    let owning_database_id = agent_page_owning_database(
+        connection,
+        &provenance.authority.library_id,
+        &authority.owner_block_id,
+    )?;
+    if owning_database_id.as_deref() == primary_database_id.as_deref()
+        && owning_database_id.is_some()
+    {
+        return Ok(AgentConsentRequirement::None);
+    }
+    if let Some(database_id) = owning_database_id.as_deref() {
+        let granted = connection
+            .query_row(
+                "SELECT 1 FROM project_resource_grants WHERE project_id = ?1 \
+                 AND root_kind = 'database' AND root_id = ?2 AND access = 'read_write' \
+                 AND lifecycle = 'active'",
+                rusqlite::params![project_id, database_id],
+                |_| Ok(()),
+            )
+            .optional()?;
+        if granted.is_some() {
+            return Ok(AgentConsentRequirement::None);
+        }
+    }
+    let inherited = connection
+        .query_row(
+            "WITH RECURSIVE ancestors(page_id, path) AS ( \
+               SELECT ?2, '|' || ?2 || '|' UNION ALL \
+               SELECT page.parent_id, ancestors.path || page.parent_id || '|' \
+               FROM pages page JOIN ancestors ON page.block_id = ancestors.page_id \
+               WHERE page.parent_kind = 'page' \
+                 AND instr(ancestors.path, '|' || page.parent_id || '|') = 0) \
+             SELECT 1 FROM project_resource_grants grant_row JOIN ancestors \
+               ON grant_row.root_id = ancestors.page_id \
+             WHERE grant_row.project_id = ?1 AND grant_row.root_kind = 'page' \
+               AND grant_row.access = 'read_write' AND grant_row.lifecycle = 'active' LIMIT 1",
+            rusqlite::params![project_id, authority.owner_block_id],
+            |_| Ok(()),
+        )
+        .optional()?;
+    Ok(if inherited.is_some() {
+        AgentConsentRequirement::None
+    } else {
+        AgentConsentRequirement::Resource
+    })
+}
+
+fn agent_page_owning_database(
+    connection: &rusqlite::Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<Option<String>, StoreError> {
+    let terminal = connection
+        .query_row(
+            "WITH RECURSIVE ancestors(page_id, parent_kind, parent_id, path) AS ( \
+               SELECT block_id, parent_kind, parent_id, '|' || block_id || '|' FROM pages \
+                 WHERE block_id = ?1 AND library_id = ?2 \
+               UNION ALL \
+               SELECT parent.block_id, parent.parent_kind, parent.parent_id, \
+                 ancestors.path || parent.block_id || '|' \
+               FROM pages parent JOIN ancestors \
+                 ON ancestors.parent_kind = 'page' AND parent.block_id = ancestors.parent_id \
+               WHERE parent.library_id = ?2 \
+                 AND instr(ancestors.path, '|' || parent.block_id || '|') = 0) \
+             SELECT parent_kind, parent_id FROM ancestors WHERE parent_kind <> 'page' LIMIT 1",
+            rusqlite::params![page_id, library_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::StoreCorrupt,
+                "Page ownership is missing",
+                false,
+            )
+        })?;
+    match terminal.0.as_str() {
+        "library" if terminal.1 == library_id => Ok(None),
+        "data_source" => connection
+            .query_row(
+                "SELECT home_database_block_id FROM data_sources \
+                 WHERE id = ?1 AND library_id = ?2",
+                rusqlite::params![terminal.1, library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(Some)
+            .ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Page Data Source is missing",
+                    false,
+                )
+            }),
+        _ => Err(StoreError::new(
+            StoreErrorCode::StoreCorrupt,
+            "Page ownership is invalid",
+            false,
+        )),
+    }
+}
+
+fn hash_serializable(value: &impl Serialize, message: &'static str) -> Result<String, StoreError> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|_| StoreError::new(StoreErrorCode::Internal, message, false))?;
+    Ok(sha256(&bytes))
+}
+
+fn stale_agent_operation() -> StoreError {
+    StoreError::new(
+        StoreErrorCode::RevisionConflict,
+        "Prepared Agent operation requires a current single-use token",
+        true,
+    )
+}
+
+fn consume_prepared_agent_lease(
+    lease: &mut Option<PreparedAgentOperationLease>,
+) -> Result<(), StoreError> {
+    let Some(lease) = lease.take() else {
+        return Ok(());
+    };
+    lease.consume()
+}
+
+fn exhausted_store(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::ResourceExhausted, message, true)
+}
+
 fn authorize_project(
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
@@ -2441,6 +3257,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::InvalidDocumentSchema,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
         StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
+        StoreErrorCode::ResourceExhausted => CoreErrorCode::ResourceExhausted,
         _ => CoreErrorCode::CoreUnavailable,
     };
     CoreError {
@@ -2494,9 +3311,13 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::document::{
-        DeletableOwnedSourceKind, DocumentCommitOutcome, DocumentHeadRevision,
-        DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticCommand, OwnedDocumentIntent,
-        OwnedDocumentRead,
+        AgentDocumentSemanticMutation, DeletableOwnedSourceKind, DocumentCommitOutcome,
+        DocumentHeadRevision, DocumentOwnerCommand, DocumentOwnerRevision, DocumentSemanticCommand,
+        OwnedDocumentIntent, OwnedDocumentRead,
+    };
+    use nodex_core_contracts::workspace::{
+        ProjectWorkspaceIntent, ProjectWorkspaceThreadPatch, ProjectWorkspaceTurnAuthority,
+        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
     };
     use nodex_core_contracts::{
         AdapterKind, LibraryId, ModuleApplyRequest, ModuleReadRequest, ProfileId, ProjectId,
@@ -2509,6 +3330,7 @@ mod tests {
         OwnedDocumentRealtimeAdapter, YrsDocumentEngine, prepare_document_operation_update,
     };
     use crate::infrastructure::sqlite::{StoreError, with_immediate_transaction};
+    use crate::workspace::ProjectWorkspaceModule;
 
     use super::*;
 
@@ -2543,10 +3365,14 @@ mod tests {
     }
 
     fn context_for(connection_id: &str) -> BoundModuleContext {
+        context_for_project(connection_id, PROJECT_ID)
+    }
+
+    fn context_for_project(connection_id: &str, project_id: &str) -> BoundModuleContext {
         BoundModuleContext {
             profile_id: ProfileId(PROFILE_ID.to_owned()),
             library_id: LibraryId(LIBRARY_ID.to_owned()),
-            project_id: Some(ProjectId(PROJECT_ID.to_owned())),
+            project_id: Some(ProjectId(project_id.to_owned())),
             connection_id: connection_id.to_owned(),
             adapter: AdapterKind::Test,
         }
@@ -2709,6 +3535,109 @@ mod tests {
         )
         .expect("title update")
         .update_v1
+    }
+
+    fn seed_agent_turn(seeded: &SeededModule, connection_id: &str) -> AgentTurnProvenance {
+        seed_agent_turn_for_project(seeded, connection_id, PROJECT_ID)
+    }
+
+    fn seed_agent_turn_for_project(
+        seeded: &SeededModule,
+        connection_id: &str,
+        actor_project_id: &str,
+    ) -> AgentTurnProvenance {
+        let thread_id = format!("thread:agent-prepared:{actor_project_id}");
+        let turn_id = format!("turn:agent-prepared:{actor_project_id}");
+        seeded
+            .kernel
+            .writer()
+            .call({
+                let actor_project_id = actor_project_id.to_owned();
+                move |connection| {
+                    with_immediate_transaction(connection, |transaction| {
+                        transaction.execute(
+                            "INSERT INTO profiles(id, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                            params![PROFILE_ID, NOW],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?3, ?3)",
+                            params![LIBRARY_ID, PROFILE_ID, NOW],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO pages(\
+                           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                           parent_revision, metadata_revision, created_at, updated_at\
+                         ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                            params![OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID, NOW],
+                        )?;
+                        if actor_project_id != PROJECT_ID {
+                            transaction.execute(
+                                "INSERT INTO projects(id, library_id, name, created, updated) \
+                             VALUES (?1, ?2, 'Agent actor', ?3, ?3)",
+                                params![actor_project_id, LIBRARY_ID, NOW],
+                            )?;
+                        }
+                        Ok(())
+                    })
+                }
+            })
+            .expect("seed Agent authority coordinates");
+        let workspace =
+            ProjectWorkspaceModule::new(PROFILE_ID, LIBRARY_ID, &seeded.kernel).expect("Workspace");
+        let host = context_for_project(connection_id, actor_project_id);
+        workspace
+            .apply(
+                &host,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: format!("workspace:agent-thread:{actor_project_id}"),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: ProjectWorkspaceIntent::UpsertThread {
+                        thread_id: thread_id.clone(),
+                        patch: Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some(actor_project_id.to_owned())),
+                            thread_name: Some(Some("Prepared Agent test".to_owned())),
+                            created_at: Some(1),
+                            updated_at: Some(1),
+                            linked_at: Some(NOW.to_owned()),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        }),
+                    },
+                },
+            )
+            .expect("persist Agent Thread");
+        workspace
+            .apply(
+                &host,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: format!("workspace:agent-turn:{actor_project_id}"),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: thread_id.clone(),
+                        turn_id: turn_id.clone(),
+                        root_thread_id: thread_id.clone(),
+                        actor_project_id: actor_project_id.to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                },
+            )
+            .expect("freeze Agent Turn");
+        AgentTurnProvenance {
+            profile_id: PROFILE_ID.to_owned(),
+            authority: ProjectWorkspaceTurnAuthority {
+                thread_id: thread_id.clone(),
+                turn_id,
+                root_thread_id: thread_id,
+                actor_project_id: actor_project_id.to_owned(),
+                library_id: LIBRARY_ID.to_owned(),
+                store_epoch: STORE_EPOCH.to_owned(),
+                scope: ProjectWorkspaceTurnAuthorityScope::Project,
+                source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+            },
+        }
     }
 
     fn apply_request(
@@ -4764,6 +5693,317 @@ mod tests {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )?;
                 assert_eq!(evidence, (2, 1, 0, "pending".to_owned()));
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn prepared_agent_semantic_operation_binds_turn_connection_and_exact_receipt() {
+        let seeded = seeded_module();
+        let connection_id = "electron:agent-prepared";
+        let provenance = seed_agent_turn(&seeded, connection_id);
+        let materialization = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let title_etag = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                super::super::semantic::mint_etag(
+                    connection,
+                    "title",
+                    PROJECT_ID,
+                    STORE_EPOCH,
+                    &[DOCUMENT_ID],
+                    json!({ "richTitle": materialization.rich_title }),
+                )
+                .map_err(semantic_error)
+            })
+            .unwrap();
+        let operation_id = "agent:semantic-title";
+        let mutation = AgentDocumentSemanticMutation {
+            document_id: DOCUMENT_ID.to_owned(),
+            generation: 1,
+            expected_head_seq: 1,
+            commands: vec![DocumentSemanticCommand::SetTitle {
+                inline_markdown: "Prepared Agent authority".to_owned(),
+                expected_etag: title_etag,
+            }],
+        };
+        let prepared = seeded
+            .module
+            .read(
+                &context_for(connection_id),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        provenance: Box::new(provenance.clone()),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect("mutation-free Agent preflight");
+        let OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+            preparation,
+            committed: None,
+        } = prepared.value
+        else {
+            panic!("expected a new prepared Agent operation")
+        };
+        assert_eq!(preparation.state, AgentOperationPreparationState::Prepared);
+        assert_eq!(preparation.consent, AgentConsentRequirement::None);
+        assert_eq!(preparation.footprint.effect_class, AgentEffectClass::Write);
+        assert_eq!(preparation.footprint.targets[0].id, OWNER_BLOCK_ID);
+        let token = preparation.token.expect("single-use token");
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence: (i64, i64) = connection.query_row(
+                    "SELECT \
+                       (SELECT head_seq FROM documents WHERE id = ?1), \
+                       (SELECT count(*) FROM core_module_receipts WHERE operation_id = ?2)",
+                    params![DOCUMENT_ID, operation_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                assert_eq!(evidence, (1, 0));
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+
+        let execute = |token: Option<String>| ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: operation_id.to_owned(),
+            store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+            intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                authorization: Box::new(AgentPreparedExecution {
+                    provenance: provenance.clone(),
+                    token,
+                }),
+                mutation: Box::new(mutation.clone()),
+            },
+        };
+        let wrong_connection = seeded
+            .module
+            .apply(&context_for("electron:other"), execute(Some(token.clone())))
+            .expect_err("token is bound to its connection");
+        assert_eq!(wrong_connection.code, CoreErrorCode::RevisionConflict);
+
+        let committed = seeded
+            .module
+            .apply(&context_for(connection_id), execute(Some(token)))
+            .expect("execute exact prepared operation");
+        assert_eq!(committed.committed.value.head_seq, 2);
+        assert!(!committed.committed.receipt.mutation.duplicate);
+        let duplicate = seeded
+            .module
+            .apply(&context_for(connection_id), execute(None))
+            .expect("durable receipt replay needs no fresh token");
+        assert!(duplicate.committed.receipt.mutation.duplicate);
+        assert!(duplicate.events.is_empty());
+
+        let replay = seeded
+            .module
+            .read(
+                &context_for(connection_id),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        provenance: Box::new(provenance),
+                        mutation: Box::new(mutation),
+                    },
+                },
+            )
+            .expect("preflight recognizes exact committed receipt");
+        let OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+            preparation,
+            committed: Some(replayed),
+        } = replay.value
+        else {
+            panic!("expected a committed Agent replay")
+        };
+        assert_eq!(
+            preparation.state,
+            AgentOperationPreparationState::CommittedReplay
+        );
+        assert!(preparation.token.is_none());
+        assert!(replayed.receipt.mutation.duplicate);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence: (String, i64, i64) = connection.query_row(
+                    "SELECT materialization.title, \
+                       (SELECT count(*) FROM core_module_receipts WHERE operation_id = ?2), \
+                       (SELECT count(*) FROM change_log WHERE operation_id = ?2) \
+                     FROM document_materializations materialization WHERE document_id = ?1",
+                    params![DOCUMENT_ID, operation_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                assert_eq!(evidence, ("Prepared Agent authority".to_owned(), 1, 1));
+                let adapter: String = connection.query_row(
+                    "SELECT adapter_kind FROM core_module_receipts \
+                     WHERE module_name = 'owned_document' AND operation_id = ?1",
+                    [operation_id],
+                    |row| row.get(0),
+                )?;
+                assert_eq!(adapter, "agent");
+                Ok::<_, StoreError>(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn prepared_agent_semantic_operation_rejects_a_page_from_another_library() {
+        const FOREIGN_PROFILE_ID: &str = "profile:foreign";
+        const FOREIGN_LIBRARY_ID: &str = "library:foreign";
+        let seeded = seeded_module();
+        let connection_id = "electron:agent-foreign-library";
+        let provenance = seed_agent_turn(&seeded, connection_id);
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                        params![FOREIGN_PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES (?1, ?2, ?3, ?3)",
+                        params![FOREIGN_LIBRARY_ID, FOREIGN_PROFILE_ID, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET library_id = ?1, parent_id = ?1 WHERE block_id = ?2",
+                        params![FOREIGN_LIBRARY_ID, OWNER_BLOCK_ID],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("move Page to a foreign Library fixture");
+
+        let error = seeded
+            .module
+            .read(
+                &context_for(connection_id),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: "agent:foreign-library".to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        provenance: Box::new(provenance),
+                        mutation: Box::new(AgentDocumentSemanticMutation {
+                            document_id: DOCUMENT_ID.to_owned(),
+                            generation: 1,
+                            expected_head_seq: 1,
+                            commands: Vec::new(),
+                        }),
+                    },
+                },
+            )
+            .expect_err("persisted Turn authority cannot cross Libraries");
+        assert_eq!(error.code, CoreErrorCode::Unauthorized);
+    }
+
+    #[test]
+    fn prepared_agent_token_authorizes_one_ungranted_same_library_page_write() {
+        const ACTOR_PROJECT_ID: &str = "project:agent-consent";
+        let seeded = seeded_module();
+        let connection_id = "electron:agent-consent";
+        let provenance = seed_agent_turn_for_project(&seeded, connection_id, ACTOR_PROJECT_ID);
+        let materialization = materialize_engine(
+            &YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &seeded.full_state).unwrap(),
+            BlockDocumentSchema::PageV2,
+        )
+        .unwrap();
+        let title_etag = seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                super::super::semantic::mint_etag(
+                    connection,
+                    "title",
+                    ACTOR_PROJECT_ID,
+                    STORE_EPOCH,
+                    &[DOCUMENT_ID],
+                    json!({ "richTitle": materialization.rich_title }),
+                )
+                .map_err(semantic_error)
+            })
+            .unwrap();
+        let operation_id = "agent:consented-title";
+        let mutation = AgentDocumentSemanticMutation {
+            document_id: DOCUMENT_ID.to_owned(),
+            generation: 1,
+            expected_head_seq: 1,
+            commands: vec![DocumentSemanticCommand::SetTitle {
+                inline_markdown: "One-call consent".to_owned(),
+                expected_etag: title_etag,
+            }],
+        };
+        let prepared = seeded
+            .module
+            .read(
+                &context_for_project(connection_id, ACTOR_PROJECT_ID),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: OwnedDocumentRead::PrepareAgentSemanticMutation {
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                        provenance: Box::new(provenance.clone()),
+                        mutation: Box::new(mutation.clone()),
+                    },
+                },
+            )
+            .expect("same-Library Page is consent-eligible");
+        let OwnedDocumentReadValue::AgentSemanticMutationPreparation {
+            preparation,
+            committed: None,
+        } = prepared.value
+        else {
+            panic!("expected prepared consent operation")
+        };
+        assert_eq!(preparation.consent, AgentConsentRequirement::Resource);
+        let committed = seeded
+            .module
+            .apply(
+                &context_for_project(connection_id, ACTOR_PROJECT_ID),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: operation_id.to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::ExecutePreparedAgentSemanticMutation {
+                        authorization: Box::new(AgentPreparedExecution {
+                            provenance,
+                            token: preparation.token,
+                        }),
+                        mutation: Box::new(mutation),
+                    },
+                },
+            )
+            .expect("single-use token carries consent for this footprint");
+        assert_eq!(committed.committed.value.head_seq, 2);
+        seeded
+            .kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence: (String, i64) = connection.query_row(
+                    "SELECT materialization.title, \
+                       (SELECT count(*) FROM project_resource_grants \
+                        WHERE project_id = ?2) \
+                     FROM document_materializations materialization WHERE document_id = ?1",
+                    params![DOCUMENT_ID, ACTOR_PROJECT_ID],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                assert_eq!(evidence, ("One-call consent".to_owned(), 0));
                 Ok::<_, StoreError>(())
             })
             .unwrap();

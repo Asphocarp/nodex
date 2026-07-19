@@ -30,6 +30,7 @@ pub enum StoreErrorCode {
     RevisionConflict,
     StaleStoreEpoch,
     Unauthorized,
+    ResourceExhausted,
     WriterQueueFull,
     WriterClosed,
     ReaderPoolTimeout,

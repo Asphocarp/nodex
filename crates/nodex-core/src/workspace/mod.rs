@@ -10,6 +10,8 @@ mod test_support;
 mod thread;
 mod thread_search;
 
+pub(crate) use execution::validate_persisted_turn_authority;
+
 use std::path::PathBuf;
 
 use nodex_core_contracts::workspace::{
@@ -183,6 +185,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::NotFound => CoreErrorCode::NotFound,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
         StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
+        StoreErrorCode::ResourceExhausted => CoreErrorCode::ResourceExhausted,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
         StoreErrorCode::Conflict

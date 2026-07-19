@@ -635,6 +635,14 @@ Workbench reopen flow:
   The authorization Module rechecks Project lifecycle, binding, resource-grant
   and access revisions; recursive access follows ownership and never references.
   This resource decision is independent from Codex approval policy.
+- Native prepared Agent writes remain semantic operations inside the owning
+  Module `read/apply` pair. Electron supplies its frozen Turn provenance and the
+  intent; Core revalidates the persisted Turn and canonical target in one read
+  snapshot, returns a bounded single-use token plus effect/target footprint,
+  and re-prepares under the writer transaction. The token is bound to the UDS
+  connection, exact request, authority revisions, footprint, and effect class.
+  Exact durable receipt replay runs before token/current-guard validation and
+  succeeds only for the same provenance and intent fingerprint.
 
 ### Observability and Debugging
 - Canonical Page history reads immutable semantic Document revisions and Block/

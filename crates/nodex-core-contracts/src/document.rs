@@ -2,7 +2,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
-use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
+use crate::agent::{AgentOperationPreparation, AgentPreparedExecution, AgentTurnProvenance};
+use crate::{
+    CommittedModuleValue, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
+};
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct AgentDocumentSemanticMutation {
+    pub document_id: String,
+    pub generation: i64,
+    pub expected_head_seq: i64,
+    pub commands: Vec<DocumentSemanticCommand>,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -25,6 +36,12 @@ pub enum OwnedDocumentRead {
     GetVersion {
         document_id: String,
         version_id: String,
+    },
+    PrepareAgentSemanticMutation {
+        operation_id: String,
+        store_epoch: StoreEpoch,
+        provenance: Box<AgentTurnProvenance>,
+        mutation: Box<AgentDocumentSemanticMutation>,
     },
 }
 
@@ -50,6 +67,12 @@ pub enum OwnedDocumentReadValue {
     Version {
         value: Value,
     },
+    AgentSemanticMutationPreparation {
+        preparation: AgentOperationPreparation,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        committed:
+            Option<Box<CommittedModuleValue<OwnedDocumentCommitValue, OwnedDocumentReceipt>>>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -71,6 +94,10 @@ pub enum OwnedDocumentIntent {
         generation: i64,
         expected_head_seq: i64,
         commands: Vec<DocumentSemanticCommand>,
+    },
+    ExecutePreparedAgentSemanticMutation {
+        authorization: Box<AgentPreparedExecution>,
+        mutation: Box<AgentDocumentSemanticMutation>,
     },
     ApplyCanvasMutation {
         document_id: String,

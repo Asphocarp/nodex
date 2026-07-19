@@ -354,6 +354,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::UnsupportedSchema => CoreErrorCode::SchemaUnsupported,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
         StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
+        StoreErrorCode::ResourceExhausted => CoreErrorCode::ResourceExhausted,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::WriterQueueFull
         | StoreErrorCode::WriterClosed

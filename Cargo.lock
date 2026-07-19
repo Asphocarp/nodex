@@ -648,6 +648,8 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "fs2",
+ "getrandom",
+ "hex",
  "nodex-core-contracts",
  "regex",
  "rrule",

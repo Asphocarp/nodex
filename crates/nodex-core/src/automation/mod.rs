@@ -172,6 +172,7 @@ fn core_error(error: StoreError) -> CoreError {
         StoreErrorCode::NotFound => CoreErrorCode::NotFound,
         StoreErrorCode::StoreCorrupt => CoreErrorCode::StoreCorrupt,
         StoreErrorCode::MaintenanceInProgress => CoreErrorCode::MaintenanceInProgress,
+        StoreErrorCode::ResourceExhausted => CoreErrorCode::ResourceExhausted,
         StoreErrorCode::Unauthorized => CoreErrorCode::Unauthorized,
         StoreErrorCode::StaleStoreEpoch => CoreErrorCode::StaleStoreEpoch,
         StoreErrorCode::Conflict

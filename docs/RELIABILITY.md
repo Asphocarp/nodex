@@ -138,6 +138,17 @@
   Awareness clients per subscription and sixteen per Document, and refuses an
   initial Awareness snapshot above 96 KiB. Capacity failure is the typed
   retryable `resource_exhausted` error (HTTP 429), not silent eviction.
+- Native prepared Agent operations are process-local leases over durable Module
+  semantics, never a second mutation authority. Preparation uses one SQLite
+  read snapshot and issues no token when the exact Module receipt already
+  exists. New tokens expire after 60 seconds and are capped at 32 per UDS
+  connection and 1,024 per Core. Execution re-prepares against the writer's
+  current Store/Turn/Page/Document authority, acquires the token before any
+  authoritative write, and removes it after the transaction commits. A failed
+  transaction restores the lease for retry; a concurrent attempt conflicts;
+  process restart and Store replacement discard all prepared state. A crash
+  after SQLite commit is recovered through the durable receipt and change log,
+  so it neither repeats the mutation nor asks for consent again.
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before

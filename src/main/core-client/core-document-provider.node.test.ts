@@ -9,7 +9,7 @@ import * as Y from "yjs";
 
 import { NodexYProvider } from "../../renderer/lib/nodex-y-provider";
 import { inspectOwnedBlockDocument } from "../../shared/block-documents";
-import { CoreClient } from "./core-client";
+import { CoreClient, CoreModuleResponseError } from "./core-client";
 import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 import type { CoreRuntimeDescriptor } from "./types";
 
@@ -81,6 +81,165 @@ const waitUntil = async (
 };
 
 describe("Rust Core renderer Document adapter", () => {
+  test("prepares one exact Agent mutation and replays its receipt without renewed consent", async () => {
+    expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
+    expect(existsSync(SEED_BINARY), "run pnpm run core:test:client").toBe(true);
+    const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-agent-prepared-"));
+    homes.add(nodexHome);
+    execFileSync(SEED_BINARY, [nodexHome], { stdio: "pipe" });
+    const child = spawnCore(nodexHome);
+    await readDescriptor(child);
+    const [host, otherHost] = await Promise.all([
+      CoreClient.connect({
+        nodexHome,
+        clientKind: "test",
+        buildId: "agent-prepared-host",
+        projectId: PROJECT_ID,
+      }),
+      CoreClient.connect({
+        nodexHome,
+        clientKind: "test",
+        buildId: "agent-prepared-other-host",
+        projectId: PROJECT_ID,
+      }),
+    ]);
+    const threadId = "thread:agent-prepared-node";
+    const turnId = "turn:agent-prepared-node";
+    try {
+      await host.workspaceApply({
+        operationId: "agent-prepared-thread",
+        intent: {
+          kind: "upsert_thread",
+          thread_id: threadId,
+          patch: {
+            project_id: PROJECT_ID,
+            thread_name: "Prepared Agent integration",
+            created_at: 1,
+            updated_at: 1,
+            linked_at: "2026-07-19T00:00:00.000Z",
+          },
+        },
+      });
+      await host.workspaceApply({
+        operationId: "agent-prepared-turn",
+        intent: {
+          kind: "freeze_turn_authority",
+          thread_id: threadId,
+          turn_id: turnId,
+          root_thread_id: threadId,
+          actor_project_id: PROJECT_ID,
+          source: "project_turn",
+          inherited_from: null,
+        },
+      });
+      const provenance = {
+        profile_id: host.handshake.profile_id,
+        authority: {
+          thread_id: threadId,
+          turn_id: turnId,
+          root_thread_id: threadId,
+          actor_project_id: PROJECT_ID,
+          library_id: host.handshake.library_id,
+          store_epoch: host.handshake.store_epoch,
+          scope: "project" as const,
+          source: "project_turn" as const,
+        },
+      };
+      const operationId = "agent-prepared-body";
+      const mutation = {
+        document_id: DOCUMENT_ID,
+        generation: 1,
+        expected_head_seq: 2,
+        commands: [{
+          kind: "patch_body" as const,
+          old_fragment: "Base body",
+          new_fragment: "Prepared body",
+        }],
+      };
+      const preflight = await host.documentRead("agent:prepared", {
+        kind: "prepare_agent_semantic_mutation",
+        operation_id: operationId,
+        store_epoch: host.handshake.store_epoch,
+        provenance,
+        mutation,
+      });
+      expect(preflight.value).toMatchObject({
+        kind: "agent_semantic_mutation_preparation",
+        preparation: {
+          state: "prepared",
+          consent: "none",
+          footprint: {
+            effect_class: "write",
+            targets: [{ kind: "page" }],
+          },
+        },
+      });
+      if (preflight.value.kind !== "agent_semantic_mutation_preparation") {
+        throw new Error("Expected prepared Agent mutation");
+      }
+      const token = preflight.value.preparation.token;
+      expect(token).toMatch(/^[0-9a-f]{64}$/);
+      await expect(
+        otherHost.documentApply({
+          operationId,
+          clientSessionId: "agent:prepared",
+          intent: {
+            kind: "execute_prepared_agent_semantic_mutation",
+            authorization: { provenance, token },
+            mutation,
+          },
+        }),
+      ).rejects.toSatisfy(
+        (error: unknown) => error instanceof CoreModuleResponseError
+          && error.coreError.code === "revision_conflict",
+      );
+      const committed = await host.documentApply({
+        operationId,
+        clientSessionId: "agent:prepared",
+        intent: {
+          kind: "execute_prepared_agent_semantic_mutation",
+          authorization: { provenance, token },
+          mutation,
+        },
+      });
+      expect(committed).toMatchObject({
+        value: { head_seq: 3 },
+        receipt: { duplicate: false },
+      });
+      const replay = await host.documentApply({
+        operationId,
+        clientSessionId: "agent:prepared",
+        intent: {
+          kind: "execute_prepared_agent_semantic_mutation",
+          authorization: { provenance, token: null },
+          mutation,
+        },
+      });
+      expect(replay).toMatchObject({
+        value: { head_seq: 3 },
+        receipt: { duplicate: true },
+      });
+      const replayPreflight = await host.documentRead("agent:prepared", {
+        kind: "prepare_agent_semantic_mutation",
+        operation_id: operationId,
+        store_epoch: host.handshake.store_epoch,
+        provenance,
+        mutation,
+      });
+      expect(replayPreflight.value).toMatchObject({
+        kind: "agent_semantic_mutation_preparation",
+        preparation: { state: "committed_replay" },
+        committed: { receipt: { duplicate: true } },
+      });
+      if (replayPreflight.value.kind !== "agent_semantic_mutation_preparation") {
+        throw new Error("Expected committed Agent replay");
+      }
+      expect(replayPreflight.value.preparation.token).toBeUndefined();
+    } finally {
+      await host.shutdown().catch(() => undefined);
+    }
+  });
+
   test("converges renderer and semantic edits, then replays a disconnected commit once", async () => {
     expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
     expect(existsSync(SEED_BINARY), "run pnpm run core:test:client").toBe(true);

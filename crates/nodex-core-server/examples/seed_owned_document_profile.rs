@@ -80,6 +80,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                  VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID],
             )?;
+            transaction.execute(
+                "INSERT INTO pages(\
+                   block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                   parent_revision, metadata_revision, created_at, updated_at\
+                 ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID],
+            )?;
             Ok(())
         })
     })?;

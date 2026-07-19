@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nodex_core_contracts::agent::AgentTurnProvenance;
 use nodex_core_contracts::workspace::{
     CodexPermissionMode, ProjectWorkspaceBackgroundProcess,
     ProjectWorkspaceBackgroundProcessSource, ProjectWorkspaceTurnAuthority,
@@ -110,6 +111,68 @@ pub(super) fn resolve_turn_authority(
         authority: matches_current_coordinates.then_some(authority),
         persisted: true,
     })
+}
+
+pub(crate) fn validate_persisted_turn_authority(
+    connection: &Connection,
+    library_id: &str,
+    provenance: &AgentTurnProvenance,
+) -> Result<String, StoreError> {
+    let supplied = &provenance.authority;
+    for (name, value) in [
+        ("profile_id", provenance.profile_id.as_str()),
+        ("thread_id", supplied.thread_id.as_str()),
+        ("turn_id", supplied.turn_id.as_str()),
+        ("root_thread_id", supplied.root_thread_id.as_str()),
+        ("actor_project_id", supplied.actor_project_id.as_str()),
+        ("library_id", supplied.library_id.as_str()),
+        ("store_epoch", supplied.store_epoch.as_str()),
+    ] {
+        validate_id(name, value)?;
+    }
+    let coordinates =
+        require_authority_coordinates(connection, library_id, &supplied.actor_project_id)?;
+    if supplied.library_id != library_id
+        || supplied.library_id != coordinates.library_id
+        || provenance.profile_id != coordinates.profile_id
+        || supplied.store_epoch != coordinates.store_epoch
+    {
+        return Err(unauthorized(
+            "Agent Turn provenance no longer matches current Profile authority",
+        ));
+    }
+    let lifecycle = connection
+        .query_row(
+            "SELECT lifecycle FROM projects WHERE id = ?1 AND library_id = ?2",
+            params![supplied.actor_project_id, library_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| unauthorized("Agent Turn Project is unavailable"))?;
+    if lifecycle != "active" {
+        return Err(unauthorized("Agent Turn Project is not active"));
+    }
+    require_thread_project(
+        connection,
+        library_id,
+        &supplied.thread_id,
+        &supplied.actor_project_id,
+    )?;
+    require_thread_project(
+        connection,
+        library_id,
+        &supplied.root_thread_id,
+        &supplied.actor_project_id,
+    )?;
+    let row = read_authority_row(connection, &supplied.thread_id, &supplied.turn_id)?
+        .ok_or_else(|| unauthorized("Agent Turn has no persisted authority"))?;
+    let persisted = validate_authority_row(&row)?;
+    if persisted != *supplied || row.profile_id != provenance.profile_id {
+        return Err(unauthorized(
+            "Agent Turn provenance does not match its persisted authority",
+        ));
+    }
+    Ok(row.authority_fingerprint)
 }
 
 pub(super) fn read_background_processes(

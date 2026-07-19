@@ -153,6 +153,7 @@ pub trait VersionedModuleContract {
 }
 
 pub mod administration;
+pub mod agent;
 pub mod automation;
 pub mod database;
 pub mod document;
