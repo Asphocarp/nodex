@@ -45,6 +45,29 @@ export function normalizeWorkspacePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "") || path;
 }
 
+export function isWorkspacePathInsideRoot(workspaceRoot: string, targetPath: string): boolean {
+  const normalizedRoot = normalizeWorkspacePath(workspaceRoot);
+  const normalizedTarget = normalizeWorkspacePath(targetPath);
+  const windowsPath = /^[A-Za-z]:\//.test(normalizedRoot);
+  const comparableRoot = windowsPath ? normalizedRoot.toLowerCase() : normalizedRoot;
+  const comparableTarget = windowsPath ? normalizedTarget.toLowerCase() : normalizedTarget;
+  return comparableTarget === comparableRoot || comparableTarget.startsWith(`${comparableRoot}/`);
+}
+
+export function resolveWorkspaceTreeFilePath(workspaceRoot: string, relativePath: string): string {
+  const separator = workspaceRoot.includes("\\") && !workspaceRoot.includes("/") ? "\\" : "/";
+  const root = workspaceRoot.replace(/[\\/]+$/, "");
+  const child = relativePath.replace(/^[\\/]+/, "").replace(/[\\/]/g, separator);
+  return child ? `${root}${separator}${child}` : root;
+}
+
+export function getWorkspaceRelativePath(workspaceRoot: string, targetPath: string): string | null {
+  if (!isWorkspacePathInsideRoot(workspaceRoot, targetPath)) return null;
+  const normalizedRoot = normalizeWorkspacePath(workspaceRoot);
+  const normalizedTarget = normalizeWorkspacePath(targetPath);
+  return normalizedTarget.slice(normalizedRoot.length).replace(/^\/+/, "");
+}
+
 export function getWorkspaceFileName(path: string): string {
   const normalized = normalizeWorkspacePath(path);
   const parts = normalized.split("/");
@@ -78,6 +101,6 @@ export function shouldIncludeWorkspaceTreeEntry(entry: WorkspaceFileDirectoryEnt
   return entry.name.toLowerCase().includes(normalizedQuery) || entry.path.toLowerCase().includes(normalizedQuery);
 }
 
-export function isGeneratedWorkspaceEntry(entry: Pick<WorkspaceFileDirectoryEntry, "name" | "isDirectory">): boolean {
-  return entry.isDirectory && GENERATED_NAMES.has(entry.name);
+export function isGeneratedWorkspaceEntry(entry: Pick<WorkspaceFileDirectoryEntry, "name" | "type">): boolean {
+  return entry.type === "directory" && GENERATED_NAMES.has(entry.name);
 }

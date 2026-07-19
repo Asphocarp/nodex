@@ -591,9 +591,10 @@ export interface ProjectSessionProjectScopedTabConfig {
 }
 
 export interface ProjectSessionFilesTabConfig {
-  projectId: string;
+  projectId: string | null;
   hostId: "local";
-  workspaceRoot: string;
+  workspaceRoot: string | null;
+  cwd: string | null;
   path?: string;
 }
 
@@ -615,92 +616,62 @@ export type ProjectSessionTabConfig =
 
 export type WorkspaceFileHostId = "local";
 
-export type WorkspaceFileEntryKind = "directory" | "file" | "symlink" | "other";
-
 export interface WorkspaceFileDirectoryEntry {
   name: string;
   path: string;
-  kind: WorkspaceFileEntryKind;
-  isDirectory: boolean;
-  isFile: boolean;
+  type: "directory" | "file";
   isSymlink: boolean;
-  size: number;
-  modifiedAtMs: number;
-  hidden: boolean;
 }
 
 export interface WorkspaceDirectoryEntriesInput {
   hostId?: WorkspaceFileHostId;
   workspaceRoot: string;
-  path?: string;
+  directoryPath?: string;
   includeHidden?: boolean;
-  includeGenerated?: boolean;
+  directoriesOnly?: boolean;
 }
 
 export interface WorkspaceDirectoryEntriesResult {
-  hostId: WorkspaceFileHostId;
-  workspaceRoot: string;
-  path: string;
+  directoryPath: string;
+  parentPath: string | null;
   entries: WorkspaceFileDirectoryEntry[];
 }
 
 export interface WorkspaceFileRequest {
   hostId?: WorkspaceFileHostId;
-  workspaceRoot?: string;
   path: string;
 }
 
-export interface WorkspaceFileReadInput extends WorkspaceFileRequest {
-  maxBytes?: number;
+export interface WorkspaceFileMetadataInput extends WorkspaceFileRequest {
+  contentSampleByteLimit?: number;
+  contentSampleMaxFileBytes?: number;
 }
 
 export interface WorkspaceFileReadResult {
-  path: string;
-  content: string;
-  encoding: "utf8";
-  size: number;
-  truncated: boolean;
-  binary: boolean;
+  contents: string;
 }
 
 export interface WorkspaceFileBinaryReadResult {
-  path: string;
-  dataBase64: string;
-  size: number;
-  mimeType: string | null;
+  contentsBase64: string | null;
+  mimeType?: string;
 }
 
 export interface WorkspaceFileMetadata {
-  path: string;
-  kind: WorkspaceFileEntryKind;
-  isDirectory: boolean;
   isFile: boolean;
-  isSymlink: boolean;
-  size: number;
-  createdAtMs: number;
-  modifiedAtMs: number;
-  binary: boolean;
-  mimeType: string | null;
+  createdAtMs: number | null;
+  mtimeMs: number | null;
+  sizeBytes: number | null;
+  contentKind?: "text" | "binary";
 }
 
 export interface WorkspaceFileWriteInput extends WorkspaceFileRequest {
   content: string;
+  expectedMtimeMs: number | null;
 }
 
-export interface WorkspaceFileWriteResult {
-  path: string;
-  size: number;
-  modifiedAtMs: number;
-}
-
-export interface WorkspacePathsExistInput {
-  hostId?: WorkspaceFileHostId;
-  paths: string[];
-}
-
-export interface WorkspacePathsExistResult {
-  paths: Record<string, boolean>;
-}
+export type WorkspaceFileWriteResult =
+  | { outcome: "saved"; mtimeMs: number | null }
+  | { outcome: "conflict"; mtimeMs: number | null };
 
 export interface ProjectSessionSplitLeaf {
   type: "leaf";

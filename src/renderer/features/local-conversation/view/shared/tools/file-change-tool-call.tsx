@@ -75,6 +75,7 @@ interface FileChangeRowModel {
   key: string;
   displayPath: string;
   openPath: string | null;
+  workspaceRoot: string | null;
   action: FileChangeRowAction;
   state: FileChangeRowState;
   label: string;
@@ -222,6 +223,7 @@ function buildFileChangeRow(
     key: patchRow.key,
     displayPath: patchRow.path,
     openPath: resolveOpenPath(patchRow.path, basePath),
+    workspaceRoot: basePath,
     action: patchRow.action,
     state,
     label: labels.label,
@@ -448,6 +450,7 @@ function FileChangeRow({
       void onOpenFileInSidePanel({
         path: row.openPath,
         title: basename(row.displayPath),
+        workspaceRoot: row.workspaceRoot,
       });
       return;
     }

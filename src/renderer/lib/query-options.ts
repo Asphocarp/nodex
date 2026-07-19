@@ -22,7 +22,7 @@ import type {
   WorkspaceDirectoryEntriesResult,
   WorkspaceFileBinaryReadResult,
   WorkspaceFileMetadata,
-  WorkspaceFileReadInput,
+  WorkspaceFileMetadataInput,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
 } from "./types";
@@ -201,14 +201,14 @@ export function workspaceDirectoryQueryOptions(input: WorkspaceDirectoryEntriesI
   });
 }
 
-export function workspaceFileMetadataQueryOptions(input: WorkspaceFileRequest) {
+export function workspaceFileMetadataQueryOptions(input: WorkspaceFileMetadataInput) {
   return queryOptions({
     queryKey: queryKeys.workspaceFiles.metadata(input),
     queryFn: () => invoke("read-file-metadata", input) as Promise<WorkspaceFileMetadata>,
   });
 }
 
-export function workspaceFileTextQueryOptions(input: WorkspaceFileReadInput) {
+export function workspaceFileTextQueryOptions(input: WorkspaceFileRequest) {
   return queryOptions({
     queryKey: queryKeys.workspaceFiles.text(input),
     queryFn: () => invoke("read-file", input) as Promise<WorkspaceFileReadResult>,

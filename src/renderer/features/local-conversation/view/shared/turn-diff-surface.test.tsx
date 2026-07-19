@@ -168,7 +168,7 @@ describe("TurnDiffSurface", () => {
 
   test("cmd-click file rows opens the side panel instead of Review", () => {
     let reviewOpenCount = 0;
-    let sidePanelPath = "";
+    let sidePanelTarget: { path: string; workspaceRoot?: string | null } | null = null;
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
@@ -179,7 +179,7 @@ describe("TurnDiffSurface", () => {
             reviewOpenCount += 1;
           }}
           onOpenFileInSidePanel={(target) => {
-            sidePanelPath = target.path;
+            sidePanelTarget = target;
           }}
         />
       </TooltipProvider>,
@@ -187,7 +187,10 @@ describe("TurnDiffSurface", () => {
 
     fireEvent.click(findButtonByText(container, "src/file-1.ts") as HTMLButtonElement, { metaKey: true });
     expect(reviewOpenCount).toBe(0);
-    expect(sidePanelPath).toBe("/tmp/project/src/file-1.ts");
+    expect(sidePanelTarget).toMatchObject({
+      path: "/tmp/project/src/file-1.ts",
+      workspaceRoot: "/tmp/project",
+    });
   });
 
   test("renders cwd-relative file rows for absolute diff paths while keeping side-panel targets absolute", () => {

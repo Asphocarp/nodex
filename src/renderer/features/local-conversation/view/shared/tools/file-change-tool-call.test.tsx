@@ -348,14 +348,14 @@ describe("FileChangeToolCall", () => {
   });
 
   test("opens collapsed patch paths in the side panel unless the click is modified", () => {
-    let sidePanelPath: string | null = null;
+    let sidePanelTarget: { path: string; workspaceRoot?: string | null } | null = null;
     const { container } = render(
       <TooltipProvider>
         <FileChangeToolCall
-          item={buildFileChangeEntry()}
+          item={buildFileChangeEntry({ grantRoot: "/tmp/granted" })}
           threadCwd="/tmp/project"
           onOpenFileInSidePanel={(target) => {
-            sidePanelPath = target.path;
+            sidePanelTarget = target;
           }}
         />
       </TooltipProvider>,
@@ -366,12 +366,13 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(filenameLink)).toBe(true);
 
     fireEvent.click(filenameLink as HTMLElement, { metaKey: true });
-    expect(sidePanelPath).toBe(null);
+    expect(sidePanelTarget).toBe(null);
 
     fireEvent.click(filenameLink as HTMLElement);
-    expect(sidePanelPath).toBe(
-      "/tmp/project/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-    );
+    expect(sidePanelTarget).toMatchObject({
+      path: "/tmp/granted/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+      workspaceRoot: "/tmp/granted",
+    });
   });
 
   test("derives parsed file diff stats from actual changed lines", () => {

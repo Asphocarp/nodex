@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -7,7 +16,8 @@ import {
   readWorkspaceFile,
   readWorkspaceFileBinary,
   readWorkspaceFileMetadata,
-  readWorkspacePathsExist,
+  toWorkspaceFileIpcError,
+  WorkspaceFileUserError,
   writeWorkspaceFile,
 } from "./workspace-files-service";
 
@@ -23,69 +33,178 @@ afterEach(async () => {
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe("workspace-files-service", () => {
-  test("lists workspace entries with generated folders filtered", async () => {
+describe("workspace-files-service directory browsing", () => {
+  test("returns canonical relative entries, parents, visibility, and directory filtering", async () => {
     const root = await makeTempWorkspace();
-    await mkdir(join(root, "src"));
+    await mkdir(join(root, "src", "nested"), { recursive: true });
     await mkdir(join(root, "node_modules"));
     await writeFile(join(root, "README.md"), "# Project\n", "utf8");
+    await writeFile(join(root, ".env"), "SECRET=no\n", "utf8");
 
-    const result = await listWorkspaceDirectoryEntries({ workspaceRoot: root, includeHidden: true });
+    const rootResult = await listWorkspaceDirectoryEntries({ workspaceRoot: root });
+    const visibleResult = await listWorkspaceDirectoryEntries({
+      workspaceRoot: root,
+      includeHidden: true,
+    });
+    const childResult = await listWorkspaceDirectoryEntries({
+      workspaceRoot: root,
+      directoryPath: "src/nested/.",
+    });
+    const directoryResult = await listWorkspaceDirectoryEntries({
+      workspaceRoot: root,
+      directoriesOnly: true,
+    });
 
-    expect(JSON.stringify(result.entries.map((entry) => entry.name))).toBe(JSON.stringify(["src", "README.md"]));
-    expect(result.entries[0]?.isDirectory).toBe(true);
-    expect(result.entries[1]?.isFile).toBe(true);
+    expect(rootResult).toEqual({
+      directoryPath: "",
+      parentPath: null,
+      entries: [
+        { isSymlink: false, name: "node_modules", path: "node_modules", type: "directory" },
+        { isSymlink: false, name: "src", path: "src", type: "directory" },
+        { isSymlink: false, name: "README.md", path: "README.md", type: "file" },
+      ],
+    });
+    expect(visibleResult.entries.at(-1)?.name).toBe("README.md");
+    expect(visibleResult.entries.some((entry) => entry.name === ".env")).toBe(true);
+    expect(childResult.directoryPath).toBe("src/nested");
+    expect(childResult.parentPath).toBe("src");
+    expect(directoryResult.entries.every((entry) => entry.type === "directory")).toBe(true);
   });
 
-  test("reads text, binary, metadata, writes files, and checks existence", async () => {
+  test("omits directory symlinks that escape the root and permits internal directory symlinks", async () => {
+    const root = await makeTempWorkspace();
+    const outsideRoot = await makeTempWorkspace();
+    await mkdir(join(root, "inside"));
+    await writeFile(join(root, "inside", "visible.txt"), "inside", "utf8");
+    await writeFile(join(outsideRoot, "secret.txt"), "outside", "utf8");
+    await symlink(outsideRoot, join(root, "escape"), "dir");
+    await symlink(join(root, "inside"), join(root, "alias"), "dir");
+
+    const result = await listWorkspaceDirectoryEntries({ workspaceRoot: root });
+    const aliasResult = await listWorkspaceDirectoryEntries({
+      workspaceRoot: root,
+      directoryPath: "alias",
+    });
+
+    expect(result.entries.some((entry) => entry.name === "escape")).toBe(false);
+    expect(result.entries.find((entry) => entry.name === "alias")).toEqual({
+      isSymlink: true,
+      name: "alias",
+      path: "alias",
+      type: "directory",
+    });
+    expect(aliasResult.entries.map((entry) => entry.name)).toEqual(["visible.txt"]);
+  });
+
+  test.each(["../outside", "/absolute", "C:\\absolute"])(
+    "rejects invalid directory coordinate %s",
+    async (directoryPath) => {
+      const root = await makeTempWorkspace();
+      await expect(listWorkspaceDirectoryEntries({ workspaceRoot: root, directoryPath }))
+        .rejects.toThrow(/relative to workspaceRoot|within workspaceRoot/);
+    },
+  );
+});
+
+describe("workspace-files-service exact file resources", () => {
+  test.each([
+    ["ENOENT", "not_found"],
+    ["EACCES", "invalid_path"],
+    ["ELOOP", "invalid_path"],
+    ["ENOSPC", "invalid_path"],
+  ])("classifies expected filesystem error %s as a user failure", (code, expectedCode) => {
+    const error = Object.assign(new Error(`filesystem ${code}`), { code });
+    const transformed = toWorkspaceFileIpcError(error);
+
+    expect(transformed).toBeInstanceOf(WorkspaceFileUserError);
+    expect(transformed).toMatchObject({ code: expectedCode });
+  });
+
+  test("reads path-scoped text, sampled metadata, binary bytes, and content MIME", async () => {
     const root = await makeTempWorkspace();
     const textPath = join(root, "notes.md");
     const binaryPath = join(root, "image.bin");
     await writeFile(textPath, "# Notes\n", "utf8");
-    await writeFile(binaryPath, Buffer.from([0, 1, 2, 3]));
+    await writeFile(binaryPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]));
 
     const text = await readWorkspaceFile({ path: textPath });
-    const binaryMetadata = await readWorkspaceFileMetadata({ path: binaryPath });
+    const textMetadata = await readWorkspaceFileMetadata({
+      path: textPath,
+      contentSampleByteLimit: 8_192,
+      contentSampleMaxFileBytes: 100,
+    });
+    const skippedSample = await readWorkspaceFileMetadata({
+      path: textPath,
+      contentSampleByteLimit: 8_192,
+      contentSampleMaxFileBytes: 1,
+    });
+    const binaryMetadata = await readWorkspaceFileMetadata({
+      path: binaryPath,
+      contentSampleByteLimit: 8_192,
+    });
     const binary = await readWorkspaceFileBinary({ path: binaryPath });
-    const written = await writeWorkspaceFile({ path: join(root, "nested", "file.txt"), content: "created" });
-    const exists = await readWorkspacePathsExist({ paths: [textPath, written.path, join(root, "missing.txt")] });
 
-    expect(text.content).toBe("# Notes\n");
-    expect(text.binary).toBe(false);
-    expect(binaryMetadata.binary).toBe(true);
-    expect(binary.dataBase64).toBe("AAECAw==");
-    expect(exists.paths[textPath]).toBe(true);
-    expect(exists.paths[written.path]).toBe(true);
-    expect(exists.paths[join(root, "missing.txt")]).toBe(false);
+    expect(text.contents).toBe("# Notes\n");
+    expect(textMetadata.contentKind).toBe("text");
+    expect(textMetadata.isFile).toBe(true);
+    expect(textMetadata.sizeBytes).toBe(8);
+    expect(skippedSample.contentKind).toBeUndefined();
+    expect(binaryMetadata.contentKind).toBe("binary");
+    expect(binary).toEqual({
+      contentsBase64: "iVBORw0KGgoA",
+      mimeType: "image/png",
+    });
   });
 
-  test("rejects directory traversal outside the workspace root", async () => {
+  test("uses modification time compare-and-swap and does not create missing parents", async () => {
     const root = await makeTempWorkspace();
-    const outside = join(root, "..");
+    const filePath = join(root, "file.txt");
+    await writeFile(filePath, "first", "utf8");
+    const initialMtimeMs = (await stat(filePath)).mtimeMs;
+    const future = new Date(Date.now() + 10_000);
+    await writeFile(filePath, "second", "utf8");
+    await utimes(filePath, future, future);
+    const currentMtimeMs = (await stat(filePath)).mtimeMs;
 
-    let message = "";
-    try {
-      await listWorkspaceDirectoryEntries({ workspaceRoot: root, path: outside });
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-    }
+    const conflict = await writeWorkspaceFile({
+      path: filePath,
+      content: "stale",
+      expectedMtimeMs: initialMtimeMs,
+    });
+    const saved = await writeWorkspaceFile({
+      path: filePath,
+      content: "saved",
+      expectedMtimeMs: currentMtimeMs,
+    });
 
-    expect(message).toBe("Workspace path must stay inside the project root");
+    expect(conflict).toEqual({ outcome: "conflict", mtimeMs: currentMtimeMs });
+    expect(saved.outcome).toBe("saved");
+    expect(await readFile(filePath, "utf8")).toBe("saved");
+    await expect(writeWorkspaceFile({
+      path: join(root, "missing", "file.txt"),
+      content: "no implicit mkdir",
+      expectedMtimeMs: null,
+    })).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  test("rejects file reads outside the provided workspace root", async () => {
+  test("creates a missing file only with a null modification-time expectation", async () => {
     const root = await makeTempWorkspace();
-    const outsideRoot = await makeTempWorkspace();
-    const outsideFile = join(outsideRoot, "secret.txt");
-    await writeFile(outsideFile, "nope", "utf8");
+    const filePath = join(root, "new.txt");
 
-    let message = "";
-    try {
-      await readWorkspaceFile({ workspaceRoot: root, path: outsideFile });
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
-    }
+    const conflict = await writeWorkspaceFile({
+      path: filePath,
+      content: "blocked",
+      expectedMtimeMs: 1,
+    });
+    const saved = await writeWorkspaceFile({
+      path: filePath,
+      content: "created",
+      expectedMtimeMs: null,
+    });
 
-    expect(message).toBe("Workspace path must stay inside the project root");
+    expect(conflict).toEqual({ outcome: "conflict", mtimeMs: null });
+    expect(saved.outcome).toBe("saved");
+    expect(await readFile(filePath, "utf8")).toBe("created");
   });
+
 });

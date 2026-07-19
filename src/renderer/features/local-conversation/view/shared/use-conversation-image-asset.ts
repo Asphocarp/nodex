@@ -85,7 +85,8 @@ export function useConversationImageAsset(
     gcTime: Infinity,
   });
   const localDataUrl = localFileQuery.data
-    ? buildDataUrl(localFileQuery.data.dataBase64, localFileQuery.data.mimeType)
+    && localFileQuery.data.contentsBase64
+    ? buildDataUrl(localFileQuery.data.contentsBase64, localFileQuery.data.mimeType ?? null)
     : null;
   const directSource = absolutePath === null && pointer.length === 0 && source.length > 0
     ? normalizeDirectImageSource(source)

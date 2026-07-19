@@ -72,9 +72,16 @@ export const ProjectSessionProjectScopedTabConfigSchema = z.object({
 }) satisfies z.ZodType<ProjectSessionProjectScopedTabConfig>;
 
 export const ProjectSessionFilesTabConfigSchema = z.object({
-  projectId: z.string().min(1),
+  projectId: z.string().min(1).nullable(),
   hostId: z.literal("local").default("local"),
-  workspaceRoot: z.string().trim().default(""),
+  workspaceRoot: z.preprocess(
+    (value) => typeof value === "string" && value.trim().length === 0 ? null : value,
+    z.string().trim().min(1).nullable(),
+  ).default(null),
+  cwd: z.preprocess(
+    (value) => typeof value === "string" && value.trim().length === 0 ? null : value,
+    z.string().trim().min(1).nullable(),
+  ).default(null),
   path: z.string().trim().min(1).optional(),
 }) satisfies z.ZodType<ProjectSessionFilesTabConfig>;
 
@@ -90,7 +97,8 @@ export function parseProjectSessionTabConfig(kind: string, config: unknown): Pro
     return {
       projectId: scopedConfig.projectId,
       hostId: "local",
-      workspaceRoot: "",
+      workspaceRoot: null,
+      cwd: null,
     };
   }
   throw new Error(`Unknown project session tab kind: ${kind}`);

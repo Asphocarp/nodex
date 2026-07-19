@@ -12,63 +12,59 @@ let invokeCalls: unknown[][] = [];
 let openFileTabCalls: { path: string; title: string; panelId: WorkspaceFilesTab["panelId"] }[] = [];
 
 const WORKSPACE_ROOT = "/workspace";
+const WORKTREE_FILE = "/profile/worktrees/abcd/project/README.md";
+const HUGE_FILE = "/profile/worktrees/abcd/project/huge.txt";
 const CREATED_AT = "2026-06-13T00:00:00.000Z";
 
 const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
-  [WORKSPACE_ROOT]: [
-    entry("src", `${WORKSPACE_ROOT}/src`, "directory"),
-    entry("README.md", `${WORKSPACE_ROOT}/README.md`, "file"),
-    entry("archive.zip", `${WORKSPACE_ROOT}/archive.zip`, "file"),
+  "": [
+    entry("src", "src", "directory"),
+    entry("README.md", "README.md", "file"),
+    entry("archive.zip", "archive.zip", "file"),
   ],
-  [`${WORKSPACE_ROOT}/src`]: [
-    entry("index.ts", `${WORKSPACE_ROOT}/src/index.ts`, "file"),
+  src: [
+    entry("index.ts", "src/index.ts", "file"),
   ],
 };
 
 const fileContents: Record<string, string> = {
   [`${WORKSPACE_ROOT}/README.md`]: "# Project\n\nWorkspace notes.",
   [`${WORKSPACE_ROOT}/src/index.ts`]: "export const value = 1;\n",
+  [WORKTREE_FILE]: "# Project\n\nWorktree notes.",
 };
 
 vi.mock("@/lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     if (channel === "workspace-directory-entries") {
-      const input = args[0] as { workspaceRoot: string; path?: string };
-      const path = input.path ?? input.workspaceRoot;
+      const input = args[0] as { directoryPath?: string };
+      const directoryPath = input.directoryPath ?? "";
       return {
-        hostId: "local",
-        workspaceRoot: input.workspaceRoot,
-        path,
-        entries: directoryEntries[path] ?? [],
+        directoryPath,
+        parentPath: directoryPath ? "" : null,
+        entries: directoryEntries[directoryPath] ?? [],
       };
     }
     if (channel === "read-file-metadata") {
       const input = args[0] as { path: string };
       const unsupported = input.path.endsWith(".zip");
       return {
-        path: input.path,
-        kind: "file",
-        isDirectory: false,
         isFile: true,
-        isSymlink: false,
-        size: unsupported ? 12_000 : fileContents[input.path]?.length ?? 0,
+        sizeBytes: input.path === HUGE_FILE
+          ? 2_000_000
+          : unsupported
+            ? 12_000
+            : fileContents[input.path]?.length ?? 0,
         createdAtMs: Date.parse(CREATED_AT),
-        modifiedAtMs: Date.parse(CREATED_AT),
-        binary: unsupported,
-        mimeType: unsupported ? "application/zip" : "text/markdown",
+        mtimeMs: Date.parse(CREATED_AT),
+        contentKind: unsupported ? "binary" : "text",
       };
     }
     if (channel === "read-file") {
       const input = args[0] as { path: string };
       const content = fileContents[input.path] ?? "";
       return {
-        path: input.path,
-        content,
-        encoding: "utf8",
-        size: content.length,
-        truncated: false,
-        binary: false,
+        contents: content,
       };
     }
     if (channel === "open-file") return true;
@@ -120,16 +116,62 @@ describe("WorkspaceFilesPanel", () => {
     }]));
   });
 
-  test("renders selected markdown and sends root-scoped read requests", async () => {
-    const view = renderPanel(`${WORKSPACE_ROOT}/README.md`);
+  test("previews an outside-root file while keeping only the directory request root-scoped", async () => {
+    const view = renderPanel(WORKTREE_FILE);
     await settleAsyncRender();
     await settleAsyncRender();
 
     expect(view.getByText("Project") !== null).toBe(true);
-    expect(invokeCalls.some((call) =>
-      call[0] === "read-file"
-      && JSON.stringify(call[1]).includes(`"workspaceRoot":"${WORKSPACE_ROOT}"`)
-    )).toBe(true);
+    expect(view.getByText("Worktree notes.") !== null).toBe(true);
+    const directoryCall = invokeCalls.find((call) => call[0] === "workspace-directory-entries");
+    expect(directoryCall?.[1]).toEqual({
+      hostId: "local",
+      workspaceRoot: WORKSPACE_ROOT,
+      directoryPath: "",
+      includeHidden: true,
+    });
+    const fileCalls = invokeCalls.filter((call) => ["read-file-metadata", "read-file"].includes(String(call[0])));
+    expect(fileCalls.length).toBe(2);
+    expect(fileCalls.every((call) => !JSON.stringify(call[1]).includes("workspaceRoot"))).toBe(true);
+  });
+
+  test("previews a projectless exact file without requesting a directory tree", async () => {
+    const tab = makeFilesTab(WORKTREE_FILE);
+    const view = render(
+      <TestQueryProvider>
+        <NodexTooltipProvider>
+          <WorkspaceFilesPanel
+            tab={{
+              ...tab,
+              projectId: null,
+              config: {
+                ...tab.config,
+                projectId: null,
+                cwd: "/profile/worktrees/abcd/project",
+                workspaceRoot: null,
+              },
+            }}
+            activeSession={{ ...activeSession, projectId: null }}
+            project={null}
+            onOpenFileTab={async () => undefined}
+          />
+        </NodexTooltipProvider>
+      </TestQueryProvider>,
+    );
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(view.getByText("Worktree notes.") !== null).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "workspace-directory-entries")).toBe(false);
+  });
+
+  test("uses metadata to reject oversized text before reading full contents", async () => {
+    const view = renderPanel(HUGE_FILE);
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(view.getByText("huge.txt is too large to preview.") !== null).toBe(true);
+    expect(invokeCalls.some((call) => call[0] === "read-file")).toBe(false);
   });
 
   test("renders unsupported binaries with external-open action", async () => {
@@ -179,6 +221,7 @@ function makeFilesTab(selectedPath?: string): WorkspaceFilesTab {
     config: {
       projectId: project.id,
       hostId: "local",
+      cwd: WORKSPACE_ROOT,
       workspaceRoot: WORKSPACE_ROOT,
       ...(selectedPath ? { path: selectedPath } : {}),
     },
@@ -193,13 +236,8 @@ function entry(name: string, path: string, kind: "directory" | "file"): Workspac
   return {
     name,
     path,
-    kind,
-    isDirectory: kind === "directory",
-    isFile: kind === "file",
+    type: kind,
     isSymlink: false,
-    size: kind === "file" ? 128 : 0,
-    modifiedAtMs: Date.parse(CREATED_AT),
-    hidden: name.startsWith("."),
   };
 }
 

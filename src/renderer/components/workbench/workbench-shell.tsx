@@ -72,6 +72,7 @@ import {
   WorkspaceFilesPanel,
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
+  isWorkspacePathInsideRoot,
   type WorkspaceFilesTab,
 } from "@/features/workspace-files";
 import { CommandPalette } from "./workbench-shell-deps";
@@ -594,7 +595,8 @@ type ProjectSessionFilesPreviewTab = WorkspaceFilesTab & {
   kind: "files";
   config: WorkspaceFilesTab["config"] & {
     hostId: "local";
-    workspaceRoot: string;
+    workspaceRoot: string | null;
+    cwd: string | null;
     path: string;
   };
 };
@@ -1313,6 +1315,9 @@ function projectWorkspaceRootOrNull(project: Project | null | undefined): string
 function getWorkspaceFileParentPath(path: string): string {
   const normalizedPath = path.trim();
   const lastSlashIndex = Math.max(normalizedPath.lastIndexOf("/"), normalizedPath.lastIndexOf("\\"));
+  if (/^[A-Za-z]:[\\/]/.test(normalizedPath) && lastSlashIndex === 2) {
+    return normalizedPath.slice(0, 3);
+  }
   if (lastSlashIndex > 0) return normalizedPath.slice(0, lastSlashIndex);
   if (lastSlashIndex === 0) return normalizedPath.slice(0, 1);
   return "";
@@ -1996,7 +2001,7 @@ function makeProjectSessionTabDraft(
     return {
       kind,
       title: "Files",
-      config: { projectId, hostId: "local", workspaceRoot: "" },
+      config: { projectId, hostId: "local", workspaceRoot: null, cwd: session.thread?.cwd ?? null },
     };
   }
 
@@ -2053,7 +2058,12 @@ function makePreviewProjectSessionTab(
 function makePreviewWorkspaceFileTab(
   session: ProjectSession,
   panelId: PanelId,
-  input: { path: string; title: string; workspaceRoot: string },
+  input: {
+    cwd: string | null;
+    path: string;
+    title: string;
+    workspaceRoot: string | null;
+  },
 ): ProjectSessionFilesPreviewTab {
   const now = new Date().toISOString();
   const projectId = session.projectId;
@@ -2069,6 +2079,7 @@ function makePreviewWorkspaceFileTab(
     config: {
       projectId,
       hostId: "local",
+      cwd: input.cwd,
       workspaceRoot: input.workspaceRoot,
       path: input.path,
     },
@@ -5409,7 +5420,6 @@ export function WorkbenchShell({
     const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
       ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
     if (!previewTab || previewTab.id !== tabId) return;
-    if (isProjectSessionFilesPreviewTab(previewTab) && previewTab.config.projectId === null) return;
     if (pinningPreviewTabIdsRef.current.has(tabId)) return;
 
     pinningPreviewTabIdsRef.current.add(tabId);
@@ -6096,21 +6106,34 @@ export function WorkbenchShell({
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
   const openWorkspaceFileTab = useCallback(async (input: {
+    cwd?: string | null;
+    hostId?: "local";
     path: string;
     title: string;
     panelId: PanelId;
+    workspaceRoot?: string | null;
   }) => {
     if (!activeSession) return false;
     const sessionProjectId = activeSession.projectId;
     const project = sessionProjectId === null
       ? null
       : projects.find((candidate) => candidate.id === sessionProjectId) ?? null;
-    const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(project)
-      ?? getWorkspaceFileParentPath(input.path);
-    if (!workspaceRoot) return false;
+    const cwd = normalizeOptionalPath(input.cwd) ?? normalizeOptionalPath(activeSession.thread?.cwd) ?? null;
+    const explicitWorkspaceRoot = normalizeOptionalPath(input.workspaceRoot);
+    const matchingThreadRoot = cwd && isWorkspacePathInsideRoot(cwd, input.path) ? cwd : undefined;
+    const matchingProjectRoot = project?.sources
+      .map((source) => normalizeOptionalPath(source.root))
+      .find((root): root is string => Boolean(root && isWorkspacePathInsideRoot(root, input.path)));
+    const workspaceRoot = explicitWorkspaceRoot
+      ?? matchingThreadRoot
+      ?? matchingProjectRoot
+      ?? (project === null ? normalizeOptionalPath(getWorkspaceFileParentPath(input.path)) : undefined)
+      ?? null;
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "files"
       && tab.panelId === input.panelId
+      && "hostId" in tab.config
+      && tab.config.hostId === (input.hostId ?? "local")
       && "path" in tab.config
       && tab.config.path === input.path,
     );
@@ -6125,6 +6148,7 @@ export function WorkbenchShell({
       [makePanelPreviewKey(activeSession.id, input.panelId, leafId)]: makePreviewWorkspaceFileTab(activeSession, input.panelId, {
         path: input.path,
         title: input.title || getWorkspaceFileName(input.path),
+        cwd,
         workspaceRoot,
       }),
     }));
@@ -6815,17 +6839,21 @@ export function WorkbenchShell({
 
   const openTurnDiffFileInSidePanel = useCallback<NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>>(async (target) => {
     await openWorkspaceFileTab({
+      cwd: target.cwd,
       path: target.path,
       title: target.title,
       panelId: "right",
+      workspaceRoot: target.workspaceRoot,
     });
   }, [openWorkspaceFileTab]);
   const openSummaryOutputInSidePanel = useCallback<NonNullable<ThreadStageActions["onOpenSummaryOutputInSidePanel"]>>(async (target) => {
     if (!activeSession) return false;
     return await openWorkspaceFileTab({
+      cwd: target.cwd,
       path: target.path,
       title: target.title,
       panelId: "right",
+      workspaceRoot: target.workspaceRoot,
     });
   }, [activeSession, openWorkspaceFileTab]);
   const consumeNewThreadComposerIntent = useCallback((sessionId: string, focusNonce: number) => {

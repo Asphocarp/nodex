@@ -2,7 +2,10 @@ import { describe, expect, test } from "vitest";
 import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
+  getWorkspaceRelativePath,
+  isWorkspacePathInsideRoot,
   resolveWorkspaceFilePreviewKind,
+  resolveWorkspaceTreeFilePath,
   shouldIncludeWorkspaceTreeEntry,
 } from "./workspace-file-model";
 import type { WorkspaceFileDirectoryEntry } from "@/lib/types";
@@ -11,13 +14,8 @@ function makeEntry(name: string, path: string): WorkspaceFileDirectoryEntry {
   return {
     name,
     path,
-    kind: "file",
-    isDirectory: false,
-    isFile: true,
+    type: "file",
     isSymlink: false,
-    size: 1,
-    modifiedAtMs: 0,
-    hidden: false,
   };
 }
 
@@ -43,5 +41,18 @@ describe("workspace-file-model", () => {
     expect(getWorkspaceFileName(entry.path)).toBe("README.md");
     expect(shouldIncludeWorkspaceTreeEntry(entry, "docs")).toBe(true);
     expect(shouldIncludeWorkspaceTreeEntry(entry, "missing")).toBe(false);
+  });
+
+  test("resolves tree coordinates without treating prefix collisions as descendants", () => {
+    expect(resolveWorkspaceTreeFilePath("/repo/project", "src/file.ts")).toBe("/repo/project/src/file.ts");
+    expect(isWorkspacePathInsideRoot("/repo/project", "/repo/project/src/file.ts")).toBe(true);
+    expect(isWorkspacePathInsideRoot("/repo/project", "/repo/project-other/file.ts")).toBe(false);
+    expect(getWorkspaceRelativePath("/repo/project", "/repo/project/src/file.ts")).toBe("src/file.ts");
+    expect(getWorkspaceRelativePath("/repo/project", "/repo/project-other/file.ts")).toBe(null);
+  });
+
+  test("handles Windows workspace roots case-insensitively", () => {
+    expect(resolveWorkspaceTreeFilePath("C:\\repo", "src/file.ts")).toBe("C:\\repo\\src\\file.ts");
+    expect(isWorkspacePathInsideRoot("C:\\Repo", "c:\\repo\\src\\file.ts")).toBe(true);
   });
 });

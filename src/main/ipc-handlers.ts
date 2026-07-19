@@ -83,13 +83,22 @@ import {
 } from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
 import {
+  isWorkspaceFileUserError,
   listWorkspaceDirectoryEntries,
   readWorkspaceFile,
   readWorkspaceFileBinary,
   readWorkspaceFileMetadata,
-  readWorkspacePathsExist,
+  toWorkspaceFileIpcError,
+  WorkspaceFileUserError,
   writeWorkspaceFile,
 } from "./workspace-files-service";
+import { isTrustedWorkspaceFileIpcSender } from "./workspace-file-ipc-authorization";
+import {
+  WorkspaceDirectoryEntriesInputSchema,
+  WorkspaceFileMetadataInputSchema,
+  WorkspaceFileRequestSchema,
+  WorkspaceFileWriteInputSchema,
+} from "../shared/schemas/workspace-files";
 import { dbNotifier } from "./local-store/notifier";
 import { blockMutationWriter } from "./block-mutation-writer";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
@@ -269,20 +278,49 @@ function registerHandle<Channel extends keyof IpcApi>(
     try {
       return await listener(event, ...(args as IpcApi[Channel]["args"]));
     } catch (error) {
-      captureMainException(error, {
-        tags: {
-          channel,
-          mechanism: "ipc",
-        },
-        extra: {
-          channel,
-          senderWebContentsId: event.sender.id,
-          argCount: args.length,
-        },
-      });
+      if (!isWorkspaceFileUserError(error)) {
+        captureMainException(error, {
+          tags: {
+            channel,
+            mechanism: "ipc",
+          },
+          extra: {
+            channel,
+            senderWebContentsId: event.sender.id,
+            argCount: args.length,
+          },
+        });
+      }
       throw error;
     }
   });
+}
+
+function requireTrustedWorkspaceFileSender(event: IpcMainInvokeEvent): void {
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+  if (isTrustedWorkspaceFileIpcSender({
+    hasOwnerWindow: ownerWindow !== null,
+    senderType: event.sender.getType(),
+    isMainFrame: event.senderFrame === event.sender.mainFrame,
+  })) {
+    return;
+  }
+  throw new WorkspaceFileUserError(
+    "unauthorized_sender",
+    "Workspace file access is available only to the top-level app renderer",
+  );
+}
+
+async function runWorkspaceFileHandler<Result>(
+  event: IpcMainInvokeEvent,
+  action: () => Result | Promise<Result>,
+): Promise<Result> {
+  requireTrustedWorkspaceFileSender(event);
+  try {
+    return await action();
+  } catch (error) {
+    throw toWorkspaceFileIpcError(error);
+  }
 }
 
 function broadcastIpcEvent<Channel extends keyof IpcEvents>(
@@ -2118,27 +2156,35 @@ export function registerIpcHandlers(
     openFileLinkTarget(target, openerId),
   );
 
-  registerHandle("workspace-directory-entries", (_, input) =>
-    listWorkspaceDirectoryEntries(input),
+  registerHandle("workspace-directory-entries", (event, input) =>
+    runWorkspaceFileHandler(event, () => listWorkspaceDirectoryEntries(
+      WorkspaceDirectoryEntriesInputSchema.parse(input),
+    )),
   );
 
-  registerHandle("remote-workspace-directory-entries", (_, input) =>
-    listWorkspaceDirectoryEntries(input),
+  registerHandle("read-file", (event, input) =>
+    runWorkspaceFileHandler(event, () => readWorkspaceFile(
+      WorkspaceFileRequestSchema.parse(input),
+    )),
   );
 
-  registerHandle("read-file", (_, input) => readWorkspaceFile(input));
-
-  registerHandle("read-file-metadata", (_, input) =>
-    readWorkspaceFileMetadata(input),
+  registerHandle("read-file-metadata", (event, input) =>
+    runWorkspaceFileHandler(event, () => readWorkspaceFileMetadata(
+      WorkspaceFileMetadataInputSchema.parse(input),
+    )),
   );
 
-  registerHandle("read-file-binary", (_, input) =>
-    readWorkspaceFileBinary(input),
+  registerHandle("read-file-binary", (event, input) =>
+    runWorkspaceFileHandler(event, () => readWorkspaceFileBinary(
+      WorkspaceFileRequestSchema.parse(input),
+    )),
   );
 
-  registerHandle("write-file", (_, input) => writeWorkspaceFile(input));
-
-  registerHandle("paths-exist", (_, input) => readWorkspacePathsExist(input));
+  registerHandle("write-file", (event, input) =>
+    runWorkspaceFileHandler(event, () => writeWorkspaceFile(
+      WorkspaceFileWriteInputSchema.parse(input),
+    )),
+  );
 
   registerHandle("open-file", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),

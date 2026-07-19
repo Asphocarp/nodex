@@ -164,7 +164,6 @@ import type {
   ReviewDiffEntry,
   ReviewDiffLoadStatus,
   ReviewFileSafety,
-  WorkspaceFileReadResult,
   CodexReviewDiffCommentAttachment,
   ReviewDiffAnnotationSide,
 } from "@/lib/types";
@@ -172,6 +171,7 @@ import type { ReviewConversationProjection } from "@/features/review/model/revie
 import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
 import { cn } from "@/lib/utils";
 import { showNativeContextMenu } from "@/lib/native-context-menu";
+import { readExactWorkspaceTextFile } from "@/lib/read-exact-workspace-text-file";
 import { ComposerPromptEditor } from "@/features/local-conversation/view/composer/composer-prompt-editor";
 import {
   addReviewDiffCommentAttachment,
@@ -1243,18 +1243,6 @@ function mergeReviewCatFileSafety(
     sizeBytes:
       (oldRead.safety.sizeBytes ?? 0) + (newRead.safety.sizeBytes ?? 0),
   });
-}
-
-function isWorkspaceFileReadResult(
-  value: unknown,
-): value is WorkspaceFileReadResult {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Partial<WorkspaceFileReadResult>;
-  return (
-    typeof candidate.content === "string" &&
-    typeof candidate.binary === "boolean" &&
-    typeof candidate.truncated === "boolean"
-  );
 }
 
 function isReviewNewFile(fileDiff: FileDiffMetadata): boolean {
@@ -3836,9 +3824,7 @@ export function ReviewDiffPanel({
         return buildTranscriptDeletedFileContents(entry);
       }
 
-      const normalizedCwd = reviewCwd?.trim() ?? "";
       if (
-        !normalizedCwd ||
         !entry.openPath ||
         !hasPatchLineArrays(entry.fileDiff)
       ) {
@@ -3846,21 +3832,20 @@ export function ReviewDiffPanel({
       }
 
       try {
-        const readResult = await invoke("read-file", {
-          workspaceRoot: normalizedCwd,
+        const contents = await readExactWorkspaceTextFile({
           path: entry.openPath,
           maxBytes: REVIEW_FULL_FILE_MAX_BYTES,
+          contentSampleByteLimit: 8_192,
+        }, {
+          readMetadata: (input) => invoke("read-file-metadata", input),
+          readText: (input) => invoke("read-file", input),
         });
-        if (
-          !isWorkspaceFileReadResult(readResult) ||
-          readResult.binary ||
-          readResult.truncated
-        ) {
+        if (contents === null) {
           return isReviewNewFile(entry.fileDiff)
             ? buildTranscriptNewFileContentsFromPatch(entry)
             : buildUnavailableReviewFullContents(entry);
         }
-        return buildTranscriptFullContentsFromPatch(entry, readResult.content);
+        return buildTranscriptFullContentsFromPatch(entry, contents);
       } catch {
         return isReviewNewFile(entry.fileDiff)
           ? buildTranscriptNewFileContentsFromPatch(entry)

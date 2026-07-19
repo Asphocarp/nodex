@@ -26,8 +26,10 @@ import { cn } from "@/lib/utils";
 import {
   getWorkspaceFileDomTabId,
   getWorkspaceFileName,
+  getWorkspaceRelativePath,
   isGeneratedWorkspaceEntry,
   resolveWorkspaceFilePreviewKind,
+  resolveWorkspaceTreeFilePath,
   shouldIncludeWorkspaceTreeEntry,
   type WorkspaceFilePreviewKind,
 } from "./workspace-file-model";
@@ -37,6 +39,8 @@ const TREE_DEFAULT_WIDTH = 250;
 const TREE_MIN_WIDTH = 190;
 const TREE_MAX_RATIO = 0.6;
 const MAX_TEXT_PREVIEW_BYTES = 1_500_000;
+const MAX_BINARY_PREVIEW_BYTES = 25_000_000;
+const CONTENT_SAMPLE_BYTES = 8_192;
 
 type DirectoryLoadState = "idle" | "loading" | "loaded" | "error";
 
@@ -59,21 +63,15 @@ const EMPTY_PREVIEW_STATE: WorkspaceFilePreviewState = {
   message: null,
 };
 
-function resolveWorkspaceRoot(tab: WorkspaceFilesTab, project: Project | null): string {
+function resolveWorkspaceRoot(tab: WorkspaceFilesTab, project: Project | null): string | null {
   const configuredRoot = tab.config.workspaceRoot?.trim();
   if (configuredRoot) return configuredRoot;
-  return project?.primaryWorkspaceRoot?.trim() || project?.sources[0]?.root.trim() || "";
-}
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  return project?.primaryWorkspaceRoot?.trim() || project?.sources[0]?.root.trim() || null;
 }
 
 function sortTreeRows(rows: WorkspaceFileDirectoryEntry[]): WorkspaceFileDirectoryEntry[] {
   return [...rows].sort((a, b) => {
-    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
     return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
   });
 }
@@ -91,26 +89,42 @@ function buildVisibleTreeRows(input: {
       if (isGeneratedWorkspaceEntry(entry)) continue;
       if (!shouldIncludeWorkspaceTreeEntry(entry, input.query) && input.query.trim()) continue;
       rows.push({ entry, level });
-      if (entry.isDirectory && input.expandedPaths.has(entry.path)) {
+      if (entry.type === "directory" && input.expandedPaths.has(entry.path)) {
         visit(entry.path, level + 1);
       }
     }
   };
 
-  if (input.rootPath) visit(input.rootPath, 0);
+  visit(input.rootPath, 0);
   return rows;
 }
 
-function buildDataUrl(dataBase64: string, mimeType: string | null): string {
+function buildDataUrl(dataBase64: string, mimeType: string | undefined): string {
   return `data:${mimeType || "application/octet-stream"};base64,${dataBase64}`;
 }
 
-function Breadcrumb({ workspaceRoot, selectedPath }: { workspaceRoot: string; selectedPath: string | null }) {
-  const label = selectedPath ? selectedPath.replace(workspaceRoot, "").replace(/^\/+/, "") : "";
-  const parts = label ? label.split("/") : [];
+function Breadcrumb({
+  cwd,
+  workspaceRoot,
+  selectedPath,
+}: {
+  cwd: string | null;
+  workspaceRoot: string | null;
+  selectedPath: string | null;
+}) {
+  const relativeToRoot = selectedPath && workspaceRoot
+    ? getWorkspaceRelativePath(workspaceRoot, selectedPath)
+    : null;
+  const relativeToCwd = selectedPath && cwd ? getWorkspaceRelativePath(cwd, selectedPath) : null;
+  const contextRoot = relativeToRoot !== null ? workspaceRoot : relativeToCwd !== null ? cwd : null;
+  const label = relativeToRoot ?? relativeToCwd ?? selectedPath ?? "";
+  const parts = label.replace(/\\/g, "/").split("/").filter(Boolean);
+  const rootLabel = contextRoot
+    ? getWorkspaceFileName(contextRoot) || contextRoot
+    : parts.shift() ?? "Files";
   return (
     <div className="flex min-w-0 items-center gap-1 text-sm text-token-text-secondary">
-      <span className="shrink-0 truncate">{getWorkspaceFileName(workspaceRoot) || workspaceRoot}</span>
+      <span className="shrink-0 truncate">{rootLabel}</span>
       {parts.map((part, index) => (
         <span key={`${part}:${index}`} className="flex min-w-0 items-center gap-1">
           <span className="text-token-description-foreground">/</span>
@@ -216,35 +230,36 @@ function WorkspaceFileTreeRow({
 }) {
   const { entry, level } = node;
   const selected = selectedPath === entry.path;
-  const Icon = entry.isDirectory ? FolderOpen : FileTreeFileIcon;
+  const isDirectory = entry.type === "directory";
+  const Icon = isDirectory ? FolderOpen : FileTreeFileIcon;
   return (
     <button
       type="button"
       role="treeitem"
       aria-selected={selected}
-      aria-expanded={entry.isDirectory ? expanded : undefined}
+      aria-expanded={isDirectory ? expanded : undefined}
       className={cn(
         "flex h-[28px] w-full items-center gap-1 rounded-md px-2 text-left text-[13px] text-token-text-secondary hover:bg-token-list-hover-background",
         selected && "bg-token-list-active-selection-background text-token-list-active-selection-foreground",
       )}
       style={{ paddingLeft: 8 + level * 14 }}
       onClick={() => {
-        if (entry.isDirectory) {
+        if (isDirectory) {
           onToggle(entry);
           return;
         }
         onOpen(entry);
       }}
       onDoubleClick={() => {
-        if (!entry.isDirectory) onOpen(entry);
+        if (!isDirectory) onOpen(entry);
       }}
     >
       <span className="flex icon-2xs shrink-0 items-center justify-center text-token-description-foreground">
-        {entry.isDirectory ? (
+        {isDirectory ? (
           <FileTreeChevronIcon className={cn("icon-2xs transition-transform duration-150", expanded && "rotate-90")} />
         ) : null}
       </span>
-      <Icon className={cn("icon-2xs shrink-0", entry.isDirectory ? "text-token-text-secondary" : "text-token-description-foreground")} />
+      <Icon className={cn("icon-2xs shrink-0", isDirectory ? "text-token-text-secondary" : "text-token-description-foreground")} />
       <span className="min-w-0 flex-1 truncate">{entry.name}</span>
       {loading ? <span className="text-[11px] text-token-description-foreground">...</span> : null}
     </button>
@@ -260,43 +275,44 @@ export function WorkspaceFilesPanel({
   const workspaceRoot = resolveWorkspaceRoot(tab, project);
   const hostId = tab.config.hostId ?? "local";
   const selectedPath = tab.config.path ?? null;
+  const cwd = tab.config.cwd?.trim() || activeSession.thread?.cwd?.trim() || null;
   const queryClient = useQueryClient();
   const [entriesByPath, setEntriesByPath] = useState<EntriesByPath>({});
   const [loadStateByPath, setLoadStateByPath] = useState<LoadStateByPath>({});
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(workspaceRoot ? [workspaceRoot] : []));
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(workspaceRoot ? [""] : []));
   const [filterQuery, setFilterQuery] = useState("");
   const [treeWidth, setTreeWidth] = useState(TREE_DEFAULT_WIDTH);
   const [previewState, setPreviewState] = useState<WorkspaceFilePreviewState>(EMPTY_PREVIEW_STATE);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const previewKind = previewState.metadata
-    ? resolveWorkspaceFilePreviewKind(previewState.path ?? "", previewState.metadata.mimeType)
+    ? resolveWorkspaceFilePreviewKind(previewState.path ?? "", null)
     : null;
 
-  const loadDirectory = useCallback(async (path: string) => {
+  const loadDirectory = useCallback(async (directoryPath: string) => {
     if (!workspaceRoot) return;
-    setLoadStateByPath((current) => ({ ...current, [path]: "loading" }));
+    setLoadStateByPath((current) => ({ ...current, [directoryPath]: "loading" }));
     try {
       const result = await queryClient.fetchQuery(workspaceDirectoryQueryOptions({
         hostId,
         workspaceRoot,
-        path,
+        directoryPath,
         includeHidden: true,
-        includeGenerated: false,
       }));
       startTransition(() => {
-        setEntriesByPath((current) => ({ ...current, [path]: result.entries }));
-        setLoadStateByPath((current) => ({ ...current, [path]: "loaded" }));
+        setEntriesByPath((current) => ({ ...current, [result.directoryPath]: result.entries }));
+        setLoadStateByPath((current) => ({ ...current, [result.directoryPath]: "loaded" }));
       });
     } catch (error) {
-      setLoadStateByPath((current) => ({ ...current, [path]: "error" }));
+      setLoadStateByPath((current) => ({ ...current, [directoryPath]: "error" }));
       toast.danger(error instanceof Error ? error.message : "Unable to load files");
     }
   }, [hostId, queryClient, workspaceRoot]);
 
   useEffect(() => {
     if (!workspaceRoot) return;
-    setExpandedPaths(new Set([workspaceRoot]));
-    void loadDirectory(workspaceRoot);
+    setEntriesByPath({});
+    setExpandedPaths(new Set([""]));
+    void loadDirectory("");
   }, [loadDirectory, workspaceRoot]);
 
   useEffect(() => {
@@ -316,8 +332,9 @@ export function WorkspaceFilesPanel({
       try {
         const metadata = await queryClient.fetchQuery(workspaceFileMetadataQueryOptions({
           hostId,
-          workspaceRoot,
           path: selectedPath,
+          contentSampleByteLimit: CONTENT_SAMPLE_BYTES,
+          contentSampleMaxFileBytes: MAX_BINARY_PREVIEW_BYTES,
         }));
         if (!metadata.isFile) {
           if (!cancelled) {
@@ -333,14 +350,27 @@ export function WorkspaceFilesPanel({
           return;
         }
 
-        const kind = resolveWorkspaceFilePreviewKind(selectedPath, metadata.mimeType);
+        const kind = resolveWorkspaceFilePreviewKind(selectedPath, null);
         if (kind === "image" || kind === "pdf") {
+          if (metadata.sizeBytes !== null && metadata.sizeBytes > MAX_BINARY_PREVIEW_BYTES) {
+            if (!cancelled) {
+              setPreviewState({
+                status: "unsupported",
+                path: selectedPath,
+                metadata,
+                content: "",
+                binaryUrl: null,
+                message: `${getWorkspaceFileName(selectedPath)} is too large to preview.`,
+              });
+            }
+            return;
+          }
           const binary = await queryClient.fetchQuery(workspaceFileBinaryQueryOptions({
             hostId,
-            workspaceRoot,
             path: selectedPath,
           }));
-          const dataUrl = buildDataUrl(binary.dataBase64, binary.mimeType);
+          if (!binary.contentsBase64) throw new Error("Unable to read binary file.");
+          const dataUrl = buildDataUrl(binary.contentsBase64, binary.mimeType);
           if (!cancelled) {
             setPreviewState({
               status: "loaded",
@@ -354,7 +384,7 @@ export function WorkspaceFilesPanel({
           return;
         }
 
-        if (kind === "unsupported" || metadata.binary) {
+        if (kind === "unsupported" || metadata.contentKind === "binary") {
           if (!cancelled) {
             setPreviewState({
               status: "unsupported",
@@ -368,18 +398,30 @@ export function WorkspaceFilesPanel({
           return;
         }
 
+        if (metadata.sizeBytes !== null && metadata.sizeBytes > MAX_TEXT_PREVIEW_BYTES) {
+          if (!cancelled) {
+            setPreviewState({
+              status: "unsupported",
+              path: selectedPath,
+              metadata,
+              content: "",
+              binaryUrl: null,
+              message: `${getWorkspaceFileName(selectedPath)} is too large to preview.`,
+            });
+          }
+          return;
+        }
+
         const text = await queryClient.fetchQuery(workspaceFileTextQueryOptions({
           hostId,
-          workspaceRoot,
           path: selectedPath,
-          maxBytes: MAX_TEXT_PREVIEW_BYTES,
         }));
         if (!cancelled) {
           setPreviewState({
             status: "loaded",
             path: selectedPath,
             metadata,
-            content: text.truncated ? `${text.content}\n\n[File truncated after ${formatBytes(MAX_TEXT_PREVIEW_BYTES)}]` : text.content,
+            content: text.contents,
             binaryUrl: null,
             message: null,
           });
@@ -401,27 +443,31 @@ export function WorkspaceFilesPanel({
     return () => {
       cancelled = true;
     };
-  }, [hostId, queryClient, selectedPath, workspaceRoot]);
+  }, [hostId, queryClient, selectedPath]);
 
   const rows = useMemo(() => buildVisibleTreeRows({
-    rootPath: workspaceRoot,
+    rootPath: "",
     entriesByPath,
     expandedPaths,
     query: filterQuery,
-  }), [entriesByPath, expandedPaths, filterQuery, workspaceRoot]);
+  }), [entriesByPath, expandedPaths, filterQuery]);
+  const selectedTreePath = selectedPath && workspaceRoot
+    ? getWorkspaceRelativePath(workspaceRoot, selectedPath)
+    : null;
 
   const openTreeEntry = useCallback(async (entry: WorkspaceFileDirectoryEntry) => {
-    if (entry.isDirectory) {
+    if (!workspaceRoot) return;
+    if (entry.type === "directory") {
       setExpandedPaths((current) => new Set([...current, entry.path]));
       await loadDirectory(entry.path);
       return;
     }
     await onOpenFileTab({
-      path: entry.path,
+      path: resolveWorkspaceTreeFilePath(workspaceRoot, entry.path),
       title: entry.name,
       panelId: tab.panelId,
     });
-  }, [loadDirectory, onOpenFileTab, tab.panelId]);
+  }, [loadDirectory, onOpenFileTab, tab.panelId, workspaceRoot]);
 
   const toggleTreeEntry = useCallback((entry: WorkspaceFileDirectoryEntry) => {
     setExpandedPaths((current) => {
@@ -464,11 +510,11 @@ export function WorkspaceFilesPanel({
     document.addEventListener("pointerup", onUp, { once: true });
   }, [treeWidth]);
 
-  if (!workspaceRoot) {
+  if (!workspaceRoot && !selectedPath) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-token-main-surface-primary text-center text-sm text-token-text-secondary">
         <CodexSidePanelFilesIcon className="icon-md" />
-        <div>This project does not have a workspace folder.</div>
+        <div>No file or workspace folder is available.</div>
       </div>
     );
   }
@@ -477,18 +523,19 @@ export function WorkspaceFilesPanel({
     <div
       ref={rootRef}
       className="flex h-full min-h-0 bg-token-main-surface-primary"
-      data-workspace-files-tab-id={getWorkspaceFileDomTabId(hostId, selectedPath ?? workspaceRoot)}
+      data-workspace-files-tab-id={getWorkspaceFileDomTabId(hostId, selectedPath ?? workspaceRoot ?? undefined)}
       data-workspace-files-session-id={activeSession.id}
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-toolbar-pane shrink-0 items-center gap-2 border-b border-token-border px-3">
-          <Breadcrumb workspaceRoot={workspaceRoot} selectedPath={selectedPath} />
+        <div className="flex h-toolbar-pane shrink-0 items-center gap-2 border-b-[0.5px] border-token-border px-3">
+          <Breadcrumb cwd={cwd} workspaceRoot={workspaceRoot} selectedPath={selectedPath} />
           <div className="ml-auto flex items-center gap-1">
             <NodexTooltip tooltipContent="Refresh files" delayOpen>
               <button
                 type="button"
                 className="flex aspect-square h-token-button-composer items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
-                onClick={() => void loadDirectory(workspaceRoot)}
+                onClick={() => void loadDirectory("")}
+                disabled={!workspaceRoot}
               >
                 <RefreshCw className="icon-2xs" />
               </button>
@@ -510,8 +557,8 @@ export function WorkspaceFilesPanel({
         </div>
       </div>
 
-      <aside
-        className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-token-border bg-token-main-surface-primary"
+      {workspaceRoot ? <aside
+        className="relative flex h-full min-h-0 shrink-0 flex-col border-l-[0.5px] border-token-border bg-token-main-surface-primary"
         style={{ width: treeWidth, maxWidth: "60%" } satisfies CSSProperties}
       >
         <div
@@ -550,7 +597,7 @@ export function WorkspaceFilesPanel({
             <WorkspaceFileTreeRow
               key={node.entry.path}
               node={node}
-              selectedPath={selectedPath}
+              selectedPath={selectedTreePath}
               expanded={expandedPaths.has(node.entry.path)}
               loading={loadStateByPath[node.entry.path] === "loading"}
               onToggle={toggleTreeEntry}
@@ -558,11 +605,11 @@ export function WorkspaceFilesPanel({
             />
           )) : (
             <div className="px-2 py-4 text-sm text-token-text-secondary">
-              {loadStateByPath[workspaceRoot] === "loading" ? "Loading files..." : "No files found."}
+              {loadStateByPath[""] === "loading" ? "Loading files..." : "No files found."}
             </div>
           )}
         </div>
-      </aside>
+      </aside> : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
 import type {
   WorkspaceDirectoryEntriesInput,
-  WorkspaceFileReadInput,
+  WorkspaceFileMetadataInput,
   WorkspaceFileRequest,
 } from "./types";
 
@@ -126,13 +126,28 @@ export const queryKeys = {
   workspaceFiles: {
     all: () => ["workspaceFiles"] as const,
     directory: (input: WorkspaceDirectoryEntriesInput) =>
-      ["workspaceFiles", "directory", normalizeHostId(input.hostId), input.workspaceRoot, input.path] as const,
-    metadata: (input: WorkspaceFileRequest) =>
-      ["workspaceFiles", "metadata", normalizeHostId(input.hostId), input.workspaceRoot, input.path] as const,
-    text: (input: WorkspaceFileReadInput) =>
-      ["workspaceFiles", "text", normalizeHostId(input.hostId), input.workspaceRoot, input.path, input.maxBytes ?? 0] as const,
+      [
+        "workspaceFiles",
+        "directory",
+        normalizeHostId(input.hostId),
+        input.workspaceRoot,
+        input.directoryPath ?? "",
+        input.includeHidden ?? false,
+        input.directoriesOnly ?? false,
+      ] as const,
+    metadata: (input: WorkspaceFileMetadataInput) =>
+      [
+        "workspaceFiles",
+        "metadata",
+        normalizeHostId(input.hostId),
+        input.path,
+        input.contentSampleByteLimit ?? 0,
+        input.contentSampleMaxFileBytes ?? 0,
+      ] as const,
+    text: (input: WorkspaceFileRequest) =>
+      ["workspaceFiles", "text", normalizeHostId(input.hostId), input.path] as const,
     binary: (input: WorkspaceFileRequest) =>
-      ["workspaceFiles", "binary", normalizeHostId(input.hostId), input.workspaceRoot, input.path] as const,
+      ["workspaceFiles", "binary", normalizeHostId(input.hostId), input.path] as const,
   },
   codexConversationImageAssets: {
     resolve: (pointer: string) =>

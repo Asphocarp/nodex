@@ -1,259 +1,342 @@
-import { existsSync, type Stats } from "node:fs";
-import { mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, resolve, sep } from "node:path";
+import type { Dirent } from "node:fs";
+import { open, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import {
+  basename,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+  win32,
+} from "node:path";
 import type {
   WorkspaceDirectoryEntriesInput,
   WorkspaceDirectoryEntriesResult,
   WorkspaceFileBinaryReadResult,
   WorkspaceFileDirectoryEntry,
-  WorkspaceFileEntryKind,
   WorkspaceFileMetadata,
-  WorkspaceFileReadInput,
+  WorkspaceFileMetadataInput,
   WorkspaceFileReadResult,
   WorkspaceFileRequest,
   WorkspaceFileWriteInput,
   WorkspaceFileWriteResult,
-  WorkspacePathsExistInput,
-  WorkspacePathsExistResult,
 } from "../shared/types";
 
-const DEFAULT_MAX_TEXT_BYTES = 1_500_000;
-const BINARY_SAMPLE_BYTES = 8_192;
-const GENERATED_DIRECTORY_NAMES = new Set([
-  ".cache",
-  ".git",
-  ".hg",
-  ".next",
-  ".turbo",
-  ".vite",
-  "build",
-  "coverage",
-  "dist",
-  "node_modules",
-  "out",
-  "target",
+const DEFAULT_CONTENT_SAMPLE_BYTES = 8_192;
+const EXPECTED_FILE_SYSTEM_ERROR_CODES = new Set([
+  "EACCES",
+  "EBUSY",
+  "EDQUOT",
+  "EISDIR",
+  "ELOOP",
+  "ENAMETOOLONG",
+  "ENOENT",
+  "ENOSPC",
+  "ENOTDIR",
+  "EPERM",
+  "EROFS",
 ]);
 
-const MIME_BY_EXTENSION = new Map<string, string>([
-  [".bmp", "image/bmp"],
-  [".css", "text/css"],
-  [".csv", "text/csv"],
-  [".gif", "image/gif"],
-  [".htm", "text/html"],
-  [".html", "text/html"],
-  [".jpeg", "image/jpeg"],
-  [".jpg", "image/jpeg"],
-  [".js", "text/javascript"],
-  [".json", "application/json"],
-  [".md", "text/markdown"],
-  [".pdf", "application/pdf"],
-  [".png", "image/png"],
-  [".svg", "image/svg+xml"],
-  [".ts", "text/typescript"],
-  [".tsx", "text/typescript"],
-  [".txt", "text/plain"],
-  [".webp", "image/webp"],
-  [".xml", "application/xml"],
-  [".yaml", "application/yaml"],
-  [".yml", "application/yaml"],
-]);
+export type WorkspaceFileUserErrorCode =
+  | "invalid_directory"
+  | "invalid_path"
+  | "not_found"
+  | "outside_workspace"
+  | "unauthorized_sender"
+  | "unsupported_host";
 
-function normalizeHostId(value: WorkspaceDirectoryEntriesInput["hostId"]): "local" {
+export class WorkspaceFileUserError extends Error {
+  readonly code: WorkspaceFileUserErrorCode;
+
+  constructor(code: WorkspaceFileUserErrorCode, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "WorkspaceFileUserError";
+    this.code = code;
+  }
+}
+
+function readErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  return typeof error.code === "string" ? error.code : null;
+}
+
+export function toWorkspaceFileIpcError(error: unknown): unknown {
+  if (error instanceof WorkspaceFileUserError) return error;
+  if (error instanceof Error && error.name === "ZodError") {
+    return new WorkspaceFileUserError("invalid_path", error.message, { cause: error });
+  }
+  const code = readErrorCode(error);
+  if (!code || !EXPECTED_FILE_SYSTEM_ERROR_CODES.has(code)) return error;
+  const message = error instanceof Error ? error.message : "Unable to access file";
+  return new WorkspaceFileUserError(code === "ENOENT" ? "not_found" : "invalid_path", message, {
+    cause: error,
+  });
+}
+
+export function isWorkspaceFileUserError(error: unknown): error is WorkspaceFileUserError {
+  return error instanceof WorkspaceFileUserError;
+}
+
+function normalizeHostId(value: WorkspaceFileHostInput): "local" {
   if (value && value !== "local") {
-    throw new Error(`Unsupported workspace file host: ${value}`);
+    throw new WorkspaceFileUserError("unsupported_host", `Unsupported workspace file host: ${value}`);
   }
   return "local";
 }
 
+type WorkspaceFileHostInput = WorkspaceDirectoryEntriesInput["hostId"];
+
 function normalizeAbsolutePath(value: string, label: string): string {
   const trimmed = value.trim();
-  if (!trimmed) throw new Error(`${label} is required`);
+  if (!trimmed) {
+    throw new WorkspaceFileUserError("invalid_path", `${label} is required`);
+  }
   return resolve(trimmed);
 }
 
+export function normalizeWorkspaceDirectoryPath(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed || trimmed === ".") return "";
+  if (isAbsolute(trimmed) || win32.isAbsolute(trimmed)) {
+    throw new WorkspaceFileUserError("invalid_directory", "directoryPath must be relative to workspaceRoot");
+  }
+  return trimmed
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "");
+}
+
+function isPathInsideRoot(workspaceRoot: string, targetPath: string): boolean {
+  const pathFromRoot = relative(workspaceRoot, targetPath);
+  return pathFromRoot !== ".."
+    && !pathFromRoot.startsWith(`..${sep}`)
+    && !isAbsolute(pathFromRoot);
+}
+
 function assertPathInsideRoot(workspaceRoot: string, targetPath: string): void {
-  const root = normalizeAbsolutePath(workspaceRoot, "Workspace root");
-  const target = normalizeAbsolutePath(targetPath, "Workspace path");
-  const normalizedRoot = process.platform === "win32" ? root.toLowerCase() : root;
-  const normalizedTarget = process.platform === "win32" ? target.toLowerCase() : target;
-  if (normalizedTarget === normalizedRoot) return;
-  if (normalizedTarget.startsWith(`${normalizedRoot}${sep}`)) return;
-  throw new Error("Workspace path must stay inside the project root");
+  if (isPathInsideRoot(workspaceRoot, targetPath)) return;
+  throw new WorkspaceFileUserError(
+    "outside_workspace",
+    "directoryPath must stay within workspaceRoot",
+  );
 }
 
-function resolveWorkspacePath(input: WorkspaceDirectoryEntriesInput): { hostId: "local"; workspaceRoot: string; path: string } {
-  const hostId = normalizeHostId(input.hostId);
-  const workspaceRoot = normalizeAbsolutePath(input.workspaceRoot, "Workspace root");
-  const path = normalizeAbsolutePath(input.path ?? workspaceRoot, "Workspace path");
-  assertPathInsideRoot(workspaceRoot, path);
-  return { hostId, workspaceRoot, path };
+function toCanonicalRelativePath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
 }
 
-function resolveRequestPath(input: WorkspaceFileRequest): { hostId: "local"; path: string } {
-  const hostId = normalizeHostId(input.hostId);
-  const path = normalizeAbsolutePath(input.path, "File path");
-  if (input.workspaceRoot?.trim()) {
-    assertPathInsideRoot(input.workspaceRoot, path);
+function getParentDirectoryPath(directoryPath: string): string | null {
+  if (!directoryPath) return null;
+  const parts = directoryPath.split("/").filter(Boolean);
+  return parts.length === 1 ? "" : parts.slice(0, -1).join("/");
+}
+
+async function resolveWorkspaceDirectory(input: WorkspaceDirectoryEntriesInput): Promise<{
+  directoryPath: string;
+  realWorkspaceRoot: string;
+  resolvedDirectoryPath: string;
+  resolvedWorkspaceRoot: string;
+}> {
+  normalizeHostId(input.hostId);
+  const resolvedWorkspaceRoot = normalizeAbsolutePath(input.workspaceRoot, "workspaceRoot");
+  const requestedDirectoryPath = normalizeWorkspaceDirectoryPath(input.directoryPath);
+  const resolvedDirectoryPath = resolve(resolvedWorkspaceRoot, requestedDirectoryPath);
+  const directoryPath = toCanonicalRelativePath(relative(resolvedWorkspaceRoot, resolvedDirectoryPath));
+  assertPathInsideRoot(resolvedWorkspaceRoot, resolvedDirectoryPath);
+
+  const workspaceStats = await stat(resolvedWorkspaceRoot);
+  if (!workspaceStats.isDirectory()) {
+    throw new WorkspaceFileUserError("invalid_directory", "workspaceRoot must be a directory");
   }
-  return { hostId, path };
-}
 
-function inferKind(stats: Stats): WorkspaceFileEntryKind {
-  if (stats.isDirectory()) return "directory";
-  if (stats.isFile()) return "file";
-  if (stats.isSymbolicLink()) return "symlink";
-  return "other";
-}
+  const realWorkspaceRoot = await realpath(resolvedWorkspaceRoot);
+  const realDirectoryPath = await realpath(resolvedDirectoryPath);
+  assertPathInsideRoot(realWorkspaceRoot, realDirectoryPath);
 
-function inferMimeType(filePath: string): string | null {
-  return MIME_BY_EXTENSION.get(extname(filePath).toLowerCase()) ?? null;
-}
-
-function isProbablyBinary(buffer: Buffer): boolean {
-  if (buffer.length === 0) return false;
-  const sample = buffer.subarray(0, BINARY_SAMPLE_BYTES);
-  if (sample.includes(0)) return true;
-
-  let suspicious = 0;
-  for (const byte of sample) {
-    if (byte === 9 || byte === 10 || byte === 13) continue;
-    if (byte >= 32) continue;
-    suspicious += 1;
+  const directoryStats = await stat(resolvedDirectoryPath);
+  if (!directoryStats.isDirectory()) {
+    throw new WorkspaceFileUserError("invalid_directory", "directoryPath must point to a directory");
   }
-  return suspicious / sample.length > 0.08;
+
+  return {
+    directoryPath,
+    realWorkspaceRoot,
+    resolvedDirectoryPath,
+    resolvedWorkspaceRoot,
+  };
 }
 
-async function readBinaryFlag(filePath: string): Promise<boolean> {
-  const handle = await open(filePath, "r");
-  try {
-    const buffer = Buffer.alloc(BINARY_SAMPLE_BYTES);
-    const result = await handle.read(buffer, 0, buffer.length, 0);
-    return isProbablyBinary(buffer.subarray(0, result.bytesRead));
-  } finally {
-    await handle.close();
+async function mapDirectoryEntry(input: {
+  entry: Dirent;
+  realWorkspaceRoot: string;
+  resolvedDirectoryPath: string;
+  resolvedWorkspaceRoot: string;
+}): Promise<WorkspaceFileDirectoryEntry | null> {
+  const entryPath = join(input.resolvedDirectoryPath, input.entry.name);
+  const isSymlink = input.entry.isSymbolicLink();
+  let type: WorkspaceFileDirectoryEntry["type"] = input.entry.isDirectory() ? "directory" : "file";
+
+  if (isSymlink) {
+    const entryStats = await stat(entryPath).catch(() => null);
+    if (entryStats?.isDirectory()) {
+      const realEntryPath = await realpath(entryPath).catch(() => null);
+      if (!realEntryPath || !isPathInsideRoot(input.realWorkspaceRoot, realEntryPath)) return null;
+      type = "directory";
+    }
   }
+
+  return {
+    isSymlink,
+    name: input.entry.name,
+    path: toCanonicalRelativePath(relative(input.resolvedWorkspaceRoot, entryPath)),
+    type,
+  };
 }
 
-function shouldSkipEntry(entry: { name: string; isDirectory: boolean }, input: WorkspaceDirectoryEntriesInput): boolean {
-  if (entry.name.startsWith(".") && input.includeHidden !== true) return true;
-  if (entry.isDirectory && input.includeGenerated !== true && GENERATED_DIRECTORY_NAMES.has(entry.name)) return true;
-  return false;
-}
-
-function sortEntries(a: WorkspaceFileDirectoryEntry, b: WorkspaceFileDirectoryEntry): number {
-  if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
-  return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+function sortDirectoryEntries(
+  left: WorkspaceFileDirectoryEntry,
+  right: WorkspaceFileDirectoryEntry,
+): number {
+  if (left.type !== right.type) return left.type === "directory" ? -1 : 1;
+  return left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true });
 }
 
 export async function listWorkspaceDirectoryEntries(
   input: WorkspaceDirectoryEntriesInput,
 ): Promise<WorkspaceDirectoryEntriesResult> {
-  const resolved = resolveWorkspacePath(input);
-  const entries = await readdir(resolved.path, { withFileTypes: true });
-  const results: WorkspaceFileDirectoryEntry[] = [];
-
-  for (const entry of entries) {
-    const entryPath = resolve(resolved.path, entry.name);
-    const entryStats = await stat(entryPath).catch(() => null);
-    if (!entryStats) continue;
-
-    const isDirectory = entryStats.isDirectory();
-    if (shouldSkipEntry({ name: entry.name, isDirectory }, input)) continue;
-
-    results.push({
-      name: entry.name,
-      path: entryPath,
-      kind: inferKind(entryStats),
-      isDirectory,
-      isFile: entryStats.isFile(),
-      isSymlink: entry.isSymbolicLink(),
-      size: entryStats.size,
-      modifiedAtMs: entryStats.mtimeMs,
-      hidden: entry.name.startsWith("."),
-    });
-  }
+  const resolved = await resolveWorkspaceDirectory(input);
+  const directoryEntries = await readdir(resolved.resolvedDirectoryPath, { withFileTypes: true });
+  const visibleEntries = directoryEntries.filter((entry) => (
+    input.includeHidden === true || !entry.name.startsWith(".")
+  ));
+  const mappedEntries = await Promise.all(visibleEntries.map((entry) => mapDirectoryEntry({
+    entry,
+    realWorkspaceRoot: resolved.realWorkspaceRoot,
+    resolvedDirectoryPath: resolved.resolvedDirectoryPath,
+    resolvedWorkspaceRoot: resolved.resolvedWorkspaceRoot,
+  })));
+  const entries = mappedEntries
+    .filter((entry): entry is WorkspaceFileDirectoryEntry => entry !== null)
+    .filter((entry) => input.directoriesOnly !== true || entry.type === "directory")
+    .sort(sortDirectoryEntries);
 
   return {
-    hostId: resolved.hostId,
-    workspaceRoot: resolved.workspaceRoot,
-    path: resolved.path,
-    entries: results.sort(sortEntries),
+    directoryPath: resolved.directoryPath,
+    entries,
+    parentPath: getParentDirectoryPath(resolved.directoryPath),
   };
 }
 
-export async function readWorkspaceFile(input: WorkspaceFileReadInput): Promise<WorkspaceFileReadResult> {
-  const { path } = resolveRequestPath(input);
-  const metadata = await readWorkspaceFileMetadata(input);
-  if (!metadata.isFile) throw new Error("Path is not a file");
-  if (metadata.binary) {
-    return {
-      path,
-      content: "",
-      encoding: "utf8",
-      size: metadata.size,
-      truncated: false,
-      binary: true,
-    };
-  }
-
-  const maxBytes = Math.max(1, input.maxBytes ?? DEFAULT_MAX_TEXT_BYTES);
-  const buffer = await readFile(path);
-  const truncated = buffer.length > maxBytes;
-  return {
-    path,
-    content: buffer.subarray(0, maxBytes).toString("utf8"),
-    encoding: "utf8",
-    size: buffer.length,
-    truncated,
-    binary: false,
-  };
-}
-
-export async function readWorkspaceFileMetadata(input: WorkspaceFileRequest): Promise<WorkspaceFileMetadata> {
-  const { path } = resolveRequestPath(input);
-  const stats = await stat(path);
-  const isFile = stats.isFile();
-  return {
-    path,
-    kind: inferKind(stats),
-    isDirectory: stats.isDirectory(),
-    isFile,
-    isSymlink: stats.isSymbolicLink(),
-    size: stats.size,
-    createdAtMs: stats.birthtimeMs,
-    modifiedAtMs: stats.mtimeMs,
-    binary: isFile ? await readBinaryFlag(path) : false,
-    mimeType: inferMimeType(path),
-  };
-}
-
-export async function readWorkspaceFileBinary(input: WorkspaceFileRequest): Promise<WorkspaceFileBinaryReadResult> {
-  const { path } = resolveRequestPath(input);
-  const bytes = await readFile(path);
-  return {
-    path,
-    dataBase64: bytes.toString("base64"),
-    size: bytes.length,
-    mimeType: inferMimeType(path),
-  };
-}
-
-export async function writeWorkspaceFile(input: WorkspaceFileWriteInput): Promise<WorkspaceFileWriteResult> {
-  const { path } = resolveRequestPath(input);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, input.content, "utf8");
-  const stats = await stat(path);
-  return {
-    path,
-    size: stats.size,
-    modifiedAtMs: stats.mtimeMs,
-  };
-}
-
-export async function readWorkspacePathsExist(input: WorkspacePathsExistInput): Promise<WorkspacePathsExistResult> {
+function resolveFileRequestPath(input: WorkspaceFileRequest): string {
   normalizeHostId(input.hostId);
+  return normalizeAbsolutePath(input.path, "File path");
+}
+
+function isProbablyBinary(buffer: Buffer): boolean {
+  if (buffer.length === 0) return false;
+  if (buffer.includes(0)) return true;
+
+  let suspicious = 0;
+  for (const byte of buffer) {
+    if (byte === 9 || byte === 10 || byte === 13) continue;
+    if (byte >= 32) continue;
+    suspicious += 1;
+  }
+  return suspicious / buffer.length > 0.08;
+}
+
+async function readFileSample(filePath: string, byteLimit: number): Promise<Buffer> {
+  const handle = await open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(byteLimit);
+    const result = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, result.bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+function detectMimeType(bytes: Buffer): string | undefined {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  const prefix = bytes.subarray(0, 12).toString("ascii");
+  if (prefix.startsWith("GIF87a") || prefix.startsWith("GIF89a")) return "image/gif";
+  if (prefix.startsWith("RIFF") && prefix.slice(8, 12) === "WEBP") return "image/webp";
+  if (prefix.startsWith("%PDF-")) return "application/pdf";
+  if (prefix.startsWith("BM")) return "image/bmp";
+
+  const textPrefix = bytes.subarray(0, 1_024).toString("utf8").replace(/^\uFEFF/, "").trimStart();
+  if (textPrefix.startsWith("<svg") || (textPrefix.startsWith("<?xml") && textPrefix.includes("<svg"))) {
+    return "image/svg+xml";
+  }
+  return undefined;
+}
+
+export async function readWorkspaceFile(input: WorkspaceFileRequest): Promise<WorkspaceFileReadResult> {
+  const filePath = resolveFileRequestPath(input);
+  return { contents: await readFile(filePath, "utf8") };
+}
+
+export async function readWorkspaceFileMetadata(
+  input: WorkspaceFileMetadataInput,
+): Promise<WorkspaceFileMetadata> {
+  const filePath = resolveFileRequestPath(input);
+  const fileStats = await stat(filePath);
+  const isFile = fileStats.isFile();
+  const shouldReadSample = input.contentSampleByteLimit !== undefined
+    && isFile
+    && (
+      input.contentSampleMaxFileBytes === undefined
+      || fileStats.size <= input.contentSampleMaxFileBytes
+    );
+  const contentSampleByteLimit = input.contentSampleByteLimit ?? DEFAULT_CONTENT_SAMPLE_BYTES;
+  const sample = shouldReadSample ? await readFileSample(filePath, contentSampleByteLimit) : null;
+
   return {
-    paths: Object.fromEntries(input.paths.map((filePath) => [filePath, existsSync(filePath)])),
+    isFile,
+    createdAtMs: fileStats.birthtimeMs > 0 ? fileStats.birthtimeMs : null,
+    mtimeMs: Number.isFinite(fileStats.mtimeMs) ? fileStats.mtimeMs : null,
+    sizeBytes: Number.isFinite(fileStats.size) ? fileStats.size : null,
+    ...(sample === null ? {} : { contentKind: isProbablyBinary(sample) ? "binary" : "text" }),
+  };
+}
+
+export async function readWorkspaceFileBinary(
+  input: WorkspaceFileRequest,
+): Promise<WorkspaceFileBinaryReadResult> {
+  const filePath = resolveFileRequestPath(input);
+  const bytes = await readFile(filePath);
+  const mimeType = detectMimeType(bytes);
+  return {
+    contentsBase64: bytes.toString("base64"),
+    ...(mimeType === undefined ? {} : { mimeType }),
+  };
+}
+
+export async function writeWorkspaceFile(
+  input: WorkspaceFileWriteInput,
+): Promise<WorkspaceFileWriteResult> {
+  const filePath = resolveFileRequestPath(input);
+  const currentStats = await stat(filePath).catch((error: unknown) => {
+    if (readErrorCode(error) === "ENOENT") return null;
+    throw error;
+  });
+  const currentMtimeMs = currentStats && Number.isFinite(currentStats.mtimeMs)
+    ? currentStats.mtimeMs
+    : null;
+  if (currentMtimeMs !== input.expectedMtimeMs) {
+    return { outcome: "conflict", mtimeMs: currentMtimeMs };
+  }
+
+  await writeFile(filePath, input.content, "utf8");
+  const savedStats = await stat(filePath);
+  return {
+    outcome: "saved",
+    mtimeMs: Number.isFinite(savedStats.mtimeMs) ? savedStats.mtimeMs : null,
   };
 }
 

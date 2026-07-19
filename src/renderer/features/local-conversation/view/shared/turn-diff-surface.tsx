@@ -68,8 +68,10 @@ export interface TurnDiffPatchFailure {
 }
 
 export interface TurnDiffFileSidePanelTarget {
+  cwd?: string | null;
   path: string;
   title: string;
+  workspaceRoot?: string | null;
 }
 
 const TURN_DIFF_PREVIEW_TOOLTIP_WIDTH =
@@ -189,6 +191,7 @@ function TurnDiffFileRow({
   diffHostStyle,
   diffOptions,
   deferOffscreenRendering,
+  workspaceRoot,
 }: {
   row: TurnDiffRowModel;
   onOpenReview: (() => void) | null;
@@ -198,6 +201,7 @@ function TurnDiffFileRow({
   diffHostStyle: CSSProperties;
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
   deferOffscreenRendering: boolean;
+  workspaceRoot: string | null;
 }) {
   const button = (
     <button
@@ -205,7 +209,11 @@ function TurnDiffFileRow({
       className="text-size-chat flex h-9 w-full cursor-interaction items-center gap-2 bg-token-main-surface-primary/70 px-[var(--thread-resource-card-row-padding-x)] py-[var(--turn-diff-row-padding-y)] text-left hover:bg-token-list-hover-background/60 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset extension:bg-token-input-background/70 extension:hover:bg-token-list-hover-background/60"
       onClick={(event: MouseEvent<HTMLButtonElement>) => {
         if ((event.metaKey || event.ctrlKey) && row.openPath && onOpenFileInSidePanel) {
-          void onOpenFileInSidePanel({ path: row.openPath, title: row.fileName });
+          void onOpenFileInSidePanel({
+            path: row.openPath,
+            title: row.fileName,
+            workspaceRoot,
+          });
           return;
         }
         onOpenReview?.();
@@ -654,6 +662,7 @@ export function TurnDiffSurface({
                 diffHostStyle={diffHostStyle}
                 diffOptions={diffOptions}
                 deferOffscreenRendering={deferOffscreenRendering}
+                workspaceRoot={basePath}
               />
             ))}
             {summary.fileCount > TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT ? (

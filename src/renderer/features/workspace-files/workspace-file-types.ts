@@ -7,7 +7,8 @@ export type WorkspaceFilesTab = Omit<ProjectSessionTab, "projectId" | "config"> 
   config: {
     projectId: string | null;
     hostId?: "local";
-    workspaceRoot?: string;
+    workspaceRoot?: string | null;
+    cwd?: string | null;
     path?: string;
   };
 };

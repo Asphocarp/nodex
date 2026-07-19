@@ -5,6 +5,7 @@ import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 
 const WORKSPACE_ROOT = "/Users/asc/repo/nodex";
+const WORKTREE_FILE = "/Users/asc/.nodex/worktrees/abcd/nodex/README.md";
 const CREATED_AT = "2026-06-13T00:00:00.000Z";
 
 const project: Project = {
@@ -55,20 +56,21 @@ const session: ProjectSession = {
 };
 
 const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
-  [WORKSPACE_ROOT]: [
-    entry("src", `${WORKSPACE_ROOT}/src`, "directory"),
-    entry("README.md", `${WORKSPACE_ROOT}/README.md`, "file"),
-    entry("CLAUDE.md", `${WORKSPACE_ROOT}/CLAUDE.md`, "file"),
+  "": [
+    entry("src", "src", "directory"),
+    entry("README.md", "README.md", "file"),
+    entry("CLAUDE.md", "CLAUDE.md", "file"),
   ],
-  [`${WORKSPACE_ROOT}/src`]: [
-    entry("renderer", `${WORKSPACE_ROOT}/src/renderer`, "directory"),
-    entry("main", `${WORKSPACE_ROOT}/src/main`, "directory"),
+  src: [
+    entry("renderer", "src/renderer", "directory"),
+    entry("main", "src/main", "directory"),
   ],
 };
 
 const fileContents: Record<string, string> = {
   [`${WORKSPACE_ROOT}/README.md`]: "# Nodex\n\nLocal-first, block-based agent orchestration.",
   [`${WORKSPACE_ROOT}/CLAUDE.md`]: "# Agent Notes\n\nUse the Files tab to inspect workspace documents.",
+  [WORKTREE_FILE]: "# Worktree\n\nThis file is outside the Project source and still previews.",
 };
 
 const meta = {
@@ -100,24 +102,47 @@ export const UnsupportedBinary: Story = {
   ),
 };
 
-function WorkspaceFilesStoryFrame({ selectedPath }: { selectedPath: string | undefined }) {
+export const OutsideWorkspaceSelected: Story = {
+  render: () => (
+    <WorkspaceFilesStoryFrame selectedPath={WORKTREE_FILE} />
+  ),
+};
+
+export const ProjectlessFile: Story = {
+  render: () => (
+    <WorkspaceFilesStoryFrame selectedPath={WORKTREE_FILE} workspaceRoot={null} />
+  ),
+};
+
+function WorkspaceFilesStoryFrame({
+  selectedPath,
+  workspaceRoot = WORKSPACE_ROOT,
+}: {
+  selectedPath: string | undefined;
+  workspaceRoot?: string | null;
+}) {
   useMockWorkspaceFilesBridge();
+  const projectless = workspaceRoot === null;
+  const activeSession = projectless
+    ? { ...session, projectId: null }
+    : session;
   return (
     <div className="h-screen bg-token-main-surface-primary">
       <WorkspaceFilesPanel
         tab={{
           id: "files-tab",
           sessionId: session.id,
-          projectId: project.id,
+          projectId: projectless ? null : project.id,
           browserTabId: null,
           panelId: "right",
           kind: "files",
           title: selectedPath ? selectedPath.split("/").at(-1) ?? "Files" : "Files",
           order: 0,
           config: {
-            projectId: project.id,
+            projectId: projectless ? null : project.id,
             hostId: "local",
-            workspaceRoot: WORKSPACE_ROOT,
+            cwd: workspaceRoot,
+            workspaceRoot,
             ...(selectedPath ? { path: selectedPath } : {}),
           },
           stateKey: 0,
@@ -125,8 +150,8 @@ function WorkspaceFilesStoryFrame({ selectedPath }: { selectedPath: string | und
           createdAt: CREATED_AT,
           updatedAt: CREATED_AT,
         }}
-        activeSession={session}
-        project={project}
+        activeSession={activeSession}
+        project={projectless ? null : project}
         onOpenFileTab={async () => undefined}
       />
     </div>
@@ -137,13 +162,8 @@ function entry(name: string, path: string, kind: "directory" | "file"): Workspac
   return {
     name,
     path,
-    kind,
-    isDirectory: kind === "directory",
-    isFile: kind === "file",
+    type: kind,
     isSymlink: false,
-    size: kind === "file" ? 2048 : 0,
-    modifiedAtMs: Date.parse(CREATED_AT),
-    hidden: name.startsWith("."),
   };
 }
 
@@ -155,40 +175,29 @@ function useMockWorkspaceFilesBridge() {
       value: {
         invoke: async (channel: string, ...args: unknown[]) => {
           if (channel === "workspace-directory-entries") {
-            const input = args[0] as { path?: string; workspaceRoot: string };
-            const path = input.path ?? input.workspaceRoot;
+            const input = args[0] as { directoryPath?: string };
+            const directoryPath = input.directoryPath ?? "";
             return {
-              hostId: "local",
-              workspaceRoot: input.workspaceRoot,
-              path,
-              entries: directoryEntries[path] ?? [],
+              directoryPath,
+              parentPath: directoryPath ? "" : null,
+              entries: directoryEntries[directoryPath] ?? [],
             };
           }
           if (channel === "read-file-metadata") {
             const input = args[0] as { path: string };
             const unsupported = input.path.endsWith(".zip");
             return {
-              path: input.path,
-              kind: "file",
-              isDirectory: false,
               isFile: true,
-              isSymlink: false,
-              size: unsupported ? 12_000 : fileContents[input.path]?.length ?? 0,
+              sizeBytes: unsupported ? 12_000 : fileContents[input.path]?.length ?? 0,
               createdAtMs: Date.parse(CREATED_AT),
-              modifiedAtMs: Date.parse(CREATED_AT),
-              binary: unsupported,
-              mimeType: unsupported ? "application/zip" : "text/markdown",
+              mtimeMs: Date.parse(CREATED_AT),
+              contentKind: unsupported ? "binary" : "text",
             };
           }
           if (channel === "read-file") {
             const input = args[0] as { path: string };
             return {
-              path: input.path,
-              content: fileContents[input.path] ?? "",
-              encoding: "utf8",
-              size: fileContents[input.path]?.length ?? 0,
-              truncated: false,
-              binary: false,
+              contents: fileContents[input.path] ?? "",
             };
           }
           if (channel === "open-file") return true;

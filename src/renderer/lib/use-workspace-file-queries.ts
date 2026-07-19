@@ -7,7 +7,7 @@ import {
 } from "./query-options";
 import type {
   WorkspaceDirectoryEntriesInput,
-  WorkspaceFileReadInput,
+  WorkspaceFileMetadataInput,
   WorkspaceFileRequest,
 } from "./types";
 
@@ -27,10 +27,10 @@ export function useWorkspaceDirectoryEntries(
 }
 
 export function useWorkspaceFileMetadata(
-  input: WorkspaceFileRequest,
+  input: WorkspaceFileMetadataInput,
   options: QueryEnabledOptions = {},
 ) {
-  const enabled = options.enabled !== false && (input.workspaceRoot ?? "").trim().length > 0 && input.path.trim().length > 0;
+  const enabled = options.enabled !== false && input.path.trim().length > 0;
   return useQuery({
     ...workspaceFileMetadataQueryOptions(input),
     enabled,
@@ -38,10 +38,10 @@ export function useWorkspaceFileMetadata(
 }
 
 export function useWorkspaceFileText(
-  input: WorkspaceFileReadInput,
+  input: WorkspaceFileRequest,
   options: QueryEnabledOptions = {},
 ) {
-  const enabled = options.enabled !== false && (input.workspaceRoot ?? "").trim().length > 0 && input.path.trim().length > 0;
+  const enabled = options.enabled !== false && input.path.trim().length > 0;
   return useQuery({
     ...workspaceFileTextQueryOptions(input),
     enabled,
@@ -52,7 +52,7 @@ export function useWorkspaceFileBinary(
   input: WorkspaceFileRequest,
   options: QueryEnabledOptions = {},
 ) {
-  const enabled = options.enabled !== false && (input.workspaceRoot ?? "").trim().length > 0 && input.path.trim().length > 0;
+  const enabled = options.enabled !== false && input.path.trim().length > 0;
   return useQuery({
     ...workspaceFileBinaryQueryOptions(input),
     enabled,

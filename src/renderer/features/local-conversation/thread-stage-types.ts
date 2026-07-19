@@ -125,13 +125,17 @@ export interface ThreadSummaryPanelComputerUsePipState {
 }
 
 export interface ThreadTurnDiffFileSidePanelTarget {
+  cwd?: string | null;
   path: string;
   title: string;
+  workspaceRoot?: string | null;
 }
 
 export interface ThreadSummaryPanelOutputSidePanelTarget {
+  cwd?: string | null;
   path: string;
   title: string;
+  workspaceRoot?: string | null;
 }
 
 export interface ThreadPlanSidePanelTarget {

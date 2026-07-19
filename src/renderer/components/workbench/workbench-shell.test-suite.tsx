@@ -2646,38 +2646,25 @@ function renderWorkbench({
       return "/repo/selected";
     }
     if (channel === "workspace-directory-entries") {
-      const input = (args[0] ?? {}) as { hostId?: string; workspaceRoot?: string; path?: string };
+      const input = (args[0] ?? {}) as { directoryPath?: string };
       return {
-        hostId: input.hostId ?? "local",
-        workspaceRoot: input.workspaceRoot ?? "",
-        path: input.path ?? input.workspaceRoot ?? "",
+        directoryPath: input.directoryPath ?? "",
+        parentPath: input.directoryPath ? "" : null,
         entries: [],
       };
     }
     if (channel === "read-file-metadata") {
-      const input = (args[0] ?? {}) as { path?: string };
       return {
-        path: input.path ?? "",
-        kind: "file",
-        isDirectory: false,
         isFile: true,
-        isSymlink: false,
-        size: 12,
+        sizeBytes: 12,
         createdAtMs: 1,
-        modifiedAtMs: 1,
-        binary: false,
-        mimeType: "text/markdown",
+        mtimeMs: 1,
+        contentKind: "text",
       };
     }
     if (channel === "read-file") {
-      const input = (args[0] ?? {}) as { path?: string };
       return {
-        path: input.path ?? "",
-        content: "# Preview\n",
-        encoding: "utf8",
-        size: 10,
-        truncated: false,
-        binary: false,
+        contents: "# Preview\n",
       };
     }
     if (channel === "shell:open-file-link") {
@@ -3024,7 +3011,7 @@ async function pointerDownAndSettle(element: HTMLElement): Promise<void> {
 
 function getFilesPreviewInteractionTarget(screen: ReturnType<typeof renderWorkbench>): HTMLElement {
   return screen.queryByPlaceholderText("Filter files...")
-    ?? screen.getByText("This project does not have a workspace folder.");
+    ?? screen.getByText("No file or workspace folder is available.");
 }
 
 function getLastTerminalPanelProps(): Record<string, unknown> {
@@ -8473,16 +8460,20 @@ describe(`workbench session shell / ${scope}`, () => {
 
     const actions = getLastThreadStageActions();
     const openOutput = actions.onOpenSummaryOutputInSidePanel as ((input: {
+      cwd?: string | null;
       path: string;
       title: string;
+      workspaceRoot?: string | null;
     }) => Promise<boolean>) | undefined;
     expect(typeof openOutput).toBe("function");
 
     let opened = false;
     await act(async () => {
       opened = await openOutput?.({
-        path: "/Users/asc/repo/nodex/reports/summary.txt",
+        cwd: "/Users/asc/.nodex/worktrees/abcd/nodex",
+        path: "/Users/asc/.nodex/worktrees/abcd/nodex/reports/summary.txt",
         title: "summary.txt",
+        workspaceRoot: "/Users/asc/.nodex/worktrees/abcd/nodex",
       }) ?? false;
     });
     await settleAsyncRender();
@@ -8491,6 +8482,49 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByRole("tab", { name: "summary.txt" }) !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBe(false);
+    const metadataCall = invokeCalls.find((call) => call[0] === "read-file-metadata");
+    expect(JSON.stringify(metadataCall?.[1])).toContain('/Users/asc/.nodex/worktrees/abcd/nodex/reports/summary.txt');
+    expect(JSON.stringify(metadataCall?.[1])).not.toContain("workspaceRoot");
+  });
+
+  test("uses the matching secondary Project source only as Files tree context", async () => {
+    const primaryRoot = "/Users/asc/repo/alpha";
+    const secondaryRoot = "/Volumes/code/alpha-secondary";
+    const project = makeProject("alpha", "Alpha", primaryRoot);
+    project.sources = [
+      { root: primaryRoot, order: 0 },
+      { root: secondaryRoot, order: 1 },
+    ];
+    const screen = renderWorkbench({
+      projects: [project],
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ rightCollapsed: true })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const openOutput = getLastThreadStageActions().onOpenSummaryOutputInSidePanel as ((input: {
+      path: string;
+      title: string;
+    }) => Promise<boolean>) | undefined;
+    await act(async () => {
+      await openOutput?.({
+        path: `${secondaryRoot}/reports/summary.txt`,
+        title: "summary.txt",
+      });
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "summary.txt" }) !== null).toBe(true);
+    expect(invokeCalls.some((call) =>
+      call[0] === "workspace-directory-entries"
+      && JSON.stringify(call[1]).includes(`"workspaceRoot":"${secondaryRoot}"`)
+    )).toBe(true);
+    expect(invokeCalls.some((call) =>
+      ["read-file-metadata", "read-file"].includes(String(call[0]))
+      && JSON.stringify(call[1]).includes("workspaceRoot")
+    )).toBe(false);
   });
 
   test("summary output side-panel opener supports projectless file previews", async () => {
@@ -8541,6 +8575,15 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.getByRole("tab", { name: "report.md" }) !== null).toBe(true);
     expect(screen.container.querySelector('[data-workspace-files-session-id="session:projectless:summary-output"]') !== null).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBe(false);
+
+    await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
+    await waitFor(() => {
+      expect(invokeCalls.some((call) =>
+        call[0] === "project-session-tabs:create"
+        && JSON.stringify(call[1]).includes('"kind":"files"')
+        && JSON.stringify(call[1]).includes('"projectId":null')
+      )).toBe(true);
+    });
   });
 
   test("opening another preview tab replaces the prior same-panel preview", async () => {
