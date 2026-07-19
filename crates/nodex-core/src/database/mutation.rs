@@ -2,8 +2,8 @@ use std::collections::{BTreeSet, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::database::{
-    DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent, DatabasePageValue,
-    DatabaseReceipt,
+    DatabaseCommitValue, DatabaseEvent, DatabaseEventKind, DatabaseIntent, DatabasePagePosition,
+    DatabasePageValue, DatabaseReceipt,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -50,6 +50,24 @@ struct SourceRow {
 struct PropertyRow {
     id: String,
     value_type: String,
+    config_json: String,
+    rank_key: String,
+    lifecycle: String,
+    revision: i64,
+    created_at: String,
+}
+
+#[derive(Debug)]
+struct ContainerRow {
+    default_view_id: Option<String>,
+    lifecycle: String,
+}
+
+#[derive(Debug)]
+struct ViewRow {
+    id: String,
+    database_id: String,
+    data_source_id: String,
     config_json: String,
     rank_key: String,
     lifecycle: String,
@@ -296,8 +314,84 @@ fn apply_intent(
             now,
             effects,
         ),
-        _ => Err(invalid(
-            "Database operation is not implemented by this mutation slice",
+        DatabaseIntent::PutView {
+            database_id,
+            data_source_id,
+            view_id,
+            expected_revision,
+            name,
+            view_kind,
+            config,
+            is_default,
+            before_view_id,
+        } => put_view(
+            connection,
+            library_id,
+            project_id,
+            database_id,
+            data_source_id,
+            view_id,
+            *expected_revision,
+            name,
+            view_kind,
+            config,
+            *is_default,
+            before_view_id.as_deref(),
+            now,
+            effects,
+        ),
+        DatabaseIntent::DeleteView {
+            database_id,
+            view_id,
+            expected_revision,
+        } => delete_view(
+            connection,
+            library_id,
+            project_id,
+            database_id,
+            view_id,
+            *expected_revision,
+            now,
+            effects,
+        ),
+        DatabaseIntent::PositionPage {
+            view_id,
+            page_id,
+            expected_position_revision,
+            group_key,
+            before_page_id,
+        } => position_pages(
+            connection,
+            library_id,
+            project_id,
+            view_id,
+            &[DatabasePagePosition {
+                page_id: page_id.clone(),
+                expected_position_revision: *expected_position_revision,
+            }],
+            group_key.as_deref(),
+            before_page_id.as_deref(),
+            now,
+            effects,
+        ),
+        DatabaseIntent::PositionPages {
+            view_id,
+            pages,
+            group_key,
+            before_page_id,
+        } => position_pages(
+            connection,
+            library_id,
+            project_id,
+            view_id,
+            pages,
+            group_key.as_deref(),
+            before_page_id.as_deref(),
+            now,
+            effects,
+        ),
+        DatabaseIntent::TransferPage { .. } => Err(invalid(
+            "Database Page transfer is not implemented by this mutation slice",
         )),
     }
 }
@@ -739,6 +833,842 @@ fn add_remove_value(
         now,
         effects,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn put_view(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    database_id: &str,
+    data_source_id: &str,
+    view_id: &str,
+    expected_revision: i64,
+    name: &str,
+    view_kind: &str,
+    config: &Value,
+    is_default: bool,
+    before_view_id: Option<&str>,
+    now: &str,
+    effects: &mut MutationEffects,
+) -> Result<(), StoreError> {
+    validate_id(database_id, "database_id", MAX_ID_LENGTH)?;
+    validate_id(view_id, "view_id", MAX_ID_LENGTH)?;
+    let name = validate_name(name, "View name")?;
+    if !matches!(view_kind, "kanban" | "list" | "calendar" | "canvas") {
+        return Err(invalid("Database View kind is unsupported"));
+    }
+    let container = require_container(connection, library_id, database_id)?;
+    if container.lifecycle != "active" {
+        return Err(not_found("Database is not active"));
+    }
+    let source = require_source(connection, library_id, data_source_id)?;
+    if source.database_id != database_id {
+        return Err(not_found(
+            "View Database and Data Source must share one active authority",
+        ));
+    }
+    authorize_write(connection, project_id, database_id)?;
+    let existing = view_row(connection, view_id)?;
+    require_revision(
+        expected_revision,
+        existing.as_ref().map_or(0, |view| view.revision),
+        "Database View revision changed",
+    )?;
+    if existing
+        .as_ref()
+        .is_some_and(|view| view.database_id != database_id)
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::AlreadyOwned,
+            "Database View identity belongs to another Database",
+            false,
+        ));
+    }
+    validate_view_config(connection, data_source_id, config)?;
+    let encoded_config = serde_json::to_string(config)
+        .map_err(|_| invalid("Database View config cannot be encoded"))?;
+    if encoded_config.len() > 262_144 {
+        return Err(invalid("Database View config exceeds its byte bound"));
+    }
+    let existing_group = existing
+        .as_ref()
+        .map(|view| parse_json(&view.config_json, "Database View config"))
+        .transpose()?
+        .as_ref()
+        .and_then(view_group_property)
+        .map(str::to_owned);
+    let next_group = view_group_property(config).map(str::to_owned);
+    let source_changed = existing
+        .as_ref()
+        .is_some_and(|view| view.data_source_id != data_source_id);
+    let group_changed = existing.is_some() && existing_group != next_group;
+    if source_changed || group_changed {
+        clear_view_positions(connection, view_id, now)?;
+    }
+    if source_changed {
+        clear_view_projection(connection, view_id, now)?;
+    }
+    let preserve_rank = existing
+        .as_ref()
+        .filter(|view| view.lifecycle == "active" && before_view_id.is_none())
+        .map(|view| view.rank_key.clone());
+    let rank_key = preserve_rank.clone().unwrap_or_else(|| "0".repeat(32));
+    let revision = existing.as_ref().map_or(1, |view| view.revision + 1);
+    let created_at = existing
+        .as_ref()
+        .map_or(now, |view| view.created_at.as_str());
+    connection.execute(
+        "INSERT INTO database_views(\
+           id, database_block_id, data_source_id, name, kind, config_json, revision, \
+           rank_key, lifecycle, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'active', ?9, ?10) \
+         ON CONFLICT(id) DO UPDATE SET database_block_id = excluded.database_block_id, \
+           data_source_id = excluded.data_source_id, name = excluded.name, kind = excluded.kind, \
+           config_json = excluded.config_json, revision = excluded.revision, \
+           rank_key = excluded.rank_key, lifecycle = 'active', updated_at = excluded.updated_at",
+        params![
+            view_id,
+            database_id,
+            data_source_id,
+            name,
+            view_kind,
+            encoded_config,
+            revision,
+            rank_key,
+            created_at,
+            now,
+        ],
+    )?;
+    if preserve_rank.is_none() {
+        reorder_views(connection, database_id, view_id, before_view_id)?;
+    }
+    connection.execute(
+        "UPDATE database_containers SET \
+           default_view_id = CASE WHEN ?1 = 1 THEN ?2 ELSE default_view_id END, \
+           metadata_revision = metadata_revision + 1, updated_at = ?3 WHERE block_id = ?4",
+        params![i64::from(is_default), view_id, now, database_id],
+    )?;
+    if is_default
+        || container.default_view_id.as_deref() == Some(view_id)
+        || source_changed
+        || group_changed
+    {
+        refresh_default_view_projection(connection, database_id, now)?;
+    }
+    effects.database_ids.insert(database_id.to_owned());
+    effects.data_source_ids.insert(data_source_id.to_owned());
+    if let Some(existing) = existing {
+        effects.data_source_ids.insert(existing.data_source_id);
+    }
+    effects.view_ids.insert(view_id.to_owned());
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn delete_view(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    database_id: &str,
+    view_id: &str,
+    expected_revision: i64,
+    now: &str,
+    effects: &mut MutationEffects,
+) -> Result<(), StoreError> {
+    let container = require_container(connection, library_id, database_id)?;
+    let view = view_row(connection, view_id)?
+        .filter(|view| view.database_id == database_id && view.lifecycle == "active")
+        .ok_or_else(|| not_found("Active Database View is unavailable"))?;
+    authorize_write(connection, project_id, database_id)?;
+    require_revision(
+        expected_revision,
+        view.revision,
+        "Database View revision changed",
+    )?;
+    let was_default = container.default_view_id.as_deref() == Some(view_id);
+    connection.execute(
+        "UPDATE database_containers SET \
+           default_view_id = CASE WHEN default_view_id = ?1 THEN NULL ELSE default_view_id END, \
+           metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE block_id = ?3",
+        params![view_id, now, database_id],
+    )?;
+    clear_view_projection(connection, view_id, now)?;
+    connection.execute(
+        "DELETE FROM database_view_page_positions WHERE view_id = ?1",
+        [view_id],
+    )?;
+    connection.execute(
+        "UPDATE database_views SET lifecycle = 'deleted', revision = revision + 1, \
+           updated_at = ?1 WHERE id = ?2",
+        params![now, view_id],
+    )?;
+    if was_default {
+        refresh_default_view_projection(connection, database_id, now)?;
+    }
+    effects.database_ids.insert(database_id.to_owned());
+    effects.data_source_ids.insert(view.data_source_id);
+    effects.view_ids.insert(view_id.to_owned());
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn position_pages(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+    view_id: &str,
+    pages: &[DatabasePagePosition],
+    group_key: Option<&str>,
+    before_page_id: Option<&str>,
+    now: &str,
+    effects: &mut MutationEffects,
+) -> Result<(), StoreError> {
+    if pages.is_empty() || pages.len() > MAX_BULK_VALUES {
+        return Err(invalid(format!(
+            "View positioning requires between 1 and {MAX_BULK_VALUES} Pages"
+        )));
+    }
+    let page_ids = pages
+        .iter()
+        .map(|page| page.page_id.as_str())
+        .collect::<HashSet<_>>();
+    if page_ids.len() != pages.len() {
+        return Err(invalid("View position Page IDs must be unique"));
+    }
+    if before_page_id.is_some_and(|page_id| page_ids.contains(page_id)) {
+        return Err(invalid(
+            "View position anchor must be outside the moved Page set",
+        ));
+    }
+    let view = view_row(connection, view_id)?
+        .filter(|view| view.lifecycle == "active")
+        .ok_or_else(|| not_found("Active Database View is unavailable"))?;
+    let source = require_source(connection, library_id, &view.data_source_id)?;
+    if source.database_id != view.database_id {
+        return Err(corrupt("Database View source authority is inconsistent"));
+    }
+    authorize_write(connection, project_id, &view.database_id)?;
+    let config = parse_json(&view.config_json, "Database View config")?;
+    let group_property_id = view_group_property(&config);
+    let mut existing_revisions = std::collections::HashMap::new();
+    for page in pages {
+        let membership_id = active_row_membership(connection, &view.data_source_id, &page.page_id)?;
+        let existing_revision = connection
+            .query_row(
+                "SELECT revision FROM database_view_page_positions \
+                 WHERE view_id = ?1 AND page_block_id = ?2",
+                params![view_id, page.page_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        require_revision(
+            page.expected_position_revision,
+            existing_revision,
+            "Database View position revision changed",
+        )?;
+        if let Some(property_id) = group_property_id {
+            let value = connection
+                .query_row(
+                    "SELECT value_json FROM data_source_property_values \
+                     WHERE data_source_id = ?1 AND membership_id = ?2 AND property_id = ?3",
+                    params![view.data_source_id, membership_id, property_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .map(|value| parse_json(&value, "Grouped Property value"))
+                .transpose()?;
+            let effective = value.as_ref().map_or(Ok(None), database_group_key)?;
+            if effective.as_deref() != group_key {
+                return Err(invalid(
+                    "View position group does not match the grouped Property value",
+                ));
+            }
+        }
+        existing_revisions.insert(page.page_id.as_str(), existing_revision);
+    }
+
+    let mut logical =
+        read_logical_group(connection, &view, group_property_id, group_key, &page_ids)?;
+    let insertion = match before_page_id {
+        Some(anchor) => logical
+            .iter()
+            .position(|page_id| page_id == anchor)
+            .ok_or_else(|| {
+                StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    "View position anchor changed",
+                    true,
+                )
+            })?,
+        None => logical.len(),
+    };
+    logical.splice(
+        insertion..insertion,
+        pages.iter().map(|page| page.page_id.clone()),
+    );
+    let descending = view_manual_direction(&config) == "desc";
+    let physical = if descending {
+        logical.iter().rev().cloned().collect::<Vec<_>>()
+    } else {
+        logical
+    };
+    let moved = pages
+        .iter()
+        .map(|page| page.page_id.as_str())
+        .collect::<HashSet<_>>();
+    let mut put = connection.prepare(
+        "INSERT INTO database_view_page_positions(\
+           view_id, page_block_id, group_key, rank_key, revision, created_at, updated_at\
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6) \
+         ON CONFLICT(view_id, page_block_id) DO UPDATE SET group_key = excluded.group_key, \
+           rank_key = excluded.rank_key, revision = excluded.revision, updated_at = excluded.updated_at",
+    )?;
+    let total = physical.len();
+    for (index, page_id) in physical.iter().enumerate() {
+        let current = connection
+            .query_row(
+                "SELECT revision, created_at FROM database_view_page_positions \
+                 WHERE view_id = ?1 AND page_block_id = ?2",
+                params![view_id, page_id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        let revision = if moved.contains(page_id.as_str()) {
+            existing_revisions
+                .get(page_id.as_str())
+                .copied()
+                .unwrap_or(0)
+                + 1
+        } else {
+            current.as_ref().map_or(1, |(revision, _)| *revision)
+        };
+        put.execute(params![
+            view_id,
+            page_id,
+            group_key,
+            fractional_rank(index + 1, total),
+            revision,
+            current.as_ref().map_or(now, |(_, created_at)| created_at),
+        ])?;
+        connection.execute(
+            "UPDATE page_read_model SET view_group_key = ?1, view_rank_key = ?2, \
+               projection_version = projection_version + 1, updated_at = ?3 \
+             WHERE page_block_id = ?4 AND view_id = ?5",
+            params![
+                group_key,
+                fractional_rank(index + 1, total),
+                now,
+                page_id,
+                view_id,
+            ],
+        )?;
+    }
+    for page in pages {
+        let metadata_revision = connection
+            .query_row(
+                "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
+                 WHERE id = ?2 AND type = 'page' RETURNING metadata_revision",
+                params![now, page.page_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .ok_or_else(|| corrupt("Positioned Page disappeared"))?;
+        connection.execute(
+            "UPDATE page_read_model SET metadata_revision = ?1, \
+               projection_version = projection_version + 1, updated_at = ?2 \
+             WHERE page_block_id = ?3",
+            params![metadata_revision, now, page.page_id],
+        )?;
+        effects.page_ids.insert(page.page_id.clone());
+    }
+    effects.database_ids.insert(view.database_id);
+    effects.data_source_ids.insert(view.data_source_id);
+    effects.view_ids.insert(view.id);
+    Ok(())
+}
+
+fn validate_view_config(
+    connection: &Connection,
+    data_source_id: &str,
+    config: &Value,
+) -> Result<(), StoreError> {
+    let object = config
+        .as_object()
+        .ok_or_else(|| invalid("Database View config must be an object"))?;
+    let expected = [
+        "schemaKey",
+        "schemaVersion",
+        "filter",
+        "sort",
+        "group",
+        "display",
+    ];
+    if object.len() != expected.len() || expected.iter().any(|key| !object.contains_key(*key)) {
+        return Err(invalid("Database View config has unsupported fields"));
+    }
+    if object.get("schemaKey").and_then(Value::as_str) != Some("nodex.database-view")
+        || object.get("schemaVersion").and_then(Value::as_i64) != Some(2)
+    {
+        return Err(invalid("Database View config schema is unsupported"));
+    }
+    validate_view_filter(
+        object
+            .get("filter")
+            .ok_or_else(|| invalid("Database View filter is missing"))?,
+        0,
+        &mut 0,
+    )?;
+    let sort = object
+        .get("sort")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("Database View sort must be an array"))?;
+    if sort.len() > 1_024 {
+        return Err(invalid("Database View sort exceeds its bound"));
+    }
+    for item in sort {
+        validate_view_sort(item)?;
+    }
+    match object.get("group") {
+        Some(Value::Null) => {}
+        Some(group)
+            if group.as_object().is_some_and(|group| {
+                group.len() == 1 && group.get("propertyId").and_then(Value::as_str).is_some()
+            }) => {}
+        _ => return Err(invalid("Database View group is invalid")),
+    }
+    let display = object
+        .get("display")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("Database View display is invalid"))?;
+    if display.len() != 2
+        || display.get("showTitle").and_then(Value::as_bool).is_none()
+        || !display
+            .get("propertyIds")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.iter().all(Value::is_string))
+    {
+        return Err(invalid("Database View display is invalid"));
+    }
+    let property_ids = collect_view_property_ids(config)?;
+    let known = connection
+        .prepare(
+            "SELECT id FROM data_source_properties \
+             WHERE data_source_id = ?1 AND lifecycle = 'active'",
+        )?
+        .query_map([data_source_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<HashSet<_>>>()?;
+    if property_ids
+        .iter()
+        .all(|property_id| known.contains(property_id))
+    {
+        return Ok(());
+    }
+    Err(invalid(
+        "Database View references a missing Data Source Property",
+    ))
+}
+
+fn validate_view_filter(value: &Value, depth: usize, nodes: &mut usize) -> Result<(), StoreError> {
+    if depth > 8 || *nodes >= 1_024 {
+        return Err(invalid("Database View filter exceeds its structural bound"));
+    }
+    *nodes += 1;
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid("Database View filter node must be an object"))?;
+    match object.get("kind").and_then(Value::as_str) {
+        Some("group") => {
+            if !matches!(
+                object.get("operator").and_then(Value::as_str),
+                Some("and" | "or")
+            ) {
+                return Err(invalid("Database View filter group operator is invalid"));
+            }
+            let children = object
+                .get("children")
+                .and_then(Value::as_array)
+                .ok_or_else(|| invalid("Database View filter group children are invalid"))?;
+            for child in children {
+                validate_view_filter(child, depth + 1, nodes)?;
+            }
+            Ok(())
+        }
+        Some("clause") => {
+            if object.get("propertyId").and_then(Value::as_str).is_none()
+                || !matches!(
+                    object.get("operator").and_then(Value::as_str),
+                    Some(
+                        "equals"
+                            | "not_equals"
+                            | "contains"
+                            | "not_contains"
+                            | "is_empty"
+                            | "is_not_empty"
+                    )
+                )
+            {
+                return Err(invalid("Database View filter clause is invalid"));
+            }
+            Ok(())
+        }
+        _ => Err(invalid("Database View filter kind is invalid")),
+    }
+}
+
+fn validate_view_sort(value: &Value) -> Result<(), StoreError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid("Database View sort item must be an object"))?;
+    if !matches!(
+        object.get("direction").and_then(Value::as_str),
+        Some("asc" | "desc")
+    ) || !matches!(
+        object.get("nulls").and_then(Value::as_str),
+        Some("first" | "last")
+    ) {
+        return Err(invalid(
+            "Database View sort direction or null policy is invalid",
+        ));
+    }
+    let field = object
+        .get("field")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid("Database View sort field is invalid"))?;
+    match field.get("kind").and_then(Value::as_str) {
+        Some("manual" | "title" | "created") if field.len() == 1 => Ok(()),
+        Some("property")
+            if field.len() == 2 && field.get("propertyId").and_then(Value::as_str).is_some() =>
+        {
+            Ok(())
+        }
+        _ => Err(invalid("Database View sort field is invalid")),
+    }
+}
+
+fn collect_view_property_ids(config: &Value) -> Result<HashSet<String>, StoreError> {
+    let mut property_ids = HashSet::new();
+    if let Some(property_id) = view_group_property(config) {
+        property_ids.insert(property_id.to_owned());
+    }
+    let display = config
+        .pointer("/display/propertyIds")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("Database View display Property IDs are invalid"))?;
+    for property_id in display {
+        property_ids.insert(
+            property_id
+                .as_str()
+                .ok_or_else(|| invalid("Database View display Property ID is invalid"))?
+                .to_owned(),
+        );
+    }
+    if let Some(sort) = config.get("sort").and_then(Value::as_array) {
+        for item in sort {
+            if let Some(property_id) = item.pointer("/field/propertyId").and_then(Value::as_str) {
+                property_ids.insert(property_id.to_owned());
+            }
+        }
+    }
+    collect_filter_property_ids(
+        config
+            .get("filter")
+            .ok_or_else(|| invalid("Database View filter is missing"))?,
+        &mut property_ids,
+    )?;
+    Ok(property_ids)
+}
+
+fn collect_filter_property_ids(
+    value: &Value,
+    property_ids: &mut HashSet<String>,
+) -> Result<(), StoreError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| invalid("Database View filter node is invalid"))?;
+    if object.get("kind").and_then(Value::as_str) == Some("clause") {
+        property_ids.insert(
+            object
+                .get("propertyId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| invalid("Database View filter Property ID is invalid"))?
+                .to_owned(),
+        );
+        return Ok(());
+    }
+    for child in object
+        .get("children")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("Database View filter children are invalid"))?
+    {
+        collect_filter_property_ids(child, property_ids)?;
+    }
+    Ok(())
+}
+
+fn view_group_property(config: &Value) -> Option<&str> {
+    config.pointer("/group/propertyId").and_then(Value::as_str)
+}
+
+fn view_manual_direction(config: &Value) -> &str {
+    config
+        .get("sort")
+        .and_then(Value::as_array)
+        .and_then(|sort| {
+            sort.iter()
+                .find(|item| item.pointer("/field/kind").and_then(Value::as_str) == Some("manual"))
+        })
+        .and_then(|item| item.get("direction"))
+        .and_then(Value::as_str)
+        .unwrap_or("asc")
+}
+
+fn read_logical_group(
+    connection: &Connection,
+    view: &ViewRow,
+    group_property_id: Option<&str>,
+    group_key: Option<&str>,
+    excluded_page_ids: &HashSet<&str>,
+) -> Result<Vec<String>, StoreError> {
+    let rows = connection
+        .prepare(
+            "SELECT membership.id, membership.page_block_id, position.rank_key \
+             FROM data_source_page_memberships membership \
+             JOIN pages page ON page.block_id = membership.page_block_id \
+               AND page.parent_kind = 'data_source' AND page.parent_id = membership.data_source_id \
+               AND page.lifecycle = 'active' \
+             LEFT JOIN database_view_page_positions position \
+               ON position.view_id = ?1 AND position.page_block_id = membership.page_block_id \
+             WHERE membership.data_source_id = ?2 AND membership.removed_at IS NULL \
+             ORDER BY CASE WHEN position.rank_key IS NULL THEN 1 ELSE 0 END, \
+               position.rank_key, membership.page_block_id",
+        )?
+        .query_map(params![view.id, view.data_source_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut result = Vec::new();
+    for (membership_id, page_id, _) in rows {
+        if excluded_page_ids.contains(page_id.as_str()) {
+            continue;
+        }
+        if let Some(property_id) = group_property_id {
+            let value = connection
+                .query_row(
+                    "SELECT value_json FROM data_source_property_values \
+                     WHERE data_source_id = ?1 AND membership_id = ?2 AND property_id = ?3",
+                    params![view.data_source_id, membership_id, property_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .map(|value| parse_json(&value, "Grouped Property value"))
+                .transpose()?;
+            let effective = value.as_ref().map_or(Ok(None), database_group_key)?;
+            if effective.as_deref() != group_key {
+                continue;
+            }
+        }
+        result.push(page_id);
+    }
+    if view_manual_direction(&parse_json(&view.config_json, "Database View config")?) == "desc" {
+        result.reverse();
+    }
+    Ok(result)
+}
+
+fn active_row_membership(
+    connection: &Connection,
+    data_source_id: &str,
+    page_id: &str,
+) -> Result<String, StoreError> {
+    connection
+        .query_row(
+            "SELECT membership.id FROM data_source_page_memberships membership \
+             JOIN pages page ON page.block_id = membership.page_block_id \
+             WHERE membership.data_source_id = ?1 AND membership.page_block_id = ?2 \
+               AND membership.removed_at IS NULL AND page.parent_kind = 'data_source' \
+               AND page.parent_id = ?1 AND page.lifecycle = 'active'",
+            params![data_source_id, page_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Page is not an active row in the View Data Source"))
+}
+
+fn reorder_views(
+    connection: &Connection,
+    database_id: &str,
+    view_id: &str,
+    before_view_id: Option<&str>,
+) -> Result<(), StoreError> {
+    let mut ids = connection
+        .prepare(
+            "SELECT id FROM database_views WHERE database_block_id = ?1 \
+             AND lifecycle = 'active' ORDER BY rank_key, id",
+        )?
+        .query_map([database_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    ids.retain(|id| id != view_id);
+    let index = match before_view_id {
+        Some(before) => ids.iter().position(|id| id == before).ok_or_else(|| {
+            StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                "Database View placement anchor changed",
+                true,
+            )
+        })?,
+        None => ids.len(),
+    };
+    ids.insert(index, view_id.to_owned());
+    let total = ids.len();
+    for (index, id) in ids.into_iter().enumerate() {
+        connection.execute(
+            "UPDATE database_views SET rank_key = ?1 WHERE database_block_id = ?2 AND id = ?3",
+            params![fractional_rank(index + 1, total), database_id, id],
+        )?;
+    }
+    Ok(())
+}
+
+fn clear_view_positions(
+    connection: &Connection,
+    view_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "DELETE FROM database_view_page_positions WHERE view_id = ?1",
+        [view_id],
+    )?;
+    connection.execute(
+        "UPDATE page_read_model SET view_group_key = NULL, view_rank_key = NULL, \
+           projection_version = projection_version + 1, updated_at = ?1 WHERE view_id = ?2",
+        params![now, view_id],
+    )?;
+    Ok(())
+}
+
+fn clear_view_projection(
+    connection: &Connection,
+    view_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    connection.execute(
+        "UPDATE page_read_model SET view_id = NULL, view_group_key = NULL, view_rank_key = NULL, \
+           projection_version = projection_version + 1, updated_at = ?1 WHERE view_id = ?2",
+        params![now, view_id],
+    )?;
+    Ok(())
+}
+
+fn refresh_default_view_projection(
+    connection: &Connection,
+    database_id: &str,
+    now: &str,
+) -> Result<(), StoreError> {
+    let default_view = connection
+        .query_row(
+            "SELECT view.id, view.data_source_id FROM database_containers container \
+             JOIN database_views view ON view.id = container.default_view_id \
+             WHERE container.block_id = ?1 AND view.lifecycle = 'active'",
+            [database_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let projections = connection
+        .prepare(
+            "SELECT projection.page_block_id, membership.data_source_id \
+             FROM page_read_model projection \
+             LEFT JOIN data_source_page_memberships membership \
+               ON membership.id = projection.membership_id AND membership.removed_at IS NULL \
+             WHERE projection.database_block_id = ?1 ORDER BY projection.page_block_id",
+        )?
+        .query_map([database_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (page_id, data_source_id) in projections {
+        let uses_default = default_view
+            .as_ref()
+            .is_some_and(|(_, source_id)| data_source_id.as_deref() == Some(source_id));
+        let position = if uses_default {
+            connection
+                .query_row(
+                    "SELECT group_key, rank_key FROM database_view_page_positions \
+                     WHERE view_id = ?1 AND page_block_id = ?2",
+                    params![default_view.as_ref().map(|(id, _)| id), page_id],
+                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()?
+        } else {
+            None
+        };
+        connection.execute(
+            "UPDATE page_read_model SET view_id = ?1, view_group_key = ?2, view_rank_key = ?3, \
+               projection_version = projection_version + 1, updated_at = ?4 \
+             WHERE page_block_id = ?5",
+            params![
+                uses_default
+                    .then(|| default_view.as_ref().map(|(id, _)| id))
+                    .flatten(),
+                position
+                    .as_ref()
+                    .and_then(|(group_key, _)| group_key.as_deref()),
+                position.as_ref().map(|(_, rank_key)| rank_key),
+                now,
+                page_id,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn require_container(
+    connection: &Connection,
+    library_id: &str,
+    database_id: &str,
+) -> Result<ContainerRow, StoreError> {
+    connection
+        .query_row(
+            "SELECT default_view_id, lifecycle FROM database_containers \
+             WHERE block_id = ?1 AND library_id = ?2",
+            params![database_id, library_id],
+            |row| {
+                Ok(ContainerRow {
+                    default_view_id: row.get(0)?,
+                    lifecycle: row.get(1)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Database is unavailable"))
+}
+
+fn view_row(connection: &Connection, view_id: &str) -> Result<Option<ViewRow>, StoreError> {
+    connection
+        .query_row(
+            "SELECT id, database_block_id, data_source_id, config_json, rank_key, lifecycle, \
+               revision, created_at FROM database_views WHERE id = ?1",
+            [view_id],
+            |row| {
+                Ok(ViewRow {
+                    id: row.get(0)?,
+                    database_id: row.get(1)?,
+                    data_source_id: row.get(2)?,
+                    config_json: row.get(3)?,
+                    rank_key: row.get(4)?,
+                    lifecycle: row.get(5)?,
+                    revision: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(StoreError::from)
 }
 
 fn property_config_for_put(

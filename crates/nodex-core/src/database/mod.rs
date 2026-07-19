@@ -527,6 +527,165 @@ mod tests {
                 .iter()
                 .all(|value| value["propertyId"] != "score")
         }));
+
+        const SECOND_VIEW_ID: &str = "018f1000-0000-7000-8000-000000000004";
+        let ungrouped_config = json!({
+            "schemaKey": "nodex.database-view",
+            "schemaVersion": 2,
+            "filter": { "kind": "group", "operator": "and", "children": [] },
+            "sort": [{
+                "field": { "kind": "manual" },
+                "direction": "asc",
+                "nulls": "last"
+            }],
+            "group": null,
+            "display": {
+                "propertyIds": ["status", "risk"],
+                "showTitle": true
+            }
+        });
+        let view_and_position = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-view-position".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![
+                        DatabaseIntent::PutView {
+                            database_id: DATABASE_ID.to_owned(),
+                            data_source_id: SOURCE_ID.to_owned(),
+                            view_id: SECOND_VIEW_ID.to_owned(),
+                            expected_revision: 0,
+                            name: "Risk list".to_owned(),
+                            view_kind: "list".to_owned(),
+                            config: ungrouped_config.clone(),
+                            is_default: true,
+                            before_view_id: Some(VIEW_ID.to_owned()),
+                        },
+                        DatabaseIntent::PositionPage {
+                            view_id: SECOND_VIEW_ID.to_owned(),
+                            page_id: "page:database-row".to_owned(),
+                            expected_position_revision: 0,
+                            group_key: None,
+                            before_page_id: None,
+                        },
+                    ],
+                },
+            )
+            .expect("create default View and position its row atomically");
+        assert_eq!(view_and_position.committed.value.operation_count, 2);
+        assert_eq!(
+            view_and_position.committed.receipt.affected_view_ids,
+            [SECOND_VIEW_ID]
+        );
+
+        let grouped_config = json!({
+            "schemaKey": "nodex.database-view",
+            "schemaVersion": 2,
+            "filter": { "kind": "group", "operator": "and", "children": [] },
+            "sort": [{
+                "field": { "kind": "manual" },
+                "direction": "asc",
+                "nulls": "last"
+            }],
+            "group": { "propertyId": "risk" },
+            "display": {
+                "propertyIds": ["status", "risk"],
+                "showTitle": true
+            }
+        });
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-view-regroup".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![
+                        DatabaseIntent::PutView {
+                            database_id: DATABASE_ID.to_owned(),
+                            data_source_id: SOURCE_ID.to_owned(),
+                            view_id: SECOND_VIEW_ID.to_owned(),
+                            expected_revision: 1,
+                            name: "Risk board".to_owned(),
+                            view_kind: "kanban".to_owned(),
+                            config: grouped_config,
+                            is_default: true,
+                            before_view_id: None,
+                        },
+                        DatabaseIntent::PositionPage {
+                            view_id: SECOND_VIEW_ID.to_owned(),
+                            page_id: "page:database-row".to_owned(),
+                            expected_position_revision: 0,
+                            group_key: Some("high".to_owned()),
+                            before_page_id: None,
+                        },
+                    ],
+                },
+            )
+            .expect("clear stale positions and position against the new group");
+        let grouped = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: SECOND_VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("query regrouped View");
+        let DatabaseReadValue::Query { value: grouped } = grouped.value else {
+            panic!("View query snapshot");
+        };
+        assert_eq!(grouped["view"]["isDefault"], true);
+        assert_eq!(grouped["view"]["revision"], 2);
+        assert_eq!(grouped["rows"][0]["position"]["groupKey"], "high");
+        assert_eq!(grouped["rows"][0]["position"]["revision"], 1);
+
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-delete-old-view".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::DeleteView {
+                        database_id: DATABASE_ID.to_owned(),
+                        view_id: VIEW_ID.to_owned(),
+                        expected_revision: 1,
+                    }],
+                },
+            )
+            .expect("delete a non-default View");
+        let old_view = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::View {
+                            view_id: VIEW_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::View,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("read deleted View descriptor");
+        let DatabaseReadValue::View { value: old_view } = old_view.value else {
+            panic!("View descriptor snapshot");
+        };
+        assert_eq!(old_view["lifecycle"], "deleted");
+        assert_eq!(old_view["revision"], 2);
+
         let database_events = kernel
             .writer()
             .call(|connection| {
@@ -539,6 +698,6 @@ mod tests {
                     .map_err(StoreError::from)
             })
             .expect("count Database events");
-        assert_eq!(database_events, 1);
+        assert_eq!(database_events, 4);
     }
 }
