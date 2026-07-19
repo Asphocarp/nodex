@@ -127,7 +127,7 @@ import {
   broadcastBrowserSidebarEvent,
 } from "./browser-sidebar-service";
 import {
-  deleteProjectSessionTabWithBrowserCleanup,
+  deleteProjectSessionTabWithBrowserCleanupUsing,
   deleteProjectSessionWithBrowserCleanupUsing,
   deleteProjectWithBrowserCleanupUsing,
 } from "./project-session-browser-ownership";
@@ -662,6 +662,15 @@ export function registerIpcHandlers(
         ),
       getProjectSession: async (sessionId) =>
         projectSessionService.getProjectSession(sessionId),
+      updateProjectSession: async (sessionId, input) =>
+        projectSessionService.updateProjectSession(sessionId, input),
+      renameProjectSession: async (sessionId, input) => {
+        const existing = projectSessionService.getProjectSession(sessionId);
+        if (!existing || existing.thread) return existing;
+        return projectSessionService.updateProjectSession(sessionId, {
+          noThreadFallbackTitle: input.title,
+        });
+      },
       createProjectSession: async (input) =>
         projectSessionService.createProjectSession(input),
       deleteProjectSession: async (sessionId) =>
@@ -707,6 +716,16 @@ export function registerIpcHandlers(
           stateKey,
           state,
         ),
+      updateProjectSessionPanel: async (sessionId, panelId, input) =>
+        projectSessionService.updateProjectSessionPanel(
+          sessionId,
+          panelId,
+          input,
+        ),
+      deleteProjectSessionTab: async (input) =>
+        projectSessionService.deleteProjectSessionTab(input),
+      moveProjectSessionTab: async (input) =>
+        projectSessionService.moveProjectSessionTab(input),
     };
 
   const gitBranchWatches = new Map<
@@ -1669,10 +1688,10 @@ export function registerIpcHandlers(
     return session;
   });
 
-  registerHandle("project-sessions:update", (_, sessionId: string, input) => {
-    const existing = projectSessionService.getProjectSession(sessionId);
+  registerHandle("project-sessions:update", async (_, sessionId: string, input) => {
+    const existing = await projectWorkspace.getProjectSession(sessionId);
     if (!existing) return null;
-    const session = projectSessionService.updateProjectSession(
+    const session = await projectWorkspace.updateProjectSession(
       sessionId,
       input,
     );
@@ -1688,8 +1707,8 @@ export function registerIpcHandlers(
 
   registerHandle("project-sessions:rename", (_, sessionId: string, input) =>
     renameProjectSessionChat(sessionId, input, {
-      getProjectSession: projectSessionService.getProjectSession,
-      updateProjectSession: projectSessionService.updateProjectSession,
+      getProjectSession: projectWorkspace.getProjectSession,
+      renameProjectSession: projectWorkspace.renameProjectSession,
       setThreadName: (threadId, rawTitle) =>
         codexService.setThreadName(threadId, rawTitle),
       notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
@@ -1842,8 +1861,8 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-session-panels:update",
-    (_, sessionId: string, panelId, input) =>
-      projectSessionService.updateProjectSessionPanel(
+    async (_, sessionId: string, panelId, input) =>
+      await projectWorkspace.updateProjectSessionPanel(
         sessionId,
         panelId,
         input,
@@ -1885,15 +1904,21 @@ export function registerIpcHandlers(
   );
 
   registerHandle("project-session-tabs:delete", async (_, input) =>
-    await deleteProjectSessionTabWithBrowserCleanup(input, browserSidebarService),
+    await deleteProjectSessionTabWithBrowserCleanupUsing({
+      input,
+      browserRuntime: browserSidebarService,
+      getProjectSessionTab: projectWorkspace.getProjectSessionTab,
+      deleteProjectSessionTab: projectWorkspace.deleteProjectSessionTab,
+      getProjectSession: projectWorkspace.getProjectSession,
+    }),
   );
 
   registerHandle("project-session-tabs:reorder", async (_, input) =>
     await projectWorkspace.reorderProjectSessionTabs(input),
   );
 
-  registerHandle("project-session-tabs:move", (_, input) =>
-    projectSessionService.moveProjectSessionTab(input),
+  registerHandle("project-session-tabs:move", async (_, input) =>
+    await projectWorkspace.moveProjectSessionTab(input),
   );
 
   registerHandle("project-session-threads:attach", (_, input) => {

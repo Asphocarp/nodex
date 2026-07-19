@@ -90,6 +90,7 @@ pub(super) fn mutate_session(
             *archived,
         ),
         ProjectSessionIntent::PatchViewState {
+            fallback_title,
             left_pane_collapsed,
             right_panel,
             bottom_panel,
@@ -102,6 +103,7 @@ pub(super) fn mutate_session(
             request_hash,
             session_id,
             &authority,
+            fallback_title.as_deref(),
             *left_pane_collapsed,
             right_panel.as_ref(),
             bottom_panel.as_ref(),
@@ -169,7 +171,7 @@ pub(super) fn mutate_session(
             title,
             config,
         ),
-        ProjectSessionIntent::DeleteTab { tab_id } => delete_tab(
+        ProjectSessionIntent::DeleteTab { tab_id, layout } => delete_tab(
             connection,
             library_id,
             context,
@@ -179,12 +181,15 @@ pub(super) fn mutate_session(
             session_id,
             &authority,
             tab_id,
+            layout.as_ref(),
         ),
         ProjectSessionIntent::MoveTab {
             tab_id,
             panel_id,
             target_leaf_id,
             before_tab_id,
+            source_layout,
+            target_layout,
         } => move_tab(
             connection,
             library_id,
@@ -198,6 +203,8 @@ pub(super) fn mutate_session(
             *panel_id,
             target_leaf_id.as_deref(),
             before_tab_id.as_deref(),
+            source_layout.as_ref(),
+            target_layout.as_ref(),
         ),
         ProjectSessionIntent::UpdateTab {
             tab_id,
@@ -250,11 +257,16 @@ fn patch_view_state(
     request_hash: &str,
     session_id: &str,
     authority: &SessionAuthority,
+    fallback_title: Option<&str>,
     left_pane_collapsed: Option<bool>,
     right_panel: Option<&ProjectSessionPanelStatePatch>,
     bottom_panel: Option<&ProjectSessionPanelStatePatch>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
-    if left_pane_collapsed.is_none() && right_panel.is_none() && bottom_panel.is_none() {
+    if fallback_title.is_none()
+        && left_pane_collapsed.is_none()
+        && right_panel.is_none()
+        && bottom_panel.is_none()
+    {
         return Err(invalid("Project Session view patch is empty"));
     }
     for patch in [right_panel, bottom_panel].into_iter().flatten() {
@@ -262,26 +274,54 @@ fn patch_view_state(
             return Err(invalid("Project Session panel patch is empty"));
         }
     }
-    let panel_state_json = if right_panel.is_some() || bottom_panel.is_some() {
+    let has_layout = [right_panel, bottom_panel]
+        .into_iter()
+        .flatten()
+        .any(|patch| patch.layout.is_some());
+    let panels = if right_panel.is_some() || bottom_panel.is_some() {
         let tab_ids = read_tab_ids(connection, session_id)?;
         let mut panels = read_panels(connection, session_id, &tab_ids)?;
         if let Some(patch) = right_panel {
+            if let Some(layout) = &patch.layout {
+                panels.replace_layout(
+                    ProjectSessionPanelId::Right,
+                    layout,
+                    tab_ids.for_panel(ProjectSessionPanelId::Right),
+                )?;
+            }
             panels.patch_state(ProjectSessionPanelId::Right, patch)?;
         }
         if let Some(patch) = bottom_panel {
+            if let Some(layout) = &patch.layout {
+                panels.replace_layout(
+                    ProjectSessionPanelId::Bottom,
+                    layout,
+                    tab_ids.for_panel(ProjectSessionPanelId::Bottom),
+                )?;
+            }
             panels.patch_state(ProjectSessionPanelId::Bottom, patch)?;
         }
-        Some(stringify_panels(panels)?)
+        Some(panels)
     } else {
         None
     };
     let now = sqlite_now(connection)?;
+    let panel_state_json = if has_layout {
+        let panels = panels.ok_or_else(|| internal("Project Session layout patch"))?;
+        persist_panels_and_orders(connection, session_id, panels, &now)?;
+        None
+    } else {
+        panels.map(stringify_panels).transpose()?
+    };
+    let fallback_title = fallback_title.map(normalize_fallback_title).transpose()?;
     let changed = connection.execute(
         "UPDATE project_sessions SET \
-           left_pane_collapsed = CASE WHEN ?1 IS NULL THEN left_pane_collapsed ELSE ?1 END, \
-           panel_state_json = COALESCE(?2, panel_state_json), updated_at = ?3 \
-         WHERE id = ?4",
+           no_thread_fallback_title = COALESCE(?1, no_thread_fallback_title), \
+           left_pane_collapsed = CASE WHEN ?2 IS NULL THEN left_pane_collapsed ELSE ?2 END, \
+           panel_state_json = COALESCE(?3, panel_state_json), updated_at = ?4 \
+         WHERE id = ?5",
         params![
+            fallback_title,
             left_pane_collapsed.map(i64::from),
             panel_state_json,
             now,
@@ -310,9 +350,21 @@ fn patch_view_state(
 
 fn panel_patch_has_value(patch: &ProjectSessionPanelStatePatch) -> bool {
     patch.collapsed.is_some()
+        || patch.layout.is_some()
         || patch.size.as_ref().is_some_and(|size| {
             size.width_px.is_some() || size.height_px.is_some() || size.full_width.is_some()
         })
+}
+
+fn normalize_fallback_title(value: &str) -> Result<String, StoreError> {
+    let normalized = value.trim();
+    if normalized.is_empty()
+        || normalized.len() > MAX_SESSION_TITLE_BYTES
+        || normalized.encode_utf16().count() > 2_000
+    {
+        return Err(invalid("Project Session fallback title is invalid"));
+    }
+    Ok(normalized.to_owned())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -509,6 +561,7 @@ fn delete_tab(
     session_id: &str,
     authority: &SessionAuthority,
     tab_id: &str,
+    layout: Option<&Value>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_tab_id(tab_id)?;
     let panel_id = require_tab_panel(connection, session_id, tab_id)?;
@@ -521,7 +574,14 @@ fn delete_tab(
     }
     let tab_ids = read_tab_ids(connection, session_id)?;
     let mut panels = read_panels(connection, session_id, &tab_ids)?;
-    panels.remove_tab(panel_id, tab_ids.for_panel(panel_id))?;
+    if let Some(layout) = layout {
+        panels.replace_layout(panel_id, layout, tab_ids.for_panel(panel_id))?;
+        if tab_ids.for_panel(panel_id).is_empty() {
+            panels.set_collapsed(panel_id, true);
+        }
+    } else {
+        panels.remove_tab(panel_id, tab_ids.for_panel(panel_id))?;
+    }
     let now = sqlite_now(connection)?;
     persist_panels_and_orders(connection, session_id, panels, &now)?;
     finish_session_mutation(
@@ -553,6 +613,8 @@ fn move_tab(
     target_panel_id: ProjectSessionPanelId,
     target_leaf_id: Option<&str>,
     before_tab_id: Option<&str>,
+    source_layout: Option<&Value>,
+    target_layout: Option<&Value>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_tab_id(tab_id)?;
     if let Some(target_leaf_id) = target_leaf_id {
@@ -572,7 +634,32 @@ fn move_tab(
     }
     let tab_ids = read_tab_ids(connection, session_id)?;
     let mut panels = read_panels(connection, session_id, &tab_ids)?;
-    if source_panel_id == target_panel_id {
+    if source_layout.is_some() || target_layout.is_some() {
+        if source_panel_id == target_panel_id {
+            let layout = target_layout
+                .or(source_layout)
+                .ok_or_else(|| invalid("Moved tab target layout is required"))?;
+            panels.replace_layout(target_panel_id, layout, tab_ids.for_panel(target_panel_id))?;
+            panels.set_collapsed(target_panel_id, false);
+        } else {
+            let source_tab_ids = tab_ids
+                .for_panel(source_panel_id)
+                .iter()
+                .filter(|candidate| candidate.as_str() != tab_id)
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut target_tab_ids = tab_ids.for_panel(target_panel_id).to_vec();
+            target_tab_ids.push(tab_id.to_owned());
+            let source_layout =
+                source_layout.ok_or_else(|| invalid("Moved tab source layout is required"))?;
+            let target_layout =
+                target_layout.ok_or_else(|| invalid("Moved tab target layout is required"))?;
+            panels.replace_layout(source_panel_id, source_layout, &source_tab_ids)?;
+            panels.replace_layout(target_panel_id, target_layout, &target_tab_ids)?;
+            panels.set_collapsed(source_panel_id, source_tab_ids.is_empty());
+            panels.set_collapsed(target_panel_id, false);
+        }
+    } else if source_panel_id == target_panel_id {
         panels.add_tab(
             target_panel_id,
             tab_id,

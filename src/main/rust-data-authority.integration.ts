@@ -96,6 +96,15 @@ describe("Electron native data authority", () => {
         id: createdSession.id,
         pinned: true,
       });
+      await expect(workspace.updateProjectSession(createdSession.id, {
+        noThreadFallbackTitle: "Electron Session Updated",
+        leftPaneCollapsed: true,
+        panels: { bottom: { collapsed: false, size: { heightPx: 340 } } },
+      })).resolves.toMatchObject({
+        noThreadFallbackTitle: "Electron Session Updated",
+        leftPaneCollapsed: true,
+        panels: { bottom: { collapsed: false, size: { heightPx: 340 } } },
+      });
       await expect(
         workspace.setPinnedProjectSessionOrder(createdProject.id, {
           orderedSessionIds: [createdSession.id],
@@ -145,6 +154,19 @@ describe("Electron native data authority", () => {
       expect(
         splitSession?.panels.right.layout.root.type,
       ).toBe("split");
+      const movedSession = await workspace.moveProjectSessionTab({
+        tabId: firstBrowserTab.id,
+        targetPanelId: "bottom",
+      });
+      expect(
+        movedSession?.tabs.find((tab) => tab.id === firstBrowserTab.id)?.panelId,
+      ).toBe("bottom");
+      await expect(
+        workspace.deleteProjectSessionTab(secondBrowserTab.id),
+      ).resolves.toBe(true);
+      await expect(
+        workspace.getProjectSessionTab(secondBrowserTab.id),
+      ).resolves.toBeNull();
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];

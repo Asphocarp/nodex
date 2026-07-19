@@ -421,4 +421,78 @@ describe("Core Project Workspace adapter", () => {
       },
     }]);
   });
+
+  test("updates fallback title and view state in one Session aggregate", async () => {
+    const client = new FakeCoreClient();
+    const enqueueSession = (
+      eventHead: number,
+      overrides: Record<string, unknown> = {},
+      bottomOverrides: Record<string, unknown> = {},
+    ) => client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: eventHead,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "session",
+        session: sessionSummary({ thread_id: null, ...overrides }),
+        panels: {
+          right: emptyPanel("right:root"),
+          bottom: { ...emptyPanel("bottom:root"), ...bottomOverrides },
+        },
+        tabs: [],
+      },
+    });
+    enqueueSession(8);
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+        affected_thread_ids: [],
+      },
+      receipt: {
+        operation_id: "operation:update-session",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+      },
+      event_sequence: 9,
+      store_epoch: "epoch:test",
+    });
+    enqueueSession(
+      9,
+      {
+        no_thread_fallback_title: "Updated fallback",
+        display_title: "Updated fallback",
+        left_pane_collapsed: true,
+      },
+      { collapsed: false, size: { heightPx: 360 } },
+    );
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.updateProjectSession("session:one", {
+      noThreadFallbackTitle: "Updated fallback",
+      leftPaneCollapsed: true,
+      panels: { bottom: { collapsed: false, size: { heightPx: 360 } } },
+    })).resolves.toMatchObject({
+      noThreadFallbackTitle: "Updated fallback",
+      leftPaneCollapsed: true,
+      panels: { bottom: { collapsed: false, size: { heightPx: 360 } } },
+    });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "mutate_session",
+        session_id: "session:one",
+        intent: {
+          kind: "patch_view_state",
+          fallback_title: "Updated fallback",
+          left_pane_collapsed: true,
+          bottom_panel: {
+            collapsed: false,
+            size: { height_px: 360 },
+          },
+        },
+      },
+    }]);
+  });
 });

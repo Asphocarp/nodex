@@ -8657,6 +8657,12 @@
                   }
                 ]
               },
+              "fallback_title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -8758,6 +8764,7 @@
                   "delete_tab"
                 ]
               },
+              "layout": {},
               "tab_id": {
                 "type": "string"
               }
@@ -8786,9 +8793,11 @@
               "panel_id": {
                 "$ref": "#/components/schemas/ProjectSessionPanelId"
               },
+              "source_layout": {},
               "tab_id": {
                 "type": "string"
               },
+              "target_layout": {},
               "target_leaf_id": {
                 "type": [
                   "string",
@@ -8940,6 +8949,7 @@
               "null"
             ]
           },
+          "layout": {},
           "size": {
             "oneOf": [
               {

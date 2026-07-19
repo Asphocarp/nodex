@@ -191,6 +191,10 @@ impl PanelStates {
         Ok(())
     }
 
+    pub(super) fn set_collapsed(&mut self, panel_id: ProjectSessionPanelId, collapsed: bool) {
+        self.panel_mut(panel_id).collapsed = collapsed;
+    }
+
     pub(super) fn ordered_tab_ids(&self, panel_id: ProjectSessionPanelId) -> Vec<String> {
         flatten_tab_ids(&self.panel(panel_id).layout)
     }

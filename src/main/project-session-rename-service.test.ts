@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { ProjectSession, ProjectSessionUpdateInput } from "../shared/types";
+import type { ProjectSession, ProjectSessionRenameInput } from "../shared/types";
 import { renameProjectSessionChat, type ProjectSessionRenameServiceDeps } from "./project-session-rename-service";
 
 function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
@@ -30,9 +30,9 @@ function makeDeps(session: ProjectSession, events: string[] = []): ProjectSessio
       events.push("get");
       return session;
     },
-    updateProjectSession: (_sessionId: string, input: ProjectSessionUpdateInput) => {
-      events.push(`update:${input.noThreadFallbackTitle ?? ""}`);
-      const noThreadFallbackTitle = input.noThreadFallbackTitle ?? session.noThreadFallbackTitle;
+    renameProjectSession: (_sessionId: string, input: ProjectSessionRenameInput) => {
+      events.push(`rename:${input.title}`);
+      const noThreadFallbackTitle = input.title;
       return {
         ...session,
         noThreadFallbackTitle,
@@ -69,7 +69,7 @@ describe("renameProjectSessionChat", () => {
     );
 
     expect(renamed?.displayTitle).toBe("hello world");
-    expect(events.join("|")).toBe("get|update:hello world|notify:update:session-1");
+    expect(events.join("|")).toBe("get|rename:hello world|notify:update:session-1");
   });
 
   test("renames a bound thread without updating the session fallback title", async () => {
@@ -96,7 +96,7 @@ describe("renameProjectSessionChat", () => {
       makeDeps(session, events),
     );
 
-    expect(renamed?.displayTitle).toBe("Current title");
-    expect(events.join("|")).toBe("get|thread:  hello   world  |get");
+    expect(renamed?.displayTitle).toBe("hello world");
+    expect(events.join("|")).toBe("get|thread:  hello   world  |rename:hello world");
   });
 });

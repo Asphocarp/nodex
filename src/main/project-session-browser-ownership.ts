@@ -1,6 +1,7 @@
 import type {
   Project,
   ProjectSession,
+  ProjectSessionTab,
   ProjectSessionTabDeleteInput,
 } from "../shared/types";
 import {
@@ -25,19 +26,50 @@ export async function deleteProjectSessionTabWithBrowserCleanup(
   input: string | ProjectSessionTabDeleteInput,
   browserRuntime: ProjectSessionBrowserRuntime,
 ): Promise<boolean> {
-  const existingTab = projectSessionService.getProjectSessionTab(readDeleteTabId(input));
-  const deleted = projectSessionService.deleteProjectSessionTab(input);
+  return await deleteProjectSessionTabWithBrowserCleanupUsing({
+    input,
+    browserRuntime,
+    getProjectSessionTab: async (tabId) =>
+      projectSessionService.getProjectSessionTab(tabId),
+    deleteProjectSessionTab: async (tabInput) =>
+      projectSessionService.deleteProjectSessionTab(tabInput),
+    getProjectSession: async (sessionId) =>
+      projectSessionService.getProjectSession(sessionId),
+  });
+}
+
+export interface DeleteProjectSessionTabWithBrowserCleanupInput {
+  readonly input: string | ProjectSessionTabDeleteInput;
+  readonly browserRuntime: ProjectSessionBrowserRuntime;
+  readonly getProjectSessionTab: (
+    tabId: string,
+  ) => ProjectSessionTab | null | Promise<ProjectSessionTab | null>;
+  readonly deleteProjectSessionTab: (
+    input: string | ProjectSessionTabDeleteInput,
+  ) => boolean | Promise<boolean>;
+  readonly getProjectSession: (
+    sessionId: string,
+  ) => ProjectSession | null | Promise<ProjectSession | null>;
+}
+
+export async function deleteProjectSessionTabWithBrowserCleanupUsing(
+  input: DeleteProjectSessionTabWithBrowserCleanupInput,
+): Promise<boolean> {
+  const existingTab = await input.getProjectSessionTab(
+    readDeleteTabId(input.input),
+  );
+  const deleted = await input.deleteProjectSessionTab(input.input);
   if (!deleted || existingTab?.kind !== "browser") return deleted;
 
   const browserTabId = requireProjectSessionBrowserTabId(existingTab);
-  const remainingSession = projectSessionService.getProjectSession(existingTab.sessionId);
+  const remainingSession = await input.getProjectSession(existingTab.sessionId);
   const identityStillReferenced = remainingSession?.tabs.some((tab) =>
     tab.kind === "browser"
     && requireProjectSessionBrowserTabId(tab) === browserTabId
   ) === true;
   if (identityStillReferenced) return true;
 
-  await browserRuntime.closeBrowserTab({
+  await input.browserRuntime.closeBrowserTab({
     browserConversationId: existingTab.sessionId,
     browserTabId,
   });

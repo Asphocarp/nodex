@@ -1476,6 +1476,15 @@ export async function runMainAppStartup(
           projectSessionService.listProjectSessionSummaries(projectId, options),
         getProjectSession: async (sessionId) =>
           projectSessionService.getProjectSession(sessionId),
+        updateProjectSession: async (sessionId, input) =>
+          projectSessionService.updateProjectSession(sessionId, input),
+        renameProjectSession: async (sessionId, input) => {
+          const existing = projectSessionService.getProjectSession(sessionId);
+          if (!existing || existing.thread) return existing;
+          return projectSessionService.updateProjectSession(sessionId, {
+            noThreadFallbackTitle: input.title,
+          });
+        },
         createProjectSession: async (input) =>
           projectSessionService.createProjectSession(input),
         deleteProjectSession: async (sessionId) =>
@@ -1521,6 +1530,16 @@ export async function runMainAppStartup(
             stateKey,
             state,
           ),
+        updateProjectSessionPanel: async (sessionId, panelId, input) =>
+          projectSessionService.updateProjectSessionPanel(
+            sessionId,
+            panelId,
+            input,
+          ),
+        deleteProjectSessionTab: async (input) =>
+          projectSessionService.deleteProjectSessionTab(input),
+        moveProjectSessionTab: async (input) =>
+          projectSessionService.moveProjectSessionTab(input),
       },
     }),
     libraryModule: createDesktopLibraryModuleBridge({

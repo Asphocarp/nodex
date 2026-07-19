@@ -832,7 +832,13 @@ app.put("/api/project-sessions/:sessionId/rename", async (c) => {
   try {
     const session = await renameProjectSessionChat(c.req.param("sessionId"), body, {
       getProjectSession: projectSessionService.getProjectSession,
-      updateProjectSession: projectSessionService.updateProjectSession,
+      renameProjectSession: (sessionId, input) => {
+        const existing = projectSessionService.getProjectSession(sessionId);
+        if (!existing || existing.thread) return existing;
+        return projectSessionService.updateProjectSession(sessionId, {
+          noThreadFallbackTitle: input.title,
+        });
+      },
       setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
       notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
         dbNotifier.notifyProjectSessionsChanged(projectId, changeType, sessionId);

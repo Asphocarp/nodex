@@ -43,6 +43,10 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).listProjectSessionSummaries(projectId, options),
     getProjectSession: async (sessionId) =>
       await (await resolve()).getProjectSession(sessionId),
+    updateProjectSession: async (sessionId, sessionInput) =>
+      await (await resolve()).updateProjectSession(sessionId, sessionInput),
+    renameProjectSession: async (sessionId, sessionInput) =>
+      await (await resolve()).renameProjectSession(sessionId, sessionInput),
     createProjectSession: async (sessionInput) =>
       await (await resolve()).createProjectSession(sessionInput),
     deleteProjectSession: async (sessionId) =>
@@ -91,5 +95,15 @@ export function createDesktopProjectWorkspaceBridge(
         stateKey,
         state,
       ),
+    updateProjectSessionPanel: async (sessionId, panelId, panelInput) =>
+      await (await resolve()).updateProjectSessionPanel(
+        sessionId,
+        panelId,
+        panelInput,
+      ),
+    deleteProjectSessionTab: async (tabInput) =>
+      await (await resolve()).deleteProjectSessionTab(tabInput),
+    moveProjectSessionTab: async (tabInput) =>
+      await (await resolve()).moveProjectSessionTab(tabInput),
   };
 }

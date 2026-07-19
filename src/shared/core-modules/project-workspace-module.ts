@@ -234,6 +234,7 @@ export interface ProjectSessionPanelSizePatch {
 
 export interface ProjectSessionPanelStatePatch {
   readonly collapsed?: boolean;
+  readonly layout?: ProjectSessionPanelLayout;
   readonly size?: ProjectSessionPanelSizePatch;
 }
 
@@ -342,6 +343,7 @@ export type ProjectSessionIntent =
   | { readonly kind: "set_archived"; readonly archived: boolean }
   | {
       readonly kind: "patch_view_state";
+      readonly fallbackTitle?: string;
       readonly leftPaneCollapsed?: boolean;
       readonly rightPanel?: ProjectSessionPanelStatePatch;
       readonly bottomPanel?: ProjectSessionPanelStatePatch;
@@ -361,13 +363,19 @@ export type ProjectSessionIntent =
       readonly title: string;
       readonly config: ProjectSessionTabConfig;
     }
-  | { readonly kind: "delete_tab"; readonly tabId: string }
+  | {
+      readonly kind: "delete_tab";
+      readonly tabId: string;
+      readonly layout?: ProjectSessionPanelLayout;
+    }
   | {
       readonly kind: "move_tab";
       readonly tabId: string;
       readonly panelId: PanelId;
       readonly targetLeafId?: string;
       readonly beforeTabId?: string;
+      readonly sourceLayout?: ProjectSessionPanelLayout;
+      readonly targetLayout?: ProjectSessionPanelLayout;
     }
   | {
       readonly kind: "update_tab";

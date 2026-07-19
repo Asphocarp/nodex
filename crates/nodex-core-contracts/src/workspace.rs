@@ -531,6 +531,12 @@ pub struct ProjectSessionPanelStatePatch {
         deserialize_with = "deserialize_present",
         skip_serializing_if = "Option::is_none"
     )]
+    pub layout: Option<Value>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub size: Option<ProjectSessionPanelSizePatch>,
 }
 
@@ -705,6 +711,12 @@ pub enum ProjectSessionIntent {
             deserialize_with = "deserialize_present",
             skip_serializing_if = "Option::is_none"
         )]
+        fallback_title: Option<String>,
+        #[serde(
+            default,
+            deserialize_with = "deserialize_present",
+            skip_serializing_if = "Option::is_none"
+        )]
         left_pane_collapsed: Option<bool>,
         #[serde(
             default,
@@ -734,12 +746,15 @@ pub enum ProjectSessionIntent {
     },
     DeleteTab {
         tab_id: String,
+        layout: Option<Value>,
     },
     MoveTab {
         tab_id: String,
         panel_id: ProjectSessionPanelId,
         target_leaf_id: Option<String>,
         before_tab_id: Option<String>,
+        source_layout: Option<Value>,
+        target_layout: Option<Value>,
     },
     UpdateTab {
         tab_id: String,

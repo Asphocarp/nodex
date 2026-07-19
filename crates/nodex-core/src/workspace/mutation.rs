@@ -2606,6 +2606,8 @@ mod tests {
                         panel_id: ProjectSessionPanelId::Bottom,
                         target_leaf_id: None,
                         before_tab_id: None,
+                        source_layout: None,
+                        target_layout: None,
                     },
                 ),
             )
@@ -2618,6 +2620,7 @@ mod tests {
                     &session_id,
                     ProjectSessionIntent::DeleteTab {
                         tab_id: "browser-tab".to_owned(),
+                        layout: None,
                     },
                 ),
             )
@@ -2712,9 +2715,11 @@ mod tests {
                     "workspace-session-patch-view-state",
                     &session_id,
                     ProjectSessionIntent::PatchViewState {
+                        fallback_title: Some("Updated fallback".to_owned()),
                         left_pane_collapsed: Some(true),
                         right_panel: Some(ProjectSessionPanelStatePatch {
                             collapsed: Some(false),
+                            layout: None,
                             size: Some(ProjectSessionPanelSizePatch {
                                 width_px: Some(720.0),
                                 height_px: None,
@@ -2723,6 +2728,7 @@ mod tests {
                         }),
                         bottom_panel: Some(ProjectSessionPanelStatePatch {
                             collapsed: Some(false),
+                            layout: None,
                             size: Some(ProjectSessionPanelSizePatch {
                                 width_px: None,
                                 height_px: Some(360.0),
@@ -2822,9 +2828,11 @@ mod tests {
                     "workspace-session-invalid-panel-size",
                     &session_id,
                     ProjectSessionIntent::PatchViewState {
+                        fallback_title: None,
                         left_pane_collapsed: None,
                         right_panel: Some(ProjectSessionPanelStatePatch {
                             collapsed: None,
+                            layout: None,
                             size: Some(ProjectSessionPanelSizePatch {
                                 width_px: Some(-1.0),
                                 height_px: None,
@@ -2877,6 +2885,7 @@ mod tests {
         else {
             panic!("updated Session snapshot");
         };
+        assert_eq!(session.no_thread_fallback_title, "Updated fallback");
         assert!(session.left_pane_collapsed);
         assert_eq!(panels["right"]["collapsed"], false);
         assert_eq!(panels["right"]["size"]["widthPx"], 720.0);

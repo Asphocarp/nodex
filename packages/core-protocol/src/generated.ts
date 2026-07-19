@@ -2214,6 +2214,7 @@ export interface components {
             readonly kind: "set_archived";
         } | {
             readonly bottom_panel?: null | components["schemas"]["ProjectSessionPanelStatePatch"];
+            readonly fallback_title?: string | null;
             /** @enum {string} */
             readonly kind: "patch_view_state";
             readonly left_pane_collapsed?: boolean | null;
@@ -2236,13 +2237,16 @@ export interface components {
         } | {
             /** @enum {string} */
             readonly kind: "delete_tab";
+            readonly layout?: unknown;
             readonly tab_id: string;
         } | {
             readonly before_tab_id?: string | null;
             /** @enum {string} */
             readonly kind: "move_tab";
             readonly panel_id: components["schemas"]["ProjectSessionPanelId"];
+            readonly source_layout?: unknown;
             readonly tab_id: string;
+            readonly target_layout?: unknown;
             readonly target_leaf_id?: string | null;
         } | {
             readonly config?: unknown;
@@ -2281,6 +2285,7 @@ export interface components {
         };
         readonly ProjectSessionPanelStatePatch: {
             readonly collapsed?: boolean | null;
+            readonly layout?: unknown;
             readonly size?: null | components["schemas"]["ProjectSessionPanelSizePatch"];
         };
         /** @enum {string} */
