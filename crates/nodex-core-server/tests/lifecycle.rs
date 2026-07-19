@@ -19,10 +19,25 @@ fn read_ready_descriptor(child: &mut Child) -> RuntimeDescriptor {
 }
 
 fn request(socket: &str, auth: &str, method: &str, path: &str, body: &str) -> String {
+    request_with_headers(socket, auth, method, path, body, &[])
+}
+
+fn request_with_headers(
+    socket: &str,
+    auth: &str,
+    method: &str,
+    path: &str,
+    body: &str,
+    headers: &[(&str, &str)],
+) -> String {
     let mut stream = UnixStream::connect(socket).expect("connect to Core socket");
+    let headers = headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
     write!(
         stream,
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {auth}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {auth}\r\nContent-Type: application/json\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len(),
     )
     .expect("write request");
@@ -122,43 +137,181 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     let read_json = response_json(&read);
     assert_eq!(read_json["status"], "ok");
     assert_eq!(read_json["payload"]["event_head"], 0);
-    assert_eq!(read_json["payload"]["value"]["library_id"], "probe-library");
+    let library_id = read_json["payload"]["value"]["library_id"]
+        .as_str()
+        .expect("Library identity")
+        .to_owned();
+    assert!(library_id.starts_with("library-"));
 
     let apply_body = serde_json::json!({
         "version": 1,
         "operation_id": "lifecycle-operation-1",
         "store_epoch": expected.store_epoch,
         "intent": {
-            "kind": "grant_project_access",
-            "project_id": "project-1",
-            "target": { "kind": "page", "page_id": "page-1" },
-            "access": "read"
+            "kind": "create_page",
+            "page_id": "page:lifecycle",
+            "document_id": "document:lifecycle",
+            "title": "Core lifecycle",
+            "parent": { "kind": "library", "before": null }
         }
     })
     .to_string();
-    let apply = request(
+    let module_headers = [
+        ("x-nodex-project-id", "project:default"),
+        ("x-nodex-connection-id", "connection:lifecycle"),
+    ];
+    let apply = request_with_headers(
         &expected.socket_path,
         &auth,
         "POST",
         "/core/v1/modules/library/apply",
         &apply_body,
+        &module_headers,
     );
     assert!(apply.starts_with("HTTP/1.1 200"));
     let apply_json = response_json(&apply);
     assert_eq!(apply_json["status"], "ok");
-    assert_eq!(apply_json["payload"]["event_sequence"], 1);
+    let page_event_sequence = apply_json["payload"]["event_sequence"]
+        .as_i64()
+        .expect("Page event sequence");
+    assert!(page_event_sequence >= 1);
     assert_eq!(apply_json["payload"]["receipt"]["duplicate"], false);
 
-    let replay = request(
+    let replay = request_with_headers(
         &expected.socket_path,
         &auth,
         "POST",
         "/core/v1/modules/library/apply",
         &apply_body,
+        &module_headers,
     );
     assert_eq!(
         response_json(&replay)["payload"]["receipt"]["duplicate"],
         true
+    );
+    assert_eq!(
+        response_json(&replay)["payload"]["event_sequence"],
+        page_event_sequence
+    );
+
+    const DATABASE_ID: &str = "018f2000-0000-7000-8000-000000000001";
+    const SOURCE_ID: &str = "018f2000-0000-7000-8000-000000000002";
+    const VIEW_ID: &str = "018f2000-0000-7000-8000-000000000003";
+    let create_database = serde_json::json!({
+        "version": 1,
+        "operation_id": "lifecycle-database-create",
+        "store_epoch": expected.store_epoch,
+        "intent": {
+            "kind": "create_database",
+            "database_id": DATABASE_ID,
+            "data_source_id": SOURCE_ID,
+            "view_id": VIEW_ID,
+            "name": "Lifecycle work",
+            "parent": { "kind": "library", "before": null }
+        }
+    })
+    .to_string();
+    let created_database = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/library/apply",
+        &create_database,
+        &module_headers,
+    );
+    assert_eq!(response_json(&created_database)["status"], "ok");
+
+    let grant_database = serde_json::json!({
+        "version": 1,
+        "operation_id": "lifecycle-database-grant",
+        "store_epoch": expected.store_epoch,
+        "intent": {
+            "kind": "grant_project_access",
+            "project_id": "project:default",
+            "target": { "kind": "database", "database_id": DATABASE_ID },
+            "access": "read_write"
+        }
+    })
+    .to_string();
+    let granted_database = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/library/apply",
+        &grant_database,
+        &module_headers,
+    );
+    assert_eq!(response_json(&granted_database)["status"], "ok");
+
+    let database_read = serde_json::json!({
+        "version": 1,
+        "read": {
+            "target": { "kind": "data_source", "data_source_id": SOURCE_ID },
+            "mode": "data_source",
+            "filter": null,
+            "sort": null
+        }
+    })
+    .to_string();
+    let database_read = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/database/read",
+        &database_read,
+        &module_headers,
+    );
+    let database_read = response_json(&database_read);
+    assert_eq!(database_read["status"], "ok");
+    assert_eq!(
+        database_read["payload"]["value"]["value"]["properties"]
+            .as_array()
+            .map(Vec::len),
+        Some(8)
+    );
+
+    let database_apply_body = serde_json::json!({
+        "version": 1,
+        "operation_id": "lifecycle-database-property",
+        "store_epoch": expected.store_epoch,
+        "intent": [{
+            "kind": "put_property",
+            "data_source_id": SOURCE_ID,
+            "property_id": "risk",
+            "expected_data_source_revision": 1,
+            "expected_property_revision": 0,
+            "name": "Risk",
+            "value_type": "select",
+            "before_property_id": null
+        }]
+    })
+    .to_string();
+    let database_apply = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/database/apply",
+        &database_apply_body,
+        &module_headers,
+    );
+    let database_apply = response_json(&database_apply);
+    assert_eq!(database_apply["status"], "ok");
+    assert_eq!(database_apply["payload"]["value"]["operation_count"], 1);
+    assert_eq!(database_apply["payload"]["receipt"]["duplicate"], false);
+    let database_event_sequence = database_apply["payload"]["event_sequence"].clone();
+    let database_replay = request_with_headers(
+        &expected.socket_path,
+        &auth,
+        "POST",
+        "/core/v1/modules/database/apply",
+        &database_apply_body,
+        &module_headers,
+    );
+    let database_replay = response_json(&database_replay);
+    assert_eq!(database_replay["payload"]["receipt"]["duplicate"], true);
+    assert_eq!(
+        database_replay["payload"]["event_sequence"],
+        database_event_sequence
     );
 
     let oversized = request(
@@ -166,7 +319,7 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &auth,
         "POST",
         "/core/v1/handshake",
-        &"x".repeat(64 * 1024 + 1),
+        &"x".repeat(2 * 1024 * 1024 + 1),
     );
     assert!(oversized.starts_with("HTTP/1.1 413"));
 

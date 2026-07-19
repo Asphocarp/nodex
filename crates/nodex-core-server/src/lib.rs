@@ -20,6 +20,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fs2::FileExt;
+use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
 };
@@ -32,6 +33,7 @@ use nodex_core_contracts::{
     CoreModuleEventPayload, LibraryId, ProfileId, ProjectId, StoreEpoch,
 };
 use nodex_core_protocol::{
+    DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest, DatabaseReadResponse,
     EventEnvelope, HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest,
     LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
     OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
@@ -46,7 +48,7 @@ use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
 
 const RUNTIME_DIRECTORY_MODE: u32 = 0o700;
 const PRIVATE_FILE_MODE: u32 = 0o600;
-const MAX_JSON_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_JSON_REQUEST_BYTES: usize = 2 * 1024 * 1024;
 const MAX_DOCUMENT_REQUEST_BYTES: usize = document_wire::MAX_DOCUMENT_FRAME_BYTES;
 const STARTUP_WAIT: Duration = Duration::from_secs(5);
 const EVENT_CHANNEL_CAPACITY: usize = 64;
@@ -80,7 +82,9 @@ struct ServerState {
     auth_header: String,
     descriptor: RuntimeDescriptor,
     schema_version: u32,
+    library_id: String,
     library: LibraryModule,
+    database: DatabaseModule,
     document: OwnedDocumentModule,
     document_realtime: OwnedDocumentRealtimeAdapter,
     _store: SqliteStoreKernel,
@@ -184,7 +188,7 @@ async fn handshake(
         pid: state.descriptor.pid,
         start_nonce: state.descriptor.start_nonce.clone(),
         profile_id: state.descriptor.profile_id.clone(),
-        library_id: "probe-library".to_owned(),
+        library_id: state.library_id.clone(),
         store_epoch: state.descriptor.store_epoch.clone(),
         schema_version: state.schema_version,
         event_head: state
@@ -198,10 +202,14 @@ async fn handshake(
 
 async fn library_read(
     State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
     Json(LibraryReadRequest(request)): Json<LibraryReadRequest>,
 ) -> Json<LibraryReadResponse> {
-    let response = match state.library.read(&bound_context(&state), request) {
-        Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.library.read(&context, request) {
+            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
+            Err(error) => ResponseEnvelope::Error(error),
+        },
         Err(error) => ResponseEnvelope::Error(error),
     };
     Json(LibraryReadResponse(response))
@@ -209,18 +217,57 @@ async fn library_read(
 
 async fn library_apply(
     State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
     Json(LibraryApplyRequest(request)): Json<LibraryApplyRequest>,
 ) -> Json<LibraryApplyResponse> {
-    let response = match state.library.apply(&bound_context(&state), request) {
-        Ok(outcome) => {
-            if let Some(event) = outcome.event {
-                publish_event(&state, event);
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.library.apply(&context, request) {
+            Ok(outcome) => {
+                if let Some(event) = outcome.event {
+                    publish_event(&state, event);
+                }
+                ResponseEnvelope::Ok(outcome.committed)
             }
-            ResponseEnvelope::Ok(outcome.committed)
-        }
+            Err(error) => ResponseEnvelope::Error(error),
+        },
         Err(error) => ResponseEnvelope::Error(error),
     };
     Json(LibraryApplyResponse(response))
+}
+
+async fn database_read(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(DatabaseReadRequest(request)): Json<DatabaseReadRequest>,
+) -> Json<DatabaseReadResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.database.read(&context, request) {
+            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(DatabaseReadResponse(response))
+}
+
+async fn database_apply(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(DatabaseApplyRequest(request)): Json<DatabaseApplyRequest>,
+) -> Json<DatabaseApplyResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.database.apply(&context, request) {
+            Ok(outcome) => {
+                if let Some(event) = outcome.event {
+                    publish_event(&state, event);
+                }
+                ResponseEnvelope::Ok(outcome.committed)
+            }
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(DatabaseApplyResponse(response))
 }
 
 async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
@@ -615,8 +662,8 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/admin/shutdown", post(shutdown))
         .route("/core/v1/modules/library/read", post(library_read))
         .route("/core/v1/modules/library/apply", post(library_apply))
-        .route("/core/v1/modules/database/read", post(unavailable_module))
-        .route("/core/v1/modules/database/apply", post(unavailable_module))
+        .route("/core/v1/modules/database/read", post(database_read))
+        .route("/core/v1/modules/database/apply", post(database_apply))
         .route("/core/v1/modules/workspace/read", post(unavailable_module))
         .route("/core/v1/modules/workspace/apply", post(unavailable_module))
         .route("/core/v1/modules/automation/read", post(unavailable_module))
@@ -646,14 +693,18 @@ fn router(state: Arc<ServerState>) -> Router {
         .with_state(state)
 }
 
-fn bound_context(state: &ServerState) -> BoundModuleContext {
-    BoundModuleContext {
+fn module_context(
+    state: &ServerState,
+    headers: &HeaderMap,
+) -> Result<BoundModuleContext, CoreError> {
+    Ok(BoundModuleContext {
         profile_id: ProfileId(state.descriptor.profile_id.clone()),
-        library_id: LibraryId("probe-library".to_owned()),
-        project_id: None,
-        connection_id: state.descriptor.start_nonce.clone(),
-        adapter: AdapterKind::Test,
-    }
+        library_id: LibraryId(state.library_id.clone()),
+        project_id: optional_header(headers, PROJECT_HEADER, "Project")?.map(ProjectId),
+        connection_id: optional_header(headers, CONNECTION_HEADER, "Connection")?
+            .unwrap_or_else(|| state.descriptor.start_nonce.clone()),
+        adapter: AdapterKind::ElectronHost,
+    })
 }
 
 fn is_document_binary(headers: &HeaderMap) -> bool {
@@ -730,7 +781,7 @@ fn document_context(
 ) -> Result<BoundModuleContext, CoreError> {
     Ok(BoundModuleContext {
         profile_id: ProfileId(state.descriptor.profile_id.clone()),
-        library_id: LibraryId("probe-library".to_owned()),
+        library_id: LibraryId(state.library_id.clone()),
         project_id: Some(ProjectId(required_header(
             headers,
             PROJECT_HEADER,
@@ -1003,6 +1054,71 @@ fn ensure_store_epoch(
     })
 }
 
+struct LocalIdentity {
+    profile_id: String,
+    library_id: String,
+}
+
+fn ensure_local_identity(
+    store: &SqliteStoreKernel,
+    proposed_profile_id: String,
+) -> Result<LocalIdentity, nodex_core::infrastructure::sqlite::StoreError> {
+    store.writer().call(move |connection| {
+        with_immediate_transaction(connection, |transaction| {
+            let (profile_count, library_count) = transaction.query_row(
+                "SELECT (SELECT COUNT(*) FROM profiles), \
+                        (SELECT COUNT(*) FROM libraries)",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )?;
+            if profile_count != library_count || profile_count > 1 {
+                return Err(nodex_core::infrastructure::sqlite::StoreError::new(
+                    nodex_core::infrastructure::sqlite::StoreErrorCode::StoreCorrupt,
+                    "A Profile store must contain exactly one Profile/Library identity pair",
+                    false,
+                ));
+            }
+            if profile_count == 1 {
+                let (profile_id, library_id) = transaction.query_row(
+                    "SELECT profile.id, library.id FROM profiles profile \
+                     JOIN libraries library ON library.profile_id = profile.id",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                return Ok(LocalIdentity {
+                    profile_id,
+                    library_id,
+                });
+            }
+            let library_id = proposed_profile_id.replacen("profile-", "library-", 1);
+            transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at) VALUES (?1, \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [&proposed_profile_id],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                 VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [&library_id, &proposed_profile_id],
+            )?;
+            transaction.execute(
+                "INSERT INTO projects(id, name, description, icon, created, updated, \
+                   library_id, lifecycle, binding_revision) \
+                 VALUES ('project:default', 'Nodex', '', '', \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?1, 'active', 1)",
+                [&library_id],
+            )?;
+            Ok(LocalIdentity {
+                profile_id: proposed_profile_id,
+                library_id,
+            })
+        })
+    })
+}
+
 pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     validate_home(&home)?;
     let paths = RuntimePaths::new(&home);
@@ -1024,10 +1140,11 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
 
     let auth = random_hex(32)?;
     let start_nonce = random_hex(16)?;
-    let core_profile_id = profile_id(&home);
+    let proposed_profile_id = profile_id(&home);
     let store = SqliteStoreKernel::open(&home)?;
     let schema_version = u32::try_from(store.preparation().schema_version)?;
     let store_epoch = ensure_store_epoch(&store, random_hex(16)?)?;
+    let identity = ensure_local_identity(&store, proposed_profile_id)?;
     atomic_write(&paths.auth, format!("{auth}\n").as_bytes())?;
     let listener = UnixListener::bind(&paths.socket)?;
     fs::set_permissions(&paths.socket, fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
@@ -1038,7 +1155,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         pid: std::process::id(),
         start_nonce: start_nonce.clone(),
         socket_path: paths.socket.to_string_lossy().into_owned(),
-        profile_id: core_profile_id,
+        profile_id: identity.profile_id.clone(),
         store_epoch: store_epoch.clone(),
         readiness_generation: 1,
     };
@@ -1050,14 +1167,18 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
 
     let (event_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
-    let document = OwnedDocumentModule::new(descriptor.profile_id.clone(), "probe-library", &store);
+    let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
+    let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
+    let document = OwnedDocumentModule::new(
+        descriptor.profile_id.clone(),
+        identity.library_id.clone(),
+        &store,
+    );
     let state = Arc::new(ServerState {
         auth_header: format!("Bearer {auth}"),
-        library: LibraryModule::tracer(
-            descriptor.profile_id.clone(),
-            "probe-library".to_owned(),
-            StoreEpoch(store_epoch),
-        ),
+        library_id: identity.library_id,
+        library,
+        database,
         document_realtime: OwnedDocumentRealtimeAdapter::new(document.clone()),
         document,
         _store: store,

@@ -30,6 +30,12 @@ import type {
   CoreEventSubscription,
   CoreHandshakeResponse,
   CoreModuleError,
+  DatabaseApplyInput,
+  DatabaseApplyResponse,
+  DatabaseCommittedValue,
+  DatabaseRead,
+  DatabaseReadResponse,
+  DatabaseReadSnapshot,
   LibraryApplyInput,
   LibraryApplyResponse,
   LibraryCommittedValue,
@@ -119,6 +125,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/library/read",
       { version: PROTOCOL_MAX, read },
+      this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -134,6 +141,34 @@ export class CoreClient implements CoreClientPort {
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
       },
+      this.#moduleHeaders(),
+    );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot> {
+    const response = await this.#transport.requestJson<DatabaseReadResponse>(
+      "POST",
+      "/core/v1/modules/database/read",
+      { version: PROTOCOL_MAX, read },
+      this.#moduleHeaders(true),
+    );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue> {
+    const response = await this.#transport.requestJson<DatabaseApplyResponse>(
+      "POST",
+      "/core/v1/modules/database/apply",
+      {
+        version: PROTOCOL_MAX,
+        operation_id: input.operationId,
+        store_epoch: this.handshake.store_epoch,
+        intent: input.intent,
+      },
+      this.#moduleHeaders(true),
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -266,17 +301,24 @@ export class CoreClient implements CoreClientPort {
     clientSessionId: string,
     documentId?: string,
   ): Readonly<Record<string, string>> {
-    if (!this.#projectId) {
-      throw new Error("CoreClient requires a Project binding for Owned Document access");
-    }
+    const moduleHeaders = this.#moduleHeaders(true);
     if (!clientSessionId || clientSessionId.length > 512) {
       throw new Error("Owned Document client session identity is invalid");
     }
     return {
-      "x-nodex-project-id": this.#projectId,
-      "x-nodex-connection-id": this.#connectionId,
+      ...moduleHeaders,
       "x-nodex-client-session-id": clientSessionId,
       ...(documentId ? { "x-nodex-document-id": documentId } : {}),
+    };
+  }
+
+  #moduleHeaders(requireProject = false): Readonly<Record<string, string>> {
+    if (requireProject && !this.#projectId) {
+      throw new Error("CoreClient requires a Project binding for this Module access");
+    }
+    return {
+      "x-nodex-connection-id": this.#connectionId,
+      ...(this.#projectId ? { "x-nodex-project-id": this.#projectId } : {}),
     };
   }
 }

@@ -31,6 +31,15 @@ type SuccessfulPayload<Response> = Response extends {
 export type LibraryReadSnapshot = SuccessfulPayload<LibraryReadResponse>;
 export type LibraryCommittedValue = SuccessfulPayload<LibraryApplyResponse>;
 
+export type DatabaseReadRequest = components["schemas"]["DatabaseReadRequest"];
+export type DatabaseRead = DatabaseReadRequest["read"];
+export type DatabaseReadResponse = components["schemas"]["DatabaseReadResponse"];
+export type DatabaseApplyRequest = components["schemas"]["DatabaseApplyRequest"];
+export type DatabaseIntent = DatabaseApplyRequest["intent"];
+export type DatabaseApplyResponse = components["schemas"]["DatabaseApplyResponse"];
+export type DatabaseReadSnapshot = SuccessfulPayload<DatabaseReadResponse>;
+export type DatabaseCommittedValue = SuccessfulPayload<DatabaseApplyResponse>;
+
 export type OwnedDocumentReadRequest = components["schemas"]["OwnedDocumentReadRequest"];
 export type OwnedDocumentRead = OwnedDocumentReadRequest["read"];
 export type OwnedDocumentReadResponse = components["schemas"]["OwnedDocumentReadResponse"];
@@ -43,6 +52,11 @@ export type OwnedDocumentCommittedValue = SuccessfulPayload<OwnedDocumentApplyRe
 export interface LibraryApplyInput {
   readonly operationId: string;
   readonly intent: LibraryIntent;
+}
+
+export interface DatabaseApplyInput {
+  readonly operationId: string;
+  readonly intent: DatabaseIntent;
 }
 
 export interface OwnedDocumentApplyInput {
@@ -67,6 +81,8 @@ export interface CoreEventSubscription {
 export interface CoreClientPort {
   libraryRead(read: LibraryRead): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput): Promise<LibraryCommittedValue>;
+  databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
+  databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue>;
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,

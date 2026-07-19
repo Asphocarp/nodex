@@ -31,6 +31,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     kernel.writer().call(|connection| {
         with_immediate_transaction(connection, |transaction| {
             transaction.execute(
+                "INSERT INTO profiles(id, created_at, updated_at) VALUES (?1, \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [PROFILE_ID],
+            )?;
+            transaction.execute(
+                "INSERT INTO libraries(id, profile_id, created_at, updated_at) VALUES (?1, ?2, \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                [LIBRARY_ID, PROFILE_ID],
+            )?;
+            transaction.execute(
                 "INSERT INTO projects(id, library_id, name, created, updated) \
                  VALUES (?1, ?2, 'Core renderer test', \
                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \

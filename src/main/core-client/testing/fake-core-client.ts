@@ -2,6 +2,10 @@ import type {
   CoreClientPort,
   CoreEventEnvelope,
   CoreEventSubscription,
+  DatabaseApplyInput,
+  DatabaseCommittedValue,
+  DatabaseRead,
+  DatabaseReadSnapshot,
   DocumentResyncRequired,
   LibraryApplyInput,
   LibraryCommittedValue,
@@ -25,6 +29,8 @@ import type {
 export class FakeCoreClient implements CoreClientPort {
   readonly reads: LibraryRead[] = [];
   readonly applies: LibraryApplyInput[] = [];
+  readonly databaseReads: DatabaseRead[] = [];
+  readonly databaseApplies: DatabaseApplyInput[] = [];
   readonly documentReads: Array<{
     readonly clientSessionId: string;
     readonly read: OwnedDocumentRead;
@@ -35,6 +41,8 @@ export class FakeCoreClient implements CoreClientPort {
   readonly awarenessPublishes: DocumentAwarenessPublishRequest[] = [];
   readonly #readResults: LibraryReadSnapshot[] = [];
   readonly #applyResults: LibraryCommittedValue[] = [];
+  readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
+  readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
   readonly #documentReadResults: OwnedDocumentReadSnapshot[] = [];
   readonly #documentApplyResults: OwnedDocumentCommittedValue[] = [];
   readonly #documentSyncResults: DocumentSyncResponse[] = [];
@@ -48,6 +56,14 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueApply(result: LibraryCommittedValue): void {
     this.#applyResults.push(result);
+  }
+
+  enqueueDatabaseRead(result: DatabaseReadSnapshot): void {
+    this.#databaseReadResults.push(result);
+  }
+
+  enqueueDatabaseApply(result: DatabaseCommittedValue): void {
+    this.#databaseApplyResults.push(result);
   }
 
   enqueueDocumentRead(result: OwnedDocumentReadSnapshot): void {
@@ -81,6 +97,20 @@ export class FakeCoreClient implements CoreClientPort {
     this.applies.push(input);
     const result = this.#applyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Library apply");
+    return result;
+  }
+
+  async databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot> {
+    this.databaseReads.push(read);
+    const result = this.#databaseReadResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Database read");
+    return result;
+  }
+
+  async databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue> {
+    this.databaseApplies.push(input);
+    const result = this.#databaseApplyResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Database apply");
     return result;
   }
 

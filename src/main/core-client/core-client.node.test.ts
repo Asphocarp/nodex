@@ -91,6 +91,7 @@ describe("CoreClient over a Unix socket", () => {
         nodexHome,
         clientKind: "test",
         buildId: "node-integration-test",
+        projectId: "project:default",
       });
       expect(client.handshake.pid).toBe(winnerPid);
 
@@ -114,34 +115,35 @@ describe("CoreClient over a Unix socket", () => {
       expect(snapshot.event_head).toBe(0);
       expect(snapshot.value).toMatchObject({
         kind: "metadata",
-        library_id: "probe-library",
+        library_id: client.handshake.library_id,
       });
 
       const applyInput = {
         operationId: "node-operation-1",
         intent: {
-          kind: "grant_project_access" as const,
-          project_id: "project-1",
-          target: { kind: "page" as const, page_id: "page-1" },
-          access: "read" as const,
+          kind: "create_page" as const,
+          page_id: "page:node-integration",
+          document_id: "document:node-integration",
+          title: "Node integration",
+          parent: { kind: "library" as const, before: null },
         },
       };
       const committed = await client.libraryApply(applyInput);
-      expect(committed.event_sequence).toBe(1);
+      expect(committed.event_sequence).toBeGreaterThanOrEqual(1);
       expect(committed.receipt.duplicate).toBe(false);
 
       const event = await withTimeout(observedEvent, "Core Module event was not observed");
-      expect(event.event.sequence).toBe(1);
+      expect(event.event.sequence).toBe(committed.event_sequence);
       expect(event.event.payload).toMatchObject({
         module: "library",
         event: {
           kind: "library_changed",
-          page_ids: ["page-1"],
+          page_ids: ["page:node-integration"],
         },
       });
 
       const replay = await client.libraryApply(applyInput);
-      expect(replay.event_sequence).toBe(1);
+      expect(replay.event_sequence).toBe(committed.event_sequence);
       expect(replay.receipt.duplicate).toBe(true);
 
       subscription.close();
