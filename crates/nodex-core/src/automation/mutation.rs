@@ -2769,6 +2769,95 @@ mod tests {
     }
 
     #[test]
+    fn occurrence_mutation_rolls_back_when_receipt_commit_fails() {
+        let harness = harness();
+        let start = "2026-07-17T09:00:00Z"
+            .parse::<chrono::DateTime<Utc>>()
+            .expect("start");
+        let end = start + Duration::hours(1);
+        seed_scheduled_page(
+            &harness,
+            "page:occurrence-rollback",
+            "Rollback authority",
+            start,
+            end,
+            json!({ "frequency": "daily", "interval": 1 }),
+            json!([{ "offsetMinutes": 30 }]),
+        );
+        harness
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute_batch(
+                    "CREATE TEMP TRIGGER fail_occurrence_receipt \
+                     BEFORE INSERT ON core_module_receipts \
+                     WHEN NEW.operation_id = 'occurrence:rollback' BEGIN \
+                       SELECT RAISE(ABORT, 'injected occurrence receipt failure'); \
+                     END;",
+                )?;
+                Ok(())
+            })
+            .expect("install receipt fault");
+        let created_page_id = "018f1000-0000-7000-8000-000000000199";
+
+        let error = apply_with_context(
+            &harness,
+            &project_context(&harness),
+            "occurrence:rollback",
+            AutomationIntent::CompletePageOccurrence {
+                page_id: "page:occurrence-rollback".to_owned(),
+                occurrence_start_ms: start.timestamp_millis(),
+                created_page_id: created_page_id.to_owned(),
+            },
+        )
+        .expect_err("receipt failure must roll back the occurrence aggregate");
+        assert_eq!(
+            error.code,
+            nodex_core_contracts::CoreErrorCode::CoreUnavailable
+        );
+
+        let evidence = harness
+            .kernel
+            .readers()
+            .read_default({
+                let created_page_id = created_page_id.to_owned();
+                move |connection| {
+                    connection
+                        .query_row(
+                            "SELECT schedule.scheduled_start, schedule.scheduled_end, \
+                               (SELECT count(*) FROM blocks WHERE id = ?1), \
+                               (SELECT count(*) FROM scheduled_page_index WHERE page_block_id = ?1), \
+                               (SELECT count(*) FROM core_module_receipts \
+                                 WHERE operation_id = 'occurrence:rollback'), \
+                               (SELECT count(*) FROM change_log \
+                                 WHERE operation_id = 'occurrence:rollback') \
+                             FROM scheduled_page_index schedule \
+                             WHERE schedule.page_block_id = 'page:occurrence-rollback'",
+                            [created_page_id],
+                            |row| {
+                                Ok((
+                                    row.get::<_, String>(0)?,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, i64>(2)?,
+                                    row.get::<_, i64>(3)?,
+                                    row.get::<_, i64>(4)?,
+                                    row.get::<_, i64>(5)?,
+                                ))
+                            },
+                        )
+                        .map_err(Into::into)
+                }
+            })
+            .expect("read occurrence rollback evidence");
+        assert_eq!(evidence.0, "2026-07-17T09:00:00.000Z");
+        assert_eq!(evidence.1, "2026-07-17T10:00:00.000Z");
+        assert_eq!(
+            (evidence.2, evidence.3, evidence.4, evidence.5),
+            (0, 0, 0, 0)
+        );
+    }
+
+    #[test]
     fn occurrence_update_scopes_and_skip_preserve_series_boundaries() {
         let harness = harness();
         let context = project_context(&harness);

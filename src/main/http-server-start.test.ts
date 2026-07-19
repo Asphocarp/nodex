@@ -112,6 +112,34 @@ describe("http server startup options", () => {
     expect(responses.every((response) => response.status === 404)).toBe(true);
   });
 
+  test("does not expose native Core lifecycle or Store Administration routes", async () => {
+    const options = getHttpServerOptions(51283);
+    const requests = [
+      new Request("http://127.0.0.1:51283/core/v1/health"),
+      new Request("http://127.0.0.1:51283/core/v1/admin/shutdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
+      new Request("http://127.0.0.1:51283/core/v1/modules/administration/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
+      new Request("http://127.0.0.1:51283/core/v1/modules/administration/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
+    ];
+
+    const responses = await Promise.all(
+      requests.map((request) => options.fetch(request)),
+    );
+
+    expect(responses.every((response) => response.status === 404)).toBe(true);
+  });
+
   test("does not expose retired Card title or body snapshot HTTP writes", async () => {
     const options = getHttpServerOptions(51283);
     const responses = await Promise.all([

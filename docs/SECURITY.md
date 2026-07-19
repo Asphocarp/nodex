@@ -78,7 +78,9 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 ## Current Gaps
 - The public loopback HTTP API still has no built-in authentication; it is a
   separate Electron adapter and never receives the native Core bearer
-  capability or private lifecycle routes.
+  capability. Behavioral coverage requires 404 for native health, lifecycle,
+  and Store Administration `read`/`apply` paths; the loopback router cannot
+  proxy those private UDS routes by path coincidence.
 - No role-based access control model (single-user/local trust assumption).
 - Security logging/auditing is still local-first and not audit-grade. Backend logs redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records; optional Sentry crash diagnostics are for failure triage, not an audit trail.
 - `full-access` is intentionally high authority: it removes Nodex approval prompts for the exact Turn and permits every read/write/destructive action currently exposed by `nodex_app@4` across the current Library, in addition to unrestricted Codex filesystem and network access.

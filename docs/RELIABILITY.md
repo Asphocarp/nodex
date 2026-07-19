@@ -156,6 +156,17 @@
   responses before publication. Oversized, deeply nested, container-heavy, and
   invalid-UTF-8 inputs fail before Module work; the connection is closed after
   a transport-bound rejection so unread request bytes cannot poison reuse.
+- `pnpm run core:failure-matrix -- --profile <.generated/rust-core-migration/path>`
+  is the executable Gate D recovery audit. It refuses nonempty, symlinked, or
+  out-of-tree Profiles; verifies the named behavior tests still exist; runs all
+  native Module transaction tests plus abrupt-WAL recovery and the Electron
+  loopback isolation test; then seeds and reopens one representative v83
+  Profile to report its final committed sequence, `integrity_check`, and
+  `foreign_key_check`. The matrix covers rejection before transaction,
+  Library/Database/Workspace/Automation rollback during a transaction,
+  Document commit before cache/event publication, v82 migration publication,
+  backup publication before receipt, restore rollback/adoption, and process
+  exit with a committed WAL.
 - Native global Module events are reconstructed from the durable SQLite change
   log in one read transaction after the broadcast receiver is installed. The
   fixed catch-up window is bounded and never returns a partial prefix: a

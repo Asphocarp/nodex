@@ -128,6 +128,16 @@ bytes, backup timing, and active client/subscription/presence/prepared-operation
 counts. These metrics are diagnostics, not durable product authority, and reset
 with the Core process.
 
+Native failure recovery is promoted through one executable Gate D matrix, not
+an informal inference from the full suite. The matrix binds named behavior
+tests for each deep transaction aggregate and for pre-transaction rejection,
+post-commit Document cache/publication recovery, v82 migration, online backup,
+restore journaling/runtime reset, and abrupt WAL exit. It also starts from a
+fresh restricted `.generated` Profile and reports the reopened v83 Store's
+durable head, integrity result, and foreign-key result. The Electron loopback
+test in the same gate proves that private Core health/lifecycle/Store
+Administration UDS paths remain unreachable over the public HTTP adapter.
+
 The native Library and Database Modules now cover their complete Milestone 5
 semantic surface behind those fixed `read`/`apply` pairs. Whole-Page copy is a
 single Library writer aggregate: it fences source location, parent, membership,
