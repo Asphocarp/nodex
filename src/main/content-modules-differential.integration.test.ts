@@ -36,6 +36,9 @@ import {
   getProjectSession,
   listProjectSessionSummaries,
   listProjectlessSessionSummaries,
+  markProjectSessionUnread,
+  setProjectSessionPinned,
+  updateProjectSession,
 } from "./local-store/project-sessions";
 import {
   applyDatabaseModuleV2,
@@ -2616,6 +2619,84 @@ describe("TypeScript/Rust content Module differential", () => {
     expect(normalizePanelTabs(candidateCreatedSession.value.panels)).toEqual(
       normalizePanelTabs(oracleCreatedSession.panels),
     );
+
+    const oracleMutatedSession = updateProjectSession(oracleCreatedSession.id, {
+      noThreadFallbackTitle: "Gate C renamed Session",
+    });
+    if (!oracleMutatedSession) throw new Error("TypeScript Session update disappeared");
+    setProjectSessionPinned(oracleCreatedSession.id, { pinned: false });
+    markProjectSessionUnread(oracleCreatedSession.id, { unread: true });
+    const candidateRenameSessionInput = {
+      operationId: "gate-c-workspace-rename-session",
+      intent: {
+        kind: "mutate_session" as const,
+        session_id: candidateCreatedSession.value.session.id,
+        intent: {
+          kind: "rename" as const,
+          title: "Gate C renamed Session",
+        },
+      },
+    };
+    const candidateRenamedSession = await stage(
+      "Project Workspace rename Session",
+      candidate.workspaceApply(candidateRenameSessionInput),
+    );
+    expect(candidateRenamedSession.value).toMatchObject({
+      affected_project_ids: [candidateProjectId],
+      affected_session_ids: [candidateCreatedSession.value.session.id],
+      affected_thread_ids: [],
+    });
+    const candidateRenamedSessionReplay = await stage(
+      "Project Workspace replay Session rename",
+      candidate.workspaceApply(candidateRenameSessionInput),
+    );
+    expect(candidateRenamedSessionReplay.event_sequence).toBe(
+      candidateRenamedSession.event_sequence,
+    );
+    expect(candidateRenamedSessionReplay.receipt.duplicate).toBe(true);
+    await stage(
+      "Project Workspace unpin Session",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-unpin-session",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: { kind: "set_pinned", pinned: false },
+        },
+      }),
+    );
+    await stage(
+      "Project Workspace mark Session unread",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-unread-session",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateCreatedSession.value.session.id,
+          intent: { kind: "set_unread", unread: true },
+        },
+      }),
+    );
+    const oracleMutatedSessionSummary = listProjectSessionSummaries(
+      oracleCreatedProject.id,
+    )[0];
+    const candidateMutatedSession = await stage(
+      "Project Workspace mutated Session snapshot",
+      candidate.workspaceRead({
+        kind: "session",
+        session_id: candidateCreatedSession.value.session.id,
+      }),
+    );
+    if (!oracleMutatedSessionSummary || candidateMutatedSession.value.kind !== "session") {
+      throw new Error("Expected mutated Session snapshots from both authorities");
+    }
+    expect(candidateMutatedSession.value.session).toMatchObject({
+      display_title: oracleMutatedSessionSummary.displayTitle,
+      order: oracleMutatedSessionSummary.order,
+      pinned: oracleMutatedSessionSummary.pinned,
+      archived: oracleMutatedSessionSummary.archived,
+      unread: oracleMutatedSessionSummary.unread,
+      thread_id: null,
+    });
 
     const oracleInitialDatabase = readDatabaseModuleV2(getDb(), {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,

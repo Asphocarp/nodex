@@ -23,7 +23,7 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
-use super::ProjectWorkspaceApplyOutcome;
+use super::{ProjectWorkspaceApplyOutcome, session_mutation};
 
 const MODULE_NAME: &str = "project_workspace";
 const MAX_ID_LENGTH: usize = 512;
@@ -56,16 +56,16 @@ struct CreatedProjectAggregate {
     committed_at: String,
 }
 
-struct WorkspaceMutationEffects {
-    operation_kind: &'static str,
-    change_project_id: String,
-    project_ids: Vec<String>,
-    session_ids: Vec<String>,
-    thread_ids: Vec<String>,
-    block_ids: Vec<String>,
-    document_ids: Vec<String>,
-    database_ids: Vec<String>,
-    committed_at: String,
+pub(super) struct WorkspaceMutationEffects {
+    pub(super) operation_kind: &'static str,
+    pub(super) change_project_id: String,
+    pub(super) project_ids: Vec<String>,
+    pub(super) session_ids: Vec<String>,
+    pub(super) thread_ids: Vec<String>,
+    pub(super) block_ids: Vec<String>,
+    pub(super) document_ids: Vec<String>,
+    pub(super) database_ids: Vec<String>,
+    pub(super) committed_at: String,
 }
 
 struct ProjectSource {
@@ -238,9 +238,18 @@ pub(super) fn apply(
                         *pinned,
                     )
                 }
-                ProjectWorkspaceIntent::MutateSession { .. } => Err(invalid(
-                    "Project Session intent has not been migrated to native Core",
-                )),
+                ProjectWorkspaceIntent::MutateSession { session_id, intent } => {
+                    session_mutation::mutate_session(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        session_id,
+                        intent,
+                    )
+                }
             }
         })
     })
@@ -299,7 +308,7 @@ fn create_project(
     )
 }
 
-fn finish_mutation(
+pub(super) fn finish_mutation(
     connection: &Connection,
     context: &BoundModuleContext,
     store_epoch: &str,
@@ -701,7 +710,10 @@ fn require_project(
         .ok_or_else(|| not_found("Project is unavailable in this Library"))
 }
 
-fn workspace_event_anchor(connection: &Connection, library_id: &str) -> Result<String, StoreError> {
+pub(super) fn workspace_event_anchor(
+    connection: &Connection,
+    library_id: &str,
+) -> Result<String, StoreError> {
     connection
         .query_row(
             "SELECT id FROM projects WHERE library_id = ?1 ORDER BY created, id LIMIT 1",
@@ -1072,7 +1084,9 @@ fn not_found(message: &str) -> StoreError {
 mod tests {
     use std::fs;
 
-    use nodex_core_contracts::workspace::{ProjectLifecycle, ProjectWorkspaceIntent};
+    use nodex_core_contracts::workspace::{
+        ProjectLifecycle, ProjectSessionIntent, ProjectWorkspaceIntent,
+    };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
         ModuleApplyRequest, ProfileId, ProjectId, StoreEpoch,
@@ -1158,6 +1172,20 @@ mod tests {
             store_epoch: StoreEpoch("epoch-1".to_owned()),
             intent,
         }
+    }
+
+    fn session_request(
+        operation_id: &str,
+        session_id: &str,
+        intent: ProjectSessionIntent,
+    ) -> ModuleApplyRequest<ProjectWorkspaceIntent> {
+        request(
+            operation_id,
+            ProjectWorkspaceIntent::MutateSession {
+                session_id: session_id.to_owned(),
+                intent,
+            },
+        )
     }
 
     #[test]
@@ -1486,6 +1514,176 @@ mod tests {
             })
             .expect("read restored Project");
         assert_eq!(restored, ("active".to_owned(), 4, 3));
+    }
+
+    #[test]
+    fn mutates_session_state_and_existing_thread_links_with_exact_replay() {
+        let (_directory, kernel, module) = seeded_module();
+        let created = module
+            .apply(
+                &context(),
+                create_request("workspace-create-session-owner", "project-native"),
+            )
+            .expect("create Session owner Project");
+        let session_id = created.committed.value.affected_session_ids[0].clone();
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO codex_threads(\
+                       thread_id, project_id, thread_name, thread_preview, model_provider, \
+                       status_type, status_active_flags_json, archived, created_at, updated_at, \
+                       linked_at\
+                     ) VALUES (\
+                       'thread-native', 'project-native', '', 'Preview', 'openai', 'idle', '[]', \
+                       0, 1, 2, ?1\
+                     )",
+                    [NOW],
+                )?;
+                connection.execute(
+                    "INSERT INTO codex_unread_threads(thread_id) VALUES ('thread-native')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("seed existing Codex Thread");
+
+        let rename = session_request(
+            "workspace-session-rename-fallback",
+            &session_id,
+            ProjectSessionIntent::Rename {
+                title: "  Fallback   title  ".to_owned(),
+            },
+        );
+        let renamed = module
+            .apply(&context(), rename.clone())
+            .expect("rename unlinked Session");
+        assert_eq!(
+            renamed.committed.value.affected_session_ids.as_slice(),
+            std::slice::from_ref(&session_id)
+        );
+        let replay = module
+            .apply(&context(), rename)
+            .expect("replay Session rename");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replay.committed.event_sequence,
+            renamed.committed.event_sequence
+        );
+
+        let mismatched = module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-link-mismatch",
+                    &session_id,
+                    ProjectSessionIntent::LinkThread {
+                        thread_id: "thread-native".to_owned(),
+                        expected_project_id: Some("project:default".to_owned()),
+                    },
+                ),
+            )
+            .expect_err("reject mismatched Thread Project");
+        assert_eq!(mismatched.code, CoreErrorCode::RevisionConflict);
+
+        let linked = module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-link",
+                    &session_id,
+                    ProjectSessionIntent::LinkThread {
+                        thread_id: "thread-native".to_owned(),
+                        expected_project_id: Some("project-native".to_owned()),
+                    },
+                ),
+            )
+            .expect("link existing Codex Thread");
+        assert_eq!(
+            linked.committed.value.affected_thread_ids,
+            ["thread-native"]
+        );
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-rename-thread",
+                    &session_id,
+                    ProjectSessionIntent::Rename {
+                        title: "  Thread   title  ".to_owned(),
+                    },
+                ),
+            )
+            .expect("rename linked Codex Thread");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-unpin",
+                    &session_id,
+                    ProjectSessionIntent::SetPinned { pinned: false },
+                ),
+            )
+            .expect("unpin Session");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-read",
+                    &session_id,
+                    ProjectSessionIntent::SetUnread { unread: false },
+                ),
+            )
+            .expect("mark Session read");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-unlink",
+                    &session_id,
+                    ProjectSessionIntent::UnlinkThread {
+                        thread_id: "thread-native".to_owned(),
+                    },
+                ),
+            )
+            .expect("unlink Codex Thread");
+
+        let stored = kernel
+            .writer()
+            .call(move |connection| {
+                connection
+                    .query_row(
+                        "SELECT session.no_thread_fallback_title, session.pinned, \
+                            session.pinned_order, session.unread, thread.thread_name, \
+                            (SELECT count(*) FROM project_session_threads \
+                             WHERE session_id = session.id), \
+                            (SELECT count(*) FROM core_module_receipts \
+                             WHERE operation_id = 'workspace-session-link-mismatch'), \
+                            (SELECT count(*) FROM change_log \
+                             WHERE operation_id = 'workspace-session-link-mismatch') \
+                         FROM project_sessions session CROSS JOIN codex_threads thread \
+                         WHERE session.id = ?1 AND thread.thread_id = 'thread-native'",
+                        [&session_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, Option<i64>>(2)?,
+                                row.get::<_, i64>(3)?,
+                                row.get::<_, String>(4)?,
+                                row.get::<_, i64>(5)?,
+                                row.get::<_, i64>(6)?,
+                                row.get::<_, i64>(7)?,
+                            ))
+                        },
+                    )
+                    .map_err(Into::into)
+            })
+            .expect("read mutated Session");
+        assert_eq!(stored.0, "Fallback title");
+        assert_eq!((stored.1, stored.2, stored.3), (0, None, 0));
+        assert_eq!(stored.4, "Thread title");
+        assert_eq!((stored.5, stored.6, stored.7), (0, 0, 0));
     }
 
     #[test]

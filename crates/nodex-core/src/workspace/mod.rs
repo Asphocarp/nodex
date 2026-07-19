@@ -1,5 +1,6 @@
 mod mutation;
 mod read;
+mod session_mutation;
 
 use std::path::PathBuf;
 

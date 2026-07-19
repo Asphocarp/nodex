@@ -89,7 +89,7 @@ active Project execution contexts and non-archived startup Sessions, or resolves
 an exact Project, Session panel state, thread owner, or managed-worktree set.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Full Session/tab writes and Codex
+bindings and cross-Library rows fail closed. Panel/tab writes, complete Codex
 launch metadata, Automation, and Store Administration remain migration work, so
 their unavailable operations do not fall back to direct native SQL.
 
@@ -113,6 +113,15 @@ advance it, remove archived Projects from sidebar/pinned order, and append a
 restored Project without renumbering surviving gaps. Multi-Project reorder events
 use a deterministic Project anchor for the non-null change ledger coordinate
 while carrying the complete affected order in the Workspace event.
+
+Workspace also owns Session fallback/linked-thread titles, pinned and unread
+state, and links to already-persisted Codex Threads. Link writes require the
+Session, expected Project, and Thread Project to agree exactly and reject a
+Thread already owned by another Session; unlink carries the exact Thread ID as a
+guard. These mutations share the Workspace transaction/receipt/event boundary.
+Electron remains responsible for starting Codex and coordinating an external
+app-server rename; native Core persists the accepted local metadata and never
+starts execution as part of a Session mutation.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit
