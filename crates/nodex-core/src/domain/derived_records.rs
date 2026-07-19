@@ -54,6 +54,34 @@ pub enum BlockDocumentReference {
     },
 }
 
+impl BlockDocumentReference {
+    pub(crate) fn target_block_id(&self) -> Option<&str> {
+        match self {
+            Self::Block {
+                target_block_id, ..
+            }
+            | Self::LegacyCardProjection {
+                target_block_id, ..
+            } => Some(target_block_id),
+            Self::DatabaseView { .. } | Self::Thread { .. } | Self::LegacyDatabaseQuery { .. } => {
+                None
+            }
+        }
+    }
+
+    pub(crate) fn database_view_id(&self) -> Option<&str> {
+        match self {
+            Self::DatabaseView {
+                database_view_id, ..
+            } => Some(database_view_id),
+            Self::Block { .. }
+            | Self::Thread { .. }
+            | Self::LegacyCardProjection { .. }
+            | Self::LegacyDatabaseQuery { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BlockDocumentAssetKind {

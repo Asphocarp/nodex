@@ -93,9 +93,7 @@ execution context, root/child Thread collection, managed-worktree set, durable
 sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
-bindings and cross-Library rows fail closed. Store Administration's physical
-Block-retention closure remains migration work; unavailable semantics do not
-fall back to direct native SQL.
+bindings and cross-Library rows fail closed.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
 occurrence surface. Store Administration owns v83 readiness, backup listing,
@@ -114,8 +112,17 @@ and automatic-retention pruning commit a durable logical tombstone before
 best-effort physical cleanup, so a crash cannot make a deleted backup visible or
 restorable and an exact retry finishes cleanup. Maintenance normalizes task
 order inside the Module and owns integrity/foreign-key verification, bounded
-eligible Document compaction, and revision retention. Block-retention GC remains
-closed until its complete authority-closure proof is ported.
+eligible Document compaction, revision retention, and physical Block retention.
+Block retention preserves the newest 10,000 deleted Blocks per Project, then
+handles at most 100 older roots per pass in independent IMMEDIATE transactions.
+It derives each recursive deleted ownership closure from registered Documents,
+reconstructs current Yrs/Canvas authority, decodes bounded retained history,
+and scans recovery, immutable attribution, relocation, Database, Session,
+reminder, and inbound-FK roots. Only expired revisions and wholly attributable
+resolved recovery artifacts are pruned; immutable mutation/change evidence is
+retained. Every collected identity enters `retired_block_identities` before the
+verified Block/Document closure is removed, and any unclassified reference or
+late constraint rolls the candidate back.
 
 Every native Module now holds a stable `StoreWriter`/`StoreReaders` facade,
 not a generation-local connection or channel. The shared store runtime admits

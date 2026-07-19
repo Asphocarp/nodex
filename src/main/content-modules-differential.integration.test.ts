@@ -105,6 +105,14 @@ import {
   recordCodexScheduledAutomationRunDispatched,
 } from "./local-store/codex-scheduled-automations";
 import {
+  createBackup,
+  deleteBackup,
+  listBackups,
+  restoreBackup,
+} from "./local-store/backups";
+import { compactEligibleBlockDocuments } from "./local-store/block-document-compaction";
+import { maintainStoreBlockRetention } from "./local-store/block-retention-maintenance-store";
+import {
   archiveCodexAutomationRun,
   captureCodexAutomationArchiveMessages,
   deleteCodexAutomationRunsForAutomation,
@@ -170,10 +178,18 @@ const waitForDescriptor = (
 ): Promise<void> =>
   new Promise((resolve, reject) => {
     const lines = createInterface({ input: child.stdout });
+    let diagnostics = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      diagnostics = `${diagnostics}${chunk.toString("utf8")}`.slice(-4_096);
+    });
     const timeout = setTimeout(() => {
       lines.close();
-      reject(new Error("Core did not publish its runtime descriptor"));
-    }, 5_000);
+      reject(new Error(
+        `Core did not publish its runtime descriptor${
+          diagnostics ? `: ${diagnostics}` : ""
+        }`,
+      ));
+    }, 15_000);
     lines.once("line", () => {
       clearTimeout(timeout);
       lines.close();
@@ -183,6 +199,15 @@ const waitForDescriptor = (
       clearTimeout(timeout);
       lines.close();
       reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      lines.close();
+      reject(new Error(
+        `Core exited before publishing its runtime descriptor (code ${code})${
+          diagnostics ? `: ${diagnostics}` : ""
+        }`,
+      ));
     });
   });
 
@@ -5439,6 +5464,213 @@ describe("TypeScript/Rust content Module differential", () => {
     }));
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
+    await expect(waitForExit(child)).resolves.toBe(0);
+  });
+
+  test("preserves Store Administration backup, maintenance, and restore semantics on independent copies", async () => {
+    expect(existsSync(CORE_BINARY), "build nodex-core before the differential gate").toBe(true);
+    const typescriptHome = temporaryDirectory("ndx-adm-ts-");
+    const rustHome = temporaryDirectory("ndx-adm-rs-");
+    process.env.NODEX_HOME = typescriptHome;
+    await initializeDatabase();
+    const initialProject = listProjects()[0];
+    if (!initialProject) throw new Error("Store Administration oracle has no Project");
+    const profile = getDb().prepare(`
+      SELECT profile.id AS profileId, library.id AS libraryId,
+        metadata.store_epoch AS storeEpoch
+      FROM profiles profile
+      INNER JOIN libraries library ON library.profile_id = profile.id
+      INNER JOIN block_store_metadata metadata ON metadata.id = 1
+      LIMIT 1
+    `).get() as {
+      readonly profileId: string;
+      readonly libraryId: string;
+      readonly storeEpoch: string;
+    };
+    closeDatabase();
+    cpSync(typescriptHome, rustHome, { recursive: true });
+    await initializeDatabase();
+
+    const child = spawnCore(rustHome);
+    await waitForDescriptor(child);
+    const candidate = await stage("Store Administration Core connect", CoreClient.connect({
+      nodexHome: rustHome,
+      clientKind: "test",
+      buildId: "store-administration-gate-c",
+      projectId: initialProject.id,
+    }));
+    expect(candidate.handshake).toMatchObject({
+      profile_id: profile.profileId,
+      library_id: profile.libraryId,
+      store_epoch: profile.storeEpoch,
+      schema_version: 83,
+    });
+    const candidateStatus = await candidate.administrationRead({ kind: "status" });
+    expect(candidateStatus.value).toEqual({
+      kind: "status",
+      readiness: "ready",
+      schema_version: 83,
+      schema_owner: "rust",
+      integrity: "unknown",
+    });
+
+    const oracleDatabase = getDb();
+    expect(oracleDatabase.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
+    expect(oracleDatabase.pragma("foreign_key_check")).toEqual([]);
+    const oracleCompaction = compactEligibleBlockDocuments(oracleDatabase, {
+      storeEpoch: profile.storeEpoch,
+    });
+    const oracleRetention = maintainStoreBlockRetention(oracleDatabase, {
+      storeEpoch: profile.storeEpoch,
+      retainNewestDeletedBlocks: 10_000,
+    });
+    expect(oracleCompaction.selectedDocumentCount).toBe(0);
+    expect(oracleRetention).toMatchObject({
+      collectedCandidateCount: 0,
+      retainedCandidateCount: 0,
+      failedCandidateCount: 0,
+    });
+    const maintained = await stage(
+      "Store Administration maintenance",
+      candidate.administrationApply({
+        operationId: "gate-c-administration-maintenance",
+        intent: {
+          kind: "run_maintenance",
+          tasks: [
+            "block_retention",
+            "history_retention",
+            "document_compaction",
+            "foreign_key_check",
+            "integrity_check",
+          ],
+        },
+      }),
+    );
+    expect(maintained.value.completed_tasks).toEqual([
+      "integrity_check",
+      "foreign_key_check",
+      "document_compaction",
+      "history_retention",
+      "block_retention",
+    ]);
+    const maintainedStatus = await candidate.administrationRead({ kind: "status" });
+    expect(maintainedStatus.value).toMatchObject({ integrity: "ok" });
+
+    const oracleBackup = await createBackup({
+      label: "Gate C restore point",
+    });
+    const candidateBackup = await stage(
+      "Store Administration create backup",
+      candidate.administrationApply({
+        operationId: "gate-c-administration-create-backup",
+        intent: {
+          kind: "create_backup",
+          label: "Gate C restore point",
+          include_assets: false,
+        },
+      }),
+    );
+    const candidateBackupId = candidateBackup.value.backup_id;
+    if (!candidateBackupId) throw new Error("Native backup has no identity");
+    expect(oracleBackup.totalBytes).toBeGreaterThan(0);
+    const oracleInventory = await listBackups();
+    const candidateInventory = await candidate.administrationRead({ kind: "backups" });
+    if (candidateInventory.value.kind !== "backups") {
+      throw new Error("Expected native backup inventory");
+    }
+    expect(oracleInventory.map((backup) => backup.label)).toEqual([
+      "Gate C restore point",
+    ]);
+    expect(candidateInventory.value.items).toMatchObject([
+      {
+        backup_id: candidateBackupId,
+        label: "Gate C restore point",
+        byte_length: expect.any(Number),
+      },
+    ]);
+    expect(candidateInventory.value.items[0]?.byte_length).toBeGreaterThan(0);
+
+    const oracleUpdated = updateProject(initialProject.id, {
+      name: "Gate C post-backup mutation",
+    });
+    if (!oracleUpdated) throw new Error("Oracle Project mutation disappeared");
+    await candidate.workspaceApply({
+      operationId: "gate-c-administration-post-backup-mutation",
+      intent: {
+        kind: "update_project",
+        project_id: initialProject.id,
+        expected_binding_revision: initialProject.bindingRevision,
+        name: "Gate C post-backup mutation",
+      },
+    });
+
+    const oracleRestore = await restoreBackup({
+      backupId: oracleBackup.id,
+      confirm: true,
+      createSafetyBackup: false,
+    });
+    expect(oracleRestore).toMatchObject({
+      success: true,
+      restoredBackupId: oracleBackup.id,
+      safetyBackupId: undefined,
+    });
+    const restoreInput = {
+      operationId: "gate-c-administration-restore-backup",
+      intent: {
+        kind: "restore_backup" as const,
+        backup_id: candidateBackupId,
+        create_safety_backup: false,
+      },
+    };
+    const candidateRestore = await stage(
+      "Store Administration restore backup",
+      candidate.administrationApply(restoreInput),
+    );
+    expect(candidateRestore.value).toMatchObject({
+      backup_id: candidateBackupId,
+      safety_backup_id: null,
+    });
+    const candidateRestoreReplay = await candidate.administrationApply(restoreInput);
+    expect(candidateRestoreReplay.receipt.duplicate).toBe(true);
+
+    const restoredCandidate = await stage(
+      "Store Administration reconnect after restore",
+      CoreClient.connect({
+        nodexHome: rustHome,
+        clientKind: "test",
+        buildId: "store-administration-gate-c-restored",
+        projectId: initialProject.id,
+      }),
+    );
+    expect(restoredCandidate.handshake.store_epoch).not.toBe(profile.storeEpoch);
+    const oracleRestoredProject = listProjects().find(
+      (project) => project.id === initialProject.id,
+    );
+    const candidateRestoredProject = await restoredCandidate.workspaceRead({
+      kind: "project",
+      project_id: initialProject.id,
+    });
+    if (candidateRestoredProject.value.kind !== "project") {
+      throw new Error("Expected restored native Project");
+    }
+    expect(oracleRestoredProject?.name).toBe(initialProject.name);
+    expect(candidateRestoredProject.value.project.name).toBe(initialProject.name);
+
+    await deleteBackup(oracleBackup.id);
+    await restoredCandidate.administrationApply({
+      operationId: "gate-c-administration-delete-backup",
+      intent: {
+        kind: "delete_backup",
+        backup_id: candidateBackupId,
+      },
+    });
+    expect(await listBackups()).toEqual([]);
+    const finalCandidateInventory = await restoredCandidate.administrationRead({
+      kind: "backups",
+    });
+    expect(finalCandidateInventory.value).toEqual({ kind: "backups", items: [] });
+
+    await expect(restoredCandidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);
   });
 });

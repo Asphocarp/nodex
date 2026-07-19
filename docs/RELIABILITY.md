@@ -83,8 +83,16 @@
   cleanup. Backup reads and restore filter those identities, and exact retry
   completes cleanup after a post-receipt crash. Integrity/foreign-key checks,
   bounded eligible Document compaction, and revision retention run in a
-  Module-owned canonical order with one exact receipt. Native Block-retention GC
-  remains closed until its complete authority-closure proof is ported.
+  Module-owned canonical order with physical Block retention and one exact
+  receipt. Retention processes each older deleted root in its own IMMEDIATE
+  transaction, reconstructs current Yrs/Canvas authority instead of trusting a
+  stale projection, decodes bounded retained revisions through the same history
+  readers, and fails closed on live descendants, recovery, Database/Session/
+  reminder roots, cross-Project attribution, relocation, or unknown inbound
+  foreign keys. It prunes only expired revisions and wholly owned resolved or
+  discarded recovery artifacts. Immutable mutation/change rows survive physical
+  collection, and permanent retired identities plus exact row counts make ID
+  reuse or a partial closure impossible.
 - Native SQLite handles are generation-stable facades. Exclusive maintenance
   rejects new reads/writes with a typed retryable error, waits for all accepted
   operations (including queued writer jobs and checked-out readers), joins the

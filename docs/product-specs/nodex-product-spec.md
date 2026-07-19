@@ -393,6 +393,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Restore rejects snapshots with missing referenced managed assets, nested asset directories, symlinks, or unsafe asset filenames
 - Successful restore automatically reloads every open collaborative Page against a new store epoch; edits and local recovery data from before restore cannot replay into the restored snapshot.
 - Backup artifacts are stored under `~/.nodex/backups/<backup-id>/` with a versioned `manifest.json`
+- Store maintenance executes integrity, foreign-key, Document compaction, revision-retention, and deleted-Block retention tasks in one canonical order regardless of caller ordering.
+- Native deleted-Block maintenance preserves the newest 10,000 tombstones per Project and removes only an older all-deleted ownership closure with no live content, history, recovery, Database, Session, reminder, relocation, cross-Project, or unknown foreign-key root.
+- Physical collection never rewrites immutable mutation/change evidence, permanently reserves every collected Block identity against reuse, and rolls back the complete candidate if any late constraint changes.
 
 #### 10. Canvas View (Excalidraw)
 - Canvas tab provides a freeform whiteboard per Project for Page brainstorming and visual mapping.

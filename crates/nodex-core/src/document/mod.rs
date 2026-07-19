@@ -14,6 +14,7 @@ mod persistence;
 mod primary_canvas;
 mod realtime;
 mod recovery;
+mod retention;
 mod runtime;
 mod semantic;
 mod yrs_engine;
@@ -45,6 +46,7 @@ pub use realtime::{
     AwarenessPublication, DocumentRealtimeEvent, DocumentRealtimeReplay, DocumentSubscriptionAck,
     DocumentSubscriptionEngine, OwnedDocumentRealtimeAdapter,
 };
+pub(crate) use retention::run_block_retention_pass;
 pub use yrs_engine::{
     AwarenessChange, CandidateCommit, DocumentAwareness, MAX_AWARENESS_UPDATE_BYTES,
     MAX_DOCUMENT_UPDATE_BYTES, MAX_STATE_VECTOR_BYTES, YrsDiagnostic, YrsDocumentEngine,

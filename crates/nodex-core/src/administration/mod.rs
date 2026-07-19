@@ -531,11 +531,6 @@ impl StoreAdministrationModule {
         request: ModuleApplyRequest<StoreAdministrationIntent>,
         tasks: Vec<MaintenanceTask>,
     ) -> Result<StoreAdministrationApplyOutcome, CoreError> {
-        if tasks.contains(&MaintenanceTask::BlockRetention) {
-            return Err(unavailable(
-                "Native Block retention maintenance is not available in this slice",
-            ));
-        }
         let Some(writer) = &self.writer else {
             return Err(unavailable(
                 "Store Administration Module has no durable writer",
@@ -1150,9 +1145,7 @@ fn run_maintenance_task(
             crate::document::prune_document_history_pass(connection)?;
         }
         MaintenanceTask::BlockRetention => {
-            return Err(internal(
-                "Block retention must be rejected before maintenance execution",
-            ));
+            crate::document::run_block_retention_pass(connection)?;
         }
     }
     Ok(())

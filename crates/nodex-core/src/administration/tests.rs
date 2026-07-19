@@ -1004,6 +1004,7 @@ fn prunes_only_automatic_backups_beyond_the_retention_count() {
 fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
     let fixture = Fixture::new();
     let tasks = vec![
+        MaintenanceTask::BlockRetention,
         MaintenanceTask::HistoryRetention,
         MaintenanceTask::DocumentCompaction,
         MaintenanceTask::ForeignKeyCheck,
@@ -1019,6 +1020,7 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
             MaintenanceTask::ForeignKeyCheck,
             MaintenanceTask::DocumentCompaction,
             MaintenanceTask::HistoryRetention,
+            MaintenanceTask::BlockRetention,
         ]
     );
     assert!(maintained.event.is_some());
@@ -1040,6 +1042,7 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
                 MaintenanceTask::ForeignKeyCheck,
                 MaintenanceTask::DocumentCompaction,
                 MaintenanceTask::HistoryRetention,
+                MaintenanceTask::BlockRetention,
             ],
         )
         .expect("exact maintenance retry");
@@ -1056,13 +1059,6 @@ fn runs_supported_maintenance_in_module_owned_order_with_exact_replay() {
         )
         .expect_err("duplicate maintenance task");
     assert_eq!(duplicate.code, CoreErrorCode::InvalidInput);
-    let block_retention = fixture
-        .run_maintenance(
-            "administration:maintenance:block-retention",
-            vec![MaintenanceTask::BlockRetention],
-        )
-        .expect_err("unported Block retention task");
-    assert_eq!(block_retention.code, CoreErrorCode::CoreUnavailable);
 }
 
 #[test]

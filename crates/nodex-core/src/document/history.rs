@@ -1,6 +1,8 @@
 use nodex_core_contracts::BoundModuleContext;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
 use serde_json::{Map, Value, json};
 
 use crate::domain::block_materialization::MaterializedBlockNode;
@@ -39,6 +41,14 @@ pub(crate) struct StoredDocumentVersion {
     pub(crate) materialization: Value,
     pub(crate) block_materialization: Option<DocumentMaterialization>,
     pub(crate) canvas_scene: Option<CanvasScene>,
+}
+
+#[derive(Debug)]
+pub(super) struct DocumentVersionRetentionEvidence {
+    pub(super) document_id: String,
+    pub(super) block_ids: BTreeSet<String>,
+    pub(super) referenced_block_ids: BTreeSet<String>,
+    pub(super) database_view_ids: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -672,6 +682,74 @@ fn decode_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredVersionRow> {
         byte_length: row.get(18)?,
         created_at: row.get(19)?,
     })
+}
+
+pub(super) fn read_document_version_retention_evidence(
+    connection: &Connection,
+    maximum_versions: usize,
+) -> Result<Vec<DocumentVersionRetentionEvidence>, StoreError> {
+    let version_count =
+        connection.query_row("SELECT count(*) FROM document_versions", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    if version_count < 0 || usize::try_from(version_count).unwrap_or(usize::MAX) > maximum_versions
+    {
+        return Err(corrupt(
+            "Retained Document history exceeds the bounded Block retention scan",
+        ));
+    }
+    let rows = connection
+        .prepare(
+            "SELECT version_id, document_id, project_id, generation, base_head_seq, schema_key, \
+                    schema_version, cause, label, actor_json, revision_kind, source_mutation_id, \
+                    source_change_seq, pinned, checkpoint_format, full_update_blob, state_vector, \
+                    checkpoint_hash, byte_length, created_at \
+             FROM document_versions ORDER BY version_id",
+        )?
+        .query_map([], decode_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|_| corrupt("Document history row has invalid column types"))?;
+    rows.into_iter()
+        .map(|row| {
+            let document_id = row.document_id.clone();
+            let decoded = decode_document_version(row)?;
+            let mut block_ids = BTreeSet::new();
+            let mut referenced_block_ids = BTreeSet::new();
+            let mut database_view_ids = BTreeSet::new();
+            if let Some(materialization) = decoded.block_materialization {
+                collect_materialized_block_ids(&materialization.block_tree, &mut block_ids);
+                for reference in &materialization.references {
+                    if let Some(block_id) = reference.target_block_id() {
+                        referenced_block_ids.insert(block_id.to_owned());
+                    }
+                    if let Some(view_id) = reference.database_view_id() {
+                        database_view_ids.insert(view_id.to_owned());
+                    }
+                }
+            }
+            if let Some(scene) = decoded.canvas_scene {
+                referenced_block_ids.extend(
+                    scene
+                        .page_references
+                        .into_iter()
+                        .map(|reference| reference.target_block_id),
+                );
+            }
+            Ok(DocumentVersionRetentionEvidence {
+                document_id,
+                block_ids,
+                referenced_block_ids,
+                database_view_ids,
+            })
+        })
+        .collect()
+}
+
+fn collect_materialized_block_ids(blocks: &[MaterializedBlockNode], output: &mut BTreeSet<String>) {
+    for block in blocks {
+        output.insert(block.id.clone());
+        collect_materialized_block_ids(&block.children, output);
+    }
 }
 
 fn decode_document_version(row: StoredVersionRow) -> Result<StoredDocumentVersion, StoreError> {
