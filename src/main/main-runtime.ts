@@ -24,6 +24,7 @@ import { startHttpServer } from "./http-server";
 import { findPageLocationById } from "./local-store/database-pages";
 import { getDb, initializeDatabase } from "./local-store/database";
 import * as projectSessionService from "./local-store/project-sessions";
+import * as projectsStore from "./local-store/projects";
 import { dbNotifier } from "./local-store/notifier";
 import {
   configureAutoBackupScheduler,
@@ -33,6 +34,7 @@ import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
 import { blockMutationWriter } from "./block-mutation-writer";
+import { projectDeletionRuntime } from "./project-deletion-runtime";
 import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
 import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
 import {
@@ -128,6 +130,7 @@ import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   initializeDesktopDataAuthority,
   createDesktopLibraryModuleBridge,
+  createDesktopProjectWorkspaceBridge,
   mapCoreLibraryEvent,
   type CoreEventEnvelope,
   type CoreEventSubscription,
@@ -1452,6 +1455,29 @@ export async function runMainAppStartup(
       await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
   }));
   registerIpcHandlers({
+    projectWorkspace: createDesktopProjectWorkspaceBridge({
+      authority: dataAuthority,
+      typescript: {
+        listProjects: async () => projectsStore.listProjects(),
+        getProject: async (projectId) => projectsStore.getProject(projectId),
+        createProject: async (input) => projectsStore.createProject(input),
+        updateProject: async (projectId, input) =>
+          projectsStore.updateProject(projectId, input),
+        reorderProjects: async (input) => projectsStore.reorderProjects(input),
+        setProjectPinned: async (projectId, input) =>
+          projectsStore.setProjectPinned(projectId, input),
+        setPinnedProjectOrder: async (input) =>
+          projectsStore.setPinnedProjectOrder(input),
+        deleteProject: async (projectId) =>
+          await projectDeletionRuntime.deleteProject(projectId),
+        listProjectSessions: async (projectId, options) =>
+          projectSessionService.listProjectSessions(projectId, options),
+        listProjectSessionSummaries: async (projectId, options) =>
+          projectSessionService.listProjectSessionSummaries(projectId, options),
+        getProjectSession: async (sessionId) =>
+          projectSessionService.getProjectSession(sessionId),
+      },
+    }),
     libraryModule: createDesktopLibraryModuleBridge({
       authority: dataAuthority,
       resolveProjectId: (rawEvent) => {

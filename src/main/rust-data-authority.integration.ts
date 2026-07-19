@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
+import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import { closeDatabase, getDb } from "./local-store/database";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 
@@ -78,6 +79,27 @@ describe("Electron native data authority", () => {
       }
       const projectId = startup.value.projects[0]?.id;
       if (!projectId) throw new Error("Core startup has no Project");
+      const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);
+      const createdProject = await workspace.createProject({
+        name: "Electron Workspace Adapter",
+        sources: [nodexHome],
+      });
+      await workspace.setProjectPinned(projectId, { pinned: true });
+      await workspace.setProjectPinned(createdProject.id, { pinned: true });
+      const pinnedOrder = [createdProject.id, projectId];
+      const reorderedProjects = await workspace.setPinnedProjectOrder({
+        orderedProjectIds: pinnedOrder,
+      });
+      expect(
+        reorderedProjects
+          .filter((project) => project.pinned)
+          .sort((left, right) =>
+            (left.pinnedOrder ?? Number.MAX_SAFE_INTEGER) -
+            (right.pinnedOrder ?? Number.MAX_SAFE_INTEGER),
+          )
+          .map((project) => project.id),
+      ).toEqual(pinnedOrder);
+      expect(listCurrentProcessFiles()).not.toContain(databasePath);
       await expect(
         runtime.clientForProject(projectId).databaseRead({
           target: { kind: "project_default" },

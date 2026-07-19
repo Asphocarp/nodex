@@ -129,8 +129,9 @@ import {
 import {
   deleteProjectSessionTabWithBrowserCleanup,
   deleteProjectSessionWithBrowserCleanup,
-  deleteProjectWithBrowserCleanup,
+  deleteProjectWithBrowserCleanupUsing,
 } from "./project-session-browser-ownership";
+import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -556,6 +557,7 @@ interface RegisterIpcHandlersOptions {
     rendererClientId: string | null,
   ) => void;
   libraryModule?: Pick<LibraryModuleIpcDependencies, "apply" | "read">;
+  projectWorkspace?: DesktopProjectWorkspacePort;
 }
 
 function assertValidOccurrenceIpcInput(
@@ -637,6 +639,30 @@ export function registerIpcHandlers(
 ): void {
   ensureBrowserSidebarEventBridge();
   const documentSyncHub = options.documentSyncHub ?? defaultDocumentSyncHub;
+  const projectWorkspace: DesktopProjectWorkspacePort =
+    options.projectWorkspace ?? {
+      listProjects: async () => projectsStore.listProjects(),
+      getProject: async (projectId) => projectsStore.getProject(projectId),
+      createProject: async (input) => projectsStore.createProject(input),
+      updateProject: async (projectId, input) =>
+        projectsStore.updateProject(projectId, input),
+      reorderProjects: async (input) => projectsStore.reorderProjects(input),
+      setProjectPinned: async (projectId, input) =>
+        projectsStore.setProjectPinned(projectId, input),
+      setPinnedProjectOrder: async (input) =>
+        projectsStore.setPinnedProjectOrder(input),
+      deleteProject: async (projectId) =>
+        await projectDeletionRuntime.deleteProject(projectId),
+      listProjectSessions: async (projectId, listOptions) =>
+        projectSessionService.listProjectSessions(projectId, listOptions),
+      listProjectSessionSummaries: async (projectId, listOptions) =>
+        projectSessionService.listProjectSessionSummaries(
+          projectId,
+          listOptions,
+        ),
+      getProjectSession: async (sessionId) =>
+        projectSessionService.getProjectSession(sessionId),
+    };
 
   const gitBranchWatches = new Map<
     number,
@@ -1440,30 +1466,32 @@ export function registerIpcHandlers(
   });
 
   // Projects
-  registerHandle("projects:list", () => projectsStore.listProjects());
-
-  registerHandle("projects:get", (_, projectId: string) =>
-    projectsStore.getProject(projectId),
+  registerHandle("projects:list", async () =>
+    await projectWorkspace.listProjects(),
   );
 
-  registerHandle("projects:create", (_, input) =>
-    projectsStore.createProject(input),
+  registerHandle("projects:get", async (_, projectId: string) =>
+    await projectWorkspace.getProject(projectId),
   );
 
-  registerHandle("projects:update", (_, projectId: string, updates) =>
-    projectsStore.updateProject(projectId, updates),
+  registerHandle("projects:create", async (_, input) =>
+    await projectWorkspace.createProject(input),
   );
 
-  registerHandle("projects:reorder", (_, input) =>
-    projectsStore.reorderProjects(input),
+  registerHandle("projects:update", async (_, projectId: string, updates) =>
+    await projectWorkspace.updateProject(projectId, updates),
   );
 
-  registerHandle("projects:set-pinned", (_, projectId: string, input) =>
-    projectsStore.setProjectPinned(projectId, input),
+  registerHandle("projects:reorder", async (_, input) =>
+    await projectWorkspace.reorderProjects(input),
   );
 
-  registerHandle("projects:set-pinned-order", (_, input) =>
-    projectsStore.setPinnedProjectOrder(input),
+  registerHandle("projects:set-pinned", async (_, projectId: string, input) =>
+    await projectWorkspace.setProjectPinned(projectId, input),
+  );
+
+  registerHandle("projects:set-pinned-order", async (_, input) =>
+    await projectWorkspace.setPinnedProjectOrder(input),
   );
 
   registerHandle("projects:pick-source-root", async (event) => {
@@ -1484,19 +1512,24 @@ export function registerIpcHandlers(
   });
 
   registerHandle("projects:delete", async (_, projectId: string) =>
-    await deleteProjectWithBrowserCleanup(
+    await deleteProjectWithBrowserCleanupUsing({
       projectId,
-      browserSidebarService,
-      (targetProjectId) => projectDeletionRuntime.deleteProject(targetProjectId),
-    )
+      browserRuntime: browserSidebarService,
+      deleteProject: projectWorkspace.deleteProject,
+      getProject: projectWorkspace.getProject,
+      listProjectSessions: async (targetProjectId) =>
+        await projectWorkspace.listProjectSessions(targetProjectId, {
+          includeArchived: true,
+        }),
+    }),
   );
 
   // Project sessions
   registerHandle(
     "project-sessions:list",
-    (_, projectId: string | null, options) => {
+    async (_, projectId: string | null, options) => {
       const startedAt = getDevRuntimeMetricStart();
-      const sessions = projectSessionService.listProjectSessions(
+      const sessions = await projectWorkspace.listProjectSessions(
         projectId,
         options,
       );
@@ -1534,9 +1567,9 @@ export function registerIpcHandlers(
 
   registerHandle(
     "project-sessions:list-summaries",
-    (_, projectId: string | null, options) => {
+    async (_, projectId: string | null, options) => {
       const startedAt = getDevRuntimeMetricStart();
-      const sessions = projectSessionService.listProjectSessionSummaries(
+      const sessions = await projectWorkspace.listProjectSessionSummaries(
         projectId,
         options,
       );
@@ -1568,9 +1601,9 @@ export function registerIpcHandlers(
     },
   );
 
-  registerHandle("project-sessions:get", (_, sessionId: string) => {
+  registerHandle("project-sessions:get", async (_, sessionId: string) => {
     const startedAt = getDevRuntimeMetricStart();
-    const session = projectSessionService.getProjectSession(sessionId);
+    const session = await projectWorkspace.getProjectSession(sessionId);
     logDevRuntimeMetric("ipc.project_sessions_get", {
       sessionId,
       found: session !== null,

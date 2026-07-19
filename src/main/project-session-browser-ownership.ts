@@ -1,4 +1,6 @@
 import type {
+  Project,
+  ProjectSession,
   ProjectSessionTabDeleteInput,
 } from "../shared/types";
 import {
@@ -59,16 +61,45 @@ export async function deleteProjectWithBrowserCleanup(
   browserRuntime: ProjectSessionBrowserRuntime,
   deleteProject: (projectId: string) => boolean | Promise<boolean> = projectDeletionRuntime.deleteProject,
 ): Promise<boolean> {
-  const canonicalProjectId = projectsStore.resolveProjectId(projectId);
+  return await deleteProjectWithBrowserCleanupUsing({
+    projectId,
+    browserRuntime,
+    deleteProject,
+    getProject: async (targetProjectId) =>
+      projectsStore.getProject(targetProjectId),
+    listProjectSessions: async (targetProjectId) =>
+      projectSessionService.listProjectSessions(targetProjectId, {
+        includeArchived: true,
+      }),
+  });
+}
+
+export interface DeleteProjectWithBrowserCleanupInput {
+  readonly projectId: string;
+  readonly browserRuntime: ProjectSessionBrowserRuntime;
+  readonly deleteProject: (projectId: string) => boolean | Promise<boolean>;
+  readonly getProject: (projectId: string) => Project | null | Promise<Project | null>;
+  readonly listProjectSessions: (
+    projectId: string,
+  ) => ProjectSession[] | Promise<ProjectSession[]>;
+}
+
+export async function deleteProjectWithBrowserCleanupUsing(
+  input: DeleteProjectWithBrowserCleanupInput,
+): Promise<boolean> {
+  const project = await input.getProject(input.projectId);
+  const canonicalProjectId = project?.id ?? null;
   const sessions = canonicalProjectId
-    ? projectSessionService.listProjectSessions(canonicalProjectId, { includeArchived: true })
+    ? await input.listProjectSessions(canonicalProjectId)
     : [];
-  const deleted = await deleteProject(projectId);
+  const deleted = await input.deleteProject(input.projectId);
   if (!deleted) return false;
 
   for (const session of sessions) {
-    await browserRuntime.closeBrowserConversation(session.id);
+    await input.browserRuntime.closeBrowserConversation(session.id);
   }
-  await browserRuntime.closeBrowserProject?.(canonicalProjectId ?? projectId);
+  await input.browserRuntime.closeBrowserProject?.(
+    canonicalProjectId ?? input.projectId,
+  );
   return true;
 }

@@ -8,6 +8,11 @@ export {
   createDesktopLibraryModuleBridge,
   mapCoreLibraryEvent,
 } from "./desktop-library-module-bridge";
+export { createDesktopProjectWorkspaceBridge } from "./desktop-project-workspace-bridge";
+export {
+  createCoreProjectWorkspaceAdapter,
+  type DesktopProjectWorkspacePort,
+} from "./project-workspace-adapter";
 export type {
   ConnectCoreClientInput,
 } from "./core-client";

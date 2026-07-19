@@ -77,12 +77,17 @@ maintenance schedulers, public HTTP server, and revision-flush shutdown path,
 and disconnecting Electron does not terminate the detached Core. Electron
 Module adapters still need to replace the TypeScript stores before the Rust
 development selector can serve the full desktop workflow. The first active
-proxy slice covers the established Library catalog/navigation `read`/`apply`
-IPC pair: reads use the Library connection, writes derive the actor Project
-from the trusted invoking window, and committed Core events become renderer
-Library invalidations. Page detail/content/search/history and the other deep
-Module adapters remain on the migration inventory rather than falling back in
-the Rust branch.
+proxy slices cover the established Library catalog/navigation `read`/`apply`
+IPC pair and the Project catalog boundary. Library reads use the Library
+connection, writes derive the actor Project from the trusted invoking window,
+and committed Core events become renderer Library invalidations. Project
+catalog reads, creation, metadata/source updates, sidebar and pinned ordering,
+and archival all pass through one Workspace Adapter; its Session startup/list
+and exact-snapshot reads hydrate the existing camel-cased IPC model from Core
+without opening SQLite in Electron. Session mutations, Page
+detail/content/search/history, and the remaining deep Module adapters stay on
+the migration inventory and must fail closed rather than fall back in the Rust
+branch.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;
