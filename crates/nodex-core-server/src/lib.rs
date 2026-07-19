@@ -2,6 +2,7 @@
 
 mod connections;
 mod document_wire;
+mod lifecycle;
 mod runtime_files;
 mod transport_bounds;
 
@@ -10,8 +11,8 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::to_bytes;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Query, Request, State};
@@ -32,6 +33,7 @@ use nodex_core::document::{
 use nodex_core::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
 use nodex_core::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use nodex_core::infrastructure::store::SqliteStoreKernel;
+use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::workspace::ProjectWorkspaceModule;
 use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
@@ -54,13 +56,14 @@ use nodex_core_protocol::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::UnixListener;
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::broadcast;
 
 use connections::{
     BoundConnection, ConnectionRegistry, ConnectionRegistryError, ConnectionRegistryErrorKind,
     EventSubscriptionKey, PeerIdentity,
 };
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
+use lifecycle::{LifecycleCoordinator, configured_idle_timeout, monitor_idle};
 use runtime_files::{PRIVATE_FILE_MODE, RuntimePaths, random_hex};
 use transport_bounds::{MAX_DOCUMENT_REQUEST_BYTES, MAX_JSON_REQUEST_BYTES};
 
@@ -75,7 +78,7 @@ struct ServerState {
     auth_header: String,
     owner_uid: u32,
     connections: ConnectionRegistry,
-    draining: AtomicBool,
+    lifecycle: LifecycleCoordinator,
     descriptor: Arc<Mutex<RuntimeDescriptor>>,
     profile_id: String,
     schema_version: u32,
@@ -87,11 +90,10 @@ struct ServerState {
     administration: StoreAdministrationModule,
     document: OwnedDocumentModule,
     document_realtime: OwnedDocumentRealtimeAdapter,
-    _store: SqliteStoreKernel,
+    store: SqliteStoreKernel,
     event_log: CoreEventLog,
     event_sender: broadcast::Sender<EventEnvelope>,
     document_sender: broadcast::Sender<DocumentTransportPublication>,
-    shutdown: Notify,
 }
 
 fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
@@ -171,7 +173,7 @@ async fn bind_connection(
     mut request: Request,
     next: Next,
 ) -> Response {
-    if state.draining.load(Ordering::Acquire) && request.uri().path() != "/core/v1/admin/shutdown" {
+    if state.lifecycle.is_draining() && request.uri().path() != "/core/v1/admin/shutdown" {
         return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Core is draining").into_response();
     }
     let connection_id = match required_header(request.headers(), CONNECTION_HEADER, "Connection") {
@@ -192,6 +194,9 @@ async fn bind_connection(
             return connection_registry_error(error).into_response();
         }
     };
+    if !state.lifecycle.record_activity() {
+        return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Core is draining").into_response();
+    }
     request.extensions_mut().insert(bound);
     next.run(request).await
 }
@@ -210,7 +215,7 @@ async fn handshake(
     ConnectInfo(peer): ConnectInfo<PeerIdentity>,
     Json(request): Json<HandshakeRequest>,
 ) -> Result<Json<HandshakeResponse>, ApiError> {
-    if state.draining.load(Ordering::Acquire) {
+    if state.lifecycle.is_draining() {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "Core is draining",
@@ -268,6 +273,12 @@ async fn handshake(
             PROTOCOL_MAX,
         )
         .map_err(connection_registry_error)?;
+    if !state.lifecycle.record_activity() {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Core is draining",
+        ));
+    }
 
     let event_head = state.event_log.head().map_err(|error| {
         ApiError::new(
@@ -875,6 +886,7 @@ async fn events(
         }
     };
     let event_log = state.event_log.clone();
+    let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
     let stream = async_stream::stream! {
         let _event_subscription = event_subscription;
         let _disconnect = disconnect;
@@ -897,6 +909,9 @@ async fn events(
         }
         loop {
             tokio::select! {
+                () = LifecycleCoordinator::wait_for_stream_shutdown(&mut stream_shutdown) => {
+                    break;
+                }
                 received = receiver.recv() => match received {
                     Ok(envelope) => {
                         if envelope.event.sequence <= replay_head {
@@ -971,8 +986,7 @@ async fn shutdown(
             "connection role cannot control Core lifecycle",
         ));
     }
-    state.draining.store(true, Ordering::Release);
-    state.shutdown.notify_one();
+    state.lifecycle.begin_drain();
     Ok(Json(ShutdownResponse {
         status: ShutdownStatus::Draining,
     }))
@@ -1397,6 +1411,7 @@ fn ensure_local_identity(
 }
 
 pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    let idle_timeout = configured_idle_timeout()?;
     let paths = RuntimePaths::prepare(&home)?;
     let owner_uid = paths.owner_uid()?;
     let lock = paths.open_lock()?;
@@ -1502,11 +1517,12 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                 *descriptor = next;
                 Ok(())
             });
+    let lifecycle = LifecycleCoordinator::new();
     let state = Arc::new(ServerState {
         auth_header: format!("Bearer {auth}"),
         owner_uid,
         connections: ConnectionRegistry::new(),
-        draining: AtomicBool::new(false),
+        lifecycle: lifecycle.clone(),
         profile_id: identity.profile_id,
         library_id: identity.library_id,
         library,
@@ -1516,26 +1532,107 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         administration,
         document_realtime,
         document,
-        _store: store,
+        store,
         schema_version,
         descriptor,
         event_log,
         event_sender,
         document_sender,
-        shutdown: Notify::new(),
     });
-    let shutdown_state = Arc::clone(&state);
+    let idle_task = idle_timeout.map(|timeout| {
+        let idle_state = Arc::clone(&state);
+        let idle_lifecycle = lifecycle.clone();
+        tokio::spawn(monitor_idle(idle_lifecycle, timeout, move || {
+            server_is_idle(&idle_state)
+        }))
+    });
     let result = axum::serve(
         listener,
         router(Arc::clone(&state)).into_make_service_with_connect_info::<PeerIdentity>(),
     )
-    .with_graceful_shutdown(async move {
-        shutdown_state.shutdown.notified().await;
-    })
+    .with_graceful_shutdown(shutdown_signal(lifecycle))
     .await;
+    if let Some(idle_task) = idle_task {
+        idle_task.abort();
+        let _ = idle_task.await;
+    }
     paths.cleanup(&start_nonce);
     drop(lock);
     result.map_err(Into::into)
+}
+
+fn server_is_idle(state: &ServerState) -> bool {
+    if state.lifecycle.is_draining() {
+        return false;
+    }
+    let Ok(connections) = state.connections.activity() else {
+        return false;
+    };
+    if connections.clients != 0 || connections.event_subscriptions != 0 {
+        return false;
+    }
+    let Ok(realtime) = state.document_realtime.activity() else {
+        return false;
+    };
+    if realtime.subscriptions != 0 || realtime.awareness_clients != 0 {
+        return false;
+    }
+    let Ok(prepared_operations) = state.document.prepared_agent_operation_count() else {
+        return false;
+    };
+    if prepared_operations != 0 {
+        return false;
+    }
+    let store = state.store.activity();
+    if store.phase != StoreRuntimePhase::Running
+        || store.active_writes != 0
+        || store.active_reads != 0
+        || store.queued_writes != 0
+    {
+        return false;
+    }
+    let Ok(now_ms) = unix_time_millis() else {
+        return false;
+    };
+    state
+        .automation
+        .has_due_background_work(now_ms)
+        .is_ok_and(|due| !due)
+}
+
+async fn shutdown_signal(lifecycle: LifecycleCoordinator) {
+    tokio::select! {
+        () = lifecycle.wait_for_drain() => {}
+        () = operating_system_shutdown_signal() => {
+            lifecycle.begin_drain();
+        }
+    }
+}
+
+async fn operating_system_shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        let Ok(mut signal) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        else {
+            return;
+        };
+        signal.recv().await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = ctrl_c => {}
+        () = terminate => {}
+    }
+}
+
+fn unix_time_millis() -> Result<i64, std::time::SystemTimeError> {
+    let millis = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+    Ok(i64::try_from(millis).unwrap_or(i64::MAX))
 }
 
 fn store_replacement_hook_error(error: CoreError) -> StoreError {

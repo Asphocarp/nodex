@@ -517,6 +517,12 @@ impl OwnedDocumentModule {
         })
     }
 
+    pub fn prepared_agent_operation_count(&self) -> Result<usize, CoreError> {
+        self.prepared_agent_operations
+            .active_count()
+            .map_err(core_error)
+    }
+
     pub fn inject_failure_after_next_commit(&self) {
         self.fail_after_commit.store(true, Ordering::Release);
     }

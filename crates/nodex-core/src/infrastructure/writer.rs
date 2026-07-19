@@ -217,6 +217,21 @@ enum RuntimePhase {
     Closed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StoreRuntimePhase {
+    Running,
+    Maintenance,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StoreRuntimeActivity {
+    pub phase: StoreRuntimePhase,
+    pub active_writes: usize,
+    pub active_reads: usize,
+    pub queued_writes: usize,
+}
+
 struct RuntimeState {
     phase: RuntimePhase,
     active_writes: usize,
@@ -363,6 +378,35 @@ impl RuntimeControl {
             generation.shutdown();
         }
     }
+
+    fn activity(&self) -> StoreRuntimeActivity {
+        let Ok(state) = self.state.lock() else {
+            return StoreRuntimeActivity {
+                phase: StoreRuntimePhase::Maintenance,
+                active_writes: 1,
+                active_reads: 1,
+                queued_writes: 1,
+            };
+        };
+        let phase = match state.phase {
+            RuntimePhase::Running => StoreRuntimePhase::Running,
+            RuntimePhase::Maintenance => StoreRuntimePhase::Maintenance,
+            RuntimePhase::Closed => StoreRuntimePhase::Closed,
+        };
+        let queued_writes = state
+            .generation
+            .as_ref()
+            .and_then(|generation| generation.writer.as_ref())
+            .map_or(0, |writer| {
+                writer.endpoint.queued_jobs.load(Ordering::Acquire)
+            });
+        StoreRuntimeActivity {
+            phase,
+            active_writes: state.active_writes,
+            active_reads: state.active_reads,
+            queued_writes,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -439,6 +483,10 @@ impl StoreRuntime {
         StoreMaintenance {
             control: Arc::clone(&self.control),
         }
+    }
+
+    pub fn activity(&self) -> StoreRuntimeActivity {
+        self.control.activity()
     }
 }
 

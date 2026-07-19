@@ -74,6 +74,12 @@ pub(crate) struct ConnectionRegistryError {
     pub(crate) message: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConnectionActivity {
+    pub(crate) clients: usize,
+    pub(crate) event_subscriptions: usize,
+}
+
 pub(crate) struct EventSubscriptionLease {
     state: Weak<Mutex<RegistryState>>,
     connection_id: String,
@@ -236,6 +242,43 @@ impl ConnectionRegistry {
             key,
         })
     }
+
+    pub(crate) fn activity(&self) -> Result<ConnectionActivity, ConnectionRegistryError> {
+        self.activity_with(peer_process_is_alive)
+    }
+
+    fn activity_with(
+        &self,
+        mut process_is_alive: impl FnMut(Option<u32>) -> bool,
+    ) -> Result<ConnectionActivity, ConnectionRegistryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| unavailable("connection registry failed"))?;
+        let now = Instant::now();
+        state.records.retain(|_, record| {
+            !record.event_subscriptions.is_empty()
+                || (now.duration_since(record.last_seen) <= STALE_CONNECTION_AGE
+                    && process_is_alive(record.peer.pid))
+        });
+        Ok(ConnectionActivity {
+            clients: state.records.len(),
+            event_subscriptions: state.event_subscriptions,
+        })
+    }
+}
+
+fn peer_process_is_alive(raw_pid: Option<u32>) -> bool {
+    let Some(raw_pid) = raw_pid.and_then(|pid| i32::try_from(pid).ok()) else {
+        return false;
+    };
+    let Some(pid) = rustix::process::Pid::from_raw(raw_pid) else {
+        return false;
+    };
+    match rustix::process::test_kill_process(pid) {
+        Ok(()) | Err(rustix::io::Errno::PERM) => true,
+        Err(_) => false,
+    }
 }
 
 fn unauthorized(message: &'static str) -> ConnectionRegistryError {
@@ -380,5 +423,44 @@ mod tests {
             .acquire_event_subscription("connection:one", EventSubscriptionKey::Global)
             .expect("released subscription capacity");
         drop(document_leases);
+    }
+
+    #[test]
+    fn idle_activity_reaps_dead_unleased_clients_but_retains_live_and_streaming_clients() {
+        let registry = ConnectionRegistry::new();
+        for (connection_id, pid) in [("connection:dead", 10), ("connection:live", 11)] {
+            registry
+                .register(
+                    connection_id,
+                    format!("binding:{pid}"),
+                    AdapterKind::ElectronHost,
+                    &peer(pid),
+                    "host-build",
+                    1,
+                )
+                .expect("registration");
+        }
+        let streaming = registry
+            .acquire_event_subscription("connection:dead", EventSubscriptionKey::Global)
+            .expect("streaming lease");
+        assert_eq!(
+            registry
+                .activity_with(|pid| pid == Some(11))
+                .expect("activity while stream is held"),
+            ConnectionActivity {
+                clients: 2,
+                event_subscriptions: 1,
+            }
+        );
+        drop(streaming);
+        assert_eq!(
+            registry
+                .activity_with(|pid| pid == Some(11))
+                .expect("dead client is reaped"),
+            ConnectionActivity {
+                clients: 1,
+                event_subscriptions: 0,
+            }
+        );
     }
 }

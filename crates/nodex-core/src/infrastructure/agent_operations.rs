@@ -196,6 +196,13 @@ impl PreparedAgentOperationRegistry {
         Ok(())
     }
 
+    pub fn active_count(&self) -> Result<usize, StoreError> {
+        let now = Instant::now();
+        let mut state = self.lock()?;
+        prune_expired(&mut state, now);
+        Ok(state.records.len())
+    }
+
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, RegistryState>, StoreError> {
         self.inner.lock().map_err(|_| {
             StoreError::new(

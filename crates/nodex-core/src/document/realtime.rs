@@ -72,6 +72,12 @@ pub struct AwarenessPublication {
     pub recipient_connections: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentRealtimeActivity {
+    pub subscriptions: usize,
+    pub awareness_clients: usize,
+}
+
 struct Subscription {
     context: BoundModuleContext,
     document_id: String,
@@ -108,6 +114,14 @@ impl OwnedDocumentRealtimeAdapter {
         let mut state = self.lock_state()?;
         *state = RealtimeState::default();
         Ok(())
+    }
+
+    pub fn activity(&self) -> Result<DocumentRealtimeActivity, CoreError> {
+        let state = self.lock_state()?;
+        Ok(DocumentRealtimeActivity {
+            subscriptions: state.subscriptions.len(),
+            awareness_clients: state.awareness_owners.len(),
+        })
     }
 
     pub fn subscribe(

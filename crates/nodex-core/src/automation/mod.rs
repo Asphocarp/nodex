@@ -119,6 +119,43 @@ impl AutomationModule {
         .map_err(core_error)
     }
 
+    pub fn has_due_background_work(&self, now_ms: i64) -> Result<bool, CoreError> {
+        if now_ms < 0 {
+            return Err(invalid("Automation idle-check time is invalid"));
+        }
+        let Some(readers) = &self.readers else {
+            return Err(unavailable("Automation Module has no durable store"));
+        };
+        let profile_id = self.profile_id.clone();
+        let library_id = self.library_id.clone();
+        readers
+            .read_default(move |connection| {
+                assert_identity(connection, &profile_id, &library_id)?;
+                let now_iso = occurrence::timestamp_to_iso(now_ms)?;
+                connection
+                    .query_row(
+                        "SELECT EXISTS( \
+                           SELECT 1 FROM codex_scheduled_automations \
+                             WHERE status = 'ACTIVE' AND next_run_at IS NOT NULL \
+                               AND next_run_at <= ?1 \
+                           UNION ALL \
+                           SELECT 1 FROM core_automation_leases \
+                             WHERE status = 'claimed' AND expires_at_ms > ?1 \
+                           UNION ALL \
+                           SELECT 1 FROM core_reminder_leases \
+                             WHERE status = 'claimed' AND expires_at_ms > ?1 \
+                           UNION ALL \
+                           SELECT 1 FROM reminder_snoozes \
+                             WHERE consumed_at IS NULL AND due_at <= ?2 \
+                           LIMIT 1)",
+                        rusqlite::params![now_ms, now_iso],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .map_err(Into::into)
+            })
+            .map_err(core_error)
+    }
+
     fn validate_context(&self, context: &BoundModuleContext) -> Result<(), CoreError> {
         if context.profile_id.0 == self.profile_id && context.library_id.0 == self.library_id {
             return Ok(());

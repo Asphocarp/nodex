@@ -1775,6 +1775,48 @@ mod tests {
     }
 
     #[test]
+    fn idle_probe_detects_due_definitions_and_live_execution_leases() {
+        let harness = harness();
+        assert!(!harness.module.has_due_background_work(10).unwrap());
+        create(&harness);
+        harness
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE codex_scheduled_automations SET next_run_at = 10 \
+                     WHERE automation_id = 'daily-report'",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(harness.module.has_due_background_work(10).unwrap());
+        harness
+            .kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE codex_scheduled_automations SET next_run_at = 1000 \
+                     WHERE automation_id = 'daily-report'",
+                    [],
+                )?;
+                connection.execute(
+                    "INSERT INTO core_automation_leases(\
+                       lease_id, automation_id, scheduled_for_ms, attempt, status, claimed_at_ms, \
+                       expires_at_ms, settled_at_ms, retry_at_ms, reason_code\
+                     ) VALUES ('lease:idle', 'daily-report', 10, 1, 'claimed', 0, 20, \
+                       NULL, NULL, NULL)",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(harness.module.has_due_background_work(10).unwrap());
+        assert!(!harness.module.has_due_background_work(20).unwrap());
+    }
+
+    #[test]
     fn definitions_are_typed_revisioned_and_exactly_replayed() {
         let harness = harness();
         let created = apply(

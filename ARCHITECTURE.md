@@ -95,6 +95,20 @@ performs an authenticated matching handshake before reusing the winner. A PID
 or stale descriptor alone never proves process identity, and lifecycle control
 requires a registered Host, CLI, or test connection.
 
+Core is detached from whichever launcher happened to win. Its lifecycle
+coordinator records every successful handshake and bound request under the same
+generation lock used by idle admission, so a client arriving at the idle
+boundary either resets the complete period or sees an explicit draining
+response. A logical client remains live while its authenticated peer PID is
+live and recently registered, and stream/document/Awareness/prepared-operation,
+SQLite read/write/maintenance, or due Automation work independently prevents
+idle exit. The default idle period is fifteen minutes; the private launcher may
+configure or disable it within the bounded Core policy. Idle exit, explicit
+shutdown, SIGINT, and SIGTERM all enter the same drain state. Axum stops
+accepting sockets and waits for ordinary in-flight requests/transactions, while
+Core signals long-lived SSE streams to finish so graceful shutdown cannot wait
+forever on a subscription.
+
 The native Library and Database Modules now cover their complete Milestone 5
 semantic surface behind those fixed `read`/`apply` pairs. Whole-Page copy is a
 single Library writer aggregate: it fences source location, parent, membership,

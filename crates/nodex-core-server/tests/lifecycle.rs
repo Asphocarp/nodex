@@ -72,6 +72,43 @@ fn request_bytes_with_headers(
     response
 }
 
+fn open_sse(
+    socket: &str,
+    auth: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+) -> BufReader<UnixStream> {
+    let mut stream = UnixStream::connect(socket).expect("connect SSE to Core socket");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("bound SSE read timeout");
+    let headers = headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {auth}\r\n{headers}Connection: close\r\n\r\n",
+    )
+    .expect("write SSE request");
+    let mut reader = BufReader::new(stream);
+    let mut response_head = String::new();
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("read SSE response head");
+        assert!(!line.is_empty(), "SSE response ended before its headers");
+        response_head.push_str(&line);
+        if line == "\r\n" {
+            break;
+        }
+    }
+    assert!(
+        response_head.starts_with("HTTP/1.1 200"),
+        "unexpected SSE response: {response_head:?}"
+    );
+    reader
+}
+
 fn response_json(response: &str) -> serde_json::Value {
     let (_, body) = response.split_once("\r\n\r\n").expect("HTTP response body");
     serde_json::from_str(body).expect("JSON response")
@@ -416,6 +453,13 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
     );
     assert!(unbound_shutdown.starts_with("HTTP/1.1 401"));
 
+    let mut event_stream = open_sse(
+        &expected.socket_path,
+        &auth,
+        "/core/v1/events?after=0",
+        &connection_headers,
+    );
+
     let shutdown = request_with_headers(
         &expected.socket_path,
         &auth,
@@ -425,6 +469,10 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         &connection_headers,
     );
     assert!(shutdown.starts_with("HTTP/1.1 200"));
+    let mut remaining_events = Vec::new();
+    event_stream
+        .read_to_end(&mut remaining_events)
+        .expect("graceful drain closes the SSE stream");
 
     let deadline = Instant::now() + Duration::from_secs(5);
     for child in &mut children {
@@ -436,6 +484,43 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
             std::thread::sleep(Duration::from_millis(20));
         }
     }
+    assert!(!runtime.join("core.sock").exists());
+    assert!(!runtime.join("core.json").exists());
+    assert!(!runtime.join("core.auth").exists());
+}
+
+#[test]
+fn core_idle_exits_after_startup_clients_are_gone() {
+    let directory = tempdir().expect("disposable Core home");
+    let home = directory.path().canonicalize().expect("absolute home");
+    let executable = env!("CARGO_BIN_EXE_nodex-core");
+    let spawn = || {
+        Command::new(executable)
+            .args(["--home", home.to_str().expect("UTF-8 home")])
+            .env("NODEX_CORE_IDLE_TIMEOUT_MS", "500")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn Core")
+    };
+    let mut core = spawn();
+    let descriptor = read_ready_descriptor(&mut core);
+    let mut contender = spawn();
+    let reused = read_ready_descriptor(&mut contender);
+    assert_eq!(reused.pid, descriptor.pid);
+    assert_eq!(reused.start_nonce, descriptor.start_nonce);
+    assert!(contender.wait().expect("wait for startup client").success());
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(status) = core.try_wait().expect("poll idle Core") {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline, "idle Core did not exit");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let runtime = home.join("run/core");
     assert!(!runtime.join("core.sock").exists());
     assert!(!runtime.join("core.json").exists());
     assert!(!runtime.join("core.auth").exists());

@@ -113,6 +113,19 @@
   first enters drain state, rejects fresh connected work, stops accepting
   sockets, and lets Axum finish in-flight requests before Store teardown and
   exact-generation runtime-file cleanup.
+- Native Core is launcher-independent and idle-exits through that same graceful
+  drain. The default idle period is fifteen minutes;
+  `NODEX_CORE_IDLE_TIMEOUT_MS` may set a positive value up to 24 hours or `0`
+  to disable idle exit for a private development launch. Idle eligibility
+  requires no live/recent authenticated peer process, event or Document
+  subscription, Awareness participant, prepared Agent operation, accepted or
+  queued SQLite read/write, maintenance generation, due Automation definition
+  or snooze, or unexpired Automation/reminder execution lease. Each successful
+  handshake and bound request increments an activity generation under the same
+  lock that enters idle drain, closing the check/accept race. Explicit shutdown,
+  idle expiry, SIGINT, and SIGTERM signal SSE streams to end, stop new socket
+  acceptance, and then rely on Axum to wait for already admitted ordinary
+  requests; an active transaction is never cancelled to accelerate exit.
 - One native transport guard surrounds every private route. It enforces the
   route-specific body cap even when a handler would otherwise ignore its body,
   validates JSON UTF-8 and structural budgets before typed extraction, rebuilds
