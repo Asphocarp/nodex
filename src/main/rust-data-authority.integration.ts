@@ -264,12 +264,13 @@ describe("Electron native data authority", () => {
       const firstDocument = new Y.Doc({
         guid: "document:electron-library-adapter",
       });
+      // Library providers intentionally use the unscoped root client. Core binds
+      // that transport to its trusted local Library capability instead of
+      // accepting an Adapter-selected storage Project.
       const firstProvider = new NodexYProvider({
         documentId: firstDocument.guid,
         document: firstDocument,
-        adapter: createCoreDocumentSyncAdapter(
-          runtime.clientForProject(projectId),
-        ),
+        adapter: createCoreDocumentSyncAdapter(runtime.rootClient),
         clientSessionId: "renderer:electron-authority:first",
         autoConnect: false,
         localCheckpointStore: null,
@@ -280,9 +281,7 @@ describe("Electron native data authority", () => {
       const secondProvider = new NodexYProvider({
         documentId: secondDocument.guid,
         document: secondDocument,
-        adapter: createCoreDocumentSyncAdapter(
-          runtime.clientForProject(projectId),
-        ),
+        adapter: createCoreDocumentSyncAdapter(runtime.rootClient),
         clientSessionId: "renderer:electron-authority:second",
         autoConnect: false,
         localCheckpointStore: null,

@@ -25,6 +25,8 @@ pub(crate) struct DocumentAuthorityRow {
     pub owner_block_id: String,
     pub owner_type: String,
     pub owner_lifecycle: String,
+    pub page_library_id: Option<String>,
+    pub page_lifecycle: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,10 +83,13 @@ pub(crate) fn read_document_authority(
     };
     let owner = connection
         .query_row(
-            "SELECT ownership.block_id, owner.type, owner.lifecycle \
+            "SELECT ownership.block_id, owner.type, owner.lifecycle, \
+                    page.library_id, page.lifecycle \
              FROM block_documents ownership \
              JOIN blocks owner ON owner.id = ownership.block_id \
                AND owner.project_id = ownership.project_id \
+             LEFT JOIN pages page ON page.block_id = owner.id \
+               AND page.document_id = ownership.document_id \
              WHERE ownership.document_id = ?1 AND ownership.project_id = ?2",
             params![document_id, head.project_id],
             |row| {
@@ -92,12 +97,16 @@ pub(crate) fn read_document_authority(
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .optional()
         .map_err(|_| corrupt("Document owner row has invalid column types"))?;
-    let Some((owner_block_id, owner_type, owner_lifecycle)) = owner else {
+    let Some((owner_block_id, owner_type, owner_lifecycle, page_library_id, page_lifecycle)) =
+        owner
+    else {
         return Err(corrupt("Document has no owning Block"));
     };
     if owner_block_id.is_empty()
@@ -106,11 +115,25 @@ pub(crate) fn read_document_authority(
     {
         return Err(corrupt("Document owner row is invalid"));
     }
+    if owner_type == "page" {
+        if page_library_id.as_deref().is_some_and(str::is_empty)
+            || page_library_id.is_some() != page_lifecycle.is_some()
+            || page_lifecycle
+                .as_deref()
+                .is_some_and(|lifecycle| lifecycle != owner_lifecycle)
+        {
+            return Err(corrupt("Page Document authority row is invalid"));
+        }
+    } else if page_library_id.is_some() || page_lifecycle.is_some() {
+        return Err(corrupt("Non-Page Document has Page authority"));
+    }
     Ok(Some(DocumentAuthorityRow {
         head,
         owner_block_id,
         owner_type,
         owner_lifecycle,
+        page_library_id,
+        page_lifecycle,
     }))
 }
 

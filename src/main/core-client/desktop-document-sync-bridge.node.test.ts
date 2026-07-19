@@ -50,10 +50,13 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
   },
 });
 
-const rustRuntime = (client: FakeCoreClient): RustDataAuthorityRuntime => ({
+const rustRuntime = (
+  rootClient: FakeCoreClient,
+  projectClient: FakeCoreClient = rootClient,
+): RustDataAuthorityRuntime => ({
   backend: "rust",
-  rootClient: client,
-  clientForProject: () => client,
+  rootClient,
+  clientForProject: () => projectClient,
 } as unknown as RustDataAuthorityRuntime);
 
 const subscribeRequest = {
@@ -89,6 +92,14 @@ describe("Desktop Document sync bridge", () => {
       ok: false,
       error: { code: "unauthorized" },
     });
+    await expect(bridge.subscribe(
+      { kind: "library" },
+      other,
+      subscribeRequest,
+    )).resolves.toMatchObject({
+      ok: false,
+      error: { code: "unauthorized" },
+    });
     await expect(bridge.subscribe(scope, other, subscribeRequest)).resolves
       .toMatchObject({ ok: false, error: { code: "unauthorized" } });
     await expect(bridge.sync(scope, other, {
@@ -111,21 +122,35 @@ describe("Desktop Document sync bridge", () => {
       .toEqual({ ok: true, value: { subscribed: true } });
   });
 
-  test("fails Library sync closed until Core exposes trusted Library scope", async () => {
-    const client = new FakeCoreClient();
+  test("uses the trusted root client for Library Document sync", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    rootClient.enqueueDocumentSync({
+      documentId: subscribeRequest.documentId,
+      storeEpoch: "epoch:test",
+      generation: 1,
+      headSeq: 3,
+      update: new Uint8Array(),
+      stateVector: new Uint8Array(),
+    });
     const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(client)),
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
       typescript: neverTypeScript(),
     });
+    const target = new FakeTarget(1);
+    const scope = { kind: "library" } as const;
 
-    await expect(bridge.subscribe(
-      { kind: "library" },
-      new FakeTarget(1),
-      subscribeRequest,
-    )).resolves.toMatchObject({
-      ok: false,
-      error: { code: "unauthorized", retryable: false },
+    await expect(bridge.subscribe(scope, target, subscribeRequest)).resolves
+      .toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.sync(scope, target, {
+      ...subscribeRequest,
+      stateVector: new Uint8Array(),
+    })).resolves.toMatchObject({
+      ok: true,
+      value: { documentId: subscribeRequest.documentId, headSeq: 3 },
     });
+    expect(rootClient.documentSyncs).toHaveLength(1);
+    expect(projectClient.documentSyncs).toHaveLength(0);
   });
 
   test("does not open a late subscription for a destroyed startup target", async () => {

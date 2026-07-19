@@ -110,19 +110,8 @@ const subscriptionKey = (
 ]);
 
 const bindingKey = (
-  scope: DesktopDocumentSyncScope,
   request: DocumentSyncSubscribeRequest,
-): string => JSON.stringify([scopeKey(scope), request.clientSessionId]);
-
-const nativeLibraryUnavailable = <Value>(): DocumentSyncCommandResult<Value> => ({
-  ok: false,
-  error: {
-    code: "unauthorized",
-    message: "Native Library Document sync is not available until Core binds a trusted Library scope",
-    retryable: false,
-    resetRequired: false,
-  },
-});
+): string => request.clientSessionId;
 
 const transportUnavailable = <Value>(
   error: unknown,
@@ -147,14 +136,16 @@ export function createDesktopDocumentSyncBridge(
   const adapterFor = (
     runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
     scope: DesktopDocumentSyncScope,
-  ): DocumentSyncAdapter | null => {
-    if (scope.kind === "library") return null;
-    let adapter = adapters.get(scope.projectId);
+  ): DocumentSyncAdapter => {
+    const key = scopeKey(scope);
+    let adapter = adapters.get(key);
     if (adapter) return adapter;
     adapter = createCoreDocumentSyncAdapter(
-      runtime.clientForProject(scope.projectId),
+      scope.kind === "project"
+        ? runtime.clientForProject(scope.projectId)
+        : runtime.rootClient,
     );
-    adapters.set(scope.projectId, adapter);
+    adapters.set(key, adapter);
     return adapter;
   };
 
@@ -225,12 +216,11 @@ export function createDesktopDocumentSyncBridge(
       }
       if (target.isDestroyed()) return documentSyncUnauthorized();
       const adapter = adapterFor(runtime, scope);
-      if (!adapter) return nativeLibraryUnavailable();
       const key = subscriptionKey(target, scope, request);
       if (subscriptions.has(key)) {
         return { ok: true, value: { subscribed: true } };
       }
-      const ownerKey = bindingKey(scope, request);
+      const ownerKey = bindingKey(request);
       if (bindings.has(ownerKey)) return documentSyncUnauthorized();
       bindTargetLifecycle(target);
       if (target.isDestroyed()) return documentSyncUnauthorized();
@@ -269,7 +259,6 @@ export function createDesktopDocumentSyncBridge(
         return await input.typescript.hub.sync(target, request);
       }
       const adapter = adapterFor(runtime, scope);
-      if (!adapter) return nativeLibraryUnavailable();
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
       }
@@ -286,7 +275,6 @@ export function createDesktopDocumentSyncBridge(
         return await input.typescript.hub.applyUpdate(target, request);
       }
       const adapter = adapterFor(runtime, scope);
-      if (!adapter) return nativeLibraryUnavailable();
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
       }
@@ -303,7 +291,6 @@ export function createDesktopDocumentSyncBridge(
         return await input.typescript.hub.publishAwareness(target, request);
       }
       const adapter = adapterFor(runtime, scope);
-      if (!adapter) return nativeLibraryUnavailable();
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
       }
@@ -323,7 +310,6 @@ export function createDesktopDocumentSyncBridge(
         );
       }
       const adapter = adapterFor(runtime, scope);
-      if (!adapter) return nativeLibraryUnavailable();
       if (!hasNativeSubscription(target, scope, request)) {
         return documentSyncUnauthorized();
       }

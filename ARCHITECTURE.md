@@ -98,12 +98,14 @@ mutation. Thread metadata upsert plus Session attach and guarded detach also
 cross this boundary as one native aggregate. Project-scoped live Yjs subscribe,
 sync, update, and Awareness IPC use a lifecycle-aware Owned Document bridge;
 each native subscription is bound to its Electron target, Project, Document,
-and client session and is closed with the target. Library-scoped live Document
-sync remains explicitly unavailable until Core exposes a trusted Library
-capability instead of accepting an Adapter-selected Project. Page detail/
-content/search/history and the remaining deep Module adapters stay on the
-migration inventory and must fail closed rather than fall back in the Rust
-branch.
+and client session and is closed with the target. Library-scoped live Page
+Document sync uses the root Core client and an explicit Library transport scope that the
+server accepts only from trusted local Electron, native CLI, and test Adapters;
+Core resolves the Page's local Library identity and read/write lifecycle itself
+and never accepts an Adapter-selected storage Project as Library authority.
+Page detail/content/search/history and the remaining deep Module adapters stay
+on the migration inventory and must fail closed rather than fall back in the
+Rust branch.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

@@ -442,12 +442,12 @@ export class CoreClient implements CoreClientPort {
     clientSessionId: string,
     documentId?: string,
   ): Readonly<Record<string, string>> {
-    const moduleHeaders = this.#moduleHeaders(true);
     if (!clientSessionId || clientSessionId.length > 512) {
       throw new Error("Owned Document client session identity is invalid");
     }
     return {
-      ...moduleHeaders,
+      ...this.#moduleHeaders(),
+      ...(!this.#projectId ? { "x-nodex-document-scope": "library" } : {}),
       "x-nodex-client-session-id": clientSessionId,
       ...(documentId ? { "x-nodex-document-id": documentId } : {}),
     };

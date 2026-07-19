@@ -223,7 +223,7 @@ impl OwnedDocumentModule {
                         .ok_or_else(|| not_found("Owned Document descriptor was not found"))?;
                     let authority = read_document_authority(connection, &authority)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_project(context, &authority)?;
+                    authorize_document_access(context, &authority, DocumentAccessKind::Read)?;
                     let store_epoch = read_store_epoch(connection)?;
                     Ok(ModuleReadSnapshot {
                         version: CORE_CONTRACT_VERSION,
@@ -245,7 +245,7 @@ impl OwnedDocumentModule {
                     .call(move |connection| {
                         let authority = read_document_authority(connection, &document_id)?
                             .ok_or_else(|| not_found("Owned Document was not found"))?;
-                        authorize_yjs(&context, &authority)?;
+                        authorize_yjs(&context, &authority, DocumentAccessKind::Read)?;
                         let update = cache
                             .lock()
                             .map_err(|_| internal("Document cache lock failed"))?
@@ -272,7 +272,7 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_owned_document(context, &authority)?;
+                    authorize_owned_document(context, &authority, DocumentAccessKind::Read)?;
                     let (items, next_version_id) = list_document_versions(
                         connection,
                         &authority,
@@ -298,7 +298,7 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_owned_document(context, &authority)?;
+                    authorize_owned_document(context, &authority, DocumentAccessKind::Read)?;
                     let version = get_document_version(connection, &authority, &version_id)?
                         .ok_or_else(|| not_found("Document version was not found"))?;
                     Ok(ModuleReadSnapshot {
@@ -319,7 +319,7 @@ impl OwnedDocumentModule {
                 .read_default(|connection| {
                     let authority = read_document_authority(connection, &document_id)?
                         .ok_or_else(|| not_found("Owned Document was not found"))?;
-                    authorize_canvas(context, &authority)?;
+                    authorize_canvas(context, &authority, DocumentAccessKind::Read)?;
                     let loaded = load_canvas_scene(connection, &authority)?;
                     let store_epoch = read_store_epoch(connection)?;
                     Ok(ModuleReadSnapshot {
@@ -474,7 +474,7 @@ impl OwnedDocumentModule {
             .read_default(|connection| {
                 let authority = read_document_authority(connection, document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_owned_document(context, &authority)?;
+                authorize_owned_document(context, &authority, DocumentAccessKind::Read)?;
                 Ok(RealtimeDocumentBoundary {
                     store_epoch: StoreEpoch(read_store_epoch(connection)?),
                     generation: authority.head.generation,
@@ -493,13 +493,18 @@ impl OwnedDocumentModule {
         limit: Option<u32>,
     ) -> Result<DocumentEventReplay, CoreError> {
         self.validate_context(context)?;
-        let project_id = context
-            .project_id
-            .as_ref()
-            .ok_or_else(|| unauthorized_core("Document event replay requires a bound Project"))?;
+        authorize_library_document_scope(context)?;
         self.readers
             .read_default(|connection| {
-                replay_document_events(connection, &project_id.0, after, limit)
+                replay_document_events(
+                    connection,
+                    context
+                        .project_id
+                        .as_ref()
+                        .map(|project_id| project_id.0.as_str()),
+                    after,
+                    limit,
+                )
             })
             .map_err(core_error)
     }
@@ -734,7 +739,7 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_yjs(&context, &authority)?;
+                authorize_yjs(&context, &authority, DocumentAccessKind::Write)?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
                 let engine = cache
                     .lock()
@@ -917,7 +922,7 @@ impl OwnedDocumentModule {
                     .ok_or_else(|| not_found("Owned Document owner was not found"))?;
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Owned Document was not found"))?;
-                authorize_project(&context, &authority)?;
+                authorize_document_access(&context, &authority, DocumentAccessKind::Write)?;
                 if authority.owner_block_id != owner_block_id
                     || authority.owner_lifecycle != "active"
                 {
@@ -928,7 +933,7 @@ impl OwnedDocumentModule {
                     ));
                 }
                 if authority.head.sync_engine == DocumentSyncEngine::CanvasScene {
-                    authorize_canvas(&context, &authority)?;
+                    authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
                     let (_, created) = ensure_canvas_scene(&transaction, &authority, &assets_root)?;
                     let event_head = read_event_head(&transaction)?;
                     let committed = committed_value(
@@ -1031,7 +1036,7 @@ impl OwnedDocumentModule {
                             (committed, Some(event), next_head, prepared.engine)
                         }
                         (DocumentReadiness::Ready, DocumentAuthority::YdocPrimary) => {
-                            authorize_yjs(&context, &authority)?;
+                            authorize_yjs(&context, &authority, DocumentAccessKind::Write)?;
                             let mut engine = cache
                                 .lock()
                                 .map_err(|_| internal("Document cache lock failed"))?
@@ -1238,7 +1243,7 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Canvas Document was not found"))?;
-                authorize_canvas(&context, &authority)?;
+                authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
                 if authority.head.generation != generation {
                     return Err(StoreError::new(
                         StoreErrorCode::GenerationConflict,
@@ -1627,7 +1632,7 @@ impl OwnedDocumentModule {
                 };
                 let yjs_engine = match authority.head.sync_engine {
                     DocumentSyncEngine::Yjs => {
-                        authorize_yjs(&context, &authority)?;
+                        authorize_yjs(&context, &authority, DocumentAccessKind::Write)?;
                         let engine = cache
                             .lock()
                             .map_err(|_| internal("Document cache lock failed"))?
@@ -1643,7 +1648,7 @@ impl OwnedDocumentModule {
                         Some(engine)
                     }
                     DocumentSyncEngine::CanvasScene => {
-                        authorize_canvas(&context, &authority)?;
+                        authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
                         let loaded = load_canvas_scene(&transaction, &authority)?;
                         insert_canvas_checkpoint(
                             &transaction,
@@ -1862,7 +1867,7 @@ impl OwnedDocumentModule {
                 }
                 let authority = read_document_authority(&transaction, &document_id)?
                     .ok_or_else(|| not_found("Canvas Document was not found"))?;
-                authorize_canvas(&context, &authority)?;
+                authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
                 let loaded = load_canvas_scene(&transaction, &authority)?;
                 let version = get_document_version(&transaction, &authority, &version_id)?
@@ -2073,7 +2078,7 @@ impl OwnedDocumentModule {
                         &prepared_agent.authorization.provenance,
                     )?)
                 } else {
-                    authorize_yjs(&job.context, &authority)?;
+                    authorize_yjs(&job.context, &authority, DocumentAccessKind::Write)?;
                     None
                 };
                 if authority.head.generation != job.generation {
@@ -3060,27 +3065,83 @@ fn exhausted_store(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::ResourceExhausted, message, true)
 }
 
-fn authorize_project(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DocumentAccessKind {
+    Read,
+    Write,
+}
+
+fn authorize_document_access(
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
+    access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
-    if context.project_id.as_ref().map(|id| id.0.as_str())
-        == Some(authority.head.project_id.as_str())
+    if let Some(project_id) = context.project_id.as_ref() {
+        if project_id.0 != authority.head.project_id {
+            return Err(StoreError::new(
+                StoreErrorCode::Unauthorized,
+                "Owned Document is outside the bound Project",
+                false,
+            ));
+        }
+        if access == DocumentAccessKind::Write
+            && authority.owner_type == "page"
+            && authority
+                .page_lifecycle
+                .as_deref()
+                .is_some_and(|lifecycle| lifecycle != "active")
+        {
+            return Err(StoreError::new(
+                StoreErrorCode::Unauthorized,
+                "Page Document is not writable",
+                false,
+            ));
+        }
+        return Ok(());
+    }
+    authorize_library_document_scope(context)
+        .map_err(|error| StoreError::new(StoreErrorCode::Unauthorized, error.message, false))?;
+    if authority.owner_type != "page"
+        || authority.page_library_id.as_deref() != Some(context.library_id.0.as_str())
+        || authority.page_lifecycle.as_deref() == Some("deleted")
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::NotFound,
+            "Page Document does not exist in the local Library",
+            false,
+        ));
+    }
+    if access == DocumentAccessKind::Write && authority.page_lifecycle.as_deref() != Some("active")
+    {
+        return Err(StoreError::new(
+            StoreErrorCode::Unauthorized,
+            "Page Document is not writable",
+            false,
+        ));
+    }
+    Ok(())
+}
+
+fn authorize_library_document_scope(context: &BoundModuleContext) -> Result<(), CoreError> {
+    if context.project_id.is_some()
+        || matches!(
+            context.adapter,
+            AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+        )
     {
         return Ok(());
     }
-    Err(StoreError::new(
-        StoreErrorCode::Unauthorized,
-        "Owned Document is outside the bound Project",
-        false,
+    Err(unauthorized_core(
+        "Library Document scope requires a trusted local Adapter",
     ))
 }
 
 fn authorize_yjs(
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
+    access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
-    authorize_project(context, authority)?;
+    authorize_document_access(context, authority, access)?;
     if authority.owner_lifecycle == "deleted"
         || authority.head.readiness != DocumentReadiness::Ready
         || authority.head.authority != DocumentAuthority::YdocPrimary
@@ -3099,8 +3160,9 @@ fn authorize_yjs(
 fn authorize_canvas(
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
+    access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
-    authorize_project(context, authority)?;
+    authorize_document_access(context, authority, access)?;
     if authority.owner_lifecycle == "deleted" {
         return Err(StoreError::new(
             StoreErrorCode::Unauthorized,
@@ -3114,10 +3176,11 @@ fn authorize_canvas(
 fn authorize_owned_document(
     context: &BoundModuleContext,
     authority: &DocumentAuthorityRow,
+    access: DocumentAccessKind,
 ) -> Result<(), StoreError> {
     match authority.head.sync_engine {
-        DocumentSyncEngine::Yjs => authorize_yjs(context, authority),
-        DocumentSyncEngine::CanvasScene => authorize_canvas(context, authority),
+        DocumentSyncEngine::Yjs => authorize_yjs(context, authority, access),
+        DocumentSyncEngine::CanvasScene => authorize_canvas(context, authority, access),
     }
 }
 
@@ -3389,6 +3452,16 @@ mod tests {
         }
     }
 
+    fn library_context_for(connection_id: &str, adapter: AdapterKind) -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId(PROFILE_ID.to_owned()),
+            library_id: LibraryId(LIBRARY_ID.to_owned()),
+            project_id: None,
+            connection_id: connection_id.to_owned(),
+            adapter,
+        }
+    }
+
     fn seeded_module() -> SeededModule {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
@@ -3412,6 +3485,15 @@ mod tests {
                 let state_vector = state_vector.clone();
                 move |connection| {
                     with_immediate_transaction(connection, |transaction| {
+                        transaction.execute(
+                            "INSERT INTO profiles(id, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                            params![PROFILE_ID, NOW],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                             VALUES (?1, ?2, ?3, ?3)",
+                            params![LIBRARY_ID, PROFILE_ID, NOW],
+                        )?;
                         transaction.execute(
                             "INSERT INTO projects(id, library_id, name, created, updated) \
                              VALUES (?1, ?2, 'Document test', ?3, ?3)",
@@ -3441,6 +3523,13 @@ mod tests {
                             "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
                              VALUES (?1, ?2, ?3, ?4)",
                             params![OWNER_BLOCK_ID, DOCUMENT_ID, PROJECT_ID, NOW],
+                        )?;
+                        transaction.execute(
+                            "INSERT INTO pages(\
+                               block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+                               parent_revision, metadata_revision, created_at, updated_at\
+                             ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
+                            params![OWNER_BLOCK_ID, LIBRARY_ID, DOCUMENT_ID, NOW],
                         )?;
                         for unit in &materialization.search_units {
                             transaction.execute(
@@ -3567,16 +3656,17 @@ mod tests {
                 move |connection| {
                     with_immediate_transaction(connection, |transaction| {
                         transaction.execute(
-                            "INSERT INTO profiles(id, created_at, updated_at) VALUES (?1, ?2, ?2)",
+                            "INSERT OR IGNORE INTO profiles(id, created_at, updated_at) \
+                             VALUES (?1, ?2, ?2)",
                             params![PROFILE_ID, NOW],
                         )?;
                         transaction.execute(
-                            "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                            "INSERT OR IGNORE INTO libraries(id, profile_id, created_at, updated_at) \
                          VALUES (?1, ?2, ?3, ?3)",
                             params![LIBRARY_ID, PROFILE_ID, NOW],
                         )?;
                         transaction.execute(
-                            "INSERT INTO pages(\
+                            "INSERT OR IGNORE INTO pages(\
                            block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
                            parent_revision, metadata_revision, created_at, updated_at\
                          ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', 1, 1, ?4, ?4)",
@@ -5108,6 +5198,123 @@ mod tests {
                 ..
             }] if document_id == DOCUMENT_ID
         ));
+    }
+
+    #[test]
+    fn trusted_library_realtime_scope_crosses_document_storage_projects() {
+        let seeded = seeded_module();
+        let adapter = OwnedDocumentRealtimeAdapter::new(seeded.module.clone());
+        let library_context = library_context_for("renderer:library", AdapterKind::Test);
+        let untrusted_context = library_context_for("agent:library", AdapterKind::Agent);
+        let wrong_project = context_for_project("renderer:wrong", "project:other");
+
+        let canvas = canvas_module();
+        let canvas_adapter = OwnedDocumentRealtimeAdapter::new(canvas.module);
+        let unauthorized_canvas = canvas_adapter
+            .subscribe(
+                &library_context,
+                DOCUMENT_ID.to_owned(),
+                "client:library-canvas".to_owned(),
+            )
+            .expect_err("Library scope is limited to Page Documents");
+        assert_eq!(unauthorized_canvas.code, CoreErrorCode::NotFound);
+
+        let unauthorized_library = adapter
+            .subscribe(
+                &untrusted_context,
+                DOCUMENT_ID.to_owned(),
+                "client:agent".to_owned(),
+            )
+            .expect_err("untrusted Adapter cannot request Library scope");
+        assert_eq!(unauthorized_library.code, CoreErrorCode::Unauthorized);
+        let unauthorized_project = adapter
+            .subscribe(
+                &wrong_project,
+                DOCUMENT_ID.to_owned(),
+                "client:wrong".to_owned(),
+            )
+            .expect_err("another Project cannot impersonate the storage Project");
+        assert_eq!(unauthorized_project.code, CoreErrorCode::Unauthorized);
+
+        adapter
+            .subscribe(
+                &library_context,
+                DOCUMENT_ID.to_owned(),
+                "client:library".to_owned(),
+            )
+            .expect("trusted Library subscription");
+        let synced = adapter
+            .sync_yjs(
+                &library_context,
+                "client:library",
+                DOCUMENT_ID.to_owned(),
+                Vec::new(),
+            )
+            .expect("Library-scoped sync");
+        assert!(matches!(
+            synced.value,
+            OwnedDocumentReadValue::YjsSync { .. }
+        ));
+
+        let applied = adapter
+            .apply(
+                &library_context,
+                "client:library",
+                apply_request(
+                    "update:library-scope",
+                    1,
+                    title_update(&seeded.full_state, &seeded.state_vector, "Library scope"),
+                ),
+            )
+            .expect("Library-scoped update");
+        let replay = adapter
+            .replay("renderer:library", "client:library", 0, None)
+            .expect("Library-scoped durable replay");
+        assert!(replay.events.iter().any(|event| {
+            matches!(
+                event,
+                DocumentRealtimeEvent::Committed(event)
+                    if event.sequence == applied.committed.event_sequence
+            )
+        }));
+
+        seeded
+            .kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "UPDATE blocks SET lifecycle = 'archived' WHERE id = ?1",
+                        [OWNER_BLOCK_ID],
+                    )?;
+                    transaction.execute(
+                        "UPDATE pages SET lifecycle = 'archived' WHERE block_id = ?1",
+                        [OWNER_BLOCK_ID],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("archive Page authority");
+        adapter
+            .sync_yjs(
+                &library_context,
+                "client:library",
+                DOCUMENT_ID.to_owned(),
+                Vec::new(),
+            )
+            .expect("archived Library Page remains readable");
+        let archived_write = adapter
+            .apply(
+                &library_context,
+                "client:library",
+                apply_request(
+                    "update:archived-library-scope",
+                    2,
+                    title_update(&seeded.full_state, &seeded.state_vector, "Archived write"),
+                ),
+            )
+            .expect_err("archived Library Page is not writable");
+        assert_eq!(archived_write.code, CoreErrorCode::Unauthorized);
     }
 
     #[test]

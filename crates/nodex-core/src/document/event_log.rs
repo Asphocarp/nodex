@@ -59,11 +59,13 @@ struct DocumentEventMetadata {
 
 pub(crate) fn replay_document_events(
     connection: &Connection,
-    project_id: &str,
+    project_id: Option<&str>,
     after: i64,
     limit: Option<u32>,
 ) -> Result<DocumentEventReplay, StoreError> {
-    if after < 0 || project_id.is_empty() || project_id.len() > 512 {
+    if after < 0
+        || project_id.is_some_and(|project_id| project_id.is_empty() || project_id.len() > 512)
+    {
         return Err(invalid("Document event replay boundary is invalid"));
     }
     let limit = limit
@@ -109,7 +111,7 @@ pub(crate) fn replay_document_events(
     for row in rows {
         validate_change_log_row(&row, next_after, event_head)?;
         next_after = row.sequence;
-        if row.project_id != project_id {
+        if project_id.is_some_and(|project_id| row.project_id != project_id) {
             continue;
         }
         if !row.kind.starts_with("owned_document.") {
