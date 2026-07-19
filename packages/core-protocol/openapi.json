@@ -4654,6 +4654,124 @@
               {
                 "type": "object",
                 "required": [
+                  "thread_id",
+                  "roots",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "merge_thread_writable_roots"
+                    ]
+                  },
+                  "roots": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "roots",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "replace_thread_writable_roots"
+                    ]
+                  },
+                  "roots": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "turn_id",
+                  "root_thread_id",
+                  "actor_project_id",
+                  "source",
+                  "kind"
+                ],
+                "properties": {
+                  "actor_project_id": {
+                    "type": "string"
+                  },
+                  "inherited_from": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ProjectWorkspaceTurnCoordinate"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "freeze_turn_authority"
+                    ]
+                  },
+                  "root_thread_id": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "$ref": "#/components/schemas/ProjectWorkspaceTurnAuthoritySource"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  },
+                  "turn_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "process",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "upsert_background_process"
+                    ]
+                  },
+                  "preserve_started_at": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "process": {
+                    "$ref": "#/components/schemas/ProjectWorkspaceBackgroundProcess"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "mode",
                   "kind"
@@ -6036,6 +6154,56 @@
               {
                 "type": "object",
                 "required": [
+                  "thread_id",
+                  "turn_id",
+                  "root_thread_id",
+                  "actor_project_id",
+                  "kind"
+                ],
+                "properties": {
+                  "actor_project_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "turn_authority"
+                    ]
+                  },
+                  "root_thread_id": {
+                    "type": "string"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  },
+                  "turn_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "background_processes"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
                   "project_id",
                   "kind"
                 ],
@@ -6647,6 +6815,87 @@
       "ProjectWorkspaceApplyResponse": {
         "$ref": "#/components/schemas/ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"
       },
+      "ProjectWorkspaceBackgroundProcess": {
+        "type": "object",
+        "required": [
+          "id",
+          "thread_id",
+          "item_id",
+          "command",
+          "source",
+          "started_at_ms",
+          "updated_at_ms"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "os_pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "process_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProjectWorkspaceBackgroundProcessSource"
+          },
+          "started_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "terminal_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "thread_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turn_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ProjectWorkspaceBackgroundProcessSource": {
+        "type": "string",
+        "enum": [
+          "app-server",
+          "terminal-action"
+        ]
+      },
       "ProjectWorkspaceDynamicToolCatalog": {
         "type": "object",
         "required": [
@@ -6956,6 +7205,7 @@
           "archived",
           "has_unread_turn",
           "dynamic_tool_catalogs",
+          "writable_roots",
           "created_at",
           "updated_at",
           "linked_at"
@@ -7080,6 +7330,12 @@
           "updated_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "writable_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -7223,6 +7479,96 @@
           },
           "status_type": {
             "$ref": "#/components/schemas/CodexThreadStatusType"
+          }
+        }
+      },
+      "ProjectWorkspaceTurnAuthority": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "turn_id",
+          "root_thread_id",
+          "actor_project_id",
+          "library_id",
+          "store_epoch",
+          "scope",
+          "source"
+        ],
+        "properties": {
+          "actor_project_id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "root_thread_id": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ProjectWorkspaceTurnAuthorityScope"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProjectWorkspaceTurnAuthoritySource"
+          },
+          "store_epoch": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "turn_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectWorkspaceTurnAuthorityResolution": {
+        "type": "object",
+        "required": [
+          "persisted"
+        ],
+        "properties": {
+          "authority": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectWorkspaceTurnAuthority"
+              }
+            ]
+          },
+          "persisted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProjectWorkspaceTurnAuthorityScope": {
+        "type": "string",
+        "enum": [
+          "project",
+          "library"
+        ]
+      },
+      "ProjectWorkspaceTurnAuthoritySource": {
+        "type": "string",
+        "enum": [
+          "project_turn",
+          "builtin_full_access",
+          "inherited_builtin_full_access"
+        ]
+      },
+      "ProjectWorkspaceTurnCoordinate": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "turn_id"
+        ],
+        "properties": {
+          "thread_id": {
+            "type": "string"
+          },
+          "turn_id": {
+            "type": "string"
           }
         }
       },
@@ -8895,6 +9241,45 @@
                             "enum": [
                               "execution_context"
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "resolution",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "turn_authority"
+                            ]
+                          },
+                          "resolution": {
+                            "$ref": "#/components/schemas/ProjectWorkspaceTurnAuthorityResolution"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "processes",
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "background_processes"
+                            ]
+                          },
+                          "processes": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/ProjectWorkspaceBackgroundProcess"
+                            }
                           }
                         }
                       },

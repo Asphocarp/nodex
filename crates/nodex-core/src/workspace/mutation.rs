@@ -23,7 +23,7 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
-use super::{ProjectWorkspaceApplyOutcome, session_lifecycle, session_mutation, thread};
+use super::{ProjectWorkspaceApplyOutcome, execution, session_lifecycle, session_mutation, thread};
 
 const MODULE_NAME: &str = "project_workspace";
 const MAX_ID_LENGTH: usize = 512;
@@ -371,6 +371,68 @@ pub(super) fn apply(
                     &request_hash,
                     thread_id,
                     catalogs,
+                ),
+                ProjectWorkspaceIntent::MergeThreadWritableRoots { thread_id, roots } => {
+                    execution::mutate_writable_roots(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        thread_id,
+                        roots,
+                        true,
+                    )
+                }
+                ProjectWorkspaceIntent::ReplaceThreadWritableRoots { thread_id, roots } => {
+                    execution::mutate_writable_roots(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        thread_id,
+                        roots,
+                        false,
+                    )
+                }
+                ProjectWorkspaceIntent::FreezeTurnAuthority {
+                    thread_id,
+                    turn_id,
+                    root_thread_id,
+                    actor_project_id,
+                    source,
+                    inherited_from,
+                } => execution::freeze_turn_authority(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    thread_id,
+                    turn_id,
+                    root_thread_id,
+                    actor_project_id,
+                    *source,
+                    inherited_from.as_ref().map(|coordinate| {
+                        (coordinate.thread_id.as_str(), coordinate.turn_id.as_str())
+                    }),
+                ),
+                ProjectWorkspaceIntent::UpsertBackgroundProcess {
+                    process,
+                    preserve_started_at,
+                } => execution::upsert_background_process(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    process,
+                    preserve_started_at.unwrap_or(true),
                 ),
                 ProjectWorkspaceIntent::SetProjectPermissionMode { project_id, mode } => {
                     thread::set_project_permission_mode(

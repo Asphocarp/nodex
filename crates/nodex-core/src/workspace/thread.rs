@@ -12,6 +12,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::ProjectWorkspaceApplyOutcome;
+use super::execution::read_writable_roots;
 use super::mutation::{WorkspaceMutationEffects, finish_mutation, workspace_event_anchor};
 use super::session_mutation::sqlite_now;
 
@@ -718,6 +719,7 @@ fn project_workspace_thread(
         ));
     }
     let dynamic_tool_catalogs = read_dynamic_tool_catalogs(connection, &row.thread_id)?;
+    let writable_roots = read_writable_roots(connection, &row.thread_id)?;
     Ok(ProjectWorkspaceThread {
         thread_id: row.thread_id,
         project_id: row.project_id,
@@ -740,6 +742,7 @@ fn project_workspace_thread(
         pinned_order: row.pinned_order,
         has_unread_turn: row.has_unread_turn == 1,
         dynamic_tool_catalogs,
+        writable_roots,
         created_at: row.created_at,
         updated_at: row.updated_at,
         linked_at: row.linked_at,
@@ -1362,8 +1365,11 @@ mod tests {
 
     use nodex_core_contracts::workspace::{
         CodexPermissionMode, CodexThreadActiveFlag, CodexThreadStatusType, ProjectSessionIntent,
+        ProjectWorkspaceBackgroundProcess, ProjectWorkspaceBackgroundProcessSource,
         ProjectWorkspaceDynamicToolCatalog, ProjectWorkspaceIntent, ProjectWorkspaceRead,
         ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
+        ProjectWorkspaceTurnAuthorityScope, ProjectWorkspaceTurnAuthoritySource,
+        ProjectWorkspaceTurnCoordinate,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
@@ -1921,5 +1927,328 @@ mod tests {
             )
             .expect_err("deleted Thread must be unavailable");
         assert_eq!(missing.code, CoreErrorCode::NotFound);
+    }
+
+    #[test]
+    fn owns_host_observed_execution_authority_and_continuity() {
+        let (_directory, kernel, module) = seeded_module();
+        create_thread(
+            &module,
+            "execution-root-create",
+            "thread-root",
+            Some("project:default"),
+            None,
+        );
+        create_thread(
+            &module,
+            "execution-child-create",
+            "thread-child",
+            Some("project:default"),
+            Some("thread-root"),
+        );
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "execution-roots-replace",
+                    ProjectWorkspaceIntent::ReplaceThreadWritableRoots {
+                        thread_id: "thread-root".to_owned(),
+                        roots: vec![
+                            "relative".to_owned(),
+                            " /workspace/ignored ".to_owned(),
+                            "/workspace/a".to_owned(),
+                            "/workspace/a".to_owned(),
+                        ],
+                    },
+                ),
+            )
+            .expect("replace writable roots");
+        module
+            .apply(
+                &context(),
+                request(
+                    "execution-roots-merge",
+                    ProjectWorkspaceIntent::MergeThreadWritableRoots {
+                        thread_id: "thread-root".to_owned(),
+                        roots: vec!["/workspace/b".to_owned(), "/workspace/a".to_owned()],
+                    },
+                ),
+            )
+            .expect("merge writable roots");
+        let ProjectWorkspaceReadValue::Thread { thread } = read(
+            &module,
+            ProjectWorkspaceRead::Thread {
+                thread_id: "thread-root".to_owned(),
+            },
+        ) else {
+            panic!("Thread read");
+        };
+        assert_eq!(thread.writable_roots, ["/workspace/a", "/workspace/b"]);
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "execution-permission-full-access",
+                    ProjectWorkspaceIntent::SetProjectPermissionMode {
+                        project_id: "project:default".to_owned(),
+                        mode: CodexPermissionMode::FullAccess,
+                    },
+                ),
+            )
+            .expect("full access permission");
+        let ProjectWorkspaceReadValue::TurnAuthority { resolution } = read(
+            &module,
+            ProjectWorkspaceRead::TurnAuthority {
+                thread_id: "thread-root".to_owned(),
+                turn_id: "turn-unrecorded".to_owned(),
+                root_thread_id: "thread-root".to_owned(),
+                actor_project_id: "project:default".to_owned(),
+            },
+        ) else {
+            panic!("unrecorded Turn authority read");
+        };
+        assert!(!resolution.persisted);
+        assert_eq!(
+            resolution.authority.expect("project fallback").scope,
+            ProjectWorkspaceTurnAuthorityScope::Project
+        );
+
+        let mut untrusted = context();
+        untrusted.adapter = AdapterKind::NativeCli;
+        let rejected = module
+            .apply(
+                &untrusted,
+                request(
+                    "execution-authority-untrusted",
+                    ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread-root".to_owned(),
+                        turn_id: "turn-untrusted".to_owned(),
+                        root_thread_id: "thread-root".to_owned(),
+                        actor_project_id: "project:default".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+                        inherited_from: None,
+                    },
+                ),
+            )
+            .expect_err("untrusted Adapter cannot freeze Turn authority");
+        assert_eq!(rejected.code, CoreErrorCode::Unauthorized);
+
+        for (operation_id, turn_id, source) in [
+            (
+                "execution-authority-project",
+                "turn-project",
+                ProjectWorkspaceTurnAuthoritySource::ProjectTurn,
+            ),
+            (
+                "execution-authority-builtin",
+                "turn-builtin",
+                ProjectWorkspaceTurnAuthoritySource::BuiltinFullAccess,
+            ),
+        ] {
+            module
+                .apply(
+                    &context(),
+                    request(
+                        operation_id,
+                        ProjectWorkspaceIntent::FreezeTurnAuthority {
+                            thread_id: "thread-root".to_owned(),
+                            turn_id: turn_id.to_owned(),
+                            root_thread_id: "thread-root".to_owned(),
+                            actor_project_id: "project:default".to_owned(),
+                            source,
+                            inherited_from: None,
+                        },
+                    ),
+                )
+                .expect("freeze root Turn authority");
+        }
+        module
+            .apply(
+                &context(),
+                request(
+                    "execution-authority-inherited",
+                    ProjectWorkspaceIntent::FreezeTurnAuthority {
+                        thread_id: "thread-child".to_owned(),
+                        turn_id: "turn-child".to_owned(),
+                        root_thread_id: "thread-root".to_owned(),
+                        actor_project_id: "project:default".to_owned(),
+                        source: ProjectWorkspaceTurnAuthoritySource::InheritedBuiltinFullAccess,
+                        inherited_from: Some(ProjectWorkspaceTurnCoordinate {
+                            thread_id: "thread-root".to_owned(),
+                            turn_id: "turn-builtin".to_owned(),
+                        }),
+                    },
+                ),
+            )
+            .expect("freeze inherited Turn authority");
+
+        let ProjectWorkspaceReadValue::TurnAuthority { resolution } = read(
+            &module,
+            ProjectWorkspaceRead::TurnAuthority {
+                thread_id: "thread-child".to_owned(),
+                turn_id: "turn-child".to_owned(),
+                root_thread_id: "thread-root".to_owned(),
+                actor_project_id: "project:default".to_owned(),
+            },
+        ) else {
+            panic!("Turn authority read");
+        };
+        assert!(resolution.persisted);
+        assert_eq!(
+            resolution.authority.expect("current authority").scope,
+            ProjectWorkspaceTurnAuthorityScope::Library
+        );
+        let fingerprint = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT authority_fingerprint FROM nodex_agent_turn_authorities \
+                         WHERE thread_id = 'thread-root' AND turn_id = 'turn-builtin'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(crate::infrastructure::sqlite::StoreError::from)
+            })
+            .expect("Turn authority fingerprint");
+        assert_eq!(
+            fingerprint,
+            "0f460f8fdae5552468b1b7bedc4cf07ae5c02568cf5a1780244c0fc51364a792"
+        );
+
+        let process = ProjectWorkspaceBackgroundProcess {
+            id: "thread-root:item-1".to_owned(),
+            thread_id: "thread-root".to_owned(),
+            thread_title: Some(" Root execution ".to_owned()),
+            item_id: "item-1".to_owned(),
+            turn_id: Some("turn-builtin".to_owned()),
+            command: " pnpm test ".to_owned(),
+            cwd: Some(" /workspace/a ".to_owned()),
+            process_id: Some(" process-1 ".to_owned()),
+            os_pid: Some(42),
+            terminal_session_id: Some(" terminal-1 ".to_owned()),
+            source: ProjectWorkspaceBackgroundProcessSource::AppServer,
+            started_at_ms: 10,
+            updated_at_ms: 20,
+        };
+        module
+            .apply(
+                &context(),
+                request(
+                    "execution-process-create",
+                    ProjectWorkspaceIntent::UpsertBackgroundProcess {
+                        process: process.clone(),
+                        preserve_started_at: None,
+                    },
+                ),
+            )
+            .expect("record background process");
+        module
+            .apply(
+                &context(),
+                request(
+                    "execution-process-update",
+                    ProjectWorkspaceIntent::UpsertBackgroundProcess {
+                        process: ProjectWorkspaceBackgroundProcess {
+                            thread_title: None,
+                            turn_id: None,
+                            command: "pnpm test:all".to_owned(),
+                            cwd: None,
+                            process_id: None,
+                            os_pid: None,
+                            terminal_session_id: None,
+                            started_at_ms: 99,
+                            updated_at_ms: 30,
+                            ..process
+                        },
+                        preserve_started_at: None,
+                    },
+                ),
+            )
+            .expect("update background process");
+        let ProjectWorkspaceReadValue::BackgroundProcesses { processes } = read(
+            &module,
+            ProjectWorkspaceRead::BackgroundProcesses {
+                thread_id: Some("thread-root".to_owned()),
+            },
+        ) else {
+            panic!("background processes read");
+        };
+        assert_eq!(processes.len(), 1);
+        assert_eq!(processes[0].thread_title.as_deref(), Some("Root execution"));
+        assert_eq!(processes[0].cwd.as_deref(), Some("/workspace/a"));
+        assert_eq!(processes[0].command, "pnpm test:all");
+        assert_eq!(processes[0].started_at_ms, 10);
+        assert_eq!(processes[0].updated_at_ms, 30);
+        module
+            .apply(
+                &context(),
+                request(
+                    "execution-process-restart",
+                    ProjectWorkspaceIntent::UpsertBackgroundProcess {
+                        process: ProjectWorkspaceBackgroundProcess {
+                            started_at_ms: 99,
+                            updated_at_ms: 40,
+                            ..processes[0].clone()
+                        },
+                        preserve_started_at: Some(false),
+                    },
+                ),
+            )
+            .expect("restart background process");
+        let ProjectWorkspaceReadValue::BackgroundProcesses { processes } = read(
+            &module,
+            ProjectWorkspaceRead::BackgroundProcesses {
+                thread_id: Some("thread-root".to_owned()),
+            },
+        ) else {
+            panic!("restarted background process read");
+        };
+        assert_eq!(processes[0].started_at_ms, 99);
+        assert_eq!(processes[0].updated_at_ms, 40);
+
+        kernel
+            .writer()
+            .call(|connection| {
+                assert!(
+                    connection
+                        .execute(
+                            "UPDATE nodex_agent_turn_authorities SET scope = 'project' \
+                             WHERE thread_id = 'thread-root' AND turn_id = 'turn-builtin'",
+                            [],
+                        )
+                        .is_err()
+                );
+                assert!(
+                    connection
+                        .execute(
+                            "DELETE FROM nodex_agent_turn_authorities \
+                             WHERE thread_id = 'thread-root' AND turn_id = 'turn-builtin'",
+                            [],
+                        )
+                        .is_err()
+                );
+                connection.execute(
+                    "UPDATE block_store_metadata SET store_epoch = 'epoch-2' WHERE id = 1",
+                    [],
+                )?;
+                Ok(())
+            })
+            .expect("verify immutable authority and advance epoch");
+        let ProjectWorkspaceReadValue::TurnAuthority { resolution } = read(
+            &module,
+            ProjectWorkspaceRead::TurnAuthority {
+                thread_id: "thread-root".to_owned(),
+                turn_id: "turn-builtin".to_owned(),
+                root_thread_id: "thread-root".to_owned(),
+                actor_project_id: "project:default".to_owned(),
+            },
+        ) else {
+            panic!("stale Turn authority read");
+        };
+        assert!(resolution.persisted);
+        assert!(resolution.authority.is_none());
     }
 }

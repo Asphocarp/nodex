@@ -137,6 +137,22 @@ Projects, duplicate Session ownership, and a Thread/Session Project mismatch
 fail closed. Electron still hosts codex-app-server and supplies accepted runtime
 observations; reading or persisting this context never starts a process.
 
+The same Thread aggregate owns host-observed execution continuity without
+moving process execution into Core. Only a trusted Electron Host Adapter may
+freeze an exact Thread/Turn authority row; Core derives Profile, Library,
+Project, store epoch, scope, permission-profile provenance, and the
+JavaScript-compatible fingerprint, then relies on immutable SQLite triggers to
+prevent later update or deletion. A missing historical row resolves to the
+bounded Project fallback, while an existing row from another epoch or actor
+fails closed and is never replaced by broader authority. One inherited
+full-access Turn must name an exact persisted Library-scope parent Turn.
+Per-Thread writable workspace roots are ordered Core rows with Thread-cascade
+lifecycle; v83 imports the former profile JSON projection once and retains the
+file only as rollback evidence. Background-process observations remain records
+of Electron-owned app-server or terminal work: Workspace validates and bounds
+their Thread identity, preserves restart time according to the semantic intent,
+and prunes the global durable collection atomically with its receipt/event.
+
 Workspace owns the durable Session panel/tab aggregate as well. The versioned
 contract names the target panel, tab kind, optional browser identity, and target
 leaf instead of asking an Adapter to reconstruct those facts from JSON. Core

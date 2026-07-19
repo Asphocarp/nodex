@@ -79,6 +79,16 @@ import {
   getCodexProjectPermissionModeSelection,
   putCodexProjectPermissionModeSelection,
 } from "./local-store/codex-project-permission-modes";
+import {
+  getCodexThreadWritableRoots,
+  mergeCodexThreadWritableRoots,
+  replaceCodexThreadWritableRoots,
+} from "./local-store/codex-thread-writable-roots";
+import {
+  listCodexBackgroundProcesses,
+  upsertCodexBackgroundProcess,
+} from "./local-store/codex-background-processes";
+import { CodexNodexAgentAuthorityRegistry } from "./codex/codex-nodex-agent-authority";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 import { DuplicatePageV3InputSchema } from "../shared/nodex-agent-tools";
 import {
@@ -2802,9 +2812,272 @@ describe("TypeScript/Rust content Module differential", () => {
       dynamic_tool_catalogs: withSnakeCaseKeys(
         getCodexThreadDynamicToolCatalogs(threadId),
       ),
+      writable_roots: [],
       created_at: oracleThreadContext.createdAt,
       updated_at: oracleThreadContext.updatedAt,
       linked_at: oracleThreadContext.linkedAt,
+    });
+
+    replaceCodexThreadWritableRoots(threadId, [
+      "relative",
+      " /workspace/ignored ",
+      path.join(workspaceRoot, "writable-a"),
+      path.join(workspaceRoot, "writable-a"),
+    ]);
+    await stage(
+      "Project Workspace replace Thread writable roots",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-thread-writable-roots-replace",
+        intent: {
+          kind: "replace_thread_writable_roots",
+          thread_id: threadId,
+          roots: [
+            "relative",
+            " /workspace/ignored ",
+            path.join(workspaceRoot, "writable-a"),
+            path.join(workspaceRoot, "writable-a"),
+          ],
+        },
+      }),
+    );
+    mergeCodexThreadWritableRoots(threadId, [
+      path.join(workspaceRoot, "writable-b"),
+      path.join(workspaceRoot, "writable-a"),
+    ]);
+    await stage(
+      "Project Workspace merge Thread writable roots",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-thread-writable-roots-merge",
+        intent: {
+          kind: "merge_thread_writable_roots",
+          thread_id: threadId,
+          roots: [
+            path.join(workspaceRoot, "writable-b"),
+            path.join(workspaceRoot, "writable-a"),
+          ],
+        },
+      }),
+    );
+    const candidateThreadWithRoots = await stage(
+      "Project Workspace read Thread writable roots",
+      candidate.workspaceRead({ kind: "thread", thread_id: threadId }),
+    );
+    if (candidateThreadWithRoots.value.kind !== "thread") {
+      throw new Error("Expected Thread writable roots");
+    }
+    expect(candidateThreadWithRoots.value.thread.writable_roots).toEqual(
+      getCodexThreadWritableRoots(threadId),
+    );
+
+    const initialBackgroundProcess = {
+      id: `${threadId}:item-1`,
+      threadId,
+      threadTitle: "Gate C background execution",
+      itemId: "item-1",
+      turnId: "turn-background",
+      command: "pnpm test",
+      cwd: workspaceRoot,
+      processId: "process-1",
+      osPid: 42,
+      terminalSessionId: "terminal-1",
+      source: "app-server" as const,
+      startedAtMs: 10,
+      updatedAtMs: 20,
+    };
+    const initialCandidateBackgroundProcess = {
+      id: initialBackgroundProcess.id,
+      thread_id: initialBackgroundProcess.threadId,
+      thread_title: initialBackgroundProcess.threadTitle,
+      item_id: initialBackgroundProcess.itemId,
+      turn_id: initialBackgroundProcess.turnId,
+      command: initialBackgroundProcess.command,
+      cwd: initialBackgroundProcess.cwd,
+      process_id: initialBackgroundProcess.processId,
+      os_pid: initialBackgroundProcess.osPid,
+      terminal_session_id: initialBackgroundProcess.terminalSessionId,
+      source: initialBackgroundProcess.source,
+      started_at_ms: initialBackgroundProcess.startedAtMs,
+      updated_at_ms: initialBackgroundProcess.updatedAtMs,
+    };
+    upsertCodexBackgroundProcess(initialBackgroundProcess);
+    await stage(
+      "Project Workspace record background process",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-background-process-create",
+        intent: {
+          kind: "upsert_background_process",
+          process: initialCandidateBackgroundProcess,
+          preserve_started_at: true,
+        },
+      }),
+    );
+    const updatedBackgroundProcess = {
+      ...initialBackgroundProcess,
+      threadTitle: null,
+      turnId: null,
+      command: "pnpm test:all",
+      cwd: null,
+      processId: null,
+      osPid: null,
+      terminalSessionId: null,
+      startedAtMs: 99,
+      updatedAtMs: 30,
+    };
+    const updatedCandidateBackgroundProcess = {
+      ...initialCandidateBackgroundProcess,
+      thread_title: null,
+      turn_id: null,
+      command: updatedBackgroundProcess.command,
+      cwd: null,
+      process_id: null,
+      os_pid: null,
+      terminal_session_id: null,
+      started_at_ms: updatedBackgroundProcess.startedAtMs,
+      updated_at_ms: updatedBackgroundProcess.updatedAtMs,
+    };
+    upsertCodexBackgroundProcess(updatedBackgroundProcess);
+    await stage(
+      "Project Workspace update background process",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-background-process-update",
+        intent: {
+          kind: "upsert_background_process",
+          process: updatedCandidateBackgroundProcess,
+          preserve_started_at: true,
+        },
+      }),
+    );
+    const candidateBackgroundProcesses = await stage(
+      "Project Workspace read background processes",
+      candidate.workspaceRead({
+        kind: "background_processes",
+        thread_id: threadId,
+      }),
+    );
+    if (candidateBackgroundProcesses.value.kind !== "background_processes") {
+      throw new Error("Expected background process records");
+    }
+    expect(candidateBackgroundProcesses.value.processes).toEqual(
+      withSnakeCaseKeys(listCodexBackgroundProcesses(threadId)),
+    );
+
+    const authorityThreadId = "gate-c-thread-turn-authority";
+    upsertCodexThread({
+      projectId: coordinates.projectId,
+      threadId: authorityThreadId,
+      threadName: "Gate C Turn authority",
+      threadPreview: "",
+      modelProvider: "openai",
+      createdAt: 300,
+      updatedAt: 300,
+      linkedAt: threadLinkedAt,
+    });
+    await stage(
+      "Project Workspace create Turn authority Thread",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-authority-thread-create",
+        intent: {
+          kind: "upsert_thread",
+          thread_id: authorityThreadId,
+          patch: {
+            project_id: coordinates.projectId,
+            thread_name: "Gate C Turn authority",
+            thread_preview: "",
+            model_provider: "openai",
+            created_at: 300,
+            updated_at: 300,
+            linked_at: threadLinkedAt,
+          },
+        },
+      }),
+    );
+    putCodexProjectPermissionModeSelection(
+      coordinates.projectId,
+      "full-access",
+      threadLinkedAt,
+    );
+    await stage(
+      "Project Workspace select authority full access",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-authority-full-access",
+        intent: {
+          kind: "set_project_permission_mode",
+          project_id: coordinates.projectId,
+          mode: "full-access",
+        },
+      }),
+    );
+    const authorityRegistry = new CodexNodexAgentAuthorityRegistry();
+    const authorityLaunch = authorityRegistry.beginTurn({
+      threadId: authorityThreadId,
+      rootThreadId: authorityThreadId,
+      actorProjectId: coordinates.projectId,
+      builtinFullAccess: true,
+    });
+    const oracleTurnAuthority = authorityRegistry.bindTurn(
+      authorityLaunch,
+      "turn-builtin",
+    );
+    if (!oracleTurnAuthority) {
+      throw new Error("Expected TypeScript frozen Turn authority");
+    }
+    await stage(
+      "Project Workspace freeze Turn authority",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-freeze-turn-authority",
+        intent: {
+          kind: "freeze_turn_authority",
+          thread_id: authorityThreadId,
+          turn_id: "turn-builtin",
+          root_thread_id: authorityThreadId,
+          actor_project_id: coordinates.projectId,
+          source: "builtin_full_access",
+          inherited_from: null,
+        },
+      }),
+    );
+    const candidateTurnAuthority = await stage(
+      "Project Workspace read Turn authority",
+      candidate.workspaceRead({
+        kind: "turn_authority",
+        thread_id: authorityThreadId,
+        turn_id: "turn-builtin",
+        root_thread_id: authorityThreadId,
+        actor_project_id: coordinates.projectId,
+      }),
+    );
+    if (candidateTurnAuthority.value.kind !== "turn_authority") {
+      throw new Error("Expected frozen Turn authority");
+    }
+    expect(candidateTurnAuthority.value.resolution).toEqual({
+      authority: withSnakeCaseKeys(oracleTurnAuthority),
+      persisted: true,
+    });
+    const oracleFallbackAuthority = authorityRegistry.capture({
+      threadId: authorityThreadId,
+      turnId: "turn-unrecorded",
+      rootThreadId: authorityThreadId,
+      actorProjectId: coordinates.projectId,
+    });
+    const candidateFallbackAuthority = await stage(
+      "Project Workspace read unrecorded Turn authority",
+      candidate.workspaceRead({
+        kind: "turn_authority",
+        thread_id: authorityThreadId,
+        turn_id: "turn-unrecorded",
+        root_thread_id: authorityThreadId,
+        actor_project_id: coordinates.projectId,
+      }),
+    );
+    if (
+      !oracleFallbackAuthority
+      || candidateFallbackAuthority.value.kind !== "turn_authority"
+    ) {
+      throw new Error("Expected Project-scoped Turn authority fallback");
+    }
+    expect(candidateFallbackAuthority.value.resolution).toEqual({
+      authority: withSnakeCaseKeys(oracleFallbackAuthority),
+      persisted: false,
     });
 
     const oracleCreatedSessions = listProjectSessionSummaries(

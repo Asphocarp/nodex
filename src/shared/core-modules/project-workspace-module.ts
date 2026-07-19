@@ -23,6 +23,49 @@ export interface ProjectWorkspaceDynamicToolCatalog {
   readonly toolsetRevision: number;
 }
 
+export type ProjectWorkspaceTurnAuthorityScope = "project" | "library";
+export type ProjectWorkspaceTurnAuthoritySource =
+  | "project_turn"
+  | "builtin_full_access"
+  | "inherited_builtin_full_access";
+
+export interface ProjectWorkspaceTurnCoordinate {
+  readonly threadId: string;
+  readonly turnId: string;
+}
+
+export interface ProjectWorkspaceTurnAuthority {
+  readonly threadId: string;
+  readonly turnId: string;
+  readonly rootThreadId: string;
+  readonly actorProjectId: string;
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+  readonly scope: ProjectWorkspaceTurnAuthorityScope;
+  readonly source: ProjectWorkspaceTurnAuthoritySource;
+}
+
+export interface ProjectWorkspaceTurnAuthorityResolution {
+  readonly authority: ProjectWorkspaceTurnAuthority | null;
+  readonly persisted: boolean;
+}
+
+export interface ProjectWorkspaceBackgroundProcess {
+  readonly id: string;
+  readonly threadId: string;
+  readonly threadTitle: string | null;
+  readonly itemId: string;
+  readonly turnId: string | null;
+  readonly command: string;
+  readonly cwd: string | null;
+  readonly processId: string | null;
+  readonly osPid: number | null;
+  readonly terminalSessionId: string | null;
+  readonly source: "app-server" | "terminal-action";
+  readonly startedAtMs: number;
+  readonly updatedAtMs: number;
+}
+
 export interface ProjectWorkspaceThreadStatus {
   readonly statusType: CodexThreadStatusType;
   readonly activeFlags: readonly CodexThreadActiveFlag[];
@@ -50,6 +93,7 @@ export interface ProjectWorkspaceThread {
   readonly pinnedOrder: number | null;
   readonly hasUnreadTurn: boolean;
   readonly dynamicToolCatalogs: readonly ProjectWorkspaceDynamicToolCatalog[];
+  readonly writableRoots: readonly string[];
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly linkedAt: string;
@@ -165,6 +209,14 @@ export type ProjectWorkspaceRead =
       readonly includeArchived?: boolean;
     }
   | { readonly kind: "execution_context"; readonly threadId: string }
+  | {
+      readonly kind: "turn_authority";
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly rootThreadId: string;
+      readonly actorProjectId: string;
+    }
+  | { readonly kind: "background_processes"; readonly threadId?: string }
   | { readonly kind: "managed_worktrees"; readonly projectId: string };
 
 export type ProjectWorkspaceReadValue =
@@ -199,6 +251,14 @@ export type ProjectWorkspaceReadValue =
   | {
       readonly kind: "execution_context";
       readonly context: ProjectWorkspaceExecutionContext;
+    }
+  | {
+      readonly kind: "turn_authority";
+      readonly resolution: ProjectWorkspaceTurnAuthorityResolution;
+    }
+  | {
+      readonly kind: "background_processes";
+      readonly processes: readonly ProjectWorkspaceBackgroundProcess[];
     }
   | {
       readonly kind: "managed_worktrees";
@@ -333,6 +393,30 @@ export type ProjectWorkspaceIntent =
       readonly kind: "replace_thread_dynamic_tool_catalogs";
       readonly threadId: string;
       readonly catalogs: readonly ProjectWorkspaceDynamicToolCatalog[];
+    }
+  | {
+      readonly kind: "merge_thread_writable_roots";
+      readonly threadId: string;
+      readonly roots: readonly string[];
+    }
+  | {
+      readonly kind: "replace_thread_writable_roots";
+      readonly threadId: string;
+      readonly roots: readonly string[];
+    }
+  | {
+      readonly kind: "freeze_turn_authority";
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly rootThreadId: string;
+      readonly actorProjectId: string;
+      readonly source: ProjectWorkspaceTurnAuthoritySource;
+      readonly inheritedFrom: ProjectWorkspaceTurnCoordinate | null;
+    }
+  | {
+      readonly kind: "upsert_background_process";
+      readonly process: ProjectWorkspaceBackgroundProcess;
+      readonly preserveStartedAt?: boolean;
     }
   | {
       readonly kind: "set_project_permission_mode";

@@ -32,6 +32,15 @@ pub enum ProjectWorkspaceRead {
     ExecutionContext {
         thread_id: String,
     },
+    TurnAuthority {
+        thread_id: String,
+        turn_id: String,
+        root_thread_id: String,
+        actor_project_id: String,
+    },
+    BackgroundProcesses {
+        thread_id: Option<String>,
+    },
     ManagedWorktrees {
         project_id: String,
     },
@@ -66,6 +75,12 @@ pub enum ProjectWorkspaceReadValue {
     },
     ExecutionContext {
         context: Box<ProjectWorkspaceExecutionContext>,
+    },
+    TurnAuthority {
+        resolution: ProjectWorkspaceTurnAuthorityResolution,
+    },
+    BackgroundProcesses {
+        processes: Vec<ProjectWorkspaceBackgroundProcess>,
     },
     ManagedWorktrees {
         roots: Vec<String>,
@@ -102,6 +117,7 @@ pub struct ProjectWorkspaceThread {
     pub pinned_order: Option<i64>,
     pub has_unread_turn: bool,
     pub dynamic_tool_catalogs: Vec<ProjectWorkspaceDynamicToolCatalog>,
+    pub writable_roots: Vec<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub linked_at: String,
@@ -142,6 +158,69 @@ pub enum CodexPermissionMode {
 pub struct ProjectWorkspaceDynamicToolCatalog {
     pub namespace: String,
     pub toolset_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceTurnCoordinate {
+    pub thread_id: String,
+    pub turn_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceTurnAuthorityScope {
+    Project,
+    Library,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWorkspaceTurnAuthoritySource {
+    ProjectTurn,
+    BuiltinFullAccess,
+    InheritedBuiltinFullAccess,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceTurnAuthority {
+    pub thread_id: String,
+    pub turn_id: String,
+    pub root_thread_id: String,
+    pub actor_project_id: String,
+    pub library_id: String,
+    pub store_epoch: String,
+    pub scope: ProjectWorkspaceTurnAuthorityScope,
+    pub source: ProjectWorkspaceTurnAuthoritySource,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceTurnAuthorityResolution {
+    pub authority: Option<ProjectWorkspaceTurnAuthority>,
+    pub persisted: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectWorkspaceBackgroundProcessSource {
+    AppServer,
+    TerminalAction,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct ProjectWorkspaceBackgroundProcess {
+    pub id: String,
+    pub thread_id: String,
+    pub thread_title: Option<String>,
+    pub item_id: String,
+    pub turn_id: Option<String>,
+    pub command: String,
+    pub cwd: Option<String>,
+    pub process_id: Option<String>,
+    pub os_pid: Option<i64>,
+    pub terminal_session_id: Option<String>,
+    pub source: ProjectWorkspaceBackgroundProcessSource,
+    pub started_at_ms: i64,
+    pub updated_at_ms: i64,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -420,6 +499,26 @@ pub enum ProjectWorkspaceIntent {
     ReplaceThreadDynamicToolCatalogs {
         thread_id: String,
         catalogs: Vec<ProjectWorkspaceDynamicToolCatalog>,
+    },
+    MergeThreadWritableRoots {
+        thread_id: String,
+        roots: Vec<String>,
+    },
+    ReplaceThreadWritableRoots {
+        thread_id: String,
+        roots: Vec<String>,
+    },
+    FreezeTurnAuthority {
+        thread_id: String,
+        turn_id: String,
+        root_thread_id: String,
+        actor_project_id: String,
+        source: ProjectWorkspaceTurnAuthoritySource,
+        inherited_from: Option<ProjectWorkspaceTurnCoordinate>,
+    },
+    UpsertBackgroundProcess {
+        process: ProjectWorkspaceBackgroundProcess,
+        preserve_started_at: Option<bool>,
     },
     SetProjectPermissionMode {
         project_id: String,

@@ -1274,6 +1274,30 @@ export interface components {
                 readonly thread_id: string;
             } | {
                 /** @enum {string} */
+                readonly kind: "merge_thread_writable_roots";
+                readonly roots: readonly string[];
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "replace_thread_writable_roots";
+                readonly roots: readonly string[];
+                readonly thread_id: string;
+            } | {
+                readonly actor_project_id: string;
+                readonly inherited_from?: null | components["schemas"]["ProjectWorkspaceTurnCoordinate"];
+                /** @enum {string} */
+                readonly kind: "freeze_turn_authority";
+                readonly root_thread_id: string;
+                readonly source: components["schemas"]["ProjectWorkspaceTurnAuthoritySource"];
+                readonly thread_id: string;
+                readonly turn_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "upsert_background_process";
+                readonly preserve_started_at?: boolean | null;
+                readonly process: components["schemas"]["ProjectWorkspaceBackgroundProcess"];
+            } | {
+                /** @enum {string} */
                 readonly kind: "set_project_permission_mode";
                 readonly mode: components["schemas"]["CodexPermissionMode"];
                 readonly project_id: string;
@@ -1588,6 +1612,17 @@ export interface components {
                 readonly kind: "execution_context";
                 readonly thread_id: string;
             } | {
+                readonly actor_project_id: string;
+                /** @enum {string} */
+                readonly kind: "turn_authority";
+                readonly root_thread_id: string;
+                readonly thread_id: string;
+                readonly turn_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "background_processes";
+                readonly thread_id?: string | null;
+            } | {
                 /** @enum {string} */
                 readonly kind: "managed_worktrees";
                 readonly project_id: string;
@@ -1733,6 +1768,26 @@ export interface components {
         };
         readonly ProjectWorkspaceApplyRequest: components["schemas"]["ModuleApplyRequest_ProjectWorkspaceIntent"];
         readonly ProjectWorkspaceApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_ProjectWorkspaceCommitValue_ProjectWorkspaceReceipt"];
+        readonly ProjectWorkspaceBackgroundProcess: {
+            readonly command: string;
+            readonly cwd?: string | null;
+            readonly id: string;
+            readonly item_id: string;
+            /** Format: int64 */
+            readonly os_pid?: number | null;
+            readonly process_id?: string | null;
+            readonly source: components["schemas"]["ProjectWorkspaceBackgroundProcessSource"];
+            /** Format: int64 */
+            readonly started_at_ms: number;
+            readonly terminal_session_id?: string | null;
+            readonly thread_id: string;
+            readonly thread_title?: string | null;
+            readonly turn_id?: string | null;
+            /** Format: int64 */
+            readonly updated_at_ms: number;
+        };
+        /** @enum {string} */
+        readonly ProjectWorkspaceBackgroundProcessSource: "app-server" | "terminal-action";
         readonly ProjectWorkspaceDynamicToolCatalog: {
             readonly namespace: string;
             /** Format: int64 */
@@ -1834,6 +1889,7 @@ export interface components {
             readonly thread_source?: string | null;
             /** Format: int64 */
             readonly updated_at: number;
+            readonly writable_roots: readonly string[];
         };
         readonly ProjectWorkspaceThreadPatch: {
             readonly agent_nickname?: string | null;
@@ -1861,6 +1917,28 @@ export interface components {
         readonly ProjectWorkspaceThreadStatus: {
             readonly active_flags: readonly components["schemas"]["CodexThreadActiveFlag"][];
             readonly status_type: components["schemas"]["CodexThreadStatusType"];
+        };
+        readonly ProjectWorkspaceTurnAuthority: {
+            readonly actor_project_id: string;
+            readonly library_id: string;
+            readonly root_thread_id: string;
+            readonly scope: components["schemas"]["ProjectWorkspaceTurnAuthorityScope"];
+            readonly source: components["schemas"]["ProjectWorkspaceTurnAuthoritySource"];
+            readonly store_epoch: string;
+            readonly thread_id: string;
+            readonly turn_id: string;
+        };
+        readonly ProjectWorkspaceTurnAuthorityResolution: {
+            readonly authority?: null | components["schemas"]["ProjectWorkspaceTurnAuthority"];
+            readonly persisted: boolean;
+        };
+        /** @enum {string} */
+        readonly ProjectWorkspaceTurnAuthorityScope: "project" | "library";
+        /** @enum {string} */
+        readonly ProjectWorkspaceTurnAuthoritySource: "project_turn" | "builtin_full_access" | "inherited_builtin_full_access";
+        readonly ProjectWorkspaceTurnCoordinate: {
+            readonly thread_id: string;
+            readonly turn_id: string;
         };
         readonly ResponseEnvelope_CommittedModuleValue_AutomationCommitValue_AutomationReceipt: {
             readonly payload: {
@@ -2228,6 +2306,14 @@ export interface components {
                     readonly context: components["schemas"]["ProjectWorkspaceExecutionContext"];
                     /** @enum {string} */
                     readonly kind: "execution_context";
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "turn_authority";
+                    readonly resolution: components["schemas"]["ProjectWorkspaceTurnAuthorityResolution"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "background_processes";
+                    readonly processes: readonly components["schemas"]["ProjectWorkspaceBackgroundProcess"][];
                 } | {
                     /** @enum {string} */
                     readonly kind: "managed_worktrees";

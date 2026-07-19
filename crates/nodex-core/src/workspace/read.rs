@@ -7,6 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
+use super::execution;
 use super::panel_layout::{parse_panel_id, parse_panels};
 use super::session_mutation::parse_tab_kind;
 use super::thread::{read_permission_mode, read_thread, read_threads};
@@ -163,6 +164,30 @@ pub(super) fn read(
                     project,
                     permission_mode,
                 }),
+            })
+        }
+        ProjectWorkspaceRead::TurnAuthority {
+            thread_id,
+            turn_id,
+            root_thread_id,
+            actor_project_id,
+        } => Ok(ProjectWorkspaceReadValue::TurnAuthority {
+            resolution: execution::resolve_turn_authority(
+                connection,
+                library_id,
+                &thread_id,
+                &turn_id,
+                &root_thread_id,
+                &actor_project_id,
+            )?,
+        }),
+        ProjectWorkspaceRead::BackgroundProcesses { thread_id } => {
+            Ok(ProjectWorkspaceReadValue::BackgroundProcesses {
+                processes: execution::read_background_processes(
+                    connection,
+                    library_id,
+                    thread_id.as_deref(),
+                )?,
             })
         }
         ProjectWorkspaceRead::ManagedWorktrees { project_id } => {

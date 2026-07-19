@@ -22,6 +22,11 @@ use super::sqlite::{
 };
 
 const CORE_SCHEMA_OWNER: &str = "rust_core";
+const LEGACY_WRITABLE_ROOTS_IMPORT_KEY: &str = "codex_thread_writable_roots_v1";
+const LEGACY_WRITABLE_ROOTS_FILE_NAME: &str = "codex-thread-writable-roots-v1.json";
+const MAX_LEGACY_WRITABLE_ROOTS_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_WRITABLE_ROOTS_PER_THREAD: usize = 128;
+const MAX_WRITABLE_ROOT_BYTES: usize = 16_384;
 const V83_SCHEMA_SQL: &str = r#"
 CREATE TABLE core_store_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -121,6 +126,25 @@ INSERT OR IGNORE INTO nodex_agent_token_keys(id, key_material)
 VALUES (1, randomblob(32));
 "#;
 
+const V83_EXECUTION_SCHEMA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS core_legacy_imports (
+  import_key TEXT PRIMARY KEY,
+  imported_at_unix_ms INTEGER NOT NULL CHECK (imported_at_unix_ms >= 0),
+  CHECK (length(import_key) BETWEEN 1 AND 128)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE IF NOT EXISTS codex_thread_writable_roots (
+  thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+  root TEXT NOT NULL,
+  root_order INTEGER NOT NULL CHECK (root_order >= 0),
+  updated_at_unix_ms INTEGER NOT NULL CHECK (updated_at_unix_ms >= 0),
+  PRIMARY KEY (thread_id, root),
+  UNIQUE (thread_id, root_order),
+  CHECK (length(thread_id) BETWEEN 1 AND 512),
+  CHECK (length(root) BETWEEN 1 AND 16384)
+) WITHOUT ROWID, STRICT;
+"#;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentEngineFingerprint {
@@ -155,7 +179,7 @@ pub fn prepare_profile_store(
     )?;
     if version == 0 && object_count == 0 {
         let now = unix_time_millis()?;
-        create_fresh_v83(connection, now)?;
+        create_fresh_v83(connection, profile_home, now)?;
         validate_store(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
@@ -176,6 +200,9 @@ pub fn prepare_profile_store(
     }
     if version == CORE_SCHEMA_VERSION {
         validate_v83_metadata(connection)?;
+        validate_store(connection)?;
+        let now = unix_time_millis()?;
+        ensure_v83_execution_schema(connection, profile_home, now)?;
         validate_store(connection)?;
         let validated_yjs_documents: i64 = connection.query_row(
             "SELECT count(*) FROM document_engine_fingerprints",
@@ -213,6 +240,7 @@ pub fn prepare_profile_store(
         })?;
     publish_v83(
         connection,
+        profile_home,
         Some(TYPESCRIPT_SCHEMA_VERSION),
         Some(backup_name),
         now,
@@ -422,6 +450,7 @@ fn assert_persisted_materialization(
 
 fn publish_v83(
     connection: &mut Connection,
+    profile_home: &Path,
     migrated_from: Option<i64>,
     backup_name: Option<&str>,
     now: u64,
@@ -429,16 +458,180 @@ fn publish_v83(
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
         transaction.execute_batch(V83_SCHEMA_SQL)?;
-        write_v83_metadata(transaction, migrated_from, backup_name, now, fingerprints)
+        transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        write_v83_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
+        import_legacy_writable_roots(transaction, profile_home, now)
     })
 }
 
-fn create_fresh_v83(connection: &mut Connection, now: u64) -> Result<(), StoreError> {
+fn create_fresh_v83(
+    connection: &mut Connection,
+    profile_home: &Path,
+    now: u64,
+) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
         transaction.execute_batch(v82_schema_objects_sql())?;
         transaction.execute_batch(V83_SCHEMA_SQL)?;
-        write_v83_metadata(transaction, None, None, now, &[])
+        transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        write_v83_metadata(transaction, None, None, now, &[])?;
+        import_legacy_writable_roots(transaction, profile_home, now)
     })
+}
+
+fn ensure_v83_execution_schema(
+    connection: &mut Connection,
+    profile_home: &Path,
+    now: u64,
+) -> Result<(), StoreError> {
+    with_immediate_transaction(connection, |transaction| {
+        transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        import_legacy_writable_roots(transaction, profile_home, now)
+    })
+}
+
+fn import_legacy_writable_roots(
+    connection: &Connection,
+    profile_home: &Path,
+    now: u64,
+) -> Result<(), StoreError> {
+    let imported = connection
+        .query_row(
+            "SELECT 1 FROM core_legacy_imports WHERE import_key = ?1",
+            [LEGACY_WRITABLE_ROOTS_IMPORT_KEY],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if imported {
+        return Ok(());
+    }
+
+    let state = read_legacy_writable_roots(profile_home);
+    for (thread_id, roots) in state {
+        if !valid_identifier(&thread_id) {
+            continue;
+        }
+        let thread_exists = connection
+            .query_row(
+                "SELECT 1 FROM codex_threads WHERE thread_id = ?1",
+                [&thread_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !thread_exists {
+            continue;
+        }
+        for (order, root) in normalize_writable_roots(roots).into_iter().enumerate() {
+            connection.execute(
+                "INSERT INTO codex_thread_writable_roots(\
+                   thread_id, root, root_order, updated_at_unix_ms\
+                 ) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    thread_id,
+                    root,
+                    i64::try_from(order).expect("writable root bound fits i64"),
+                    i64::try_from(now).map_err(|_| StoreError::new(
+                        StoreErrorCode::Internal,
+                        "Writable root import time exceeds SQLite integer range",
+                        false,
+                    ))?,
+                ],
+            )?;
+        }
+    }
+    connection.execute(
+        "INSERT INTO core_legacy_imports(import_key, imported_at_unix_ms) VALUES (?1, ?2)",
+        params![
+            LEGACY_WRITABLE_ROOTS_IMPORT_KEY,
+            i64::try_from(now).map_err(|_| StoreError::new(
+                StoreErrorCode::Internal,
+                "Legacy import time exceeds SQLite integer range",
+                false,
+            ))?,
+        ],
+    )?;
+    Ok(())
+}
+
+fn read_legacy_writable_roots(profile_home: &Path) -> Vec<(String, Vec<String>)> {
+    let path = profile_home.join(LEGACY_WRITABLE_ROOTS_FILE_NAME);
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return Vec::new();
+    };
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() > MAX_LEGACY_WRITABLE_ROOTS_FILE_BYTES
+    {
+        return Vec::new();
+    }
+    let Ok(bytes) = fs::read(path) else {
+        return Vec::new();
+    };
+    let Ok(serde_json::Value::Object(state)) = serde_json::from_slice(&bytes) else {
+        return Vec::new();
+    };
+    state
+        .into_iter()
+        .filter_map(|(thread_id, roots)| {
+            let serde_json::Value::Array(roots) = roots else {
+                return None;
+            };
+            Some((
+                thread_id,
+                roots
+                    .into_iter()
+                    .filter_map(|root| root.as_str().map(str::to_owned))
+                    .collect(),
+            ))
+        })
+        .collect()
+}
+
+fn normalize_writable_roots(roots: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for root in roots {
+        if normalized.len() == MAX_WRITABLE_ROOTS_PER_THREAD {
+            break;
+        }
+        if !is_absolute_workspace_root(&root)
+            || root.len() > MAX_WRITABLE_ROOT_BYTES
+            || normalized.contains(&root)
+        {
+            continue;
+        }
+        normalized.push(root);
+    }
+    normalized
+}
+
+fn valid_identifier(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 512
+}
+
+fn is_absolute_workspace_root(root: &str) -> bool {
+    let bytes = root.as_bytes();
+    if root.starts_with('/') && !root.starts_with("//") {
+        return true;
+    }
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\')
+    {
+        return true;
+    }
+    if let Some(network_root) = root.strip_prefix("\\\\") {
+        return network_root_has_server_and_share(network_root, '\\');
+    }
+    root.strip_prefix("//")
+        .is_some_and(|network_root| network_root_has_server_and_share(network_root, '/'))
+}
+
+fn network_root_has_server_and_share(root: &str, separator: char) -> bool {
+    let mut parts = root.split(separator);
+    parts.next().is_some_and(|part| !part.is_empty())
+        && parts.next().is_some_and(|part| !part.is_empty())
 }
 
 fn write_v83_metadata(
@@ -786,6 +979,94 @@ mod tests {
             .expect("backup directory")
             .count();
         assert_eq!(backups, 1);
+    }
+
+    #[test]
+    fn writable_root_import_is_atomic_one_time_and_repairs_early_v83_stores() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_v82_page(&home);
+        let connection = Connection::open(home.join("nodex.db")).expect("v82 store");
+        connection
+            .execute(
+                "INSERT INTO codex_threads(\
+                   thread_id, project_id, created_at, updated_at, linked_at\
+                 ) VALUES ('thread-import', 'migration-project', 1, 1, '2026-07-18')",
+                [],
+            )
+            .expect("legacy Thread");
+        drop(connection);
+        fs::write(
+            home.join(LEGACY_WRITABLE_ROOTS_FILE_NAME),
+            r#"{
+              "thread-import": ["relative", "/workspace/a", "/workspace/a", "/workspace/b"],
+              "missing-thread": ["/workspace/orphan"]
+            }"#,
+        )
+        .expect("legacy writable root state");
+
+        let kernel = SqliteStoreKernel::open(&home).expect("migrated store");
+        let roots = kernel
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT root FROM codex_thread_writable_roots \
+                         WHERE thread_id = 'thread-import' ORDER BY root_order",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("imported roots");
+        assert_eq!(roots, ["/workspace/a", "/workspace/b"]);
+        drop(kernel);
+
+        fs::write(
+            home.join(LEGACY_WRITABLE_ROOTS_FILE_NAME),
+            r#"{"thread-import":["/workspace/stale"]}"#,
+        )
+        .expect("stale legacy state");
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen migrated store");
+        let roots = reopened
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .prepare(
+                        "SELECT root FROM codex_thread_writable_roots \
+                         WHERE thread_id = 'thread-import' ORDER BY root_order",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(StoreError::from)
+            })
+            .expect("one-time roots");
+        assert_eq!(roots, ["/workspace/a", "/workspace/b"]);
+        drop(reopened);
+
+        let connection = Connection::open(home.join("nodex.db")).expect("early v83 store");
+        connection
+            .execute_batch(
+                "DROP TABLE codex_thread_writable_roots; \
+                 DROP TABLE core_legacy_imports;",
+            )
+            .expect("simulate early v83 schema");
+        drop(connection);
+        let repaired = SqliteStoreKernel::open(&home).expect("repair early v83 schema");
+        let repaired_root = repaired
+            .readers()
+            .read_default(|connection| {
+                connection
+                    .query_row(
+                        "SELECT root FROM codex_thread_writable_roots \
+                         WHERE thread_id = 'thread-import'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("repaired writable root table");
+        assert_eq!(repaired_root, "/workspace/stale");
     }
 
     #[test]
