@@ -124,6 +124,10 @@ import {
 } from "./electron-window-backdrop";
 import { buildWorkbenchViewMenu } from "./application-menu";
 import { shouldGrantAppRendererPermission } from "./renderer-permissions";
+import {
+  initializeDesktopDataAuthority,
+  type DesktopDataAuthorityRuntime,
+} from "./core-client";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -155,6 +159,7 @@ let blockRetentionMaintenanceScheduler: BlockRetentionMaintenanceScheduler | nul
 let documentRevisionMaintenanceScheduler: DocumentRevisionMaintenanceScheduler | null = null;
 let appPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
+let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
 const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
@@ -986,7 +991,7 @@ function retainRestorableWindowSessions(): void {
   }
 }
 
-async function initializeDesktopApp(serverPort: number): Promise<void> {
+async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void> {
   await initializeDatabase({
     onMigrationProgress: (progress) => {
       setAppInitializationStep({ phase: "sqlite_waiting" });
@@ -1098,6 +1103,37 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     broadcastToWindows("projects-changed", event);
   });
 
+  registerDesktopActivationHandler();
+
+  setAppInitializationStep({ phase: "done" });
+  maybeStartAutomaticAppUpdateChecks();
+}
+
+async function initializeDesktopApp(serverPort: number): Promise<void> {
+  setAppInitializationStep({ phase: "sqlite_waiting" });
+  desktopDataAuthorityRuntime = await initializeDesktopDataAuthority({
+    appResourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+    buildId: `nodex-desktop/${app.getVersion()}`,
+    isPackaged: app.isPackaged,
+    nodexHome: getNodexHome(),
+    repositoryRoot: process.cwd(),
+  });
+  if (desktopDataAuthorityRuntime.backend === "typescript") {
+    await initializeTypeScriptDesktopApp(serverPort);
+    return;
+  }
+
+  databaseReady = true;
+  registerDesktopActivationHandler();
+  setAppInitializationStep({ phase: "done" });
+  maybeStartAutomaticAppUpdateChecks();
+}
+
+let desktopActivationHandlerRegistered = false;
+
+function registerDesktopActivationHandler(): void {
+  if (desktopActivationHandlerRegistered) return;
+  desktopActivationHandlerRegistered = true;
   app.on("activate", () => {
     const currentServerUrl = serverUrlForWindows;
     if (!currentServerUrl) return;
@@ -1108,9 +1144,6 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     }
     focusLastWindow();
   });
-
-  setAppInitializationStep({ phase: "done" });
-  maybeStartAutomaticAppUpdateChecks();
 }
 
 function startRuntimeScheduledAutomationScheduler(): void {
@@ -1232,40 +1265,40 @@ function shutdownMainRuntime(): Promise<void> {
   }
 
   runtimeShutdownPromise = (async () => {
-    await settleRuntimeShutdownStep(
-      "Document revision flush",
-      async () => {
-        const storeEpoch = readBlockStoreEpoch(getDb());
-        if (!storeEpoch) return;
-        while (true) {
-          const { result } =
-            await blockMutationWriter.maintainDocumentRevisionHistory({
-              version: DOCUMENT_REVISION_MAINTENANCE_VERSION,
-              storeEpoch,
-              now: new Date().toISOString(),
-              force: true,
-            });
-          if (result.failedDocumentCount > 0) {
-            throw new Error(
-              `Document revision flush left ${result.failedDocumentCount} session(s) unresolved`,
-            );
+    if (desktopDataAuthorityRuntime?.backend !== "rust") {
+      await settleRuntimeShutdownStep(
+        "Document revision flush",
+        async () => {
+          const storeEpoch = readBlockStoreEpoch(getDb());
+          if (!storeEpoch) return;
+          while (true) {
+            const { result } =
+              await blockMutationWriter.maintainDocumentRevisionHistory({
+                version: DOCUMENT_REVISION_MAINTENANCE_VERSION,
+                storeEpoch,
+                now: new Date().toISOString(),
+                force: true,
+              });
+            if (result.failedDocumentCount > 0) {
+              throw new Error(
+                `Document revision flush left ${result.failedDocumentCount} session(s) unresolved`,
+              );
+            }
+            if (result.scannedDocumentCount === 0) return;
           }
-          if (result.scannedDocumentCount === 0) return;
-        }
-      },
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await Promise.all([
-      settleRuntimeShutdownStep(
+        },
+        RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+      );
+      await settleRuntimeShutdownStep(
         "Block mutation writer",
         () => blockMutationWriter.shutdown(),
-      ),
-      settleRuntimeShutdownStep(
-        "Codex service",
-        () => codexService.shutdown(),
-        RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-      ),
-    ]);
+      );
+    }
+    await settleRuntimeShutdownStep(
+      "Codex service",
+      () => codexService.shutdown(),
+      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
+    );
     await settleRuntimeShutdownStep(
       "Main diagnostics",
       () => shutdownMainSentry(),

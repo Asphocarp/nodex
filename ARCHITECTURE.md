@@ -71,9 +71,13 @@ legacy `better-sqlite3` entry point independently rejects access after the Rust
 choice. The detached Core launcher first authenticates and reuses a compatible
 runtime from the fixed Profile-private descriptor, or starts the validated
 development/app-bundle executable and polls the same handshake until readiness;
-it never interprets process output as authority. Electron Module adapters still
-need to replace the TypeScript stores before the Rust development selector can
-serve the full desktop workflow. `nodex-core-contracts` owns six
+it never interprets process output as authority. Main initialization now routes
+through that selection: the Rust branch skips the TypeScript database, worker,
+maintenance schedulers, public HTTP server, and revision-flush shutdown path,
+and disconnecting Electron does not terminate the detached Core. Electron
+Module adapters still need to replace the TypeScript stores before the Rust
+development selector can serve the full desktop workflow.
+`nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;
 `nodex-core` contains vertical Module implementations; and `nodex-core-server`
