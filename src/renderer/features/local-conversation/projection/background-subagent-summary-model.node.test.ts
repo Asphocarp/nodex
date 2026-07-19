@@ -28,7 +28,7 @@ describe("background subagent summary model", () => {
     expect(`${model.workingCount}:${model.doneCount}`).toBe("5:1");
   });
 
-  test("shows the last four done inline avatars when no inline row is working", () => {
+  test("shows the first four done inline avatars when no inline row is working", () => {
     const model = buildBackgroundSubagentCompactStripModel([
       row("done-1", { showInlineActivity: true, status: "done" }),
       row("done-2", { showInlineActivity: true, status: "done" }),
@@ -37,7 +37,7 @@ describe("background subagent summary model", () => {
       row("done-5", { showInlineActivity: true, status: "done" }),
     ]);
 
-    expect(model.displayRows.map((entry) => entry.id).join(",")).toBe("done-2,done-3,done-4,done-5");
+    expect(model.displayRows.map((entry) => entry.id).join(",")).toBe("done-1,done-2,done-3,done-4");
     expect(`${model.workingCount}:${model.doneCount}`).toBe("0:5");
   });
 

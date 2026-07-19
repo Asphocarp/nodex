@@ -334,6 +334,80 @@ async function renderStage(
   return view;
 }
 
+async function renderPrimaryAndAuxiliaryThread(
+  auxiliaryMode: "background-detail" | "side-chat",
+) {
+  const {
+    __resetLocalConversationStoreForTests,
+    LocalConversationProvider,
+  } = await import("../local-conversation-store");
+  const { ConnectedThreadStage } = await import("./connected-thread-stage");
+  __resetLocalConversationStoreForTests();
+
+  const rootSummary = {
+    ...buildThreadSummary(false),
+    threadId: "thread_root",
+  };
+  const childSummary = {
+    ...buildThreadSummary(false),
+    threadId: "thread_child",
+    source: { parentThreadId: "thread_root" },
+  };
+  const sharedProps = {
+    projectId: "project_1",
+    projectWorkspacePath: "/tmp/project",
+    isNewThreadTab: false,
+    newThreadTarget: null,
+    newThreadProjectSelector: null,
+    newThreadStartInSelector: null,
+    threadStartProgress: null,
+    availableModels: [],
+    collaborationModes: [],
+    selectedCollaborationMode: "default" as const,
+    selectedModel: "",
+    selectedReasoningEffort: "medium" as const,
+    reasoningEffortOptions: [],
+    permissionMode: "auto" as const,
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter" as const,
+    searchOpenTick: 0,
+    actions: buildActions(),
+  };
+
+  const view = render(
+    <TestQueryProvider>
+      <ThreadStageScope>
+        <TooltipProvider>
+          <LocalConversationProvider>
+            <ConnectedThreadStage
+              {...sharedProps}
+              sessionId="session_root"
+              activeThreadId={rootSummary.threadId}
+              activeThreadSummary={rootSummary}
+            />
+            <ConnectedThreadStage
+              {...sharedProps}
+              activeThreadId={childSummary.threadId}
+              activeThreadSummary={childSummary}
+              {...(auxiliaryMode === "background-detail"
+                ? { backgroundAgentDetail: true }
+                : {
+                    composerScopeIdentity: "side-chat:thread_child",
+                    sideChatContext: {
+                      parentThreadId: rootSummary.threadId,
+                      tabTitle: "Side chat",
+                    },
+                  })}
+            />
+          </LocalConversationProvider>
+        </TooltipProvider>
+      </ThreadStageScope>
+    </TestQueryProvider>,
+  );
+  await settleAsyncRender();
+  return view;
+}
+
 async function renderNewThreadHome(overrides?: {
   threadStartProgress?: ThreadStageRouteInput["threadStartProgress"];
 }) {
@@ -557,6 +631,20 @@ describe("ConnectedThreadStage archived resume behavior", () => {
       view.unmount();
       await settleAsyncRender();
     });
+  });
+
+  test("keeps background-agent detail read-only beside the primary thread composer", async () => {
+    const view = await renderPrimaryAndAuxiliaryThread("background-detail");
+
+    expect(view.container.querySelectorAll('[data-local-conversation-composer-shell="true"]'))
+      .toHaveLength(1);
+  });
+
+  test("gives a writable auxiliary thread its own composer scope", async () => {
+    const view = await renderPrimaryAndAuxiliaryThread("side-chat");
+
+    expect(view.container.querySelectorAll('[data-local-conversation-composer-shell="true"]'))
+      .toHaveLength(2);
   });
 
   test("does not auto-resume archived active thread summaries", async () => {

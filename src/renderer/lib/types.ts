@@ -174,6 +174,7 @@ export type {
   CodexConversationSnapshot,
   CodexProtocolRequestId,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexSubagentPanelHydrateInput,
   CodexRendererClientRequestMessage,
   CodexRendererClientResponseMessage,
   CodexRendererThreadRole,

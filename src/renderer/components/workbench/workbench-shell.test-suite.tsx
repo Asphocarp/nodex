@@ -18,6 +18,7 @@ import type {
   CodexAutomationInboxItem,
   CodexAutomationRunsInboxResponse,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexSubagentPanelHydrateInput,
   CodexHostMessage,
   CodexModelOption,
   CodexScheduledAutomation,
@@ -111,6 +112,7 @@ let startThreadForSessionResult: CodexThreadStartForSessionResult = {
 let requestThreadStreamSnapshotCalls: string[] = [];
 let requestThreadStreamSnapshotImpl: ((threadId: string) => Promise<unknown>) | null = null;
 let hydrateBackgroundSubagentThreadsCalls: CodexBackgroundSubagentThreadsHydrateInput[] = [];
+let hydrateSubagentPanelCalls: CodexSubagentPanelHydrateInput[] = [];
 let removeQueuedFollowUpCalls: unknown[][] = [];
 let reorderQueuedFollowUpsCalls: unknown[][] = [];
 let sendQueuedFollowUpNowCalls: unknown[][] = [];
@@ -250,6 +252,13 @@ const mockCodexControl = {
   hydrateBackgroundSubagentThreads: async (input: CodexBackgroundSubagentThreadsHydrateInput) => {
     hydrateBackgroundSubagentThreadsCalls.push(input);
     return [];
+  },
+  hydrateSubagentPanel: async (input: CodexSubagentPanelHydrateInput) => {
+    hydrateSubagentPanelCalls.push(input);
+    return (input.threadIds ?? []).flatMap((threadId) => {
+      const conversation = sideChatConversations[threadId];
+      return conversation ? [conversation as unknown as CodexThreadDetail] : [];
+    });
   },
   removeQueuedFollowUp: async (threadId: string, followUpId: string) => {
     removeQueuedFollowUpCalls.push([threadId, followUpId]);
@@ -2890,6 +2899,7 @@ beforeEach(() => {
   requestThreadStreamSnapshotCalls = [];
   requestThreadStreamSnapshotImpl = null;
   hydrateBackgroundSubagentThreadsCalls = [];
+  hydrateSubagentPanelCalls = [];
   removeQueuedFollowUpCalls = [];
   reorderQueuedFollowUpsCalls = [];
   sendQueuedFollowUpNowCalls = [];
@@ -8884,6 +8894,8 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(JSON.stringify(stageProps?.sideChatContext ?? null)).toBe(
       "{\"parentThreadId\":\"thread-alpha\",\"tabTitle\":\"Side chat\"}",
     );
+    expect(typeof stageProps?.composerScopeIdentity).toBe("string");
+    expect(String(stageProps?.composerScopeIdentity).startsWith("side-chat:")).toBe(true);
     expect(stageProps?.isQueueingEnabled).toBe(false);
     expect(stageProps?.composerEnterBehavior).toBe("cmdIfMultiline");
     expect(Boolean(stageProps?.summaryPanelMounted)).toBe(false);
@@ -8931,7 +8943,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(typeof (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)?.focusNonce).toBe("number");
   });
 
-  test("opens subagent contexts in background-agent right-panel tabs", async () => {
+  test("routes inline subagent contexts inside one Subagents right-panel tab", async () => {
     sideChatConversations["thread-child"] = {
       threadId: "thread-child",
       projectId: "alpha",
@@ -8963,6 +8975,18 @@ describe(`workbench session shell / ${scope}`, () => {
         canCollapseTurns: true,
       },
       ephemeral: true,
+    };
+    sideChatConversations["thread-legacy"] = {
+      ...sideChatConversations["thread-child"],
+      threadId: "thread-legacy",
+      threadName: "Legacy worker",
+      source: { parentThreadId: "thread-alpha" },
+    };
+    sideChatConversations["thread-child-2"] = {
+      ...sideChatConversations["thread-child"],
+      threadId: "thread-child-2",
+      threadName: "Reviewer",
+      source: { parentThreadId: "thread-alpha" },
     };
 
     const screen = renderWorkbench({
@@ -9023,19 +9047,68 @@ describe(`workbench session shell / ${scope}`, () => {
       requestThreadStreamSnapshotImpl = null;
     }
 
-    const tab = getPanelTabById(screen.container, "background-agent:thread-child");
-    expect(tab.textContent?.includes("Scout")).toBe(true);
+    const tab = getPanelTabById(screen.container, "subagents:thread-alpha");
+    expect(tab.textContent?.includes("Subagents")).toBe(true);
     expect(tab.getAttribute("aria-selected")).toBe("true");
-    expect(tab.querySelector('[data-subagent-avatar-seed="thread-child"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-background-agent-side-panel-tab="background-agent:thread-child"]') !== null).toBe(true);
+    expect(tab.querySelector('[data-subagent-glyph-icon="true"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-subagents-side-panel-tab="subagents:thread-alpha"]') !== null).toBe(true);
     expect(textContent(screen.container).includes("Thread:thread-child")).toBe(true);
+    const detailStageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(detailStageProps?.backgroundAgentDetail).toBe(true);
     const globalHeaderTitles = within(screen.getByTestId("workbench-global-header"))
       .getAllByTestId("thread-stage-title");
     expect(globalHeaderTitles).toHaveLength(1);
     expect(globalHeaderTitles[0]?.textContent).toBe("Alpha thread");
     expect(invokeCalls.some((call) => call[0] === "codex:thread:ensure-session")).toBe(false);
-    expect(JSON.stringify(hydrateBackgroundSubagentThreadsCalls)).toBe(JSON.stringify([{ threadIds: ["thread-child"] }]));
+    expect(hydrateBackgroundSubagentThreadsCalls).toEqual([]);
     expect(requestThreadStreamSnapshotCalls.filter((threadId) => threadId === "thread-child").length >= 1).toBe(true);
+
+    await act(async () => {
+      await openThread("thread-child-2", {
+        subagent: {
+          conversationId: "thread-child-2",
+          displayName: "Reviewer",
+          agentRole: "reviewer",
+          spawnModel: null,
+          status: "done",
+          statusSummary: null,
+          showInlineActivity: true,
+          diffStats: null,
+        },
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getAllByRole("tab").filter((candidate) =>
+      candidate.textContent?.includes("Subagents")
+    )).toHaveLength(1);
+    expect(textContent(screen.container).includes("Thread:thread-child-2")).toBe(true);
+    expect(hydrateSubagentPanelCalls).toEqual([
+      { rootThreadId: "thread-alpha", threadIds: ["thread-child"], includeTurns: true },
+      { rootThreadId: "thread-alpha", threadIds: ["thread-child-2"], includeTurns: true },
+    ]);
+
+    await act(async () => {
+      await openThread("thread-legacy", {
+        subagent: {
+          conversationId: "thread-legacy",
+          displayName: "Legacy worker",
+          agentRole: null,
+          spawnModel: null,
+          status: "done",
+          statusSummary: null,
+          showInlineActivity: false,
+          diffStats: null,
+        },
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getPanelTabById(screen.container, "background-agent:thread-legacy")).toBeTruthy();
+    expect(hydrateBackgroundSubagentThreadsCalls).toEqual([{ threadIds: ["thread-legacy"] }]);
   });
 
   }

@@ -23,6 +23,7 @@ interface DbCodexThread {
   service_name: string | null;
   agent_nickname: string | null;
   agent_role: string | null;
+  agent_path: string | null;
   thread_preview: string;
   model_provider: string;
   cwd: string | null;
@@ -54,6 +55,7 @@ const CODEX_THREAD_SUMMARY_COLUMNS = `
   t.service_name,
   t.agent_nickname,
   t.agent_role,
+  t.agent_path,
   t.thread_preview,
   t.model_provider,
   t.cwd,
@@ -81,6 +83,7 @@ export interface UpsertCodexThreadInput {
   serviceName?: string | null;
   agentNickname?: string | null;
   agentRole?: string | null;
+  agentPath?: string | null;
   threadName?: string | null;
   threadPreview?: string;
   modelProvider?: string;
@@ -118,6 +121,7 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
     serviceName: row.service_name,
     agentNickname: row.agent_nickname,
     agentRole: row.agent_role,
+    agentPath: row.agent_path,
     threadPreview: row.thread_preview,
     modelProvider: row.model_provider,
     cwd: row.cwd,
@@ -142,6 +146,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
   const hasServiceNameInput = Object.prototype.hasOwnProperty.call(input, "serviceName");
   const hasAgentNicknameInput = Object.prototype.hasOwnProperty.call(input, "agentNickname");
   const hasAgentRoleInput = Object.prototype.hasOwnProperty.call(input, "agentRole");
+  const hasAgentPathInput = Object.prototype.hasOwnProperty.call(input, "agentPath");
   const hasForkedFromIdInput = Object.prototype.hasOwnProperty.call(input, "forkedFromId");
   const hasManagedWorktreePathInput = Object.prototype.hasOwnProperty.call(input, "managedWorktreePath");
   const hasArchivedInput = Object.prototype.hasOwnProperty.call(input, "archived");
@@ -162,6 +167,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       service_name,
       agent_nickname,
       agent_role,
+      agent_path,
       parent_thread_id,
       forked_from_id,
       thread_preview,
@@ -177,7 +183,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       updated_at,
       linked_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
       project_id = CASE WHEN ? = 1 THEN excluded.project_id ELSE codex_threads.project_id END,
       thread_name = COALESCE(excluded.thread_name, codex_threads.thread_name),
@@ -185,6 +191,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       service_name = CASE WHEN ? = 1 THEN excluded.service_name ELSE codex_threads.service_name END,
       agent_nickname = CASE WHEN ? = 1 THEN excluded.agent_nickname ELSE codex_threads.agent_nickname END,
       agent_role = CASE WHEN ? = 1 THEN excluded.agent_role ELSE codex_threads.agent_role END,
+      agent_path = CASE WHEN ? = 1 THEN excluded.agent_path ELSE codex_threads.agent_path END,
       parent_thread_id = COALESCE(excluded.parent_thread_id, codex_threads.parent_thread_id),
       forked_from_id = CASE WHEN ? = 1 THEN excluded.forked_from_id ELSE codex_threads.forked_from_id END,
       thread_preview = excluded.thread_preview,
@@ -206,6 +213,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     input.serviceName ?? null,
     input.agentNickname ?? null,
     input.agentRole ?? null,
+    input.agentPath ?? null,
     input.source?.parentThreadId ?? null,
     input.forkedFromId ?? null,
     input.threadPreview ?? "",
@@ -225,6 +233,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     hasServiceNameInput ? 1 : 0,
     hasAgentNicknameInput ? 1 : 0,
     hasAgentRoleInput ? 1 : 0,
+    hasAgentPathInput ? 1 : 0,
     hasForkedFromIdInput ? 1 : 0,
     hasManagedWorktreePathInput ? 1 : 0,
     hasProjectlessOutputDirectoryInput ? 1 : 0,

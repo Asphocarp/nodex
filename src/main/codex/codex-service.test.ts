@@ -6,6 +6,7 @@ import path from "node:path";
 import type {
   CodexBackgroundProcessRow,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexSubagentPanelHydrateInput,
   CodexAgentMode,
   CodexApprovalResponse,
   CodexApprovalKind,
@@ -304,6 +305,9 @@ interface TestableCodexService {
   markSubagentThreadOpened: (threadId: string) => boolean;
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,
+  ) => Promise<CodexThreadSummary[]>;
+  hydrateSubagentPanel: (
+    input: CodexSubagentPanelHydrateInput,
   ) => Promise<CodexThreadSummary[]>;
   respondToUserInput: (requestId: string | number, answers: Record<string, string[]>) => Promise<boolean>;
   setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
@@ -7571,6 +7575,102 @@ describe("codex-service readThread fallback", () => {
         expect(secondSummary?.source?.parentThreadId).toBe("thr_child_a");
         expect(getCodexThread("thr_parent") === null).toBe(true);
         expect(getCodexThread("thr_unrelated") === null).toBe(true);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBe(true);
+  });
+
+  test("discovers descendant subagents and hydrates only requested panel previews", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+      upsertCodexThread({
+        threadId: "thr_root",
+        projectId: null,
+        cwd: "/tmp/codex",
+      });
+      const childThread = {
+        ...makeSidebarListThread({
+          id: "thr_child",
+          cwd: "/tmp/codex",
+          preview: "child",
+          updatedAt: 30,
+        }),
+        source: {
+          subAgent: {
+            thread_spawn: {
+              parent_thread_id: "thr_root",
+              agent_path: "agents/scout",
+              agent_nickname: "@Scout",
+            },
+          },
+        },
+      };
+      const grandchildThread = {
+        ...makeSidebarListThread({
+          id: "thr_grandchild",
+          cwd: "/tmp/codex",
+          preview: "grandchild",
+          updatedAt: 31,
+        }),
+        source: {
+          subAgent: {
+            thread_spawn: {
+              parent_thread_id: "thr_child",
+              agent_path: "agents/scout/reviewer",
+              agent_nickname: "@Reviewer",
+            },
+          },
+        },
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        const request = params as Record<string, unknown>;
+        requests.push({ method, params: request });
+        if (method === "thread/list") {
+          return { data: [grandchildThread, childThread], nextCursor: null };
+        }
+        if (method === "thread/read") {
+          return { thread: { ...childThread, turns: [] } };
+        }
+        throw new Error(`Unexpected subagents panel request method: ${method}`);
+      };
+
+      try {
+        const discovered = await service.hydrateSubagentPanel({ rootThreadId: "thr_root" });
+        const hydrated = await service.hydrateSubagentPanel({
+          rootThreadId: "thr_root",
+          threadIds: ["thr_child", "thr_unrelated"],
+          includeTurns: true,
+        });
+        const root = service.serializeConversationSnapshot("thr_root");
+
+        expect(discovered.map((summary) => summary.threadId)).toEqual([
+          "thr_grandchild",
+          "thr_child",
+        ]);
+        expect(hydrated.map((summary) => summary.threadId)).toEqual(["thr_child"]);
+        expect(requests.map((request) => request.method)).toEqual([
+          "thread/list",
+          "thread/list",
+          "thread/read",
+        ]);
+        expect(requests[0]?.params.ancestorThreadId).toBe("thr_root");
+        expect(requests[0]?.params.limit).toBe(200);
+        expect(requests[0]?.params.sourceKinds).toEqual(["subAgentThreadSpawn"]);
+        expect(requests[2]?.params.includeTurns).toBe(true);
+        expect(getCodexThread("thr_child")?.agentPath).toBe("agents/scout");
+        expect(getCodexThread("thr_grandchild")?.source?.parentThreadId).toBe("thr_child");
+        expect(root?.childMemberships[0]?.showInlineActivity).toBe(true);
+        expect(root?.childMemberships[0]?.createdAtMs).toBeTypeOf("number");
       } finally {
         await service.shutdown();
       }

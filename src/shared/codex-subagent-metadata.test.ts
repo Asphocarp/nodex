@@ -44,6 +44,7 @@ describe("codex-subagent-metadata", () => {
       hasParentThreadId: true,
       hasAgentNickname: true,
       hasAgentRole: true,
+      hasAgentPath: true,
       hasAnySubagentSource: true,
     }));
     expect(protocolStyle.parentThreadId).toBe("parent-2");

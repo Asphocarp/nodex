@@ -23,7 +23,7 @@ export function buildBackgroundSubagentCompactStripModel<T extends BackgroundSub
   const doneRows = inlineRows.filter((row) => row.status === "done");
 
   return {
-    displayRows: workingRows.length > 0 ? workingRows.slice(0, 4) : doneRows.slice(-4),
+    displayRows: workingRows.length > 0 ? workingRows.slice(0, 4) : doneRows.slice(0, 4),
     workingCount: workingRows.length,
     doneCount: doneRows.length,
   };

@@ -23,6 +23,7 @@ export interface ThreadActionControllerInput {
   selectedCollaborationMode: CodexCollaborationModeKind;
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
   onOpenThread: ThreadStageActions["onOpenThread"];
+  onOpenSubagentsPanel?: ThreadStageActions["onOpenSubagentsPanel"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onEnsureBlankSessionForProject: (projectId: string | null) => Promise<ProjectSession>;
@@ -178,6 +179,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onRefreshNewThreadStartInEnvironments: input.onRefreshNewThreadStartInEnvironments,
     onOpenNewThreadLocalEnvironmentsSettings: input.onOpenNewThreadLocalEnvironmentsSettings,
     ...(input.onOpenSideChat ? { onOpenSideChat: input.onOpenSideChat } : {}),
+    ...(input.onOpenSubagentsPanel ? { onOpenSubagentsPanel: input.onOpenSubagentsPanel } : {}),
     ...(input.onOpenMcpAppSidePanel ? { onOpenMcpAppSidePanel: input.onOpenMcpAppSidePanel } : {}),
     ...(input.onOpenPlanInSidePanel ? { onOpenPlanInSidePanel: input.onOpenPlanInSidePanel } : {}),
     ...(input.onClosePlanSidePanel ? { onClosePlanSidePanel: input.onClosePlanSidePanel } : {}),

@@ -139,6 +139,7 @@ export function resolveEffectiveThreadStageSettings({
 
 interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   actions: ThreadStageActions;
+  composerScopeIdentity?: string | null;
   onForkFromTurnIntoWorktree?: (input: {
     threadId: string;
     targetTurnId: string;
@@ -382,6 +383,7 @@ function ConnectedThreadStageFooter({
   activeThreadId,
   input,
   actions,
+  composerScopeIdentity,
   errorMessage,
   onErrorMessage,
   variant = "thread",
@@ -392,6 +394,7 @@ function ConnectedThreadStageFooter({
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
   actions: ThreadStageActions;
+  composerScopeIdentity: string | null;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
   variant?: "thread" | "newThreadHome";
@@ -566,6 +569,7 @@ function ConnectedThreadStageFooter({
       composerEnterBehavior: input.composerEnterBehavior,
       composerIntent,
       newThreadComposerIntent: input.newThreadComposerIntent ?? null,
+      composerScopeIdentity,
       dictation,
     }),
     [
@@ -578,6 +582,7 @@ function ConnectedThreadStageFooter({
       childMemberships,
       conversationSnapshot,
       composerIntent,
+      composerScopeIdentity,
       input.newThreadComposerIntent,
       dictation,
       composerShell,
@@ -659,6 +664,7 @@ function NewThreadHomeHero({
 
 export function ConnectedThreadStage({
   actions,
+  composerScopeIdentity = null,
   onForkFromTurnIntoWorktree,
   initialUiState,
   backgroundAgentDetail = false,
@@ -860,6 +866,7 @@ export function ConnectedThreadStage({
             activeThreadId={activeThreadId}
             input={input}
             actions={actions}
+            composerScopeIdentity={composerScopeIdentity}
             errorMessage={errorMessage}
             onErrorMessage={setErrorMessage}
             variant="newThreadHome"
@@ -922,11 +929,12 @@ export function ConnectedThreadStage({
               : onForkFromTurnIntoWorktree}
             onErrorMessage={setErrorMessage}
             contentShiftX={summaryPanelContentShift}
-            footer={(
+            footer={backgroundAgentDetail ? null : (
               <ConnectedThreadStageFooter
                 activeThreadId={activeThreadId}
                 input={input}
                 actions={actions}
+                composerScopeIdentity={composerScopeIdentity}
                 errorMessage={errorMessage}
                 onErrorMessage={setErrorMessage}
                 rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled && !isSideChat}

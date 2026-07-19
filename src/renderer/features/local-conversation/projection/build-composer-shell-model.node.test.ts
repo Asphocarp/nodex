@@ -772,4 +772,82 @@ describe("buildComposerShellModel", () => {
     expect(row?.agentRole).toBe("reviewer");
     expect(row?.status).toBe("done");
   });
+
+  test("projects source-linked inline subagents with Codex overview message and recency fields", () => {
+    const child = buildConversationSnapshot({
+      threadId: "thread_child",
+      source: { parentThreadId: "thread_1" },
+      agentNickname: "@Scout",
+      statusType: "idle",
+      updatedAt: 200,
+      turns: [
+        {
+          threadId: "thread_child",
+          turnId: "turn_child",
+          status: "completed",
+          itemIds: ["message_child"],
+          items: [
+            {
+              threadId: "thread_child",
+              turnId: "turn_child",
+              itemId: "message_child",
+              type: "agentMessage",
+              kind: "assistantMessage",
+              semanticKind: "assistantMessage",
+              role: "assistant",
+              markdownText: "Finished the repository audit.",
+              createdAt: 180,
+              updatedAt: 190,
+            },
+          ],
+        },
+      ],
+    });
+    const model = buildComposerShellModel({
+      conversation: buildConversationSnapshot({
+        childMemberships: [
+          {
+            threadId: "thread_child",
+            parentThreadId: "thread_1",
+            role: "backgroundChild",
+            agentPath: "agents/scout",
+            createdAtMs: 100,
+            updatedAtMs: 200,
+            statusType: "notLoaded",
+            showInlineActivity: true,
+          },
+        ],
+      }),
+      knownConversationsById: { thread_child: child },
+    });
+
+    const row = model.backgroundAgentRows[0];
+    expect(row?.parentConversationId).toBe("thread_1");
+    expect(row?.parentTurnKey).toBe("0");
+    expect(row?.showInlineActivity).toBe(true);
+    expect(row?.status).toBe("done");
+    expect(row?.lastAssistantMessage).toBe("Finished the repository audit.");
+    expect(row?.lastAssistantMessageAtMs).toBe(190);
+    expect(row?.recencyAtMs).toBe(190);
+  });
+
+  test("treats not-loaded source metadata as completed instead of pending", () => {
+    const model = buildComposerShellModel({
+      conversation: buildConversationSnapshot({
+        childMemberships: [
+          {
+            threadId: "thread_child",
+            parentThreadId: "thread_1",
+            role: "backgroundChild",
+            agentPath: "agents/scout",
+            statusType: "notLoaded",
+            showInlineActivity: true,
+          },
+        ],
+      }),
+      knownConversationsById: {},
+    });
+
+    expect(model.backgroundAgentRows[0]?.status).toBe("done");
+  });
 });

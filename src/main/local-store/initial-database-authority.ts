@@ -235,7 +235,7 @@ export const createDatabaseAuthorityRecordsInDatabase = (
 };
 
 /**
- * Create one Project's initial Database authority after schema v82 is active.
+ * Create one Project's initial Database authority after schema v83 is active.
  * The caller owns the surrounding Project transaction and preallocates all
  * retry-stable identities before entering it.
  */
@@ -249,9 +249,9 @@ export const createInitialDatabaseAuthorityInDatabase = (
     );
   }
   const schemaVersion = database.pragma("user_version", { simple: true }) as number;
-  if (schemaVersion !== 82) {
+  if (schemaVersion !== 83) {
     throw new Error(
-      `Initial Database authority requires schema v82, received v${schemaVersion}`,
+      `Initial Database authority requires schema v83, received v${schemaVersion}`,
     );
   }
   const projectId = input.projectId.trim();

@@ -242,6 +242,7 @@ export interface ThreadStageActions {
   onPersonalityChange?: (personality: CodexPersonality) => void | Promise<void>;
   onPermissionModeChange: (mode: CodexPermissionMode) => void | Promise<void>;
   onQueueingEnabledChange: (enabled: boolean) => void;
+  onOpenSubagentsPanel?: () => void | Promise<void>;
   onComposerIdeContextEnabledChange?: (enabled: boolean) => void;
   onStartThreadForSession?: (input: {
     projectId: string | null;
@@ -851,6 +852,7 @@ export interface ThreadComposerShellQueuedFollowUpRowModel {
 
 export interface ThreadComposerShellBackgroundAgentRowModel {
   conversationId: string;
+  parentConversationId: string;
   parentTurnKey: string | null;
   displayName: string;
   actorName: string;
@@ -858,6 +860,9 @@ export interface ThreadComposerShellBackgroundAgentRowModel {
   spawnModel: string | null;
   status: "active" | "waiting" | "done";
   statusSummary: string | null;
+  lastAssistantMessage: string | null;
+  lastAssistantMessageAtMs: number | null;
+  recencyAtMs: number;
   showInlineActivity: boolean;
   diffStats: ThreadSubagentDiffStats | null;
   role: "childApproval" | "backgroundChild";
@@ -954,6 +959,7 @@ export interface ThreadFooterModel {
   composerEnterBehavior: ComposerEnterBehavior;
   composerIntent: CodexComposerIntent | null;
   newThreadComposerIntent?: CodexComposerIntent | null;
+  composerScopeIdentity?: string | null;
   dictation: CodexDictationStateSnapshot;
   composerIdeContext?: {
     isConnected: boolean;

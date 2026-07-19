@@ -142,8 +142,13 @@ import {
 } from "@/features/local-conversation/projection/thread-summary-panel-browser-row-model";
 import { buildThreadSummaryPanelSideChatRow } from "@/features/local-conversation/projection/thread-summary-panel-side-chat-row-model";
 import { buildThreadSummaryPanelScheduledAutomationRow } from "@/features/local-conversation/projection/thread-summary-panel-scheduled-automation-model";
+import { buildBackgroundAgentOpenContext } from "@/features/local-conversation/projection/background-subagent-open-context";
 import { useRemoteHostedPipSummaryControl } from "@/features/local-conversation/view/use-remote-hosted-pip-summary-control";
-import { SubagentAvatar } from "@/features/local-conversation/view/shared/subagent-avatar";
+import { SubagentAvatar, SubagentGlyphIcon } from "@/features/local-conversation/view/shared/subagent-avatar";
+import {
+  SubagentsPanelDetailHeader,
+  SubagentsPanelOverview,
+} from "@/features/local-conversation/view/subagents-panel/subagents-panel";
 import { McpCapabilityViewFrame } from "@/features/local-conversation/view/shared/tools/mcp-capability-view-frame";
 import { PlanSidePanelTab } from "./plan-side-panel-tab";
 import {
@@ -688,6 +693,22 @@ interface BackgroundAgentPanelTab {
   subagent: ThreadOpenSubagentPayload;
 }
 
+interface SubagentsPanelTab {
+  subagentsPanel: true;
+  id: string;
+  sessionId: string;
+  projectId: string;
+  panelId: "right";
+  leafId?: string;
+  rootThreadId: string;
+  selectedThreadId: string | null;
+  selectedDisplayName: string | null;
+  title: "Subagents";
+  stateKey: number;
+}
+
+type AgentPanelTab = BackgroundAgentPanelTab | SubagentsPanelTab;
+
 interface ProcessOutputPanelTab {
   processOutputPanel: true;
   id: string;
@@ -722,6 +743,7 @@ type ProjectSessionRenderableTab =
   | PlanPanelTab
   | AutomationPanelTab
   | BackgroundAgentPanelTab
+  | SubagentsPanelTab
   | ProcessOutputPanelTab;
 
 interface PageStageHistoryModalContext {
@@ -1106,7 +1128,7 @@ interface SessionPanelRenderModelInput {
   planActiveTabByPanel: Record<string, string>;
   automationTabsBySession: Record<string, AutomationPanelTab[]>;
   automationActiveTabByPanel: Record<string, string>;
-  backgroundAgentTabsBySession: Record<string, BackgroundAgentPanelTab[]>;
+  backgroundAgentTabsBySession: Record<string, AgentPanelTab[]>;
   backgroundAgentActiveTabByPanel: Record<string, string>;
   processOutputTabsBySession: Record<string, ProcessOutputPanelTab[]>;
   processOutputActiveTabByPanel: Record<string, string>;
@@ -1187,6 +1209,7 @@ function resolveProjectTargetTabChromeContext(
     || isPlanPanelTab(tab)
     || isAutomationPanelTab(tab)
     || isBackgroundAgentPanelTab(tab)
+    || isSubagentsPanelTab(tab)
     || isProcessOutputPanelTab(tab)
   ) return {};
   if (tab.kind !== "db_view" && tab.kind !== "page_stage") return {};
@@ -1825,8 +1848,22 @@ function makeProcessOutputPanelKey(sessionId: string, panelId: PanelId, leafId?:
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
+function clearTransientPanelSelection(
+  current: Record<string, string>,
+  ...keys: string[]
+): Record<string, string> {
+  if (!keys.some((key) => key in current)) return current;
+  const next = { ...current };
+  for (const key of keys) delete next[key];
+  return next;
+}
+
 function makeBackgroundAgentPanelTabId(threadId: string): string {
   return `background-agent:${threadId}`;
+}
+
+function makeSubagentsPanelTabId(rootThreadId: string): string {
+  return `subagents:${rootThreadId}`;
 }
 
 function encodeProcessOutputPanelTabPart(value: string): string {
@@ -1924,6 +1961,10 @@ function isBackgroundAgentPanelTab(tab: ProjectSessionRenderableTab): tab is Bac
   return "backgroundAgent" in tab && tab.backgroundAgent === true;
 }
 
+function isSubagentsPanelTab(tab: ProjectSessionRenderableTab): tab is SubagentsPanelTab {
+  return "subagentsPanel" in tab && tab.subagentsPanel === true;
+}
+
 function isProcessOutputPanelTab(tab: ProjectSessionRenderableTab): tab is ProcessOutputPanelTab {
   return "processOutputPanel" in tab && tab.processOutputPanel === true;
 }
@@ -1934,12 +1975,13 @@ function isProjectSessionFilesPreviewTab(tab: ProjectSessionRenderableTab): tab 
 
 function isTransientPanelTab(
   tab: ProjectSessionRenderableTab,
-): tab is SideChatPanelTab | McpAppPanelTab | PlanPanelTab | AutomationPanelTab | BackgroundAgentPanelTab | ProcessOutputPanelTab {
+): tab is SideChatPanelTab | McpAppPanelTab | PlanPanelTab | AutomationPanelTab | AgentPanelTab | ProcessOutputPanelTab {
   return isSideChatPanelTab(tab)
     || isMcpAppPanelTab(tab)
     || isPlanPanelTab(tab)
     || isAutomationPanelTab(tab)
     || isBackgroundAgentPanelTab(tab)
+    || isSubagentsPanelTab(tab)
     || isProcessOutputPanelTab(tab);
 }
 
@@ -2321,7 +2363,7 @@ export function WorkbenchShell({
   const [automationTabsBySession, setAutomationTabsBySession] = useState<Record<string, AutomationPanelTab[]>>({});
   const [automationActiveTabByPanel, setAutomationActiveTabByPanel] = useState<Record<string, string>>({});
   const [backgroundAgentTabsBySession, setBackgroundAgentTabsBySession] =
-    useState<Record<string, BackgroundAgentPanelTab[]>>({});
+    useState<Record<string, AgentPanelTab[]>>({});
   const [backgroundAgentActiveTabByPanel, setBackgroundAgentActiveTabByPanel] = useState<Record<string, string>>({});
   const [processOutputTabsBySession, setProcessOutputTabsBySession] =
     useState<Record<string, ProcessOutputPanelTab[]>>({});
@@ -6521,6 +6563,45 @@ export function WorkbenchShell({
     [createManualTab],
   );
 
+  const activateAgentPanelTab = useCallback(async (
+    tabId: string,
+    leafId: string,
+  ): Promise<void> => {
+    if (!activeSession) return;
+    const panelId = "right" as const;
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
+    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
+    setPlanActiveTabByPanel((current) => clearTransientPanelSelection(
+      current,
+      makePlanPanelKey(activeSession.id, panelId, leafId),
+      makePlanPanelKey(activeSession.id, panelId),
+    ));
+    setMcpAppActiveTabByPanel((current) => clearTransientPanelSelection(
+      current,
+      makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+      makeMcpAppPanelKey(activeSession.id, panelId),
+    ));
+    setSideChatActiveTabByPanel((current) => clearTransientPanelSelection(
+      current,
+      makeSideChatPanelKey(activeSession.id, panelId, leafId),
+      makeSideChatPanelKey(activeSession.id, panelId),
+    ));
+    setBackgroundAgentActiveTabByPanel((current) => ({
+      ...current,
+      [makeBackgroundAgentPanelKey(activeSession.id, panelId, leafId)]: tabId,
+    }));
+    setPanelCollapsedOverrides((current) => ({
+      ...current,
+      [makePanelPreviewKey(activeSession.id, panelId)]: false,
+    }));
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+  }, [
+    activeSession,
+    clearPanelPreviewTab,
+    clearProcessOutputActiveTab,
+    ensureActivePanelOpenWithoutRefresh,
+  ]);
+
   const openBackgroundAgentPanelTab = useCallback(async (
     subagent: ThreadOpenSubagentPayload,
   ): Promise<boolean> => {
@@ -6580,53 +6661,71 @@ export function WorkbenchShell({
         ),
       };
     });
-    clearPanelPreviewTab(activeSession.id, panelId, leafId);
-    setPlanActiveTabByPanel((current) => {
-      const keys = [
-        makePlanPanelKey(activeSession.id, panelId, leafId),
-        makePlanPanelKey(activeSession.id, panelId),
-      ];
-      if (!keys.some((key) => key in current)) return current;
-      const next = { ...current };
-      for (const key of keys) delete next[key];
-      return next;
-    });
-    setMcpAppActiveTabByPanel((current) => {
-      const keys = [
-        makeMcpAppPanelKey(activeSession.id, panelId, leafId),
-        makeMcpAppPanelKey(activeSession.id, panelId),
-      ];
-      if (!keys.some((key) => key in current)) return current;
-      const next = { ...current };
-      for (const key of keys) delete next[key];
-      return next;
-    });
-    setSideChatActiveTabByPanel((current) => {
-      const keys = [
-        makeSideChatPanelKey(activeSession.id, panelId, leafId),
-        makeSideChatPanelKey(activeSession.id, panelId),
-      ];
-      if (!keys.some((key) => key in current)) return current;
-      const next = { ...current };
-      for (const key of keys) delete next[key];
-      return next;
-    });
-    clearProcessOutputActiveTab(activeSession.id, panelId, leafId);
-    setBackgroundAgentActiveTabByPanel((current) => ({
-      ...current,
-      [makeBackgroundAgentPanelKey(activeSession.id, panelId, leafId)]: tabId,
-    }));
-    setPanelCollapsedOverrides((current) => ({
-      ...current,
-      [makePanelPreviewKey(activeSession.id, panelId)]: false,
-    }));
-    await ensureActivePanelOpenWithoutRefresh(panelId);
+    await activateAgentPanelTab(tabId, leafId);
     return true;
   }, [
     activeSession,
-    clearPanelPreviewTab,
-    clearProcessOutputActiveTab,
-    ensureActivePanelOpenWithoutRefresh,
+    activateAgentPanelTab,
+    workbenchCodexControl,
+  ]);
+
+  const openSubagentsPanelTab = useCallback(async (
+    rootThreadId: string,
+    subagent: ThreadOpenSubagentPayload | null = null,
+  ): Promise<boolean> => {
+    if (!activeSession || activeSession.projectId === null) return false;
+    const normalizedRootThreadId = rootThreadId.trim();
+    const selectedThreadId = subagent?.conversationId.trim() || null;
+    if (!normalizedRootThreadId || selectedThreadId === normalizedRootThreadId) return false;
+
+    try {
+      if (selectedThreadId) {
+        const hydrated = await workbenchCodexControl.hydrateSubagentPanel({
+          rootThreadId: normalizedRootThreadId,
+          threadIds: [selectedThreadId],
+          includeTurns: true,
+        });
+        if (!hydrated.some((summary) => summary.threadId === selectedThreadId)) return false;
+      }
+    } catch {
+      toast.danger("Failed to open subagents");
+      return false;
+    }
+
+    const panelId = "right" as const;
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const tabId = makeSubagentsPanelTabId(normalizedRootThreadId);
+    const tab: SubagentsPanelTab = {
+      subagentsPanel: true,
+      id: tabId,
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      leafId,
+      rootThreadId: normalizedRootThreadId,
+      selectedThreadId,
+      selectedDisplayName: subagent?.displayName.trim() || null,
+      title: "Subagents",
+      stateKey: Date.now(),
+    };
+
+    setBackgroundAgentTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      const existing = tabs.find((candidate) => candidate.id === tabId);
+      return {
+        ...current,
+        [activeSession.id]: existing
+          ? tabs.map((candidate) => candidate.id === tabId
+            ? { ...tab, stateKey: candidate.stateKey + 1 }
+            : candidate)
+          : [...tabs, tab],
+      };
+    });
+    await activateAgentPanelTab(tabId, leafId);
+    return true;
+  }, [
+    activeSession,
+    activateAgentPanelTab,
     workbenchCodexControl,
   ]);
 
@@ -6641,8 +6740,16 @@ export function WorkbenchShell({
       setPendingWorktreeClientThreadId(threadId);
       return true;
     }
-    if (context?.subagent && await openBackgroundAgentPanelTab(context.subagent)) {
-      return true;
+    if (context?.subagent) {
+      const rootThreadId = activeSession?.thread?.threadId ?? null;
+      if (
+        context.subagent.showInlineActivity === true
+        && rootThreadId
+        && await openSubagentsPanelTab(rootThreadId, context.subagent)
+      ) {
+        return true;
+      }
+      if (await openBackgroundAgentPanelTab(context.subagent)) return true;
     }
 
     const session = knownSessions.find((candidate) => candidate.thread?.threadId === threadId) ?? null;
@@ -6670,10 +6777,12 @@ export function WorkbenchShell({
       return false;
     }
   }, [
+    activeSession,
     knownSessions,
     closePendingWorktreeRoute,
     mergeSessionInState,
     openBackgroundAgentPanelTab,
+    openSubagentsPanelTab,
     refreshProjectSessions,
     selectSession,
   ]);
@@ -7742,6 +7851,8 @@ export function WorkbenchShell({
                   ? CodexAutomationsIcon
                   : isBackgroundAgentPanelTab(tab)
                     ? createBackgroundAgentTabIcon(tab.threadId)
+                    : isSubagentsPanelTab(tab)
+                      ? SubagentGlyphIcon
                     : isProcessOutputPanelTab(tab)
                       ? CodexSidePanelTerminalIcon
                       : isProjectSessionFilesPreviewTab(tab)
@@ -7757,6 +7868,8 @@ export function WorkbenchShell({
                 ? true
                 : isBackgroundAgentPanelTab(tab)
                   ? true
+                  : isSubagentsPanelTab(tab)
+                    ? true
                   : isProcessOutputPanelTab(tab)
                     ? true
                     : tab.preview === true || session.tabs.length > 1,
@@ -7867,6 +7980,31 @@ export function WorkbenchShell({
           if (isProcessOutputPanelTab(tab)) {
             return <ProcessOutputPanelTabView key={`${session.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
           }
+          if (isSubagentsPanelTab(tab)) {
+            return (
+              <ReviewRouteOpenAdapter activateReviewTab={activateReviewTab}>
+                {({ onOpenTurnDiffReview }) => (
+                  <SubagentsPanelSessionTab
+                    key={`${session.id}:${tab.id}:${tab.stateKey}`}
+                    tab={tab}
+                    activeSession={session}
+                    projects={projects}
+                    onRefreshSessions={refreshProjectSessions}
+                    onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                    onOpenHooksSettings={openHooksSettings}
+                    threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                    composerEnterBehavior={composerEnterBehavior}
+                    onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+                    onOpenThread={openAttachedThreadSession}
+                    onRouteSubagent={(subagent) => openSubagentsPanelTab(tab.rootThreadId, subagent)}
+                    onOpenTurnDiffReview={onOpenTurnDiffReview}
+                    onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                    turnDiffHoverPreviewDisabled={model.sidePanelOpen}
+                  />
+                )}
+              </ReviewRouteOpenAdapter>
+            );
+          }
           if (isBackgroundAgentPanelTab(tab)) {
             return (
               <ReviewRouteOpenAdapter activateReviewTab={activateReviewTab}>
@@ -7972,6 +8110,7 @@ export function WorkbenchShell({
     openHooksSettings,
     openPageTab,
     openLocalEnvironmentsSettings,
+    openSubagentsPanelTab,
     openWorkspaceFileTab,
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
@@ -9328,6 +9467,11 @@ export function WorkbenchShell({
                       composerEnterBehavior={composerEnterBehavior}
                       onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
                       onOpenThread={openAttachedThreadSession}
+                      onOpenSubagentsPanel={() => {
+                        const rootThreadId = session.thread?.threadId;
+                        if (!rootThreadId) return;
+                        void openSubagentsPanelTab(rootThreadId);
+                      }}
                       onOpenTurnDiffReview={onOpenTurnDiffReview}
                       onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
                       onOpenSummaryGitReview={onOpenSummaryGitReview}
@@ -12230,6 +12374,7 @@ function SessionThreadPage({
   composerEnterBehavior,
   onQueueingEnabledChange,
   onOpenThread,
+  onOpenSubagentsPanel,
   onOpenTurnDiffReview,
   onOpenTurnDiffFileInSidePanel,
   onOpenSummaryGitReview,
@@ -12284,6 +12429,7 @@ function SessionThreadPage({
   composerEnterBehavior: ComposerEnterBehavior;
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
+  onOpenSubagentsPanel: NonNullable<ThreadStageActions["onOpenSubagentsPanel"]>;
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
   onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
   onOpenSummaryGitReview: NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>;
@@ -12479,6 +12625,7 @@ function SessionThreadPage({
       onOpenPendingWorktree,
       onQueueingEnabledChange,
       onOpenThread,
+      onOpenSubagentsPanel,
       onOpenTurnDiffReview,
       onOpenTurnDiffFileInSidePanel,
       onForkSessionFromTurn,
@@ -12525,6 +12672,7 @@ function SessionThreadPage({
     onOpenPendingWorktree,
     onQueueingEnabledChange,
     onOpenThread,
+    onOpenSubagentsPanel,
     onOpenTurnDiffReview,
     onOpenTurnDiffFileInSidePanel,
     onForkSessionFromTurn,
@@ -12864,6 +13012,119 @@ function BackgroundAgentSessionTab({
   );
 }
 
+function SubagentsPanelSessionTab({
+  tab,
+  activeSession,
+  projects,
+  onRefreshSessions,
+  onOpenMcpAppSidePanel,
+  onOpenHooksSettings,
+  threadQueueFollowUpsEnabled,
+  composerEnterBehavior,
+  onQueueingEnabledChange,
+  onOpenThread,
+  onRouteSubagent,
+  onOpenTurnDiffReview,
+  onOpenTurnDiffFileInSidePanel,
+  turnDiffHoverPreviewDisabled,
+}: {
+  tab: SubagentsPanelTab;
+  activeSession: ProjectSession;
+  projects: Project[];
+  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onOpenHooksSettings: NonNullable<ThreadStageActions["onOpenHooksSettings"]>;
+  threadQueueFollowUpsEnabled: boolean;
+  composerEnterBehavior: ComposerEnterBehavior;
+  onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
+  onOpenThread: ThreadStageActions["onOpenThread"];
+  onRouteSubagent: (subagent: ThreadOpenSubagentPayload | null) => Promise<boolean>;
+  onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+  onOpenTurnDiffFileInSidePanel: NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>;
+  turnDiffHoverPreviewDisabled: boolean;
+}) {
+  const selectedConversation = useConversation(tab.selectedThreadId);
+  const routeSelectedSubagent = useCallback((subagent: ThreadOpenSubagentPayload) => {
+    void onRouteSubagent(subagent);
+  }, [onRouteSubagent]);
+  const openFromDetail = useCallback<ThreadStageActions["onOpenThread"]>(async (threadId, context) => {
+    if (context?.subagent?.showInlineActivity === true) {
+      await onRouteSubagent(context.subagent);
+      return;
+    }
+    await onOpenThread(threadId, context);
+  }, [onOpenThread, onRouteSubagent]);
+
+  if (!tab.selectedThreadId) {
+    return (
+      <div className="h-full min-h-0 bg-token-main-surface-primary" data-subagents-side-panel-tab={tab.id}>
+        <SubagentsPanelOverview
+          projectId={tab.projectId}
+          rootThreadId={tab.rootThreadId}
+          onError={(message) => toast.danger(message)}
+          onSelect={(row) => {
+            const subagent = buildBackgroundAgentOpenContext(row).subagent;
+            if (subagent) routeSelectedSubagent(subagent);
+          }}
+        />
+      </div>
+    );
+  }
+
+  const displayName = tab.selectedDisplayName
+    || selectedConversation?.agentNickname?.replace(/^@/u, "")
+    || selectedConversation?.threadName
+    || tab.selectedThreadId;
+  const detailTab: BackgroundAgentPanelTab = {
+    backgroundAgent: true,
+    id: `${tab.id}:detail:${tab.selectedThreadId}`,
+    sessionId: tab.sessionId,
+    projectId: tab.projectId,
+    panelId: tab.panelId,
+    leafId: tab.leafId,
+    threadId: tab.selectedThreadId,
+    title: displayName,
+    stateKey: tab.stateKey,
+    subagent: {
+      conversationId: tab.selectedThreadId,
+      displayName,
+      agentRole: selectedConversation?.agentRole ?? null,
+      spawnModel: null,
+      status: selectedConversation?.statusType === "active" ? "active" : "done",
+      statusSummary: null,
+      showInlineActivity: true,
+      diffStats: null,
+    },
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary" data-subagents-side-panel-tab={tab.id}>
+      <SubagentsPanelDetailHeader
+        threadId={tab.selectedThreadId}
+        displayName={displayName}
+        onBack={() => void onRouteSubagent(null)}
+      />
+      <div className="min-h-0 flex-1">
+        <BackgroundAgentSessionTab
+          tab={detailTab}
+          activeSession={activeSession}
+          projects={projects}
+          onRefreshSessions={onRefreshSessions}
+          onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+          onOpenHooksSettings={onOpenHooksSettings}
+          threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+          composerEnterBehavior={composerEnterBehavior}
+          onQueueingEnabledChange={onQueueingEnabledChange}
+          onOpenThread={openFromDetail}
+          onOpenTurnDiffReview={onOpenTurnDiffReview}
+          onOpenTurnDiffFileInSidePanel={onOpenTurnDiffFileInSidePanel}
+          turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
+        />
+      </div>
+    </div>
+  );
+}
+
 function BackgroundAgentLoadingPanel({ title }: { title: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">
@@ -12975,6 +13236,7 @@ function SideChatSessionTab({
     <div className="h-full min-h-0 bg-token-main-surface-primary">
       <ConnectedThreadStage
         projectId={tab.projectId}
+        composerScopeIdentity={`side-chat:${tab.id}`}
         projectWorkspacePath={projectWorkspaceRootOrNull(project)}
         isNewThreadTab={false}
         newThreadTarget={null}

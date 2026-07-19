@@ -3568,6 +3568,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     const { ThreadFloatingSummaryPanel } =
       await import("./thread-floating-summary-panel");
     const openCalls: unknown[] = [];
+    const openPanelCalls: string[] = [];
     const view = renderSummary(
       <ThreadFloatingSummaryPanel
         mounted
@@ -3646,14 +3647,19 @@ describe("ThreadFloatingSummaryPanel", () => {
         onOpenThread={(threadId, context) => {
           openCalls.push({ threadId, context });
         }}
+        actions={{
+          onOpenSubagentsPanel: () => {
+            openPanelCalls.push("open");
+          },
+        }}
         onErrorMessage={() => undefined}
       />,
     );
 
     const content = textContent(view.container);
     expect(Boolean(content.includes("Subagents"))).toBe(true);
-    expect(Boolean(content.includes("2 working"))).toBe(true);
-    expect(Boolean(content.includes("1 done"))).toBe(true);
+    expect(Boolean(content.includes("1 working"))).toBe(true);
+    expect(Boolean(content.includes("2 done"))).toBe(true);
     expect(Boolean(content.includes("Listed active"))).toBe(true);
     expect(Boolean(content.includes("Listed waiting"))).toBe(true);
     expect(Boolean(content.includes("is working"))).toBe(true);
@@ -3669,7 +3675,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="inline-waiting"]',
-      ) !== null,
+      ) === null,
     ).toBe(true);
     expect(
       view.container.querySelector(
@@ -3682,7 +3688,10 @@ describe("ThreadFloatingSummaryPanel", () => {
       ) !== null,
     ).toBe(true);
 
-    await clickAndSettle(view.getByRole("button", { name: "Inline active" }));
+    await clickAndSettle(view.getByRole("button", { name: "Open subagents" }));
+    expect(openPanelCalls).toEqual(["open"]);
+
+    await clickAndSettle(view.getByRole("button", { name: /Listed active/ }));
     const call = openCalls[0] as
       | {
           threadId?: string;
@@ -3694,12 +3703,12 @@ describe("ThreadFloatingSummaryPanel", () => {
           };
         }
       | undefined;
-    expect(call?.threadId).toBe("inline-active");
-    expect(call?.context?.subagent?.conversationId).toBe("inline-active");
-    expect(call?.context?.subagent?.showInlineActivity).toBe(true);
+    expect(call?.threadId).toBe("listed-active");
+    expect(call?.context?.subagent?.conversationId).toBe("listed-active");
+    expect(call?.context?.subagent?.showInlineActivity).toBe(false);
   });
 
-  test("uses the last four done inline subagents when no inline subagent is working", async () => {
+  test("uses the first four done inline subagents when no inline subagent is working", async () => {
     const { ThreadFloatingSummaryPanel } =
       await import("./thread-floating-summary-panel");
     const memberships = [1, 2, 3, 4, 5].map((index) =>
@@ -3740,7 +3749,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="done-inline-1"]',
-      ) === null,
+      ) !== null,
     ).toBe(true);
     expect(
       view.container.querySelector(
@@ -3750,7 +3759,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(
       view.container.querySelector(
         '[data-subagent-avatar-seed="done-inline-5"]',
-      ) !== null,
+      ) === null,
     ).toBe(true);
   });
 });

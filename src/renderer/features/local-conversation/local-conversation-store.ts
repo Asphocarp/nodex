@@ -42,6 +42,7 @@ import type {
   CodexApprovalKind,
   CodexApprovalResponse,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexSubagentPanelHydrateInput,
   CodexBackgroundTerminalRow,
   PageRunInTarget,
   CodexCanonicalOptionPickerResponse,
@@ -290,6 +291,7 @@ const INITIAL_CONNECTION: CodexConnectionState = {
 
 const EMPTY_THREADS: CodexThreadSummary[] = [];
 const EMPTY_CONVERSATION_MAP: Record<string, CodexConversationSnapshot> = {};
+const EMPTY_THREAD_SUMMARY_MAP: Record<string, CodexThreadSummary> = {};
 const EMPTY_MODELS: CodexModelOption[] = [];
 const EMPTY_TURNS: CodexConversationTurn[] = [];
 const EMPTY_REQUESTS: CodexConversationServerRequest[] = [];
@@ -884,6 +886,7 @@ function areThreadSummariesStructurallyEqual(
     && left.threadSource === right.threadSource
     && left.agentNickname === right.agentNickname
     && left.agentRole === right.agentRole
+    && left.agentPath === right.agentPath
     && left.threadName === right.threadName
     && left.threadPreview === right.threadPreview
     && left.modelProvider === right.modelProvider
@@ -933,6 +936,10 @@ function areConversationChildMembershipsEqual(
       || leftEntry.actorName !== rightEntry.actorName
       || leftEntry.displayName !== rightEntry.displayName
       || leftEntry.agentRole !== rightEntry.agentRole
+      || leftEntry.agentPath !== rightEntry.agentPath
+      || leftEntry.createdAtMs !== rightEntry.createdAtMs
+      || leftEntry.updatedAtMs !== rightEntry.updatedAtMs
+      || leftEntry.statusType !== rightEntry.statusType
       || leftEntry.showInlineActivity !== rightEntry.showInlineActivity
       || !areConversationChildThreadMetadataEqual(leftEntry.thread, rightEntry.thread)
     ) {
@@ -959,6 +966,24 @@ function areConversationMapSelectionsEqual(
   }
 
   return true;
+}
+
+function areThreadSummaryMapSelectionsEqual(
+  left: Record<string, CodexThreadSummary>,
+  right: Record<string, CodexThreadSummary>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => {
+    const leftSummary = left[key];
+    const rightSummary = right[key];
+    return Boolean(
+      leftSummary
+      && rightSummary
+      && areThreadSummariesStructurallyEqual(leftSummary, rightSummary),
+    );
+  });
 }
 
 function subscribeSet<T>(listeners: Set<T>, listener: T): () => void {
@@ -2271,6 +2296,7 @@ function materializeOwnerRollbackConversation(
     threadSource: thread.threadSource ?? currentConversation.threadSource ?? null,
     agentNickname: subagentMetadata.agentNickname ?? currentConversation.agentNickname ?? null,
     agentRole: subagentMetadata.agentRole ?? currentConversation.agentRole ?? null,
+    agentPath: subagentMetadata.agentPath ?? currentConversation.agentPath ?? null,
     threadPreview: thread.preview,
     modelProvider: thread.modelProvider,
     cwd: thread.cwd,
@@ -2547,6 +2573,7 @@ type OwnerThreadStartedPayload = {
   threadSource: ThreadSource | null;
   agentNickname: string | null;
   agentRole: string | null;
+  agentPath: string | null;
   threadName: string | null;
   threadPreview: string | null;
   modelProvider: string | null;
@@ -2575,6 +2602,7 @@ function toOwnerThreadStartedPayload(
     threadSource: thread.threadSource,
     agentNickname: subagentMetadata.agentNickname,
     agentRole: subagentMetadata.agentRole,
+    agentPath: subagentMetadata.agentPath,
     threadName: thread.name?.trim() || null,
     threadPreview: thread.preview,
     modelProvider: thread.modelProvider,
@@ -3969,6 +3997,19 @@ export class CodexAppServerManager {
   ): Promise<CodexThreadSummary[]> {
     const summaries = (await invoke(
       "codex:thread:background-subagents:hydrate",
+      input,
+    )) as CodexThreadSummary[];
+    for (const summary of summaries) {
+      this.applyThreadSummary(summary);
+    }
+    return summaries;
+  }
+
+  async hydrateSubagentPanel(
+    input: CodexSubagentPanelHydrateInput,
+  ): Promise<CodexThreadSummary[]> {
+    const summaries = (await invoke(
+      "codex:thread:subagents-panel:hydrate",
       input,
     )) as CodexThreadSummary[];
     for (const summary of summaries) {
@@ -10102,6 +10143,26 @@ export function useConversationSubset(threadIds: readonly string[]): Record<stri
   );
 }
 
+export function useThreadSummarySubset(
+  anchorConversationId: string,
+  threadIds: readonly string[],
+): Record<string, CodexThreadSummary> {
+  const manager = useCodexAppServerManagerForConversationId(anchorConversationId);
+  return useExternalSelector(
+    (listener) => manager.addAnyConversationMetaCallback(listener),
+    () => {
+      if (threadIds.length === 0) return EMPTY_THREAD_SUMMARY_MAP;
+      const summaries: Record<string, CodexThreadSummary> = {};
+      for (const threadId of threadIds) {
+        const summary = manager.readThreadSummary(threadId);
+        if (summary) summaries[threadId] = summary;
+      }
+      return Object.keys(summaries).length > 0 ? summaries : EMPTY_THREAD_SUMMARY_MAP;
+    },
+    areThreadSummaryMapSelectionsEqual,
+  );
+}
+
 export function useComposerIntent(threadId: string | null): CodexComposerIntent | null {
   const manager = useCodexAppServerManagerForConversationId(threadId);
   return useExternalSelector(
@@ -10250,6 +10311,10 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
   );
   const hydrateBackgroundSubagentThreads = useCallback(
     async (input: CodexBackgroundSubagentThreadsHydrateInput) => manager.hydrateBackgroundSubagentThreads(input),
+    [manager],
+  );
+  const hydrateSubagentPanel = useCallback(
+    async (input: CodexSubagentPanelHydrateInput) => manager.hydrateSubagentPanel(input),
     [manager],
   );
 
@@ -10554,6 +10619,7 @@ export function useCodexAppServerControl(activeProjectId: string | null) {
     requestThreadStreamSnapshot,
     markSubagentThreadOpened,
     hydrateBackgroundSubagentThreads,
+    hydrateSubagentPanel,
     startThreadForSession,
     startSideChat,
     discardSideChat,

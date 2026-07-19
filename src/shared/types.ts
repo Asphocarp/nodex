@@ -1417,6 +1417,8 @@ export interface CodexThreadSummary {
   serviceName?: string | null;
   agentNickname?: string | null;
   agentRole?: string | null;
+  /** Source-derived AgentControl path used to distinguish modern inline subagents. */
+  agentPath?: string | null;
   threadName: string | null;
   threadPreview: string;
   modelProvider: string;
@@ -3582,6 +3584,10 @@ export interface CodexConversationChildMembership {
   displayName?: string | null;
   thread?: CodexConversationChildThreadMetadata | null;
   agentRole?: string | null;
+  agentPath?: string | null;
+  createdAtMs?: number | null;
+  updatedAtMs?: number | null;
+  statusType?: CodexThreadStatusType;
   showInlineActivity?: boolean;
 }
 
@@ -3636,6 +3642,12 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
 
 export interface CodexBackgroundSubagentThreadsHydrateInput {
   threadIds: string[];
+  includeTurns?: boolean;
+}
+
+export interface CodexSubagentPanelHydrateInput {
+  rootThreadId: string;
+  threadIds?: string[];
   includeTurns?: boolean;
 }
 

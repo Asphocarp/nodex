@@ -65,6 +65,7 @@ describe("codex-link-repository", () => {
         threadSource: "appServer",
         agentNickname: "@Nash",
         agentRole: "worker",
+        agentPath: "agents/nash",
         threadName: "Thread One",
         threadPreview: "Initial preview",
         modelProvider: "openai",
@@ -81,6 +82,7 @@ describe("codex-link-repository", () => {
       expect(first.threadSource).toBe("appServer");
       expect(first.agentNickname).toBe("@Nash");
       expect(first.agentRole).toBe("worker");
+      expect(first.agentPath).toBe("agents/nash");
       expect(first.managedWorktreePath).toBe("/tmp/codex/.worktrees/thr_test_1");
 
       const second = upsertCodexThread({
@@ -100,6 +102,7 @@ describe("codex-link-repository", () => {
       expect(second.forkedFromId).toBe("thr_fork_root");
       expect(second.source?.parentThreadId).toBe("thr_parent");
       expect(second.threadSource).toBe("appServer");
+      expect(second.agentPath).toBe("agents/nash");
       expect(second.managedWorktreePath).toBe("/tmp/codex/.worktrees/thr_test_1");
 
       const clearedWorktree = upsertCodexThread({
@@ -125,6 +128,7 @@ describe("codex-link-repository", () => {
       expect(childThreads[0]?.source?.parentThreadId).toBe("thr_parent");
       expect(childThreads[0]?.agentNickname).toBe("@Nash");
       expect(childThreads[0]?.agentRole).toBe("worker");
+      expect(childThreads[0]?.agentPath).toBe("agents/nash");
 
       const clearedForkLineage = upsertCodexThread({
         threadId: "thr_test_1",

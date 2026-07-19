@@ -46,7 +46,7 @@ import { readLocalProfileLibraryInDatabase } from "./local-profile-library";
 export const COLUMNS = WORKFLOW_STATUS_COLUMNS;
 
 export const SHIPPED_SCHEMA_VERSION = 58;
-export const CURRENT_SCHEMA_VERSION = 82;
+export const CURRENT_SCHEMA_VERSION = 83;
 
 interface ReleaseSchemaMigrationStep {
   readonly fromVersion: number;
@@ -90,6 +90,11 @@ const RELEASE_SCHEMA_MIGRATION_STEPS = [
     fromVersion: 81,
     toVersion: 82,
     migrate: migrateWorkflowStatusesV81ToV82,
+  },
+  {
+    fromVersion: 82,
+    toVersion: 83,
+    migrate: migrateSchema82To83,
   },
 ] satisfies readonly ReleaseSchemaMigrationStep[];
 
@@ -3384,6 +3389,7 @@ function createShippedV57Schema(
       thread_source TEXT,
       agent_nickname TEXT,
       agent_role TEXT,
+      agent_path TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
       cwd TEXT,
@@ -9420,6 +9426,27 @@ export function migrateSchema79To80(db: Database.Database): void {
   migrate.immediate();
 }
 
+/**
+ * v83 preserves the AgentControl path used to recognize modern inline
+ * subagents without hydrating their parent transcript first.
+ */
+export function migrateSchema82To83(db: Database.Database): void {
+  const sourceVersion = getUserVersion(db);
+  if (sourceVersion !== 82) {
+    throw new Error(
+      `Schema v82 to v83 migration requires v82, received v${sourceVersion}`,
+    );
+  }
+
+  const migrate = db.transaction(() => {
+    if (!tableHasColumn(db, "codex_threads", "agent_path")) {
+      db.exec("ALTER TABLE codex_threads ADD COLUMN agent_path TEXT");
+    }
+    setUserVersion(db, 83);
+  });
+  migrate.immediate();
+}
+
 function migrateReleaseSchemaToCurrent(
   db: Database.Database,
   sourceVersion: number,
@@ -9490,6 +9517,9 @@ function resetDatabaseToLatestSchema(db: Database.Database): void {
     createOwnedDocumentEngineGuards(db);
     createExclusiveCardParentTriggers(db);
     assertExclusiveCardParentParity(db);
+    if (tableHasColumn(db, "codex_threads", "agent_path")) {
+      db.exec("ALTER TABLE codex_threads DROP COLUMN agent_path");
+    }
     setUserVersion(db, SHIPPED_SCHEMA_VERSION);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");
@@ -9531,6 +9561,9 @@ export function createHistoricalReleaseSchemaFixture(
     createOwnedDocumentEngineGuards(db);
     createExclusiveCardParentTriggers(db);
     assertExclusiveCardParentParity(db);
+    if (tableHasColumn(db, "codex_threads", "agent_path")) {
+      db.exec("ALTER TABLE codex_threads DROP COLUMN agent_path");
+    }
     setUserVersion(db, SHIPPED_SCHEMA_VERSION);
   } finally {
     db.exec("PRAGMA foreign_keys = ON");

@@ -14,16 +14,23 @@ import type {
 import { normalizeMultiAgentActionPayload } from "../../../../shared/codex-transcript-special-items";
 import type { ThreadComposerShellBackgroundAgentRowModel } from "../thread-stage-types";
 
-type BackgroundSubagentNormalizedStatus = "active" | "waiting" | "done" | "hidden" | "unknown";
+type NormalizedAgentStatus = "active" | "waiting" | "done" | "hidden" | "unknown";
 type ChildProgressStatus = "inProgress" | "notInProgress" | "unknown";
 
-interface BackgroundSubagentLatestReference {
+interface LatestReference {
   tool: CodexMultiAgentActionName;
   parentTurnKey: string;
   thread: CodexMultiAgentReceiverThread["thread"];
   agentState: CodexMultiAgentAgentState | null;
   spawnModel: string | null;
   usesThreadStatus: boolean;
+  inlineDisplayName: string | null;
+  showInlineActivity: boolean;
+}
+
+interface LastAssistantMessage {
+  text: string;
+  updatedAtMs: number;
 }
 
 export interface BuildBackgroundSubagentRowsInput {
@@ -32,7 +39,7 @@ export interface BuildBackgroundSubagentRowsInput {
   knownConversationsById: Record<string, CodexConversationSnapshot>;
 }
 
-type BackgroundSubagentThreadMetadata =
+type ThreadMetadata =
   | CodexMultiAgentReceiverThread["thread"]
   | CodexConversationChildMembership["thread"];
 
@@ -49,14 +56,14 @@ function stripLeadingAt(value: string): string {
   return trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
 }
 
-function resolveThreadDisplayName(thread: BackgroundSubagentThreadMetadata | null | undefined): string | null {
+function resolveThreadDisplayName(thread: ThreadMetadata | null | undefined): string | null {
   return normalizeOptionalText(thread?.displayName)
     ?? normalizeOptionalText(thread?.name)
     ?? normalizeOptionalText(thread?.nickname);
 }
 
 function getParentTurnKey(turn: CodexConversationTurn | null | undefined, index: number): string {
-  return turn?.turnId ?? `${index + 1}`;
+  return turn?.turnId ?? `turn-index-${index}`;
 }
 
 function getLatestParentTurnKey(parentTurns: readonly CodexConversationTurn[]): string {
@@ -74,8 +81,7 @@ function getParentTurnKeyForCreatedAt(
 
   for (let index = parentTurns.length - 1; index >= 0; index -= 1) {
     const turn = parentTurns[index];
-    const turnStartedAtMs = turn?.turnStartedAtMs;
-    if (turn && typeof turnStartedAtMs === "number" && turnStartedAtMs <= createdAtMs) {
+    if (typeof turn?.turnStartedAtMs === "number" && turn.turnStartedAtMs <= createdAtMs) {
       return getParentTurnKey(turn, index);
     }
   }
@@ -86,14 +92,12 @@ function getParentTurnKeyForCreatedAt(
 function getInProgressParentTurnKeys(parentTurns: readonly CodexConversationTurn[]): Set<string> {
   const keys = new Set<string>();
   parentTurns.forEach((turn, index) => {
-    if (turn.status === "inProgress") {
-      keys.add(getParentTurnKey(turn, index));
-    }
+    if (turn.status === "inProgress") keys.add(getParentTurnKey(turn, index));
   });
   return keys;
 }
 
-function normalizeAgentStatus(status: CodexMultiAgentAgentStatus | null | undefined): BackgroundSubagentNormalizedStatus {
+function normalizeAgentStatus(status: CodexMultiAgentAgentStatus | null | undefined): NormalizedAgentStatus {
   switch (status) {
     case "pendingInit":
       return "waiting";
@@ -117,61 +121,59 @@ function mapThreadStatusToAgentStatus(statusType: CodexThreadStatusType): CodexM
     case "active":
       return "running";
     case "idle":
-      return "completed";
     case "notLoaded":
-      return "pendingInit";
+      return "completed";
     case "systemError":
       return "errored";
   }
 }
 
-function resolveChildProgress(childConversation: CodexConversationSnapshot | null | undefined): ChildProgressStatus {
-  if (
-    childConversation?.resumeState === "needs_resume" &&
-    childConversation.threadRuntimeStatus?.type === "active"
-  ) {
-    return "inProgress";
+function resolveChildProgress(child: CodexConversationSnapshot | null): ChildProgressStatus {
+  if (child?.threadRuntimeStatus?.type === "active") return "inProgress";
+  if (child?.threadRuntimeStatus && child.threadRuntimeStatus.type !== "notLoaded") {
+    return "notInProgress";
   }
-
-  if (!childConversation || childConversation.turns.length === 0) {
-    return "unknown";
-  }
-
-  return childConversation.turns[childConversation.turns.length - 1]?.status === "inProgress"
-    ? "inProgress"
-    : "notInProgress";
+  if (!child || child.turns.length === 0) return "unknown";
+  return child.turns[child.turns.length - 1]?.status === "inProgress" ? "inProgress" : "notInProgress";
 }
 
 function resolveVisibleStatus(input: {
-  latestReference: BackgroundSubagentLatestReference;
+  reference: LatestReference;
   childProgress: ChildProgressStatus;
   currentParentTurnKey: string;
   inProgressParentTurnKeys: Set<string>;
 }): ThreadComposerShellBackgroundAgentRowModel["status"] | null {
-  const normalizedStatus = normalizeAgentStatus(input.latestReference.agentState?.status);
-  if (input.latestReference.tool === "closeAgent" || normalizedStatus === "hidden") {
-    return null;
+  const normalized = normalizeAgentStatus(input.reference.agentState?.status);
+  if (input.reference.tool === "closeAgent" || normalized === "hidden") return null;
+
+  const parentInProgress = input.inProgressParentTurnKeys.has(input.reference.parentTurnKey);
+  const isCurrentParentTurn = input.reference.parentTurnKey === input.currentParentTurnKey;
+  if (
+    input.childProgress === "inProgress"
+    || (input.reference.usesThreadStatus && normalized === "active")
+    || (!input.reference.usesThreadStatus && normalized === "active" && parentInProgress)
+    || (normalized === "unknown" && isCurrentParentTurn && parentInProgress)
+  ) {
+    return "active";
   }
 
-  const isCurrentParentTurn = input.latestReference.parentTurnKey === input.currentParentTurnKey;
-  const isParentTurnInProgress = input.inProgressParentTurnKeys.has(input.latestReference.parentTurnKey);
-  const isActive = input.childProgress === "inProgress"
-    || (input.latestReference.usesThreadStatus && normalizedStatus === "active")
-    || (!input.latestReference.usesThreadStatus && normalizedStatus === "active" && isParentTurnInProgress)
-    || (normalizedStatus === "unknown" && isCurrentParentTurn && isParentTurnInProgress);
-  if (isActive) return "active";
+  if (normalized === "waiting" && input.childProgress === "unknown") return "waiting";
+  if (
+    input.childProgress === "unknown"
+    && parentInProgress
+    && normalized !== "done"
+  ) {
+    return "waiting";
+  }
+  if (
+    normalized === "done"
+    || input.childProgress === "notInProgress"
+    || (!input.reference.usesThreadStatus && normalized === "active" && !parentInProgress)
+  ) {
+    return "done";
+  }
 
-  const isWaiting = normalizedStatus === "waiting";
-  if (isWaiting) return "waiting";
-
-  const isDone = normalizedStatus === "done"
-    || (!input.latestReference.usesThreadStatus && normalizedStatus === "active" && !isParentTurnInProgress)
-    || input.childProgress === "notInProgress";
-  return isDone ? "done" : null;
-}
-
-function getReceiverThreadMap(receiverThreads: readonly CodexMultiAgentReceiverThread[]): Map<string, CodexMultiAgentReceiverThread["thread"]> {
-  return new Map(receiverThreads.map((receiverThread) => [receiverThread.threadId, receiverThread.thread]));
+  return null;
 }
 
 function normalizeMultiAgentPayloadFromItem(item: CodexConversationItem) {
@@ -180,7 +182,6 @@ function normalizeMultiAgentPayloadFromItem(item: CodexConversationItem) {
 
   const args = asRecord(item.toolCall?.args);
   if (!args) return null;
-
   return normalizeMultiAgentActionPayload({
     tool: item.toolCall?.toolName,
     status: item.status,
@@ -194,22 +195,37 @@ function normalizeMultiAgentPayloadFromItem(item: CodexConversationItem) {
   });
 }
 
-function buildLatestReferenceMap(input: BuildBackgroundSubagentRowsInput): Map<string, BackgroundSubagentLatestReference> {
+function buildLatestReferenceMap(input: BuildBackgroundSubagentRowsInput): Map<string, LatestReference> {
   const knownChildIds = new Set(input.childMemberships.map((membership) => membership.threadId));
-  const latestReferences = new Map<string, BackgroundSubagentLatestReference>();
+  const latest = new Map<string, LatestReference>();
 
   input.parentTurns.forEach((turn, turnIndex) => {
     const parentTurnKey = getParentTurnKey(turn, turnIndex);
     for (const item of turn.items) {
+      const activity = item.subagentActivity;
+      if (activity && knownChildIds.has(activity.agentThreadId)) {
+        const previous = latest.get(activity.agentThreadId);
+        latest.set(activity.agentThreadId, {
+          tool: previous?.tool ?? "spawnAgent",
+          parentTurnKey,
+          thread: previous?.thread ?? null,
+          agentState: previous?.agentState ?? null,
+          spawnModel: previous?.spawnModel ?? null,
+          usesThreadStatus: true,
+          inlineDisplayName: activity.displayName ?? previous?.inlineDisplayName ?? null,
+          showInlineActivity: true,
+        });
+      }
+
       const payload = normalizeMultiAgentPayloadFromItem(item);
       if (!payload) continue;
-
-      const receiverThreads = getReceiverThreadMap(payload.receiverThreads);
+      const receiverThreads = new Map(
+        payload.receiverThreads.map((receiver) => [receiver.threadId, receiver.thread] as const),
+      );
       for (const receiverThreadId of payload.receiverThreadIds) {
         if (!knownChildIds.has(receiverThreadId)) continue;
-
-        const previous = latestReferences.get(receiverThreadId);
-        latestReferences.set(receiverThreadId, {
+        const previous = latest.get(receiverThreadId);
+        latest.set(receiverThreadId, {
           tool: payload.action === "wait" ? (previous?.tool ?? payload.action) : payload.action,
           parentTurnKey,
           thread: receiverThreads.get(receiverThreadId) ?? previous?.thread ?? null,
@@ -217,55 +233,64 @@ function buildLatestReferenceMap(input: BuildBackgroundSubagentRowsInput): Map<s
           spawnModel: payload.action === "spawnAgent"
             ? (payload.model ?? previous?.spawnModel ?? null)
             : (previous?.spawnModel ?? null),
-          usesThreadStatus: false,
+          usesThreadStatus: previous?.usesThreadStatus ?? false,
+          inlineDisplayName: previous?.inlineDisplayName ?? null,
+          showInlineActivity: previous?.showInlineActivity ?? false,
         });
       }
     }
   });
 
-  return latestReferences;
+  return latest;
 }
 
-function buildFallbackLatestReference(
+function buildFallbackReference(
+  membership: CodexConversationChildMembership,
   parentTurns: readonly CodexConversationTurn[],
-  childConversation: CodexConversationSnapshot | null,
-): BackgroundSubagentLatestReference {
+  child: CodexConversationSnapshot | null,
+): LatestReference {
+  const statusType = child?.statusType ?? membership.statusType ?? "notLoaded";
   return {
     tool: "spawnAgent",
-    parentTurnKey: getParentTurnKeyForCreatedAt(parentTurns, childConversation?.createdAt ?? null),
+    parentTurnKey: getParentTurnKeyForCreatedAt(
+      parentTurns,
+      child?.createdAt ?? membership.createdAtMs ?? null,
+    ),
     thread: null,
     agentState: {
-      status: childConversation ? mapThreadStatusToAgentStatus(childConversation.statusType) : "completed",
+      status: mapThreadStatusToAgentStatus(statusType),
       message: null,
     },
     spawnModel: null,
-    usesThreadStatus: childConversation !== null,
+    usesThreadStatus: true,
+    inlineDisplayName: null,
+    showInlineActivity: membership.showInlineActivity === true || Boolean(membership.agentPath),
   };
 }
 
 function resolveDisplayName(input: {
   membership: CodexConversationChildMembership;
-  latestReference: BackgroundSubagentLatestReference;
-  childConversation: CodexConversationSnapshot | null;
+  reference: LatestReference;
+  child: CodexConversationSnapshot | null;
 }): string {
   const displayName = normalizeOptionalText(input.membership.displayName)
-    ?? resolveThreadDisplayName(input.latestReference.thread)
+    ?? normalizeOptionalText(input.reference.inlineDisplayName)
+    ?? resolveThreadDisplayName(input.reference.thread)
     ?? resolveThreadDisplayName(input.membership.thread)
-    ?? normalizeOptionalText(input.childConversation?.agentNickname)
+    ?? normalizeOptionalText(input.child?.agentNickname)
     ?? input.membership.threadId;
   return stripLeadingAt(displayName);
 }
 
 function resolveAgentRole(input: {
   membership: CodexConversationChildMembership;
-  latestReference: BackgroundSubagentLatestReference;
-  childConversation: CodexConversationSnapshot | null;
+  reference: LatestReference;
+  child: CodexConversationSnapshot | null;
 }): string | null {
-  const role = normalizeOptionalText(input.latestReference.thread?.agentRole)
+  const role = normalizeOptionalText(input.reference.thread?.agentRole)
     ?? normalizeOptionalText(input.membership.thread?.agentRole)
-    ?? normalizeOptionalText(input.childConversation?.agentRole);
-  if (!role || role === "default") return null;
-  return role;
+    ?? normalizeOptionalText(input.child?.agentRole);
+  return !role || role === "default" ? null : role;
 }
 
 function unwrapMarkdownDelimiters(value: string): string {
@@ -302,94 +327,115 @@ export function cleanupBackgroundSubagentStatusSummary(value: string | null | un
 
 function getReasoningSummaryCandidates(item: CodexConversationItem): string[] {
   const candidates: string[] = [];
-  const rawItem = asRecord(item.rawItem);
-  const summary = rawItem?.summary;
+  const summary = asRecord(item.rawItem)?.summary;
   if (Array.isArray(summary)) {
     for (const entry of summary) {
       if (typeof entry === "string") candidates.push(entry);
-      if (typeof entry === "object" && entry !== null && typeof (entry as { text?: unknown }).text === "string") {
-        candidates.push((entry as { text: string }).text);
-      }
+      const text = asRecord(entry)?.text;
+      if (typeof text === "string") candidates.push(text);
     }
   }
-  if (typeof item.markdownText === "string") {
-    candidates.push(item.markdownText);
-  }
+  if (typeof item.markdownText === "string") candidates.push(item.markdownText);
   return candidates;
 }
 
-function resolveStatusSummary(childConversation: CodexConversationSnapshot | null): string | null {
-  const latestTurn = childConversation?.turns.at(-1) ?? null;
+function resolveStatusSummary(child: CodexConversationSnapshot | null): string | null {
+  const latestTurn = child?.turns[child.turns.length - 1] ?? null;
   if (latestTurn?.status !== "inProgress") return null;
-
   for (let itemIndex = latestTurn.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
     const item = latestTurn.items[itemIndex];
     if (item?.semanticKind !== "reasoning" && item?.type !== "reasoning") continue;
-
     const candidates = getReasoningSummaryCandidates(item);
-    for (let candidateIndex = candidates.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
-      const summary = cleanupBackgroundSubagentStatusSummary(candidates[candidateIndex]);
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const summary = cleanupBackgroundSubagentStatusSummary(candidates[index]);
       if (summary) return summary;
     }
   }
+  return null;
+}
 
+function isAssistantMessage(item: CodexConversationItem): boolean {
+  return item.role === "assistant"
+    || item.kind === "assistantMessage"
+    || item.semanticKind === "assistantMessage"
+    || item.type === "agentMessage";
+}
+
+function resolveLastAssistantMessage(child: CodexConversationSnapshot | null): LastAssistantMessage | null {
+  if (!child) return null;
+  for (let turnIndex = child.turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const items = child.turns[turnIndex]?.items ?? [];
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = items[itemIndex];
+      if (!item || !isAssistantMessage(item)) continue;
+      const text = normalizeOptionalText(item.markdownText);
+      if (!text) continue;
+      return { text, updatedAtMs: item.updatedAt };
+    }
+  }
   return null;
 }
 
 function summarizeTurnDiff(diff: string | null | undefined): ThreadComposerShellBackgroundAgentRowModel["diffStats"] {
   if (!diff) return null;
-
   let linesAdded = 0;
   let linesRemoved = 0;
-  for (const line of diff.split(/\r?\n/)) {
+  for (const line of diff.split(/\r?\n/u)) {
     if (line.startsWith("+++") || line.startsWith("---")) continue;
     if (line.startsWith("+")) linesAdded += 1;
     if (line.startsWith("-")) linesRemoved += 1;
   }
-
   return linesAdded === 0 && linesRemoved === 0 ? null : { linesAdded, linesRemoved };
-}
-
-function resolveDiffStats(childConversation: CodexConversationSnapshot | null): ThreadComposerShellBackgroundAgentRowModel["diffStats"] {
-  return summarizeTurnDiff(childConversation?.turns.at(-1)?.diff);
 }
 
 export function buildBackgroundSubagentRows(
   input: BuildBackgroundSubagentRowsInput,
 ): ThreadComposerShellBackgroundAgentRowModel[] {
-  const latestReferences = buildLatestReferenceMap(input);
+  const references = buildLatestReferenceMap(input);
   const currentParentTurnKey = getLatestParentTurnKey(input.parentTurns);
   const inProgressParentTurnKeys = getInProgressParentTurnKeys(input.parentTurns);
 
   return input.childMemberships.flatMap((membership) => {
-    const childConversation = input.knownConversationsById[membership.threadId] ?? null;
-    if (childConversation?.archived) {
-      return [];
-    }
+    const child = input.knownConversationsById[membership.threadId] ?? null;
+    if (child?.archived) return [];
 
-    const latestReference = latestReferences.get(membership.threadId)
-      ?? buildFallbackLatestReference(input.parentTurns, childConversation);
+    const reference = references.get(membership.threadId)
+      ?? buildFallbackReference(membership, input.parentTurns, child);
     const status = resolveVisibleStatus({
-      latestReference,
-      childProgress: resolveChildProgress(childConversation),
+      reference,
+      childProgress: resolveChildProgress(child),
       currentParentTurnKey,
       inProgressParentTurnKeys,
     });
     if (!status) return [];
 
-    const displayName = resolveDisplayName({ membership, latestReference, childConversation });
+    const displayName = resolveDisplayName({ membership, reference, child });
+    const lastAssistantMessage = resolveLastAssistantMessage(child);
+    const recencyAtMs = lastAssistantMessage?.updatedAtMs
+      ?? Math.max(
+        child?.updatedAt ?? 0,
+        membership.updatedAtMs ?? 0,
+        child?.createdAt ?? 0,
+        membership.createdAtMs ?? 0,
+      );
     return [{
       conversationId: membership.threadId,
-      parentTurnKey: latestReference.parentTurnKey,
+      parentConversationId: membership.parentThreadId,
+      parentTurnKey: reference.parentTurnKey,
       displayName,
       actorName: normalizeOptionalText(membership.actorName) ?? displayName,
-      agentRole: resolveAgentRole({ membership, latestReference, childConversation }),
-      spawnModel: latestReference.spawnModel,
+      agentRole: resolveAgentRole({ membership, reference, child }),
+      spawnModel: reference.spawnModel,
       status,
-      statusSummary: status === "active" ? resolveStatusSummary(childConversation) : null,
-      showInlineActivity: membership.showInlineActivity === true,
-      diffStats: resolveDiffStats(childConversation),
+      statusSummary: status === "active" ? resolveStatusSummary(child) : null,
+      lastAssistantMessage: lastAssistantMessage?.text ?? null,
+      lastAssistantMessageAtMs: lastAssistantMessage?.updatedAtMs ?? null,
+      recencyAtMs,
+      showInlineActivity: membership.showInlineActivity === true
+        || Boolean(membership.agentPath)
+        || reference.showInlineActivity,
+      diffStats: summarizeTurnDiff(child?.turns[child.turns.length - 1]?.diff),
       role: membership.role,
     }];
-  });
+  }).sort((left, right) => right.recencyAtMs - left.recencyAtMs);
 }

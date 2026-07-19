@@ -313,7 +313,7 @@ describe("LocalConversationComposerShell", () => {
     expect(Boolean(renderedText.includes("Run final validation once the stories are in place."))).toBe(true);
     expect(Boolean(renderedText.includes("Running 1 terminal"))).toBe(true);
     expect(Boolean(renderedText.includes("1 active requests"))).toBe(false);
-    expect(Boolean(renderedText.includes("Worker 1"))).toBe(true);
+    expect(Boolean(renderedText.includes("1 working"))).toBe(true);
 
     const backgroundReason = view.getByText(
       "Background child wants to run the isolated request-card tests.",
@@ -393,7 +393,7 @@ describe("LocalConversationComposerShell", () => {
     expect(view.queryByText("Foreground thread wants to run lint before Storybook build.") === null).toBe(true);
   });
 
-  test("opens composer background agents with subagent context", async () => {
+  test("opens legacy composer background agents with subagent context", async () => {
     installComposerShellWindowApi();
     const baseModel = buildComposerShellModel();
     const model: ThreadFooterModel = {
@@ -403,6 +403,7 @@ describe("LocalConversationComposerShell", () => {
         backgroundAgentRows: [
           {
             conversationId: "thread_child",
+            parentConversationId: "thread-parent",
             parentTurnKey: "turn_parent",
             displayName: "Scout",
             actorName: "Scout",
@@ -410,6 +411,9 @@ describe("LocalConversationComposerShell", () => {
             spawnModel: "gpt-5.3-codex",
             status: "active",
             statusSummary: "checking files",
+            lastAssistantMessage: null,
+            lastAssistantMessageAtMs: null,
+            recencyAtMs: 3,
             showInlineActivity: false,
             diffStats: {
               linesAdded: 2,
@@ -419,6 +423,7 @@ describe("LocalConversationComposerShell", () => {
           },
           {
             conversationId: "thread_waiting",
+            parentConversationId: "thread-parent",
             parentTurnKey: "turn_parent",
             displayName: "Planner",
             actorName: "Planner",
@@ -426,6 +431,9 @@ describe("LocalConversationComposerShell", () => {
             spawnModel: null,
             status: "waiting",
             statusSummary: null,
+            lastAssistantMessage: null,
+            lastAssistantMessageAtMs: null,
+            recencyAtMs: 2,
             showInlineActivity: false,
             diffStats: {
               linesAdded: 0,
@@ -435,6 +443,7 @@ describe("LocalConversationComposerShell", () => {
           },
           {
             conversationId: "thread_done",
+            parentConversationId: "thread-parent",
             parentTurnKey: "turn_parent",
             displayName: "Closer",
             actorName: "Closer",
@@ -442,6 +451,9 @@ describe("LocalConversationComposerShell", () => {
             spawnModel: null,
             status: "done",
             statusSummary: null,
+            lastAssistantMessage: "Finished",
+            lastAssistantMessageAtMs: 1,
+            recencyAtMs: 1,
             showInlineActivity: false,
             diffStats: null,
             role: "backgroundChild",
@@ -453,30 +465,19 @@ describe("LocalConversationComposerShell", () => {
       },
     };
     const openCalls: unknown[] = [];
-    const stopCalls: unknown[] = [];
     const view = renderComposerShell(
       model,
       buildActions({
         onOpenThread: (threadId, context) => {
           openCalls.push({ threadId, context });
         },
-        onStopBackgroundAgents: async (threadIds) => {
-          stopCalls.push([...threadIds]);
-        },
       }),
     );
     await settleAsyncRender();
 
-    expect(Boolean(textContent(document.body).includes("3 background agents"))).toBe(true);
     expect(Boolean(textContent(document.body).includes("(@ to tag agents)"))).toBe(false);
     expect(view.container.querySelector('[data-subagent-avatar-seed="thread_child"]') !== null).toBe(true);
-
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Expand background agent details" }));
-      await Promise.resolve();
-    });
     const renderedText = textContent(document.body);
-    expect(Boolean(renderedText.includes("(@ to tag agents)"))).toBe(true);
     expect(Boolean(renderedText.includes("Scout"))).toBe(true);
     expect(Boolean(renderedText.includes("is working"))).toBe(true);
     expect(Boolean(renderedText.includes("Planner"))).toBe(true);
@@ -487,12 +488,6 @@ describe("LocalConversationComposerShell", () => {
     expect(Boolean(renderedText.includes("-1"))).toBe(true);
     expect(Boolean(renderedText.includes("+0"))).toBe(false);
     expect(Boolean(renderedText.includes("-0"))).toBe(false);
-
-    await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Stop all" }));
-      await Promise.resolve();
-    });
-    expect(JSON.stringify(stopCalls)).toBe(JSON.stringify([["thread_child", "thread_waiting"]]));
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: /Scout/ }));

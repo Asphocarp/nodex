@@ -35,6 +35,7 @@ import {
   migrateSchema77To78,
   migrateSchema78To79,
   migrateSchema79To80,
+  migrateSchema82To83,
   ensureBlockFoundationForProject,
   primaryDatabaseBlockId,
 } from "./schema";
@@ -483,11 +484,11 @@ const createSchema58MigrationFixture = (
   database.pragma(`user_version = ${SHIPPED_SCHEMA_VERSION}`);
 };
 
-describe("schema v82 release boundary", () => {
+describe("schema v83 release boundary", () => {
   test("derives supported versions and targets from one ordered release chain", () => {
     const releaseVersions = getReleaseSchemaVersions();
     expect(releaseVersions).toEqual([
-      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82,
+      58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83,
     ]);
     for (const [index, version] of releaseVersions.entries()) {
       expect(getSchemaMigrationTargets(version)).toEqual(
@@ -564,6 +565,7 @@ describe("schema v82 release boundary", () => {
     expect(
       tabColumns.find((column) => column.name === "project_id")?.notnull,
     ).toBe(0);
+    expect(hasColumn(database, "codex_threads", "agent_path")).toBe(true);
     expect(database.pragma("foreign_key_check")).toEqual([]);
     expect(database.pragma("quick_check")).toEqual([{ quick_check: "ok" }]);
   });
@@ -1482,6 +1484,19 @@ describe("schema v82 release boundary", () => {
     migrateSchema60To61(database);
 
     expect(database.pragma("user_version", { simple: true })).toBe(61);
+  });
+
+  test("migrates v82 stores with persisted subagent routing paths", () => {
+    const database = new Database(":memory:");
+    createHistoricalReleaseSchemaFixture(database, 82, { seedDefaultProject: false });
+
+    expect(hasColumn(database, "codex_threads", "agent_path")).toBe(false);
+
+    migrateSchema82To83(database);
+
+    expect(database.pragma("user_version", { simple: true })).toBe(83);
+    expect(hasColumn(database, "codex_threads", "agent_path")).toBe(true);
+    database.close();
   });
 
   test("repairs duplicate thread owners before enforcing one session owner per thread", async () => {

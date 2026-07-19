@@ -65,6 +65,10 @@ import { usePortalHost } from "../use-portal-host";
 import { DiffStats } from "../shared/tools/diff-file-shared";
 import { ThreadGoalStatusRow } from "./local-conversation-thread-goal-status-row";
 import { buildBackgroundAgentOpenContext } from "../../projection/background-subagent-open-context";
+import {
+  buildBackgroundSubagentCompactStripModel,
+  getBackgroundSubagentListRows,
+} from "../../projection/background-subagent-summary-model";
 import { SubagentAvatar } from "../shared/subagent-avatar";
 import {
   useAutoReviewApprovalNudgeActions,
@@ -162,14 +166,6 @@ function TerminalIcon() {
   return (
     <svg viewBox="0 0 20 20" className="icon-2xs shrink-0 text-token-input-placeholder-foreground/70" fill="none" aria-hidden="true">
       <path d="M4.5 5.75C4.5 5.05964 5.05964 4.5 5.75 4.5H14.25C14.9404 4.5 15.5 5.05964 15.5 5.75V14.25C15.5 14.9404 14.9404 15.5 14.25 15.5H5.75C5.05964 15.5 4.5 14.9404 4.5 14.25V5.75Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function AgentIcon() {
-  return (
-    <svg viewBox="0 0 20 20" className="icon-2xs shrink-0 text-token-input-placeholder-foreground/70" fill="none" aria-hidden="true">
-      <path d="M9.99998 2.5a2.25 2.25 0 012.25 2.25v.625a3.625 3.625 0 012.75 3.5v2.625A3.875 3.875 0 0111.125 15.5H8.87498A3.875 3.875 0 014.99998 11.625V8.875a3.625 3.625 0 012.75-3.5V4.75A2.25 2.25 0 019.99998 2.5Zm-2.25 7.125a.875.875 0 100 1.75.875.875 0 000-1.75Zm4.5 0a.875.875 0 100 1.75.875.875 0 000-1.75Z" fill="currentColor" />
     </svg>
   );
 }
@@ -723,41 +719,6 @@ function BackgroundAgentRow({
   );
 }
 
-function summarizeBackgroundAgentDiffStats(rows: ThreadFooterModel["composerShell"]["backgroundAgentRows"]) {
-  return rows.reduce(
-    (summary, row) => ({
-      additions: summary.additions + (row.diffStats?.linesAdded ?? 0),
-      deletions: summary.deletions + (row.diffStats?.linesRemoved ?? 0),
-    }),
-    { additions: 0, deletions: 0 },
-  );
-}
-
-function formatBackgroundAgentSummaryCount(count: number): string {
-  return count === 1 ? "1 background agent" : `${count} background agents`;
-}
-
-function BackgroundAgentSummaryText({
-  expanded,
-  rows,
-}: {
-  expanded: boolean;
-  rows: ThreadFooterModel["composerShell"]["backgroundAgentRows"];
-}) {
-  return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <span className="shrink-0 whitespace-nowrap text-token-foreground">
-        {formatBackgroundAgentSummaryCount(rows.length)}
-      </span>
-      {expanded ? (
-        <span className="shrink-0 whitespace-nowrap text-token-text-tertiary">
-          (@ to tag agents)
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
 function BackgroundAgentPanel({
   rows,
   actions,
@@ -767,74 +728,70 @@ function BackgroundAgentPanel({
   actions: ThreadStageActions;
   showRoundedTop: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const compactModel = buildBackgroundSubagentCompactStripModel(rows);
+  const legacyRows = getBackgroundSubagentListRows(rows);
   const stoppableThreadIds = rows
     .filter((row) => row.status !== "done")
     .map((row) => row.conversationId);
   const canStopAll = stoppableThreadIds.length > 0 && Boolean(actions.onStopBackgroundAgents);
-  const diffStats = summarizeBackgroundAgentDiffStats(rows);
-  if (rows.length === 0) {
-    return null;
-  }
+  if (rows.length === 0) return null;
+
+  const aggregateContent = compactModel.displayRows.length > 0 ? (
+    <>
+      <span className="flex shrink-0 items-center gap-1.5">
+        {compactModel.displayRows.map((row) => (
+          <SubagentAvatar
+            key={row.conversationId}
+            seed={row.conversationId}
+            active={row.status === "active"}
+            className="size-4"
+          />
+        ))}
+      </span>
+      <span className="text-size-chat min-w-0 truncate leading-4 text-token-foreground">
+        {compactModel.workingCount > 0
+          ? `${compactModel.workingCount} working`
+          : `${compactModel.doneCount} done`}
+      </span>
+      {compactModel.workingCount > 0 && compactModel.doneCount > 0 ? (
+        <span className="text-size-chat shrink-0 text-token-text-tertiary">
+          {compactModel.doneCount} done
+        </span>
+      ) : null}
+    </>
+  ) : null;
 
   return (
     <ComposerShellCard showRoundedTop={showRoundedTop}>
-      <div className="group flex items-center justify-between gap-2 px-3 py-row-y">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          aria-expanded={expanded}
-          onClick={() => {
-            setExpanded((current) => !current);
-          }}
-        >
-          <AgentIcon />
-          <span className="text-size-chat min-w-0 truncate leading-4 text-token-description-foreground">
-            <BackgroundAgentSummaryText expanded={expanded} rows={rows} />
-          </span>
-        </button>
-        <div className="flex shrink-0 items-center gap-1">
-          <DiffStats
-            additions={diffStats.additions}
-            deletions={diffStats.deletions}
-            className="text-size-chat text-token-description-foreground"
-          />
+      {aggregateContent ? (
+        <div className="group flex min-h-8 items-center gap-2 px-3 py-row-y">
+          {actions.onOpenSubagentsPanel ? (
+            <button
+              type="button"
+              aria-label="Open subagents"
+              className="flex min-w-0 flex-1 cursor-interaction items-center gap-2 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2"
+              onClick={() => void actions.onOpenSubagentsPanel?.()}
+            >
+              {aggregateContent}
+            </button>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-2">{aggregateContent}</div>
+          )}
           {canStopAll ? (
             <NodexTooltip tooltipContent="Stop all subagents in this chat">
               <ComposerGhostIconButton
                 ariaLabel="Stop all"
-                onClick={() => {
-                  void actions.onStopBackgroundAgents?.(stoppableThreadIds);
-                }}
+                onClick={() => void actions.onStopBackgroundAgents?.(stoppableThreadIds)}
               >
                 <StopIcon className="icon-2xs" />
               </ComposerGhostIconButton>
             </NodexTooltip>
           ) : null}
-          <QueueActionButton
-            ariaLabel={expanded ? "Collapse background agent details" : "Expand background agent details"}
-            onClick={() => {
-              setExpanded((current) => !current);
-            }}
-          >
-            <ChevronRightIcon className={cn("text-current transition-transform duration-300", expanded ? "rotate-90" : "-rotate-90")} />
-          </QueueActionButton>
         </div>
-      </div>
-      <motion.div
-        initial={false}
-        animate={{
-          height: expanded ? "auto" : 0,
-          opacity: expanded ? 1 : 0,
-        }}
-        transition={CODEX_THREAD_ACCORDION_TRANSITION}
-        className={expanded ? "overflow-visible" : "overflow-hidden"}
-        style={{
-          pointerEvents: expanded ? "auto" : "none",
-        }}
-      >
-        <div className="vertical-scroll-fade-mask flex max-h-24 flex-col gap-0.5 overflow-y-auto px-3 pb-2 [--edge-fade-distance:1rem]">
-          {rows.map((row) => (
+      ) : null}
+      {legacyRows.length > 0 ? (
+        <div className="flex flex-col gap-0.5 px-3 pb-2">
+          {legacyRows.map((row) => (
             <BackgroundAgentRow
               key={row.conversationId}
               row={row}
@@ -842,7 +799,7 @@ function BackgroundAgentPanel({
             />
           ))}
         </div>
-      </motion.div>
+      ) : null}
     </ComposerShellCard>
   );
 }
@@ -1016,7 +973,7 @@ export function LocalConversationComposerShell(props: LocalConversationComposerS
   const focusComposerNonce = requestedFocusNonce ?? activeFocusNonce;
   const descriptor = resolveComposerScopeIdentity({
     kind: props.model.isNewThreadTab ? "new-conversation" : "task",
-    stableIdentity: threadHandle.path,
+    stableIdentity: props.model.composerScopeIdentity?.trim() || threadHandle.path,
     focusComposerNonce,
   });
 

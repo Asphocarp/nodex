@@ -7,6 +7,7 @@ export interface CodexThreadSpawnMetadata {
   hasParentThreadId: boolean;
   hasAgentNickname: boolean;
   hasAgentRole: boolean;
+  hasAgentPath: boolean;
 }
 
 export interface CodexThreadSubagentMetadata extends CodexThreadSpawnMetadata {
@@ -105,22 +106,25 @@ export function extractCodexThreadSpawnMetadata(source: unknown): CodexThreadSpa
       hasParentThreadId: false,
       hasAgentNickname: false,
       hasAgentRole: false,
+      hasAgentPath: false,
     };
   }
 
   const parentThreadId = getOptionalTextField(threadSpawn, "parent_thread_id");
   const nickname = getOptionalTextFieldPair(threadSpawn, "agentNickname", "agent_nickname");
   const role = getOptionalTextFieldPair(threadSpawn, "agentRole", "agent_role");
+  const path = getOptionalTextFieldPair(threadSpawn, "agentPath", "agent_path");
 
   return {
     parentThreadId,
     depth: normalizeOptionalNumber(threadSpawn.depth),
-    agentPath: getOptionalTextFieldPair(threadSpawn, "agentPath", "agent_path").value,
+    agentPath: path.value,
     agentNickname: nickname.value,
     agentRole: role.value,
     hasParentThreadId: hasOwn(threadSpawn, "parent_thread_id"),
     hasAgentNickname: nickname.present,
     hasAgentRole: role.present,
+    hasAgentPath: path.present,
   };
 }
 
@@ -147,6 +151,7 @@ export function extractCodexThreadSubagentMetadata(thread: unknown): CodexThread
     hasParentThreadId: parent.present || source.hasParentThreadId,
     hasAgentNickname: nickname.present || source.hasAgentNickname,
     hasAgentRole: role.present || source.hasAgentRole,
+    hasAgentPath: source.hasAgentPath,
     hasAnySubagentSource: source.hasParentThreadId || source.hasAgentNickname || source.hasAgentRole,
   };
 }

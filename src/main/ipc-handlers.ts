@@ -181,6 +181,7 @@ import type {
   AppUpdateSettings,
   AppUpdateStatus,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexSubagentPanelHydrateInput,
   CodexConversationThreadSettingsPatch,
   CodexPersonality,
   CodexSideChatStartInput,
@@ -2888,6 +2889,12 @@ export function registerIpcHandlers(
     "codex:thread:background-subagents:hydrate",
     (_, input: CodexBackgroundSubagentThreadsHydrateInput) =>
       codexService.hydrateBackgroundSubagentThreads(input),
+  );
+
+  registerHandle(
+    "codex:thread:subagents-panel:hydrate",
+    (_, input: CodexSubagentPanelHydrateInput) =>
+      codexService.hydrateSubagentPanel(input),
   );
 
   registerHandle("codex:subagent-thread:opened", (_, threadId: string) =>

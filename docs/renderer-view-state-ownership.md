@@ -96,6 +96,8 @@ lifecycle; it is not task state.
 | Review source, tree, selection, expansion, and pending file reveal | Task Route identity | Renderer memory | Route atoms; source data stays in conversation/Query authorities | Successful reveal, explicit source change, or Route eviction |
 | Durable Project-session panels and tabs | Project Session | SQLite + Query | Main/SQLite and TanStack Query | Domain close/delete operation |
 
+One mounted `ComposerScope` represents one writable form owner. The primary Thread route derives that identity from its promoted session scope so pending-to-attached transitions preserve local composer state. Background-agent and Subagents detail routes are read-only transcript surfaces and must not mount a composer beneath the same route. A writable auxiliary thread surface, such as a side chat, must provide a stable surface-specific composer identity; sharing the primary identity across simultaneous forms is an ownership violation, not a recoverable render collision.
+
 ## Existing external stores and Modules
 
 The following seams are not migration-by-default candidates. Maitai may expose a

@@ -99,6 +99,7 @@ function buildBackgroundAgent(
 ): ThreadComposerShellBackgroundAgentRowModel {
   return {
     conversationId: "thread_child",
+    parentConversationId: "thread_1",
     parentTurnKey: "turn_1",
     displayName: "Scout",
     actorName: "Scout",
@@ -106,6 +107,9 @@ function buildBackgroundAgent(
     spawnModel: null,
     status: "active",
     statusSummary: null,
+    lastAssistantMessage: null,
+    lastAssistantMessageAtMs: null,
+    recencyAtMs: 1,
     showInlineActivity: true,
     diffStats: null,
     role: "backgroundChild",

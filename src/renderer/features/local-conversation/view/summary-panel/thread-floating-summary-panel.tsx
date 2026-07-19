@@ -624,62 +624,24 @@ function SummaryOutputLabel({ row }: { row: ThreadSummaryPanelOutputRow }) {
   );
 }
 
-function BackgroundSubagentCompactButton({
-  onOpenThread,
-  row,
-}: {
-  onOpenThread: ThreadStageActions["onOpenThread"] | undefined;
-  row: ThreadComposerShellBackgroundAgentRowModel;
-}) {
-  const avatar = (
-    <SubagentAvatar
-      seed={row.conversationId}
-      active={row.status === "active"}
-      className="size-4"
-    />
-  );
-
-  if (!onOpenThread) {
-    return (
-      <span
-        className="flex size-4"
-      >
-        {avatar}
-      </span>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      aria-label={row.displayName}
-      className="flex size-4 cursor-interaction rounded-full focus-visible:outline-2 focus-visible:outline-offset-2"
-      onClick={() => {
-        void onOpenThread(row.conversationId, buildBackgroundAgentOpenContext(row));
-      }}
-    >
-      {avatar}
-    </button>
-  );
-}
-
 function BackgroundSubagentCompactStrip({
   model,
-  onOpenThread,
+  onOpenSubagentsPanel,
 }: {
   model: BackgroundSubagentCompactStripModel<ThreadComposerShellBackgroundAgentRowModel>;
-  onOpenThread: ThreadStageActions["onOpenThread"] | undefined;
+  onOpenSubagentsPanel: ThreadStageActions["onOpenSubagentsPanel"] | undefined;
 }) {
   if (model.displayRows.length === 0) return null;
 
-  return (
-    <div className="flex min-h-8 items-center gap-2">
+  const content = (
+    <>
       <span className="flex shrink-0 items-center gap-1.5">
         {model.displayRows.map((row) => (
-          <BackgroundSubagentCompactButton
+          <SubagentAvatar
             key={row.conversationId}
-            row={row}
-            onOpenThread={onOpenThread}
+            seed={row.conversationId}
+            active={row.status === "active"}
+            className="size-4"
           />
         ))}
       </span>
@@ -689,7 +651,22 @@ function BackgroundSubagentCompactStrip({
       {model.doneCount > 0 ? (
         <span className="text-base whitespace-nowrap text-token-text-tertiary">{model.doneCount} done</span>
       ) : null}
-    </div>
+    </>
+  );
+
+  if (!onOpenSubagentsPanel) {
+    return <div className="flex min-h-8 items-center gap-2">{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label="Open subagents"
+      className="flex min-h-8 w-full cursor-interaction items-center gap-2 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2"
+      onClick={() => void onOpenSubagentsPanel()}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -1617,7 +1594,7 @@ export function ThreadSummaryPanelSurface({
                   >
                     <BackgroundSubagentCompactStrip
                       model={compactBackgroundSubagentModel}
-                      onOpenThread={onOpenThread}
+                      onOpenSubagentsPanel={actions?.onOpenSubagentsPanel}
                     />
                     {listedBackgroundSubagentRows.map((row) => (
                       <ThreadSummaryPanelRow

@@ -128,6 +128,7 @@ import type {
   CodexBackgroundProcessRow,
   CodexBackgroundProcessRunActionInput,
   CodexBackgroundSubagentThreadsHydrateInput,
+  CodexSubagentPanelHydrateInput,
   CodexConversationSnapshot,
   CodexConnectionState,
   CodexDeveloperInstructionSettings,
@@ -1537,6 +1538,10 @@ export interface IpcApi {
   };
   "codex:thread:background-subagents:hydrate": {
     args: [input: CodexBackgroundSubagentThreadsHydrateInput];
+    result: CodexThreadSummary[];
+  };
+  "codex:thread:subagents-panel:hydrate": {
+    args: [input: CodexSubagentPanelHydrateInput];
     result: CodexThreadSummary[];
   };
   "codex:subagent-thread:opened": {
