@@ -7,7 +7,7 @@ use super::store_lock::ProfileStoreLock;
 use super::store_replacement::recover_interrupted_store_replacement;
 use super::writer::{
     DEFAULT_READ_CONNECTIONS, DEFAULT_WRITER_QUEUE_CAPACITY, StoreMaintenance, StoreReaders,
-    StoreRuntime, StoreRuntimeActivity, StoreWriter,
+    StoreRuntime, StoreRuntimeActivity, StoreRuntimeMetrics, StoreWriter,
 };
 
 pub const STORE_FILE_NAME: &str = "nodex.db";
@@ -68,6 +68,10 @@ impl SqliteStoreKernel {
 
     pub fn activity(&self) -> StoreRuntimeActivity {
         self.runtime.activity()
+    }
+
+    pub fn metrics(&self) -> StoreRuntimeMetrics {
+        self.runtime.metrics()
     }
 
     pub fn database_path(&self) -> &Path {

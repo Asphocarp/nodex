@@ -74,7 +74,7 @@ pub(crate) struct ConnectionRegistryError {
     pub(crate) message: &'static str,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ConnectionActivity {
     pub(crate) clients: usize,
     pub(crate) event_subscriptions: usize,

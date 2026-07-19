@@ -504,6 +504,32 @@ fn concurrent_launchers_reuse_one_authenticated_profile_core() {
         "/core/v1/events?after=0",
         &connection_headers,
     );
+    let health = request(&expected.socket_path, &auth, "GET", "/core/v1/health", "");
+    let health = response_json(&health);
+    assert_eq!(health["status"], "ready");
+    assert_eq!(health["metrics"]["active_event_subscriptions"], 1);
+    assert!(health["metrics"]["active_clients"].as_u64().unwrap() >= 1);
+    assert!(
+        health["metrics"]["command_latency"]["count"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        health["metrics"]["transaction_duration"]["count"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(health["metrics"]["event_head"].as_i64().unwrap() > 0);
+    assert!(health["metrics"]["event_replay_lag_max"].as_u64().unwrap() > 0);
+    assert!(health["metrics"]["wal_size_bytes"].as_u64().unwrap() > 0);
+    assert!(
+        health["metrics"]["document_cache_hit_rate_ppm"]
+            .as_u64()
+            .unwrap()
+            <= 1_000_000
+    );
 
     let shutdown = request_with_headers(
         &expected.socket_path,

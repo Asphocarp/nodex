@@ -3,6 +3,7 @@
 mod connections;
 mod document_wire;
 mod lifecycle;
+mod metrics;
 mod runtime_files;
 mod transport_bounds;
 
@@ -31,11 +32,15 @@ use nodex_core::document::{
     AwarenessPublication, DocumentRealtimeEvent, OwnedDocumentModule, OwnedDocumentRealtimeAdapter,
 };
 use nodex_core::infrastructure::event_log::{CoreEventLog, CoreEventReplay};
-use nodex_core::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
+use nodex_core::infrastructure::metrics::DurationMetricSnapshot;
+use nodex_core::infrastructure::sqlite::{
+    StoreError, StoreErrorCode, transaction_duration_metrics, with_immediate_transaction,
+};
 use nodex_core::infrastructure::store::SqliteStoreKernel;
 use nodex_core::infrastructure::writer::StoreRuntimePhase;
 use nodex_core::library::LibraryModule;
 use nodex_core::workspace::ProjectWorkspaceModule;
+use nodex_core_contracts::administration::StoreAdministrationIntent;
 use nodex_core_contracts::document::{OwnedDocumentIntent, OwnedDocumentRead};
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CoreError, CoreErrorCode, CoreErrorRecovery,
@@ -43,16 +48,16 @@ use nodex_core_contracts::{
 };
 use nodex_core_protocol::{
     AutomationApplyRequest, AutomationApplyResponse, AutomationReadRequest, AutomationReadResponse,
-    ClientKind, DatabaseApplyRequest, DatabaseApplyResponse, DatabaseReadRequest,
-    DatabaseReadResponse, EventEnvelope, EventReplayRequired, HandshakeRequest, HandshakeResponse,
-    HealthResponse, LibraryApplyRequest, LibraryApplyResponse, LibraryReadRequest,
-    LibraryReadResponse, OwnedDocumentApplyRequest, OwnedDocumentApplyResponse,
-    OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX, PROTOCOL_MIN,
-    ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest,
-    ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor, RuntimeGenerationIdentity,
-    ShutdownRequest, ShutdownResponse, ShutdownStatus, StoreAdministrationApplyRequest,
-    StoreAdministrationApplyResponse, StoreAdministrationReadRequest,
-    StoreAdministrationReadResponse, VersionHandoffRequest,
+    ClientKind, CoreHealthMetrics, CoreReadiness, DatabaseApplyRequest, DatabaseApplyResponse,
+    DatabaseReadRequest, DatabaseReadResponse, EventEnvelope, EventReplayRequired,
+    HandshakeRequest, HandshakeResponse, HealthDurationMetric, HealthResponse, LibraryApplyRequest,
+    LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
+    OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
+    PROTOCOL_MIN, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
+    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
+    RuntimeGenerationIdentity, ShutdownRequest, ShutdownResponse, ShutdownStatus,
+    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    StoreAdministrationReadRequest, StoreAdministrationReadResponse, VersionHandoffRequest,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -60,11 +65,12 @@ use tokio::net::UnixListener;
 use tokio::sync::broadcast;
 
 use connections::{
-    BoundConnection, ConnectionRegistry, ConnectionRegistryError, ConnectionRegistryErrorKind,
-    EventSubscriptionKey, PeerIdentity,
+    BoundConnection, ConnectionActivity, ConnectionRegistry, ConnectionRegistryError,
+    ConnectionRegistryErrorKind, EventSubscriptionKey, PeerIdentity,
 };
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
 use lifecycle::{LifecycleCoordinator, configured_idle_timeout, monitor_idle};
+use metrics::ServerMetrics;
 use runtime_files::{ExistingCore, PRIVATE_FILE_MODE, RuntimePaths, random_hex};
 use transport_bounds::{MAX_DOCUMENT_REQUEST_BYTES, MAX_JSON_REQUEST_BYTES};
 
@@ -95,6 +101,7 @@ struct ServerState {
     event_log: CoreEventLog,
     event_sender: broadcast::Sender<EventEnvelope>,
     document_sender: broadcast::Sender<DocumentTransportPublication>,
+    metrics: ServerMetrics,
 }
 
 fn descriptor_snapshot(state: &ServerState) -> RuntimeDescriptor {
@@ -205,11 +212,106 @@ fn bind_authenticated_connection(
 
 async fn health(State(state): State<Arc<ServerState>>) -> Json<HealthResponse> {
     let descriptor = descriptor_snapshot(&state);
+    let (status, metrics) = health_metrics(&state);
     Json(HealthResponse {
-        status: nodex_core_protocol::CoreReadiness::Ready,
+        status,
         pid: descriptor.pid,
         start_nonce: descriptor.start_nonce,
+        metrics,
     })
+}
+
+fn health_metrics(state: &ServerState) -> (CoreReadiness, CoreHealthMetrics) {
+    let store_activity = state.store.activity();
+    let mut status = match store_activity.phase {
+        StoreRuntimePhase::Running => CoreReadiness::Ready,
+        StoreRuntimePhase::Maintenance => CoreReadiness::Maintenance,
+        StoreRuntimePhase::Closed => CoreReadiness::Failed,
+    };
+    if state.lifecycle.is_draining() {
+        status = CoreReadiness::Draining;
+    }
+    let connections = state.connections.activity().ok();
+    let realtime = state.document_realtime.activity().ok();
+    let cache = state.document.cache_metrics().ok();
+    let prepared_operations = state.document.prepared_agent_operation_count().ok();
+    let event_head = state.event_log.head().ok();
+    let wal_size_bytes = wal_size_bytes(state.store.database_path()).ok();
+    if connections.is_none()
+        || realtime.is_none()
+        || cache.is_none()
+        || prepared_operations.is_none()
+        || event_head.is_none()
+        || wal_size_bytes.is_none()
+    {
+        status = CoreReadiness::Failed;
+    }
+    let connections = connections.unwrap_or(ConnectionActivity {
+        clients: 0,
+        event_subscriptions: 0,
+    });
+    let realtime = realtime.unwrap_or_default();
+    let cache = cache.unwrap_or_default();
+    let cache_total = cache.hits.saturating_add(cache.misses);
+    let cache_hit_rate_ppm = if cache_total == 0 {
+        0
+    } else {
+        u32::try_from((u128::from(cache.hits) * 1_000_000_u128) / u128::from(cache_total))
+            .unwrap_or(1_000_000)
+    };
+    let (event_replay_lag, event_replay_lag_max) = state.metrics.event_replay_lag();
+    let store_metrics = state.store.metrics();
+    (
+        status,
+        CoreHealthMetrics {
+            writer_queue_depth: usize_to_u64(store_activity.queued_writes),
+            active_writer_commands: usize_to_u64(store_activity.active_writes),
+            active_read_commands: usize_to_u64(store_activity.active_reads),
+            command_latency: health_duration(store_metrics.command_latency),
+            transaction_duration: health_duration(transaction_duration_metrics()),
+            document_cache_entries: usize_to_u64(cache.entries),
+            document_cache_state_bytes: usize_to_u64(cache.state_bytes),
+            document_cache_hits: cache.hits,
+            document_cache_misses: cache.misses,
+            document_cache_hit_rate_ppm: cache_hit_rate_ppm,
+            document_reconstruction_duration: health_duration(
+                state.document.reconstruction_metrics(),
+            ),
+            event_head: event_head.unwrap_or_default(),
+            event_replay_lag,
+            event_replay_lag_max,
+            wal_size_bytes: wal_size_bytes.unwrap_or_default(),
+            backup_duration: health_duration(state.metrics.backup_duration()),
+            active_clients: usize_to_u64(connections.clients),
+            active_event_subscriptions: usize_to_u64(connections.event_subscriptions),
+            active_document_subscriptions: usize_to_u64(realtime.subscriptions),
+            active_awareness_clients: usize_to_u64(realtime.awareness_clients),
+            active_prepared_agent_operations: usize_to_u64(prepared_operations.unwrap_or_default()),
+        },
+    )
+}
+
+fn health_duration(metric: DurationMetricSnapshot) -> HealthDurationMetric {
+    HealthDurationMetric {
+        count: metric.count,
+        total_micros: metric.total_micros,
+        last_micros: metric.last_micros,
+        max_micros: metric.max_micros,
+    }
+}
+
+fn wal_size_bytes(database_path: &Path) -> io::Result<u64> {
+    let mut wal_path = database_path.as_os_str().to_os_string();
+    wal_path.push("-wal");
+    match fs::metadata(PathBuf::from(wal_path)) {
+        Ok(metadata) => Ok(metadata.len()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
+        Err(error) => Err(error),
+    }
+}
+
+fn usize_to_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 async fn handshake(
@@ -478,6 +580,11 @@ async fn administration_apply(
     headers: HeaderMap,
     Json(StoreAdministrationApplyRequest(request)): Json<StoreAdministrationApplyRequest>,
 ) -> Json<StoreAdministrationApplyResponse> {
+    let backup_started_at = matches!(
+        &request.intent,
+        StoreAdministrationIntent::CreateBackup { .. }
+    )
+    .then(std::time::Instant::now);
     let response = match module_context(&state, &headers, &bound) {
         Ok(context) => match state.administration.apply(&context, request) {
             Ok(outcome) => {
@@ -490,6 +597,9 @@ async fn administration_apply(
         },
         Err(error) => ResponseEnvelope::Error(error),
     };
+    if let Some(started_at) = backup_started_at {
+        state.metrics.record_backup_duration(started_at.elapsed());
+    }
     Json(StoreAdministrationApplyResponse(response))
 }
 
@@ -893,6 +1003,9 @@ async fn events(
             ),
         }
     };
+    state
+        .metrics
+        .record_event_replay_lag(replay_head, query.after);
     let event_log = state.event_log.clone();
     let mut stream_shutdown = state.lifecycle.subscribe_stream_shutdown();
     let stream = async_stream::stream! {
@@ -1623,6 +1736,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         event_log,
         event_sender,
         document_sender,
+        metrics: ServerMetrics::default(),
     });
     let idle_task = idle_timeout.map(|timeout| {
         let idle_state = Arc::clone(&state);

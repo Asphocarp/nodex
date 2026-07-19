@@ -543,6 +543,46 @@ export interface components {
             /** Format: int32 */
             readonly minimum: number;
         };
+        readonly CoreHealthMetrics: {
+            /** Format: int64 */
+            readonly active_awareness_clients: number;
+            /** Format: int64 */
+            readonly active_clients: number;
+            /** Format: int64 */
+            readonly active_document_subscriptions: number;
+            /** Format: int64 */
+            readonly active_event_subscriptions: number;
+            /** Format: int64 */
+            readonly active_prepared_agent_operations: number;
+            /** Format: int64 */
+            readonly active_read_commands: number;
+            /** Format: int64 */
+            readonly active_writer_commands: number;
+            readonly backup_duration: components["schemas"]["HealthDurationMetric"];
+            readonly command_latency: components["schemas"]["HealthDurationMetric"];
+            /** Format: int64 */
+            readonly document_cache_entries: number;
+            /** Format: int32 */
+            readonly document_cache_hit_rate_ppm: number;
+            /** Format: int64 */
+            readonly document_cache_hits: number;
+            /** Format: int64 */
+            readonly document_cache_misses: number;
+            /** Format: int64 */
+            readonly document_cache_state_bytes: number;
+            readonly document_reconstruction_duration: components["schemas"]["HealthDurationMetric"];
+            /** Format: int64 */
+            readonly event_head: number;
+            /** Format: int64 */
+            readonly event_replay_lag: number;
+            /** Format: int64 */
+            readonly event_replay_lag_max: number;
+            readonly transaction_duration: components["schemas"]["HealthDurationMetric"];
+            /** Format: int64 */
+            readonly wal_size_bytes: number;
+            /** Format: int64 */
+            readonly writer_queue_depth: number;
+        };
         readonly CoreModuleEventPayload: {
             readonly event: components["schemas"]["LibraryEvent"];
             /** @enum {string} */
@@ -569,7 +609,7 @@ export interface components {
             readonly module: "store_administration";
         };
         /** @enum {string} */
-        readonly CoreReadiness: "starting" | "ready" | "maintenance" | "failed";
+        readonly CoreReadiness: "starting" | "ready" | "maintenance" | "draining" | "failed";
         readonly DatabaseApplyRequest: components["schemas"]["ModuleApplyRequest_Vec_DatabaseIntent"];
         readonly DatabaseApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_DatabaseCommitValue_DatabaseReceipt"];
         readonly DatabaseEvent: {
@@ -783,7 +823,18 @@ export interface components {
             readonly start_nonce: string;
             readonly store_epoch: string;
         };
+        readonly HealthDurationMetric: {
+            /** Format: int64 */
+            readonly count: number;
+            /** Format: int64 */
+            readonly last_micros: number;
+            /** Format: int64 */
+            readonly max_micros: number;
+            /** Format: int64 */
+            readonly total_micros: number;
+        };
         readonly HealthResponse: {
+            readonly metrics: components["schemas"]["CoreHealthMetrics"];
             /** Format: int32 */
             readonly pid: number;
             readonly start_nonce: string;

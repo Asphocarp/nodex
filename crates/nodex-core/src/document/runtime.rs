@@ -1,9 +1,12 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
 use crate::infrastructure::document_repository::{DocumentHeadRow, DocumentReadRepository};
+use crate::infrastructure::metrics::{DurationMetric, DurationMetricSnapshot};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::{
@@ -13,6 +16,7 @@ use super::{
 
 const DEFAULT_MAX_DOCUMENTS: usize = 64;
 const DEFAULT_MAX_STATE_BYTES: usize = 64 * 1024 * 1024;
+static RECONSTRUCTION_DURATION: OnceLock<DurationMetric> = OnceLock::new();
 
 pub(crate) struct DocumentRuntimeCache {
     entries: HashMap<String, CacheEntry>,
@@ -177,6 +181,24 @@ impl DocumentRuntimeCache {
 }
 
 pub(crate) fn reconstruct_yjs_engine(
+    connection: &Connection,
+    head: &DocumentHeadRow,
+) -> Result<YrsDocumentEngine, StoreError> {
+    let started_at = Instant::now();
+    let result = reconstruct_yjs_engine_inner(connection, head);
+    RECONSTRUCTION_DURATION
+        .get_or_init(DurationMetric::default)
+        .record(started_at.elapsed());
+    result
+}
+
+pub(crate) fn reconstruction_duration_metrics() -> DurationMetricSnapshot {
+    RECONSTRUCTION_DURATION
+        .get_or_init(DurationMetric::default)
+        .snapshot()
+}
+
+fn reconstruct_yjs_engine_inner(
     connection: &Connection,
     head: &DocumentHeadRow,
 ) -> Result<YrsDocumentEngine, StoreError> {

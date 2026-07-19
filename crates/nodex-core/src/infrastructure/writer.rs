@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 
+use super::metrics::{DurationMetric, DurationMetricSnapshot};
 use super::sqlite::{
     DEFAULT_QUERY_BUDGET, QueryCancellation, StoreError, StoreErrorCode, open_reader, open_writer,
     with_mut_query_budget, with_query_budget,
@@ -232,6 +233,11 @@ pub struct StoreRuntimeActivity {
     pub queued_writes: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StoreRuntimeMetrics {
+    pub command_latency: DurationMetricSnapshot,
+}
+
 struct RuntimeState {
     phase: RuntimePhase,
     active_writes: usize,
@@ -245,6 +251,7 @@ struct RuntimeControl {
     read_connections: Option<usize>,
     state: Mutex<RuntimeState>,
     drained: Condvar,
+    command_latency: DurationMetric,
 }
 
 impl RuntimeControl {
@@ -271,6 +278,7 @@ impl RuntimeControl {
                 generation: Some(generation),
             }),
             drained: Condvar::new(),
+            command_latency: DurationMetric::default(),
         }))
     }
 
@@ -407,6 +415,12 @@ impl RuntimeControl {
             queued_writes,
         }
     }
+
+    fn metrics(&self) -> StoreRuntimeMetrics {
+        StoreRuntimeMetrics {
+            command_latency: self.command_latency.snapshot(),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -488,6 +502,10 @@ impl StoreRuntime {
     pub fn activity(&self) -> StoreRuntimeActivity {
         self.control.activity()
     }
+
+    pub fn metrics(&self) -> StoreRuntimeMetrics {
+        self.control.metrics()
+    }
 }
 
 impl Drop for StoreRuntime {
@@ -516,6 +534,7 @@ impl StoreWriter {
         operation: impl FnOnce(&mut Connection) -> Result<T, StoreError> + Send + 'static,
     ) -> Result<T, StoreError> {
         let (endpoint, _lease) = self.control.acquire_writer()?;
+        let started_at = Instant::now();
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let queued_jobs = Arc::clone(&endpoint.queued_jobs);
         let job = Box::new(move |connection: &mut Connection| {
@@ -538,13 +557,15 @@ impl StoreWriter {
                     TrySendError::Disconnected(_) => writer_closed(),
                 }
             })?;
-        result_receiver.recv().map_err(|_| {
+        let result = result_receiver.recv().map_err(|_| {
             StoreError::new(
                 StoreErrorCode::WriterClosed,
                 "SQLite writer stopped before returning a result",
                 true,
             )
-        })?
+        });
+        self.control.command_latency.record(started_at.elapsed());
+        result?
     }
 
     pub fn queued_job_count(&self) -> usize {
@@ -717,6 +738,9 @@ mod tests {
                 Ok(())
             })
             .expect("second writer job");
+        let command_latency = runtime.runtime.metrics().command_latency;
+        assert_eq!(command_latency.count, 2);
+        assert!(command_latency.total_micros >= command_latency.last_micros);
 
         let readers = StoreReaders::new(&path, 2).expect("read pool");
         let values = readers

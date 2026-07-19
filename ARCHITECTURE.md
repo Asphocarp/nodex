@@ -120,6 +120,14 @@ removing stale runtime entries or opening SQLite, so upgrade races cannot create
 a second writer. A rejected, unverified, or legacy handoff never falls back to
 process killing or stale-file deletion.
 
+The private health route is also the bounded native observability snapshot. It
+derives readiness from the lifecycle/store generation and reports only numeric
+process-local evidence: writer queue and active work, accepted-command and real
+`IMMEDIATE` transaction timing, Document cache/reconstruction, replay lag, WAL
+bytes, backup timing, and active client/subscription/presence/prepared-operation
+counts. These metrics are diagnostics, not durable product authority, and reset
+with the Core process.
+
 The native Library and Database Modules now cover their complete Milestone 5
 semantic surface behind those fixed `read`/`apply` pairs. Whole-Page copy is a
 single Library writer aggregate: it fences source location, parent, membership,

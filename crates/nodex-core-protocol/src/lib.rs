@@ -86,6 +86,40 @@ pub struct HealthResponse {
     pub status: CoreReadiness,
     pub pid: u32,
     pub start_nonce: String,
+    pub metrics: CoreHealthMetrics,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct HealthDurationMetric {
+    pub count: u64,
+    pub total_micros: u64,
+    pub last_micros: u64,
+    pub max_micros: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct CoreHealthMetrics {
+    pub writer_queue_depth: u64,
+    pub active_writer_commands: u64,
+    pub active_read_commands: u64,
+    pub command_latency: HealthDurationMetric,
+    pub transaction_duration: HealthDurationMetric,
+    pub document_cache_entries: u64,
+    pub document_cache_state_bytes: u64,
+    pub document_cache_hits: u64,
+    pub document_cache_misses: u64,
+    pub document_cache_hit_rate_ppm: u32,
+    pub document_reconstruction_duration: HealthDurationMetric,
+    pub event_head: i64,
+    pub event_replay_lag: u64,
+    pub event_replay_lag_max: u64,
+    pub wal_size_bytes: u64,
+    pub backup_duration: HealthDurationMetric,
+    pub active_clients: u64,
+    pub active_event_subscriptions: u64,
+    pub active_document_subscriptions: u64,
+    pub active_awareness_clients: u64,
+    pub active_prepared_agent_operations: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -94,6 +128,7 @@ pub enum CoreReadiness {
     Starting,
     Ready,
     Maintenance,
+    Draining,
     Failed,
 }
 
@@ -410,6 +445,8 @@ mod api {
         HandshakeRequest,
         HandshakeResponse,
         HealthResponse,
+        CoreHealthMetrics,
+        HealthDurationMetric,
         ShutdownRequest,
         ShutdownResponse,
         VersionHandoffRequest,

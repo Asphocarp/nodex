@@ -137,6 +137,17 @@
   before starting a replacement. Failure to verify or complete that protocol
   is terminal; startup never kills a PID, deletes an unproven path, opens a
   second SQLite writer, or silently falls back to another backend.
+- The authenticated native health response derives `ready | maintenance |
+  draining | failed` from the lifecycle and restartable Store generation. Its
+  metrics are bounded process-local counters/gauges: current writer queue/read/
+  write load; cumulative accepted-command, actual `IMMEDIATE` transaction,
+  Document reconstruction, and backup durations in microseconds; Document
+  cache entries/bytes/hits/misses plus integer parts-per-million hit rate;
+  current/max initial SSE replay lag; event head; WAL bytes; and live client,
+  stream, Document, Awareness, and prepared-operation counts. A failed internal
+  metric probe makes readiness `failed` rather than returning a deceptively
+  healthy partial snapshot. Metrics reset on process restart and never replace
+  receipts, change-log sequence, or Store Administration status.
 - One native transport guard surrounds every private route. It enforces the
   route-specific body cap even when a handler would otherwise ignore its body,
   validates JSON UTF-8 and structural budgets before typed extraction, rebuilds

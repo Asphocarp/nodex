@@ -3,6 +3,7 @@
 pub mod agent_operations;
 pub mod document_repository;
 pub mod event_log;
+pub mod metrics;
 pub mod migration;
 pub mod module_receipts;
 pub mod schema;

@@ -1633,6 +1633,130 @@
           }
         ]
       },
+      "CoreHealthMetrics": {
+        "type": "object",
+        "required": [
+          "writer_queue_depth",
+          "active_writer_commands",
+          "active_read_commands",
+          "command_latency",
+          "transaction_duration",
+          "document_cache_entries",
+          "document_cache_state_bytes",
+          "document_cache_hits",
+          "document_cache_misses",
+          "document_cache_hit_rate_ppm",
+          "document_reconstruction_duration",
+          "event_head",
+          "event_replay_lag",
+          "event_replay_lag_max",
+          "wal_size_bytes",
+          "backup_duration",
+          "active_clients",
+          "active_event_subscriptions",
+          "active_document_subscriptions",
+          "active_awareness_clients",
+          "active_prepared_agent_operations"
+        ],
+        "properties": {
+          "active_awareness_clients": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "active_clients": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "active_document_subscriptions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "active_event_subscriptions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "active_prepared_agent_operations": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "active_read_commands": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "active_writer_commands": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "backup_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "command_latency": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "document_cache_entries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "document_cache_hit_rate_ppm": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "document_cache_hits": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "document_cache_misses": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "document_cache_state_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "document_reconstruction_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "event_head": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "event_replay_lag": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "event_replay_lag_max": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "transaction_duration": {
+            "$ref": "#/components/schemas/HealthDurationMetric"
+          },
+          "wal_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "writer_queue_depth": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "CoreModuleEventPayload": {
         "oneOf": [
           {
@@ -1751,6 +1875,7 @@
           "starting",
           "ready",
           "maintenance",
+          "draining",
           "failed"
         ]
       },
@@ -2632,14 +2757,49 @@
           }
         }
       },
+      "HealthDurationMetric": {
+        "type": "object",
+        "required": [
+          "count",
+          "total_micros",
+          "last_micros",
+          "max_micros"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "last_micros": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_micros": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_micros": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "HealthResponse": {
         "type": "object",
         "required": [
           "status",
           "pid",
-          "start_nonce"
+          "start_nonce",
+          "metrics"
         ],
         "properties": {
+          "metrics": {
+            "$ref": "#/components/schemas/CoreHealthMetrics"
+          },
           "pid": {
             "type": "integer",
             "format": "int32",

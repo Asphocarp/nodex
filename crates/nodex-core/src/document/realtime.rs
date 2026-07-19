@@ -72,7 +72,7 @@ pub struct AwarenessPublication {
     pub recipient_connections: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DocumentRealtimeActivity {
     pub subscriptions: usize,
     pub awareness_clients: usize,

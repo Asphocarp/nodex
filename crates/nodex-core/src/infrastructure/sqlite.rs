@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use std::{os::unix::ffi::OsStrExt, path::Path};
 
@@ -8,12 +8,15 @@ use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use super::metrics::{DurationMetric, DurationMetricSnapshot};
+
 pub const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 pub const DEFAULT_QUERY_BUDGET: Duration = Duration::from_secs(10);
 pub const MAX_SQL_BYTES: i32 = 2 * 1024 * 1024;
 pub const MAX_VALUE_BYTES: i32 = 64 * 1024 * 1024;
 pub const MIN_SQLITE_VERSION: i32 = 3_045_000;
 const PROGRESS_HANDLER_OPS: i32 = 1_000;
+static TRANSACTION_DURATION: OnceLock<DurationMetric> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -265,10 +268,23 @@ pub fn with_immediate_transaction<T>(
     connection: &mut Connection,
     operation: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T, StoreError>,
 ) -> Result<T, StoreError> {
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let value = operation(&transaction)?;
-    transaction.commit()?;
-    Ok(value)
+    let started_at = Instant::now();
+    let result = (|| {
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let value = operation(&transaction)?;
+        transaction.commit()?;
+        Ok(value)
+    })();
+    TRANSACTION_DURATION
+        .get_or_init(DurationMetric::default)
+        .record(started_at.elapsed());
+    result
+}
+
+pub fn transaction_duration_metrics() -> DurationMetricSnapshot {
+    TRANSACTION_DURATION
+        .get_or_init(DurationMetric::default)
+        .snapshot()
 }
 
 pub fn validate_store(connection: &Connection) -> Result<(), StoreError> {
@@ -302,6 +318,22 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn immediate_transactions_record_bounded_duration_metrics() {
+        let directory = tempdir().expect("store");
+        let mut connection = open_writer(&directory.path().join("metrics.db")).expect("writer");
+        let before = transaction_duration_metrics();
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch("CREATE TABLE metric_probe(value INTEGER NOT NULL);")?;
+            Ok(())
+        })
+        .expect("transaction");
+        let after = transaction_duration_metrics();
+        assert!(after.count > before.count);
+        assert!(after.total_micros >= before.total_micros);
+        assert!(after.max_micros >= after.last_micros);
+    }
 
     #[test]
     fn writer_reader_limits_and_immediate_transactions_are_centralized() {

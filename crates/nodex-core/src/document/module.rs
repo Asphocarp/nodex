@@ -31,6 +31,7 @@ use crate::infrastructure::agent_operations::{
 use crate::infrastructure::document_repository::{
     DocumentAuthority, DocumentReadiness, DocumentSyncEngine,
 };
+use crate::infrastructure::metrics::DurationMetricSnapshot;
 use crate::infrastructure::module_receipts::{
     NewModuleReceipt, insert_module_receipt, read_module_receipt,
 };
@@ -60,7 +61,7 @@ use super::persistence::{
     read_store_epoch, sha256,
 };
 use super::recovery::{StaleYjsUpdate, persist_recovery_if_barrier_crossed};
-use super::runtime::DocumentRuntimeCache;
+use super::runtime::{DocumentRuntimeCache, reconstruction_duration_metrics};
 use super::semantic::{SemanticMutationContext, SemanticMutationError, prepare_semantic_mutation};
 use super::{
     BlockDocumentSchema, DocumentMaterialization, YrsEngineError, decode_block_document,
@@ -129,7 +130,7 @@ enum PreparedUpdate {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DocumentCacheMetrics {
     pub entries: usize,
     pub state_bytes: usize,
@@ -515,6 +516,10 @@ impl OwnedDocumentModule {
             hits: stats.hits,
             misses: stats.misses,
         })
+    }
+
+    pub fn reconstruction_metrics(&self) -> DurationMetricSnapshot {
+        reconstruction_duration_metrics()
     }
 
     pub fn prepared_agent_operation_count(&self) -> Result<usize, CoreError> {
