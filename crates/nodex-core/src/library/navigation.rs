@@ -23,6 +23,7 @@ pub(super) fn read(
     library_id: &str,
     store_epoch: &str,
     event_head: i64,
+    requesting_project_id: Option<&str>,
     request: LibraryRead,
 ) -> Result<LibraryReadValue, StoreError> {
     match request {
@@ -97,6 +98,20 @@ pub(super) fn read(
             cursor,
             limit,
         ),
+        LibraryRead::PageHistory {
+            page_id,
+            before,
+            limit,
+        } => Ok(LibraryReadValue::PageHistory {
+            value: Box::new(super::history::page_history(
+                connection,
+                library_id,
+                requesting_project_id,
+                &page_id,
+                before,
+                limit,
+            )?),
+        }),
     }
 }
 

@@ -84,6 +84,11 @@ pub enum LibraryRead {
         cursor: Option<String>,
         limit: Option<u32>,
     },
+    PageHistory {
+        page_id: String,
+        before: Option<LibraryPageHistoryCursor>,
+        limit: Option<u32>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -302,6 +307,161 @@ pub struct LibrarySearchHit {
     pub rank: f64,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum LibraryPageHistoryCursor {
+    DocumentVersion {
+        occurred_at: String,
+        version_id: String,
+    },
+    ChangeLog {
+        occurred_at: String,
+        change_seq: i64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageHistoryCategory {
+    Checkpoint,
+    Content,
+    Property,
+    Database,
+    Lifecycle,
+    Location,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageHistoryDisplay {
+    pub category: LibraryPageHistoryCategory,
+    pub title: String,
+    pub detail: Option<String>,
+    pub actor_label: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageHistoryEvidenceReason {
+    MissingLedger,
+    MalformedEvidence,
+    UnsupportedEvidence,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LibraryPageHistoryEvidence {
+    Verified,
+    Unavailable {
+        reason: LibraryPageHistoryEvidenceReason,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageHistoryRecoveryReason {
+    DocumentGenerationChanged,
+    InsufficientEvidence,
+    NoInverseContract,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageHistoryRecovery {
+    RestoreDocumentVersion {
+        document_id: String,
+        version_id: String,
+    },
+    Unavailable {
+        reason: LibraryPageHistoryRecoveryReason,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageHistoryEntryBase {
+    pub id: String,
+    pub library_id: String,
+    pub page_id: String,
+    pub document_id: String,
+    pub occurred_at: String,
+    pub display: LibraryPageHistoryDisplay,
+    pub evidence: LibraryPageHistoryEvidence,
+    pub recovery: LibraryPageHistoryRecovery,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryDocumentRevisionKind {
+    Automatic,
+    Manual,
+    Operation,
+    Restore,
+    Safety,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryDocumentVersionMetadata {
+    pub version_id: String,
+    pub generation: i64,
+    pub base_head_seq: i64,
+    pub schema_key: String,
+    pub schema_version: i64,
+    pub cause: String,
+    pub label: Option<String>,
+    pub revision_kind: LibraryDocumentRevisionKind,
+    pub source_mutation_id: Option<String>,
+    pub source_change_seq: Option<i64>,
+    pub pinned: bool,
+    pub checkpoint_hash: String,
+    pub byte_length: i64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryBlockRelocationDirection {
+    IntoPage,
+    OutOfPage,
+    WithinPage,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageHistoryEntry {
+    DocumentVersion {
+        #[serde(flatten)]
+        entry: LibraryPageHistoryEntryBase,
+        version_metadata: LibraryDocumentVersionMetadata,
+    },
+    BlockMutation {
+        #[serde(flatten)]
+        entry: LibraryPageHistoryEntryBase,
+        change_seq: i64,
+        mutation_id: Option<String>,
+        mutation_kind: Option<String>,
+        affected_block_count: Option<u32>,
+        field_intent_count: Option<u32>,
+    },
+    BlockRelocation {
+        #[serde(flatten)]
+        entry: LibraryPageHistoryEntryBase,
+        change_seq: i64,
+        relocation_id: Option<String>,
+        direction: LibraryBlockRelocationDirection,
+        moved_block_count: Option<u32>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageHistoryPage {
+    pub version: u32,
+    pub library_id: String,
+    pub page_id: String,
+    pub document_id: String,
+    pub entries: Vec<LibraryPageHistoryEntry>,
+    pub next_cursor: Option<LibraryPageHistoryCursor>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryReadValue {
@@ -337,6 +497,9 @@ pub enum LibraryReadValue {
         items: Vec<LibrarySearchHit>,
         next_cursor: Option<String>,
         has_more: bool,
+    },
+    PageHistory {
+        value: Box<LibraryPageHistoryPage>,
     },
 }
 

@@ -583,6 +583,8 @@ export interface components {
         readonly LibraryAccess: "read" | "read_write";
         readonly LibraryApplyRequest: components["schemas"]["ModuleApplyRequest_LibraryIntent"];
         readonly LibraryApplyResponse: components["schemas"]["ResponseEnvelope_CommittedModuleValue_LibraryCommitValue_LibraryReceipt"];
+        /** @enum {string} */
+        readonly LibraryBlockRelocationDirection: "into_page" | "out_of_page" | "within_page" | "unknown";
         readonly LibraryCatalogEntry: {
             readonly kind: components["schemas"]["LibraryCatalogKind"];
             readonly lifecycle: components["schemas"]["LibraryLifecycle"];
@@ -633,6 +635,28 @@ export interface components {
             readonly kind: "legacy_database_query";
             readonly projectHint: string;
             readonly sourceBlockId: string;
+        };
+        /** @enum {string} */
+        readonly LibraryDocumentRevisionKind: "automatic" | "manual" | "operation" | "restore" | "safety";
+        readonly LibraryDocumentVersionMetadata: {
+            /** Format: int64 */
+            readonly base_head_seq: number;
+            /** Format: int64 */
+            readonly byte_length: number;
+            readonly cause: string;
+            readonly checkpoint_hash: string;
+            /** Format: int64 */
+            readonly generation: number;
+            readonly label?: string | null;
+            readonly pinned: boolean;
+            readonly revision_kind: components["schemas"]["LibraryDocumentRevisionKind"];
+            readonly schema_key: string;
+            /** Format: int64 */
+            readonly schema_version: number;
+            /** Format: int64 */
+            readonly source_change_seq?: number | null;
+            readonly source_mutation_id?: string | null;
+            readonly version_id: string;
         };
         readonly LibraryEvent: {
             readonly database_ids: readonly string[];
@@ -759,6 +783,95 @@ export interface components {
             /** Format: int64 */
             readonly schema_version: number;
         };
+        /** @enum {string} */
+        readonly LibraryPageHistoryCategory: "checkpoint" | "content" | "property" | "database" | "lifecycle" | "location" | "unknown";
+        readonly LibraryPageHistoryCursor: {
+            readonly occurred_at: string;
+            /** @enum {string} */
+            readonly source: "document_version";
+            readonly version_id: string;
+        } | {
+            /** Format: int64 */
+            readonly change_seq: number;
+            readonly occurred_at: string;
+            /** @enum {string} */
+            readonly source: "change_log";
+        };
+        readonly LibraryPageHistoryDisplay: {
+            readonly actor_label?: string | null;
+            readonly category: components["schemas"]["LibraryPageHistoryCategory"];
+            readonly detail?: string | null;
+            readonly title: string;
+        };
+        readonly LibraryPageHistoryEntry: (components["schemas"]["LibraryPageHistoryEntryBase"] & {
+            readonly version_metadata: components["schemas"]["LibraryDocumentVersionMetadata"];
+        } & {
+            /** @enum {string} */
+            readonly kind: "document_version";
+        }) | (components["schemas"]["LibraryPageHistoryEntryBase"] & {
+            /** Format: int32 */
+            readonly affected_block_count?: number | null;
+            /** Format: int64 */
+            readonly change_seq: number;
+            /** Format: int32 */
+            readonly field_intent_count?: number | null;
+            readonly mutation_id?: string | null;
+            readonly mutation_kind?: string | null;
+        } & {
+            /** @enum {string} */
+            readonly kind: "block_mutation";
+        }) | (components["schemas"]["LibraryPageHistoryEntryBase"] & {
+            /** Format: int64 */
+            readonly change_seq: number;
+            readonly direction: components["schemas"]["LibraryBlockRelocationDirection"];
+            /** Format: int32 */
+            readonly moved_block_count?: number | null;
+            readonly relocation_id?: string | null;
+        } & {
+            /** @enum {string} */
+            readonly kind: "block_relocation";
+        });
+        readonly LibraryPageHistoryEntryBase: {
+            readonly display: components["schemas"]["LibraryPageHistoryDisplay"];
+            readonly document_id: string;
+            readonly evidence: components["schemas"]["LibraryPageHistoryEvidence"];
+            readonly id: string;
+            readonly library_id: string;
+            readonly occurred_at: string;
+            readonly page_id: string;
+            readonly recovery: components["schemas"]["LibraryPageHistoryRecovery"];
+        };
+        readonly LibraryPageHistoryEvidence: {
+            /** @enum {string} */
+            readonly status: "verified";
+        } | {
+            readonly reason: components["schemas"]["LibraryPageHistoryEvidenceReason"];
+            /** @enum {string} */
+            readonly status: "unavailable";
+        };
+        /** @enum {string} */
+        readonly LibraryPageHistoryEvidenceReason: "missing_ledger" | "malformed_evidence" | "unsupported_evidence";
+        readonly LibraryPageHistoryPage: {
+            readonly document_id: string;
+            readonly entries: readonly components["schemas"]["LibraryPageHistoryEntry"][];
+            readonly library_id: string;
+            readonly next_cursor?: null | components["schemas"]["LibraryPageHistoryCursor"];
+            readonly page_id: string;
+            /** Format: int32 */
+            readonly version: number;
+        };
+        readonly LibraryPageHistoryRecovery: {
+            readonly document_id: string;
+            /** @enum {string} */
+            readonly kind: "restore_document_version";
+            readonly version_id: string;
+        } | {
+            /** @enum {string} */
+            readonly kind: "unavailable";
+            readonly reason: components["schemas"]["LibraryPageHistoryRecoveryReason"];
+        };
+        /** @enum {string} */
+        readonly LibraryPageHistoryRecoveryReason: "document_generation_changed" | "insufficient_evidence" | "no_inverse_contract";
         readonly LibraryPageIntrinsicProperty: {
             readonly key: string;
             /** Format: int64 */
@@ -1270,6 +1383,13 @@ export interface components {
                 readonly limit?: number | null;
                 readonly query: string;
                 readonly source_kinds?: readonly components["schemas"]["LibrarySearchSourceKind"][] | null;
+            } | {
+                readonly before?: null | components["schemas"]["LibraryPageHistoryCursor"];
+                /** @enum {string} */
+                readonly kind: "page_history";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly page_id: string;
             };
             /** Format: int32 */
             readonly version: number;
@@ -1738,6 +1858,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "search";
                     readonly next_cursor?: string | null;
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_history";
+                    readonly value: components["schemas"]["LibraryPageHistoryPage"];
                 };
                 /** Format: int32 */
                 readonly version: number;

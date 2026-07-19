@@ -85,6 +85,10 @@ impl LibraryModule {
         if let Some(readers) = &self.readers {
             let profile_id = self.profile_id.clone();
             let library_id = self.library_id.clone();
+            let project_id = context
+                .project_id
+                .as_ref()
+                .map(|project_id| project_id.0.clone());
             return readers
                 .read_default(move |connection| {
                     let store_epoch = connection
@@ -113,6 +117,7 @@ impl LibraryModule {
                             &library_id,
                             &store_epoch,
                             event_head,
+                            project_id.as_deref(),
                             read,
                         )?,
                     };
@@ -743,5 +748,6 @@ mod tests {
 }
 mod content;
 mod cursor;
+mod history;
 mod mutation;
 mod navigation;

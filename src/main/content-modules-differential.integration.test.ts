@@ -19,6 +19,7 @@ import {
 } from "../shared/database-identities";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
+import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../shared/block-documents/document-history";
 import { createUuidV7 } from "../shared/uuid-v7";
 import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
 import { createPage } from "./local-store/database-pages";
@@ -32,6 +33,8 @@ import {
 } from "./local-store/library-module-runtime";
 import { searchDocumentBlockUnits } from "./local-store/block-document-projections";
 import { readLibraryPageDetailInDatabase } from "./local-store/page-detail";
+import { listPageHistory } from "./local-store/page-history";
+import { createDocumentVersionCheckpoint } from "./local-store/document-versions";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
@@ -103,6 +106,17 @@ const withoutVolatileFields = (value: unknown): unknown => {
         && key !== "updated_at"
       )
       .map(([key, entry]) => [key, withoutVolatileFields(entry)]),
+  );
+};
+
+const withSnakeCaseKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(withSnakeCaseKeys);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key.replaceAll(/([a-z0-9])([A-Z])/gu, "$1_$2").toLowerCase(),
+      withSnakeCaseKeys(entry),
+    ]),
   );
 };
 
@@ -223,6 +237,27 @@ describe("TypeScript/Rust content Module differential", () => {
     const anchorPage = await createPage(coordinates.projectId, "triage", {
       title: "Secondary imported row",
     });
+    const sourceDocument = oracle.prepare(`
+      SELECT document.id, document.generation, document.head_seq
+      FROM pages page INNER JOIN documents document ON document.id = page.document_id
+      WHERE page.block_id = ?
+    `).get(sourcePage.id) as {
+      readonly id: string;
+      readonly generation: number;
+      readonly head_seq: number;
+    };
+    createDocumentVersionCheckpoint(oracle, {
+      version: DOCUMENT_VERSION_CONTRACT_VERSION,
+      projectId: coordinates.projectId,
+      storeEpoch: coordinates.storeEpoch,
+      documentId: sourceDocument.id,
+      expectedGeneration: sourceDocument.generation,
+      expectedHeadSeq: sourceDocument.head_seq,
+      cause: "manual",
+      label: "Gate C imported checkpoint",
+      actor: { displayName: "Gate C" },
+      revisionKind: "manual",
+    });
     closeDatabase();
     cpSync(typescriptHome, rustHome, { recursive: true });
     await initializeDatabase();
@@ -301,6 +336,53 @@ describe("TypeScript/Rust content Module differential", () => {
       throw new Error("Expected imported Rust Page content");
     }
     expect(candidateImportedContent.value.value).toEqual(oracleImportedContent);
+
+    const oracleImportedHistory = listPageHistory(getDb(), {
+      version: 1,
+      requestingProjectId: coordinates.projectId,
+      pageId: sourcePage.id,
+      pageSize: 1,
+    });
+    const candidateImportedHistory = await stage(
+      "Library imported Page history",
+      candidate.libraryRead({
+        kind: "page_history",
+        page_id: sourcePage.id,
+        before: null,
+        limit: 1,
+      }),
+    );
+    if (candidateImportedHistory.value.kind !== "page_history") {
+      throw new Error("Expected imported Rust Page history");
+    }
+    expect(candidateImportedHistory.value.value).toEqual(
+      withSnakeCaseKeys(oracleImportedHistory),
+    );
+    if (!oracleImportedHistory.nextCursor) {
+      throw new Error("Expected imported Page history to exercise its cursor");
+    }
+    const oracleImportedHistoryNext = listPageHistory(getDb(), {
+      version: 1,
+      requestingProjectId: coordinates.projectId,
+      pageId: sourcePage.id,
+      pageSize: 1,
+      before: oracleImportedHistory.nextCursor,
+    });
+    const candidateImportedHistoryNext = await stage(
+      "Library imported Page history next page",
+      candidate.libraryRead({
+        kind: "page_history",
+        page_id: sourcePage.id,
+        before: candidateImportedHistory.value.value.next_cursor,
+        limit: 1,
+      }),
+    );
+    if (candidateImportedHistoryNext.value.kind !== "page_history") {
+      throw new Error("Expected imported Rust Page history next page");
+    }
+    expect(candidateImportedHistoryNext.value.value).toEqual(
+      withSnakeCaseKeys(oracleImportedHistoryNext),
+    );
 
     const oracleLibraryRead = (
       read: Parameters<typeof readLibraryModuleInDatabase>[1]["read"],
