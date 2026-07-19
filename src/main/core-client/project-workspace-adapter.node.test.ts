@@ -495,4 +495,116 @@ describe("Core Project Workspace adapter", () => {
       },
     }]);
   });
+
+  test("upserts and attaches a Thread in one Session aggregate", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 9,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "session",
+        session: sessionSummary({ thread_id: null }),
+        panels: {
+          right: emptyPanel("right:root"),
+          bottom: emptyPanel("bottom:root"),
+        },
+        tabs: [],
+      },
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 9,
+      store_epoch: "epoch:test",
+      value: { kind: "thread", thread },
+    });
+    client.enqueueWorkspaceApply({
+      value: {
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+        affected_thread_ids: ["thread:one"],
+      },
+      receipt: {
+        operation_id: "operation:attach-thread",
+        duplicate: false,
+        affected_project_ids: ["project:one"],
+        affected_session_ids: ["session:one"],
+      },
+      event_sequence: 10,
+      store_epoch: "epoch:test",
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 10,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "session",
+        session: sessionSummary(),
+        panels: {
+          right: emptyPanel("right:root"),
+          bottom: emptyPanel("bottom:root"),
+        },
+        tabs: [],
+      },
+    });
+    client.enqueueWorkspaceRead({
+      version: 1,
+      event_head: 10,
+      store_epoch: "epoch:test",
+      value: {
+        kind: "thread",
+        thread: {
+          ...thread,
+          thread_name: "Attached",
+          managed_worktree_path: null,
+          status: { status_type: "active", active_flags: ["waitingOnApproval"] },
+          updated_at: 12,
+        },
+      },
+    });
+    const adapter = createCoreProjectWorkspaceAdapter(client);
+
+    await expect(adapter.upsertProjectSessionThreadLink({
+      sessionId: "session:one",
+      projectId: "project:one",
+      threadId: "thread:one",
+      forkedFromId: null,
+      threadName: "Attached",
+      managedWorktreePath: null,
+      statusType: "active",
+      statusActiveFlags: ["waitingOnApproval"],
+      updatedAt: 12,
+    })).resolves.toMatchObject({
+      sessionId: "session:one",
+      threadId: "thread:one",
+      threadName: "Attached",
+      statusType: "active",
+    });
+    expect(client.workspaceApplies).toEqual([{
+      operationId: expect.any(String),
+      intent: {
+        kind: "mutate_session",
+        session_id: "session:one",
+        intent: {
+          kind: "link_thread",
+          thread_id: "thread:one",
+          expected_project_id: "project:one",
+          thread_patch: {
+            project_id: "project:one",
+            forked_from_id: null,
+            thread_name: "Attached",
+            thread_preview: "Preview",
+            model_provider: "openai",
+            managed_worktree_path: null,
+            status: {
+              status_type: "active",
+              active_flags: ["waitingOnApproval"],
+            },
+            archived: false,
+            updated_at: 12,
+          },
+        },
+      },
+    }]);
+  });
 });

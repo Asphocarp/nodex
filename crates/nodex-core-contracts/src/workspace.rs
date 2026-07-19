@@ -791,6 +791,8 @@ pub enum ProjectSessionIntent {
     LinkThread {
         thread_id: String,
         expected_project_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_patch: Option<Box<ProjectWorkspaceThreadPatch>>,
     },
     UnlinkThread {
         thread_id: String,

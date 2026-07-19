@@ -2269,6 +2269,7 @@ export interface components {
             /** @enum {string} */
             readonly kind: "link_thread";
             readonly thread_id: string;
+            readonly thread_patch?: null | components["schemas"]["ProjectWorkspaceThreadPatch"];
         } | {
             /** @enum {string} */
             readonly kind: "unlink_thread";

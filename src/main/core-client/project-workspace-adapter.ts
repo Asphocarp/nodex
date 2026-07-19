@@ -29,6 +29,7 @@ import type {
   ProjectSessionTabReorderInput,
   ProjectSessionTabUpdateInput,
   ProjectSessionThreadLink,
+  ProjectSessionThreadLinkInput,
   ProjectSessionUnreadInput,
   ProjectSessionUpdateInput,
   ProjectUpdateInput,
@@ -44,6 +45,7 @@ import {
   ProjectSessionTabDeleteInputSchema,
   ProjectSessionTabMoveInputSchema,
   ProjectSessionTabReorderInputSchema,
+  ProjectSessionThreadLinkInputSchema,
   ProjectSessionRenameInputSchema,
   ProjectSessionUpdateInputSchema,
   ProjectSessionPanelsSchema,
@@ -188,6 +190,10 @@ export interface DesktopProjectWorkspacePort {
   moveProjectSessionTab(
     input: ProjectSessionTabMoveInput,
   ): Promise<ProjectSession | null>;
+  upsertProjectSessionThreadLink(
+    input: ProjectSessionThreadLinkInput,
+  ): Promise<ProjectSessionThreadLink>;
+  detachProjectSessionThread(sessionId: string): Promise<boolean>;
 }
 
 const isNotFound = (error: unknown): boolean =>
@@ -299,20 +305,32 @@ const toCorePanelPatch = (panel: Partial<ProjectSessionPanelState>) => ({
 export function createCoreProjectWorkspaceAdapter(
   client: CoreClientPort,
 ): DesktopProjectWorkspacePort {
+  const readCoreThread = async (threadId: string): Promise<CoreThread | null> => {
+    let snapshot: ProjectWorkspaceReadSnapshot;
+    try {
+      snapshot = await client.workspaceRead({
+        kind: "thread",
+        thread_id: threadId,
+      });
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+    if (snapshot.value.kind !== "thread") {
+      throw new Error("Core returned the wrong Project Workspace read variant");
+    }
+    return snapshot.value.thread;
+  };
+
   const readThread = async (
     summary: CoreSessionSummary,
   ): Promise<ProjectSessionThreadLink | null> => {
     const threadId = summary.thread_id ?? null;
     if (!threadId) return null;
-    const snapshot = await client.workspaceRead({
-      kind: "thread",
-      thread_id: threadId,
-    });
-    if (snapshot.value.kind !== "thread") {
-      throw new Error("Core returned the wrong Project Workspace read variant");
-    }
+    const thread = await readCoreThread(threadId);
+    if (!thread) throw new Error(`Linked Core Thread not found: ${threadId}`);
     return fromCoreThread(
-      snapshot.value.thread,
+      thread,
       summary.id,
       summary.project_id ?? null,
     );
@@ -1026,6 +1044,95 @@ export function createCoreProjectWorkspaceAdapter(
         },
       });
       return await readSession(tab.sessionId);
+    },
+    upsertProjectSessionThreadLink: async (input) => {
+      const parsed = ProjectSessionThreadLinkInputSchema.parse(input);
+      const session = await readSession(parsed.sessionId);
+      if (!session) {
+        throw new Error(`Project session not found: ${parsed.sessionId}`);
+      }
+      if (session.projectId !== parsed.projectId) {
+        throw new Error("Thread project must match the owning session project");
+      }
+      const existing = await readCoreThread(parsed.threadId);
+      const hasForkedFromId = Object.prototype.hasOwnProperty.call(
+        input,
+        "forkedFromId",
+      );
+      const hasManagedWorktreePath = Object.prototype.hasOwnProperty.call(
+        input,
+        "managedWorktreePath",
+      );
+      await apply({
+        kind: "mutate_session",
+        session_id: parsed.sessionId,
+        intent: {
+          kind: "link_thread",
+          thread_id: parsed.threadId,
+          expected_project_id: parsed.projectId,
+          thread_patch: {
+            project_id: parsed.projectId,
+            ...(hasForkedFromId
+              ? { forked_from_id: parsed.forkedFromId ?? null }
+              : {}),
+            ...(parsed.parentThreadId
+              ? { parent_thread_id: parsed.parentThreadId }
+              : {}),
+            ...(parsed.threadName != null
+              ? { thread_name: parsed.threadName }
+              : {}),
+            thread_preview:
+              parsed.threadPreview ?? existing?.thread_preview ?? "",
+            model_provider:
+              parsed.modelProvider ?? existing?.model_provider ?? "",
+            ...(parsed.cwd != null ? { cwd: parsed.cwd } : {}),
+            ...(hasManagedWorktreePath
+              ? { managed_worktree_path: parsed.managedWorktreePath ?? null }
+              : {}),
+            ...(parsed.projectlessOutputDirectory != null
+              ? {
+                  projectless_output_directory:
+                    parsed.projectlessOutputDirectory,
+                }
+              : {}),
+            ...(parsed.projectlessWorkspaceBrowserRoot != null
+              ? {
+                  projectless_workspace_browser_root:
+                    parsed.projectlessWorkspaceBrowserRoot,
+                }
+              : {}),
+            status: {
+              status_type: parsed.statusType ?? "notLoaded",
+              active_flags: parsed.statusActiveFlags ?? [],
+            },
+            archived: parsed.archived ?? existing?.archived ?? false,
+            ...(!existing && parsed.createdAt !== undefined
+              ? { created_at: parsed.createdAt }
+              : {}),
+            ...(parsed.updatedAt !== undefined
+              ? { updated_at: parsed.updatedAt }
+              : {}),
+          },
+        },
+      });
+      const linked = await readSession(parsed.sessionId);
+      if (!linked?.thread) {
+        throw new Error("Unable to attach project session thread");
+      }
+      return linked.thread;
+    },
+    detachProjectSessionThread: async (sessionId) => {
+      const session = await readSession(sessionId);
+      if (!session?.thread) return false;
+      await apply({
+        kind: "mutate_session",
+        session_id: sessionId,
+        intent: {
+          kind: "unlink_thread",
+          thread_id: session.thread.threadId,
+        },
+      });
+      return true;
     },
   };
 }

@@ -92,9 +92,10 @@ maximize, leaf-local tab reorder, and composite Session view updates also cross
 that boundary. Tab-only calls resolve their owning Session through an exact
 Workspace read instead of scanning repositories, while delete and move carry
 the Adapter-compiled final layout into the same native aggregate as the tab
-mutation. Thread-link mutations, Page detail/content/search/history, and the
-remaining deep Module adapters stay on the migration inventory and must fail
-closed rather than fall back in the Rust branch.
+mutation. Thread metadata upsert plus Session attach and guarded detach also
+cross this boundary as one native aggregate. Page detail/content/search/history
+and the remaining deep Module adapters stay on the migration inventory and
+must fail closed rather than fall back in the Rust branch.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

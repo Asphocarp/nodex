@@ -105,5 +105,9 @@ export function createDesktopProjectWorkspaceBridge(
       await (await resolve()).deleteProjectSessionTab(tabInput),
     moveProjectSessionTab: async (tabInput) =>
       await (await resolve()).moveProjectSessionTab(tabInput),
+    upsertProjectSessionThreadLink: async (threadInput) =>
+      await (await resolve()).upsertProjectSessionThreadLink(threadInput),
+    detachProjectSessionThread: async (sessionId) =>
+      await (await resolve()).detachProjectSessionThread(sessionId),
   };
 }

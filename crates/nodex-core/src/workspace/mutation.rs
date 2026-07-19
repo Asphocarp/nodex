@@ -1487,9 +1487,10 @@ mod tests {
     use std::fs;
 
     use nodex_core_contracts::workspace::{
-        ProjectLifecycle, ProjectSessionIntent, ProjectSessionPanelId,
-        ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch, ProjectSessionTabKind,
-        ProjectWorkspaceIntent, ProjectWorkspaceRead, ProjectWorkspaceReadValue,
+        CodexThreadActiveFlag, CodexThreadStatusType, ProjectLifecycle, ProjectSessionIntent,
+        ProjectSessionPanelId, ProjectSessionPanelSizePatch, ProjectSessionPanelStatePatch,
+        ProjectSessionTabKind, ProjectWorkspaceIntent, ProjectWorkspaceRead,
+        ProjectWorkspaceReadValue, ProjectWorkspaceThreadPatch, ProjectWorkspaceThreadStatus,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CoreErrorCode, LibraryId,
@@ -2021,6 +2022,7 @@ mod tests {
                     ProjectSessionIntent::LinkThread {
                         thread_id: "thread-native".to_owned(),
                         expected_project_id: Some("project:default".to_owned()),
+                        thread_patch: None,
                     },
                 ),
             )
@@ -2036,6 +2038,17 @@ mod tests {
                     ProjectSessionIntent::LinkThread {
                         thread_id: "thread-native".to_owned(),
                         expected_project_id: Some("project-native".to_owned()),
+                        thread_patch: Some(Box::new(ProjectWorkspaceThreadPatch {
+                            project_id: Some(Some("project-native".to_owned())),
+                            thread_preview: Some("Updated preview".to_owned()),
+                            model_provider: Some("openai".to_owned()),
+                            status: Some(ProjectWorkspaceThreadStatus {
+                                status_type: CodexThreadStatusType::Active,
+                                active_flags: vec![CodexThreadActiveFlag::WaitingOnApproval],
+                            }),
+                            updated_at: Some(3),
+                            ..ProjectWorkspaceThreadPatch::default()
+                        })),
                     },
                 ),
             )
@@ -2096,6 +2109,7 @@ mod tests {
                     .query_row(
                         "SELECT session.no_thread_fallback_title, session.pinned, \
                             session.pinned_order, session.unread, thread.thread_name, \
+                            thread.thread_preview, thread.status_type, \
                             (SELECT count(*) FROM project_session_threads \
                              WHERE session_id = session.id), \
                             (SELECT count(*) FROM core_module_receipts \
@@ -2112,9 +2126,11 @@ mod tests {
                                 row.get::<_, Option<i64>>(2)?,
                                 row.get::<_, i64>(3)?,
                                 row.get::<_, String>(4)?,
-                                row.get::<_, i64>(5)?,
-                                row.get::<_, i64>(6)?,
+                                row.get::<_, String>(5)?,
+                                row.get::<_, String>(6)?,
                                 row.get::<_, i64>(7)?,
+                                row.get::<_, i64>(8)?,
+                                row.get::<_, i64>(9)?,
                             ))
                         },
                     )
@@ -2124,7 +2140,11 @@ mod tests {
         assert_eq!(stored.0, "Fallback title");
         assert_eq!((stored.1, stored.2, stored.3), (0, None, 0));
         assert_eq!(stored.4, "Thread title");
-        assert_eq!((stored.5, stored.6, stored.7), (0, 0, 0));
+        assert_eq!(
+            (stored.5.as_str(), stored.6.as_str()),
+            ("Updated preview", "active")
+        );
+        assert_eq!((stored.7, stored.8, stored.9), (0, 0, 0));
     }
 
     #[test]
@@ -2286,6 +2306,7 @@ mod tests {
                     ProjectSessionIntent::LinkThread {
                         thread_id: "thread-projectless".to_owned(),
                         expected_project_id: None,
+                        thread_patch: None,
                     },
                 ),
             )

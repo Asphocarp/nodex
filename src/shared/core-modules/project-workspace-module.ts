@@ -395,6 +395,7 @@ export type ProjectSessionIntent =
       readonly kind: "link_thread";
       readonly threadId: string;
       readonly expectedProjectId: string | null;
+      readonly threadPatch?: ProjectWorkspaceThreadPatch;
     }
   | { readonly kind: "unlink_thread"; readonly threadId: string };
 

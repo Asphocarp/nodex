@@ -1540,6 +1540,10 @@ export async function runMainAppStartup(
           projectSessionService.deleteProjectSessionTab(input),
         moveProjectSessionTab: async (input) =>
           projectSessionService.moveProjectSessionTab(input),
+        upsertProjectSessionThreadLink: async (input) =>
+          projectSessionService.upsertProjectSessionThreadLink(input),
+        detachProjectSessionThread: async (sessionId) =>
+          projectSessionService.detachProjectSessionThread(sessionId),
       },
     }),
     libraryModule: createDesktopLibraryModuleBridge({

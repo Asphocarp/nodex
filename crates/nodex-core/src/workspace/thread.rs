@@ -168,6 +168,11 @@ pub(super) fn read_permission_mode(
         .transpose()
 }
 
+pub(super) struct ThreadUpsertEffects {
+    pub(super) project_ids: Vec<String>,
+    pub(super) session_ids: Vec<String>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn upsert_thread(
     connection: &Connection,
@@ -179,6 +184,27 @@ pub(super) fn upsert_thread(
     thread_id: &str,
     patch: &ProjectWorkspaceThreadPatch,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let effects = upsert_thread_records(connection, library_id, thread_id, patch)?;
+    finish_thread_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        "upsert_thread",
+        effects.project_ids,
+        effects.session_ids,
+        vec![thread_id.to_owned()],
+    )
+}
+
+pub(super) fn upsert_thread_records(
+    connection: &Connection,
+    library_id: &str,
+    thread_id: &str,
+    patch: &ProjectWorkspaceThreadPatch,
+) -> Result<ThreadUpsertEffects, StoreError> {
     validate_id("thread_id", thread_id)?;
     let existing = read_stored_thread(connection, thread_id)?;
     if let Some(existing) = &existing {
@@ -413,18 +439,10 @@ pub(super) fn upsert_thread(
         existing.as_ref().and_then(|row| row.project_id.as_deref()),
         project_id.as_deref(),
     );
-    finish_thread_mutation(
-        connection,
-        library_id,
-        context,
-        store_epoch,
-        operation_id,
-        request_hash,
-        "upsert_thread",
+    Ok(ThreadUpsertEffects {
         project_ids,
         session_ids,
-        vec![thread_id.to_owned()],
-    )
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1664,6 +1682,7 @@ mod tests {
                         intent: ProjectSessionIntent::LinkThread {
                             thread_id: "thread-root".to_owned(),
                             expected_project_id: Some("project:default".to_owned()),
+                            thread_patch: None,
                         },
                     },
                 ),

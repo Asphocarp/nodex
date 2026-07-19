@@ -168,6 +168,7 @@ pub(super) fn create_session_thread(
             intent: ProjectSessionIntent::LinkThread {
                 thread_id: thread_id.to_owned(),
                 expected_project_id: project_id.map(str::to_owned),
+                thread_patch: None,
             },
         },
     );

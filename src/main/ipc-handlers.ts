@@ -726,6 +726,10 @@ export function registerIpcHandlers(
         projectSessionService.deleteProjectSessionTab(input),
       moveProjectSessionTab: async (input) =>
         projectSessionService.moveProjectSessionTab(input),
+      upsertProjectSessionThreadLink: async (input) =>
+        projectSessionService.upsertProjectSessionThreadLink(input),
+      detachProjectSessionThread: async (sessionId) =>
+        projectSessionService.detachProjectSessionThread(sessionId),
     };
 
   const gitBranchWatches = new Map<
@@ -1921,8 +1925,8 @@ export function registerIpcHandlers(
     await projectWorkspace.moveProjectSessionTab(input),
   );
 
-  registerHandle("project-session-threads:attach", (_, input) => {
-    const link = projectSessionService.upsertProjectSessionThreadLink(input);
+  registerHandle("project-session-threads:attach", async (_, input) => {
+    const link = await projectWorkspace.upsertProjectSessionThreadLink(input);
     dbNotifier.notifyProjectSessionsChanged(
       link.projectId,
       "link",
@@ -1931,9 +1935,9 @@ export function registerIpcHandlers(
     return link;
   });
 
-  registerHandle("project-session-threads:detach", (_, sessionId: string) => {
-    const existing = projectSessionService.getProjectSession(sessionId);
-    const success = projectSessionService.detachProjectSessionThread(sessionId);
+  registerHandle("project-session-threads:detach", async (_, sessionId: string) => {
+    const existing = await projectWorkspace.getProjectSession(sessionId);
+    const success = await projectWorkspace.detachProjectSessionThread(sessionId);
     if (success && existing) {
       dbNotifier.notifyProjectSessionsChanged(
         existing.projectId,

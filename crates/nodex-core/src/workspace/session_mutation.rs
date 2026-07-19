@@ -16,6 +16,7 @@ use super::mutation::{WorkspaceMutationEffects, finish_mutation, workspace_event
 use super::panel_layout::{
     PanelStates, panel_id_sql, parse_panel_id, parse_panels, stringify_panels,
 };
+use super::thread::{finish_thread_mutation, upsert_thread_records};
 
 const MAX_ID_LENGTH: usize = 512;
 const MAX_SESSION_TITLE_BYTES: usize = 8_000;
@@ -111,6 +112,7 @@ pub(super) fn mutate_session(
         ProjectSessionIntent::LinkThread {
             thread_id,
             expected_project_id,
+            thread_patch,
         } => link_thread(
             connection,
             library_id,
@@ -122,6 +124,7 @@ pub(super) fn mutate_session(
             &authority,
             thread_id,
             expected_project_id.as_deref(),
+            thread_patch.as_deref(),
         ),
         ProjectSessionIntent::UnlinkThread { thread_id } => unlink_thread(
             connection,
@@ -1633,6 +1636,7 @@ fn link_thread(
     authority: &SessionAuthority,
     thread_id: &str,
     expected_project_id: Option<&str>,
+    thread_patch: Option<&nodex_core_contracts::workspace::ProjectWorkspaceThreadPatch>,
 ) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
     validate_id("thread_id", thread_id)?;
     if let Some(project_id) = expected_project_id {
@@ -1645,6 +1649,9 @@ fn link_thread(
             false,
         ));
     }
+    let upsert_effects = thread_patch
+        .map(|patch| upsert_thread_records(connection, library_id, thread_id, patch))
+        .transpose()?;
     let thread_project_id = connection
         .query_row(
             "SELECT project_id FROM codex_threads WHERE thread_id = ?1",
@@ -1693,7 +1700,16 @@ fn link_thread(
     )?;
     let mut thread_ids = authority.thread_id.iter().cloned().collect::<BTreeSet<_>>();
     thread_ids.insert(thread_id.to_owned());
-    finish_session_mutation(
+    let mut project_ids = upsert_effects
+        .as_ref()
+        .map(|effects| effects.project_ids.iter().cloned().collect::<BTreeSet<_>>())
+        .unwrap_or_default();
+    project_ids.extend(authority.project_id.iter().cloned());
+    let mut session_ids = upsert_effects
+        .map(|effects| effects.session_ids.into_iter().collect::<BTreeSet<_>>())
+        .unwrap_or_default();
+    session_ids.insert(session_id.to_owned());
+    finish_thread_mutation(
         connection,
         library_id,
         context,
@@ -1701,10 +1717,9 @@ fn link_thread(
         operation_id,
         request_hash,
         "link_session_thread",
-        session_id,
-        authority,
+        project_ids.into_iter().collect(),
+        session_ids.into_iter().collect(),
         thread_ids.into_iter().collect(),
-        now,
     )
 }
 

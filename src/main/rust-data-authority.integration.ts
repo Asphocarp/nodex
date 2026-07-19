@@ -167,6 +167,31 @@ describe("Electron native data authority", () => {
       await expect(
         workspace.getProjectSessionTab(secondBrowserTab.id),
       ).resolves.toBeNull();
+      const threadTimestamp = Date.now();
+      await expect(workspace.upsertProjectSessionThreadLink({
+        sessionId: createdSession.id,
+        projectId: createdProject.id,
+        threadId: "thread:electron-session",
+        threadName: "Electron linked Thread",
+        threadPreview: "Native Session attach",
+        modelProvider: "openai",
+        cwd: nodexHome,
+        statusType: "idle",
+        statusActiveFlags: [],
+        createdAt: threadTimestamp,
+        updatedAt: threadTimestamp,
+      })).resolves.toMatchObject({
+        sessionId: createdSession.id,
+        projectId: createdProject.id,
+        threadId: "thread:electron-session",
+        threadName: "Electron linked Thread",
+      });
+      await expect(
+        workspace.detachProjectSessionThread(createdSession.id),
+      ).resolves.toBe(true);
+      await expect(
+        workspace.getProjectSession(createdSession.id),
+      ).resolves.toMatchObject({ thread: null });
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];
