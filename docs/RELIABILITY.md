@@ -16,6 +16,11 @@
   ready handshake; Electron adapter initialization is the remaining cutover
   seam. The selection cannot change inside a process, and launch/readiness
   failure is terminal rather than an implicit fallback or second writer.
+- The cutover gate runs inside the Electron runtime, opens a disposable Profile
+  through Core, exercises a Project-bound Module client, and inspects Electron's
+  file-descriptor table to prove it holds no `nodex.db`, `nodex.db-wal`, or
+  `nodex.db-shm` handle. The legacy accessor is also required to fail before it
+  can construct a `better-sqlite3` connection.
 - SQLite runs in WAL mode (`local-store/database.ts`) for resilient write/read behavior.
 - SQLite schema version state is tracked in `PRAGMA user_version`.
 - The current SQLite schema is v80. It persists one Profile-owned Library, canonical Pages with exclusive `library | page | data_source` parents, Database Containers, deterministic initial Data Sources, Source-owned schema/memberships/values, View-to-Source targets, Project bindings/lifecycle/grants, exact-Turn Nodex authority provenance, authority-bound Agent receipts, and immutable compatibility-owner relocation evidence. Active projections are Page-named (`page_read_model`, `scheduled_page_index`, `canvas_page_references`); old Card names occur only inside ordered migration inputs and compatibility adapters. Block, engine-neutral Document, projection, and immutable evidence writes remain bounded typed transactions.

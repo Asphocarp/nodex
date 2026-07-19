@@ -137,6 +137,20 @@ export class CoreClient implements CoreClientPort {
     return new CoreClient(transport, handshake, input.projectId, connectionId);
   }
 
+  forProject(projectId: string): CoreClient {
+    const normalized = projectId.trim();
+    if (!normalized || normalized !== projectId || normalized.length > 512) {
+      throw new Error("Core Project binding is invalid");
+    }
+    if (normalized === this.#projectId) return this;
+    return new CoreClient(
+      this.#transport,
+      this.handshake,
+      normalized,
+      this.#connectionId,
+    );
+  }
+
   health(): Promise<HealthResponse> {
     return this.#transport.requestJson("GET", "/core/v1/health");
   }
