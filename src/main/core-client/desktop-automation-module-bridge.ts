@@ -11,7 +11,16 @@ import type {
   CodexScheduledAutomationCreateInput,
   CodexScheduledAutomationDeleteResponse,
   CodexScheduledAutomationUpdateInput,
+  PageOccurrence,
+  PageOccurrenceActionInput,
+  PageOccurrenceCompleteInput,
+  PageOccurrenceUpdateInput,
+  Estimate,
+  PageRunInTarget,
+  Priority,
 } from "../../shared/types";
+import { canonicalizePortableRichText } from "../../shared/block-documents/portable-rich-text";
+import { isWorkflowStatus } from "../../shared/workflow-status";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type {
   AutomationCommittedValue,
@@ -34,6 +43,19 @@ type CoreAutomationInboxItem = Extract<
   AutomationReadSnapshot["value"],
   { readonly kind: "inbox" }
 >["items"][number];
+
+type CoreScheduledPageOccurrence = Extract<
+  AutomationReadSnapshot["value"],
+  { readonly kind: "occurrences" }
+>["items"][number];
+
+type CoreAutomationIntent = Parameters<
+  CoreClientPort["automationApply"]
+>[0]["intent"];
+type CorePageOccurrenceSchedulePatch = Extract<
+  CoreAutomationIntent,
+  { readonly kind: "update_page_occurrence" }
+>["updates"];
 
 export interface AutomationArchiveMessages {
   readonly archivedUserMessage: string | null;
@@ -58,6 +80,23 @@ export interface DesktopAutomationRunMutationInput {
   readonly automationId: string;
   readonly threadTitle?: string | null;
   readonly sourceCwd?: string | null;
+}
+
+export interface DesktopReminderClaim {
+  readonly leaseId: string;
+  readonly projectId: string;
+  readonly pageId: string;
+  readonly occurrenceStart: number;
+  readonly reminderOffsetMinutes: number;
+  readonly dueAt: number;
+  readonly title: string;
+  readonly attempt: number;
+  readonly expiresAt: number;
+}
+
+export interface DesktopPageOccurrenceMutationResult {
+  readonly success: boolean;
+  readonly error?: string;
 }
 
 export interface DesktopAutomationModulePort {
@@ -119,6 +158,43 @@ export interface DesktopAutomationModulePort {
     input: CodexAutomationRunReadStateInput,
   ): Promise<CodexAutomationInboxItem | null>;
   markAllRunsRead(input: CodexAutomationRunMarkAllReadInput): Promise<number>;
+  listPageOccurrences(
+    projectId: string,
+    windowStart: Date,
+    windowEnd: Date,
+    searchQuery?: string,
+  ): Promise<PageOccurrence[]>;
+  completePageOccurrence(
+    projectId: string,
+    input: PageOccurrenceCompleteInput,
+    sessionId?: string,
+  ): Promise<DesktopPageOccurrenceMutationResult>;
+  skipPageOccurrence(
+    projectId: string,
+    input: PageOccurrenceActionInput,
+    sessionId?: string,
+  ): Promise<DesktopPageOccurrenceMutationResult>;
+  updatePageOccurrence(
+    projectId: string,
+    input: PageOccurrenceUpdateInput,
+    sessionId?: string,
+  ): Promise<DesktopPageOccurrenceMutationResult>;
+  snoozeReminder(
+    projectId: string,
+    pageId: string,
+    occurrenceStart: string,
+    snoozeMinutes: number,
+  ): Promise<void>;
+  claimDueReminders(
+    limit: number,
+    leaseDurationMs: number,
+  ): Promise<DesktopReminderClaim[]>;
+  completeReminderLease(leaseId: string): Promise<void>;
+  failReminderLease(
+    leaseId: string,
+    retryDelayMs: number | null,
+    reasonCode: string,
+  ): Promise<void>;
 }
 
 export interface DesktopAutomationModuleBridgeInput {
@@ -198,6 +274,123 @@ const mapInboxItem = (
   status: item.status,
 });
 
+const PRIORITIES = new Set<Priority>([
+  "p0-critical",
+  "p1-high",
+  "p2-medium",
+  "p3-low",
+  "p4-later",
+]);
+const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
+const RUN_TARGETS = new Set<PageRunInTarget>([
+  "localProject",
+  "newWorktree",
+  "cloud",
+]);
+
+const optionalSetValue = <T extends string>(
+  value: string | null | undefined,
+  allowed: ReadonlySet<T>,
+  label: string,
+): T | undefined => {
+  if (value === null || value === undefined) return undefined;
+  if (allowed.has(value as T)) return value as T;
+  throw new Error(`Core Scheduled Page ${label} is invalid`);
+};
+
+const mapOccurrenceRecurrence = (
+  recurrence: CoreScheduledPageOccurrence["recurrence"],
+): NonNullable<PageOccurrence["recurrence"]> | undefined => {
+  if (!recurrence) return undefined;
+  return {
+    frequency: recurrence.frequency,
+    interval: recurrence.interval,
+    ...(recurrence.byWeekdays
+      ? { byWeekdays: [...recurrence.byWeekdays] }
+      : {}),
+    ...(recurrence.endCondition
+      ? { endCondition: { ...recurrence.endCondition } }
+      : {}),
+  };
+};
+
+const mapOccurrence = (
+  occurrence: CoreScheduledPageOccurrence,
+): PageOccurrence => {
+  if (!isWorkflowStatus(occurrence.status)) {
+    throw new Error("Core Scheduled Page workflow status is invalid");
+  }
+  const occurrenceStart = new Date(occurrence.occurrence_start_ms);
+  const occurrenceEnd = new Date(occurrence.occurrence_end_ms);
+  const dueDate = occurrence.due_date
+    ? new Date(occurrence.due_date)
+    : undefined;
+  const created = new Date(occurrence.created_at);
+  const runInTarget = optionalSetValue(
+    occurrence.run_in_target,
+    RUN_TARGETS,
+    "run target",
+  );
+  const recurrence = mapOccurrenceRecurrence(occurrence.recurrence);
+  if (
+    !Number.isFinite(occurrenceStart.getTime())
+    || !Number.isFinite(occurrenceEnd.getTime())
+    || (dueDate && !Number.isFinite(dueDate.getTime()))
+    || !Number.isFinite(created.getTime())
+  ) {
+    throw new Error("Core Scheduled Page returned an invalid date");
+  }
+  if (!occurrence.occurrence_id || !occurrence.page_id) {
+    throw new Error("Core Scheduled Page returned an invalid identity");
+  }
+  return {
+    id: occurrence.occurrence_id,
+    pageId: occurrence.page_id,
+    status: occurrence.status,
+    statusName: occurrence.status_name,
+    archived: occurrence.archived,
+    title: occurrence.title,
+    richTitle: canonicalizePortableRichText(occurrence.rich_title),
+    description: occurrence.description,
+    priority: optionalSetValue(occurrence.priority, PRIORITIES, "priority"),
+    estimate: optionalSetValue(occurrence.estimate, ESTIMATES, "estimate"),
+    tags: [...occurrence.tags],
+    ...(dueDate ? { dueDate } : {}),
+    scheduledStart: occurrenceStart,
+    scheduledEnd: occurrenceEnd,
+    isAllDay: occurrence.is_all_day,
+    ...(recurrence ? { recurrence } : {}),
+    reminders: occurrence.reminders.map((reminder) => ({
+      offsetMinutes: reminder.offsetMinutes,
+    })),
+    ...(occurrence.schedule_timezone
+      ? { scheduleTimezone: occurrence.schedule_timezone }
+      : {}),
+    ...(occurrence.assignee ? { assignee: occurrence.assignee } : {}),
+    ...(runInTarget ? { runInTarget } : {}),
+    ...(occurrence.run_in_local_path
+      ? { runInLocalPath: occurrence.run_in_local_path }
+      : {}),
+    ...(occurrence.run_in_base_branch
+      ? { runInBaseBranch: occurrence.run_in_base_branch }
+      : {}),
+    ...(occurrence.run_in_worktree_path
+      ? { runInWorktreePath: occurrence.run_in_worktree_path }
+      : {}),
+    ...(occurrence.run_in_environment_path
+      ? { runInEnvironmentPath: occurrence.run_in_environment_path }
+      : {}),
+    revision: occurrence.metadata_revision,
+    created,
+    order: occurrence.order,
+    occurrenceStart,
+    occurrenceEnd,
+    isRecurring: occurrence.is_recurring,
+    thisAndFutureEquivalentToAll:
+      occurrence.this_and_future_equivalent_to_all,
+  };
+};
+
 const toCoreDefinitionInput = (
   input: CodexScheduledAutomationCreateInput,
 ) => ({
@@ -211,6 +404,54 @@ const toCoreDefinitionInput = (
   cwds: input.cwds ?? null,
   execution_environment: input.executionEnvironment ?? null,
   local_environment_config_path: input.localEnvironmentConfigPath ?? null,
+});
+
+function finiteDateMilliseconds(value: Date, label: string): number;
+function finiteDateMilliseconds(
+  value: Date | null | undefined,
+  label: string,
+): number | null;
+function finiteDateMilliseconds(
+  value: Date | null | undefined,
+  label: string,
+): number | null {
+  if (value === null || value === undefined) return null;
+  const milliseconds = value.getTime();
+  if (Number.isFinite(milliseconds)) return milliseconds;
+  throw new Error(`Scheduled Page ${label} is invalid`);
+}
+
+const toCoreOccurrenceSchedulePatch = (
+  updates: PageOccurrenceUpdateInput["updates"],
+): CorePageOccurrenceSchedulePatch => ({
+  ...(Object.hasOwn(updates, "scheduledStart")
+    ? {
+        scheduled_start_ms: finiteDateMilliseconds(
+          updates.scheduledStart,
+          "start",
+        ),
+      }
+    : {}),
+  ...(Object.hasOwn(updates, "scheduledEnd")
+    ? {
+        scheduled_end_ms: finiteDateMilliseconds(
+          updates.scheduledEnd,
+          "end",
+        ),
+      }
+    : {}),
+  ...(Object.hasOwn(updates, "isAllDay")
+    ? { is_all_day: updates.isAllDay }
+    : {}),
+  ...(Object.hasOwn(updates, "recurrence")
+    ? { recurrence: updates.recurrence ?? null }
+    : {}),
+  ...(Object.hasOwn(updates, "reminders")
+    ? { reminders: updates.reminders ?? [] }
+    : {}),
+  ...(Object.hasOwn(updates, "scheduleTimezone")
+    ? { schedule_timezone: updates.scheduleTimezone ?? null }
+    : {}),
 });
 
 const operationId = (kind: string): string =>
@@ -262,6 +503,7 @@ const requireRun = (
 
 const createCoreAutomationPort = (
   client: CoreClientPort,
+  clientForProject: (projectId: string) => CoreClientPort,
 ): DesktopAutomationModulePort => {
   const readDefinition = async (
     automationId: string,
@@ -296,6 +538,31 @@ const createCoreAutomationPort = (
       intent: intent(run),
     });
     return requireRun(committed, threadId);
+  };
+  const applyPageOccurrence = async (
+    projectId: string,
+    operationId: string,
+    intent: Extract<
+      CoreAutomationIntent,
+      {
+        readonly kind:
+          | "complete_page_occurrence"
+          | "skip_page_occurrence"
+          | "update_page_occurrence";
+      }
+    >,
+  ): Promise<DesktopPageOccurrenceMutationResult> => {
+    const committed = await clientForProject(projectId).automationApply({
+      operationId,
+      intent,
+    });
+    const result = committed.value.page_occurrence_mutation;
+    if (!result) {
+      throw new Error("Core Automation commit omitted its occurrence result");
+    }
+    return result.success
+      ? { success: true }
+      : { success: false, error: result.error ?? "Occurrence update failed" };
   };
 
   return {
@@ -593,6 +860,120 @@ const createCoreAutomationPort = (
       });
       return committed.value.run_bulk?.changed_count ?? 0;
     },
+    listPageOccurrences: async (
+      projectId,
+      windowStart,
+      windowEnd,
+      searchQuery,
+    ) => {
+      const windowStartMs = finiteDateMilliseconds(windowStart, "window start");
+      const windowEndMs = finiteDateMilliseconds(windowEnd, "window end");
+      const snapshot = await clientForProject(projectId).automationRead({
+        kind: "occurrences",
+        window_start_ms: windowStartMs,
+        window_end_ms: windowEndMs,
+        search_query: searchQuery?.trim() || null,
+        limit: 20_000,
+      });
+      if (snapshot.value.kind !== "occurrences") {
+        throw new Error("Core returned a non-Occurrence Automation read");
+      }
+      return snapshot.value.items.map(mapOccurrence);
+    },
+    completePageOccurrence: async (projectId, input) =>
+      await applyPageOccurrence(projectId, input.operationId, {
+        kind: "complete_page_occurrence",
+        page_id: input.pageId,
+        occurrence_start_ms: finiteDateMilliseconds(
+          input.occurrenceStart,
+          "occurrence start",
+        ),
+        created_page_id: input.createdPageId,
+      }),
+    skipPageOccurrence: async (projectId, input) =>
+      await applyPageOccurrence(projectId, input.operationId, {
+        kind: "skip_page_occurrence",
+        page_id: input.pageId,
+        occurrence_start_ms: finiteDateMilliseconds(
+          input.occurrenceStart,
+          "occurrence start",
+        ),
+      }),
+    updatePageOccurrence: async (projectId, input) =>
+      await applyPageOccurrence(projectId, input.operationId, {
+        kind: "update_page_occurrence",
+        page_id: input.pageId,
+        occurrence_start_ms: finiteDateMilliseconds(
+          input.occurrenceStart,
+          "occurrence start",
+        ),
+        scope: input.scope === "this-and-future"
+          ? "this_and_future"
+          : input.scope,
+        created_page_id: input.scope === "all" ? null : input.createdPageId,
+        updates: toCoreOccurrenceSchedulePatch(input.updates),
+      }),
+    snoozeReminder: async (
+      projectId,
+      pageId,
+      occurrenceStart,
+      snoozeMinutes,
+    ) => {
+      const occurrenceStartMs = new Date(occurrenceStart).getTime();
+      if (!Number.isFinite(occurrenceStartMs)) {
+        throw new Error("Reminder occurrence start is invalid");
+      }
+      if (!Number.isSafeInteger(snoozeMinutes) || snoozeMinutes < 1) {
+        throw new Error("Reminder snooze duration is invalid");
+      }
+      await clientForProject(projectId).automationApply({
+        operationId: operationId(`snooze-reminder:${pageId}`),
+        intent: {
+          kind: "snooze_reminder",
+          page_id: pageId,
+          occurrence_start_ms: occurrenceStartMs,
+          snooze_minutes: snoozeMinutes,
+        },
+      });
+    },
+    claimDueReminders: async (limit, leaseDurationMs) => {
+      const committed = await client.automationApply({
+        operationId: operationId("claim-due-reminders"),
+        intent: {
+          kind: "claim_due_reminders",
+          limit,
+          lease_duration_ms: leaseDurationMs,
+        },
+      });
+      return committed.value.reminder_leases.map((lease) => ({
+        leaseId: lease.lease_id,
+        projectId: lease.project_id,
+        pageId: lease.page_id,
+        occurrenceStart: lease.occurrence_start_ms,
+        reminderOffsetMinutes: lease.reminder_offset_minutes,
+        dueAt: lease.due_at_ms,
+        title: lease.title,
+        attempt: lease.attempt,
+        expiresAt: lease.expires_at_ms,
+      }));
+    },
+    completeReminderLease: async (leaseId) => {
+      await client.automationApply({
+        operationId: operationId(`complete-reminder:${leaseId}`),
+        intent: { kind: "complete_reminder_lease", lease_id: leaseId },
+      });
+    },
+    failReminderLease: async (leaseId, retryDelayMs, reasonCode) => {
+      await client.automationApply({
+        operationId: operationId(`fail-reminder:${leaseId}`),
+        intent: {
+          kind: "fail_reminder_lease",
+          lease_id: leaseId,
+          retry_delay_ms: retryDelayMs,
+          reason_code: reasonCode,
+        },
+      });
+    },
   };
 };
 
@@ -603,7 +984,10 @@ export const createDesktopAutomationModuleBridge = (
   const port = async (): Promise<DesktopAutomationModulePort> => {
     const runtime = await input.authority;
     if (runtime.backend === "typescript") return input.typescript;
-    corePort ??= createCoreAutomationPort(runtime.rootClient);
+    corePort ??= createCoreAutomationPort(
+      runtime.rootClient,
+      runtime.clientForProject,
+    );
     return corePort;
   };
   return {
@@ -643,5 +1027,55 @@ export const createDesktopAutomationModuleBridge = (
       (await port()).setRunReadState(readInput),
     markAllRunsRead: async (readInput) =>
       (await port()).markAllRunsRead(readInput),
+    listPageOccurrences: async (
+      projectId,
+      windowStart,
+      windowEnd,
+      searchQuery,
+    ) => (await port()).listPageOccurrences(
+      projectId,
+      windowStart,
+      windowEnd,
+      searchQuery,
+    ),
+    completePageOccurrence: async (projectId, occurrenceInput, sessionId) =>
+      (await port()).completePageOccurrence(
+        projectId,
+        occurrenceInput,
+        sessionId,
+      ),
+    skipPageOccurrence: async (projectId, occurrenceInput, sessionId) =>
+      (await port()).skipPageOccurrence(
+        projectId,
+        occurrenceInput,
+        sessionId,
+      ),
+    updatePageOccurrence: async (projectId, occurrenceInput, sessionId) =>
+      (await port()).updatePageOccurrence(
+        projectId,
+        occurrenceInput,
+        sessionId,
+      ),
+    snoozeReminder: async (
+      projectId,
+      pageId,
+      occurrenceStart,
+      snoozeMinutes,
+    ) => (await port()).snoozeReminder(
+      projectId,
+      pageId,
+      occurrenceStart,
+      snoozeMinutes,
+    ),
+    claimDueReminders: async (limit, leaseDurationMs) =>
+      (await port()).claimDueReminders(limit, leaseDurationMs),
+    completeReminderLease: async (leaseId) =>
+      (await port()).completeReminderLease(leaseId),
+    failReminderLease: async (leaseId, retryDelayMs, reasonCode) =>
+      (await port()).failReminderLease(
+        leaseId,
+        retryDelayMs,
+        reasonCode,
+      ),
   };
 };

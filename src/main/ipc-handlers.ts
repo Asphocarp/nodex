@@ -14,7 +14,6 @@ import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
 import * as boardReadModel from "./local-store/board-read-model";
-import * as pageOccurrences from "./local-store/page-occurrences";
 import * as pagesStore from "./local-store/database-pages";
 import {
   readProjectScopedDatabaseViewReference,
@@ -135,6 +134,7 @@ import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-syn
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
+import { createTypeScriptAutomationModulePort } from "./core-client/typescript-automation-module-port";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import { createTypeScriptStoreAdministrationPort } from "./core-client/typescript-store-administration-port";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
@@ -675,6 +675,8 @@ export function registerIpcHandlers(
   const documentSyncHub = options.documentSyncHub ?? defaultDocumentSyncHub;
   const storeAdministration = options.storeAdministration
     ?? createTypeScriptStoreAdministrationPort();
+  const automationModule = options.automationModule
+    ?? createTypeScriptAutomationModulePort();
   const projectWorkspace: DesktopProjectWorkspacePort =
     options.projectWorkspace ?? {
       listProjects: async () => projectsStore.listProjects(),
@@ -2178,7 +2180,7 @@ export function registerIpcHandlers(
       windowEnd: Date,
       searchQuery?: string,
     ) =>
-      pageOccurrences
+      automationModule
         .listPageOccurrences(projectId, windowStart, windowEnd, searchQuery)
         .then((occurrences) => ({ occurrences })),
   );
@@ -2187,12 +2189,11 @@ export function registerIpcHandlers(
     "page:occurrence:complete",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceCompleteIpcInput(input);
-      const envelope = await blockMutationWriter.completePageOccurrence(
+      return await automationModule.completePageOccurrence(
         projectId,
         input,
         sessionId,
       );
-      return envelope.result;
     },
   );
 
@@ -2200,12 +2201,11 @@ export function registerIpcHandlers(
     "page:occurrence:skip",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceIpcInput(input);
-      const envelope = await blockMutationWriter.skipPageOccurrence(
+      return await automationModule.skipPageOccurrence(
         projectId,
         input,
         sessionId,
       );
-      return envelope.result;
     },
   );
 
@@ -2213,12 +2213,11 @@ export function registerIpcHandlers(
     "page:occurrence:update",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceUpdateIpcInput(input);
-      const envelope = await blockMutationWriter.updatePageOccurrence(
+      return await automationModule.updatePageOccurrence(
         projectId,
         input,
         sessionId,
       );
-      return envelope.result;
     },
   );
 
@@ -3038,7 +3037,7 @@ export function registerIpcHandlers(
 
   registerCodexScheduledAutomationIpcHandlers({
     registerHandle,
-    automationModule: options.automationModule,
+    automationModule,
     runScheduledAutomationNow: (input, rendererClientId) =>
       codexService.runScheduledAutomationNow(input, rendererClientId),
     resolveAutomationArchiveMessages: (threadId) =>

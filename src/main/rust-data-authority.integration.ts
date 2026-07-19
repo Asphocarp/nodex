@@ -67,6 +67,14 @@ const unavailableAutomationPort = (): DesktopAutomationModulePort => {
     readInbox: unavailable,
     setRunReadState: unavailable,
     markAllRunsRead: unavailable,
+    listPageOccurrences: unavailable,
+    completePageOccurrence: unavailable,
+    skipPageOccurrence: unavailable,
+    updatePageOccurrence: unavailable,
+    snoozeReminder: unavailable,
+    claimDueReminders: unavailable,
+    completeReminderLease: unavailable,
+    failReminderLease: unavailable,
   };
 };
 
@@ -542,6 +550,14 @@ describe("Electron native data authority", () => {
       await expect(
         automation.deleteRun("thread:electron-session"),
       ).resolves.toBe(true);
+      await expect(automation.listPageOccurrences(
+        createdProject.id,
+        new Date("2026-07-19T00:00:00.000Z"),
+        new Date("2026-07-21T00:00:00.000Z"),
+      )).resolves.toEqual([]);
+      await expect(
+        automation.claimDueReminders(10, 120_000),
+      ).resolves.toEqual([]);
       await expect(
         automation.deleteDefinition(automationDefinition.id),
       ).resolves.toMatchObject({

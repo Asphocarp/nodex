@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import * as runsStore from "../local-store/codex-automation-runs";
 import * as definitionsStore from "../local-store/codex-scheduled-automations";
+import { blockMutationWriter } from "../block-mutation-writer";
+import { listPageOccurrences } from "../local-store/page-occurrences";
+import { snoozeReminder } from "../local-store/reminders";
 import type {
   DesktopAutomationClaim,
   DesktopAutomationModulePort,
@@ -123,5 +126,44 @@ export function createTypeScriptAutomationModulePort(): DesktopAutomationModuleP
       runsStore.setCodexAutomationRunReadAt(input.threadId, input.readAt),
     markAllRunsRead: async (input) =>
       runsStore.markAllCodexAutomationRunsRead(input.readAt),
+    listPageOccurrences: async (
+      projectId,
+      windowStart,
+      windowEnd,
+      searchQuery,
+    ) => listPageOccurrences(
+      projectId,
+      windowStart,
+      windowEnd,
+      searchQuery,
+    ),
+    completePageOccurrence: async (projectId, input, sessionId) =>
+      (await blockMutationWriter.completePageOccurrence(
+        projectId,
+        input,
+        sessionId,
+      )).result,
+    skipPageOccurrence: async (projectId, input, sessionId) =>
+      (await blockMutationWriter.skipPageOccurrence(
+        projectId,
+        input,
+        sessionId,
+      )).result,
+    updatePageOccurrence: async (projectId, input, sessionId) =>
+      (await blockMutationWriter.updatePageOccurrence(
+        projectId,
+        input,
+        sessionId,
+      )).result,
+    snoozeReminder,
+    claimDueReminders: async () => {
+      throw new Error("TypeScript reminder delivery remains scheduler-owned");
+    },
+    completeReminderLease: async () => {
+      throw new Error("TypeScript reminder delivery remains scheduler-owned");
+    },
+    failReminderLease: async () => {
+      throw new Error("TypeScript reminder delivery remains scheduler-owned");
+    },
   };
 }

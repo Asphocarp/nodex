@@ -30,7 +30,11 @@ import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
 import { dbNotifier } from "./local-store/notifier";
 import { getAssetsPathPrefix } from "./local-store/assets";
-import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
+import { runReminderTick, startReminderScheduler } from "./local-store/reminders";
+import {
+  startAutomationReminderScheduler,
+} from "./automation-reminder-scheduler";
+import type { ReminderNotificationPayload } from "./reminder-notification";
 import { terminalManager } from "./terminal-manager";
 import { blockMutationWriter } from "./block-mutation-writer";
 import { documentSyncHub } from "./document-sync-runtime";
@@ -169,6 +173,7 @@ const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
 let serverUrlForWindows: string | null = null;
 let stopReminderScheduler: (() => void) | null = null;
+let runtimeReminderTick: (() => Promise<void>) | null = null;
 let databaseReady = false;
 let pendingPageDeepLinkPageId: string | null = null;
 let pendingPageDeepLinkTarget: { projectId: string; pageId: string } | null = null;
@@ -196,6 +201,7 @@ let coreEventSubscription: CoreEventSubscription | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
 let storeAdministrationMaintenanceScheduler:
   StoreAdministrationMaintenanceScheduler | null = null;
+let reminderResumeHandlerRegistered = false;
 const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
 const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
@@ -218,6 +224,75 @@ const blockDocumentCompactionRuntime = createBlockDocumentCompactionRuntime(
       },
     }),
 );
+
+function showReminderNotification(
+  payload: ReminderNotificationPayload,
+): void {
+  if (!Notification.isSupported()) return;
+
+  const notification = new Notification({
+    title: payload.title,
+    body: payload.body,
+    actions: [
+      { type: "button", text: "Snooze 10m" },
+      { type: "button", text: "Snooze 1h" },
+    ],
+  });
+  notification.on("click", () => {
+    focusLastWindow();
+    sendReminderOpenEvent({
+      projectId: payload.projectId,
+      pageId: payload.pageId,
+      occurrenceStart: payload.occurrenceStart,
+    });
+  });
+  notification.on("action", (_, index) => {
+    const automation = desktopAutomationModule;
+    if (!automation) return;
+    const minutes = index === 0 ? 10 : 60;
+    void automation.snoozeReminder(
+      payload.projectId,
+      payload.pageId,
+      payload.occurrenceStart,
+      minutes,
+    ).catch((error) => {
+      logger.warn("Failed to snooze reminder", {
+        projectId: payload.projectId,
+        pageId: payload.pageId,
+        error,
+      });
+    });
+  });
+  notification.show();
+}
+
+function startRuntimeReminderDelivery(): void {
+  if (stopReminderScheduler || runtimeShutdownStarted) return;
+  const automation = desktopAutomationModule;
+  if (!automation) {
+    logger.warn("Reminder scheduler deferred: Automation module unavailable");
+    return;
+  }
+  if (desktopDataAuthorityRuntime?.backend === "rust") {
+    const scheduler = startAutomationReminderScheduler({
+      automation,
+      onReminder: showReminderNotification,
+    });
+    runtimeReminderTick = scheduler.runNow;
+    stopReminderScheduler = scheduler.dispose;
+  } else {
+    const onReminder = (payload: ReminderNotificationPayload): void => {
+      showReminderNotification(payload);
+    };
+    stopReminderScheduler = startReminderScheduler({ onReminder });
+    runtimeReminderTick = () => runReminderTick(onReminder);
+  }
+  if (reminderResumeHandlerRegistered) return;
+  reminderResumeHandlerRegistered = true;
+  powerMonitor.on("resume", () => {
+    void runtimeReminderTick?.();
+  });
+}
 
 const startBlockRetentionMaintenanceRuntime = (): void => {
   if (blockRetentionMaintenanceScheduler) return;
@@ -1088,63 +1163,10 @@ async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void>
 
   configureRuntimeBackupScheduler(getBackupSettings());
 
-  stopReminderScheduler = startReminderScheduler({
-    onReminder: (payload) => {
-      if (!Notification.isSupported()) return;
-
-      const notification = new Notification({
-        title: payload.title,
-        body: payload.body,
-        actions: [
-          { type: "button", text: "Snooze 10m" },
-          { type: "button", text: "Snooze 1h" },
-        ],
-      });
-
-      notification.on("click", () => {
-        focusLastWindow();
-        sendReminderOpenEvent({
-          projectId: payload.projectId,
-          pageId: payload.pageId,
-          occurrenceStart: payload.occurrenceStart,
-        });
-      });
-
-      notification.on("action", (_, index) => {
-        const minutes = index === 0 ? 10 : 60;
-        void snoozeReminder(
-          payload.projectId,
-          payload.pageId,
-          payload.occurrenceStart,
-          minutes,
-        );
-      });
-
-      notification.show();
-    },
-  });
+  startRuntimeReminderDelivery();
 
   await codexService.synchronizeAutomationRuntime();
   startRuntimeScheduledAutomationScheduler();
-
-  powerMonitor.on("resume", () => {
-    void runReminderTick((payload) => {
-      if (!Notification.isSupported()) return;
-      const notification = new Notification({
-        title: payload.title,
-        body: payload.body,
-      });
-      notification.on("click", () => {
-        focusLastWindow();
-        sendReminderOpenEvent({
-          projectId: payload.projectId,
-          pageId: payload.pageId,
-          occurrenceStart: payload.occurrenceStart,
-        });
-      });
-      notification.show();
-    });
-  });
 
   registerDesktopActivationHandler();
 
@@ -1196,6 +1218,7 @@ async function initializeDesktopApp(
   await resolvePendingSessionDeepLink();
   configureRuntimeBackupScheduler(getBackupSettings());
   startRuntimeStoreMaintenanceScheduler();
+  startRuntimeReminderDelivery();
   await codexService.synchronizeAutomationRuntime();
   startRuntimeScheduledAutomationScheduler();
   registerDesktopActivationHandler();
@@ -1424,6 +1447,7 @@ function beginMainRuntimeShutdown(): void {
     stopReminderScheduler();
     stopReminderScheduler = null;
   }
+  runtimeReminderTick = null;
   scheduledAutomationScheduler?.dispose();
   scheduledAutomationScheduler = null;
   terminalManager.killAll();
@@ -1546,6 +1570,7 @@ function registerRuntimeLifecycleHandlers(): void {
       stopReminderScheduler();
       stopReminderScheduler = null;
     }
+    runtimeReminderTick = null;
 
     if (process.platform !== "darwin") {
       app.quit();

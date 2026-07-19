@@ -52,6 +52,49 @@ const run = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const occurrence = (overrides: Record<string, unknown> = {}) => ({
+  occurrence_id: "page:planning:2026-07-20T01:00:00.000Z",
+  page_id: "page:planning",
+  status: "plan",
+  status_name: "Plan",
+  archived: false,
+  title: "Planning session",
+  rich_title: [{
+    type: "text",
+    text: "Planning session",
+    styles: {},
+  }],
+  description: "Plan the next milestone.",
+  priority: "p1-high",
+  estimate: "m",
+  tags: ["planning"],
+  due_date: "2026-07-20T03:00:00.000Z",
+  occurrence_start_ms: Date.parse("2026-07-20T01:00:00.000Z"),
+  occurrence_end_ms: Date.parse("2026-07-20T02:00:00.000Z"),
+  is_all_day: false,
+  recurrence: {
+    frequency: "weekly" as const,
+    interval: 1,
+    byWeekdays: [1],
+    endCondition: { type: "never" as const },
+  },
+  reminders: [{ offsetMinutes: 30 }],
+  schedule_timezone: "Asia/Shanghai",
+  assignee: "asc",
+  run_in_target: "localProject",
+  run_in_local_path: "/workspace",
+  run_in_base_branch: null,
+  run_in_worktree_path: null,
+  run_in_environment_path: null,
+  metadata_revision: 3,
+  created_at: "2026-07-19T00:00:00.000Z",
+  updated_at: "2026-07-19T01:00:00.000Z",
+  order: 100,
+  is_recurring: true,
+  this_and_future_equivalent_to_all: false,
+  ...overrides,
+});
+
 const readSnapshot = (
   value: AutomationReadSnapshot["value"],
 ): AutomationReadSnapshot => ({
@@ -138,6 +181,14 @@ const neverTypeScript = (): DesktopAutomationModulePort => ({
   readInbox: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   setRunReadState: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
   markAllRunsRead: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  listPageOccurrences: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  completePageOccurrence: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  skipPageOccurrence: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  updatePageOccurrence: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  snoozeReminder: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  claimDueReminders: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  completeReminderLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
+  failReminderLease: vi.fn(() => Promise.reject(new Error("TypeScript fallback ran"))),
 });
 
 describe("Desktop Automation Module bridge", () => {
@@ -363,6 +414,153 @@ describe("Desktop Automation Module bridge", () => {
       inbox_title: "Report ready",
       inbox_summary: "Review the report.",
     });
+  });
+
+  test("routes Calendar occurrences through the project client and preserves operation identities", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    const resolveProjectClient = vi.fn(() => projectClient);
+    const runtime = {
+      ...rustRuntime(rootClient),
+      clientForProject: resolveProjectClient,
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopAutomationModuleBridge({
+      authority: Promise.resolve(runtime),
+      typescript: neverTypeScript(),
+    });
+    const windowStart = new Date("2026-07-20T00:00:00.000Z");
+    const windowEnd = new Date("2026-07-21T00:00:00.000Z");
+    projectClient.enqueueAutomationRead(readSnapshot({
+      kind: "occurrences",
+      items: [occurrence()],
+    }));
+
+    await expect(bridge.listPageOccurrences(
+      "project:one",
+      windowStart,
+      windowEnd,
+      " planning ",
+    )).resolves.toMatchObject([{
+      id: "page:planning:2026-07-20T01:00:00.000Z",
+      pageId: "page:planning",
+      status: "plan",
+      priority: "p1-high",
+      scheduledStart: new Date("2026-07-20T01:00:00.000Z"),
+      occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
+      recurrence: { frequency: "weekly", byWeekdays: [1] },
+      runInTarget: "localProject",
+    }]);
+    expect(resolveProjectClient).toHaveBeenCalledWith("project:one");
+    expect(projectClient.automationReads).toEqual([{
+      kind: "occurrences",
+      window_start_ms: windowStart.getTime(),
+      window_end_ms: windowEnd.getTime(),
+      search_query: "planning",
+      limit: 20_000,
+    }]);
+
+    projectClient.enqueueAutomationApply(committed({
+      page_occurrence_mutation: {
+        operation_id: "calendar:update:1",
+        duplicate: false,
+        success: true,
+        created_page_id: "page:detached",
+      },
+    }));
+    await expect(bridge.updatePageOccurrence("project:one", {
+      operationId: "calendar:update:1",
+      pageId: "page:planning",
+      occurrenceStart: new Date("2026-07-20T01:00:00.000Z"),
+      source: "calendar",
+      scope: "this-and-future",
+      createdPageId: "page:detached",
+      updates: {
+        scheduledStart: new Date("2026-07-20T04:00:00.000Z"),
+        recurrence: null,
+        scheduleTimezone: null,
+      },
+    })).resolves.toEqual({ success: true });
+    expect(projectClient.automationApplies[0]).toMatchObject({
+      operationId: "calendar:update:1",
+      intent: {
+        kind: "update_page_occurrence",
+        page_id: "page:planning",
+        occurrence_start_ms: Date.parse("2026-07-20T01:00:00.000Z"),
+        scope: "this_and_future",
+        created_page_id: "page:detached",
+        updates: {
+          scheduled_start_ms: Date.parse("2026-07-20T04:00:00.000Z"),
+          recurrence: null,
+          schedule_timezone: null,
+        },
+      },
+    });
+  });
+
+  test("claims and settles reminder leases through the root Automation host", async () => {
+    const client = new FakeCoreClient();
+    const bridge = createDesktopAutomationModuleBridge({
+      authority: Promise.resolve(rustRuntime(client)),
+      typescript: neverTypeScript(),
+    });
+    client.enqueueAutomationApply(committed({
+      reminder_leases: [{
+        lease_id: "reminder-lease:1",
+        project_id: "project:one",
+        receipt_project_id: "project:owner",
+        page_id: "page:planning",
+        occurrence_start_ms: Date.parse("2026-07-20T01:00:00.000Z"),
+        reminder_offset_minutes: 30,
+        due_at_ms: Date.parse("2026-07-20T00:30:00.000Z"),
+        title: "Planning session",
+        claimed_at_ms: Date.parse("2026-07-20T00:30:01.000Z"),
+        expires_at_ms: Date.parse("2026-07-20T00:32:01.000Z"),
+        attempt: 1,
+        status: "claimed",
+        settled_at_ms: null,
+        retry_at_ms: null,
+        reason_code: null,
+        snooze_id: null,
+      }],
+    }));
+    client.enqueueAutomationApply(committed({}));
+    client.enqueueAutomationApply(committed({}));
+
+    await expect(bridge.claimDueReminders(12, 120_000)).resolves.toEqual([{
+      leaseId: "reminder-lease:1",
+      projectId: "project:one",
+      pageId: "page:planning",
+      occurrenceStart: Date.parse("2026-07-20T01:00:00.000Z"),
+      reminderOffsetMinutes: 30,
+      dueAt: Date.parse("2026-07-20T00:30:00.000Z"),
+      title: "Planning session",
+      attempt: 1,
+      expiresAt: Date.parse("2026-07-20T00:32:01.000Z"),
+    }]);
+    await bridge.completeReminderLease("reminder-lease:1");
+    await bridge.failReminderLease(
+      "reminder-lease:2",
+      30_000,
+      "notification_failed",
+    );
+
+    expect(client.automationApplies.map((apply) => apply.intent)).toEqual([
+      {
+        kind: "claim_due_reminders",
+        limit: 12,
+        lease_duration_ms: 120_000,
+      },
+      {
+        kind: "complete_reminder_lease",
+        lease_id: "reminder-lease:1",
+      },
+      {
+        kind: "fail_reminder_lease",
+        lease_id: "reminder-lease:2",
+        retry_delay_ms: 30_000,
+        reason_code: "notification_failed",
+      },
+    ]);
   });
 
   test("maps inbox/read state and selects the explicit TypeScript fallback", async () => {

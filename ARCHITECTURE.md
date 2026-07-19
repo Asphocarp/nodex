@@ -124,8 +124,9 @@ each Page's primary-Database or recursive grant authority, requires its current
 Data Source workflow status, and returns the established deduplicated command-
 palette projection. It is intentionally separate from Library-wide semantic
 content search, whose raw Block/Document evidence serves CLI and Agent use cases.
-Scheduled Automation definition CRUD, due dispatch, Codex run lifecycle, and
-the renderer run inbox use one authority-selected Automation port. In the Rust
+Scheduled Automation definition CRUD, due dispatch, Codex run lifecycle, the
+renderer run inbox, Calendar occurrence reads/mutations, reminder snooze, and
+reminder Host delivery use one authority-selected Automation port. In the Rust
 branch the trusted root client maps the established camel-cased host model to
 Core-owned revisions and receipts. The scheduler claims durable expiring leases
 before external execution and completes or fails that exact lease afterward;
@@ -136,10 +137,14 @@ settlement, and definition-owned run cascade are native transitions. Archive
 messages resolved from Codex transcripts are submitted with the archive
 transition instead of being persisted first. Durable Automation events refresh
 the host's command-only run and active-heartbeat caches and invalidate the
-established renderer queries. The TypeScript implementation is an explicit
-fallback behind the same port. Electron remains responsible only for external
-Codex execution, live renderer ownership evidence, transcript observation, and
-app-server Thread coordination.
+established renderer queries. Calendar callers retain their exact logical
+operation identity through the Adapter so response-loss retries resolve the
+same native receipt. The native reminder scheduler claims expiring Host leases,
+displays each OS notification, and completes or fails the exact lease; snooze
+actions return through the same port. The TypeScript implementation is an
+explicit fallback behind that port. Electron remains responsible only for
+external Codex execution, live renderer ownership evidence, transcript
+observation, app-server Thread coordination, and OS notification presentation.
 Store Administration backup inventory, manual creation/deletion/restore, and
 automatic creation/retention use one authority-selected desktop port. The Rust
 Adapter maps the complete immutable manifest projection, including trigger,
@@ -465,13 +470,12 @@ single Automation receipt/event commit or roll back together. Deterministic
 request failures persist as replayable rejected receipts without a change-log
 row, including across authenticated Adapter changes.
 
-The Automation definition/run Host boundary is active behind the Electron Rust
-development selector, including durable due-lease scheduling and committed
-event invalidation. Scheduled Page occurrence/reminder delivery remains on the
-native semantic surface pending its desktop Host adapter. Generated protocol
-artifacts are byte-verified, and dependency audits prevent UDS routes from
-importing SQLite, deep Modules from importing transport code, or the Electron
-client from reaching the local store.
+The complete Automation Host boundary is active behind the Electron Rust
+development selector, including durable execution and reminder leases,
+Calendar occurrence reads/mutations, snooze, and committed event invalidation.
+Generated protocol artifacts are byte-verified, and dependency audits prevent
+UDS routes from importing SQLite, deep Modules from importing transport code,
+or the Electron client from reaching the local store.
 
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical product read models (`Page` detail payloads, internal full-board shapes, `PageSummary`/`BoardSummary` lightweight View projections, `Project`, and project session/tab/thread-link payloads). Page is a document-bearing Block and has no second storage identity; `Card` is reserved for visual components.
@@ -501,7 +505,7 @@ client from reaching the local store.
 - `main-runtime.ts`: application runtime startup (startup-init gating, DB init with migration progress fanout, HTTP server start, multi-window registry, app-update service, notifier fanout, renderer permission policy, and shutdown handlers). The app session allows clipboard writes only from top-level app windows; Browser sidebar partitions and embedded/subframe content do not inherit that permission.
 - `instance-scope.ts`: applies Electron `userData` + `sessionData` paths under the resolved Nodex home so each configured Profile owns its own process-lock scope.
 - `http-server.ts`: Hono routes for Profiles/Libraries, Projects and bindings/grants, project sessions/tabs/thread links, Pages, Database/Source/View reads and writes, history, backups, assets, and access-bound Owned Document preparation/synchronization/mutation/version checkpoints. Yjs sync uses bounded binary envelopes; Canvas scene sync uses bounded canonical JSON; stable-ID Agent mutations and immutable Document-history commands use bounded JSON with host-bound identity. Realtime delivery is filtered through the Project's effective Library scope while Yjs Awareness remains ephemeral. Preparing a Page Document is an explicit writer command, never a renderer ID convention.
-- `ipc-handlers.ts`: mirrors core operations through IPC, including lightweight board-summary fetches, on-demand Page detail/search channels, Project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, clipboard paste inspection, prepared owned-Document descriptors, binary Block Document subscription/sync/apply/Awareness, immutable Document version list/get/checkpoint/restore, stable-ID Document mutations restricted to trusted main-frame windows, and the narrow Hooks registration in `codex-hooks-ipc-handlers.ts`. Backup IPC is registered through `store-administration-ipc-handlers.ts` against the same authority-selected port used by the host scheduler; a native restore schedules a controlled Electron relaunch after its receipt returns. Hook state writes broadcast a host-scoped change only after the app-server config write succeeds.
+- `ipc-handlers.ts`: mirrors core operations through IPC, including lightweight board-summary fetches, on-demand Page detail/search channels, authority-selected Calendar occurrence reads/complete/skip/update commands, Project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, clipboard paste inspection, prepared owned-Document descriptors, binary Block Document subscription/sync/apply/Awareness, immutable Document version list/get/checkpoint/restore, stable-ID Document mutations restricted to trusted main-frame windows, and the narrow Hooks registration in `codex-hooks-ipc-handlers.ts`. Backup IPC is registered through `store-administration-ipc-handlers.ts` against the same authority-selected port used by the host scheduler; a native restore schedules a controlled Electron relaunch after its receipt returns. Hook state writes broadcast a host-scoped change only after the app-server config write succeeds.
 - `block-mutation-writer.ts`, `block-mutation-worker.ts`, and `block-mutation-worker-protocol.ts`: the single asynchronous SQLite writer seam. IPC/HTTP handlers enqueue Page lifecycle/parent, Block property/Database Module, stable-ID Document, owned-Document preparation, Yjs sync/apply, Canvas scene, transfer, history, binding/grant, and maintenance commands into one FIFO worker. It owns the SQLite connection and bounded Y.Doc cache for `block_tree`, while normalized Canvas authority is relational; typed receipts return only after durability.
 - `local-store/local-profile-library.ts`, `content-resource-authority.ts`, and `library-module-runtime.ts`: resolve the one local human Profile/Library independently of visible Project lifecycle, bind trusted application-window or loopback authority, and implement bounded Library navigation plus structural commands. Private compatibility ownership is selected only inside the worker; Library Page Detail, Database, Property, and Owned Document results expose `accessContext: { kind: "library" }` and never expose that storage Project.
 - `library-module-ipc.ts`, `library-module-http.ts`, and the Library event stream: equivalent trusted adapters and resource-addressed post-commit invalidation for Project-independent Library windows. Library events are hints to refetch authority, not content payloads, and remain useful when every Project is archived.
@@ -528,7 +532,7 @@ client from reaching the local store.
 - `local-store/page-history.ts`, `document-versions.ts`, `document-revision-session-store.ts`, and `document-revision-maintenance-store.ts`: the canonical Page-scoped history projection and immutable semantic Document Revision module. Human Yjs edits retain pre-burst safety plus active/idle revisions through durable session state; strict commands link their resulting revision to mutation evidence; Page history collapses that pair into one restorable content entry and keeps non-content evidence as Activity. BlockTree v2 revisions store stable-ID BlockTree plus rich Page title and rederive NFM on read; legacy Yjs and Canvas formats remain readable. Restore records pinned before/after revisions and appends a current-head forward mutation. A worker-owned scheduler finalizes idle/crash-surviving sessions, shutdown forces dirty finalization, and deterministic retention tiers only unpinned rows.
 - `local-store/description-revisions.ts`, `legacy-card-shadow-*`, and `foreign-reference-migration.ts`: shipped-schema staging-import helpers. They are unreachable from current-store editing/history paths, and their backing tables are absent from a published v58 store.
 - `local-store/block-retention-gc.ts`, `block-retention-maintenance.ts`, `block-retention-maintenance-store.ts`, and `block-retention-maintenance-scheduler.ts`: fail-closed tombstone retention planning and production collection. The background scheduler samples the current store epoch and retention setting, then submits one bounded all-Project pass through `BlockMutationWriter`. Each candidate rechecks global reference/history/recovery reachability in an IMMEDIATE transaction, prunes only attributable expiring evidence, preserves immutable mutation/change receipts, permanently records every removed application ID in `retired_block_identities`, and removes a verified ownership closure or nothing.
-- `local-store/reminders.ts`, `backups.ts`, `assets.ts`, `primary-canvas-document.ts`, `canvas-scene-store.ts`, `canvas-scene-authority-reader.ts`, and `sql-inspection.ts`: reminder scheduling, the explicit TypeScript-oracle whole-store backup/restore implementation, managed asset storage, deterministic primary Canvas ownership/migration, normalized scene authority, and read-only SQLite inspection. Desktop backup scheduling and IPC depend on the backend-neutral Store Administration port rather than importing the backup store directly.
+- `local-store/reminders.ts`, `backups.ts`, `assets.ts`, `primary-canvas-document.ts`, `canvas-scene-store.ts`, `canvas-scene-authority-reader.ts`, and `sql-inspection.ts`: the explicit TypeScript-oracle reminder and whole-store backup/restore implementations, managed asset storage, deterministic primary Canvas ownership/migration, normalized scene authority, and read-only SQLite inspection. Desktop reminder delivery and backup scheduling/IPC depend on their backend-neutral Automation and Store Administration ports rather than importing these stores in the Rust branch.
 - `local-store/page-input-validation.ts`: shared Page write validation used by all mutation paths.
 - `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, independently filtered console/file/observer sinks, and a profile-scoped bounded JSONL writer under `${NODEX_HOME}/logs`. The file sink uses size-based segments, a global byte budget, a priority-aware bounded queue, stream backpressure, retention pruning, and shutdown flush; dev/unpackaged runs enable console `warn+`, file `info+`, and observer `warn+` by default, while packaged diagnostics remain opt-in.
 - `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
