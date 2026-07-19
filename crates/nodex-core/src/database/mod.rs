@@ -1,9 +1,13 @@
+mod mutation;
 mod read;
 
-use nodex_core_contracts::database::{DatabaseRead, DatabaseReadValue};
+use nodex_core_contracts::database::{
+    DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
+};
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CoreError, CoreErrorCode, CoreErrorRecovery,
-    ModuleReadRequest, ModuleReadSnapshot,
+    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
+    CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest,
+    ModuleReadSnapshot,
 };
 use rusqlite::OptionalExtension;
 
@@ -11,11 +15,16 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 use crate::infrastructure::store::SqliteStoreKernel;
 use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 
+#[derive(Clone, Debug)]
+pub struct DatabaseApplyOutcome {
+    pub committed: CommittedModuleValue<DatabaseCommitValue, DatabaseReceipt>,
+    pub event: Option<CommittedCoreModuleEvent>,
+}
+
 pub struct DatabaseModule {
     profile_id: String,
     library_id: String,
     readers: Option<StoreReaders>,
-    #[allow(dead_code)]
     writer: Option<StoreWriter>,
 }
 
@@ -85,6 +94,22 @@ impl DatabaseModule {
                     value,
                 })
             })
+            .map_err(core_error)
+    }
+
+    pub fn apply(
+        &self,
+        context: &BoundModuleContext,
+        request: ModuleApplyRequest<Vec<DatabaseIntent>>,
+    ) -> Result<DatabaseApplyOutcome, CoreError> {
+        self.validate_context(context)?;
+        if request.version != CORE_CONTRACT_VERSION {
+            return Err(invalid("unsupported Database contract version"));
+        }
+        let Some(writer) = &self.writer else {
+            return Err(unavailable("Database Module has no durable store"));
+        };
+        mutation::apply(writer, &self.profile_id, &self.library_id, context, request)
             .map_err(core_error)
     }
 
@@ -168,13 +193,13 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::database::{DatabaseReadMode, DatabaseTarget};
+    use nodex_core_contracts::database::{DatabaseIntent, DatabaseReadMode, DatabaseTarget};
     use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
     use nodex_core_contracts::{
         AdapterKind, LibraryId, ModuleApplyRequest, ProfileId, ProjectId, StoreEpoch,
     };
     use rusqlite::params;
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tempfile::tempdir;
 
     use crate::infrastructure::sqlite::with_immediate_transaction;
@@ -375,5 +400,145 @@ mod tests {
         assert_eq!(value["properties"].as_array().map(Vec::len), Some(8));
         assert_eq!(value["rows"][0]["page"]["title"], "Fix sign-in");
         assert_eq!(value["rows"][0]["values"]["status"]["value"], "triage");
+
+        let request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "operation:database-schema-values".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: vec![
+                DatabaseIntent::PutProperty {
+                    data_source_id: SOURCE_ID.to_owned(),
+                    property_id: "risk".to_owned(),
+                    expected_data_source_revision: 1,
+                    expected_property_revision: 0,
+                    name: "Risk".to_owned(),
+                    value_type: "select".to_owned(),
+                    before_property_id: Some("tags".to_owned()),
+                },
+                DatabaseIntent::PutOption {
+                    data_source_id: SOURCE_ID.to_owned(),
+                    property_id: "risk".to_owned(),
+                    option_id: "high".to_owned(),
+                    name: "High".to_owned(),
+                    color: Some("red".to_owned()),
+                    expected_property_revision: 1,
+                },
+                DatabaseIntent::SetValue {
+                    page_id: "page:database-row".to_owned(),
+                    data_source_id: SOURCE_ID.to_owned(),
+                    property_id: "risk".to_owned(),
+                    expected_value_revision: 0,
+                    value: json!("high"),
+                },
+            ],
+        };
+        let applied = module
+            .apply(&context(), request.clone())
+            .expect("commit schema and value batch");
+        assert_eq!(applied.committed.value.operation_count, 3);
+        assert!(!applied.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            applied.committed.receipt.affected_database_ids,
+            [DATABASE_ID]
+        );
+        assert_eq!(
+            applied.committed.receipt.affected_page_ids,
+            ["page:database-row"]
+        );
+        assert!(applied.event.is_some());
+
+        let replayed = module
+            .apply(&context(), request.clone())
+            .expect("replay exact Database batch");
+        assert!(replayed.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replayed.committed.event_sequence,
+            applied.committed.event_sequence
+        );
+        assert!(replayed.event.is_none());
+
+        let mut divergent = request;
+        divergent.intent.push(DatabaseIntent::SetValue {
+            page_id: "page:database-row".to_owned(),
+            data_source_id: SOURCE_ID.to_owned(),
+            property_id: "risk".to_owned(),
+            expected_value_revision: 1,
+            value: Value::Null,
+        });
+        let collision = module
+            .apply(&context(), divergent)
+            .expect_err("reject divergent Database retry");
+        assert_eq!(collision.code, CoreErrorCode::IdempotencyKeyReused);
+
+        let rollback = module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:database-rollback".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![
+                        DatabaseIntent::PutProperty {
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "score".to_owned(),
+                            expected_data_source_revision: 3,
+                            expected_property_revision: 0,
+                            name: "Score".to_owned(),
+                            value_type: "number".to_owned(),
+                            before_property_id: None,
+                        },
+                        DatabaseIntent::SetValue {
+                            page_id: "page:database-row".to_owned(),
+                            data_source_id: SOURCE_ID.to_owned(),
+                            property_id: "status".to_owned(),
+                            expected_value_revision: 99,
+                            value: json!("build"),
+                        },
+                    ],
+                },
+            )
+            .expect_err("roll back an invalid Database batch");
+        assert_eq!(rollback.code, CoreErrorCode::RevisionConflict);
+
+        let value = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::Query,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("read committed Database value");
+        let DatabaseReadValue::DataSourceQuery { value } = value.value else {
+            panic!("Data Source query snapshot");
+        };
+        assert_eq!(value["dataSource"]["schemaRevision"], 3);
+        assert_eq!(value["properties"].as_array().map(Vec::len), Some(9));
+        assert_eq!(value["rows"][0]["values"]["risk"]["value"], "high");
+        assert!(value["properties"].as_array().is_some_and(|properties| {
+            properties
+                .iter()
+                .all(|value| value["propertyId"] != "score")
+        }));
+        let database_events = kernel
+            .writer()
+            .call(|connection| {
+                connection
+                    .query_row(
+                        "SELECT count(*) FROM change_log WHERE kind = 'database.changed'",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .map_err(StoreError::from)
+            })
+            .expect("count Database events");
+        assert_eq!(database_events, 1);
     }
 }
