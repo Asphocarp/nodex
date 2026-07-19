@@ -22,11 +22,14 @@ export {
 export {
   createDesktopDatabaseModuleBridge,
   mapCoreDatabaseEvent,
+  mapCoreLibraryDatabaseEvent,
   type DesktopDatabaseModuleBridge,
 } from "./desktop-database-module-bridge";
 export {
   createCoreDatabaseModuleAdapter,
+  createCoreLibraryDatabaseModuleAdapter,
   type CoreDatabaseModuleAdapter,
+  type CoreLibraryDatabaseModuleAdapter,
 } from "./database-module-adapter";
 export {
   createDesktopProjectWorkspaceBridge,

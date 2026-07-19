@@ -136,6 +136,7 @@ import {
   createDesktopDocumentSyncBridge,
   createDesktopProjectWorkspaceBridge,
   mapCoreDatabaseEvent,
+  mapCoreLibraryDatabaseEvent,
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
   type CoreEventEnvelope,
@@ -1192,6 +1193,14 @@ function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
     dbNotifier.notifyDatabaseChanged(databaseEvent);
     return;
   }
+  const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(
+    envelope,
+    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+  );
+  if (libraryDatabaseEvent) {
+    dbNotifier.notifyLibraryNavigationChanged(libraryDatabaseEvent);
+    return;
+  }
   const libraryEvent = mapCoreLibraryEvent(
     envelope,
     desktopDataAuthorityRuntime.rootClient.handshake.library_id,
@@ -1658,6 +1667,17 @@ export async function runMainAppStartup(
           (await blockMutationWriter.readDatabaseModule(request)).result,
         apply: async (request) =>
           (await blockMutationWriter.applyDatabaseModule(request)).result,
+        readLibrary: (request) =>
+          blockMutationWriter.readLibraryDatabaseModule(
+            request,
+            "app_window",
+          ),
+        applyLibrary: (request) =>
+          blockMutationWriter.applyLibraryDatabaseModule(
+            request,
+            { kind: "electron_renderer" },
+            "app_window",
+          ),
       },
     }),
     rendererClientRouter,

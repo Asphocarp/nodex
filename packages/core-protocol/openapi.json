@@ -1894,7 +1894,6 @@
         "type": "object",
         "required": [
           "kind",
-          "project_id",
           "database_ids",
           "data_source_ids",
           "page_ids",
@@ -1923,7 +1922,10 @@
             }
           },
           "project_id": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "view_ids": {
             "type": "array",

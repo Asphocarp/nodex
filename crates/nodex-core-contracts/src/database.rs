@@ -177,7 +177,7 @@ pub struct DatabaseCommitValue {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseEvent {
     pub kind: DatabaseEventKind,
-    pub project_id: String,
+    pub project_id: Option<String>,
     pub database_ids: Vec<String>,
     pub data_source_ids: Vec<String>,
     pub page_ids: Vec<String>,

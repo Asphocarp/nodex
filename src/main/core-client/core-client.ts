@@ -187,7 +187,7 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/database/read",
       { version: PROTOCOL_MAX, read },
-      this.#moduleHeaders(true),
+      this.#databaseHeaders(),
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -203,7 +203,7 @@ export class CoreClient implements CoreClientPort {
         store_epoch: this.handshake.store_epoch,
         intent: input.intent,
       },
-      this.#moduleHeaders(true),
+      this.#databaseHeaders(),
     );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
@@ -450,6 +450,13 @@ export class CoreClient implements CoreClientPort {
       ...(!this.#projectId ? { "x-nodex-document-scope": "library" } : {}),
       "x-nodex-client-session-id": clientSessionId,
       ...(documentId ? { "x-nodex-document-id": documentId } : {}),
+    };
+  }
+
+  #databaseHeaders(): Readonly<Record<string, string>> {
+    return {
+      ...this.#moduleHeaders(),
+      ...(!this.#projectId ? { "x-nodex-database-scope": "library" } : {}),
     };
   }
 

@@ -6,15 +6,22 @@ import type {
   DatabaseModuleReadRequestV2,
   DatabaseModuleReadResultV2,
   DatabaseReadV2,
+  LibraryDatabaseApplyResultV2,
+  LibraryDatabaseApplyV2,
+  LibraryDatabaseModuleReadRequestV2,
+  LibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
 import {
   parseDatabaseApplyResultV2,
   parseDatabaseModuleReadResultV2,
+  parseLibraryDatabaseApplyResultV2,
+  parseLibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2-transport";
 import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
   CoreModuleError,
+  DatabaseCommittedValue,
   DatabaseIntent,
   DatabaseRead,
 } from "./types";
@@ -31,6 +38,19 @@ export interface CoreDatabaseModuleAdapter {
     request: DatabaseModuleReadRequestV2,
   ): Promise<DatabaseModuleReadResultV2>;
   apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
+}
+
+export interface CoreLibraryDatabaseModuleAdapterInput {
+  readonly client: CoreClientPort;
+  readonly libraryId: string;
+  readonly storeEpoch: string;
+}
+
+export interface CoreLibraryDatabaseModuleAdapter {
+  read(
+    request: LibraryDatabaseModuleReadRequestV2,
+  ): Promise<LibraryDatabaseModuleReadResultV2>;
+  apply(request: LibraryDatabaseApplyV2): Promise<LibraryDatabaseApplyResultV2>;
 }
 
 const toCoreTarget = (target: DatabaseReadV2["target"]): DatabaseRead["target"] => {
@@ -90,7 +110,9 @@ const mapCoreError = (
   };
 };
 
-const failure = (error: unknown): DatabaseModuleReadResultV2 => {
+const failure = (
+  error: unknown,
+): Extract<DatabaseModuleReadResultV2, { readonly ok: false }> => {
   if (error instanceof CoreModuleResponseError) {
     return { ok: false, error: mapCoreError(error.coreError) };
   }
@@ -107,7 +129,7 @@ const failure = (error: unknown): DatabaseModuleReadResultV2 => {
 const applyFailure = (
   error: unknown,
   operationId: string,
-): DatabaseApplyResultV2 => {
+): Extract<DatabaseApplyResultV2, { readonly ok: false }> => {
   if (error instanceof CoreModuleResponseError) {
     return {
       ok: false,
@@ -264,6 +286,43 @@ const toCoreIntent = (
   }
 };
 
+const validateCoreCommit = (
+  committed: DatabaseCommittedValue,
+  request: Pick<DatabaseApplyV2, "operationId" | "operations">,
+): readonly DatabaseApplyOperationV2["kind"][] => {
+  if (committed.receipt.operation_id !== request.operationId) {
+    throw new Error("Core Database receipt crossed its operation boundary");
+  }
+  const operationKinds = request.operations.map((operation) => operation.kind);
+  if (
+    committed.value.operation_count !== request.operations.length
+    || committed.receipt.change_log_seq !== committed.event_sequence
+    || committed.receipt.operation_kinds.length !== operationKinds.length
+    || committed.receipt.operation_kinds.some((kind, index) =>
+      kind !== operationKinds[index]
+    )
+  ) {
+    throw new Error("Core Database receipt evidence is inconsistent");
+  }
+  return operationKinds;
+};
+
+const coreReceiptEvidence = (
+  committed: DatabaseCommittedValue,
+  operationKinds: readonly DatabaseApplyOperationV2["kind"][],
+) => ({
+  operationId: committed.receipt.operation_id,
+  duplicate: committed.receipt.duplicate,
+  operationKinds,
+  affectedDatabaseIds: committed.receipt.affected_database_ids,
+  affectedDataSourceIds: committed.receipt.affected_data_source_ids,
+  affectedPageIds: committed.receipt.affected_page_ids,
+  affectedViewIds: committed.receipt.affected_view_ids,
+  committedRevisions: committed.receipt.committed_revisions,
+  changeLogSeq: committed.receipt.change_log_seq,
+  committedAt: committed.receipt.committed_at,
+});
+
 export const createCoreDatabaseModuleAdapter = (
   input: CoreDatabaseModuleAdapterInput,
 ): CoreDatabaseModuleAdapter => {
@@ -327,40 +386,15 @@ export const createCoreDatabaseModuleAdapter = (
         if (committed.store_epoch !== input.storeEpoch) {
           throw new Error("Core Database apply crossed its Store epoch boundary");
         }
-        const operationKinds = request.operations.map((operation) =>
-          operation.kind
-        );
-        if (committed.receipt.operation_id !== request.operationId) {
-          throw new Error("Core Database receipt crossed its operation boundary");
-        }
-        if (
-          committed.value.operation_count !== request.operations.length
-          || committed.receipt.change_log_seq !== committed.event_sequence
-          || committed.receipt.operation_kinds.length !== operationKinds.length
-          || committed.receipt.operation_kinds.some((kind, index) =>
-            kind !== operationKinds[index]
-          )
-        ) {
-          throw new Error("Core Database receipt evidence is inconsistent");
-        }
+        const operationKinds = validateCoreCommit(committed, request);
         return parseDatabaseApplyResultV2({
           ok: true,
           value: {
             version: request.version,
-            operationId: committed.receipt.operation_id,
             projectId: input.projectId,
             libraryId: input.libraryId,
             storeEpoch: committed.store_epoch,
-            duplicate: committed.receipt.duplicate,
-            operationKinds,
-            affectedDatabaseIds: committed.receipt.affected_database_ids,
-            affectedDataSourceIds:
-              committed.receipt.affected_data_source_ids,
-            affectedPageIds: committed.receipt.affected_page_ids,
-            affectedViewIds: committed.receipt.affected_view_ids,
-            committedRevisions: committed.receipt.committed_revisions,
-            changeLogSeq: committed.receipt.change_log_seq,
-            committedAt: committed.receipt.committed_at,
+            ...coreReceiptEvidence(committed, operationKinds),
           },
         });
       } catch (error) {
@@ -369,3 +403,64 @@ export const createCoreDatabaseModuleAdapter = (
     },
   };
 };
+
+export const createCoreLibraryDatabaseModuleAdapter = (
+  input: CoreLibraryDatabaseModuleAdapterInput,
+): CoreLibraryDatabaseModuleAdapter => ({
+  read: async (request) => {
+    try {
+      const snapshot = await input.client.databaseRead(toCoreRead(request.read));
+      if (snapshot.store_epoch !== input.storeEpoch) {
+        throw new Error("Core Library Database read crossed its Store epoch boundary");
+      }
+      return parseLibraryDatabaseModuleReadResultV2({
+        ok: true,
+        value: {
+          version: request.version,
+          accessContext: { kind: "library" },
+          libraryId: input.libraryId,
+          storeEpoch: snapshot.store_epoch,
+          changeLogSeq: snapshot.event_head,
+          value: snapshot.value,
+        },
+      });
+    } catch (error) {
+      return failure(error);
+    }
+  },
+  apply: async (request) => {
+    if (request.storeEpoch !== input.storeEpoch) {
+      return {
+        ok: false,
+        error: {
+          code: "store_not_initialized",
+          message: "Library Database apply targets a stale Store epoch",
+          retryable: true,
+          operationId: request.operationId,
+        },
+      };
+    }
+    try {
+      const committed = await input.client.databaseApply({
+        operationId: request.operationId,
+        intent: request.operations.map(toCoreIntent),
+      });
+      if (committed.store_epoch !== input.storeEpoch) {
+        throw new Error("Core Library Database apply crossed its Store epoch boundary");
+      }
+      const operationKinds = validateCoreCommit(committed, request);
+      return parseLibraryDatabaseApplyResultV2({
+        ok: true,
+        value: {
+          version: request.version,
+          accessContext: { kind: "library" },
+          libraryId: input.libraryId,
+          storeEpoch: committed.store_epoch,
+          ...coreReceiptEvidence(committed, operationKinds),
+        },
+      });
+    } catch (error) {
+      return applyFailure(error, request.operationId);
+    }
+  },
+});

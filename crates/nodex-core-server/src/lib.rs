@@ -85,6 +85,8 @@ const DOCUMENT_HEADER: &str = "x-nodex-document-id";
 const CLIENT_SESSION_HEADER: &str = "x-nodex-client-session-id";
 const DOCUMENT_SCOPE_HEADER: &str = "x-nodex-document-scope";
 const LIBRARY_DOCUMENT_SCOPE: &str = "library";
+const DATABASE_SCOPE_HEADER: &str = "x-nodex-database-scope";
+const LIBRARY_DATABASE_SCOPE: &str = "library";
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 struct ServerState {
@@ -557,7 +559,7 @@ async fn database_read(
     headers: HeaderMap,
     Json(DatabaseReadRequest(request)): Json<DatabaseReadRequest>,
 ) -> Json<DatabaseReadResponse> {
-    let response = match module_context(&state, &headers, &bound) {
+    let response = match database_context(&state, &headers, &bound) {
         Ok(context) => match state.database.read(&context, request) {
             Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
             Err(error) => ResponseEnvelope::Error(record_core_error(error)),
@@ -574,7 +576,7 @@ async fn database_apply(
     Json(DatabaseApplyRequest(request)): Json<DatabaseApplyRequest>,
 ) -> Json<DatabaseApplyResponse> {
     record_operation("database", &request.operation_id);
-    let response = match module_context(&state, &headers, &bound) {
+    let response = match database_context(&state, &headers, &bound) {
         Ok(context) => match state.database.apply(&context, request) {
             Ok(outcome) => {
                 record_commit(
@@ -1396,6 +1398,45 @@ fn module_context(
         profile_id: ProfileId(state.profile_id.clone()),
         library_id: LibraryId(state.library_id.clone()),
         project_id: optional_header(headers, PROJECT_HEADER, "Project")?.map(ProjectId),
+        connection_id: bound.id.clone(),
+        adapter: bound.adapter.clone(),
+    })
+}
+
+fn database_context(
+    state: &ServerState,
+    headers: &HeaderMap,
+    bound: &BoundConnection,
+) -> Result<BoundModuleContext, CoreError> {
+    let project_id = optional_header(headers, PROJECT_HEADER, "Project")?;
+    let database_scope = optional_header(headers, DATABASE_SCOPE_HEADER, "Database scope")?;
+    let project_id = match (project_id, database_scope.as_deref()) {
+        (Some(project_id), None) => Some(ProjectId(project_id)),
+        (None, Some(LIBRARY_DATABASE_SCOPE))
+            if matches!(
+                bound.adapter,
+                AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+            ) =>
+        {
+            None
+        }
+        (None, Some(LIBRARY_DATABASE_SCOPE)) => {
+            return Err(unauthorized(
+                "Library Database scope requires a trusted local Adapter",
+            ));
+        }
+        (Some(_), Some(_)) => {
+            return Err(unauthorized(
+                "Database access cannot bind both Project and Library scope",
+            ));
+        }
+        (None, Some(_)) => return Err(unauthorized("Database scope is unsupported")),
+        (None, None) => return Err(unauthorized("Database scope binding is required")),
+    };
+    Ok(BoundModuleContext {
+        profile_id: ProfileId(state.profile_id.clone()),
+        library_id: LibraryId(state.library_id.clone()),
+        project_id,
         connection_id: bound.id.clone(),
         adapter: bound.adapter.clone(),
     })

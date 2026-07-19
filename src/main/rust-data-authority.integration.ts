@@ -9,7 +9,10 @@ import { initializeDesktopDataAuthority } from "./core-client/desktop-data-autho
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreCanvasSceneAdapter } from "./core-client/core-canvas-scene-adapter";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
-import { createCoreDatabaseModuleAdapter } from "./core-client/database-module-adapter";
+import {
+  createCoreDatabaseModuleAdapter,
+  createCoreLibraryDatabaseModuleAdapter,
+} from "./core-client/database-module-adapter";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import type { CoreEventEnvelope } from "./core-client/types";
@@ -175,7 +178,6 @@ describe("Electron native data authority", () => {
           },
         },
       });
-      databaseEventSubscription.close();
       await expect(database.apply(databaseWrite)).resolves.toMatchObject({
         ok: true,
         value: {
@@ -210,6 +212,75 @@ describe("Electron native data authority", () => {
           }),
         ]),
       );
+      const libraryDatabase = createCoreLibraryDatabaseModuleAdapter({
+        client: runtime.rootClient,
+        libraryId: runtime.rootClient.handshake.library_id,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+      });
+      const libraryDataSource = await libraryDatabase.read({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        read: {
+          target: {
+            kind: "data_source",
+            dataSourceId: primaryDataSource.dataSourceId,
+          },
+          mode: "data_source",
+        },
+      });
+      if (
+        !libraryDataSource.ok
+        || libraryDataSource.value.value.kind !== "data_source"
+      ) {
+        throw new Error("Expected trusted Library Database read");
+      }
+      expect("projectId" in libraryDataSource.value).toBe(false);
+      const libraryPropertyId = parseDataSourcePropertyId("p_libcore1");
+      const libraryDatabaseWrite = await libraryDatabase.apply({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: "electron-library-database-put-property",
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        operations: [{
+          kind: "put_property",
+          dataSourceId: primaryDataSource.dataSourceId,
+          propertyId: libraryPropertyId,
+          expectedDataSourceRevision:
+            libraryDataSource.value.value.value.dataSource.schemaRevision,
+          expectedPropertyRevision: 0,
+          name: "Library Core",
+          valueType: "text",
+          config: {},
+        }],
+      });
+      expect(libraryDatabaseWrite).toMatchObject({
+        ok: true,
+        value: {
+          accessContext: { kind: "library" },
+          libraryId: runtime.rootClient.handshake.library_id,
+          operationId: "electron-library-database-put-property",
+          operationKinds: ["put_property"],
+        },
+      });
+      if (!libraryDatabaseWrite.ok) {
+        throw new Error("Expected trusted Library Database write");
+      }
+      expect("projectId" in libraryDatabaseWrite.value).toBe(false);
+      await waitUntil(
+        () => databaseEvents.some((event) =>
+          event.event.operation_id
+            === "electron-library-database-put-property"),
+        "Core Library Database event was not published",
+      );
+      expect(databaseEvents.find((event) =>
+        event.event.operation_id === "electron-library-database-put-property"
+      )).toMatchObject({
+        event: {
+          payload: {
+            module: "database",
+            event: { project_id: null },
+          },
+        },
+      });
+      databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);
       const createdProject = await workspace.createProject({

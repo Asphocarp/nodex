@@ -579,7 +579,10 @@ interface RegisterIpcHandlersOptions {
     | "readLibraryPageDetail"
     | "listPageHistory"
   >;
-  databaseModule?: Pick<DesktopDatabaseModuleBridge, "read" | "apply">;
+  databaseModule?: Pick<
+    DesktopDatabaseModuleBridge,
+    "read" | "apply" | "readLibrary" | "applyLibrary"
+  >;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
 }
@@ -1469,14 +1472,14 @@ export function registerIpcHandlers(
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
-    read: (request) =>
-      blockMutationWriter.readLibraryDatabaseModule(request, "app_window"),
-    apply: (request) =>
+    read: options.databaseModule?.readLibrary ?? ((request) =>
+      blockMutationWriter.readLibraryDatabaseModule(request, "app_window")),
+    apply: options.databaseModule?.applyLibrary ?? ((request) =>
       blockMutationWriter.applyLibraryDatabaseModule(
         request,
         { kind: "electron_renderer" },
         "app_window",
-      ),
+      )),
   });
 
   registerPageDetailIpcHandler({

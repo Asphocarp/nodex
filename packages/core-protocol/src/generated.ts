@@ -619,7 +619,7 @@ export interface components {
             readonly database_ids: readonly string[];
             readonly kind: components["schemas"]["DatabaseEventKind"];
             readonly page_ids: readonly string[];
-            readonly project_id: string;
+            readonly project_id?: string | null;
             readonly view_ids: readonly string[];
         };
         /** @enum {string} */

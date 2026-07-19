@@ -14,9 +14,9 @@ use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,
 };
 use nodex_core_contracts::{
-    BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
-    CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest, ModuleReadRequest,
-    ModuleReadSnapshot,
+    AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
+    CommittedModuleValue, CoreError, CoreErrorCode, CoreErrorRecovery, ModuleApplyRequest,
+    ModuleReadRequest, ModuleReadSnapshot,
 };
 use rusqlite::OptionalExtension;
 
@@ -28,6 +28,14 @@ use crate::infrastructure::writer::{StoreReaders, StoreWriter};
 pub struct DatabaseApplyOutcome {
     pub committed: CommittedModuleValue<DatabaseCommitValue, DatabaseReceipt>,
     pub event: Option<CommittedCoreModuleEvent>,
+}
+
+pub(crate) fn is_trusted_library_database_context(context: &BoundModuleContext) -> bool {
+    context.project_id.is_none()
+        && matches!(
+            context.adapter,
+            AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+        )
 }
 
 pub struct DatabaseModule {
@@ -212,7 +220,8 @@ mod tests {
     };
     use nodex_core_contracts::library::{LibraryIntent, LibraryWriteParent};
     use nodex_core_contracts::{
-        AdapterKind, LibraryId, ModuleApplyRequest, ProfileId, ProjectId, StoreEpoch,
+        AdapterKind, CoreModuleEventPayload, LibraryId, ModuleApplyRequest, ProfileId, ProjectId,
+        StoreEpoch,
     };
     use rusqlite::params;
     use serde_json::{Value, json};
@@ -235,6 +244,16 @@ mod tests {
             project_id: Some(ProjectId("project-1".to_owned())),
             connection_id: "connection:database-read".to_owned(),
             adapter: AdapterKind::Test,
+        }
+    }
+
+    fn library_context(adapter: AdapterKind) -> BoundModuleContext {
+        BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: None,
+            connection_id: "connection:database-library".to_owned(),
+            adapter,
         }
     }
 
@@ -829,6 +848,79 @@ mod tests {
             .expect_err("Page-parent transfers require Document authority");
         assert_eq!(page_parent_rejection.code, CoreErrorCode::InvalidInput);
 
+        let library_source = module
+            .read(
+                &library_context(AdapterKind::Test),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::DataSource,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect("trusted Library scope reads a concrete Data Source");
+        let DatabaseReadValue::DataSource {
+            value: library_source,
+        } = library_source.value
+        else {
+            panic!("Library Data Source descriptor");
+        };
+        assert_eq!(library_source["dataSource"]["dataSourceId"], SOURCE_ID);
+        let untrusted_library_read = module
+            .read(
+                &library_context(AdapterKind::Agent),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: DatabaseRead {
+                        target: DatabaseTarget::DataSource {
+                            data_source_id: SOURCE_ID.to_owned(),
+                        },
+                        mode: DatabaseReadMode::DataSource,
+                        filter: None,
+                        sort: None,
+                    },
+                },
+            )
+            .expect_err("untrusted Adapter cannot claim Library Database scope");
+        assert_eq!(untrusted_library_read.code, CoreErrorCode::Unauthorized);
+
+        let library_write = module
+            .apply(
+                &library_context(AdapterKind::Test),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "operation:library-database-property".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: vec![DatabaseIntent::PutProperty {
+                        data_source_id: SOURCE_ID.to_owned(),
+                        property_id: "library-note".to_owned(),
+                        expected_data_source_revision: 3,
+                        expected_property_revision: 0,
+                        name: "Library note".to_owned(),
+                        value_type: "text".to_owned(),
+                        before_property_id: None,
+                    }],
+                },
+            )
+            .expect("trusted Library scope mutates a concrete Data Source");
+        assert_eq!(
+            library_write.committed.receipt.committed_revisions,
+            BTreeMap::from([
+                (format!("source:{SOURCE_ID}"), 4),
+                (format!("property:{SOURCE_ID}:library-note"), 1),
+            ])
+        );
+        let library_event = library_write.event.expect("Library Database event");
+        let CoreModuleEventPayload::Database(library_event) = library_event.payload else {
+            panic!("Database event payload");
+        };
+        assert_eq!(library_event.project_id, None);
+
         let database_events = kernel
             .writer()
             .call(|connection| {
@@ -841,6 +933,6 @@ mod tests {
                     .map_err(StoreError::from)
             })
             .expect("count Database events");
-        assert_eq!(database_events, 6);
+        assert_eq!(database_events, 7);
     }
 }

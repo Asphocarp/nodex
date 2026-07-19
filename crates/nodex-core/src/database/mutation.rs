@@ -27,6 +27,7 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_t
 use crate::infrastructure::writer::StoreWriter;
 
 use super::DatabaseApplyOutcome;
+use super::is_trusted_library_database_context;
 
 const MODULE_NAME: &str = "database";
 const MAX_OPERATIONS: usize = 64;
@@ -43,6 +44,17 @@ struct MutationEffects {
     page_ids: BTreeSet<String>,
     view_ids: BTreeSet<String>,
     revisions: BTreeMap<String, i64>,
+}
+
+struct DatabaseMutationAuthority {
+    ledger_project_id: String,
+    project_id: Option<String>,
+}
+
+impl DatabaseMutationAuthority {
+    fn is_library(&self) -> bool {
+        self.project_id.is_none()
+    }
 }
 
 #[derive(Debug)]
@@ -111,7 +123,7 @@ pub(super) fn apply(
     writer.call(move |connection| {
         with_immediate_transaction(connection, |transaction| {
             assert_identity(transaction, &profile_id, &library_id)?;
-            let project_id = active_project_id(transaction, &library_id, &context)?;
+            let authority = mutation_authority(transaction, &library_id, &context)?;
             let store_epoch = read_store_epoch(transaction)?;
             if request.store_epoch.0 != store_epoch {
                 return Err(StoreError::new(
@@ -155,7 +167,7 @@ pub(super) fn apply(
                 apply_intent(
                     transaction,
                     &library_id,
-                    &project_id,
+                    &authority,
                     intent,
                     &now,
                     &mut effects,
@@ -167,7 +179,7 @@ pub(super) fn apply(
                 &request,
                 &store_epoch,
                 &request_hash,
-                &project_id,
+                &authority,
                 &now,
                 effects,
             )
@@ -214,11 +226,13 @@ fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
 fn apply_intent(
     connection: &Connection,
     library_id: &str,
-    project_id: &str,
+    authority: &DatabaseMutationAuthority,
     intent: &DatabaseIntent,
     now: &str,
     effects: &mut MutationEffects,
 ) -> Result<(), StoreError> {
+    let project_id = authority.ledger_project_id.as_str();
+    let library_scope = authority.is_library();
     match intent {
         DatabaseIntent::PutProperty {
             data_source_id,
@@ -241,6 +255,7 @@ fn apply_intent(
             before_property_id.as_deref(),
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::DeleteProperty {
             data_source_id,
@@ -257,6 +272,7 @@ fn apply_intent(
             *expected_property_revision,
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::PutOption {
             data_source_id,
@@ -277,6 +293,7 @@ fn apply_intent(
             *expected_property_revision,
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::DeleteOption {
             data_source_id,
@@ -293,6 +310,7 @@ fn apply_intent(
             *expected_property_revision,
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::SetValue {
             page_id,
@@ -313,10 +331,19 @@ fn apply_intent(
             },
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::SetValues { values } => {
             for value in values {
-                set_value(connection, library_id, project_id, value, now, effects)?;
+                set_value(
+                    connection,
+                    library_id,
+                    project_id,
+                    value,
+                    now,
+                    effects,
+                    library_scope,
+                )?;
             }
             Ok(())
         }
@@ -337,6 +364,7 @@ fn apply_intent(
             remove,
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::PutView {
             database_id,
@@ -363,6 +391,7 @@ fn apply_intent(
             before_view_id.as_deref(),
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::DeleteView {
             database_id,
@@ -377,6 +406,7 @@ fn apply_intent(
             *expected_revision,
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::PositionPage {
             view_id,
@@ -397,6 +427,7 @@ fn apply_intent(
             before_page_id.as_deref(),
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::PositionPages {
             view_id,
@@ -413,6 +444,7 @@ fn apply_intent(
             before_page_id.as_deref(),
             now,
             effects,
+            library_scope,
         ),
         DatabaseIntent::TransferPage {
             page_id,
@@ -429,6 +461,7 @@ fn apply_intent(
             target,
             now,
             effects,
+            library_scope,
         ),
     }
 }
@@ -447,6 +480,7 @@ fn put_property(
     before_property_id: Option<&str>,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     validate_id(data_source_id, "data_source_id", MAX_ID_LENGTH)?;
     validate_id(property_id, "property_id", MAX_PROPERTY_ID_LENGTH)?;
@@ -458,6 +492,7 @@ fn put_property(
         project_id,
         &source.database_id,
         DatabaseWriteAction::ManageSchema,
+        library_scope,
     )?;
     require_revision(
         expected_source_revision,
@@ -540,6 +575,7 @@ fn delete_property(
     expected_property_revision: i64,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     authorize_write(
@@ -547,6 +583,7 @@ fn delete_property(
         project_id,
         &source.database_id,
         DatabaseWriteAction::ManageSchema,
+        library_scope,
     )?;
     require_revision(
         expected_source_revision,
@@ -605,6 +642,7 @@ fn put_option(
     expected_property_revision: i64,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     validate_id(option_id, "option_id", MAX_PROPERTY_ID_LENGTH)?;
     let name = validate_name(name, "Option name")?;
@@ -617,6 +655,7 @@ fn put_option(
         project_id,
         &source.database_id,
         DatabaseWriteAction::ManageSchema,
+        library_scope,
     )?;
     let property = active_property(connection, data_source_id, property_id)?;
     require_revision(
@@ -687,6 +726,7 @@ fn delete_option(
     expected_property_revision: i64,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, data_source_id)?;
     authorize_write(
@@ -694,6 +734,7 @@ fn delete_option(
         project_id,
         &source.database_id,
         DatabaseWriteAction::ManageSchema,
+        library_scope,
     )?;
     let property = active_property(connection, data_source_id, property_id)?;
     require_revision(
@@ -748,6 +789,7 @@ fn set_value(
     input: &DatabasePageValue,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     let source = require_source(connection, library_id, &input.data_source_id)?;
     authorize_write(
@@ -755,6 +797,7 @@ fn set_value(
         project_id,
         &source.database_id,
         DatabaseWriteAction::Write,
+        library_scope,
     )?;
     let property = active_property(connection, &input.data_source_id, &input.property_id)?;
     let membership = connection
@@ -866,6 +909,7 @@ fn add_remove_value(
     remove: &[String],
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     let property = active_property(connection, data_source_id, property_id)?;
     if property.value_type != "multi_select" {
@@ -937,6 +981,7 @@ fn add_remove_value(
         },
         now,
         effects,
+        library_scope,
     )
 }
 
@@ -1010,6 +1055,7 @@ pub(crate) fn resolve_page_copy_data_source_project(
         requesting_project_id,
         &source.database_id,
         DatabaseWriteAction::Write,
+        false,
     )?;
     connection
         .query_row(
@@ -1054,6 +1100,7 @@ pub(crate) fn place_copied_page_in_data_source(
         requesting_project_id,
         &source.database_id,
         DatabaseWriteAction::Write,
+        false,
     )?;
     let storage_project_id = connection
         .query_row(
@@ -1257,6 +1304,7 @@ pub(crate) fn place_copied_page_in_data_source(
             },
             now,
             &mut effects,
+            false,
         )?;
     }
     if let (Some(placement), Some(_)) = (&destination.view, view) {
@@ -1276,6 +1324,7 @@ pub(crate) fn place_copied_page_in_data_source(
                 .map(|anchor| anchor.page_id.as_str()),
             now,
             &mut effects,
+            false,
         )?;
     }
     effects.database_ids.insert(source.database_id.clone());
@@ -1334,6 +1383,7 @@ fn transfer_page(
     target: &DatabaseTransferTarget,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     validate_id(page_id, "page_id", MAX_ID_LENGTH)?;
     let page = connection
@@ -1355,7 +1405,7 @@ fn transfer_page(
         .optional()?
         .ok_or_else(|| not_found("Page is unavailable"))?;
     let (page_library_id, parent_kind, _, parent_revision, page_project_id) = page;
-    if page_library_id != library_id || page_project_id != project_id {
+    if page_library_id != library_id || (!library_scope && page_project_id != project_id) {
         return Err(unauthorized(
             "Bound Project cannot transfer this Page authority",
         ));
@@ -1403,6 +1453,7 @@ fn transfer_page(
             project_id,
             &source.database_id,
             DatabaseWriteAction::Write,
+            library_scope,
         )?;
     }
     let positioned_views = connection
@@ -1443,7 +1494,7 @@ fn transfer_page(
                    metadata_revision = metadata_revision + 1, updated_at = ?1 WHERE id = ?2",
                 params![now, page_id],
             )?;
-            append_top_level_placement(connection, project_id, page_id, now)?;
+            append_top_level_placement(connection, &page_project_id, page_id, now)?;
             let rank_key = connection.query_row(
                 "SELECT rank_key FROM top_level_block_placements WHERE block_id = ?1",
                 [page_id],
@@ -1467,6 +1518,7 @@ fn transfer_page(
                 project_id,
                 &target_source.database_id,
                 DatabaseWriteAction::Write,
+                library_scope,
             )?;
             let target_project_id = connection
                 .query_row(
@@ -1476,7 +1528,7 @@ fn transfer_page(
                 )
                 .optional()?
                 .ok_or_else(|| corrupt("Target Data Source has no Database Block authority"))?;
-            if target_project_id != project_id {
+            if !library_scope && target_project_id != project_id {
                 return Err(unauthorized(
                     "A Page cannot transfer across Project ownership",
                 ));
@@ -2064,6 +2116,7 @@ fn put_view(
     before_view_id: Option<&str>,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     validate_id(database_id, "database_id", MAX_ID_LENGTH)?;
     validate_id(view_id, "view_id", MAX_ID_LENGTH)?;
@@ -2086,6 +2139,7 @@ fn put_view(
         project_id,
         database_id,
         DatabaseWriteAction::ManageViews,
+        library_scope,
     )?;
     let existing = view_row(connection, view_id)?;
     require_revision(
@@ -2202,6 +2256,7 @@ fn delete_view(
     expected_revision: i64,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     let container = require_container(connection, library_id, database_id)?;
     let view = view_row(connection, view_id)?
@@ -2212,6 +2267,7 @@ fn delete_view(
         project_id,
         database_id,
         DatabaseWriteAction::ManageViews,
+        library_scope,
     )?;
     require_revision(
         expected_revision,
@@ -2264,6 +2320,7 @@ fn position_pages(
     before_page_id: Option<&str>,
     now: &str,
     effects: &mut MutationEffects,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
     if pages.is_empty() || pages.len() > MAX_BULK_VALUES {
         return Err(invalid(format!(
@@ -2294,6 +2351,7 @@ fn position_pages(
         project_id,
         &view.database_id,
         DatabaseWriteAction::Write,
+        library_scope,
     )?;
     let config = parse_json(&view.config_json, "Database View config")?;
     let group_property_id = view_group_property(&config);
@@ -3383,7 +3441,7 @@ fn commit(
     request: &ModuleApplyRequest<Vec<DatabaseIntent>>,
     store_epoch: &str,
     request_hash: &str,
-    project_id: &str,
+    authority: &DatabaseMutationAuthority,
     now: &str,
     effects: MutationEffects,
 ) -> Result<DatabaseApplyOutcome, StoreError> {
@@ -3408,6 +3466,7 @@ fn commit(
     let payload = json!({
         "module": MODULE_NAME,
         "kind": "database_changed",
+        "projectId": authority.project_id,
         "version": request.version,
         "operationCount": request.intent.len(),
         "operationKinds": operation_kinds,
@@ -3424,7 +3483,7 @@ fn commit(
            database_block_ids_json, payload_json, committed_at\
          ) VALUES (?1, ?2, 'database.changed', ?3, ?4, '[]', ?5, ?6, ?7)",
         params![
-            project_id,
+            authority.ledger_project_id,
             store_epoch,
             request.operation_id,
             serde_json::to_string(&block_ids).map_err(|_| internal("Database Block IDs"))?,
@@ -3480,7 +3539,7 @@ fn commit(
         committed_at: now.to_owned(),
         payload: CoreModuleEventPayload::Database(DatabaseEvent {
             kind: DatabaseEventKind::DatabaseChanged,
-            project_id: project_id.to_owned(),
+            project_id: authority.project_id.clone(),
             database_ids,
             data_source_ids,
             page_ids,
@@ -3571,7 +3630,11 @@ fn authorize_write(
     project_id: &str,
     database_id: &str,
     action: DatabaseWriteAction,
+    library_scope: bool,
 ) -> Result<(), StoreError> {
+    if library_scope {
+        return Ok(());
+    }
     let project = connection
         .query_row(
             "SELECT database_block_id, lifecycle FROM projects WHERE id = ?1",
@@ -3651,24 +3714,43 @@ fn authorize_write(
     Err(unauthorized("Project cannot mutate this Database"))
 }
 
-fn active_project_id(
+fn mutation_authority(
     connection: &Connection,
     library_id: &str,
     context: &BoundModuleContext,
-) -> Result<String, StoreError> {
-    let project_id = context
-        .project_id
-        .as_ref()
-        .map(|project_id| project_id.0.as_str())
-        .ok_or_else(|| unauthorized("Database mutations require a bound Project"))?;
-    connection
+) -> Result<DatabaseMutationAuthority, StoreError> {
+    if let Some(project_id) = context.project_id.as_ref() {
+        let project_id = connection
+            .query_row(
+                "SELECT id FROM projects \
+                 WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
+                params![project_id.0, library_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| unauthorized("Bound Project is not active in this Library"))?;
+        return Ok(DatabaseMutationAuthority {
+            ledger_project_id: project_id.clone(),
+            project_id: Some(project_id),
+        });
+    }
+    if !is_trusted_library_database_context(context) {
+        return Err(unauthorized(
+            "Database mutations require a Project or trusted Library scope",
+        ));
+    }
+    let ledger_project_id = connection
         .query_row(
-            "SELECT id FROM projects WHERE id = ?1 AND library_id = ?2 AND lifecycle = 'active'",
-            params![project_id, library_id],
+            "SELECT id FROM projects WHERE library_id = ?1 ORDER BY created, id LIMIT 1",
+            [library_id],
             |row| row.get::<_, String>(0),
         )
         .optional()?
-        .ok_or_else(|| unauthorized("Bound Project is not active in this Library"))
+        .ok_or_else(|| not_found("Local Library has no storage Project"))?;
+    Ok(DatabaseMutationAuthority {
+        ledger_project_id,
+        project_id: None,
+    })
 }
 
 fn assert_identity(

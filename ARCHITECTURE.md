@@ -127,8 +127,12 @@ Database v2 parsers. Core records operation kinds, every committed revision,
 change-log sequence, and commit time inside the writer transaction; durable
 Database events also retain the actor Project so Electron can publish the
 existing resource-scoped Database and Library invalidations after commit.
-Trusted Library Database access remains on the cutover inventory until it has
-an explicit local capability rather than an Adapter-selected storage Project.
+Trusted Library Database access uses a distinct root-client capability accepted
+only from local Electron-host, native-CLI, and test adapters. Core resolves the
+concrete Library Database/Data Source/View itself and keeps the non-null legacy
+change-ledger Project coordinate private; Library snapshots, receipts, and
+events never expose or imply that compatibility owner. Electron consequently
+publishes Library catalog/resource invalidations without inventing a Project.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

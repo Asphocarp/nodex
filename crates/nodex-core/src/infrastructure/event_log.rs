@@ -78,6 +78,8 @@ struct LibraryMetadata {
 struct DatabaseMetadata {
     module: String,
     kind: String,
+    #[serde(default)]
+    project_id: Option<String>,
     database_ids: Vec<String>,
     data_source_ids: Vec<String>,
     page_ids: Vec<String>,
@@ -227,10 +229,17 @@ fn reconstruct_event(
             validate_strings(&metadata.data_source_ids, "Data Source")?;
             validate_strings(&metadata.page_ids, "Database Page")?;
             validate_strings(&metadata.view_ids, "Database View")?;
-            validate_identity(&row.project_id, "Database Project")?;
+            if let Some(project_id) = metadata.project_id.as_deref() {
+                validate_identity(project_id, "Database Project")?;
+                if project_id != row.project_id {
+                    return Err(corrupt(
+                        "Database event Project and ledger authority diverge",
+                    ));
+                }
+            }
             CoreModuleEventPayload::Database(DatabaseEvent {
                 kind: DatabaseEventKind::DatabaseChanged,
-                project_id: row.project_id.clone(),
+                project_id: metadata.project_id,
                 database_ids: metadata.database_ids,
                 data_source_ids: metadata.data_source_ids,
                 page_ids: metadata.page_ids,

@@ -10,6 +10,8 @@ use serde_json::{Map, Value, json};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
+use super::is_trusted_library_database_context;
+
 pub(crate) struct PageDataSourceProjection {
     pub membership_id: String,
     pub data_source_id: String,
@@ -85,11 +87,20 @@ pub(super) fn read(
     let project_id = context
         .project_id
         .as_ref()
-        .map(|project_id| project_id.0.as_str())
-        .ok_or_else(|| unauthorized("Database reads require a bound Project"))?;
-    let primary_database_id = project_primary_database(connection, library_id, project_id)?;
+        .map(|project_id| project_id.0.as_str());
+    if project_id.is_none() && !is_trusted_library_database_context(context) {
+        return Err(unauthorized(
+            "Database reads require a Project or trusted Library scope",
+        ));
+    }
+    let primary_database_id = project_id
+        .map(|project_id| project_primary_database(connection, library_id, project_id))
+        .transpose()?
+        .flatten();
     match (&request.target, request.mode) {
         (DatabaseTarget::ProjectDefault, DatabaseReadMode::Catalog) => {
+            let project_id = project_id
+                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
             let database_ids = connection
                 .prepare(
                     "SELECT block_id FROM database_containers \
@@ -115,7 +126,14 @@ pub(super) fn read(
         (DatabaseTarget::ProjectDefault, DatabaseReadMode::Database) => {
             let database_id =
                 primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
-            authorize_required(connection, project_id, Some(&database_id), &database_id)?;
+            let project_id = project_id
+                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
+            authorize_required(
+                connection,
+                Some(project_id),
+                Some(&database_id),
+                &database_id,
+            )?;
             Ok(DatabaseReadValue::Database {
                 value: database_descriptor(connection, library_id, &database_id)?,
             })
@@ -123,7 +141,14 @@ pub(super) fn read(
         (DatabaseTarget::ProjectDefault, DatabaseReadMode::Query) => {
             let database_id =
                 primary_database_id.ok_or_else(|| not_found("Project has no primary Database"))?;
-            authorize_required(connection, project_id, Some(&database_id), &database_id)?;
+            let project_id = project_id
+                .ok_or_else(|| invalid("Library Database reads require a concrete target"))?;
+            authorize_required(
+                connection,
+                Some(project_id),
+                Some(&database_id),
+                &database_id,
+            )?;
             let view_id = connection
                 .query_row(
                     "SELECT default_view_id FROM database_containers WHERE block_id = ?1",
@@ -245,10 +270,13 @@ fn project_primary_database(
 
 fn authorize_required(
     connection: &Connection,
-    project_id: &str,
+    project_id: Option<&str>,
     primary_database_id: Option<&str>,
     database_id: &str,
 ) -> Result<(), StoreError> {
+    let Some(project_id) = project_id else {
+        return Ok(());
+    };
     if authorize_database(connection, project_id, primary_database_id, database_id)? {
         return Ok(());
     }

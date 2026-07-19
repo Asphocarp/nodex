@@ -8,10 +8,14 @@ import {
   parseDataSourceOptionId,
   parseDataSourcePropertyId,
 } from "../../shared/database-identities";
-import { createCoreDatabaseModuleAdapter } from "./database-module-adapter";
+import {
+  createCoreDatabaseModuleAdapter,
+  createCoreLibraryDatabaseModuleAdapter,
+} from "./database-module-adapter";
 import {
   createDesktopDatabaseModuleBridge,
   mapCoreDatabaseEvent,
+  mapCoreLibraryDatabaseEvent,
 } from "./desktop-database-module-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
 import { FakeCoreClient } from "./testing/fake-core-client";
@@ -383,6 +387,70 @@ describe("Core Database Module Adapter", () => {
     }]);
   });
 
+  test("maps trusted Library writes without exposing a storage Project", async () => {
+    const client = new FakeCoreClient();
+    const dataSourceId = parseDataSourceId("source:library");
+    const propertyId = parseDataSourcePropertyId("p_library1");
+    client.enqueueDatabaseApply({
+      value: { operation_count: 1 },
+      receipt: {
+        operation_id: "operation:library",
+        duplicate: false,
+        affected_database_ids: [],
+        affected_data_source_ids: [dataSourceId],
+        affected_page_ids: [],
+        affected_view_ids: [],
+        operation_kinds: ["put_property"],
+        committed_revisions: {
+          [`property:${dataSourceId}:${propertyId}`]: 1,
+        },
+        change_log_seq: 52,
+        committed_at: "2026-07-20T00:10:00.000Z",
+      },
+      event_sequence: 52,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryDatabaseModuleAdapter({
+      client,
+      libraryId: identity.libraryId,
+      storeEpoch: identity.storeEpoch,
+    });
+
+    await expect(adapter.apply({
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "operation:library",
+      storeEpoch: identity.storeEpoch,
+      operations: [{
+        kind: "put_property",
+        dataSourceId,
+        propertyId,
+        expectedDataSourceRevision: 1,
+        expectedPropertyRevision: 0,
+        name: "Library",
+        valueType: "text",
+        config: {},
+      }],
+    })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        accessContext: { kind: "library" },
+        libraryId: identity.libraryId,
+        operationId: "operation:library",
+        operationKinds: ["put_property"],
+      },
+    });
+    const [result] = client.databaseApplies;
+    expect(result).toMatchObject({
+      operationId: "operation:library",
+      intent: [{
+        kind: "put_property",
+        data_source_id: dataSourceId,
+        property_id: propertyId,
+      }],
+    });
+    expect(result && "projectId" in result).toBe(false);
+  });
+
   test("selects one cached Core client for each Project", async () => {
     const client = new FakeCoreClient();
     client.enqueueDatabaseRead(emptyCatalogSnapshot());
@@ -410,6 +478,12 @@ describe("Core Database Module Adapter", () => {
         },
         apply: async () => {
           throw new Error("TypeScript Database apply must not run");
+        },
+        readLibrary: async () => {
+          throw new Error("TypeScript Library Database read must not run");
+        },
+        applyLibrary: async () => {
+          throw new Error("TypeScript Library Database apply must not run");
         },
       },
     });
@@ -457,6 +531,44 @@ describe("Core Database Module Adapter", () => {
       affectedPageIds: ["page:test"],
       affectedViewIds: ["view:test"],
       changeLogSeq: 42,
+    });
+  });
+
+  test("maps Library Database events without a compatibility Project", () => {
+    expect(mapCoreLibraryDatabaseEvent({
+      protocol_version: 1,
+      event: {
+        version: 1,
+        sequence: 53,
+        store_epoch: identity.storeEpoch,
+        operation_id: "operation:library-database",
+        committed_at: "2026-07-20T00:11:00.000Z",
+        payload: {
+          module: "database",
+          event: {
+            kind: "database_changed",
+            project_id: null,
+            database_ids: ["database:library"],
+            data_source_ids: ["source:library"],
+            page_ids: ["page:library"],
+            view_ids: ["view:library"],
+          },
+        },
+      },
+    }, identity.libraryId)).toEqual({
+      version: 1,
+      libraryId: identity.libraryId,
+      storeEpoch: identity.storeEpoch,
+      changeLogSeq: 53,
+      changeKind: "database",
+      affectedParentKeys: [
+        "library",
+        "catalog",
+        "database:database:library",
+      ],
+      affectedPageIds: ["page:library"],
+      affectedDatabaseIds: ["database:library"],
+      affectedViewIds: ["view:library"],
     });
   });
 });
