@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use nodex_core_contracts::AdapterKind;
 use nodex_core_contracts::library::{
     LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode,
     LibraryNavigationParent, LibraryPageAccessContext, LibraryPageDataSourceContext,
@@ -24,6 +25,7 @@ pub(super) fn read(
     store_epoch: &str,
     event_head: i64,
     requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
     request: LibraryRead,
 ) -> Result<LibraryReadValue, StoreError> {
     match request {
@@ -98,6 +100,23 @@ pub(super) fn read(
             cursor,
             limit,
         ),
+        LibraryRead::ProjectPageSearch {
+            project_ids,
+            query,
+            limit,
+        } => {
+            if requesting_project_id.is_some()
+                || !matches!(
+                    requesting_adapter,
+                    AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+                )
+            {
+                return Err(unauthorized(
+                    "Project Page search requires a trusted local root Adapter",
+                ));
+            }
+            super::content::project_page_search(connection, library_id, project_ids, &query, limit)
+        }
         LibraryRead::PageHistory {
             page_id,
             before,
@@ -857,6 +876,10 @@ fn catalog_id(entry: &LibraryCatalogEntry) -> &str {
 
 fn invalid(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
+}
+
+fn unauthorized(message: &str) -> StoreError {
+    StoreError::new(StoreErrorCode::Unauthorized, message, false)
 }
 
 fn not_found(message: &str) -> StoreError {

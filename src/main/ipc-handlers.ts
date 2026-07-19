@@ -578,6 +578,7 @@ interface RegisterIpcHandlersOptions {
     | "readProjectPageDetail"
     | "readLibraryPageDetail"
     | "listPageHistory"
+    | "searchPages"
   >;
   databaseModule?: Pick<
     DesktopDatabaseModuleBridge,
@@ -2136,7 +2137,9 @@ export function registerIpcHandlers(
 
   registerHandle("pages:search", async (_, input) => {
     const startedAt = performance.now();
-    const results = await boardReadModel.searchPages(input);
+    const results = options.libraryModule
+      ? await options.libraryModule.searchPages(input)
+      : await boardReadModel.searchPages(input);
     ipcPayloadLogger.info("page search payload served", {
       channel: "pages:search",
       projectCount: input.projectIds.length,

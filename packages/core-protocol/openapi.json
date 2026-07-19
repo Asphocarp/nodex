@@ -4275,6 +4275,16 @@
           }
         }
       },
+      "LibraryPageWorkflowStatus": {
+        "type": "string",
+        "enum": [
+          "triage",
+          "plan",
+          "build",
+          "review",
+          "ship"
+        ]
+      },
       "LibraryPlacementAnchor": {
         "type": "object",
         "required": [
@@ -4288,6 +4298,34 @@
           "expected_location_revision": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "LibraryProjectPageSearchHit": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "page_id",
+          "status",
+          "score",
+          "excerpt"
+        ],
+        "properties": {
+          "excerpt": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LibraryPageWorkflowStatus"
           }
         }
       },
@@ -7635,6 +7673,39 @@
                     "items": {
                       "$ref": "#/components/schemas/LibrarySearchSourceKind"
                     }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "project_ids",
+                  "query",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "project_page_search"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "project_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "query": {
+                    "type": "string"
                   }
                 }
               },
@@ -11662,6 +11733,27 @@
                             "type": [
                               "string",
                               "null"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/LibraryProjectPageSearchHit"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "project_page_search"
                             ]
                           }
                         }

@@ -12,6 +12,7 @@ import type {
 } from "../../shared/page-detail";
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
+import type { PageSearchInput, PageSearchResult } from "../../shared/types";
 import type { CoreEventEnvelope } from "./types";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
@@ -33,6 +34,7 @@ export interface DesktopLibraryModuleBridgeInput {
     listPageHistory(
       request: ListPageHistoryRequest,
     ): Promise<PageHistoryCommandResult>;
+    searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
   };
 }
 
@@ -50,6 +52,7 @@ export interface DesktopLibraryModuleBridge {
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
+  searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
 }
 
 export function createDesktopLibraryModuleBridge(
@@ -129,6 +132,14 @@ export function createDesktopLibraryModuleBridge(
       }
       return await projectCoreAdapter(runtime, request.requestingProjectId)
         .listPageHistory(request);
+    },
+    searchPages: async (searchInput) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.searchPages(searchInput);
+      }
+      rootCoreAdapter ??= coreAdapter(runtime);
+      return await rootCoreAdapter.searchPages(searchInput);
     },
   };
 }

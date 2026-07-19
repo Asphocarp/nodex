@@ -21,7 +21,10 @@ import type {
 import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { startHttpServer } from "./http-server";
-import { findPageLocationById } from "./local-store/database-pages";
+import {
+  findPageLocationById,
+  searchPages,
+} from "./local-store/database-pages";
 import { getDb, initializeDatabase } from "./local-store/database";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
@@ -1658,6 +1661,7 @@ export async function runMainAppStartup(
           ).result,
         listPageHistory: (request) =>
           blockMutationWriter.listPageHistory(request),
+        searchPages,
       },
     }),
     databaseModule: createDesktopDatabaseModuleBridge({

@@ -31,6 +31,8 @@ import {
   type PageHistoryCommandError,
   type PageHistoryCommandResult,
 } from "../../shared/page-history-transport";
+import type { PageSearchInput, PageSearchResult } from "../../shared/types";
+import { isWorkflowStatus } from "../../shared/workflow-status";
 import { CoreModuleResponseError } from "./core-client";
 import type {
   CoreClientPort,
@@ -58,6 +60,7 @@ export interface CoreLibraryModuleAdapter {
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
+  searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
 }
 
 const toCoreRouteTarget = (target: LibraryRouteTarget) => {
@@ -694,6 +697,38 @@ export const createCoreLibraryModuleAdapter = (
       } catch (error) {
         return { ok: false, error: pageHistoryError(error) };
       }
+    },
+    searchPages: async (searchInput) => {
+      const snapshot = await input.client.libraryRead({
+        kind: "project_page_search",
+        project_ids: searchInput.projectIds,
+        query: searchInput.query,
+        limit: searchInput.limit ?? null,
+      });
+      if (
+        snapshot.store_epoch !== input.storeEpoch
+        || snapshot.value.kind !== "project_page_search"
+      ) {
+        throw new Error("Core Project Page search escaped its snapshot boundary");
+      }
+      return snapshot.value.items.map((item): PageSearchResult => {
+        if (
+          !item.project_id
+          || !item.page_id
+          || !isWorkflowStatus(item.status)
+          || !Number.isSafeInteger(item.score)
+          || item.score < 1
+        ) {
+          throw new Error("Core Project Page search returned invalid evidence");
+        }
+        return {
+          projectId: item.project_id,
+          pageId: item.page_id,
+          status: item.status,
+          score: item.score,
+          excerpt: item.excerpt,
+        };
+      });
     },
   };
 };

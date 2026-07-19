@@ -610,6 +610,38 @@ describe("Electron native data authority", () => {
       });
       if (!libraryPageDetail.ok) throw new Error("Expected Library Page Detail");
       expect("projectId" in libraryPageDetail.value).toBe(false);
+      await expect(libraryDatabase.apply({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: "electron-library-page-enter-database",
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        operations: [{
+          kind: "transfer_page",
+          pageId: "page:electron-library-adapter",
+          expectedParentRevision:
+            libraryPageDetail.value.page.parentRevision,
+          expectedActiveMembershipRevision: 0,
+          target: {
+            kind: "data_source",
+            dataSourceId: primaryDataSource.dataSourceId,
+          },
+        }],
+      })).resolves.toMatchObject({
+        ok: true,
+        value: {
+          accessContext: { kind: "library" },
+          operationKinds: ["transfer_page"],
+        },
+      });
+      await expect(rootLibrary.searchPages({
+        projectIds: [projectId],
+        query: "Electron Library Adapter",
+        limit: 10,
+      })).resolves.toEqual([expect.objectContaining({
+        projectId,
+        pageId: "page:electron-library-adapter",
+        status: "triage",
+        score: 1_000_000,
+      })]);
       const libraryDocuments = createCoreDocumentSyncAdapter(
         runtime.rootClient,
       );

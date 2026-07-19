@@ -107,6 +107,22 @@ const pageHistorySnapshot = () => ({
   },
 });
 
+const projectPageSearchSnapshot = () => ({
+  version: 1 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 13,
+  value: {
+    kind: "project_page_search" as const,
+    items: [{
+      project_id: "project:test",
+      page_id: "page:one",
+      status: "build" as const,
+      score: 1_000_000,
+      excerpt: "Page search evidence",
+    }],
+  },
+});
+
 const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   read: async () => {
     throw new Error("TypeScript read must not run");
@@ -122,6 +138,9 @@ const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   },
   listPageHistory: async () => {
     throw new Error("TypeScript Page history must not run");
+  },
+  searchPages: async () => {
+    throw new Error("TypeScript Page search must not run");
   },
 });
 
@@ -285,6 +304,30 @@ describe("Core Library Module Adapter", () => {
         source: "document_version",
         version_id: "version:13",
       },
+      limit: 25,
+    }]);
+  });
+
+  test("maps the Project-authorized Page search aggregate", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead(projectPageSearchSnapshot());
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.searchPages({
+      projectIds: ["project:test", "project:other"],
+      query: "page evidence",
+      limit: 25,
+    })).resolves.toEqual([{
+      projectId: "project:test",
+      pageId: "page:one",
+      status: "build",
+      score: 1_000_000,
+      excerpt: "Page search evidence",
+    }]);
+    expect(client.reads).toEqual([{
+      kind: "project_page_search",
+      project_ids: ["project:test", "project:other"],
+      query: "page evidence",
       limit: 25,
     }]);
   });

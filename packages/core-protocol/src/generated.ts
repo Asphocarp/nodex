@@ -1199,10 +1199,20 @@ export interface components {
             /** Format: int64 */
             readonly revision: number;
         };
+        /** @enum {string} */
+        readonly LibraryPageWorkflowStatus: "triage" | "plan" | "build" | "review" | "ship";
         readonly LibraryPlacementAnchor: {
             readonly block_id: string;
             /** Format: int64 */
             readonly expected_location_revision: number;
+        };
+        readonly LibraryProjectPageSearchHit: {
+            readonly excerpt: string;
+            readonly page_id: string;
+            readonly project_id: string;
+            /** Format: int64 */
+            readonly score: number;
+            readonly status: components["schemas"]["LibraryPageWorkflowStatus"];
         };
         readonly LibraryReadRequest: components["schemas"]["ModuleReadRequest_LibraryRead"];
         readonly LibraryReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_LibraryReadValue"];
@@ -1985,6 +1995,13 @@ export interface components {
                 readonly limit?: number | null;
                 readonly query: string;
                 readonly source_kinds?: readonly components["schemas"]["LibrarySearchSourceKind"][] | null;
+            } | {
+                /** @enum {string} */
+                readonly kind: "project_page_search";
+                /** Format: int32 */
+                readonly limit?: number | null;
+                readonly project_ids: readonly string[];
+                readonly query: string;
             } | {
                 readonly before?: null | components["schemas"]["LibraryPageHistoryCursor"];
                 /** @enum {string} */
@@ -2891,6 +2908,10 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "search";
                     readonly next_cursor?: string | null;
+                } | {
+                    readonly items: readonly components["schemas"]["LibraryProjectPageSearchHit"][];
+                    /** @enum {string} */
+                    readonly kind: "project_page_search";
                 } | {
                     /** @enum {string} */
                     readonly kind: "page_history";

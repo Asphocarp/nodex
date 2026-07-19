@@ -99,6 +99,7 @@ impl LibraryModule {
                 .project_id
                 .as_ref()
                 .map(|project_id| project_id.0.clone());
+            let adapter = context.adapter.clone();
             return readers
                 .read_default(move |connection| {
                     let store_epoch = connection
@@ -128,6 +129,7 @@ impl LibraryModule {
                             &store_epoch,
                             event_head,
                             project_id.as_deref(),
+                            &adapter,
                             read,
                         )?,
                     };
@@ -395,9 +397,12 @@ fn unix_timestamp_millis() -> String {
 #[cfg(test)]
 mod tests {
     use nodex_core_contracts::document::OwnedDocumentIntent;
-    use nodex_core_contracts::library::{LibraryAccess, LibraryNavigationParent};
+    use nodex_core_contracts::library::{
+        LibraryAccess, LibraryNavigationParent, LibraryPageWorkflowStatus,
+    };
     use nodex_core_contracts::{AdapterKind, LibraryId, ProfileId, ProjectId};
     use rusqlite::params;
+    use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
     use crate::document::OwnedDocumentModule;
@@ -553,6 +558,15 @@ mod tests {
                         params![SOURCE, DATABASE, NOW],
                     )?;
                     transaction.execute(
+                        "INSERT INTO data_source_properties( \
+                           data_source_id, id, name, value_type, config_json, rank_key, \
+                           lifecycle, schema_revision, created_at, updated_at \
+                         ) VALUES (?1, 'status', 'Status', 'select', \
+                           '{\"options\":[{\"id\":\"triage\",\"name\":\"Triage\"}]}', \
+                           'a', 'active', 1, ?2, ?2)",
+                        params![SOURCE, NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO database_views( \
                            id, database_block_id, data_source_id, name, kind, config_json, \
                            rank_key, created_at, updated_at \
@@ -589,6 +603,23 @@ mod tests {
                         )?;
                     }
                     transaction.execute(
+                        "INSERT INTO data_source_page_memberships( \
+                           id, data_source_id, page_block_id, revision, created_at, removed_at \
+                         ) VALUES ('membership:row', ?1, ?2, 1, ?3, NULL)",
+                        params![SOURCE, ROW_PAGE, NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO data_source_property_values( \
+                           data_source_id, membership_id, property_id, value_type, value_json, \
+                           revision, updated_at \
+                         ) VALUES (?1, 'membership:row', 'status', 'select', '\"triage\"', 1, ?2)",
+                        params![SOURCE, NOW],
+                    )?;
+                    transaction.execute(
+                        "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                        [DATABASE],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO library_block_placements( \
                            block_id, library_id, rank_key, created_at, updated_at \
                          ) VALUES (?1, 'library-1', 'a', ?3, ?3), \
@@ -620,8 +651,12 @@ mod tests {
         }
         kernel
             .writer()
-            .call(|connection| {
+            .call(move |connection| {
                 with_immediate_transaction(connection, |transaction| {
+                    let title_hash = Sha256::digest(b"Say hi")
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>();
                     transaction.execute(
                         "UPDATE document_materializations SET title = 'Say hi' \
                          WHERE document_id = ?1",
@@ -630,6 +665,12 @@ mod tests {
                     transaction.execute(
                         "UPDATE page_read_model SET title = 'Say hi' WHERE page_block_id = ?1",
                         [ROW_PAGE],
+                    )?;
+                    transaction.execute(
+                        "UPDATE block_search_units SET text = 'Say hi', text_hash = ?1, \
+                           updated_at = ?2 WHERE document_id = ?3 \
+                           AND source_kind = 'document_title'",
+                        params![title_hash, NOW, ROW_DOCUMENT],
                     )?;
                     Ok(())
                 })
@@ -717,6 +758,59 @@ mod tests {
         };
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].location_label, "Cards");
+        let root_context = context();
+        let LibraryReadValue::ProjectPageSearch { items } = module
+            .read(
+                &root_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearch {
+                        project_ids: vec!["missing-project".to_owned(), "project-1".to_owned()],
+                        query: "say hi".to_owned(),
+                        limit: Some(10),
+                    },
+                },
+            )
+            .expect("trusted root Project Page search")
+            .value
+        else {
+            panic!("Project Page search");
+        };
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].project_id, "project-1");
+        assert_eq!(items[0].page_id, ROW_PAGE);
+        assert_eq!(items[0].status, LibraryPageWorkflowStatus::Triage);
+        assert_eq!(items[0].score, 1_000_000);
+        let project_search_error = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearch {
+                        project_ids: vec!["project-1".to_owned()],
+                        query: "say hi".to_owned(),
+                        limit: None,
+                    },
+                },
+            )
+            .expect_err("Project-bound clients cannot claim multi-Project search");
+        assert_eq!(project_search_error.code, CoreErrorCode::Unauthorized);
+        let mut untrusted_root_context = context();
+        untrusted_root_context.adapter = AdapterKind::Agent;
+        let untrusted_search_error = module
+            .read(
+                &untrusted_root_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::ProjectPageSearch {
+                        project_ids: vec!["project-1".to_owned()],
+                        query: "say hi".to_owned(),
+                        limit: None,
+                    },
+                },
+            )
+            .expect_err("Agent clients cannot claim trusted Project Page search");
+        assert_eq!(untrusted_search_error.code, CoreErrorCode::Unauthorized);
         let LibraryReadValue::Path { nodes, .. } = read(LibraryRead::Path {
             target: nodex_core_contracts::library::LibraryRouteTarget::Page {
                 page_id: ROW_PAGE.to_owned(),

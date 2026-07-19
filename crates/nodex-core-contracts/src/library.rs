@@ -124,6 +124,11 @@ pub enum LibraryRead {
         cursor: Option<String>,
         limit: Option<u32>,
     },
+    ProjectPageSearch {
+        project_ids: Vec<String>,
+        query: String,
+        limit: Option<u32>,
+    },
     PageHistory {
         page_id: String,
         before: Option<LibraryPageHistoryCursor>,
@@ -347,6 +352,25 @@ pub struct LibrarySearchHit {
     pub rank: f64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryPageWorkflowStatus {
+    Triage,
+    Plan,
+    Build,
+    Review,
+    Ship,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryProjectPageSearchHit {
+    pub project_id: String,
+    pub page_id: String,
+    pub status: LibraryPageWorkflowStatus,
+    pub score: i64,
+    pub excerpt: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum LibraryPageHistoryCursor {
@@ -537,6 +561,9 @@ pub enum LibraryReadValue {
         items: Vec<LibrarySearchHit>,
         next_cursor: Option<String>,
         has_more: bool,
+    },
+    ProjectPageSearch {
+        items: Vec<LibraryProjectPageSearchHit>,
     },
     PageHistory {
         value: Box<LibraryPageHistoryPage>,

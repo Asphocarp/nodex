@@ -116,9 +116,14 @@ Project-scoped Page History reads also use the Library Module Adapter: the
 renderer request selects the exact Project client, Core evaluates recursive
 resource access in one read snapshot, and the Adapter maps the typed native
 cursor/evidence/recovery graph through the established strict Page History
-parser before IPC. Page content/search and the remaining deep Module adapters stay
-on the migration inventory and must fail closed rather than fall back in the
-Rust branch.
+parser before IPC. Semantic Page content and the remaining deep Module adapters
+stay on the migration inventory and must fail closed rather than fall back in
+the Rust branch. Renderer Project Page search is now native: one
+trusted root Library read accepts the requested Project sequence, evaluates
+each Page's primary-Database or recursive grant authority, requires its current
+Data Source workflow status, and returns the established deduplicated command-
+palette projection. It is intentionally separate from Library-wide semantic
+content search, whose raw Block/Document evidence serves CLI and Agent use cases.
 Project-scoped Database Module reads and writes select one cached Core client
 per Project. The Adapter translates only typed target/intent coordinates,
 preserves filter/sort/config/value domain JSON unchanged, and validates both
