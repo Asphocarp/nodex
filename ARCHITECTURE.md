@@ -94,7 +94,7 @@ sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed. Store Administration and the
-Automation run/occurrence/reminder slices remain migration work; unavailable
+Automation occurrence/reminder slices remain migration work; unavailable
 semantics do not fall back to direct native SQL.
 
 Project creation is the first native Workspace writer aggregate. One writer job
@@ -214,9 +214,19 @@ Without a Host claim, due work remains durably pending. Every transition shares
 the normal store-epoch, exact-receipt, change-event, and same-transaction
 boundary. The authenticated UDS handshake binds the connection's Adapter kind,
 and a native CLI connection is rejected before any claim or settlement logic.
-Electron still performs Codex execution, and Automation runs,
-scheduled Page occurrences, reminders, and snoozes remain to be absorbed before
-the Module is complete.
+
+The same native Module owns the Scheduled Automation run aggregate. A trusted
+Host records a retry-stable pending run before external Thread creation, then
+atomically rekeys it to an existing Codex Thread; every subsequent title,
+review, inbox, read, acceptance, archive, restore, and delete transition is
+fenced by `run_revision`. Inbox rows and unread counts come from one read
+snapshot. Startup interruption recovery deterministically archives unresolved
+`pending:` runs and moves real in-progress Threads to review in bounded batches;
+definition deletion removes its complete run collection in the same receipt and
+event. Electron remains the Codex executor and transcript observer, but it no
+longer owns run state or composes archive-message persistence with a separate
+lifecycle write. Scheduled Page occurrences, reminders, and snoozes remain to
+be absorbed before the Module is complete.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit

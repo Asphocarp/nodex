@@ -45,6 +45,28 @@ pub(super) fn read(
                 )?,
             })
         }
+        AutomationRead::Run { thread_id } => Ok(AutomationReadValue::Run {
+            item: super::run::read_run(connection, &thread_id)?.map(Box::new),
+        }),
+        AutomationRead::Runs {
+            automation_id,
+            include_archived,
+            limit,
+        } => Ok(AutomationReadValue::Runs {
+            items: super::run::read_runs(
+                connection,
+                automation_id.as_deref(),
+                include_archived.unwrap_or(false),
+                limit.unwrap_or(100),
+            )?,
+        }),
+        AutomationRead::Inbox { limit } => {
+            let (items, unread_counts) = super::run::read_inbox(connection, limit.unwrap_or(200))?;
+            Ok(AutomationReadValue::Inbox {
+                items,
+                unread_counts,
+            })
+        }
     }
 }
 

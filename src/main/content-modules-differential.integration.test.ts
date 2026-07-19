@@ -97,6 +97,20 @@ import {
   recordCodexScheduledAutomationRunDispatched,
 } from "./local-store/codex-scheduled-automations";
 import {
+  archiveCodexAutomationRun,
+  captureCodexAutomationArchiveMessages,
+  deleteCodexAutomationRunsForAutomation,
+  getCodexAutomationRun,
+  getCodexAutomationRunUnreadCounts,
+  insertCodexAutomationRunInProgress,
+  listCodexAutomationInboxItems,
+  markCodexAutomationRunPendingReview,
+  replacePendingCodexAutomationRunThreadId,
+  setCodexAutomationRunInboxItem,
+  setCodexAutomationRunReadAt,
+  unarchiveCodexAutomationRun,
+} from "./local-store/codex-automation-runs";
+import {
   getCodexProjectThreadOrder,
   moveCodexProjectThread,
   setCodexProjectThreadOrder,
@@ -4791,8 +4805,172 @@ describe("TypeScript/Rust content Module differential", () => {
     expect(completedReplay.event_sequence).toBe(completedAutomation.event_sequence);
     expect(completedReplay.receipt.duplicate).toBe(true);
 
-    expect(deleteCodexScheduledAutomation(oracleImportedAutomation.id)).toBe(true);
+    const pendingRunId = "pending:gate-c-automation-run";
+    expect(insertCodexAutomationRunInProgress({
+      threadId: pendingRunId,
+      automationId: oracleImportedAutomation.id,
+      threadTitle: oracleImportedAutomation.name,
+      sourceCwd: oracleImportedAutomation.cwds[0],
+      now: 10,
+    })).toBe(true);
+    const begunRun = await stage(
+      "Automation begin pending run",
+      candidate.automationApply({
+        operationId: "gate-c-automation-run-begin",
+        intent: {
+          kind: "begin_run",
+          thread_id: pendingRunId,
+          automation_id: oracleImportedAutomation.id,
+          thread_title: oracleImportedAutomation.name,
+          source_cwd: oracleImportedAutomation.cwds[0] ?? null,
+        },
+      }),
+    );
+    expect(begunRun.value.runs[0]).toMatchObject({
+      thread_id: pendingRunId,
+      run_revision: 1,
+      status: "IN_PROGRESS",
+    });
+    const begunRunReplay = await stage(
+      "Automation replay pending run",
+      candidate.automationApply({
+        operationId: "gate-c-automation-run-begin",
+        intent: {
+          kind: "begin_run",
+          thread_id: pendingRunId,
+          automation_id: oracleImportedAutomation.id,
+          thread_title: oracleImportedAutomation.name,
+          source_cwd: oracleImportedAutomation.cwds[0] ?? null,
+        },
+      }),
+    );
+    expect(begunRunReplay.receipt.duplicate).toBe(true);
+    expect(begunRunReplay.event_sequence).toBe(begunRun.event_sequence);
+
+    expect(replacePendingCodexAutomationRunThreadId({
+      pendingThreadId: pendingRunId,
+      threadId: sidebarMoveThreadId,
+      now: 20,
+    })).toBe(true);
     await stage(
+      "Automation replace pending run Thread",
+      candidate.automationApply({
+        operationId: "gate-c-automation-run-replace",
+        intent: {
+          kind: "replace_pending_run_thread",
+          pending_thread_id: pendingRunId,
+          thread_id: sidebarMoveThreadId,
+          expected_revision: 1,
+        },
+      }),
+    );
+    expect(markCodexAutomationRunPendingReview(sidebarMoveThreadId, 30)).toBe(true);
+    expect(setCodexAutomationRunInboxItem({
+      threadId: sidebarMoveThreadId,
+      inboxTitle: "Report ready",
+      inboxSummary: "Review the generated result.",
+      now: 40,
+    })).toBe(true);
+    const reviewedRun = await stage(
+      "Automation complete run for review",
+      candidate.automationApply({
+        operationId: "gate-c-automation-run-review",
+        intent: {
+          kind: "complete_run_for_review",
+          thread_id: sidebarMoveThreadId,
+          expected_revision: 2,
+          inbox_title: "Report ready",
+          inbox_summary: "Review the generated result.",
+        },
+      }),
+    );
+    expect(reviewedRun.value.runs[0]).toMatchObject({
+      status: "PENDING_REVIEW",
+      run_revision: 3,
+    });
+    const candidateInbox = await stage(
+      "Automation inbox projection",
+      candidate.automationRead({ kind: "inbox", limit: 25 }),
+    );
+    if (candidateInbox.value.kind !== "inbox") {
+      throw new Error("Expected Automation inbox snapshot");
+    }
+    const oracleInboxItem = listCodexAutomationInboxItems(25).find(
+      (item) => item.threadId === sidebarMoveThreadId,
+    );
+    const candidateInboxItem = candidateInbox.value.items.find(
+      (item) => item.thread_id === sidebarMoveThreadId,
+    );
+    expect(candidateInboxItem).toMatchObject({
+      automation_id: oracleInboxItem?.automationId,
+      automation_name: oracleInboxItem?.automationName,
+      title: oracleInboxItem?.title,
+      description: oracleInboxItem?.description,
+      source_cwd: oracleInboxItem?.sourceCwd,
+      status: oracleInboxItem?.status,
+    });
+    expect(candidateInbox.value.unread_counts.total).toBe(
+      getCodexAutomationRunUnreadCounts().total,
+    );
+
+    expect(setCodexAutomationRunReadAt(sidebarMoveThreadId, 50)?.readAt).toBe(50);
+    const readRun = await stage(
+      "Automation set run read state",
+      candidate.automationApply({
+        operationId: "gate-c-automation-run-read",
+        intent: {
+          kind: "set_run_read_state",
+          thread_id: sidebarMoveThreadId,
+          expected_revision: 3,
+          read: true,
+        },
+      }),
+    );
+    expect(readRun.value.runs[0]?.read_at_ms).toEqual(expect.any(Number));
+    expect(captureCodexAutomationArchiveMessages({
+      threadId: sidebarMoveThreadId,
+      archivedUserMessage: "Run request",
+      archivedAssistantMessage: "Run result",
+      now: 60,
+    })).toBe(true);
+    expect(archiveCodexAutomationRun(sidebarMoveThreadId, "manual", 70)).toBe(true);
+    await stage(
+      "Automation archive run",
+      candidate.automationApply({
+        operationId: "gate-c-automation-run-archive",
+        intent: {
+          kind: "archive_run",
+          thread_id: sidebarMoveThreadId,
+          expected_revision: 4,
+          archived_user_message: "Run request",
+          archived_assistant_message: "Run result",
+          archived_reason: "manual",
+        },
+      }),
+    );
+    expect(unarchiveCodexAutomationRun(sidebarMoveThreadId, 80)).toBe(true);
+    const restoredRun = await stage(
+      "Automation restore run",
+      candidate.automationApply({
+        operationId: "gate-c-automation-run-restore",
+        intent: {
+          kind: "unarchive_run",
+          thread_id: sidebarMoveThreadId,
+          expected_revision: 5,
+        },
+      }),
+    );
+    expect(restoredRun.value.runs[0]).toMatchObject({
+      status: getCodexAutomationRun(sidebarMoveThreadId)?.status,
+      archived_reason: getCodexAutomationRun(sidebarMoveThreadId)?.archivedReason,
+      archived_user_message: getCodexAutomationRun(sidebarMoveThreadId)?.archivedUserMessage,
+      archived_assistant_message:
+        getCodexAutomationRun(sidebarMoveThreadId)?.archivedAssistantMessage,
+    });
+
+    expect(deleteCodexScheduledAutomation(oracleImportedAutomation.id)).toBe(true);
+    expect(deleteCodexAutomationRunsForAutomation(oracleImportedAutomation.id)).toBe(1);
+    const deletedAutomation = await stage(
       "Automation delete definition",
       candidate.automationApply({
         operationId: "gate-c-automation-delete",
@@ -4803,6 +4981,7 @@ describe("TypeScript/Rust content Module differential", () => {
         },
       }),
     );
+    expect(deletedAutomation.value.deleted_run_ids).toEqual([sidebarMoveThreadId]);
     const remainingAutomations = await stage(
       "Automation definitions after delete",
       candidate.automationRead({ kind: "definitions", include_deleted: false }),
@@ -4820,6 +4999,15 @@ describe("TypeScript/Rust content Module differential", () => {
         (automation) => automation.id === oracleImportedAutomation.id,
       ),
     ).toBe(false);
+    expect(getCodexAutomationRun(sidebarMoveThreadId)).toBeNull();
+    const deletedCandidateRun = await stage(
+      "Automation run after definition delete",
+      candidate.automationRead({ kind: "run", thread_id: sidebarMoveThreadId }),
+    );
+    if (deletedCandidateRun.value.kind !== "run") {
+      throw new Error("Expected Automation run snapshot");
+    }
+    expect(deletedCandidateRun.value.item).toBeNull();
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);

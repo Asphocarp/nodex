@@ -674,7 +674,8 @@
         "required": [
           "kind",
           "automation_ids",
-          "lease_ids"
+          "lease_ids",
+          "run_ids"
         ],
         "properties": {
           "automation_ids": {
@@ -687,6 +688,12 @@
             "$ref": "#/components/schemas/AutomationEventKind"
           },
           "lease_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "run_ids": {
             "type": "array",
             "items": {
               "type": "string"
@@ -706,6 +713,79 @@
           "local",
           "worktree"
         ]
+      },
+      "AutomationInboxItem": {
+        "type": "object",
+        "required": [
+          "automation_id",
+          "thread_id",
+          "created_at_ms",
+          "status"
+        ],
+        "properties": {
+          "archived_assistant_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived_user_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "automation_id": {
+            "type": "string"
+          },
+          "automation_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "read_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "source_cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/AutomationRunStatus"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "AutomationLease": {
         "type": "object",
@@ -793,6 +873,169 @@
           "xhigh",
           "max"
         ]
+      },
+      "AutomationRun": {
+        "type": "object",
+        "required": [
+          "thread_id",
+          "automation_id",
+          "run_revision",
+          "status",
+          "created_at_ms",
+          "updated_at_ms"
+        ],
+        "properties": {
+          "archived_assistant_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archived_user_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "automation_id": {
+            "type": "string"
+          },
+          "created_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inbox_summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inbox_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "read_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "run_revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/AutomationRunStatus"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "thread_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AutomationRunBulkResult": {
+        "type": "object",
+        "required": [
+          "changed_count",
+          "archived_pending_count",
+          "pending_review_count",
+          "has_more"
+        ],
+        "properties": {
+          "archived_pending_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "changed_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "pending_review_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AutomationRunStatus": {
+        "type": "string",
+        "enum": [
+          "IN_PROGRESS",
+          "PENDING_REVIEW",
+          "ACCEPTED",
+          "ARCHIVED"
+        ]
+      },
+      "AutomationRunUnreadCounts": {
+        "type": "object",
+        "required": [
+          "total",
+          "automation_ids",
+          "unread_runs"
+        ],
+        "properties": {
+          "automation_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unread_runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AutomationUnreadRun"
+            }
+          }
+        }
+      },
+      "AutomationUnreadRun": {
+        "type": "object",
+        "required": [
+          "automation_id",
+          "thread_id"
+        ],
+        "properties": {
+          "automation_id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          }
+        }
       },
       "BackupRecord": {
         "type": "object",
@@ -3927,6 +4170,331 @@
                     "minimum": 0
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "automation_id",
+                  "kind"
+                ],
+                "properties": {
+                  "automation_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "begin_run"
+                    ]
+                  },
+                  "source_cwd": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  },
+                  "thread_title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "pending_thread_id",
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "replace_pending_run_thread"
+                    ]
+                  },
+                  "pending_thread_id": {
+                    "type": "string"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_run_thread_title"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  },
+                  "thread_title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "inbox_summary": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "inbox_title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "complete_run_for_review"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "inbox_summary": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "inbox_title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_run_inbox_item"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "accept_run"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "read",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "set_run_read_state"
+                    ]
+                  },
+                  "read": {
+                    "type": "boolean"
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "mark_all_runs_read"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "archived_assistant_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "archived_reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "archived_user_message": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "archive_run"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "unarchive_run"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "expected_revision",
+                  "kind"
+                ],
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "delete_run"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "settle_interrupted_runs"
+                    ]
+                  }
+                }
               }
             ]
           },
@@ -5863,6 +6431,80 @@
                     "type": "string",
                     "enum": [
                       "leases"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "thread_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "run"
+                    ]
+                  },
+                  "thread_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "automation_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "include_archived": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "runs"
+                    ]
+                  },
+                  "limit": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "inbox"
                     ]
                   },
                   "limit": {
@@ -8294,7 +8936,8 @@
                         "type": "object",
                         "required": [
                           "affected_automation_ids",
-                          "affected_lease_ids"
+                          "affected_lease_ids",
+                          "affected_run_ids"
                         ],
                         "properties": {
                           "affected_automation_ids": {
@@ -8304,6 +8947,12 @@
                             }
                           },
                           "affected_lease_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "affected_run_ids": {
                             "type": "array",
                             "items": {
                               "type": "string"
@@ -8321,7 +8970,9 @@
                     "required": [
                       "affected_automation_ids",
                       "definitions",
-                      "claimed_leases"
+                      "claimed_leases",
+                      "runs",
+                      "deleted_run_ids"
                     ],
                     "properties": {
                       "affected_automation_ids": {
@@ -8340,6 +8991,28 @@
                         "type": "array",
                         "items": {
                           "$ref": "#/components/schemas/AutomationDefinition"
+                        }
+                      },
+                      "deleted_run_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "run_bulk": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/AutomationRunBulkResult"
+                          }
+                        ]
+                      },
+                      "runs": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/AutomationRun"
                         }
                       }
                     }
@@ -9068,6 +9741,76 @@
                             "enum": [
                               "leases"
                             ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "item": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/AutomationRun"
+                              }
+                            ]
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "run"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationRun"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "runs"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "items",
+                          "unread_counts",
+                          "kind"
+                        ],
+                        "properties": {
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/AutomationInboxItem"
+                            }
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "inbox"
+                            ]
+                          },
+                          "unread_counts": {
+                            "$ref": "#/components/schemas/AutomationRunUnreadCounts"
                           }
                         }
                       }

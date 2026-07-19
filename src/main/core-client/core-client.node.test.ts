@@ -259,6 +259,75 @@ describe("CoreClient over a Unix socket", () => {
         },
       });
       expect(noDueWork.value.claimed_leases).toEqual([]);
+      const begunRun = await client.automationApply({
+        operationId: "node-automation-run-begin-1",
+        intent: {
+          kind: "begin_run",
+          thread_id: "pending:node-automation-run",
+          automation_id: "node-daily-report",
+          thread_title: "Node daily report",
+          source_cwd: path.join(nodexHome, "workspace"),
+        },
+      });
+      expect(begunRun.value.runs).toMatchObject([
+        {
+          thread_id: "pending:node-automation-run",
+          run_revision: 1,
+          status: "IN_PROGRESS",
+        },
+      ]);
+      const replacedRun = await client.automationApply({
+        operationId: "node-automation-run-replace-1",
+        intent: {
+          kind: "replace_pending_run_thread",
+          pending_thread_id: "pending:node-automation-run",
+          thread_id: "thread:node-integration",
+          expected_revision: 1,
+        },
+      });
+      expect(replacedRun.value.runs[0]).toMatchObject({
+        thread_id: "thread:node-integration",
+        run_revision: 2,
+      });
+      const completedRun = await client.automationApply({
+        operationId: "node-automation-run-complete-1",
+        intent: {
+          kind: "complete_run_for_review",
+          thread_id: "thread:node-integration",
+          expected_revision: 2,
+          inbox_title: "Report ready",
+          inbox_summary: "Review the native run.",
+        },
+      });
+      expect(completedRun.value.runs[0]).toMatchObject({
+        run_revision: 3,
+        status: "PENDING_REVIEW",
+      });
+      const runInbox = await client.automationRead({ kind: "inbox", limit: 10 });
+      expect(runInbox.value).toMatchObject({
+        kind: "inbox",
+        items: [
+          {
+            thread_id: "thread:node-integration",
+            title: "Node daily report",
+            description: "Review the native run.",
+          },
+        ],
+        unread_counts: { total: 1 },
+      });
+      const readRun = await client.automationApply({
+        operationId: "node-automation-run-read-1",
+        intent: {
+          kind: "set_run_read_state",
+          thread_id: "thread:node-integration",
+          expected_revision: 3,
+          read: true,
+        },
+      });
+      expect(readRun.value.runs[0]).toMatchObject({
+        run_revision: 4,
+        read_at_ms: expect.any(Number),
+      });
       const nativeCli = await CoreClient.connect({
         nodexHome,
         clientKind: "native_cli",

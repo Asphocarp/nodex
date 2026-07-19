@@ -5,7 +5,7 @@ use nodex_core_contracts::automation::{
     AutomationCommitValue, AutomationDefinition, AutomationDefinitionInput,
     AutomationDefinitionKind, AutomationDefinitionStatus, AutomationEvent, AutomationEventKind,
     AutomationExecutionEnvironment, AutomationIntent, AutomationLease, AutomationLeaseStatus,
-    AutomationReceipt,
+    AutomationReceipt, AutomationRun, AutomationRunBulkResult,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -61,6 +61,10 @@ struct MutationEffects {
     definitions: Vec<AutomationDefinition>,
     claimed_leases: Vec<AutomationLease>,
     lease_ids: Vec<String>,
+    runs: Vec<AutomationRun>,
+    deleted_run_ids: Vec<String>,
+    run_ids: Vec<String>,
+    run_bulk: Option<AutomationRunBulkResult>,
     committed_at: String,
 }
 
@@ -206,6 +210,40 @@ pub(super) fn apply(
                     *retry_delay_ms,
                     Some(reason_code),
                 ),
+                intent @ (AutomationIntent::BeginRun { .. }
+                | AutomationIntent::ReplacePendingRunThread { .. }
+                | AutomationIntent::SetRunThreadTitle { .. }
+                | AutomationIntent::CompleteRunForReview { .. }
+                | AutomationIntent::SetRunInboxItem { .. }
+                | AutomationIntent::AcceptRun { .. }
+                | AutomationIntent::SetRunReadState { .. }
+                | AutomationIntent::MarkAllRunsRead
+                | AutomationIntent::ArchiveRun { .. }
+                | AutomationIntent::UnarchiveRun { .. }
+                | AutomationIntent::DeleteRun { .. }
+                | AutomationIntent::SettleInterruptedRuns) => {
+                    let effects = super::run::apply(transaction, intent)?;
+                    finish_mutation(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        MutationEffects {
+                            operation_kind: effects.operation_kind,
+                            automation_ids: effects.automation_ids,
+                            definitions: Vec::new(),
+                            claimed_leases: Vec::new(),
+                            lease_ids: Vec::new(),
+                            runs: effects.runs,
+                            deleted_run_ids: effects.deleted_run_ids,
+                            run_ids: effects.run_ids,
+                            run_bulk: effects.bulk,
+                            committed_at: effects.committed_at,
+                        },
+                    )
+                }
             }
         })
     })
@@ -274,6 +312,10 @@ fn create_definition(
             definitions: vec![stored],
             claimed_leases: Vec::new(),
             lease_ids: Vec::new(),
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_ids: Vec::new(),
+            run_bulk: None,
             committed_at,
         },
     )
@@ -375,6 +417,10 @@ fn update_definition(
             definitions: vec![stored],
             claimed_leases: Vec::new(),
             lease_ids,
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_ids: Vec::new(),
+            run_bulk: None,
             committed_at,
         },
     )
@@ -412,6 +458,7 @@ fn delete_definition(
         params![now_ms, automation_id, expected_revision],
     )?;
     let lease_ids = cancel_claimed_leases(connection, automation_id, now_ms, "definition_deleted")?;
+    let deleted_run_ids = super::run::delete_for_automation(connection, automation_id)?;
     let stored = read_definition(connection, automation_id)?
         .ok_or_else(|| corrupt("Deleted Scheduled Automation is unavailable"))?;
     finish_mutation(
@@ -427,6 +474,10 @@ fn delete_definition(
             definitions: vec![stored],
             claimed_leases: Vec::new(),
             lease_ids,
+            runs: Vec::new(),
+            run_ids: deleted_run_ids.clone(),
+            deleted_run_ids,
+            run_bulk: None,
             committed_at,
         },
     )
@@ -560,6 +611,10 @@ fn claim_due(
             definitions,
             claimed_leases: leases,
             lease_ids: affected_lease_ids,
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_ids: Vec::new(),
+            run_bulk: None,
             committed_at,
         },
     )
@@ -656,6 +711,10 @@ fn settle_lease(
             definitions: vec![stored],
             claimed_leases: Vec::new(),
             lease_ids: vec![lease_id.to_owned()],
+            runs: Vec::new(),
+            deleted_run_ids: Vec::new(),
+            run_ids: Vec::new(),
+            run_bulk: None,
             committed_at,
         },
     )
@@ -678,6 +737,7 @@ fn finish_mutation(
         "kind": "automation_changed",
         "automationIds": effects.automation_ids,
         "leaseIds": effects.lease_ids,
+        "runIds": effects.run_ids,
     });
     connection.execute(
         "INSERT INTO change_log(\
@@ -699,6 +759,9 @@ fn finish_mutation(
             affected_automation_ids: effects.automation_ids.clone(),
             definitions: effects.definitions,
             claimed_leases: effects.claimed_leases,
+            runs: effects.runs,
+            deleted_run_ids: effects.deleted_run_ids,
+            run_bulk: effects.run_bulk,
         },
         receipt: AutomationReceipt {
             mutation: ModuleMutationReceipt {
@@ -707,6 +770,7 @@ fn finish_mutation(
             },
             affected_automation_ids: effects.automation_ids.clone(),
             affected_lease_ids: effects.lease_ids.clone(),
+            affected_run_ids: effects.run_ids.clone(),
         },
         event_sequence,
         store_epoch: StoreEpoch(store_epoch.to_owned()),
@@ -739,6 +803,7 @@ fn finish_mutation(
                 kind: AutomationEventKind::AutomationChanged,
                 automation_ids: effects.automation_ids,
                 lease_ids: effects.lease_ids,
+                run_ids: effects.run_ids,
             }),
         }),
     })
@@ -840,7 +905,7 @@ fn normalize_cwds(values: &[String]) -> Result<Vec<String>, StoreError> {
     Ok(result)
 }
 
-fn normalize_absolute_path(value: &str, label: &str) -> Result<String, StoreError> {
+pub(super) fn normalize_absolute_path(value: &str, label: &str) -> Result<String, StoreError> {
     let value = value.trim();
     if value.is_empty() || value.len() > MAX_PATH_BYTES || !is_absolute_path(value) {
         return Err(invalid(&format!("Scheduled Automation {label} is invalid")));
@@ -1077,6 +1142,18 @@ fn require_trusted_host(
         AutomationIntent::ClaimDue { .. }
             | AutomationIntent::CompleteLease { .. }
             | AutomationIntent::FailLease { .. }
+            | AutomationIntent::BeginRun { .. }
+            | AutomationIntent::ReplacePendingRunThread { .. }
+            | AutomationIntent::SetRunThreadTitle { .. }
+            | AutomationIntent::CompleteRunForReview { .. }
+            | AutomationIntent::SetRunInboxItem { .. }
+            | AutomationIntent::AcceptRun { .. }
+            | AutomationIntent::SetRunReadState { .. }
+            | AutomationIntent::MarkAllRunsRead
+            | AutomationIntent::ArchiveRun { .. }
+            | AutomationIntent::UnarchiveRun { .. }
+            | AutomationIntent::DeleteRun { .. }
+            | AutomationIntent::SettleInterruptedRuns
     ) || matches!(
         context.adapter,
         AdapterKind::ElectronHost | AdapterKind::Test
@@ -1085,7 +1162,7 @@ fn require_trusted_host(
     }
     Err(StoreError::new(
         StoreErrorCode::Unauthorized,
-        "Automation lease transitions require a trusted Host Adapter",
+        "Automation execution and run transitions require a trusted Host Adapter",
         false,
     ))
 }
@@ -1141,6 +1218,7 @@ mod tests {
     use nodex_core_contracts::automation::{
         AutomationDefinitionInput, AutomationDefinitionKind, AutomationDefinitionStatus,
         AutomationIntent, AutomationLeaseStatus, AutomationRead, AutomationReadValue,
+        AutomationRunStatus,
     };
     use nodex_core_contracts::{
         AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, LibraryId, ModuleApplyRequest,
@@ -1242,6 +1320,26 @@ mod tests {
             },
         )
         .expect("create Automation");
+    }
+
+    fn seed_thread(harness: &Harness, thread_id: &str) {
+        let thread_id = thread_id.to_owned();
+        harness
+            .kernel
+            .writer()
+            .call(move |connection| {
+                connection.execute(
+                    "INSERT INTO codex_threads(\
+                       thread_id, project_id, thread_name, thread_preview, model_provider, \
+                       status_type, status_active_flags_json, archived, created_at, updated_at, \
+                       linked_at\
+                     ) VALUES (?1, 'project:default', '', '', 'openai', 'idle', '[]', 0, 1, 1, \
+                       '2026-07-19T00:00:00.000Z')",
+                    [thread_id],
+                )?;
+                Ok(())
+            })
+            .expect("seed Automation Thread");
     }
 
     #[test]
@@ -1386,7 +1484,7 @@ mod tests {
     }
 
     #[test]
-    fn untrusted_claim_does_not_consume_due_work() {
+    fn untrusted_execution_intents_do_not_consume_due_work() {
         let harness = harness();
         create(&harness);
         harness
@@ -1420,6 +1518,27 @@ mod tests {
             .expect_err("Agent cannot claim");
         assert_eq!(
             error.code,
+            nodex_core_contracts::CoreErrorCode::Unauthorized
+        );
+        let run_error = harness
+            .module
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "untrusted-run".to_owned(),
+                    store_epoch: harness.store_epoch.clone(),
+                    intent: AutomationIntent::BeginRun {
+                        thread_id: "pending:untrusted".to_owned(),
+                        automation_id: "daily-report".to_owned(),
+                        thread_title: None,
+                        source_cwd: Some("/workspace/report".to_owned()),
+                    },
+                },
+            )
+            .expect_err("Agent cannot record a Host run");
+        assert_eq!(
+            run_error.code,
             nodex_core_contracts::CoreErrorCode::Unauthorized
         );
         let next_run = harness
@@ -1585,5 +1704,332 @@ mod tests {
         assert_eq!(lease.status, AutomationLeaseStatus::Failed);
         assert_eq!(lease.reason_code.as_deref(), Some("host_unavailable"));
         assert!(lease.retry_at_ms.is_some());
+    }
+
+    #[test]
+    fn run_lifecycle_is_revisioned_projected_and_exactly_replayed() {
+        let harness = harness();
+        create(&harness);
+        let begun = apply(
+            &harness,
+            "begin-run",
+            AutomationIntent::BeginRun {
+                thread_id: "pending:run-1".to_owned(),
+                automation_id: "daily-report".to_owned(),
+                thread_title: Some("Daily report run".to_owned()),
+                source_cwd: Some("/workspace/report".to_owned()),
+            },
+        )
+        .expect("begin pending run");
+        assert_eq!(begun.committed.value.runs[0].run_revision, 1);
+        assert_eq!(
+            begun.committed.value.runs[0].status,
+            AutomationRunStatus::InProgress
+        );
+        let replay = apply(
+            &harness,
+            "begin-run",
+            AutomationIntent::BeginRun {
+                thread_id: "pending:run-1".to_owned(),
+                automation_id: "daily-report".to_owned(),
+                thread_title: Some("Daily report run".to_owned()),
+                source_cwd: Some("/workspace/report".to_owned()),
+            },
+        )
+        .expect("replay pending run");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replay.committed.event_sequence,
+            begun.committed.event_sequence
+        );
+
+        seed_thread(&harness, "thread:run-1");
+        let replaced = apply(
+            &harness,
+            "replace-run-thread",
+            AutomationIntent::ReplacePendingRunThread {
+                pending_thread_id: "pending:run-1".to_owned(),
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 1,
+            },
+        )
+        .expect("replace pending Thread");
+        assert_eq!(replaced.committed.value.runs[0].run_revision, 2);
+        assert_eq!(
+            replaced.committed.receipt.affected_run_ids,
+            vec!["pending:run-1".to_owned(), "thread:run-1".to_owned()]
+        );
+        let titled = apply(
+            &harness,
+            "title-run",
+            AutomationIntent::SetRunThreadTitle {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 2,
+                thread_title: Some("Daily report result".to_owned()),
+            },
+        )
+        .expect("title run");
+        assert_eq!(titled.committed.value.runs[0].run_revision, 3);
+        assert_eq!(
+            titled.committed.value.runs[0].thread_title.as_deref(),
+            Some("Daily report result")
+        );
+        let completed = apply(
+            &harness,
+            "complete-run",
+            AutomationIntent::CompleteRunForReview {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 3,
+                inbox_title: Some("Report ready".to_owned()),
+                inbox_summary: Some("Review the generated summary.".to_owned()),
+            },
+        )
+        .expect("complete run");
+        assert_eq!(completed.committed.value.runs[0].run_revision, 4);
+        assert_eq!(
+            completed.committed.value.runs[0].status,
+            AutomationRunStatus::PendingReview
+        );
+        let inbox_updated = apply(
+            &harness,
+            "update-run-inbox",
+            AutomationIntent::SetRunInboxItem {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 4,
+                inbox_title: Some("Report delivered".to_owned()),
+                inbox_summary: Some("Review the generated summary.".to_owned()),
+            },
+        )
+        .expect("update run inbox");
+        assert_eq!(inbox_updated.committed.value.runs[0].run_revision, 5);
+
+        let inbox = harness
+            .module
+            .read(
+                &harness.context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: AutomationRead::Inbox { limit: None },
+                },
+            )
+            .expect("read run inbox");
+        let AutomationReadValue::Inbox {
+            items,
+            unread_counts,
+        } = inbox.value
+        else {
+            panic!("inbox snapshot");
+        };
+        assert_eq!(items[0].title.as_deref(), Some("Daily report"));
+        assert_eq!(
+            items[0].description.as_deref(),
+            Some("Review the generated summary.")
+        );
+        assert_eq!(unread_counts.total, 1);
+
+        let read = apply(
+            &harness,
+            "read-run",
+            AutomationIntent::SetRunReadState {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 5,
+                read: true,
+            },
+        )
+        .expect("read run");
+        assert!(read.committed.value.runs[0].read_at_ms.is_some());
+        let accepted = apply(
+            &harness,
+            "accept-run",
+            AutomationIntent::AcceptRun {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 6,
+            },
+        )
+        .expect("accept run");
+        assert_eq!(
+            accepted.committed.value.runs[0].status,
+            AutomationRunStatus::Accepted
+        );
+        let archived = apply(
+            &harness,
+            "archive-run",
+            AutomationIntent::ArchiveRun {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 7,
+                archived_user_message: None,
+                archived_assistant_message: Some("Done".to_owned()),
+                archived_reason: Some("manual".to_owned()),
+            },
+        )
+        .expect("archive run");
+        assert_eq!(archived.committed.value.runs[0].run_revision, 8);
+        let restored = apply(
+            &harness,
+            "unarchive-run",
+            AutomationIntent::UnarchiveRun {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 8,
+            },
+        )
+        .expect("restore run");
+        assert_eq!(
+            restored.committed.value.runs[0].status,
+            AutomationRunStatus::Accepted
+        );
+        let deleted = apply(
+            &harness,
+            "delete-run",
+            AutomationIntent::DeleteRun {
+                thread_id: "thread:run-1".to_owned(),
+                expected_revision: 9,
+            },
+        )
+        .expect("delete run");
+        assert_eq!(
+            deleted.committed.value.deleted_run_ids,
+            vec!["thread:run-1".to_owned()]
+        );
+        let snapshot = harness
+            .module
+            .read(
+                &harness.context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: AutomationRead::Run {
+                        thread_id: "thread:run-1".to_owned(),
+                    },
+                },
+            )
+            .expect("read deleted run");
+        let AutomationReadValue::Run { item } = snapshot.value else {
+            panic!("run snapshot");
+        };
+        assert!(item.is_none());
+    }
+
+    #[test]
+    fn interrupted_and_bulk_read_transitions_are_bounded_and_definition_owned() {
+        let harness = harness();
+        create(&harness);
+        seed_thread(&harness, "thread:interrupted");
+        for (operation_id, thread_id) in [
+            ("begin-pending-interrupted", "pending:interrupted"),
+            ("begin-real-interrupted", "thread:interrupted"),
+        ] {
+            apply(
+                &harness,
+                operation_id,
+                AutomationIntent::BeginRun {
+                    thread_id: thread_id.to_owned(),
+                    automation_id: "daily-report".to_owned(),
+                    thread_title: None,
+                    source_cwd: Some("/workspace/report".to_owned()),
+                },
+            )
+            .expect("begin interrupted run");
+        }
+        let settled = apply(
+            &harness,
+            "settle-interrupted",
+            AutomationIntent::SettleInterruptedRuns,
+        )
+        .expect("settle interrupted runs");
+        let bulk = settled
+            .committed
+            .value
+            .run_bulk
+            .as_ref()
+            .expect("bulk result");
+        assert_eq!(bulk.changed_count, 2);
+        assert_eq!(bulk.archived_pending_count, 1);
+        assert_eq!(bulk.pending_review_count, 1);
+        assert!(!bulk.has_more);
+        assert_eq!(
+            settled
+                .committed
+                .value
+                .runs
+                .iter()
+                .map(|run| (run.thread_id.clone(), run.status))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "pending:interrupted".to_owned(),
+                    AutomationRunStatus::Archived
+                ),
+                (
+                    "thread:interrupted".to_owned(),
+                    AutomationRunStatus::PendingReview
+                ),
+            ]
+        );
+        let replay = apply(
+            &harness,
+            "settle-interrupted",
+            AutomationIntent::SettleInterruptedRuns,
+        )
+        .expect("replay interrupted settlement");
+        assert!(replay.committed.receipt.mutation.duplicate);
+
+        let marked = apply(
+            &harness,
+            "mark-all-runs-read",
+            AutomationIntent::MarkAllRunsRead,
+        )
+        .expect("mark all runs read");
+        assert_eq!(
+            marked
+                .committed
+                .value
+                .run_bulk
+                .as_ref()
+                .expect("mark-all result")
+                .changed_count,
+            2
+        );
+        assert!(
+            marked
+                .committed
+                .value
+                .runs
+                .iter()
+                .all(|run| run.read_at_ms.is_some() && run.run_revision == 3)
+        );
+        let stale = apply(
+            &harness,
+            "stale-run-read",
+            AutomationIntent::SetRunReadState {
+                thread_id: "thread:interrupted".to_owned(),
+                expected_revision: 2,
+                read: false,
+            },
+        )
+        .expect_err("stale run revision");
+        assert_eq!(
+            stale.code,
+            nodex_core_contracts::CoreErrorCode::RevisionConflict
+        );
+
+        let deleted = apply(
+            &harness,
+            "delete-definition-with-runs",
+            AutomationIntent::DeleteDefinition {
+                automation_id: "daily-report".to_owned(),
+                expected_revision: 1,
+            },
+        )
+        .expect("delete definition aggregate");
+        assert_eq!(
+            deleted.committed.value.deleted_run_ids,
+            vec![
+                "pending:interrupted".to_owned(),
+                "thread:interrupted".to_owned(),
+            ]
+        );
+        assert_eq!(
+            deleted.committed.receipt.affected_run_ids,
+            deleted.committed.value.deleted_run_ids
+        );
     }
 }

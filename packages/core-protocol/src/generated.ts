@@ -310,11 +310,28 @@ export interface components {
             readonly automation_ids: readonly string[];
             readonly kind: components["schemas"]["AutomationEventKind"];
             readonly lease_ids: readonly string[];
+            readonly run_ids: readonly string[];
         };
         /** @enum {string} */
         readonly AutomationEventKind: "automation_changed";
         /** @enum {string} */
         readonly AutomationExecutionEnvironment: "local" | "worktree";
+        readonly AutomationInboxItem: {
+            readonly archived_assistant_message?: string | null;
+            readonly archived_reason?: string | null;
+            readonly archived_user_message?: string | null;
+            readonly automation_id: string;
+            readonly automation_name?: string | null;
+            /** Format: int64 */
+            readonly created_at_ms: number;
+            readonly description?: string | null;
+            /** Format: int64 */
+            readonly read_at_ms?: number | null;
+            readonly source_cwd?: string | null;
+            readonly status: components["schemas"]["AutomationRunStatus"];
+            readonly thread_id: string;
+            readonly title?: string | null;
+        };
         readonly AutomationLease: {
             /** Format: int32 */
             readonly attempt: number;
@@ -339,6 +356,47 @@ export interface components {
         readonly AutomationReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_AutomationReadValue"];
         /** @enum {string} */
         readonly AutomationReasoningEffort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+        readonly AutomationRun: {
+            readonly archived_assistant_message?: string | null;
+            readonly archived_reason?: string | null;
+            readonly archived_user_message?: string | null;
+            readonly automation_id: string;
+            /** Format: int64 */
+            readonly created_at_ms: number;
+            readonly inbox_summary?: string | null;
+            readonly inbox_title?: string | null;
+            /** Format: int64 */
+            readonly read_at_ms?: number | null;
+            /** Format: int64 */
+            readonly run_revision: number;
+            readonly source_cwd?: string | null;
+            readonly status: components["schemas"]["AutomationRunStatus"];
+            readonly thread_id: string;
+            readonly thread_title?: string | null;
+            /** Format: int64 */
+            readonly updated_at_ms: number;
+        };
+        readonly AutomationRunBulkResult: {
+            /** Format: int32 */
+            readonly archived_pending_count: number;
+            /** Format: int32 */
+            readonly changed_count: number;
+            readonly has_more: boolean;
+            /** Format: int32 */
+            readonly pending_review_count: number;
+        };
+        /** @enum {string} */
+        readonly AutomationRunStatus: "IN_PROGRESS" | "PENDING_REVIEW" | "ACCEPTED" | "ARCHIVED";
+        readonly AutomationRunUnreadCounts: {
+            readonly automation_ids: readonly string[];
+            /** Format: int32 */
+            readonly total: number;
+            readonly unread_runs: readonly components["schemas"]["AutomationUnreadRun"][];
+        };
+        readonly AutomationUnreadRun: {
+            readonly automation_id: string;
+            readonly thread_id: string;
+        };
         readonly BackupRecord: {
             readonly backup_id: string;
             /** Format: int64 */
@@ -1100,6 +1158,83 @@ export interface components {
                 readonly reason_code: string;
                 /** Format: int64 */
                 readonly retry_delay_ms?: number | null;
+            } | {
+                readonly automation_id: string;
+                /** @enum {string} */
+                readonly kind: "begin_run";
+                readonly source_cwd?: string | null;
+                readonly thread_id: string;
+                readonly thread_title?: string | null;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "replace_pending_run_thread";
+                readonly pending_thread_id: string;
+                readonly thread_id: string;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "set_run_thread_title";
+                readonly thread_id: string;
+                readonly thread_title?: string | null;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                readonly inbox_summary?: string | null;
+                readonly inbox_title?: string | null;
+                /** @enum {string} */
+                readonly kind: "complete_run_for_review";
+                readonly thread_id: string;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                readonly inbox_summary?: string | null;
+                readonly inbox_title?: string | null;
+                /** @enum {string} */
+                readonly kind: "set_run_inbox_item";
+                readonly thread_id: string;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "accept_run";
+                readonly thread_id: string;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "set_run_read_state";
+                readonly read: boolean;
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "mark_all_runs_read";
+            } | {
+                readonly archived_assistant_message?: string | null;
+                readonly archived_reason?: string | null;
+                readonly archived_user_message?: string | null;
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "archive_run";
+                readonly thread_id: string;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "unarchive_run";
+                readonly thread_id: string;
+            } | {
+                /** Format: int64 */
+                readonly expected_revision: number;
+                /** @enum {string} */
+                readonly kind: "delete_run";
+                readonly thread_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "settle_interrupted_runs";
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];
@@ -1554,6 +1689,22 @@ export interface components {
                 readonly include_settled?: boolean | null;
                 /** @enum {string} */
                 readonly kind: "leases";
+                /** Format: int32 */
+                readonly limit?: number | null;
+            } | {
+                /** @enum {string} */
+                readonly kind: "run";
+                readonly thread_id: string;
+            } | {
+                readonly automation_id?: string | null;
+                readonly include_archived?: boolean | null;
+                /** @enum {string} */
+                readonly kind: "runs";
+                /** Format: int32 */
+                readonly limit?: number | null;
+            } | {
+                /** @enum {string} */
+                readonly kind: "inbox";
                 /** Format: int32 */
                 readonly limit?: number | null;
             };
@@ -2105,12 +2256,16 @@ export interface components {
                 readonly receipt: components["schemas"]["ModuleMutationReceipt"] & {
                     readonly affected_automation_ids: readonly string[];
                     readonly affected_lease_ids: readonly string[];
+                    readonly affected_run_ids: readonly string[];
                 };
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly affected_automation_ids: readonly string[];
                     readonly claimed_leases: readonly components["schemas"]["AutomationLease"][];
                     readonly definitions: readonly components["schemas"]["AutomationDefinition"][];
+                    readonly deleted_run_ids: readonly string[];
+                    readonly run_bulk?: null | components["schemas"]["AutomationRunBulkResult"];
+                    readonly runs: readonly components["schemas"]["AutomationRun"][];
                 };
             };
             /** @enum {string} */
@@ -2266,6 +2421,19 @@ export interface components {
                     readonly items: readonly components["schemas"]["AutomationLease"][];
                     /** @enum {string} */
                     readonly kind: "leases";
+                } | {
+                    readonly item?: null | components["schemas"]["AutomationRun"];
+                    /** @enum {string} */
+                    readonly kind: "run";
+                } | {
+                    readonly items: readonly components["schemas"]["AutomationRun"][];
+                    /** @enum {string} */
+                    readonly kind: "runs";
+                } | {
+                    readonly items: readonly components["schemas"]["AutomationInboxItem"][];
+                    /** @enum {string} */
+                    readonly kind: "inbox";
+                    readonly unread_counts: components["schemas"]["AutomationRunUnreadCounts"];
                 };
                 /** Format: int32 */
                 readonly version: number;

@@ -503,6 +503,7 @@ fn publish_v83(
         transaction.execute_batch(V83_SCHEMA_SQL)?;
         transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
+        ensure_automation_run_revision(transaction)?;
         write_v83_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -519,6 +520,7 @@ fn create_fresh_v83(
         transaction.execute_batch(V83_SCHEMA_SQL)?;
         transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
+        ensure_automation_run_revision(transaction)?;
         write_v83_metadata(transaction, None, None, now, &[])?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
@@ -533,6 +535,7 @@ fn ensure_v83_execution_schema(
     with_immediate_transaction(connection, |transaction| {
         transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
+        ensure_automation_run_revision(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
@@ -557,6 +560,28 @@ fn ensure_automation_definition_revision(connection: &Connection) -> Result<(), 
         "ALTER TABLE codex_scheduled_automations \
          ADD COLUMN definition_revision INTEGER NOT NULL DEFAULT 1 \
          CHECK (definition_revision >= 1)",
+        [],
+    )?;
+    Ok(())
+}
+
+fn ensure_automation_run_revision(connection: &Connection) -> Result<(), StoreError> {
+    let revision_column: i64 = connection.query_row(
+        "SELECT count(*) FROM pragma_table_info('codex_automation_runs') \
+         WHERE name = 'run_revision'",
+        [],
+        |row| row.get(0),
+    )?;
+    if revision_column == 1 {
+        return Ok(());
+    }
+    if revision_column != 0 {
+        return Err(corrupt("Automation run revision schema is ambiguous"));
+    }
+    connection.execute(
+        "ALTER TABLE codex_automation_runs \
+         ADD COLUMN run_revision INTEGER NOT NULL DEFAULT 1 \
+         CHECK (run_revision >= 1)",
         [],
     )?;
     Ok(())
@@ -1216,6 +1241,14 @@ mod tests {
                 [],
             )
             .expect("legacy Automation mirror");
+        connection
+            .execute(
+                "INSERT INTO codex_automation_runs(\
+                   thread_id, automation_id, status, created_at, updated_at\
+                 ) VALUES ('thread:legacy-run', 'legacy-automation', 'PENDING_REVIEW', 1, 1)",
+                [],
+            )
+            .expect("legacy Automation run");
         drop(connection);
         fs::create_dir_all(home.join("automations")).expect("Automation directory");
         fs::write(
@@ -1230,17 +1263,25 @@ mod tests {
             .read_default(|connection| {
                 connection
                     .query_row(
-                        "SELECT automation.definition_revision, metadata.jitter_salt \
+                        "SELECT automation.definition_revision, run.run_revision, metadata.jitter_salt \
                          FROM codex_scheduled_automations automation \
+                         JOIN codex_automation_runs run \
+                           ON run.automation_id = automation.automation_id \
                          CROSS JOIN core_automation_runtime_metadata metadata \
                          WHERE automation.automation_id = 'legacy-automation' AND metadata.id = 1",
                         [],
-                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, String>(2)?,
+                            ))
+                        },
                     )
                     .map_err(StoreError::from)
             })
             .expect("Automation runtime state");
-        assert_eq!(runtime, (1, "legacy-jitter-salt".to_owned()));
+        assert_eq!(runtime, (1, 1, "legacy-jitter-salt".to_owned()));
         drop(kernel);
 
         fs::write(

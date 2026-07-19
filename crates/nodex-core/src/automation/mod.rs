@@ -1,5 +1,6 @@
 mod mutation;
 mod read;
+mod run;
 mod schedule;
 
 use nodex_core_contracts::automation::{
