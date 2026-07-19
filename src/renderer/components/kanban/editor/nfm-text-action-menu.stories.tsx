@@ -520,6 +520,13 @@ export const WithNodexActions: Story = {
       />
     ),
   },
+  parameters: {
+    docs: {
+      description: {
+        story: "Hovering or focusing Send to chat and Move to keeps this action menu stable; click either row to open its destination picker.",
+      },
+    },
+  },
 };
 
 export const SendToThreadPicker: Story = {

@@ -1129,17 +1129,12 @@ function TextActionMoveToRow({
   onOpenChange: (open: boolean) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
-  const restoringRowFocusRef = useRef(false);
   const enabled = row.enabled && Boolean(onMoveBlocksToDestination);
 
   const closeAndRestoreFocus = () => {
     onOpenChange(false);
     requestAnimationFrame(() => {
-      restoringRowFocusRef.current = true;
       rowRef.current?.focus();
-      requestAnimationFrame(() => {
-        restoringRowFocusRef.current = false;
-      });
     });
   };
 
@@ -1172,13 +1167,6 @@ function TextActionMoveToRow({
           rightSlot={enabled ? (
             <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
           ) : undefined}
-          onPointerEnter={() => {
-            if (enabled) onOpenChange(true);
-          }}
-          onFocus={() => {
-            if (restoringRowFocusRef.current) return;
-            if (enabled) onOpenChange(true);
-          }}
           onClick={() => {
             if (enabled) onOpenChange(true);
           }}
@@ -1221,17 +1209,12 @@ function TextActionSendToThreadRow({
   onOpenChange: (open: boolean) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
-  const restoringRowFocusRef = useRef(false);
   const enabled = row.enabled && Boolean(projectId) && Boolean(onSendBlocksToThread);
 
   const closeAndRestoreFocus = () => {
     onOpenChange(false);
     requestAnimationFrame(() => {
-      restoringRowFocusRef.current = true;
       rowRef.current?.focus();
-      requestAnimationFrame(() => {
-        restoringRowFocusRef.current = false;
-      });
     });
   };
 
@@ -1265,13 +1248,6 @@ function TextActionSendToThreadRow({
           rightSlot={enabled ? (
             <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
           ) : undefined}
-          onPointerEnter={() => {
-            if (enabled) onOpenChange(true);
-          }}
-          onFocus={() => {
-            if (restoringRowFocusRef.current) return;
-            if (enabled) onOpenChange(true);
-          }}
           onClick={() => {
             if (enabled) onOpenChange(true);
           }}

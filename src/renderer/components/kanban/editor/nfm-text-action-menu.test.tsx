@@ -742,7 +742,7 @@ describe("nfm text action menu surface", () => {
     expect(cardDestination.pageId).toBe("target-card");
   });
 
-  test("hover-opening the send-to-chat picker does not autofocus search", async () => {
+  test("opens the send-to-chat picker only after activation", async () => {
     const focusProbe = installFocusProbe();
     try {
       const { view } = renderTextActionMenu({
@@ -760,16 +760,33 @@ describe("nfm text action menu surface", () => {
         await settleAsyncRender();
       });
 
+      expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBe(true);
+      expect(document.activeElement === focusProbe).toBe(true);
+
+      const sendToChatRow = view.getByRole("button", { name: "Send to chat" });
+      await act(async () => {
+        sendToChatRow.focus();
+        fireEvent.focus(sendToChatRow);
+        await settleAsyncRender();
+      });
+
+      expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBe(true);
+
+      await act(async () => {
+        fireEvent.click(sendToChatRow);
+        await settleAsyncRender();
+      });
+
       const searchInput = view.getByRole("combobox", { name: "Search threads" });
       expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBe(true);
-      expect(document.activeElement === focusProbe).toBe(true);
+      expect(document.activeElement === sendToChatRow).toBe(true);
       expect(document.activeElement === searchInput).toBe(false);
     } finally {
       focusProbe.remove();
     }
   });
 
-  test("focus-opening the move-to picker keeps focus on the action row", async () => {
+  test("opens the move-to picker only after activation", async () => {
     const { view } = renderTextActionMenu({
       renderMoveToMenu: (props) => (
         <NfmMoveToMenuSurface
@@ -784,8 +801,22 @@ describe("nfm text action menu surface", () => {
     const moveRow = view.getByRole("button", { name: "Move to" });
 
     await act(async () => {
+      fireEvent.pointerEnter(moveRow);
+      await settleAsyncRender();
+    });
+
+    expect(view.queryByRole("dialog", { name: "Move to" }) === null).toBe(true);
+
+    await act(async () => {
       moveRow.focus();
       fireEvent.focus(moveRow);
+      await settleAsyncRender();
+    });
+
+    expect(view.queryByRole("dialog", { name: "Move to" }) === null).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(moveRow);
       await settleAsyncRender();
     });
 
@@ -809,7 +840,7 @@ describe("nfm text action menu surface", () => {
       });
 
       await act(async () => {
-        fireEvent.pointerEnter(view.getByRole("button", { name: "Send to chat" }));
+        fireEvent.click(view.getByRole("button", { name: "Send to chat" }));
         await settleAsyncRender();
       });
 
@@ -864,13 +895,13 @@ describe("nfm text action menu surface", () => {
     });
 
     await act(async () => {
-      fireEvent.pointerEnter(view.getByRole("button", { name: "Send to chat" }));
+      fireEvent.click(view.getByRole("button", { name: "Send to chat" }));
       await settleAsyncRender();
     });
     expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBe(true);
 
     await act(async () => {
-      fireEvent.pointerEnter(view.getByRole("button", { name: "Move to" }));
+      fireEvent.click(view.getByRole("button", { name: "Move to" }));
       await settleAsyncRender();
     });
 
