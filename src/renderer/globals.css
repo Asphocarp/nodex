@@ -177,7 +177,7 @@
 
   .thread-diff-virtualized {
     content-visibility: auto;
-    contain-intrinsic-size: auto 40vh;
+    contain-intrinsic-size: auto 36px;
   }
 }
 

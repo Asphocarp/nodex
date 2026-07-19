@@ -202,7 +202,7 @@ import type {
   GitReviewCatFileOutput,
   GitReviewLiveSubscriptionInput,
   GitReviewLiveSubscriptionStopInput,
-  GitReviewLiveSummaryEvent,
+  GitReviewLiveEvent,
   GitReviewRepositoryMetadataRequest,
   GitReviewRepositoryMetadataResult,
   GitReviewPatchRequest,
@@ -1747,7 +1747,7 @@ export interface IpcApi {
 }
 
 export interface IpcEvents {
-  "git:live-query:event": GitReviewLiveSummaryEvent;
+  "git:live-query:event": GitReviewLiveEvent;
   "document-sync:event": DocumentSyncRealtimeEvent;
   "persisted-atom:updated": PersistedAtomUpdate;
   "board-changed": BoardChangeEvent;

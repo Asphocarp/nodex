@@ -348,14 +348,14 @@ export function createElectronRendererTransport(
         callback({ cwd: payload.cwd });
       });
     },
-    subscribeGitReviewSummaries(
+    subscribeGitReviewLiveQueries(
       callback: (
-        event: import("../../shared/types").GitReviewLiveSummaryEvent,
+        event: import("../../shared/types").GitReviewLiveEvent,
       ) => void,
     ) {
       return bridge.on("git:live-query:event", (...args: unknown[]) => {
         const payload = args[0] as
-          | import("../../shared/types").GitReviewLiveSummaryEvent
+          | import("../../shared/types").GitReviewLiveEvent
           | undefined;
         if (!payload || typeof payload.subscriptionId !== "string") return;
         callback(payload);

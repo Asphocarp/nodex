@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { CodexConversationItem } from "../../../lib/types";
@@ -8,6 +8,19 @@ import {
   LocalConversationAboveComposerPortal,
   LocalConversationAboveComposerPortalHost,
 } from "./local-conversation-above-composer-portal";
+
+const buildTurnDiffRowsCall = vi.hoisted(() => vi.fn());
+
+vi.mock("./shared/turn-diff-model", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./shared/turn-diff-model")>();
+  return {
+    ...actual,
+    buildTurnDiffRows: (...args: Parameters<typeof actual.buildTurnDiffRows>) => {
+      buildTurnDiffRowsCall();
+      return actual.buildTurnDiffRows(...args);
+    },
+  };
+});
 
 function buildTurnDiffBlock(): ThreadTranscriptBlockModel {
   const entry: CodexConversationItem = {
@@ -83,6 +96,10 @@ function buildTodoListBlock(): ThreadTranscriptBlockModel {
 }
 
 describe("LocalConversationAboveComposerPortal", () => {
+  beforeEach(() => {
+    buildTurnDiffRowsCall.mockClear();
+  });
+
   test("reports actual fixed-host content presence to composer chrome", async () => {
     const presence: boolean[] = [];
     render(
@@ -138,6 +155,7 @@ describe("LocalConversationAboveComposerPortal", () => {
     expect(reviewButton !== null).toBe(true);
     fireEvent.click(reviewButton as HTMLButtonElement);
     expect(openedTurnId).toBe("turn-1");
+    expect(buildTurnDiffRowsCall).toHaveBeenCalledTimes(1);
   });
 
   test("does not render fixed-content chrome for an empty portal", async () => {

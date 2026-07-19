@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  CONTENT_SEARCH_LOCAL_MATCH_LIMIT,
   buildContentSearchResultLabel,
   cycleContentSearchDomain,
   readSingleLineSelectionText,
@@ -28,13 +27,20 @@ describe("content search model", () => {
       activeIndex: 0,
       localResult: {
         query: "needle",
-        matches: [],
-        totalMatches: CONTENT_SEARCH_LOCAL_MATCH_LIMIT,
+        matches: [
+          {
+            id: "match-1",
+            domain: "conversation",
+            contextId: "conversation:thread",
+            ordinal: 1,
+          },
+        ],
+        totalMatches: 300,
         capped: true,
       },
     });
 
-    expect(label).toBe("1 / 150+ results");
+    expect(label).toBe("1 / 300+ results");
   });
 
   test("builds browser result labels from browser find state", () => {

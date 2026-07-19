@@ -416,12 +416,12 @@ export function subscribeGitBranchChanges(
   return resolveRendererTransport().subscribeGitBranchChanges(callback);
 }
 
-export function subscribeGitReviewSummaries(
+export function subscribeGitReviewLiveQueries(
   callback: (
-    event: import("../../shared/types").GitReviewLiveSummaryEvent,
+    event: import("../../shared/types").GitReviewLiveEvent,
   ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeGitReviewSummaries(callback);
+  return resolveRendererTransport().subscribeGitReviewLiveQueries(callback);
 }
 
 export function subscribeAppUpdateStatus(

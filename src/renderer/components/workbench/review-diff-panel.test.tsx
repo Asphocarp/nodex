@@ -17,7 +17,7 @@ import { NODEX_REVIEW_DIFF_EXPANSION_LINE_COUNT } from "../../lib/diff-presentat
 import { buildReviewFileTreeVisibleState } from "@/lib/review-file-tree-model";
 import type {
   CodexConversationSnapshot,
-  GitReviewLiveSummaryEvent,
+  GitReviewLiveEvent,
 } from "@/lib/types";
 import { buildReviewFileSafety } from "../../../shared/review-file-safety";
 import { ReviewDiffPanel } from "./review-diff-panel";
@@ -25,6 +25,10 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { __resetReviewFullContentStoreForTests } from "@/features/review/data/review-full-content-store";
 import { __resetReviewCatFileBatcherForTests } from "@/features/review/data/review-cat-file-batcher";
 import { __resetReviewDiffBatcherForTests } from "@/features/review/data/review-diff-batcher";
+import {
+  __resetReviewDiffCommentAttachmentStoreForTests,
+  addReviewDiffCommentAttachment,
+} from "@/lib/review-diff-comment-attachment-store";
 import {
   buildReviewConversationProjection,
   type ReviewConversationProjection,
@@ -596,6 +600,7 @@ beforeEach(() => {
   lastFileDiffProps = null;
   __resetReviewFullContentStoreForTests();
   __resetReviewCatFileBatcherForTests();
+  __resetReviewDiffCommentAttachmentStoreForTests();
   __resetNodexToastStoreForTests();
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -1810,6 +1815,438 @@ describe("review diff panel", () => {
     }
   });
 
+  test("isolates a failed path diff from successfully loaded siblings", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const loadedPatch = [
+      "diff --git a/src/loaded.ts b/src/loaded.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/loaded.ts",
+      "+++ b/src/loaded.ts",
+      "@@ -1 +1,2 @@",
+      " export const loaded = 1;",
+      "+export const changed = true;",
+      "",
+    ].join("\n");
+    const failedPatch = [
+      "diff --git a/src/failed.ts b/src/failed.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/failed.ts",
+      "+++ b/src/failed.ts",
+      "@@ -1 +1,2 @@",
+      " export const failed = 1;",
+      "+export const unavailable = true;",
+      "",
+    ].join("\n");
+    const loadedSummary = buildGitSummary("src/loaded.ts");
+    const failedSummary = buildGitSummary("src/failed.ts");
+
+    mockInvokeImpl = async (channel: unknown) => {
+      if (channel === "git:review:summary") {
+        return {
+          cwd: "/tmp/codex",
+          source: "unstaged",
+          patch: "",
+          files: [loadedSummary, failedSummary],
+          isGitRepository: true,
+          baseRef: null,
+          currentBranch: "feature",
+          defaultBranch: "main",
+          errorMessage: null,
+          snapshotGeneration: 1,
+        };
+      }
+      if (channel !== "git:review:diff") return null;
+
+      const result = buildGitDiffResultForTest({
+        patch: `${loadedPatch}\n${failedPatch}`,
+        files: [loadedSummary, failedSummary],
+      });
+      return {
+        ...result,
+        patch: loadedPatch,
+        files: result.files.map((file) =>
+          file.path === failedSummary.path
+            ? {
+                ...file,
+                diff: "",
+                loadStatus: "load-failed" as const,
+                renderKey: `${file.renderKey}:load-failed`,
+                diffBytes: 0,
+                diffError: "Could not load this path.",
+                canApplyPatchActions: false,
+                changedBytes: 0,
+              }
+            : file,
+        ),
+      };
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+          initialSource="unstaged"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-file-diff="src/loaded.ts"]'),
+      ).not.toBeNull();
+      expect(
+        view.container.querySelector(
+          '[data-review-path="src/failed.ts"] [data-review-diff-placeholder="load-failed"]',
+        ),
+      ).not.toBeNull();
+    });
+
+    const diffCalls = invokeCalls.filter(
+      (call) => call[0] === "git:review:diff",
+    );
+    expect(diffCalls).toHaveLength(1);
+    expect(
+      (
+        diffCalls[0]?.[1] as {
+          files?: Array<{ path: string }>;
+        }
+      ).files?.map((file) => file.path),
+    ).toEqual([loadedSummary.path, failedSummary.path]);
+  });
+
+  test("subscribes summary and repository metadata through typed live queries", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const subscriptions: Array<{
+      subscriptionId: string;
+      query: { method: string; params: { cwd: string } };
+    }> = [];
+    mockInvokeImpl = async (channel: unknown, payload: unknown) => {
+      if (channel === "git:review:repository-metadata") {
+        return {
+          cwd: "/tmp/codex",
+          root: "/tmp/codex",
+          gitDir: "/tmp/codex/.git",
+          commonDir: "/tmp/codex/.git",
+          isGitRepository: true,
+          currentBranch: "feature/live-query",
+          defaultBranch: "main",
+          errorMessage: null,
+        };
+      }
+      if (
+        channel === "git:live-query:subscribe"
+        && typeof payload === "object"
+        && payload !== null
+        && "subscriptionId" in payload
+        && "query" in payload
+      ) {
+        subscriptions.push(payload as (typeof subscriptions)[number]);
+      }
+      return null;
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+          initialSource="unstaged"
+          deps={{ initialSummaryQuery: false }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await waitFor(() => {
+      expect(subscriptions.map(({ query }) => query.method).sort()).toEqual([
+        "base-branch",
+        "review-summary",
+      ]);
+    });
+    expect(subscriptions.every(({ query }) => query.params.cwd === "/tmp/codex"))
+      .toBe(true);
+    await unmountReviewView(view);
+  });
+
+  test("uses the live remote base branch for branch review summaries", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const subscriptions: Array<{
+      subscriptionId: string;
+      query: {
+        method: string;
+        params: { cwd: string; baseBranch?: string | null };
+      };
+    }> = [];
+    let publish: ((event: GitReviewLiveEvent) => void) | null = null;
+    mockInvokeImpl = async (channel: unknown, payload: unknown) => {
+      if (channel === "git:review:repository-metadata") {
+        return {
+          cwd: "/tmp/codex/alias",
+          root: "/tmp/codex",
+          gitDir: "/tmp/codex/.git",
+          commonDir: "/tmp/codex/.git",
+          isGitRepository: true,
+          currentBranch: "feature/live-query",
+          defaultBranch: "main",
+          errorMessage: null,
+        };
+      }
+      if (
+        channel === "git:live-query:subscribe"
+        && typeof payload === "object"
+        && payload !== null
+        && "subscriptionId" in payload
+        && "query" in payload
+      ) {
+        subscriptions.push(payload as (typeof subscriptions)[number]);
+      }
+      return null;
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex/alias"
+          initialSource="branch"
+          deps={{
+            initialSummaryQuery: false,
+            subscribeGitReviewLiveQueries: (listener) => {
+              publish = listener;
+              return () => {
+                publish = null;
+              };
+            },
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    let baseSubscriptionId = "";
+    await waitFor(() => {
+      const baseSubscription = subscriptions.find(
+        ({ query }) => query.method === "base-branch",
+      );
+      if (!baseSubscription || !publish) {
+        throw new Error("Expected the live base-branch subscription.");
+      }
+      baseSubscriptionId = baseSubscription.subscriptionId;
+      expect(
+        subscriptions.some(({ query }) => query.method === "review-summary"),
+      ).toBe(false);
+    });
+
+    await act(async () => {
+      publish?.({
+        type: "git-live-query-updated",
+        subscriptionId: baseSubscriptionId,
+        generation: 1,
+        requiresRecovery: false,
+        phase: "complete",
+        method: "base-branch",
+        result: {
+          cwd: "/tmp/codex",
+          local: "main",
+          remote: "origin/main",
+          errorMessage: null,
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const summarySubscription = subscriptions.find(
+        ({ query }) => query.method === "review-summary",
+      );
+      expect(summarySubscription?.query.params).toMatchObject({
+        cwd: "/tmp/codex",
+        baseBranch: "origin/main",
+      });
+    });
+    await unmountReviewView(view);
+  });
+
+  test("keeps an in-flight tracked path query across the complete publication", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const trackedPatch = [
+      "diff --git a/src/tracked-pending.ts b/src/tracked-pending.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/tracked-pending.ts",
+      "+++ b/src/tracked-pending.ts",
+      "@@ -1 +1,2 @@",
+      " export const tracked = 1;",
+      "+export const changed = true;",
+      "",
+    ].join("\n");
+    const untrackedPatch = [
+      "diff --git a/src/untracked-complete.ts b/src/untracked-complete.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/untracked-complete.ts",
+      "@@ -0,0 +1 @@",
+      "+export const untracked = true;",
+      "",
+    ].join("\n");
+    const trackedSummary = buildGitSummary("src/tracked-pending.ts");
+    const untrackedSummary = buildGitSummary(
+      "src/untracked-complete.ts",
+      "untracked",
+    );
+    const trackedResult = buildGitDiffResultForTest({
+      patch: trackedPatch,
+      files: [trackedSummary],
+    });
+    const untrackedResult = buildGitDiffResultForTest({
+      patch: untrackedPatch,
+      files: [untrackedSummary],
+    });
+    let publish: ((event: GitReviewLiveEvent) => void) | null = null;
+    let subscriptionId = "";
+    let resolveTrackedDiff: ((result: typeof trackedResult) => void) | null =
+      null;
+
+    mockInvokeImpl = async (channel: unknown, payload: unknown) => {
+      if (
+        channel === "git:live-query:subscribe" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "subscriptionId" in payload &&
+        "query" in payload &&
+        payload.query !== null &&
+        typeof payload.query === "object" &&
+        "method" in payload.query &&
+        payload.query.method === "review-summary"
+      ) {
+        subscriptionId = String(payload.subscriptionId);
+        return null;
+      }
+      if (channel !== "git:review:diff") return null;
+      const requestedPaths =
+        typeof payload === "object" && payload !== null && "files" in payload
+          ? (payload as { files: Array<{ path: string }> }).files.map(
+              (file) => file.path,
+            )
+          : [];
+      if (requestedPaths.includes(trackedSummary.path)) {
+        return new Promise<typeof trackedResult>((resolve) => {
+          resolveTrackedDiff = resolve;
+        });
+      }
+      return untrackedResult;
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+          initialSource="unstaged"
+          deps={{
+            initialSummaryQuery: false,
+            subscribeGitReviewLiveQueries: (listener) => {
+              publish = listener;
+              return () => {
+                publish = null;
+              };
+            },
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+    await waitFor(() => {
+      if (!publish || !subscriptionId) {
+        throw new Error("Expected live summary subscription.");
+      }
+    });
+
+    await act(async () => {
+      publish?.({
+        type: "git-live-query-updated",
+        subscriptionId,
+        generation: 1,
+        requiresRecovery: false,
+        phase: "tracked",
+        method: "review-summary",
+        result: {
+          type: "success",
+          source: "unstaged",
+          files: [trackedSummary],
+          snapshotGeneration: 1,
+          stageCounts: {
+            stagedFileCount: 0,
+            unstagedFileCount: 1,
+            untrackedFileCount: 1,
+          },
+        },
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      if (!resolveTrackedDiff) {
+        throw new Error("Expected the tracked diff request to be in flight.");
+      }
+    });
+
+    await act(async () => {
+      publish?.({
+        type: "git-live-query-updated",
+        subscriptionId,
+        generation: 1,
+        requiresRecovery: false,
+        phase: "complete",
+        method: "review-summary",
+        result: {
+          type: "success",
+          source: "unstaged",
+          files: [{ ...trackedSummary }, untrackedSummary],
+          snapshotGeneration: 1,
+          stageCounts: {
+            stagedFileCount: 0,
+            unstagedFileCount: 1,
+            untrackedFileCount: 1,
+          },
+        },
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      const diffCalls = invokeCalls.filter(
+        (call) => call[0] === "git:review:diff",
+      );
+      if (diffCalls.length < 2) {
+        throw new Error("Expected the complete-phase untracked request.");
+      }
+    });
+
+    const trackedRequests = invokeCalls.filter((call) => {
+      if (call[0] !== "git:review:diff") return false;
+      return (
+        call[1] as { files?: Array<{ path: string }> }
+      ).files?.some((file) => file.path === trackedSummary.path);
+    });
+    expect(trackedRequests).toHaveLength(1);
+    expect(
+      invokeCalls.filter((call) => call[0] === "git:review:cancel"),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      resolveTrackedDiff?.(trackedResult);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(
+        view.container.querySelector(
+          '[data-file-diff="src/tracked-pending.ts"]',
+        ),
+      ).not.toBeNull();
+      expect(
+        view.container.querySelector(
+          '[data-file-diff="src/untracked-complete.ts"]',
+        ),
+      ).not.toBeNull();
+    });
+  });
+
   test("preserves loaded rows and parsed metadata across tracked to complete publication", async () => {
     const intersectionObserver = installControlledIntersectionObserver();
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
@@ -1840,7 +2277,7 @@ describe("review diff panel", () => {
       ...buildGitSummary("src/untracked.ts", "untracked"),
       generated: false,
     };
-    let publish: ((event: GitReviewLiveSummaryEvent) => void) | null = null;
+    let publish: ((event: GitReviewLiveEvent) => void) | null = null;
     let subscriptionId = "";
     const events: Array<
       | { type: "row-render"; path: string }
@@ -1857,7 +2294,12 @@ describe("review diff panel", () => {
         channel === "git:live-query:subscribe" &&
         typeof payload === "object" &&
         payload !== null &&
-        "subscriptionId" in payload
+        "subscriptionId" in payload &&
+        "query" in payload &&
+        payload.query !== null &&
+        typeof payload.query === "object" &&
+        "method" in payload.query &&
+        payload.query.method === "review-summary"
       ) {
         subscriptionId = String(payload.subscriptionId);
         return null;
@@ -1895,7 +2337,7 @@ describe("review diff panel", () => {
             initialSource="unstaged"
             deps={{
               initialSummaryQuery: false,
-              subscribeGitReviewSummaries: (listener) => {
+              subscribeGitReviewLiveQueries: (listener) => {
                 publish = listener;
                 return () => {
                   publish = null;
@@ -1992,9 +2434,90 @@ describe("review diff panel", () => {
         ),
       ).toHaveLength(trackedParseCount);
       expect(trackedParseCount).toBe(1);
+
+      const diffCallCount = invokeCalls.filter(
+        ([channel]) => channel === "git:review:diff",
+      ).length;
+      const totalParseCount = events.filter(
+        (event) => event.type === "partial-parse",
+      ).length;
+      await act(async () => {
+        publish?.({
+          type: "git-live-query-updated",
+          subscriptionId,
+          generation: 2,
+          requiresRecovery: false,
+          phase: "complete",
+          method: "review-summary",
+          result: {
+            type: "success",
+            source: "unstaged",
+            files: [{ ...trackedSummary }, { ...untrackedSummary }],
+            snapshotGeneration: 2,
+            stageCounts: {
+              stagedFileCount: 0,
+              unstagedFileCount: 1,
+              untrackedFileCount: 1,
+            },
+          },
+        });
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      expect(
+        invokeCalls.filter(([channel]) => channel === "git:review:diff"),
+      ).toHaveLength(diffCallCount);
+      expect(
+        events.filter((event) => event.type === "partial-parse"),
+      ).toHaveLength(totalParseCount);
     } finally {
       uninstallProbe();
       intersectionObserver.restore();
+    }
+  });
+
+  test("rerenders only the row whose pending review comments changed", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const conversation = buildConversation();
+    conversation.turns[0]!.diff = buildMultiFilePatch(2);
+    const rowRenders: string[] = [];
+    const uninstallProbe = installReviewRuntimeProbe((event) => {
+      if (event.type === "row-render") rowRenders.push(event.path);
+    });
+
+    try {
+      render(
+        <NodexTooltipProvider>
+          <ReviewDiffPanel conversation={conversation} />
+        </NodexTooltipProvider>,
+      );
+      await waitFor(() => {
+        expect(rowRenders).toContain("src/file-001.ts");
+        expect(rowRenders).toContain("src/file-002.ts");
+      });
+      await settleAsyncRender();
+      rowRenders.length = 0;
+
+      await act(async () => {
+        addReviewDiffCommentAttachment("thr_review", {
+          id: "comment:file-001",
+          type: "comment",
+          content: [{ content_type: "text", text: "Please revise this line." }],
+          position: {
+            side: "right",
+            path: "src/file-001.ts",
+            line: 2,
+          },
+          createdAt: 1,
+        });
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(rowRenders).toContain("src/file-001.ts"));
+      expect(rowRenders).not.toContain("src/file-002.ts");
+    } finally {
+      uninstallProbe();
     }
   });
 
@@ -2381,12 +2904,10 @@ describe("review diff panel", () => {
     await unmountReviewView(view);
   });
 
-  test("keeps file filtering separate from review search matching", async () => {
-    const {
-      buildReviewSearchMatches,
-      filterReviewFiles,
-      buildReviewVisibleFiles,
-    } = await import("@/lib/review-diff-model");
+  test("keeps file filtering separate from review visibility", async () => {
+    const { filterReviewFiles, buildReviewVisibleFiles } = await import(
+      "@/lib/review-diff-model"
+    );
 
     const files = [
       {
@@ -2410,9 +2931,6 @@ describe("review diff panel", () => {
     ];
 
     expect(filterReviewFiles(files as never, "").length).toBe(1);
-    expect(buildReviewSearchMatches(files as never, "review", {}).length).toBe(
-      1,
-    );
     expect(
       buildReviewVisibleFiles(files as never, null, false, true, 20).length,
     ).toBe(1);

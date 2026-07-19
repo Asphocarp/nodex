@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { buildReviewFileSafety } from "../../../../shared/review-file-safety";
-import type { GitReviewFileContents } from "@/lib/types";
 import {
   __resetReviewFullContentStoreForTests,
   loadReviewFullContent,
   readReviewFullContentState,
+  type ReviewFullFileContents,
 } from "./review-full-content-store";
 
-const FULL_CONTENTS: GitReviewFileContents = {
+const FULL_CONTENTS: ReviewFullFileContents = {
   path: "src/example.ts",
   previousPath: null,
   oldText: "old\n",
@@ -55,8 +55,8 @@ describe("review full content store", () => {
   });
 
   test("discards an older identity that resolves after a replacement load", async () => {
-    let resolveOld!: (contents: GitReviewFileContents) => void;
-    const oldLoad = new Promise<GitReviewFileContents>((resolve) => {
+    let resolveOld!: (contents: ReviewFullFileContents) => void;
+    const oldLoad = new Promise<ReviewFullFileContents>((resolve) => {
       resolveOld = resolve;
     });
     const key = "src/example.ts";

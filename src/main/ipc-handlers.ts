@@ -157,7 +157,7 @@ import {
   searchGitReview,
 } from "./git-review-service";
 import {
-  subscribeGitReviewSummary,
+  subscribeGitReviewLiveQuery,
   type GitReviewLiveSubscription,
 } from "./git-review-live-service";
 import {
@@ -2234,9 +2234,9 @@ export function registerIpcHandlers(
       });
     }
 
-    const subscription = subscribeGitReviewSummary({
+    const subscription = subscribeGitReviewLiveQuery({
       subscriptionId: input.subscriptionId,
-      request: input.request,
+      query: input.query,
       publish: (payload) => {
         if (sender.isDestroyed()) {
           stopGitReviewWatch(webContentsId, input.subscriptionId);
@@ -2257,12 +2257,12 @@ export function registerIpcHandlers(
 
   registerHandle("git:live-query:recover", (event, input) => {
     const key = `${event.sender.id}:${input.subscriptionId}`;
-    gitReviewWatches.get(key)?.recover();
+    return gitReviewWatches.get(key)?.recover();
   });
 
   registerHandle("git:live-query:refresh-repository", (event, input) => {
     const key = `${event.sender.id}:${input.subscriptionId}`;
-    gitReviewWatches.get(key)?.refresh();
+    return gitReviewWatches.get(key)?.refresh();
   });
 
   registerHandle("git:review:diff", (_, input) => {

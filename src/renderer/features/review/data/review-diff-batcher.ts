@@ -31,21 +31,6 @@ function buildAbortError(): DOMException {
   return new DOMException("Review diff request aborted", "AbortError");
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
-}
-
-function isStaleSnapshotError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.includes("Git review snapshot changed")
-  );
-}
-
-function isReviewDiffTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("timed out");
-}
-
 function findReviewDiffEntry(
   result: ReviewDiffResult,
   waiter: ReviewDiffWaiter,
@@ -61,10 +46,6 @@ function findReviewDiffEntry(
         (waiter.previousPath !== null && entry.path === waiter.previousPath),
     ) ?? null
   );
-}
-
-async function delay(milliseconds: number): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function invokeReviewDiffGroup(
@@ -117,51 +98,24 @@ async function invokeReviewDiffGroup(
     return { waiter, listener };
   });
   try {
-    let result: ReviewDiffResult | null = null;
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      try {
-        if (activeWaiters.every((waiter) => waiter.signal?.aborted)) {
-          throw buildAbortError();
-        }
-        result = (await Promise.race([
-          bucket.invoke("git:review:diff", {
-            ...bucket.request,
-            files: activeWaiters.map((waiter) => ({
-              path: waiter.path,
-              previousPath: waiter.previousPath,
-              status: waiter.status,
-              revision: waiter.revision,
-            })),
-            requestId,
-          }),
-          new Promise<never>((_, reject) => {
-            timeout = setTimeout(() => {
-              cancelGroup();
-              reject(new Error("Review diff request timed out."));
-            }, REVIEW_DIFF_TIMEOUT_MS);
-          }),
-        ])) as ReviewDiffResult;
-        break;
-      } catch (error) {
-        lastError = error;
-        if (
-          attempt >= 3 ||
-          isAbortError(error) ||
-          isReviewDiffTimeoutError(error) ||
-          isStaleSnapshotError(error)
-        ) {
-          throw error;
-        }
-        await delay(Math.min(300 * 2 ** attempt, 2_000));
-      } finally {
-        if (timeout !== null) {
-          clearTimeout(timeout);
-          timeout = null;
-        }
-      }
-    }
-    if (!result) throw lastError ?? new Error("Review diff request failed.");
+    const result = (await Promise.race([
+      bucket.invoke("git:review:diff", {
+        ...bucket.request,
+        files: activeWaiters.map((waiter) => ({
+          path: waiter.path,
+          previousPath: waiter.previousPath,
+          status: waiter.status,
+          revision: waiter.revision,
+        })),
+        requestId,
+      }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          cancelGroup();
+          reject(new Error("Review diff request timed out."));
+        }, REVIEW_DIFF_TIMEOUT_MS);
+      }),
+    ])) as ReviewDiffResult;
     if (result.type === "stale-snapshot") {
       recordReviewRuntimeEvent({ type: "stale-discard", operation: "diff" });
       throw new Error("Git review snapshot changed.");
@@ -185,6 +139,7 @@ async function invokeReviewDiffGroup(
     cancelGroup();
     for (const waiter of activeWaiters) rejectWaiter(waiter, error);
   } finally {
+    if (timeout !== null) clearTimeout(timeout);
     for (const { waiter, listener } of abortListeners) {
       waiter.signal?.removeEventListener("abort", listener);
     }

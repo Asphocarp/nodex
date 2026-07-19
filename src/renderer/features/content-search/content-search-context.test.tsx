@@ -157,4 +157,99 @@ describe("ContentSearchProvider", () => {
 
     expect(activatedQueries.length).toBe(0);
   });
+
+  test("aborts an in-flight local search when the query changes", async () => {
+    const searchSignals: AbortSignal[] = [];
+    const searchedQueries: string[] = [];
+    let controller: ContentSearchController | null = null;
+
+    function Probe() {
+      controller = useContentSearch();
+      const source = useMemo<ContentSearchLocalSource>(() => ({
+        domain: "diff",
+        contextId: "diff:thread",
+        search: (query, _limit, options) => {
+          searchedQueries.push(query);
+          if (options) searchSignals.push(options.signal);
+          return new Promise((resolve) => {
+            options?.signal.addEventListener("abort", () => {
+              resolve({ query, matches: [], totalMatches: 0, capped: false });
+            }, { once: true });
+          });
+        },
+        activate: () => {},
+        clear: () => {},
+      }), []);
+      useRegisterContentSearchSource(source);
+      return createElement("div");
+    }
+
+    render(createElement(ContentSearchProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+
+    if (!controller) throw new Error("Expected content search controller");
+    await act(async () => {
+      controller?.requestOpen({ preferredDomain: "diff" });
+      controller?.setQuery("old");
+    });
+    await waitFor(() => {
+      expect(searchedQueries).toEqual(["old"]);
+    });
+
+    await act(async () => {
+      controller?.setQuery("new");
+    });
+    await waitFor(() => {
+      expect(searchSignals[0]?.aborted).toBe(true);
+      expect(searchedQueries).toEqual(["old", "new"]);
+    });
+  });
+
+  test("cycles within stored matches when the exact total is capped", async () => {
+    const activatedIds: string[] = [];
+    let controller: ContentSearchController | null = null;
+
+    function Probe() {
+      controller = useContentSearch();
+      const source = useMemo<ContentSearchLocalSource>(() => ({
+        domain: "diff",
+        contextId: "diff:thread",
+        search: (query) => ({
+          query,
+          totalMatches: 300,
+          capped: true,
+          matches: [
+            { id: "match-1", domain: "diff", contextId: "diff:thread", ordinal: 1 },
+            { id: "match-2", domain: "diff", contextId: "diff:thread", ordinal: 2 },
+          ],
+        }),
+        activate: (match) => {
+          activatedIds.push(match.id);
+        },
+        clear: () => {},
+      }), []);
+      useRegisterContentSearchSource(source);
+      return createElement("div");
+    }
+
+    render(createElement(ContentSearchProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+
+    if (!controller) throw new Error("Expected content search controller");
+    await act(async () => {
+      controller?.requestOpen({ preferredDomain: "diff" });
+      controller?.setQuery("needle");
+    });
+    await waitFor(() => {
+      expect(activatedIds.at(-1)).toBe("match-1");
+    });
+
+    await act(async () => {
+      controller?.goPrevious();
+    });
+    await waitFor(() => {
+      expect(activatedIds.at(-1)).toBe("match-2");
+      expect(controller?.state.activeIndexByDomain.diff).toBe(1);
+    });
+  });
 });

@@ -163,9 +163,9 @@ export interface RendererTransport {
   subscribeGitBranchChanges: (
     callback: (event: { cwd: string }) => void,
   ) => () => void;
-  subscribeGitReviewSummaries: (
+  subscribeGitReviewLiveQueries: (
     callback: (
-      event: import("../../shared/types").GitReviewLiveSummaryEvent,
+      event: import("../../shared/types").GitReviewLiveEvent,
     ) => void,
   ) => () => void;
   subscribeAppUpdateStatus: (

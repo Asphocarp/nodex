@@ -1,11 +1,24 @@
 import { useSyncExternalStore } from "react";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import type { GitReviewFileContents } from "@/lib/types";
+import type { ReviewDiffLoadStatus, ReviewFileSafety } from "@/lib/types";
 import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
+
+export interface ReviewFullFileContents {
+  path: string;
+  previousPath: string | null;
+  oldText: string | null;
+  newText: string | null;
+  oldExists: boolean;
+  newExists: boolean;
+  oldStatus: ReviewDiffLoadStatus;
+  newStatus: ReviewDiffLoadStatus;
+  safety: ReviewFileSafety;
+  errorMessage: string | null;
+}
 
 export interface ReviewFullContentState {
   fullDiffMetadata: FileDiffMetadata | null;
-  fullContents: GitReviewFileContents | null;
+  fullContents: ReviewFullFileContents | null;
   fullContentLoadFailed: boolean;
   fullContentUnavailable: boolean;
   isLoadingFullContent: boolean;
@@ -102,7 +115,7 @@ export function readReviewFullContentState(
   return getReviewFullContentCell(key).state;
 }
 
-function isFullContentUnavailable(contents: GitReviewFileContents): boolean {
+function isFullContentUnavailable(contents: ReviewFullFileContents): boolean {
   return (
     contents.errorMessage !== null ||
     !contents.safety.renderable ||
@@ -115,8 +128,8 @@ function isFullContentUnavailable(contents: GitReviewFileContents): boolean {
 export function loadReviewFullContent(input: {
   key: string;
   identity: string;
-  load: () => Promise<GitReviewFileContents>;
-  expand: (contents: GitReviewFileContents) => FileDiffMetadata | null;
+  load: () => Promise<ReviewFullFileContents>;
+  expand: (contents: ReviewFullFileContents) => FileDiffMetadata | null;
 }): Promise<void> {
   const cell = getReviewFullContentCell(input.key);
   if (

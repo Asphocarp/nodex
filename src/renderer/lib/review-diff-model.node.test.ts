@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
   REVIEW_CAPPED_MATCH_PAGE_SIZE,
-  buildReviewSearchMatches,
   buildReviewVisibleFiles,
   filterReviewFiles,
   getReviewTotalChangedBytes,
@@ -18,6 +17,7 @@ const FILES = [
     patchText: "export const alpha = true;",
     additions: 1,
     deletions: 0,
+    changedBytes: 25,
   },
   {
     key: "b",
@@ -25,6 +25,7 @@ const FILES = [
     patchText: "export const beta = true;",
     additions: 2,
     deletions: 1,
+    changedBytes: 24,
   },
   {
     key: "c",
@@ -32,6 +33,7 @@ const FILES = [
     patchText: "export const gamma = true;",
     additions: 3,
     deletions: 2,
+    changedBytes: 25,
   },
 ];
 
@@ -40,8 +42,8 @@ describe("review diff model", () => {
     expect(getReviewTotalChangedLines(FILES)).toBe(9);
   });
 
-  test("totals changed bytes from patch text", () => {
-    expect(getReviewTotalChangedBytes("hello")).toBe(5);
+  test("totals changed bytes from per-file metadata", () => {
+    expect(getReviewTotalChangedBytes(FILES)).toBe(74);
   });
 
   test("detects codex-style large diffs", () => {
@@ -97,17 +99,6 @@ describe("review diff model", () => {
     expect(filterReviewFiles(FILES, "src/b").length).toBe(1);
   });
 
-  test("builds review search matches from loaded file contents", () => {
-    const result = buildReviewSearchMatches(FILES, "gamma", {
-      "src/c.ts": {
-        oldText: "",
-        newText: "gamma",
-      },
-    });
-
-    expect(result.length).toBe(1);
-  });
-
   test("resolves capped selected path to the first visible file", () => {
     expect(resolveReviewSelectedPath(FILES, null, true)).toBe("src/a.ts");
   });
@@ -132,6 +123,7 @@ describe("review diff model", () => {
       patchText: `file-${index}`,
       additions: 1,
       deletions: 0,
+      changedBytes: 6 + String(index).length,
     }));
 
     const result = buildReviewVisibleFiles(

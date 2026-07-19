@@ -95,6 +95,26 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.querySelector('button[aria-label="Review changed files"]'))).toBe(true);
   });
 
+  test("defers only fixed-height completed file rows when offscreen rendering is enabled", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({ unifiedDiff: multiFileDiff(4) })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+          deferOffscreenRendering
+        />
+      </TooltipProvider>,
+    );
+
+    const deferredRows = container.querySelectorAll(".thread-diff-virtualized");
+    expect(deferredRows.length).toBe(3);
+    expect(Array.from(deferredRows).every((row) => (
+      row.querySelector("button")?.classList.contains("h-9") === true
+    ))).toBe(true);
+    expect(container.firstElementChild?.classList.contains("thread-diff-virtualized")).toBe(false);
+  });
+
   test("expands and collapses the file list disclosure without per-file accordions", async () => {
     const { container } = render(
       <TooltipProvider>

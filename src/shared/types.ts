@@ -3073,6 +3073,8 @@ export interface BranchDiffStatsRequest {
   baseBranch?: string | null;
   commitSha?: string | null;
   hideWhitespace?: boolean;
+  includeUntrackedFiles?: boolean;
+  requestId?: string | null;
 }
 
 export interface BranchDiffStatsResult {
@@ -3120,6 +3122,7 @@ export type GitReviewSummaryResult =
 
 export interface GitReviewRepositoryMetadataRequest {
   cwd: string;
+  requestId?: string | null;
 }
 
 export interface GitReviewRepositoryMetadataResult {
@@ -3133,31 +3136,79 @@ export interface GitReviewRepositoryMetadataResult {
   errorMessage: string | null;
 }
 
+export interface GitReviewBaseBranchRequest {
+  cwd: string;
+  requestId?: string | null;
+}
+
+export interface GitReviewBaseBranchResult {
+  cwd: string;
+  local: string | null;
+  remote: string | null;
+  errorMessage: string | null;
+}
+
+export type GitReviewLiveQuery =
+  | {
+      method: "review-summary";
+      params: GitReviewSummaryRequest;
+    }
+  | {
+      method: "branch-diff-stats";
+      params: BranchDiffStatsRequest;
+    }
+  | {
+      method: "branch-commits";
+      params: GitReviewBranchCommitsRequest;
+    }
+  | {
+      method: "base-branch";
+      params: GitReviewBaseBranchRequest;
+    };
+
+export type GitReviewLiveQueryMethod = GitReviewLiveQuery["method"];
+
 export interface GitReviewLiveSubscriptionInput {
   subscriptionId: string;
-  request: GitReviewSummaryRequest;
+  query: GitReviewLiveQuery;
 }
 
 export interface GitReviewLiveSubscriptionStopInput {
   subscriptionId: string;
 }
 
-export type GitReviewLiveSummaryEvent =
+export type GitReviewLiveQueryResult =
   | {
+      method: "review-summary";
+      result: GitReviewSummaryResult;
+    }
+  | {
+      method: "branch-diff-stats";
+      result: BranchDiffStatsResult;
+    }
+  | {
+      method: "branch-commits";
+      result: GitReviewBranchCommitsResult;
+    }
+  | {
+      method: "base-branch";
+      result: GitReviewBaseBranchResult;
+    };
+
+export type GitReviewLiveEvent =
+  | ({
       type: "git-live-query-updated";
       subscriptionId: string;
       generation: number;
       requiresRecovery: boolean;
       phase: "tracked" | "complete";
-      method: "review-summary";
-      result: GitReviewSummaryResult;
-    }
+    } & GitReviewLiveQueryResult)
   | {
       type: "git-live-query-failed";
       subscriptionId: string;
       generation: number;
       requiresRecovery: boolean;
-      method: "review-summary";
+      method: GitReviewLiveQueryMethod;
       errorMessage: string;
     };
 
@@ -3270,29 +3321,6 @@ export type CodexReviewTarget = CodexAppServerReviewTarget;
 export type CodexReviewStartParams = CodexAppServerReviewStartParams;
 export type CodexReviewStartResponse = CodexAppServerReviewStartResponse;
 
-export interface GitReviewFileContentsInput {
-  cwd: string;
-  source: GitReviewSource;
-  path: string;
-  previousPath?: string | null;
-  baseRef?: string | null;
-  commitSha?: string | null;
-  snapshotGeneration?: number | null;
-}
-
-export interface GitReviewFileContents {
-  path: string;
-  previousPath: string | null;
-  oldText: string | null;
-  newText: string | null;
-  oldExists: boolean;
-  newExists: boolean;
-  oldStatus: ReviewDiffLoadStatus;
-  newStatus: ReviewDiffLoadStatus;
-  safety: ReviewFileSafety;
-  errorMessage: string | null;
-}
-
 export interface GitReviewCatFileRequest {
   oid: string | null;
   path: string;
@@ -3322,13 +3350,25 @@ export interface GitReviewSearchInput {
   cwd: string;
   source: GitReviewSource;
   query: string;
-  baseRef?: string | null;
   baseBranch?: string | null;
   commitSha?: string | null;
-  hideWhitespace?: boolean;
-  limit?: number;
-  snapshotGeneration: number;
   requestId?: string | null;
+}
+
+export interface GitReviewSearchSnippet {
+  before: string;
+  match: string;
+  after: string;
+}
+
+export interface GitReviewSearchMatch {
+  path: string;
+  hunkId: "path" | `${number}`;
+  lineStart: number;
+  lineEnd: number;
+  start: number;
+  end: number;
+  snippet: GitReviewSearchSnippet;
 }
 
 export type GitReviewSearchResult =
@@ -3336,21 +3376,14 @@ export type GitReviewSearchResult =
       type: "success";
       source: GitReviewSource;
       query: string;
-      matchingPaths: string[];
+      matches: GitReviewSearchMatch[];
       totalMatches: number;
       isCapped: boolean;
-      snapshotGeneration: number;
-    }
-  | {
-      type: "stale-snapshot";
-      source: GitReviewSource;
-      query: string;
     }
   | {
       type: "error";
       source: GitReviewSource;
       query: string;
-      errorMessage: string | null;
     };
 
 export interface GitApplyPatchInput {

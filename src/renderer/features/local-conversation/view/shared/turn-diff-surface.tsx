@@ -186,6 +186,7 @@ function TurnDiffFileRow({
   diffHostClassName,
   diffHostStyle,
   diffOptions,
+  deferOffscreenRendering,
 }: {
   row: TurnDiffRowModel;
   onOpenReview: (() => void) | null;
@@ -194,6 +195,7 @@ function TurnDiffFileRow({
   diffHostClassName: string;
   diffHostStyle: CSSProperties;
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
+  deferOffscreenRendering: boolean;
 }) {
   const button = (
     <button
@@ -218,28 +220,30 @@ function TurnDiffFileRow({
   );
 
   return (
-    <NodexTooltip
-      delayDuration={800}
-      disabled={disableHoverPreview || !row.fileDiff || row.isTooLarge}
-      surface="rich"
-      interactive
-      side="top"
-      align="center"
-      sideOffset={0}
-      tooltipClassName="flex overflow-visible p-0"
-      tooltipBodyClassName="h-full w-full"
-      style={TURN_DIFF_PREVIEW_TOOLTIP_STYLE}
-      tooltipContent={(
-        <TurnDiffPreview
-          row={row}
-          diffHostClassName={diffHostClassName}
-          diffHostStyle={diffHostStyle}
-          diffOptions={diffOptions}
-        />
-      )}
-    >
-      {button}
-    </NodexTooltip>
+    <div className={cn(deferOffscreenRendering && "thread-diff-virtualized")}>
+      <NodexTooltip
+        delayDuration={800}
+        disabled={disableHoverPreview || !row.fileDiff || row.isTooLarge}
+        surface="rich"
+        interactive
+        side="top"
+        align="center"
+        sideOffset={0}
+        tooltipClassName="flex overflow-visible p-0"
+        tooltipBodyClassName="h-full w-full"
+        style={TURN_DIFF_PREVIEW_TOOLTIP_STYLE}
+        tooltipContent={(
+          <TurnDiffPreview
+            row={row}
+            diffHostClassName={diffHostClassName}
+            diffHostStyle={diffHostStyle}
+            diffOptions={diffOptions}
+          />
+        )}
+      >
+        {button}
+      </NodexTooltip>
+    </div>
   );
 }
 
@@ -306,6 +310,7 @@ function TurnDiffBanner({
 
 export function TurnDiffInProgressInlineSummary({
   item,
+  rows,
   projectWorkspacePath,
   threadCwd,
   reviewSource = "last-turn",
@@ -313,6 +318,7 @@ export function TurnDiffInProgressInlineSummary({
   showLeadingSeparator = false,
 }: {
   item: CodexTranscriptEntry;
+  rows?: readonly TurnDiffRowModel[];
   projectWorkspacePath?: string;
   threadCwd?: string;
   reviewSource?: CodexTurnDiffReviewSource;
@@ -320,8 +326,11 @@ export function TurnDiffInProgressInlineSummary({
   showLeadingSeparator?: boolean;
 }) {
   const payload = extractTurnDiffPayload(item);
-  const rows = useMemo(() => buildTurnDiffRows(item, threadCwd, projectWorkspacePath), [item, projectWorkspacePath, threadCwd]);
-  const summary = useMemo(() => summarizeTurnDiffRows(rows), [rows]);
+  const resolvedRows = useMemo(
+    () => rows ?? buildTurnDiffRows(item, threadCwd, projectWorkspacePath),
+    [item, projectWorkspacePath, rows, threadCwd],
+  );
+  const summary = useMemo(() => summarizeTurnDiffRows(resolvedRows), [resolvedRows]);
   const reviewTarget = useMemo(
     () => buildTurnDiffReviewTarget({
       item,
@@ -338,7 +347,7 @@ export function TurnDiffInProgressInlineSummary({
     ? () => {
         onOpenReview({
           ...reviewTarget,
-          path: summary.fileCount === 1 ? rows[0]?.displayPath ?? null : null,
+          path: summary.fileCount === 1 ? resolvedRows[0]?.displayPath ?? null : null,
         });
       }
     : undefined;
@@ -455,6 +464,7 @@ export function TurnDiffSurface({
   onOpenReview,
   onOpenFileInSidePanel,
   disableHoverPreview = false,
+  deferOffscreenRendering = false,
 }: {
   item: CodexTranscriptEntry;
   isInProgress: boolean;
@@ -464,6 +474,7 @@ export function TurnDiffSurface({
   onOpenReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenFileInSidePanel?: (target: TurnDiffFileSidePanelTarget) => void | Promise<void>;
   disableHoverPreview?: boolean;
+  deferOffscreenRendering?: boolean;
 }) {
   const payload = extractTurnDiffPayload(item);
   const rows = useMemo(() => buildTurnDiffRows(item, threadCwd, projectWorkspacePath), [item, projectWorkspacePath, threadCwd]);
@@ -639,6 +650,7 @@ export function TurnDiffSurface({
                 diffHostClassName={diffHostClassName}
                 diffHostStyle={diffHostStyle}
                 diffOptions={diffOptions}
+                deferOffscreenRendering={deferOffscreenRendering}
               />
             ))}
             {summary.fileCount > TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT ? (

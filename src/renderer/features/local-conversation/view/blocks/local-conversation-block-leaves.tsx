@@ -563,6 +563,7 @@ export function ThreadTurnDiffBlock({
       onOpenReview={onOpenTurnDiffReview}
       onOpenFileInSidePanel={onOpenTurnDiffFileInSidePanel}
       disableHoverPreview={turnDiffHoverPreviewDisabled}
+      deferOffscreenRendering
     />
   );
 }

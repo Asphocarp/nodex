@@ -44,12 +44,20 @@ export type {
 export interface ContentSearchLocalSource {
   domain: ContentSearchLocalDomain;
   contextId: string;
-  search: (query: string, limit: number) => Promise<ContentSearchLocalResult> | ContentSearchLocalResult;
+  search: (
+    query: string,
+    limit: number,
+    options?: { signal: AbortSignal },
+  ) => Promise<ContentSearchLocalResult> | ContentSearchLocalResult;
   ensureVisible?: (
     match: ContentSearchLocalMatch,
     options: { signal: AbortSignal },
   ) => Promise<void> | void;
-  activate: (match: ContentSearchLocalMatch, query: string) => Promise<void> | void;
+  activate: (
+    match: ContentSearchLocalMatch,
+    query: string,
+    options?: { signal: AbortSignal },
+  ) => Promise<void> | void;
   clear: () => void;
 }
 
@@ -252,10 +260,10 @@ export function ContentSearchProvider({
 
   const stepLocal = useCallback((domain: ContentSearchLocalDomain, delta: -1 | 1) => {
     setState((current) => {
-      const totalMatches = current.resultByDomain[domain]?.totalMatches ?? 0;
-      if (totalMatches <= 0) return current;
+      const storedMatches = current.resultByDomain[domain]?.matches.length ?? 0;
+      if (storedMatches <= 0) return current;
       const currentIndex = current.activeIndexByDomain[domain] ?? 0;
-      const nextIndex = (currentIndex + delta + totalMatches) % totalMatches;
+      const nextIndex = (currentIndex + delta + storedMatches) % storedMatches;
       return {
         ...current,
         activeIndexByDomain: {
@@ -368,15 +376,20 @@ export function ContentSearchProvider({
       return;
     }
 
+    const controller = new AbortController();
     setState((current) => ({ ...current, loadingDomain: domain }));
     const timerId = window.setTimeout(() => {
-      void Promise.resolve(source.search(query, CONTENT_SEARCH_LOCAL_MATCH_LIMIT))
+      void Promise.resolve(
+        source.search(query, CONTENT_SEARCH_LOCAL_MATCH_LIMIT, {
+          signal: controller.signal,
+        }),
+      )
         .then((result) => {
-          if (searchSequenceRef.current !== sequence) return;
+          if (controller.signal.aborted || searchSequenceRef.current !== sequence) return;
           setState((current) => {
             const activeIndex = Math.min(
               current.activeIndexByDomain[domain] ?? 0,
-              Math.max(result.totalMatches - 1, 0),
+              Math.max(result.matches.length - 1, 0),
             );
             return {
               ...current,
@@ -393,7 +406,7 @@ export function ContentSearchProvider({
           });
         })
         .catch(() => {
-          if (searchSequenceRef.current !== sequence) return;
+          if (controller.signal.aborted || searchSequenceRef.current !== sequence) return;
           setState((current) => ({
             ...current,
             loadingDomain: current.loadingDomain === domain ? null : current.loadingDomain,
@@ -407,6 +420,7 @@ export function ContentSearchProvider({
 
     return () => {
       window.clearTimeout(timerId);
+      controller.abort();
     };
   }, [sourceVersion, state.domain, state.open, state.queryByDomain]);
 
@@ -436,7 +450,9 @@ export function ContentSearchProvider({
       try {
         await source.ensureVisible?.(match, { signal: controller.signal });
         if (controller.signal.aborted) return;
-        await source.activate(match, result.query);
+        await source.activate(match, result.query, {
+          signal: controller.signal,
+        });
       } catch {
         if (!controller.signal.aborted) {
           source.clear();

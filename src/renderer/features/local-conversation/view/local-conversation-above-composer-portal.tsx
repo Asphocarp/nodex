@@ -1,5 +1,12 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useCallback, useLayoutEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import type {
@@ -172,13 +179,19 @@ function AboveComposerFixedContentLayer({
     ? todoCandidate
     : null;
   const turnDiffCandidate = blocks.find((block) => block.type === "turnDiff") ?? null;
+  const turnDiffRows = useMemo(
+    () => turnDiffCandidate
+      ? buildTurnDiffRows(
+          turnDiffCandidate.entry,
+          threadCwd ?? undefined,
+          projectWorkspacePath ?? undefined,
+        )
+      : [],
+    [projectWorkspacePath, threadCwd, turnDiffCandidate],
+  );
   const turnDiffBlock = turnDiffCandidate
     && extractTurnDiffPayload(turnDiffCandidate.entry)
-    && buildTurnDiffRows(
-      turnDiffCandidate.entry,
-      threadCwd ?? undefined,
-      projectWorkspacePath ?? undefined,
-    ).length > 0
+    && turnDiffRows.length > 0
     ? turnDiffCandidate
     : null;
   const hasFixedContent = todoBlock !== null || turnDiffBlock !== null;
@@ -239,6 +252,7 @@ function AboveComposerFixedContentLayer({
                   >
                     <TurnDiffInProgressInlineSummary
                       item={turnDiffBlock.entry}
+                      rows={turnDiffRows}
                       projectWorkspacePath={projectWorkspacePath ?? undefined}
                       threadCwd={threadCwd ?? undefined}
                       onOpenReview={onOpenTurnDiffReview}

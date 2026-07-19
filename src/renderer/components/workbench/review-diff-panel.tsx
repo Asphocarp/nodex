@@ -72,9 +72,9 @@ import {
 } from "@/features/content-search/content-search-context";
 import {
   CONTENT_SEARCH_ACTIVE_MARK_CLASS,
-  CONTENT_SEARCH_MARK_CLASS,
-  applyContentSearchDomMarks,
+  applyContentSearchDiffDomMarks,
   clearContentSearchMarks,
+  findContentSearchDomMatch,
 } from "@/features/content-search/content-search-dom";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -132,20 +132,19 @@ import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import type {
   CodexTurnDiffPatchBatch,
   CodexTurnDiffReviewTarget,
+  GitReviewBaseBranchResult,
   GitReviewBranchCommit,
   GitReviewBranchCommitsResult,
   GitCatFileResult,
-  GitReviewFileContents,
   GitReviewFileSummary,
   GitReviewFileStatus,
   GitReviewPatchResult,
   GitReviewRepositoryMetadataResult,
   GitReviewSnapshot,
   GitReviewSource,
+  GitReviewSearchResult,
   ReviewDiffEntry,
   ReviewDiffLoadStatus,
-  ReviewDiffRequest,
-  ReviewDiffSuccessResult,
   ReviewFileSafety,
   WorkspaceFileReadResult,
   CodexReviewDiffCommentAttachment,
@@ -186,17 +185,26 @@ import {
 } from "../../../shared/review-file-safety";
 import { expandPartialDiffMetadata } from "@/features/review/model/expand-partial-diff-metadata";
 import {
+  REVIEW_SEARCH_MATCH_LIMIT,
+  buildReviewSearchFiles,
+  searchReviewFiles,
+  type ReviewSearchLocation,
+} from "@/features/review/model/review-search";
+import {
   loadReviewFullContent,
-  readReviewFullContentState,
   useReviewFullContentState,
+  type ReviewFullFileContents,
 } from "@/features/review/data/review-full-content-store";
 import { requestReviewCatFile } from "@/features/review/data/review-cat-file-batcher";
-import { requestReviewDiffPath } from "@/features/review/data/review-diff-batcher";
+import {
+  useReviewPathDiffs,
+  type ReviewPathDiffState,
+} from "@/features/review/data/use-review-path-diffs";
 import {
   parsePatchFiles as defaultParsePatchFiles,
   FileDiff as defaultFileDiff,
   invoke as defaultInvoke,
-  subscribeGitReviewSummaries as defaultSubscribeGitReviewSummaries,
+  subscribeGitReviewLiveQueries as defaultSubscribeGitReviewLiveQueries,
   useTheme as defaultUseTheme,
   Virtualizer as ReviewDiffVirtualizer,
 } from "./review-diff-panel-deps";
@@ -234,7 +242,7 @@ interface ReviewDiffPanelDeps {
   invoke: typeof defaultInvoke;
   useTheme: typeof defaultUseTheme;
   FileDiff: typeof defaultFileDiff;
-  subscribeGitReviewSummaries: typeof defaultSubscribeGitReviewSummaries;
+  subscribeGitReviewLiveQueries: typeof defaultSubscribeGitReviewLiveQueries;
   initialSummaryQuery?: boolean;
 }
 
@@ -251,6 +259,8 @@ interface ReviewFileEntry {
   openLine: number | undefined;
   additions: number | null;
   deletions: number | null;
+  diffBytes: number;
+  changedBytes: number;
   fileDiff: FileDiffMetadata | null;
   loadStatus: ReviewDiffLoadStatus;
   safety: ReviewFileSafety;
@@ -268,6 +278,8 @@ const gitReviewFileEntryCache = new WeakMap<
   GitReviewFileEntryCacheRecord
 >();
 const EMPTY_REVIEW_CODE_COMMENTS: ReviewCodeComment[] = [];
+const EMPTY_REVIEW_COMMENT_ATTACHMENTS: CodexReviewDiffCommentAttachment[] = [];
+const EMPTY_REVIEW_BRANCH_COMMITS: GitReviewBranchCommit[] = [];
 
 interface ReviewSnapshot {
   source: ReviewSource;
@@ -294,7 +306,6 @@ const REVIEW_FILE_TREE_DEFAULT_WIDTH_PX = 280;
 const REVIEW_FILE_TREE_MIN_WIDTH_PX = 200;
 const REVIEW_FILE_TREE_MAX_WIDTH_RATIO = 0.6;
 const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
-const REVIEW_CONTENT_SEARCH_CAP = 250;
 const REVIEW_FULL_FILE_MAX_BYTES = 5_000_000;
 const REVIEW_OPTIONS_MENU_ICON_CLASS_NAME =
   "icon-xs shrink-0 opacity-75 group-focus:opacity-100 group-hover:opacity-100";
@@ -336,7 +347,7 @@ const DEFAULT_REVIEW_DIFF_PANEL_DEPS: ReviewDiffPanelDeps = {
   invoke: defaultInvoke,
   useTheme: defaultUseTheme,
   FileDiff: defaultFileDiff,
-  subscribeGitReviewSummaries: defaultSubscribeGitReviewSummaries,
+  subscribeGitReviewLiveQueries: defaultSubscribeGitReviewLiveQueries,
 };
 
 const REVIEW_RENDERABLE_FILE_SAFETY = buildReviewFileSafety();
@@ -347,51 +358,88 @@ function getReviewChangedLines(
   return (entry.additions ?? 0) + (entry.deletions ?? 0);
 }
 
-function countReviewOccurrences(
-  entry: ReviewFileEntry,
-  query: string,
-  fullContents: GitReviewFileContents | null,
-): number {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return 0;
-  const haystacks = [
-    entry.displayPath,
-    entry.safety.renderable ? entry.patchText : "",
-    fullContents?.safety.renderable ? (fullContents.oldText ?? "") : "",
-    fullContents?.safety.renderable ? (fullContents.newText ?? "") : "",
-  ];
-  let total = 0;
-  for (const value of haystacks) {
-    const haystack = value.toLowerCase();
-    let cursor = 0;
-    while (cursor < haystack.length) {
-      const index = haystack.indexOf(normalizedQuery, cursor);
-      if (index === -1) break;
-      total += 1;
-      cursor = index + normalizedQuery.length;
-    }
-  }
-  return total;
+interface ReviewSearchMatchMeta {
+  location: ReviewSearchLocation;
+  pathMatches: readonly {
+    id: string;
+    location: ReviewSearchLocation;
+  }[];
 }
 
-function escapeAttributeSelectorValue(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function nextAnimationFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-}
-
-function isReviewSearchMatchMeta(
-  value: unknown,
-): value is { path: string; occurrenceIndex: number } {
+function isReviewSearchMatchMeta(value: unknown): value is ReviewSearchMatchMeta {
   if (!value || typeof value !== "object") return false;
-  const meta = value as { path?: unknown; occurrenceIndex?: unknown };
+  const meta = value as Partial<ReviewSearchMatchMeta>;
   return (
-    typeof meta.path === "string" && typeof meta.occurrenceIndex === "number"
+    typeof meta.location === "object" &&
+    meta.location !== null &&
+    typeof meta.location.path === "string" &&
+    Array.isArray(meta.pathMatches)
   );
+}
+
+function buildReviewContentSearchMatches(input: {
+  contextId: string;
+  locations: readonly ReviewSearchLocation[];
+}): ContentSearchLocalMatch[] {
+  const matchesByPath = new Map<
+    string,
+    Array<{ id: string; location: ReviewSearchLocation }>
+  >();
+  const identities = input.locations.map(
+    (location) => `diff:${location.path}:${location.hunkId}:${location.start}`,
+  );
+  input.locations.forEach((location, index) => {
+    const matches = matchesByPath.get(location.path) ?? [];
+    matches.push({ id: identities[index] ?? "", location });
+    matchesByPath.set(location.path, matches);
+  });
+
+  return input.locations.map((location, index) => ({
+    id: identities[index] ?? "",
+    domain: "diff",
+    contextId: input.contextId,
+    ordinal: index + 1,
+    label: location.path,
+    meta: {
+      location,
+      pathMatches: matchesByPath.get(location.path) ?? [],
+    } satisfies ReviewSearchMatchMeta,
+  }));
+}
+
+let reviewRequestSequence = 0;
+
+function nextGitReviewRequestId(prefix: string): string {
+  reviewRequestSequence += 1;
+  return `${prefix}:${reviewRequestSequence}`;
+}
+
+function nextReviewAnimationFrame(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new DOMException("Review search aborted", "AbortError"));
+  }
+  return new Promise((resolve, reject) => {
+    let frameId: number | null = null;
+    let settled = false;
+    const cleanup = () => {
+      signal?.removeEventListener("abort", abort);
+    };
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      if (frameId !== null) cancelAnimationFrame(frameId);
+      cleanup();
+      reject(new DOMException("Review search aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    frameId = requestAnimationFrame(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    });
+    if (signal?.aborted) abort();
+  });
 }
 
 const SOURCE_LABELS: Record<ReviewSource, string> = {
@@ -402,8 +450,6 @@ const SOURCE_LABELS: Record<ReviewSource, string> = {
   staged: "Staged",
   unstaged: "Unstaged",
 };
-
-type BranchCommitsLoadStatus = "idle" | "loading" | "loaded" | "error";
 
 function formatReviewCommitRelativeTime(committedAt: string): string {
   const committedAtMs = Date.parse(committedAt);
@@ -716,6 +762,14 @@ function readReviewDiffEntryPatch(
   return typeof candidate.diff === "string" ? candidate.diff : null;
 }
 
+function readReviewDiffEntryBytes(
+  summary: GitReviewFileSummary,
+  field: "diffBytes" | "changedBytes",
+): number | null {
+  const value = (summary as Partial<ReviewDiffEntry>)[field];
+  return typeof value === "number" ? value : null;
+}
+
 function buildReviewFileEntryFromSummary(
   summary: GitReviewFileSummary,
   basePath: string | null,
@@ -754,6 +808,14 @@ function buildReviewFileEntryFromSummary(
     openLine: existing?.openLine,
     additions: summary.additions,
     deletions: summary.deletions,
+    diffBytes:
+      readReviewDiffEntryBytes(summary, "diffBytes") ??
+      existing?.diffBytes ??
+      0,
+    changedBytes:
+      readReviewDiffEntryBytes(summary, "changedBytes") ??
+      existing?.changedBytes ??
+      0,
     fileDiff,
     loadStatus: resolveReviewEntryLoadStatus({
       safety,
@@ -829,6 +891,16 @@ function buildReviewFileEntries(
             : patchText;
           const safety = metadata?.safety ?? REVIEW_RENDERABLE_FILE_SAFETY;
           const fileDiffForEntry = safety.renderable ? fileDiff : null;
+          const diffBytes = metadata
+            ? readReviewDiffEntryBytes(metadata, "diffBytes")
+            : null;
+          const changedBytes = metadata
+            ? readReviewDiffEntryBytes(metadata, "changedBytes")
+            : null;
+          const fallbackPatchBytes =
+            diffBytes === null || changedBytes === null
+              ? new TextEncoder().encode(nextPatchText).length
+              : 0;
 
           if (!existing) orderedPaths.push(displayPath);
           entriesByPath.set(displayPath, {
@@ -860,6 +932,8 @@ function buildReviewFileEntries(
             deletions:
               metadata?.deletions ??
               (existing?.deletions ?? 0) + additionsDeletions.deletions,
+            diffBytes: diffBytes ?? fallbackPatchBytes,
+            changedBytes: changedBytes ?? fallbackPatchBytes,
             fileDiff: fileDiffForEntry,
             loadStatus: resolveReviewEntryLoadStatus({
               safety,
@@ -1039,7 +1113,7 @@ function buildReviewFullContentKey(input: {
 
 function buildUnavailableReviewFullContents(
   entry: ReviewFileEntry,
-): GitReviewFileContents {
+): ReviewFullFileContents {
   return {
     path: entry.displayPath,
     previousPath: entry.previousPath,
@@ -1249,7 +1323,7 @@ function reconstructOldTextFromCurrentText(
 function buildTranscriptFullContentsFromPatch(
   entry: ReviewFileEntry,
   currentText: string,
-): GitReviewFileContents {
+): ReviewFullFileContents {
   if (!entry.fileDiff) return buildUnavailableReviewFullContents(entry);
   const oldText = reconstructOldTextFromCurrentText(
     entry.fileDiff,
@@ -1275,7 +1349,7 @@ function buildTranscriptFullContentsFromPatch(
 
 function buildTranscriptDeletedFileContents(
   entry: ReviewFileEntry,
-): GitReviewFileContents {
+): ReviewFullFileContents {
   if (!entry.fileDiff) return buildUnavailableReviewFullContents(entry);
   if (!hasPatchLineArrays(entry.fileDiff))
     return buildUnavailableReviewFullContents(entry);
@@ -1298,7 +1372,7 @@ function buildTranscriptDeletedFileContents(
 
 function buildTranscriptNewFileContentsFromPatch(
   entry: ReviewFileEntry,
-): GitReviewFileContents {
+): ReviewFullFileContents {
   if (!entry.fileDiff) return buildUnavailableReviewFullContents(entry);
   if (!hasPatchLineArrays(entry.fileDiff))
     return buildUnavailableReviewFullContents(entry);
@@ -1394,7 +1468,7 @@ function buildSelectedTurnSnapshot(
 }
 
 function buildGitSnapshot(
-  gitSnapshot: GitReviewSnapshot | ReviewDiffSuccessResult | null,
+  gitSnapshot: GitReviewSnapshot | null,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
   const cwd = gitSnapshot?.cwd ?? null;
@@ -1432,47 +1506,8 @@ function isReviewDiffEntryLike(
   );
 }
 
-function mergeGitSnapshotWithDiffResult(
-  currentSnapshot: GitReviewSnapshot | null | undefined,
-  diffResult: ReviewDiffSuccessResult,
-): GitReviewSnapshot {
-  if (
-    !currentSnapshot ||
-    currentSnapshot.cwd !== diffResult.cwd ||
-    currentSnapshot.source !== diffResult.source
-  ) {
-    return diffResult;
-  }
-
-  const loadedByPath = new Map(
-    currentSnapshot.files
-      .filter(isReviewDiffEntryLike)
-      .map((file) => [file.path, file]),
-  );
-  for (const file of diffResult.files) {
-    const summary = currentSnapshot.files.find(
-      (candidate) => candidate.path === file.path,
-    );
-    loadedByPath.set(file.path, summary ? { ...summary, ...file } : file);
-  }
-
-  const files = currentSnapshot.files.map(
-    (file) => loadedByPath.get(file.path) ?? file,
-  );
-  const patch = files
-    .filter(isReviewDiffEntryLike)
-    .map((file) => file.diff)
-    .filter((diff) => diff.trim().length > 0)
-    .join("\n");
-
-  return {
-    ...currentSnapshot,
-    patch,
-    files,
-  };
-}
-
 function mergeGitSnapshotWithSummary(input: {
+  baseRef: string | null;
   current: GitReviewSnapshot | null | undefined;
   cwd: string;
   source: GitReviewSource;
@@ -1495,19 +1530,13 @@ function mergeGitSnapshotWithSummary(input: {
     }
     return reusable;
   });
-  const patch = files
-    .filter(isReviewDiffEntryLike)
-    .map((file) => file.diff)
-    .filter((diff) => diff.trim().length > 0)
-    .join("\n");
-
   return {
     cwd: input.cwd,
     source: input.source,
-    patch,
+    patch: input.current?.patch ?? "",
     files,
     isGitRepository: input.current?.isGitRepository ?? true,
-    baseRef: input.current?.baseRef ?? null,
+    baseRef: input.baseRef,
     currentBranch: input.current?.currentBranch ?? null,
     defaultBranch: input.current?.defaultBranch ?? null,
     errorMessage: null,
@@ -1515,31 +1544,90 @@ function mergeGitSnapshotWithSummary(input: {
   };
 }
 
-function markGitSnapshotDiffLoadFailure(
-  currentSnapshot: GitReviewSnapshot | undefined,
-  paths: ReadonlySet<string>,
-  loadStatus: "load-failed" | "timed-out",
-  errorMessage: string,
-): GitReviewSnapshot | undefined {
-  if (!currentSnapshot) return currentSnapshot;
+interface GitReviewFilePathDiffCacheRecord {
+  source: ReviewDiffEntry | Error;
+  entry: ReviewDiffEntry;
+}
+
+interface GitReviewSnapshotPathDiffCacheRecord {
+  files: GitReviewFileSummary[];
+  snapshot: GitReviewSnapshot;
+}
+
+const gitReviewFilePathDiffCache = new WeakMap<
+  GitReviewFileSummary,
+  GitReviewFilePathDiffCacheRecord
+>();
+const gitReviewSnapshotPathDiffCache = new WeakMap<
+  GitReviewSnapshot,
+  GitReviewSnapshotPathDiffCacheRecord
+>();
+
+function buildFailedGitReviewPathDiff(
+  file: GitReviewFileSummary,
+  error: Error,
+): ReviewDiffEntry {
+  const loadStatus = error.message.includes("timed out")
+    ? "timed-out"
+    : "load-failed";
   return {
-    ...currentSnapshot,
-    files: currentSnapshot.files.map((file) => {
-      if (!paths.has(file.path)) return file;
-      return {
-        ...file,
-        diff: "",
-        loadStatus,
-        renderKey: `${file.revision ?? file.path}:error:${loadStatus}`,
-        diffBytes: 0,
-        diffError: errorMessage,
-        canApplyPatchActions: false,
-        changedBytes: 0,
-        tooLarge: false,
-        tooLargeReason: null,
-      } satisfies ReviewDiffEntry;
-    }),
+    ...file,
+    diff: "",
+    loadStatus,
+    renderKey: `${file.revision ?? file.path}:error:${loadStatus}`,
+    diffBytes: 0,
+    diffError: error.message,
+    canApplyPatchActions: false,
+    changedBytes: 0,
+    tooLarge: false,
+    tooLargeReason: null,
   };
+}
+
+function mergeGitReviewFileWithPathDiff(
+  file: GitReviewFileSummary,
+  state: ReviewPathDiffState | undefined,
+): GitReviewFileSummary {
+  const source = state?.data ?? state?.error ?? null;
+  if (!source) return file;
+
+  const cached = gitReviewFilePathDiffCache.get(file);
+  if (cached?.source === source) return cached.entry;
+
+  const entry =
+    state?.data !== null && state?.data !== undefined
+      ? { ...file, ...state.data }
+      : buildFailedGitReviewPathDiff(file, source as Error);
+  gitReviewFilePathDiffCache.set(file, { source, entry });
+  return entry;
+}
+
+function mergeGitSnapshotWithPathDiffs(
+  snapshot: GitReviewSnapshot | null,
+  pathDiffs: ReadonlyMap<string, ReviewPathDiffState>,
+): GitReviewSnapshot | null {
+  if (!snapshot) return null;
+
+  const files = snapshot.files.map((file) =>
+    mergeGitReviewFileWithPathDiff(file, pathDiffs.get(file.path)),
+  );
+  const cached = gitReviewSnapshotPathDiffCache.get(snapshot);
+  if (
+    cached?.files.length === files.length &&
+    cached.files.every((file, index) => file === files[index])
+  ) {
+    return cached.snapshot;
+  }
+
+  const nextSnapshot =
+    files.every((file, index) => file === snapshot.files[index])
+      ? snapshot
+      : { ...snapshot, files };
+  gitReviewSnapshotPathDiffCache.set(snapshot, {
+    files,
+    snapshot: nextSnapshot,
+  });
+  return nextSnapshot;
 }
 
 const REVIEW_TOOLBAR_ICON_BUTTON_BASE_CLASS_NAME =
@@ -1777,7 +1865,7 @@ interface ReviewFileRowProps {
   expanded: boolean;
   openerId: string;
   fullContentKey: string;
-  loadFullContents: (entry: ReviewFileEntry) => Promise<GitReviewFileContents>;
+  loadFullContents: (entry: ReviewFileEntry) => Promise<ReviewFullFileContents>;
   comments: ReviewCodeComment[];
   threadId: string | null;
   sourceKey: string;
@@ -1792,6 +1880,34 @@ function areShallowArraysEqual<T>(left: T[], right: T[]): boolean {
     (left.length === right.length &&
       left.every((value, index) => value === right[index]))
   );
+}
+
+function buildStableReviewCommentAttachmentsByPath(
+  attachments: CodexReviewDiffCommentAttachment[],
+  previous: ReadonlyMap<string, CodexReviewDiffCommentAttachment[]>,
+): ReadonlyMap<string, CodexReviewDiffCommentAttachment[]> {
+  const grouped = new Map<string, CodexReviewDiffCommentAttachment[]>();
+  for (const attachment of attachments) {
+    const path = attachment.position.path;
+    const bucket = grouped.get(path);
+    if (bucket) {
+      bucket.push(attachment);
+      continue;
+    }
+    grouped.set(path, [attachment]);
+  }
+
+  let unchanged = grouped.size === previous.size;
+  for (const [path, bucket] of grouped) {
+    const previousBucket = previous.get(path);
+    if (previousBucket && areShallowArraysEqual(bucket, previousBucket)) {
+      grouped.set(path, previousBucket);
+      continue;
+    }
+    unchanged = false;
+  }
+
+  return unchanged ? previous : grouped;
 }
 
 function areReviewFileEntriesEqual(
@@ -1811,6 +1927,8 @@ function areReviewFileEntriesEqual(
       left.openLine === right.openLine &&
       left.additions === right.additions &&
       left.deletions === right.deletions &&
+      left.diffBytes === right.diffBytes &&
+      left.changedBytes === right.changedBytes &&
       left.fileDiff === right.fileDiff &&
       left.loadStatus === right.loadStatus &&
       left.safety === right.safety &&
@@ -1912,13 +2030,7 @@ const ReviewFileRow = memo(function ReviewFileRow({
       ),
     [comments],
   );
-  const pendingFileComments = useMemo(
-    () =>
-      pendingCommentAttachments.filter(
-        (attachment) => attachment.position.path === entry.displayPath,
-      ),
-    [entry.displayPath, pendingCommentAttachments],
-  );
+  const pendingFileComments = pendingCommentAttachments;
   const existingAnnotationKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const comment of modelLineComments) {
@@ -3095,7 +3207,7 @@ export function ReviewDiffPanel({
     }),
     [deps],
   );
-  const { invoke, parsePatchFiles, subscribeGitReviewSummaries } = resolvedDeps;
+  const { invoke, parsePatchFiles, subscribeGitReviewLiveQueries } = resolvedDeps;
   const reviewConversation = conversationProjection;
   const { opener } = useFileLinkOpener();
   const reviewContentRootRef = useRef<HTMLDivElement | null>(null);
@@ -3128,24 +3240,25 @@ export function ReviewDiffPanel({
   const [focusedTreeItemId, setFocusedTreeItemId] = useState<string | null>(
     null,
   );
-  const [branchCommits, setBranchCommits] = useState<GitReviewBranchCommit[]>(
-    [],
-  );
-  const [branchCommitsLoadStatus, setBranchCommitsLoadStatus] =
-    useState<BranchCommitsLoadStatus>("idle");
+  const [branchCommitsRequested, setBranchCommitsRequested] = useState(false);
   const [branchCommitsError, setBranchCommitsError] = useState<string | null>(
     null,
   );
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const expandedKeysSourceRef = useRef<ReviewSource | null>(null);
   const knownReviewFileKeysRef = useRef<Set<string>>(new Set());
-  const gitLiveGenerationRef = useRef(0);
+  const gitLiveGenerationsRef = useRef(new Map<string, number>());
+  const gitSummaryRequestSequenceRef = useRef(0);
+  const reviewSearchRequestSequenceRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const reviewCommentsByPathCacheRef = useRef<{
     comments: ReviewCodeComment[];
     pathsIdentity: string;
     value: Map<string, ReviewCodeComment[]>;
   } | null>(null);
+  const pendingReviewCommentsByPathRef = useRef<
+    ReadonlyMap<string, CodexReviewDiffCommentAttachment[]>
+  >(new Map());
   const queryClient = useQueryClient();
   const reviewThreadId = reviewConversation.threadId ?? threadId ?? null;
   const pendingReviewCommentAttachments =
@@ -3165,7 +3278,9 @@ export function ReviewDiffPanel({
     : (projectWorkspacePath ?? reviewConversation.cwd ?? null);
 
   useEffect(() => {
-    clearContentSearchMarks(reviewContentRootRef.current);
+    clearContentSearchMarks(reviewContentRootRef.current, {
+      includeShadowRoots: true,
+    });
   }, [reviewConversation.threadId]);
 
   useEffect(() => {
@@ -3252,9 +3367,12 @@ export function ReviewDiffPanel({
   const loadGitSnapshot = useCallback(async (
     nextSource: GitReviewSource,
     nextCwd: string,
+    nextBaseBranch: string | null,
     signal?: AbortSignal,
   ): Promise<GitReviewSnapshot> => {
-    const requestId = `review:${nextCwd}:${nextSource}:${commitSha ?? ""}`;
+    const requestId = `review:${nextCwd}:${nextSource}:${commitSha ?? ""}:${
+      hideWhitespace ? "ignore-whitespace" : "keep-whitespace"
+    }:${++gitSummaryRequestSequenceRef.current}`;
     const abort = () => {
       void invoke("git:review:cancel", { requestId });
     };
@@ -3266,6 +3384,7 @@ export function ReviewDiffPanel({
     const result = await invoke("git:review:summary", {
         cwd: nextCwd,
         source: nextSource,
+        baseBranch: nextSource === "branch" ? nextBaseBranch : null,
         commitSha: nextSource === "commit" ? commitSha : null,
         hideWhitespace,
         requestId,
@@ -3277,7 +3396,7 @@ export function ReviewDiffPanel({
         patch: "",
         files: [],
         isGitRepository: true,
-        baseRef: null,
+        baseRef: nextSource === "branch" ? nextBaseBranch : null,
         currentBranch: null,
         defaultBranch: null,
         errorMessage: result.errorMessage,
@@ -3290,7 +3409,7 @@ export function ReviewDiffPanel({
       patch: "",
       files: result.files,
       isGitRepository: true,
-      baseRef: null,
+      baseRef: nextSource === "branch" ? nextBaseBranch : null,
       currentBranch: null,
       defaultBranch: null,
       errorMessage: null,
@@ -3301,26 +3420,6 @@ export function ReviewDiffPanel({
   const normalizedGitCwd = reviewCwd?.trim() ?? "";
   const gitQueryEnabled =
     isGitReviewSource(source) && normalizedGitCwd.length > 0;
-  const gitSummaryQueryKey = useMemo(
-    () =>
-      [
-        "review",
-        "live-summary",
-        normalizedGitCwd,
-        source,
-        commitSha ?? "",
-        hideWhitespace,
-        loadGitSnapshot,
-      ] as const,
-    [commitSha, hideWhitespace, loadGitSnapshot, normalizedGitCwd, source],
-  );
-  const gitLiveSubscriptionId = useMemo(
-    () =>
-      `review:${hashReviewDiffSourceKey(
-        `${normalizedGitCwd}:${source}:${commitSha ?? ""}:${hideWhitespace}`,
-      )}`,
-    [commitSha, hideWhitespace, normalizedGitCwd, source],
-  );
   const gitRepositoryMetadataQueryKey = useMemo(
     () =>
       ["review", "repository-metadata", normalizedGitCwd, invoke] as const,
@@ -3328,10 +3427,22 @@ export function ReviewDiffPanel({
   );
   const gitRepositoryMetadataQuery = useQuery({
     queryKey: gitRepositoryMetadataQueryKey,
-    queryFn: async (): Promise<GitReviewRepositoryMetadataResult> => {
+    queryFn: async ({ signal }): Promise<GitReviewRepositoryMetadataResult> => {
+      const requestId = nextGitReviewRequestId(
+        `review:${normalizedGitCwd}:metadata`,
+      );
+      const abort = () => {
+        void invoke("git:review:cancel", { requestId });
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) {
+        abort();
+        throw new DOMException("Git metadata read aborted", "AbortError");
+      }
       const result = await invoke("git:review:repository-metadata", {
         cwd: normalizedGitCwd,
-      });
+        requestId,
+      }).finally(() => signal.removeEventListener("abort", abort));
       if (result && typeof result.cwd === "string") return result;
       return {
         cwd: normalizedGitCwd,
@@ -3351,32 +3462,134 @@ export function ReviewDiffPanel({
     retry: 3,
     retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
   });
+  const gitRepositoryIdentityKey = useMemo(
+    () => JSON.stringify([
+      "local",
+      gitRepositoryMetadataQuery.data?.commonDir ?? null,
+      gitRepositoryMetadataQuery.data?.root ?? normalizedGitCwd,
+    ]),
+    [
+      gitRepositoryMetadataQuery.data?.commonDir,
+      gitRepositoryMetadataQuery.data?.root,
+      normalizedGitCwd,
+    ],
+  );
+  const gitRequestCwd =
+    gitRepositoryMetadataQuery.data?.root ?? normalizedGitCwd;
+  const gitBaseBranchQueryKey = useMemo(
+    () => [
+      "review",
+      "live-base-branch",
+      gitRepositoryIdentityKey,
+      gitRequestCwd,
+      gitRepositoryMetadataQuery.data?.defaultBranch ?? null,
+    ] as const,
+    [
+      gitRepositoryIdentityKey,
+      gitRepositoryMetadataQuery.data?.defaultBranch,
+      gitRequestCwd,
+    ],
+  );
+  const gitBaseBranchQuery = useQuery<GitReviewBaseBranchResult>({
+    queryKey: gitBaseBranchQueryKey,
+    queryFn: async () => ({
+      cwd: gitRequestCwd,
+      local: gitRepositoryMetadataQuery.data?.defaultBranch ?? null,
+      remote: null,
+      errorMessage: null,
+    }),
+    enabled: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const resolvedBaseBranch =
+    gitBaseBranchQuery.data?.remote
+    ?? gitBaseBranchQuery.data?.local
+    ?? gitRepositoryMetadataQuery.data?.defaultBranch
+    ?? null;
+  const gitBaseBranchSubscriptionId = useMemo(
+    () =>
+      `review:base-branch:${hashReviewDiffSourceKey(
+        gitRepositoryIdentityKey,
+      )}`,
+    [gitRepositoryIdentityKey],
+  );
+  const gitSummaryBaseBranch = source === "branch" ? resolvedBaseBranch : null;
+  const gitSummaryQueryKey = useMemo(
+    () =>
+      [
+        "review",
+        "live-summary",
+        gitRepositoryIdentityKey,
+        gitRequestCwd,
+        source,
+        gitSummaryBaseBranch,
+        commitSha ?? "",
+        hideWhitespace,
+        loadGitSnapshot,
+      ] as const,
+    [
+      commitSha,
+      gitRepositoryIdentityKey,
+      gitRequestCwd,
+      gitSummaryBaseBranch,
+      hideWhitespace,
+      loadGitSnapshot,
+      source,
+    ],
+  );
+  const gitLiveSubscriptionId = useMemo(
+    () =>
+      `review:${hashReviewDiffSourceKey(
+        `${gitRepositoryIdentityKey}:${source}:${gitSummaryBaseBranch ?? ""}:${
+          commitSha ?? ""
+        }:${hideWhitespace}`,
+      )}`,
+    [
+      commitSha,
+      gitRepositoryIdentityKey,
+      gitSummaryBaseBranch,
+      hideWhitespace,
+      source,
+    ],
+  );
   const gitSummaryQuery = useQuery({
     queryKey: gitSummaryQueryKey,
     queryFn: ({ signal }) => {
-      if (!isGitReviewSource(source) || !normalizedGitCwd) {
+      if (!isGitReviewSource(source) || !gitRequestCwd) {
         throw new Error("Git review source is not active.");
       }
-      return loadGitSnapshot(source, normalizedGitCwd, signal);
+      return loadGitSnapshot(
+        source,
+        gitRequestCwd,
+        gitSummaryBaseBranch,
+        signal,
+      );
     },
-    enabled: gitQueryEnabled && resolvedDeps.initialSummaryQuery === true,
+    enabled:
+      gitQueryEnabled
+      && resolvedDeps.initialSummaryQuery === true
+      && (
+        source !== "branch"
+        || gitBaseBranchQuery.data !== undefined
+        || resolvedDeps.initialSummaryQuery === true
+      ),
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 3,
     retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
   });
-  const gitSnapshot = useMemo(() => {
+  const gitSummarySnapshot = useMemo(() => {
     if (!gitQueryEnabled || !gitSummaryQuery.data) return null;
     const metadata = gitRepositoryMetadataQuery.data;
     if (!metadata) return gitSummaryQuery.data;
     return {
       ...gitSummaryQuery.data,
-      cwd: metadata.cwd,
+      cwd: metadata.root ?? metadata.cwd,
       isGitRepository: metadata.isGitRepository,
       baseRef:
         source === "branch"
-          ? (gitSummaryQuery.data.baseRef ?? metadata.defaultBranch)
+          ? (gitSummaryQuery.data.baseRef ?? resolvedBaseBranch)
           : gitSummaryQuery.data.baseRef,
       currentBranch: metadata.currentBranch,
       defaultBranch: metadata.defaultBranch,
@@ -3387,8 +3600,70 @@ export function ReviewDiffPanel({
     gitQueryEnabled,
     gitRepositoryMetadataQuery.data,
     gitSummaryQuery.data,
+    resolvedBaseBranch,
     source,
   ]);
+  const branchCommitsBaseBranch =
+    gitSummarySnapshot?.baseRef
+    ?? resolvedBaseBranch
+    ?? null;
+  const branchCommitsQueryKey = useMemo(
+    () => [
+      "review",
+      "live-branch-commits",
+      gitRepositoryIdentityKey,
+      gitRequestCwd,
+      branchCommitsBaseBranch ?? "",
+      invoke,
+    ] as const,
+    [
+      branchCommitsBaseBranch,
+      gitRepositoryIdentityKey,
+      gitRequestCwd,
+      invoke,
+    ],
+  );
+  const branchCommitsSubscriptionId = useMemo(
+    () =>
+      `review:branch-commits:${hashReviewDiffSourceKey(
+        `${gitRepositoryIdentityKey}:${branchCommitsBaseBranch ?? ""}`,
+      )}`,
+    [branchCommitsBaseBranch, gitRepositoryIdentityKey],
+  );
+  const branchCommitsQuery = useQuery({
+    queryKey: branchCommitsQueryKey,
+    queryFn: async (): Promise<GitReviewBranchCommitsResult> =>
+      invoke("git:review:branch-commits", {
+        cwd: gitRequestCwd,
+        baseBranch: branchCommitsBaseBranch,
+        operationSource: "review_model",
+        requestId: nextGitReviewRequestId(
+          `review:${gitRequestCwd}:branch-commits:${
+            branchCommitsBaseBranch ?? ""
+          }`,
+        ),
+      }),
+    enabled:
+      gitQueryEnabled
+      && branchCommitsRequested
+      && resolvedDeps.initialSummaryQuery === true,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(300 * 2 ** attempt, 2_000),
+  });
+  const branchCommits =
+    branchCommitsQuery.data?.commits ?? EMPTY_REVIEW_BRANCH_COMMITS;
+  const branchCommitsLoadStatus = !branchCommitsRequested
+    ? "idle"
+    : branchCommitsError
+        || branchCommitsQuery.isError
+        || branchCommitsQuery.data?.errorMessage
+      ? "error"
+      : branchCommitsQuery.data
+        ? "loaded"
+        : "loading";
   const gitLoadStatus: GitReviewLoadStatus = !gitQueryEnabled
     ? "idle"
     : gitSummaryQuery.isPending || gitRepositoryMetadataQuery.isPending
@@ -3400,10 +3675,29 @@ export function ReviewDiffPanel({
           : "load-failed"
         : "loaded";
   const gitLoading = gitLoadStatus === "loading";
+  const refreshStaleReviewSnapshot = useCallback(() => {
+    void invoke("git:live-query:refresh-repository", {
+      subscriptionId: gitLiveSubscriptionId,
+    });
+  }, [gitLiveSubscriptionId, invoke]);
+  const reviewPathDiffs = useReviewPathDiffs({
+    commitSha,
+    commonDir: gitRepositoryMetadataQuery.data?.commonDir ?? null,
+    enabled: gitLoadStatus === "loaded" && isGitReviewSource(source),
+    hideWhitespace,
+    invoke: (channel, input) => invoke(channel, input),
+    onStaleSnapshot: refreshStaleReviewSnapshot,
+    root: gitRepositoryMetadataQuery.data?.root ?? null,
+    snapshot: gitSummarySnapshot,
+  });
+  const gitSnapshot = useMemo(
+    () => mergeGitSnapshotWithPathDiffs(gitSummarySnapshot, reviewPathDiffs),
+    [gitSummarySnapshot, reviewPathDiffs],
+  );
 
   const loadReviewFileContents = useCallback(async (
     entry: ReviewFileEntry,
-  ): Promise<GitReviewFileContents> => {
+  ): Promise<ReviewFullFileContents> => {
     if (!entry.safety.renderable || !entry.fileDiff) {
       return buildUnavailableReviewFullContents(entry);
     }
@@ -3449,7 +3743,7 @@ export function ReviewDiffPanel({
       }
     }
 
-    const normalizedCwd = reviewCwd?.trim() ?? "";
+    const normalizedCwd = gitSnapshot?.cwd?.trim() ?? reviewCwd?.trim() ?? "";
     if (!normalizedCwd) {
       throw new Error(
         "Working directory is required to load full review files.",
@@ -3501,56 +3795,81 @@ export function ReviewDiffPanel({
           ? "Could not load full review file."
           : null,
     };
-  }, [commitSha, gitSnapshot?.baseRef, gitSnapshot?.snapshotGeneration, invoke, reviewCwd, source]);
+  }, [commitSha, gitSnapshot?.baseRef, gitSnapshot?.cwd, gitSnapshot?.snapshotGeneration, invoke, reviewCwd, source]);
 
   useEffect(() => {
-    if (!isGitReviewSource(source)) return;
-    const normalizedCwd = reviewCwd?.trim() ?? "";
-    if (!normalizedCwd) return;
-
-    const subscriptionId = gitLiveSubscriptionId;
-    gitLiveGenerationRef.current = 0;
-    const unsubscribe = subscribeGitReviewSummaries((event) => {
-      if (event.subscriptionId !== subscriptionId) return;
+    if (!gitQueryEnabled) return;
+    const unsubscribe = subscribeGitReviewLiveQueries((event) => {
+      const isSummary = event.subscriptionId === gitLiveSubscriptionId;
+      const isBaseBranch =
+        event.subscriptionId === gitBaseBranchSubscriptionId;
+      const isBranchCommits =
+        branchCommitsRequested
+        && event.subscriptionId === branchCommitsSubscriptionId;
+      if (!isSummary && !isBaseBranch && !isBranchCommits) return;
       if (event.requiresRecovery) {
-        void invoke("git:live-query:recover", { subscriptionId });
-      }
-      if (event.generation < gitLiveGenerationRef.current) return;
-      gitLiveGenerationRef.current = event.generation;
-      if (event.type === "git-live-query-failed") {
-        queryClient.setQueryData<GitReviewSnapshot>(
-          gitSummaryQueryKey,
-          (current) =>
-            current ?? {
-              cwd: normalizedCwd,
-              source,
-              patch: "",
-              files: [],
-              isGitRepository: true,
-              baseRef: null,
-              currentBranch: null,
-              defaultBranch: null,
-              errorMessage: event.errorMessage,
-              snapshotGeneration: 0,
-            },
-        );
-        return;
-      }
-      if (event.result.source !== source || event.result.type !== "success") return;
-      const summary = event.result;
-      if (event.phase === "complete") {
-        void queryClient.invalidateQueries({
-          queryKey: gitRepositoryMetadataQueryKey,
-          exact: true,
+        void invoke("git:live-query:recover", {
+          subscriptionId: event.subscriptionId,
         });
       }
+      const currentGeneration =
+        gitLiveGenerationsRef.current.get(event.subscriptionId) ?? 0;
+      if (event.generation < currentGeneration) return;
+      gitLiveGenerationsRef.current.set(
+        event.subscriptionId,
+        event.generation,
+      );
+      if (event.type === "git-live-query-failed") {
+        if (isBranchCommits) setBranchCommitsError(event.errorMessage);
+        if (isSummary) {
+          queryClient.setQueryData<GitReviewSnapshot>(
+            gitSummaryQueryKey,
+            (current) =>
+              current ?? {
+                cwd: gitRequestCwd,
+                source,
+                patch: "",
+                files: [],
+                isGitRepository: true,
+                baseRef: null,
+                currentBranch: null,
+                defaultBranch: null,
+                errorMessage: event.errorMessage,
+                snapshotGeneration: 0,
+              },
+          );
+        }
+        return;
+      }
+      if (isBaseBranch && event.method === "base-branch") {
+        startTransition(() => {
+          queryClient.setQueryData(
+            gitBaseBranchQueryKey,
+            event.result,
+          );
+        });
+        return;
+      }
+      if (isBranchCommits && event.method === "branch-commits") {
+        setBranchCommitsError(event.result.errorMessage);
+        startTransition(() => {
+          queryClient.setQueryData(branchCommitsQueryKey, event.result);
+        });
+        return;
+      }
+      if (!isSummary || event.method !== "review-summary") return;
+      if (event.result.source !== source || event.result.type !== "success") {
+        return;
+      }
+      const summary = event.result;
       startTransition(() => {
         queryClient.setQueryData<GitReviewSnapshot>(
           gitSummaryQueryKey,
           (current) =>
             mergeGitSnapshotWithSummary({
+              baseRef: gitSummaryBaseBranch,
               current,
-              cwd: normalizedCwd,
+              cwd: gitRequestCwd,
               source,
               files: summary.files,
               snapshotGeneration: summary.snapshotGeneration,
@@ -3558,31 +3877,116 @@ export function ReviewDiffPanel({
         );
       });
     });
+    return unsubscribe;
+  }, [
+    branchCommitsQueryKey,
+    branchCommitsRequested,
+    branchCommitsSubscriptionId,
+    gitBaseBranchSubscriptionId,
+    gitBaseBranchQueryKey,
+    gitLiveSubscriptionId,
+    gitQueryEnabled,
+    gitRequestCwd,
+    gitSummaryQueryKey,
+    gitSummaryBaseBranch,
+    invoke,
+    normalizedGitCwd,
+    queryClient,
+    source,
+    subscribeGitReviewLiveQueries,
+  ]);
+
+  useEffect(() => {
+    if (
+      !gitQueryEnabled
+      || !gitRepositoryMetadataQuery.data
+      || (
+        source === "branch"
+        && gitBaseBranchQuery.data === undefined
+        && resolvedDeps.initialSummaryQuery !== true
+      )
+    ) return;
+    const subscriptionId = gitLiveSubscriptionId;
+    gitLiveGenerationsRef.current.delete(subscriptionId);
     void invoke("git:live-query:subscribe", {
       subscriptionId,
-      request: {
-        cwd: normalizedCwd,
-        source,
-        commitSha: source === "commit" ? commitSha : null,
-        hideWhitespace,
+      query: {
+        method: "review-summary",
+        params: {
+          cwd: gitRequestCwd,
+          source,
+          baseBranch: gitSummaryBaseBranch,
+          commitSha: source === "commit" ? commitSha : null,
+          hideWhitespace,
+        },
       },
     });
 
     return () => {
-      unsubscribe();
       void invoke("git:live-query:unsubscribe", { subscriptionId });
     };
   }, [
     commitSha,
     gitLiveSubscriptionId,
-    gitRepositoryMetadataQueryKey,
+    gitBaseBranchQuery.data,
+    gitRepositoryMetadataQuery.data,
+    gitRequestCwd,
+    gitSummaryBaseBranch,
     hideWhitespace,
     invoke,
-    gitSummaryQueryKey,
-    queryClient,
-    reviewCwd,
+    gitQueryEnabled,
+    resolvedDeps.initialSummaryQuery,
     source,
-    subscribeGitReviewSummaries,
+  ]);
+
+  useEffect(() => {
+    if (!gitQueryEnabled || !gitRepositoryMetadataQuery.data) return;
+    const subscriptionId = gitBaseBranchSubscriptionId;
+    gitLiveGenerationsRef.current.delete(subscriptionId);
+    void invoke("git:live-query:subscribe", {
+      subscriptionId,
+      query: {
+        method: "base-branch",
+        params: { cwd: gitRequestCwd },
+      },
+    });
+    return () => {
+      void invoke("git:live-query:unsubscribe", { subscriptionId });
+    };
+  }, [
+    gitBaseBranchSubscriptionId,
+    gitQueryEnabled,
+    gitRepositoryMetadataQuery.data,
+    gitRequestCwd,
+    invoke,
+  ]);
+
+  useEffect(() => {
+    if (!gitQueryEnabled || !branchCommitsRequested) return;
+    const subscriptionId = branchCommitsSubscriptionId;
+    gitLiveGenerationsRef.current.delete(subscriptionId);
+    setBranchCommitsError(null);
+    void invoke("git:live-query:subscribe", {
+      subscriptionId,
+      query: {
+        method: "branch-commits",
+        params: {
+          cwd: gitRequestCwd,
+          baseBranch: branchCommitsBaseBranch,
+          operationSource: "review_model",
+        },
+      },
+    });
+    return () => {
+      void invoke("git:live-query:unsubscribe", { subscriptionId });
+    };
+  }, [
+    branchCommitsBaseBranch,
+    branchCommitsRequested,
+    branchCommitsSubscriptionId,
+    gitQueryEnabled,
+    gitRequestCwd,
+    invoke,
   ]);
 
   const snapshot = useMemo(() => {
@@ -3632,7 +4036,6 @@ export function ReviewDiffPanel({
       selectedTurnDiff?.entryId ?? "",
       snapshot.baseRef ?? "",
       snapshot.currentBranch ?? "",
-      snapshot.snapshotGeneration,
     ];
     return sourceParts.join(":");
   }, [
@@ -3643,37 +4046,40 @@ export function ReviewDiffPanel({
     selectedTurnDiff?.turnId,
     snapshot.baseRef,
     snapshot.currentBranch,
-    snapshot.snapshotGeneration,
     source,
   ]);
+  const reviewContentSearchIdentity = useMemo(
+    () =>
+      snapshot.files
+        .map(
+          (entry) =>
+            `${entry.displayPath}:${
+              entry.revision ?? hashReviewDiffSourceKey(entry.patchText)
+            }:${entry.loadStatus}`,
+        )
+        .join("\0"),
+    [snapshot.files],
+  );
   const selectedCommitSubject = useMemo(
     () =>
       branchCommits.find((commit) => commit.sha === commitSha)?.subject ?? null,
     [branchCommits, commitSha],
   );
-  const loadBranchCommits = async () => {
+  const loadBranchCommits = () => {
     const normalizedCwd = reviewCwd?.trim() ?? "";
     if (!normalizedCwd) return;
-
-    setBranchCommitsLoadStatus("loading");
     setBranchCommitsError(null);
-    try {
-      const result = (await invoke("git:review:branch-commits", {
-        cwd: normalizedCwd,
-        baseBranch: snapshot.baseRef ?? snapshot.defaultBranch,
-        operationSource: "review_model",
-        requestId: `review:${normalizedCwd}:branch-commits:${snapshot.baseRef ?? snapshot.defaultBranch ?? ""}`,
-      })) as GitReviewBranchCommitsResult;
-      setBranchCommits(result.commits);
-      setBranchCommitsError(result.errorMessage);
-      setBranchCommitsLoadStatus(result.errorMessage ? "error" : "loaded");
-    } catch (error) {
-      setBranchCommits([]);
-      setBranchCommitsError(
-        error instanceof Error ? error.message : "Unable to load commits",
-      );
-      setBranchCommitsLoadStatus("error");
+    if (!branchCommitsRequested) {
+      setBranchCommitsRequested(true);
+      return;
     }
+    void queryClient.removeQueries({
+      queryKey: branchCommitsQueryKey,
+      exact: true,
+    });
+    void invoke("git:live-query:refresh-repository", {
+      subscriptionId: branchCommitsSubscriptionId,
+    });
   };
   const reviewCodeComments = reviewConversation.codeComments;
   const totalChangedLines = useMemo(
@@ -3681,8 +4087,8 @@ export function ReviewDiffPanel({
     [snapshot.files],
   );
   const totalChangedBytes = useMemo(
-    () => getReviewTotalChangedBytes(snapshot.patch),
-    [snapshot.patch],
+    () => getReviewTotalChangedBytes(snapshot.files),
+    [snapshot.files],
   );
   const isCappedMode = useMemo(
     () =>
@@ -3703,8 +4109,10 @@ export function ReviewDiffPanel({
   );
 
   useEffect(() => {
-    clearContentSearchMarks(reviewContentRootRef.current);
-  }, [snapshot.patch, source]);
+    clearContentSearchMarks(reviewContentRootRef.current, {
+      includeShadowRoots: true,
+    });
+  }, [reviewContentSearchIdentity, source]);
 
   const filteredFiles = useMemo(
     () => filterReviewFiles(snapshot.files, deferredFileFilter),
@@ -3868,230 +4276,130 @@ export function ReviewDiffPanel({
       REVIEW_CAPPED_MATCH_PAGE_SIZE,
     );
   }, [filteredFiles, isCappedMode, selectedPath]);
-  useEffect(() => {
-    if (!isGitReviewSource(source)) return;
-    if (gitLoadStatus !== "loaded") return;
-    if (!gitSnapshot) return;
-
-    const entriesToLoad = visibleFiles.filter(
-      (entry) => entry.safety.renderable && entry.loadStatus === "loading",
-    );
-    if (entriesToLoad.length === 0) return;
-
-    let cancelled = false;
-    const controller = new AbortController();
-    const gitSource = source;
-    const request = {
-      cwd: gitSnapshot.cwd,
-      source: gitSource,
-      baseRef: gitSnapshot.baseRef,
-      commitSha: gitSource === "commit" ? commitSha : null,
-      hideWhitespace,
-      snapshotGeneration: gitSnapshot.snapshotGeneration,
-      operationSource: "review_model",
-    } satisfies Omit<ReviewDiffRequest, "files" | "requestId">;
-
-    void Promise.all(
-      entriesToLoad.map((entry) =>
-        requestReviewDiffPath({
-          bucketKey: `${gitSnapshot.cwd}:${gitSource}:${gitSnapshot.snapshotGeneration}:${hideWhitespace}`,
-          request,
-          path: entry.displayPath,
-          previousPath: entry.previousPath,
-          untracked: entry.gitStatus === "untracked",
-          status: entry.gitStatus ?? "modified",
-          revision: entry.revision,
-          signal: controller.signal,
-          invoke: (channel, input) => invoke(channel, input),
-        }),
-      ),
-    )
-      .then((entries) => {
-        if (cancelled) return;
-        const loadedEntries = entries.filter(
-          (entry): entry is ReviewDiffEntry => entry !== null,
-        );
-        if (loadedEntries.length === 0) return;
-        const result: ReviewDiffSuccessResult = {
-          type: "success",
-          cwd: gitSnapshot.cwd,
-          source: gitSource,
-          patch: loadedEntries.map((entry) => entry.diff).join("\n"),
-          files: loadedEntries,
-          isGitRepository: gitSnapshot.isGitRepository,
-          baseRef: gitSnapshot.baseRef,
-          currentBranch: gitSnapshot.currentBranch,
-          defaultBranch: gitSnapshot.defaultBranch,
-          errorMessage: gitSnapshot.errorMessage,
-          snapshotGeneration: gitSnapshot.snapshotGeneration,
-        };
-        startTransition(() => {
-          queryClient.setQueryData<GitReviewSnapshot>(
-            gitSummaryQueryKey,
-            (current) => mergeGitSnapshotWithDiffResult(current, result),
-          );
-        });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        if (
-          error instanceof Error &&
-          error.message.includes("Git review snapshot changed")
-        ) {
-          void invoke("git:live-query:refresh-repository", {
-            subscriptionId: gitLiveSubscriptionId,
-          });
-          return;
-        }
-        if (error instanceof Error && error.name === "AbortError") return;
-        const errorMessage =
-          error instanceof Error ? error.message : "Could not load file diff.";
-        const loadStatus = errorMessage.includes("timed out")
-          ? "timed-out"
-          : "load-failed";
-        const paths = new Set(entriesToLoad.map((entry) => entry.displayPath));
-        startTransition(() => {
-          queryClient.setQueryData<GitReviewSnapshot>(
-            gitSummaryQueryKey,
-            (current) =>
-              markGitSnapshotDiffLoadFailure(
-                current,
-                paths,
-                loadStatus,
-                errorMessage,
-              ),
-          );
-        });
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [
-    commitSha,
-    gitSnapshot,
-    gitLiveSubscriptionId,
-    gitLoadStatus,
-    gitSummaryQueryKey,
-    hideWhitespace,
-    invoke,
-    queryClient,
-    source,
-    visibleFiles,
-  ]);
 
   const contentSearchSource = useMemo<ContentSearchLocalSource>(
     () => ({
       domain: "diff",
       contextId: `diff:${reviewCwd ?? "workspace"}:${source}`,
-      async search(query, limit) {
+      async search(query, limit, options) {
         const normalizedQuery = query.trim();
         if (!normalizedQuery) {
-          return { query, matches: [], totalMatches: 0, capped: false };
-        }
-
-        const requiresServerSearch =
-          isGitReviewSource(source) &&
-          (isCappedMode ||
-            snapshot.files.some((entry) => entry.generated !== false) ||
-            snapshot.files.some((entry) => {
-              if (entry.loadStatus === "loading") return true;
-              if (!isTextualFullDiffCandidate(entry)) return false;
-              const key = reviewFullContentKeysByPath.get(entry.displayPath);
-              return key
-                ? readReviewFullContentState(key).fullDiffMetadata === null
-                : true;
-            }));
-        if (requiresServerSearch && reviewCwd) {
-          const result = await invoke("git:review:search", {
-            cwd: reviewCwd,
-            source,
-            query: normalizedQuery,
-            baseRef: snapshot.baseRef,
-            commitSha: source === "commit" ? commitSha : null,
-            hideWhitespace,
-            limit: Math.min(limit, REVIEW_CONTENT_SEARCH_CAP),
-            snapshotGeneration: snapshot.snapshotGeneration,
-            requestId: `review-search:${reviewCwd}:${source}:${snapshot.snapshotGeneration}`,
-          });
-          if (result.type === "stale-snapshot") {
-            void invoke("git:live-query:refresh-repository", {
-              subscriptionId: gitLiveSubscriptionId,
-            });
-            return { query, matches: [], totalMatches: 0, capped: false };
-          }
-          if (result.type === "error") {
-            return { query, matches: [], totalMatches: 0, capped: false };
-          }
-          const contextId = `diff:${reviewCwd}:${source}`;
-          const occurrenceByPath = new Map<string, number>();
           return {
-            query,
-            matches: result.matchingPaths.map((path, ordinal) => {
-              const occurrenceIndex = occurrenceByPath.get(path) ?? 0;
-              occurrenceByPath.set(path, occurrenceIndex + 1);
-              return {
-                id: `diff:${path}:server:${ordinal}`,
-                domain: "diff",
-                contextId,
-                ordinal,
-                label: path,
-                meta: { path, occurrenceIndex },
-              } satisfies ContentSearchLocalMatch;
-            }),
-            totalMatches: result.totalMatches,
-            capped: result.isCapped,
+            query: normalizedQuery,
+            matches: [],
+            totalMatches: 0,
+            capped: false,
           };
         }
 
-        const matches: ContentSearchLocalMatch[] = [];
-        let totalMatches = 0;
-        const cappedLimit = Math.min(limit, REVIEW_CONTENT_SEARCH_CAP);
-        for (const entry of snapshot.files) {
-          if (entry.generated === true) continue;
-          const fullContentKey = reviewFullContentKeysByPath.get(
-            entry.displayPath,
-          );
-          const occurrenceCount = countReviewOccurrences(
-            entry,
-            normalizedQuery,
-            fullContentKey
-              ? readReviewFullContentState(fullContentKey).fullContents
-              : null,
-          );
-          totalMatches += occurrenceCount;
-          for (
-            let occurrenceIndex = 0;
-            occurrenceIndex < occurrenceCount && matches.length < cappedLimit;
-            occurrenceIndex += 1
-          ) {
-            matches.push({
-              id: `diff:${entry.displayPath}:0:${entry.openLine ?? 1}:${occurrenceIndex}`,
-              domain: "diff",
-              contextId: `diff:${reviewCwd ?? "workspace"}:${source}`,
-              ordinal: matches.length,
-              label: entry.displayPath,
-              meta: {
-                path: entry.displayPath,
-                occurrenceIndex,
-              },
-            });
+        const searchCwd = snapshot.cwd ?? reviewCwd;
+        const contextId = `diff:${searchCwd ?? "workspace"}:${source}`;
+        const requiresServerSearch =
+          isGitReviewSource(source) &&
+          (isCappedMode ||
+            snapshot.files.length === 0 ||
+            snapshot.files.some(
+              (entry) => typeof entry.generated !== "boolean",
+            ) ||
+            snapshot.files.some((entry) => entry.loadStatus !== "loaded"));
+        if (requiresServerSearch && searchCwd) {
+          reviewSearchRequestSequenceRef.current += 1;
+          const requestId = [
+            "review-search",
+            searchCwd,
+            source,
+            reviewSearchRequestSequenceRef.current,
+          ].join(":");
+          const cancel = () => {
+            void invoke("git:review:cancel", { requestId });
+          };
+          options?.signal.addEventListener("abort", cancel, { once: true });
+          try {
+            if (options?.signal.aborted) {
+              throw new DOMException("Review search aborted", "AbortError");
+            }
+            const result = (await invoke("git:review:search", {
+              cwd: searchCwd,
+              source,
+              query: normalizedQuery,
+              baseBranch: source === "branch" ? snapshot.baseRef : null,
+              commitSha: source === "commit" ? commitSha : null,
+              requestId,
+            })) as GitReviewSearchResult;
+            if (options?.signal.aborted) {
+              throw new DOMException("Review search aborted", "AbortError");
+            }
+            if (result.type === "error") {
+              return {
+                query: normalizedQuery,
+                matches: [],
+                totalMatches: 0,
+                capped: false,
+              };
+            }
+
+            const displayPathByGitPath = new Map(
+              snapshot.files.map((entry) => [
+                stripPatchPrefix(entry.fileDiff?.name ?? entry.displayPath),
+                entry.displayPath,
+              ]),
+            );
+            const locations: ReviewSearchLocation[] = result.matches.map(
+              (location) => ({
+                ...location,
+                path:
+                  displayPathByGitPath.get(stripPatchPrefix(location.path)) ??
+                  stripPatchPrefix(location.path),
+              }),
+            );
+            return {
+              query: result.query,
+              matches: buildReviewContentSearchMatches({
+                contextId,
+                locations,
+              }),
+              totalMatches: result.totalMatches,
+              capped: result.isCapped,
+            };
+          } finally {
+            options?.signal.removeEventListener("abort", cancel);
           }
         }
 
+        const generatedPaths = new Set(
+          snapshot.files.flatMap((entry) =>
+            entry.generated === true ? [entry.displayPath] : [],
+          ),
+        );
+        const files = buildReviewSearchFiles(
+          snapshot.files.map((entry) => ({
+            path: entry.displayPath,
+            gitPath: entry.displayPath,
+            previousGitPath: entry.previousPath,
+            diff: entry.fileDiff,
+          })),
+          generatedPaths,
+        );
+        const localResult = searchReviewFiles(
+          files,
+          normalizedQuery,
+          Math.min(limit, REVIEW_SEARCH_MATCH_LIMIT),
+        );
         return {
-          query,
-          matches,
-          totalMatches,
-          capped: totalMatches > matches.length,
+          query: normalizedQuery,
+          matches: buildReviewContentSearchMatches({
+            contextId,
+            locations: localResult.matches,
+          }),
+          totalMatches: localResult.totalMatches,
+          capped: localResult.isCapped,
         };
       },
-      async activate(match, query) {
+      async ensureVisible(match, options) {
         if (!isReviewSearchMatchMeta(match.meta)) return;
-        const meta = match.meta;
+        const location = match.meta.location;
         const entry = snapshot.files.find(
-          (file) => file.displayPath === meta.path,
+          (file) => file.displayPath === location.path,
         );
         if (!entry) return;
 
@@ -4103,49 +4411,71 @@ export function ReviewDiffPanel({
           return next;
         });
 
-        await nextAnimationFrame();
+        await nextReviewAnimationFrame(options.signal);
+        await nextReviewAnimationFrame(options.signal);
         const row = rowRefs.current.get(entry.displayPath);
-        row?.scrollIntoView({ block: "start", inline: "nearest" });
-        await nextAnimationFrame();
+        row?.scrollIntoView({ block: "center", inline: "nearest" });
+        await nextReviewAnimationFrame(options.signal);
+      },
+      async activate(match, query, options) {
+        if (!isReviewSearchMatchMeta(match.meta)) return;
+        const meta = match.meta;
+        const entry = snapshot.files.find(
+          (file) => file.displayPath === meta.location.path,
+        );
+        if (!entry) return;
 
         const root = reviewContentRootRef.current;
-        if (!root) return;
-        const result = applyContentSearchDomMarks({
-          root,
-          query,
-          idPrefix: "content-search:diff",
-        });
-        const rowSelector = `[data-review-path="${escapeAttributeSelectorValue(entry.displayPath)}"]`;
-        const rowElement = root.querySelector<HTMLElement>(rowSelector);
-        const rowMarks = Array.from(
-          rowElement?.querySelectorAll<HTMLElement>(
-            `mark.${CONTENT_SEARCH_MARK_CLASS}`,
-          ) ?? [],
-        );
-        const activeElement =
-          rowMarks[meta.occurrenceIndex] ??
-          rowMarks[0] ??
-          result.matches[0]?.element ??
-          null;
-        if (!activeElement) return;
-        activeElement.classList.add(CONTENT_SEARCH_ACTIVE_MARK_CLASS);
-        activeElement.scrollIntoView({ block: "center", inline: "nearest" });
+        const row = rowRefs.current.get(entry.displayPath);
+        if (!root || !row) return;
+        clearContentSearchMarks(root, { includeShadowRoots: true });
+
+        const startedAt = performance.now();
+        while (!options?.signal.aborted && performance.now() - startedAt < 1_500) {
+          applyContentSearchDiffDomMarks({
+            root: row,
+            query,
+            activeMatchId: match.id,
+            sourceMatches: meta.pathMatches.map((pathMatch) => ({
+              id: pathMatch.id,
+              hunkId: pathMatch.location.hunkId,
+              lineStart: pathMatch.location.lineStart,
+              lineEnd: pathMatch.location.lineEnd,
+              ...(pathMatch.location.side
+                ? { side: pathMatch.location.side }
+                : {}),
+            })),
+          });
+          const activeElement = findContentSearchDomMatch({
+            root: row,
+            matchId: match.id,
+            includeShadowRoots: true,
+          });
+          if (activeElement) {
+            activeElement.classList.add(CONTENT_SEARCH_ACTIVE_MARK_CLASS);
+            activeElement.scrollIntoView({
+              block: "center",
+              inline: "nearest",
+            });
+            return;
+          }
+          await nextReviewAnimationFrame(options?.signal);
+        }
       },
       clear() {
-        clearContentSearchMarks(reviewContentRootRef.current);
+        clearContentSearchMarks(reviewContentRootRef.current, {
+          includeShadowRoots: true,
+        });
       },
     }),
     [
       commitSha,
-      hideWhitespace,
       invoke,
       isCappedMode,
-      gitLiveSubscriptionId,
       reviewCwd,
-      reviewFullContentKeysByPath,
       snapshot.baseRef,
+      snapshot.cwd,
       snapshot.files,
-      snapshot.snapshotGeneration,
       source,
     ],
   );
@@ -4225,6 +4555,11 @@ export function ReviewDiffPanel({
       value: reviewCommentsByPath,
     };
   }
+  const pendingReviewCommentsByPath = buildStableReviewCommentAttachmentsByPath(
+    pendingReviewCommentAttachments,
+    pendingReviewCommentsByPathRef.current,
+  );
+  pendingReviewCommentsByPathRef.current = pendingReviewCommentsByPath;
 
   const renderReviewRow = (entry: ReviewFileEntry, keyPrefix = "") => (
     <div
@@ -4263,7 +4598,10 @@ export function ReviewDiffPanel({
         sourceKey={`${reviewDiffCommentSourceKey}:${
           entry.revision ?? hashReviewDiffSourceKey(entry.patchText)
         }`}
-        pendingCommentAttachments={pendingReviewCommentAttachments}
+        pendingCommentAttachments={
+          pendingReviewCommentsByPath.get(entry.displayPath) ??
+          EMPTY_REVIEW_COMMENT_ATTACHMENTS
+        }
         deps={resolvedDeps}
         onToggleExpandedKey={toggleReviewRow}
       />

@@ -2,7 +2,7 @@ import type { BrowserSidebarFindState } from "../../../shared/browser-sidebar";
 
 export const CONTENT_SEARCH_INPUT_ID = "content-search-input";
 export const CONTENT_SEARCH_DEBOUNCE_MS = 150;
-export const CONTENT_SEARCH_LOCAL_MATCH_LIMIT = 150;
+export const CONTENT_SEARCH_LOCAL_MATCH_LIMIT = 250;
 
 export type ContentSearchDomain = "conversation" | "diff" | "browser";
 export type ContentSearchLocalDomain = Exclude<ContentSearchDomain, "browser">;
@@ -85,12 +85,12 @@ export function buildContentSearchResultLabel(input: ContentSearchLabelInput): s
   const totalMatches = input.localResult?.totalMatches ?? 0;
   if (totalMatches <= 0) return "No results";
   const activeOrdinal = Math.min(input.activeIndex + 1, totalMatches);
-  const totalLabel = input.localResult?.capped ? `${CONTENT_SEARCH_LOCAL_MATCH_LIMIT}+` : String(totalMatches);
+  const totalLabel = input.localResult?.capped ? `${totalMatches}+` : String(totalMatches);
   return `${activeOrdinal} / ${totalLabel} results`;
 }
 
 export function canNavigateContentSearchMatches(input: ContentSearchLabelInput): boolean {
   if (input.loading || !normalizeContentSearchQuery(input.query)) return false;
   if (input.domain === "browser") return (input.browserFindState?.matchCount ?? 0) > 0;
-  return (input.localResult?.totalMatches ?? 0) > 0;
+  return (input.localResult?.matches.length ?? 0) > 0;
 }

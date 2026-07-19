@@ -4,16 +4,7 @@ export interface ReviewDiffModelFile {
   patchText: string;
   additions: number | null;
   deletions: number | null;
-}
-
-export interface ReviewSearchableContent {
-  oldText?: string | null;
-  newText?: string | null;
-}
-
-export interface ReviewSearchMatch {
-  path: string;
-  key: string;
+  changedBytes: number;
 }
 
 export interface ReviewLargeDiffStats {
@@ -34,8 +25,8 @@ export function getReviewTotalChangedLines<TFile extends ReviewDiffModelFile>(fi
   return files.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0);
 }
 
-export function getReviewTotalChangedBytes(patch: string): number {
-  return new TextEncoder().encode(patch).length;
+export function getReviewTotalChangedBytes<TFile extends ReviewDiffModelFile>(files: TFile[]): number {
+  return files.reduce((sum, file) => sum + file.changedBytes, 0);
 }
 
 export function isReviewLargeDiff(stats: ReviewLargeDiffStats): boolean {
@@ -60,28 +51,6 @@ export function filterReviewFiles<TFile extends ReviewDiffModelFile>(
   if (normalizedFilter.length === 0) return files;
 
   return files.filter((file) => file.displayPath.toLowerCase().includes(normalizedFilter));
-}
-
-export function buildReviewSearchMatches<TFile extends ReviewDiffModelFile>(
-  files: TFile[],
-  searchQuery: string,
-  searchableContentsByPath: Record<string, ReviewSearchableContent>,
-): ReviewSearchMatch[] {
-  const normalizedSearch = searchQuery.trim().toLowerCase();
-  if (normalizedSearch.length === 0) return [];
-
-  return files.flatMap((file) => {
-    const fullContents = searchableContentsByPath[file.displayPath];
-    const haystacks = [
-      file.displayPath,
-      file.patchText,
-      fullContents?.oldText ?? "",
-      fullContents?.newText ?? "",
-    ];
-    return haystacks.some((value) => value.toLowerCase().includes(normalizedSearch))
-      ? [{ path: file.displayPath, key: file.key }]
-      : [];
-  });
 }
 
 export function resolveReviewSelectedPath<TFile extends ReviewDiffModelFile>(

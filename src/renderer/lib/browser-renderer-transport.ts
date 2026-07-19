@@ -190,19 +190,57 @@ interface StoryGitReviewSnapshot {
   errorMessage: string | null;
 }
 
-const browserGitReviewSummarySubscribers = new Set<
-  (event: import("../../shared/types").GitReviewLiveSummaryEvent) => void
+const browserGitReviewLiveQuerySubscribers = new Set<
+  (event: import("../../shared/types").GitReviewLiveEvent) => void
 >();
 const browserGitReviewSubscriptions = new Map<
   string,
-  import("../../shared/types").GitReviewSummaryRequest
+  import("../../shared/types").GitReviewLiveQuery
 >();
 
-function publishBrowserGitReviewSummary(
-  event: import("../../shared/types").GitReviewLiveSummaryEvent,
+function publishBrowserGitReviewLiveQuery(
+  event: import("../../shared/types").GitReviewLiveEvent,
 ): void {
-  for (const subscriber of browserGitReviewSummarySubscribers) {
+  for (const subscriber of browserGitReviewLiveQuerySubscribers) {
     subscriber(event);
+  }
+}
+
+async function readBrowserGitReviewLiveQuery(
+  query: import("../../shared/types").GitReviewLiveQuery,
+): Promise<import("../../shared/types").GitReviewLiveQueryResult> {
+  switch (query.method) {
+    case "review-summary":
+      return {
+        method: query.method,
+        result: await invoke("git:review:summary", query.params),
+      } as import("../../shared/types").GitReviewLiveQueryResult;
+    case "branch-diff-stats":
+      return {
+        method: query.method,
+        result: await invoke("git:review:branch-diff-stats", query.params),
+      } as import("../../shared/types").GitReviewLiveQueryResult;
+    case "branch-commits":
+      return {
+        method: query.method,
+        result: await invoke("git:review:branch-commits", query.params),
+      } as import("../../shared/types").GitReviewLiveQueryResult;
+    case "base-branch":
+      {
+        const metadata = await invoke(
+          "git:review:repository-metadata",
+          query.params,
+        ) as import("../../shared/types").GitReviewRepositoryMetadataResult;
+        return {
+          method: query.method,
+          result: {
+            cwd: metadata.cwd,
+            local: metadata.defaultBranch,
+            remote: null,
+            errorMessage: metadata.errorMessage,
+          },
+        } as import("../../shared/types").GitReviewLiveQueryResult;
+      }
   }
 }
 
@@ -1602,7 +1640,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const [input] = args as [
         {
           cwd: string;
-          source: "unstaged" | "staged" | "branch";
+          source: "unstaged" | "staged" | "branch" | "commit";
           baseRef?: string | null;
           baseBranch?: string | null;
         },
@@ -1630,20 +1668,56 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const [input] = args as [
         import("../../shared/types").GitReviewLiveSubscriptionInput,
       ];
-      browserGitReviewSubscriptions.set(input.subscriptionId, input.request);
-      const result = (await invoke(
-        "git:review:summary",
-        input.request,
-      )) as import("../../shared/types").GitReviewSummaryResult;
-      publishBrowserGitReviewSummary({
-        type: "git-live-query-updated",
-        subscriptionId: input.subscriptionId,
-        generation: 1,
-        requiresRecovery: false,
-        phase: "complete",
-        method: "review-summary",
-        result,
-      });
+      browserGitReviewSubscriptions.set(input.subscriptionId, input.query);
+      const publish = (
+        phase: "tracked" | "complete",
+        output: import("../../shared/types").GitReviewLiveQueryResult,
+      ) => {
+        publishBrowserGitReviewLiveQuery({
+          type: "git-live-query-updated",
+          subscriptionId: input.subscriptionId,
+          generation: 1,
+          requiresRecovery: false,
+          phase,
+          ...output,
+        });
+      };
+      if (
+        input.query.method === "review-summary"
+        && (
+          input.query.params.source === "unstaged"
+          || input.query.params.source === "branch"
+        )
+      ) {
+        const tracked = await readBrowserGitReviewLiveQuery({
+          ...input.query,
+          params: {
+            ...input.query.params,
+            includeUntrackedFiles: false,
+          },
+        });
+        if (
+          tracked.method === "review-summary"
+          && tracked.result.type === "success"
+          && tracked.result.files.length > 0
+        ) {
+          publish("tracked", tracked);
+        }
+      }
+      if (
+        input.query.method === "branch-diff-stats"
+        && input.query.params.includeUntrackedFiles === true
+      ) {
+        publish("tracked", await readBrowserGitReviewLiveQuery({
+          ...input.query,
+          params: {
+            ...input.query.params,
+            includeUntrackedFiles: false,
+          },
+        }));
+      }
+      const output = await readBrowserGitReviewLiveQuery(input.query);
+      publish("complete", output);
       return undefined;
     }
     case "git:live-query:unsubscribe": {
@@ -1654,20 +1728,16 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "git:live-query:recover":
     case "git:live-query:refresh-repository": {
       const [input] = args as [{ subscriptionId: string }];
-      const request = browserGitReviewSubscriptions.get(input.subscriptionId);
-      if (!request) return undefined;
-      const result = (await invoke(
-        "git:review:summary",
-        request,
-      )) as import("../../shared/types").GitReviewSummaryResult;
-      publishBrowserGitReviewSummary({
+      const query = browserGitReviewSubscriptions.get(input.subscriptionId);
+      if (!query) return undefined;
+      const output = await readBrowserGitReviewLiveQuery(query);
+      publishBrowserGitReviewLiveQuery({
         type: "git-live-query-updated",
         subscriptionId: input.subscriptionId,
         generation: Date.now(),
         requiresRecovery: false,
         phase: "complete",
-        method: "review-summary",
-        result,
+        ...output,
       });
       return undefined;
     }
@@ -1989,36 +2059,55 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         },
       ];
       if (isStorybookRuntime()) {
-        const normalizedQuery = input.query.trim().toLowerCase();
-        const matchingPaths =
-          normalizedQuery.length === 0
-            ? []
-            : normalizedQuery.includes("feature")
-              ? ["src/feature.ts"]
-              : normalizedQuery.includes("file-090")
-                ? ["src/file-090.ts"]
-                : normalizedQuery.includes("app") ||
-                    normalizedQuery.includes("title")
-                  ? ["src/app.ts"]
-                  : normalizedQuery.includes("workbench") ||
-                      normalizedQuery.includes("difftree")
-                    ? ["src/workbench.tsx"]
-                    : [];
+        const query = input.query.trim();
+        const normalizedQuery = query.toLowerCase();
+        const candidates = [
+          { path: "src/feature.ts", text: "src/feature.ts", hunkId: "path" },
+          { path: "src/file-090.ts", text: "src/file-090.ts", hunkId: "path" },
+          { path: "src/app.ts", text: "export const title = 'Nodex';", hunkId: "0" },
+          {
+            path: "src/workbench.tsx",
+            text: "export function DiffTreeWorkbench() {}",
+            hunkId: "0",
+          },
+        ] as const;
+        const candidate = normalizedQuery
+          ? candidates.find(({ path, text }) =>
+              path.toLowerCase().includes(normalizedQuery) ||
+              text.toLowerCase().includes(normalizedQuery),
+            )
+          : undefined;
+        const start = candidate
+          ? candidate.text.toLowerCase().indexOf(normalizedQuery)
+          : -1;
+        const matches = candidate && start >= 0
+          ? [{
+              path: candidate.path,
+              hunkId: candidate.hunkId,
+              lineStart: 1,
+              lineEnd: 1,
+              start,
+              end: start + query.length,
+              snippet: {
+                before: candidate.text.slice(Math.max(0, start - 24), start),
+                match: candidate.text.slice(start, start + query.length),
+                after: candidate.text.slice(start + query.length, start + query.length + 24),
+              },
+            }]
+          : [];
         return {
           type: "success",
           source: input.source,
-          query: input.query,
-          matchingPaths,
-          totalMatches: matchingPaths.length,
+          query,
+          matches,
+          totalMatches: matches.length,
           isCapped: false,
-          snapshotGeneration: 1,
         };
       }
       return {
         type: "error",
         source: input.source,
-        query: input.query,
-        errorMessage: "Git review search is unavailable outside Electron.",
+        query: input.query.trim(),
       };
     }
     case "git:init": {
@@ -2713,14 +2802,14 @@ function subscribeWindowFocusChanges(
   };
 }
 
-function subscribeGitReviewSummaries(
+function subscribeGitReviewLiveQueries(
   callback: (
-    event: import("../../shared/types").GitReviewLiveSummaryEvent,
+    event: import("../../shared/types").GitReviewLiveEvent,
   ) => void,
 ): () => void {
-  browserGitReviewSummarySubscribers.add(callback);
+  browserGitReviewLiveQuerySubscribers.add(callback);
   return () => {
-    browserGitReviewSummarySubscribers.delete(callback);
+    browserGitReviewLiveQuerySubscribers.delete(callback);
   };
 }
 
@@ -2997,7 +3086,7 @@ export const browserRendererTransport = {
   subscribeCodexRendererClientRequests,
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,
-  subscribeGitReviewSummaries,
+  subscribeGitReviewLiveQueries,
   subscribeAppUpdateStatus,
   subscribeCommandKeymapChanges,
   subscribeCommandPaletteThreadIndexUpdates,

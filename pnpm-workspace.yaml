@@ -26,8 +26,8 @@ overrides:
   yaml: 2.9.0
 
 allowBuilds:
-  '@parcel/watcher': true
-  '@sentry/cli': true
+  "@parcel/watcher": true
+  "@sentry/cli": true
   better-sqlite3: true
   electron: true
   electron-winstaller: true
@@ -37,4 +37,4 @@ allowBuilds:
   unrs-resolver: false
 
 minimumReleaseAgeExclude:
-  - '@openai/codex@0.144.4-darwin-arm64 || 0.144.4-darwin-x64 || 0.144.4-linux-arm64 || 0.144.4-linux-x64 || 0.144.4-win32-arm64 || 0.144.4-win32-x64 || 0.144.4'
+  - "@openai/codex@0.144.4-darwin-arm64 || 0.144.4-darwin-x64 || 0.144.4-linux-arm64 || 0.144.4-linux-x64 || 0.144.4-win32-arm64 || 0.144.4-win32-x64 || 0.144.4"

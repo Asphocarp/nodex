@@ -195,18 +195,21 @@ export function buildTurnDiffRows(
   if (fileStats.length === 0) return [];
 
   const parsedFilesByPath = new Map<string, FileDiffMetadata[]>();
-  try {
-    for (const patch of parsePatchFiles(payload.unifiedDiff)) {
-      for (const fileDiff of patch.files) {
-        const path = stripPatchPrefix(fileDiff.name ?? fileDiff.prevName ?? "");
-        if (path.length === 0) continue;
-        const files = parsedFilesByPath.get(path) ?? [];
-        files.push(fileDiff);
-        parsedFilesByPath.set(path, files);
+  const hasInlineCandidate = fileStats.some((stat) => !isLargeTurnDiffFile(stat));
+  if (hasInlineCandidate) {
+    try {
+      for (const patch of parsePatchFiles(payload.unifiedDiff)) {
+        for (const fileDiff of patch.files) {
+          const path = stripPatchPrefix(fileDiff.name ?? fileDiff.prevName ?? "");
+          if (path.length === 0) continue;
+          const files = parsedFilesByPath.get(path) ?? [];
+          files.push(fileDiff);
+          parsedFilesByPath.set(path, files);
+        }
       }
+    } catch {
+      parsedFilesByPath.clear();
     }
-  } catch {
-    parsedFilesByPath.clear();
   }
 
   return fileStats.map((stat, index) => {
@@ -236,7 +239,7 @@ export function buildTurnDiffRows(
   });
 }
 
-export function summarizeTurnDiffRows(rows: TurnDiffRowModel[]): TurnDiffSummary {
+export function summarizeTurnDiffRows(rows: readonly TurnDiffRowModel[]): TurnDiffSummary {
   return rows.reduce(
     (summary, row) => ({
       fileCount: summary.fileCount + 1,
@@ -253,9 +256,9 @@ export function getTurnDiffTitle(summary: TurnDiffSummary, firstPath: string | n
 }
 
 export function getVisibleTurnDiffRows(
-  rows: TurnDiffRowModel[],
+  rows: readonly TurnDiffRowModel[],
   expanded: boolean,
-): TurnDiffRowModel[] {
+): readonly TurnDiffRowModel[] {
   if (expanded) return rows;
   return rows.slice(0, TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT);
 }
