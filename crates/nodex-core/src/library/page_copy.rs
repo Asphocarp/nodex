@@ -18,6 +18,7 @@ use crate::document::{
 };
 use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::domain::block_tree::TextDelta;
+use crate::domain::identity::stable_uuid_v7;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
@@ -1012,18 +1013,6 @@ fn embedded_page(page_id: &str) -> MaterializedBlockNode {
         content: None,
         children: Vec::new(),
     }
-}
-
-fn stable_uuid_v7(operation_id: &str, role: &str, source_id: &str) -> String {
-    let digest = sha256(format!("{operation_id}\0{role}\0{source_id}").as_bytes());
-    format!(
-        "{}-{}-7{}-8{}-{}",
-        &digest[..8],
-        &digest[8..12],
-        &digest[12..15],
-        &digest[15..18],
-        &digest[18..30],
-    )
 }
 
 fn invalid(message: impl Into<String>) -> StoreError {

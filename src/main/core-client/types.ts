@@ -44,6 +44,15 @@ export type ProjectWorkspaceReadRequest = components["schemas"]["ProjectWorkspac
 export type ProjectWorkspaceRead = ProjectWorkspaceReadRequest["read"];
 export type ProjectWorkspaceReadResponse = components["schemas"]["ProjectWorkspaceReadResponse"];
 export type ProjectWorkspaceReadSnapshot = SuccessfulPayload<ProjectWorkspaceReadResponse>;
+export type ProjectWorkspaceApplyRequest = components["schemas"]["ProjectWorkspaceApplyRequest"];
+export type ProjectWorkspaceIntent = ProjectWorkspaceApplyRequest["intent"];
+export type ProjectWorkspaceApplyResponse = components["schemas"]["ProjectWorkspaceApplyResponse"];
+export type ProjectWorkspaceCommittedValue = SuccessfulPayload<ProjectWorkspaceApplyResponse>;
+
+export interface ProjectWorkspaceApplyInput {
+  readonly operationId: string;
+  readonly intent: ProjectWorkspaceIntent;
+}
 
 export type OwnedDocumentReadRequest = components["schemas"]["OwnedDocumentReadRequest"];
 export type OwnedDocumentRead = OwnedDocumentReadRequest["read"];
@@ -89,6 +98,7 @@ export interface CoreClientPort {
   databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
   databaseApply(input: DatabaseApplyInput): Promise<DatabaseCommittedValue>;
   workspaceRead(read: ProjectWorkspaceRead): Promise<ProjectWorkspaceReadSnapshot>;
+  workspaceApply(input: ProjectWorkspaceApplyInput): Promise<ProjectWorkspaceCommittedValue>;
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,

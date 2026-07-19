@@ -10,6 +10,7 @@ mod module;
 mod operations;
 mod owners;
 mod persistence;
+mod primary_canvas;
 mod realtime;
 mod recovery;
 mod runtime;
@@ -55,4 +56,5 @@ pub(crate) use persistence::{
     DocumentAuthorityRow, PersistYjsCommit, PersistYjsGenesis, persist_yjs_commit,
     persist_yjs_genesis, read_document_authority, read_store_epoch, sha256,
 };
+pub(crate) use primary_canvas::{PrimaryCanvasIdentity, create_primary_canvas};
 pub(crate) use runtime::reconstruct_yjs_engine;

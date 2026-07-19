@@ -20,10 +20,11 @@ import {
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 import { DOCUMENT_VERSION_CONTRACT_VERSION } from "../shared/block-documents/document-history";
+import { primaryCanvasBlockId } from "../shared/block-documents";
 import { createUuidV7 } from "../shared/uuid-v7";
 import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
 import { createPage } from "./local-store/database-pages";
-import { listProjects } from "./local-store/projects";
+import { createProject, listProjects } from "./local-store/projects";
 import {
   getProjectSession,
   listProjectSessionSummaries,
@@ -41,6 +42,7 @@ import { searchDocumentBlockUnits } from "./local-store/block-document-projectio
 import { readLibraryPageDetailInDatabase } from "./local-store/page-detail";
 import { listPageHistory } from "./local-store/page-history";
 import { createDocumentVersionCheckpoint } from "./local-store/document-versions";
+import { getOwnedDocumentDescriptor } from "./local-store/block-document-cutover";
 import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 import { DuplicatePageV3InputSchema } from "../shared/nodex-agent-tools";
 import {
@@ -2479,6 +2481,263 @@ describe("TypeScript/Rust content Module differential", () => {
       did_mutate: true,
     });
     expect(replayedCandidateCopy.value.page_copy).toEqual(candidateCopyResult);
+
+    const workspaceRoot = path.join(tmpdir(), "nodex-gate-c-workspace");
+    const oracleCreatedProject = createProject({
+      name: "Gate C workspace",
+      description: "Atomic Project aggregate",
+      icon: "🧭",
+      sources: [workspaceRoot, workspaceRoot],
+    });
+    const candidateProjectId = createUuidV7();
+    const createWorkspaceInput = {
+      operationId: "gate-c-workspace-create-project",
+      intent: {
+        kind: "create_project" as const,
+        project_id: candidateProjectId,
+        name: "Gate C workspace",
+        description: "Atomic Project aggregate",
+        icon: "🧭",
+        source_roots: [workspaceRoot, workspaceRoot],
+      },
+    };
+    const candidateCreatedProject = await stage(
+      "Project Workspace create Project",
+      candidate.workspaceApply(createWorkspaceInput),
+    );
+    expect(candidateCreatedProject.receipt).toMatchObject({
+      operation_id: createWorkspaceInput.operationId,
+      duplicate: false,
+      affected_project_ids: [candidateProjectId],
+    });
+    expect(candidateCreatedProject.value).toMatchObject({
+      affected_project_ids: [candidateProjectId],
+      affected_session_ids: [expect.any(String)],
+      affected_thread_ids: [],
+    });
+    const replayedCandidateProject = await stage(
+      "Project Workspace replay Project creation",
+      candidate.workspaceApply(createWorkspaceInput),
+    );
+    expect(replayedCandidateProject.event_sequence).toBe(
+      candidateCreatedProject.event_sequence,
+    );
+    expect(replayedCandidateProject.receipt.duplicate).toBe(true);
+
+    const candidateProjectSnapshot = await stage(
+      "Project Workspace created Project snapshot",
+      candidate.workspaceRead({
+        kind: "project",
+        project_id: candidateProjectId,
+      }),
+    );
+    if (candidateProjectSnapshot.value.kind !== "project") {
+      throw new Error("Expected created Rust Project snapshot");
+    }
+    expect(withoutVolatileFields(candidateProjectSnapshot.value.project)).toEqual(
+      withoutVolatileFields({
+        id: candidateProjectId,
+        library_id: oracleCreatedProject.libraryId,
+        database_id: candidateProjectSnapshot.value.project.database_id,
+        lifecycle: oracleCreatedProject.lifecycle,
+        binding_revision: oracleCreatedProject.bindingRevision,
+        name: oracleCreatedProject.name,
+        description: oracleCreatedProject.description,
+        icon: oracleCreatedProject.icon || null,
+        sources: oracleCreatedProject.sources,
+        primary_workspace_root: oracleCreatedProject.primaryWorkspaceRoot,
+        pinned: oracleCreatedProject.pinned,
+        pinned_order: oracleCreatedProject.pinnedOrder,
+      }),
+    );
+
+    const oracleCreatedSessions = listProjectSessionSummaries(
+      oracleCreatedProject.id,
+    );
+    const candidateCreatedSessions = await stage(
+      "Project Workspace created Session snapshot",
+      candidate.workspaceRead({
+        kind: "sessions",
+        project_id: candidateProjectId,
+        include_archived: false,
+      }),
+    );
+    if (candidateCreatedSessions.value.kind !== "sessions") {
+      throw new Error("Expected created Rust Session summaries");
+    }
+    expect(oracleCreatedSessions).toHaveLength(1);
+    expect(candidateCreatedSessions.value.sessions).toHaveLength(1);
+    expect(candidateCreatedSessions.value.sessions[0]).toMatchObject({
+      display_title: oracleCreatedSessions[0]?.displayTitle,
+      order: oracleCreatedSessions[0]?.order,
+      pinned: oracleCreatedSessions[0]?.pinned,
+      archived: oracleCreatedSessions[0]?.archived,
+      unread: oracleCreatedSessions[0]?.unread,
+      thread_id: null,
+    });
+    const oracleCreatedSession = getProjectSession(
+      oracleCreatedSessions[0]?.id ?? "",
+    );
+    const candidateCreatedSession = await stage(
+      "Project Workspace created Session detail",
+      candidate.workspaceRead({
+        kind: "session",
+        session_id: candidateCreatedSessions.value.sessions[0]?.id ?? "",
+      }),
+    );
+    if (!oracleCreatedSession || candidateCreatedSession.value.kind !== "session") {
+      throw new Error("Expected created Session details from both authorities");
+    }
+    const normalizePanelTabs = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map(() => "tab");
+      }
+      if (value === null || typeof value !== "object") {
+        return typeof value === "string" && value.length > 20 ? "tab" : value;
+      }
+      return Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [
+          key,
+          ["tabIds", "mruTabIds"].includes(key)
+            ? Array.isArray(entry) ? entry.map(() => "tab") : entry
+            : key === "activeTabId" && entry !== null
+              ? "tab"
+              : normalizePanelTabs(entry),
+        ]),
+      );
+    };
+    expect(normalizePanelTabs(candidateCreatedSession.value.panels)).toEqual(
+      normalizePanelTabs(oracleCreatedSession.panels),
+    );
+
+    const oracleInitialDatabase = readDatabaseModuleV2(getDb(), {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: oracleCreatedProject.id,
+      read: { target: { kind: "project_default" }, mode: "database" },
+    });
+    if (!oracleInitialDatabase.ok || oracleInitialDatabase.value.value.kind !== "database") {
+      throw new Error(
+        oracleInitialDatabase.ok
+          ? "Expected initial TypeScript Database"
+          : oracleInitialDatabase.error.message,
+      );
+    }
+    const candidateProjectClient = await stage(
+      "Core connect to created Project",
+      CoreClient.connect({
+        nodexHome: rustHome,
+        clientKind: "test",
+        buildId: "workspace-gate-c",
+        projectId: candidateProjectId,
+      }),
+    );
+    const candidateInitialDatabase = await stage(
+      "Project Workspace initial Database",
+      candidateProjectClient.databaseRead({
+        target: { kind: "project_default" },
+        mode: "database",
+        filter: null,
+        sort: null,
+      }),
+    );
+    if (candidateInitialDatabase.value.kind !== "database") {
+      throw new Error("Expected initial Rust Database");
+    }
+    const candidateInitialDatabaseValue = candidateInitialDatabase.value.value as {
+      readonly dataSources: readonly {
+        readonly dataSourceId: string;
+      }[];
+    };
+    const stripDatabaseIdentities = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(stripDatabaseIdentities);
+      if (value === null || typeof value !== "object") return value;
+      const identityKeys = new Set([
+        "database_id",
+        "data_source_id",
+        "view_id",
+        "default_view_id",
+        "home_database_id",
+      ]);
+      return Object.fromEntries(
+        Object.entries(value)
+          .filter(([key]) => !identityKeys.has(key))
+          .map(([key, entry]) => [key, stripDatabaseIdentities(entry)]),
+      );
+    };
+    expect(stripDatabaseIdentities(withoutVolatileFields(
+      withSnakeCaseKeys(candidateInitialDatabaseValue),
+    ))).toEqual(stripDatabaseIdentities(withoutVolatileFields(
+      withSnakeCaseKeys(oracleInitialDatabase.value.value.value),
+    )));
+
+    const oracleInitialSourceId =
+      oracleInitialDatabase.value.value.value.dataSources[0]?.dataSourceId;
+    const candidateInitialSourceId =
+      candidateInitialDatabaseValue.dataSources[0]?.dataSourceId;
+    if (!oracleInitialSourceId || !candidateInitialSourceId) {
+      throw new Error("Initial Project Database omitted its Data Source");
+    }
+    const oracleInitialSource = readDatabaseModuleV2(getDb(), {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      projectId: oracleCreatedProject.id,
+      read: {
+        target: { kind: "data_source", dataSourceId: oracleInitialSourceId },
+        mode: "data_source",
+      },
+    });
+    if (!oracleInitialSource.ok || oracleInitialSource.value.value.kind !== "data_source") {
+      throw new Error(
+        oracleInitialSource.ok
+          ? "Expected initial TypeScript Data Source"
+          : oracleInitialSource.error.message,
+      );
+    }
+    const candidateInitialSource = await stage(
+      "Project Workspace initial Data Source",
+      candidateProjectClient.databaseRead({
+        target: {
+          kind: "data_source",
+          data_source_id: candidateInitialSourceId,
+        },
+        mode: "data_source",
+        filter: null,
+        sort: null,
+      }),
+    );
+    if (candidateInitialSource.value.kind !== "data_source") {
+      throw new Error("Expected initial Rust Data Source");
+    }
+    expect(stripDatabaseIdentities(withoutVolatileFields(
+      withSnakeCaseKeys(candidateInitialSource.value.value),
+    ))).toEqual(stripDatabaseIdentities(withoutVolatileFields(
+      withSnakeCaseKeys(oracleInitialSource.value.value.value),
+    )));
+
+    const oracleCanvas = getOwnedDocumentDescriptor(
+      getDb(),
+      oracleCreatedProject.id,
+      primaryCanvasBlockId(oracleCreatedProject.id),
+    );
+    const candidateCanvas = await stage(
+      "Project Workspace primary Canvas",
+      candidateProjectClient.documentRead("gate-c-workspace-canvas", {
+        kind: "descriptor",
+        owner_block_id: primaryCanvasBlockId(candidateProjectId),
+      }),
+    );
+    if (candidateCanvas.value.kind !== "descriptor") {
+      throw new Error("Expected initial Rust Canvas descriptor");
+    }
+    expect(candidateCanvas.value.descriptor).toMatchObject({
+      ownerType: oracleCanvas.ownerType,
+      ownerLifecycle: oracleCanvas.ownerLifecycle,
+      generation: oracleCanvas.generation,
+      headSeq: oracleCanvas.headSeq,
+      schemaKey: oracleCanvas.schemaKey,
+      schemaVersion: oracleCanvas.schemaVersion,
+      readiness: oracleCanvas.readiness,
+      sync: oracleCanvas.sync,
+    });
 
     await expect(candidate.shutdown()).resolves.toEqual({ status: "draining" });
     await expect(waitForExit(child)).resolves.toBe(0);

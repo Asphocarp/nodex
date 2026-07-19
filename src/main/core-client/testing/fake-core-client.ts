@@ -16,6 +16,8 @@ import type {
   OwnedDocumentRead,
   OwnedDocumentReadSnapshot,
   ProjectWorkspaceRead,
+  ProjectWorkspaceApplyInput,
+  ProjectWorkspaceCommittedValue,
   ProjectWorkspaceReadSnapshot,
 } from "../types";
 import type {
@@ -34,6 +36,7 @@ export class FakeCoreClient implements CoreClientPort {
   readonly databaseReads: DatabaseRead[] = [];
   readonly databaseApplies: DatabaseApplyInput[] = [];
   readonly workspaceReads: ProjectWorkspaceRead[] = [];
+  readonly workspaceApplies: ProjectWorkspaceApplyInput[] = [];
   readonly documentReads: Array<{
     readonly clientSessionId: string;
     readonly read: OwnedDocumentRead;
@@ -47,6 +50,7 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #databaseReadResults: DatabaseReadSnapshot[] = [];
   readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
   readonly #workspaceReadResults: ProjectWorkspaceReadSnapshot[] = [];
+  readonly #workspaceApplyResults: ProjectWorkspaceCommittedValue[] = [];
   readonly #documentReadResults: OwnedDocumentReadSnapshot[] = [];
   readonly #documentApplyResults: OwnedDocumentCommittedValue[] = [];
   readonly #documentSyncResults: DocumentSyncResponse[] = [];
@@ -72,6 +76,10 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueWorkspaceRead(result: ProjectWorkspaceReadSnapshot): void {
     this.#workspaceReadResults.push(result);
+  }
+
+  enqueueWorkspaceApply(result: ProjectWorkspaceCommittedValue): void {
+    this.#workspaceApplyResults.push(result);
   }
 
   enqueueDocumentRead(result: OwnedDocumentReadSnapshot): void {
@@ -128,6 +136,15 @@ export class FakeCoreClient implements CoreClientPort {
     this.workspaceReads.push(read);
     const result = this.#workspaceReadResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Project Workspace read");
+    return result;
+  }
+
+  async workspaceApply(
+    input: ProjectWorkspaceApplyInput,
+  ): Promise<ProjectWorkspaceCommittedValue> {
+    this.workspaceApplies.push(input);
+    const result = this.#workspaceApplyResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Project Workspace apply");
     return result;
   }
 

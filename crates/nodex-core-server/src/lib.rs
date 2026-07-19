@@ -38,8 +38,9 @@ use nodex_core_protocol::{
     EventEnvelope, HandshakeRequest, HandshakeResponse, HealthResponse, LibraryApplyRequest,
     LibraryApplyResponse, LibraryReadRequest, LibraryReadResponse, OwnedDocumentApplyRequest,
     OwnedDocumentApplyResponse, OwnedDocumentReadRequest, OwnedDocumentReadResponse, PROTOCOL_MAX,
-    PROTOCOL_MIN, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope,
-    RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
+    PROTOCOL_MIN, ProjectWorkspaceApplyRequest, ProjectWorkspaceApplyResponse,
+    ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse, ResponseEnvelope, RuntimeDescriptor,
+    ShutdownResponse, ShutdownStatus,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -286,6 +287,26 @@ async fn workspace_read(
         Err(error) => ResponseEnvelope::Error(error),
     };
     Json(ProjectWorkspaceReadResponse(response))
+}
+
+async fn workspace_apply(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(ProjectWorkspaceApplyRequest(request)): Json<ProjectWorkspaceApplyRequest>,
+) -> Json<ProjectWorkspaceApplyResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.workspace.apply(&context, request) {
+            Ok(outcome) => {
+                if let Some(event) = outcome.event {
+                    publish_event(&state, event);
+                }
+                ResponseEnvelope::Ok(outcome.committed)
+            }
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(ProjectWorkspaceApplyResponse(response))
 }
 
 async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
@@ -683,7 +704,7 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/modules/database/read", post(database_read))
         .route("/core/v1/modules/database/apply", post(database_apply))
         .route("/core/v1/modules/workspace/read", post(workspace_read))
-        .route("/core/v1/modules/workspace/apply", post(unavailable_module))
+        .route("/core/v1/modules/workspace/apply", post(workspace_apply))
         .route("/core/v1/modules/automation/read", post(unavailable_module))
         .route(
             "/core/v1/modules/automation/apply",
@@ -1121,14 +1142,6 @@ fn ensure_local_identity(
                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 [&library_id, &proposed_profile_id],
             )?;
-            transaction.execute(
-                "INSERT INTO projects(id, name, description, icon, created, updated, \
-                   library_id, lifecycle, binding_revision) \
-                 VALUES ('project:default', 'Nodex', '', '', \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
-                   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?1, 'active', 1)",
-                [&library_id],
-            )?;
             Ok(LocalIdentity {
                 profile_id: proposed_profile_id,
                 library_id,
@@ -1163,6 +1176,8 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let schema_version = u32::try_from(store.preparation().schema_version)?;
     let store_epoch = ensure_store_epoch(&store, random_hex(16)?)?;
     let identity = ensure_local_identity(&store, proposed_profile_id)?;
+    let workspace = ProjectWorkspaceModule::new(&identity.profile_id, &identity.library_id, &store)
+        .map_err(|error| io::Error::other(error.message))?;
     atomic_write(&paths.auth, format!("{auth}\n").as_bytes())?;
     let listener = UnixListener::bind(&paths.socket)?;
     fs::set_permissions(&paths.socket, fs::Permissions::from_mode(PRIVATE_FILE_MODE))?;
@@ -1187,7 +1202,6 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let (document_sender, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
-    let workspace = ProjectWorkspaceModule::new(&identity.profile_id, &identity.library_id, &store);
     let document = OwnedDocumentModule::new(
         descriptor.profile_id.clone(),
         identity.library_id.clone(),

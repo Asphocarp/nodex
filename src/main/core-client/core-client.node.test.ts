@@ -146,6 +146,49 @@ describe("CoreClient over a Unix socket", () => {
       expect(replay.event_sequence).toBe(committed.event_sequence);
       expect(replay.receipt.duplicate).toBe(true);
 
+      const startup = await client.workspaceRead({ kind: "startup" });
+      expect(startup.value).toMatchObject({
+        kind: "startup",
+        projects: [{ id: "project:default", database_id: expect.any(String) }],
+        sessions: [{ project_id: "project:default" }],
+      });
+      const workspaceInput = {
+        operationId: "node-workspace-create-1",
+        intent: {
+          kind: "create_project" as const,
+          project_id: "project:node-integration",
+          name: "Node workspace",
+          description: "Created through the generated client",
+          icon: "🧭",
+          source_roots: [path.join(nodexHome, "workspace")],
+        },
+      };
+      const workspaceCommitted = await client.workspaceApply(workspaceInput);
+      expect(workspaceCommitted.event_sequence).toBeGreaterThan(
+        committed.event_sequence,
+      );
+      expect(workspaceCommitted.receipt.duplicate).toBe(false);
+      expect(workspaceCommitted.value.affected_project_ids).toEqual([
+        "project:node-integration",
+      ]);
+      const workspaceReplay = await client.workspaceApply(workspaceInput);
+      expect(workspaceReplay.event_sequence).toBe(
+        workspaceCommitted.event_sequence,
+      );
+      expect(workspaceReplay.receipt.duplicate).toBe(true);
+      const createdProject = await client.workspaceRead({
+        kind: "project",
+        project_id: "project:node-integration",
+      });
+      expect(createdProject.value).toMatchObject({
+        kind: "project",
+        project: {
+          id: "project:node-integration",
+          name: "Node workspace",
+          primary_workspace_root: path.join(nodexHome, "workspace"),
+        },
+      });
+
       subscription.close();
       await subscription.done;
       subscription = undefined;

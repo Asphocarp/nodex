@@ -50,6 +50,9 @@ import type {
   OwnedDocumentReadResponse,
   OwnedDocumentReadSnapshot,
   ProjectWorkspaceRead,
+  ProjectWorkspaceApplyInput,
+  ProjectWorkspaceApplyResponse,
+  ProjectWorkspaceCommittedValue,
   ProjectWorkspaceReadResponse,
   ProjectWorkspaceReadSnapshot,
 } from "./types";
@@ -184,6 +187,24 @@ export class CoreClient implements CoreClientPort {
       "POST",
       "/core/v1/modules/workspace/read",
       { version: PROTOCOL_MAX, read },
+      this.#moduleHeaders(),
+    );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async workspaceApply(
+    input: ProjectWorkspaceApplyInput,
+  ): Promise<ProjectWorkspaceCommittedValue> {
+    const response = await this.#transport.requestJson<ProjectWorkspaceApplyResponse>(
+      "POST",
+      "/core/v1/modules/workspace/apply",
+      {
+        version: PROTOCOL_MAX,
+        operation_id: input.operationId,
+        store_epoch: this.handshake.store_epoch,
+        intent: input.intent,
+      },
       this.#moduleHeaders(),
     );
     if (response.status === "ok") return response.payload;

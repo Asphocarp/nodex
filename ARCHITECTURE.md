@@ -90,9 +90,19 @@ an exact Project, Session panel state, thread owner, or managed-worktree set.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed. Workspace writes, full Session/tab
-and Codex launch metadata, Project atomic creation, Automation, and Store
-Administration remain migration work, so their unavailable routes do not fall
-back to direct native SQL.
+and Codex launch metadata, Automation, and Store Administration remain migration
+work, so their unavailable operations do not fall back to direct native SQL.
+
+Project creation is the first native Workspace writer aggregate. One writer job
+creates the Project/sidebar order/sources, its primary Database Block and
+Library placement, complete Database/Data Source/eight built-in Property/default
+View authority, active Project binding, pinned default View Session/Tab, and the
+deterministic primary Canvas plus empty scene authority. Database and Owned
+Document contribute internal genesis seams inside the transaction; Workspace
+does not compose public Module calls or publish collaborator events. A user
+creation publishes one Workspace receipt/event with exact replay, while a fresh
+Profile bootstrap uses the same record aggregate before the server advertises
+readiness so no half-bound default Project can exist.
 
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit

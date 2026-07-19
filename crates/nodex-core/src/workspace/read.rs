@@ -524,7 +524,8 @@ mod tests {
                 })
             })
             .expect("seed Workspace");
-        let module = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel);
+        let module = ProjectWorkspaceModule::new("profile-1", "library-1", &kernel)
+            .expect("Workspace module");
         (directory, kernel, module)
     }
 
