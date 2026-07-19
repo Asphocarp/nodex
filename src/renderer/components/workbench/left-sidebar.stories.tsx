@@ -164,6 +164,18 @@ const FOOTER_QUOTA_ACCOUNT: CodexAccountSnapshot = {
       windowDurationMins: 7 * 24 * 60,
     },
   },
+  rateLimitResetCredits: {
+    availableCount: 2,
+    credits: [{
+      id: "reset-credit-story-1",
+      resetType: "codexRateLimits",
+      status: "available",
+      grantedAt: 1_784_246_400,
+      expiresAt: 1_810_166_400,
+      title: "Quota reset",
+      description: "Reset an eligible Codex quota window.",
+    }],
+  },
 };
 
 const FOOTER_LOW_QUOTA_ACCOUNT: CodexAccountSnapshot = {
@@ -1689,6 +1701,10 @@ function SettingsFooterHarness({
             account={account}
             connection={{ status: "connected", retries: 0 }}
             onRefreshAccount={async () => account ?? FOOTER_SIGNED_OUT_ACCOUNT}
+            onConsumeRateLimitReset={async () => ({
+              outcome: "reset",
+              account: account ?? FOOTER_SIGNED_OUT_ACCOUNT,
+            })}
             onStartChatGptLogin={async () => ({ type: "apiKey" })}
             onStartApiKeyLogin={async () => ({ type: "apiKey" })}
             onCancelLogin={async () => ({ status: "canceled" })}

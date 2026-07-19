@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   buildRateLimitRingViewModel,
+  findAvailableQuotaResetCredit,
+  formatQuotaResetAvailability,
+  formatQuotaResetCreditExpiration,
   formatRateLimitSummary,
   formatRateLimitWindowCompactLabel,
   formatRateLimitWindowLabel,
@@ -68,5 +71,45 @@ describe("auth rate limits", () => {
     expect(model.outer === null).toBe(true);
     expect(model.inner === null).toBe(true);
     expect(model.ariaLabel).toBe("Usage remaining unavailable");
+  });
+
+  test("formats quota-reset expiry from the protocol's Unix-second timestamp", () => {
+    const localNoon = new Date(2027, 4, 12, 12).getTime() / 1_000;
+    expect(formatQuotaResetCreditExpiration(localNoon, "en-US")).toBe("May 12, 2027");
+    expect(formatQuotaResetCreditExpiration(null, "en-US")).toBe("Doesn’t expire");
+  });
+
+  test("selects only an available reset-credit detail", () => {
+    const available = findAvailableQuotaResetCredit({
+      availableCount: 2,
+      credits: [
+        {
+          id: "redeemed-credit",
+          resetType: "codexRateLimits",
+          status: "redeemed",
+          grantedAt: 1,
+          expiresAt: null,
+          title: null,
+          description: null,
+        },
+        {
+          id: "available-credit",
+          resetType: "codexRateLimits",
+          status: "available",
+          grantedAt: 2,
+          expiresAt: 3,
+          title: null,
+          description: null,
+        },
+      ],
+    });
+
+    expect(available?.id).toBe("available-credit");
+  });
+
+  test("formats the reset disclosure count with correct plurality", () => {
+    expect(formatQuotaResetAvailability(0)).toBe("0 available resets");
+    expect(formatQuotaResetAvailability(1)).toBe("1 available reset");
+    expect(formatQuotaResetAvailability(2)).toBe("2 available resets");
   });
 });

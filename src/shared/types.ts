@@ -5,6 +5,8 @@ import type {
   AskForApproval as CodexAppServerAskForApproval,
   CommandAction as CodexAppServerCommandAction,
   CommandExecutionRequestApprovalParams as CodexAppServerCommandExecutionRequestApprovalParams,
+  ConsumeAccountRateLimitResetCreditOutcome as CodexAppServerRateLimitResetOutcome,
+  ConsumeAccountRateLimitResetCreditParams as CodexAppServerRateLimitResetInput,
   DynamicToolCallOutputContentItem as CodexAppServerDynamicToolCallOutputContentItem,
   DynamicToolCallParams as CodexAppServerDynamicToolCallParams,
   DynamicToolCallResponse as CodexAppServerDynamicToolCallResponse,
@@ -25,6 +27,8 @@ import type {
   PatchChangeKind as CodexAppServerPatchChangeKind,
   PermissionsRequestApprovalParams as CodexAppServerPermissionsRequestApprovalParams,
   PermissionsRequestApprovalResponse as CodexAppServerPermissionsRequestApprovalResponse,
+  RateLimitResetCredit as CodexAppServerRateLimitResetCredit,
+  RateLimitResetCreditsSummary as CodexAppServerRateLimitResetCreditsSummary,
   SandboxMode as CodexAppServerSandboxMode,
   SandboxPolicy as CodexAppServerSandboxPolicy,
   ReviewStartParams as CodexAppServerReviewStartParams,
@@ -1376,6 +1380,19 @@ export interface CodexRateLimitsSnapshot {
   planType?: string;
 }
 
+export type CodexRateLimitResetCredit = CodexAppServerRateLimitResetCredit;
+export type CodexRateLimitResetInput = CodexAppServerRateLimitResetInput;
+export type CodexRateLimitResetOutcome = CodexAppServerRateLimitResetOutcome;
+
+export type CodexRateLimitResetCreditsSummary = Omit<
+  CodexAppServerRateLimitResetCreditsSummary,
+  "availableCount" | "credits"
+> & {
+  /** JSON-RPC transports expose the protocol's integer count as a JavaScript number. */
+  availableCount: number;
+  credits: CodexRateLimitResetCredit[] | null;
+};
+
 export type CodexAccountIdentity =
   { type: "apiKey" } | { type: "chatgpt"; email: string; planType: string };
 
@@ -1387,6 +1404,12 @@ export interface CodexAccountSnapshot {
     authUrl: string;
   } | null;
   rateLimits?: CodexRateLimitsSnapshot | null;
+  rateLimitResetCredits?: CodexRateLimitResetCreditsSummary | null;
+}
+
+export interface CodexRateLimitResetResult {
+  outcome: CodexRateLimitResetOutcome;
+  account: CodexAccountSnapshot;
 }
 
 export interface CodexDictationStateSnapshot {

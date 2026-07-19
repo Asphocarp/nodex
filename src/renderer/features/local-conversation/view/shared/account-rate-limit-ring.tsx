@@ -1,7 +1,12 @@
 import { useCallback, useRef, useState } from "react";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { CodexAccountSnapshot, CodexConnectionState } from "../../../../lib/types";
+import type {
+  CodexAccountSnapshot,
+  CodexConnectionState,
+  CodexRateLimitResetInput,
+  CodexRateLimitResetResult,
+} from "../../../../lib/types";
 import { shouldRefreshAccountOnConnectionTooltipOpen } from "./account-tooltip-refresh";
 import {
   buildRateLimitRingViewModel,
@@ -13,6 +18,9 @@ interface AccountRateLimitRingProps {
   account: CodexAccountSnapshot | null;
   connection: CodexConnectionState;
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
+  onConsumeRateLimitReset?: (
+    input: CodexRateLimitResetInput,
+  ) => Promise<CodexRateLimitResetResult>;
   onLogout: () => Promise<void>;
   onErrorMessage?: (message: string | null) => void;
   className?: string;
@@ -126,6 +134,7 @@ export function AccountRateLimitRing({
   account,
   connection,
   onRefreshAccount,
+  onConsumeRateLimitReset,
   onLogout,
   onErrorMessage,
   className,
@@ -174,6 +183,8 @@ export function AccountRateLimitRing({
   const tooltipContent = renderConnectionAccountTooltipContent(authenticatedAccount, account?.rateLimits, {
     onSignOut: () => void handleLogout(),
     isSigningOutDisabled: isSigningOut,
+    rateLimitResetCredits: account?.rateLimitResetCredits,
+    onConsumeRateLimitReset,
   });
 
   return (
@@ -184,6 +195,7 @@ export function AccountRateLimitRing({
       delayDuration={0}
       onOpenChange={handleTooltipOpenChange}
       interactive
+      surface="rich"
     >
       <button
         type="button"

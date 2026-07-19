@@ -2,7 +2,12 @@ import { useState } from "react";
 import { Settings } from "lucide-react";
 import { AccountRateLimitRing } from "@/features/local-conversation/view/shared/account-rate-limit-ring";
 import { AuthPopover } from "@/features/local-conversation/view/shared/auth-controls";
-import type { CodexAccountSnapshot, CodexConnectionState } from "@/lib/types";
+import type {
+  CodexAccountSnapshot,
+  CodexConnectionState,
+  CodexRateLimitResetInput,
+  CodexRateLimitResetResult,
+} from "@/lib/types";
 import type { IpcApi } from "../../../shared/ipc-api";
 
 type CodexLoginStartResult = IpcApi["codex:account:login:start"]["result"];
@@ -12,6 +17,9 @@ export interface LeftSidebarFooterProps {
   account?: CodexAccountSnapshot | null;
   connection?: CodexConnectionState;
   onRefreshAccount?: () => Promise<CodexAccountSnapshot>;
+  onConsumeRateLimitReset?: (
+    input: CodexRateLimitResetInput,
+  ) => Promise<CodexRateLimitResetResult>;
   onStartChatGptLogin?: () => Promise<CodexLoginStartResult>;
   onStartApiKeyLogin?: (apiKey: string) => Promise<CodexLoginStartResult>;
   onCancelLogin?: (loginId: string) => Promise<unknown>;
@@ -24,6 +32,7 @@ export function LeftSidebarFooter({
   account,
   connection,
   onRefreshAccount,
+  onConsumeRateLimitReset,
   onStartChatGptLogin,
   onStartApiKeyLogin,
   onCancelLogin,
@@ -101,6 +110,7 @@ export function LeftSidebarFooter({
           account={account ?? null}
           connection={connection}
           onRefreshAccount={onRefreshAccount}
+          onConsumeRateLimitReset={onConsumeRateLimitReset}
           onLogout={onLogout}
           onErrorMessage={onErrorMessage}
         />

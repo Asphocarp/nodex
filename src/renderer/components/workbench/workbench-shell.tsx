@@ -9752,6 +9752,7 @@ export function WorkbenchShell({
               account={codexAccount}
               connection={codexConnection}
               onRefreshAccount={codexAccountActions.refreshAccount}
+              onConsumeRateLimitReset={codexAccountActions.consumeRateLimitReset}
               onStartChatGptLogin={codexAccountActions.startChatGptLogin}
               onStartApiKeyLogin={codexAccountActions.startApiKeyLogin}
               onCancelLogin={codexAccountActions.cancelLogin}
@@ -9859,6 +9860,7 @@ export function WorkbenchShell({
                   account={codexAccount}
                   connection={codexConnection}
                   onRefreshAccount={codexAccountActions.refreshAccount}
+                  onConsumeRateLimitReset={codexAccountActions.consumeRateLimitReset}
                   onStartChatGptLogin={codexAccountActions.startChatGptLogin}
                   onStartApiKeyLogin={codexAccountActions.startApiKeyLogin}
                   onCancelLogin={codexAccountActions.cancelLogin}
@@ -11402,6 +11404,7 @@ function ProjectSessionSidebar({
   account,
   connection,
   onRefreshAccount,
+  onConsumeRateLimitReset,
   onStartChatGptLogin,
   onStartApiKeyLogin,
   onCancelLogin,
@@ -11481,6 +11484,7 @@ function ProjectSessionSidebar({
   account: CodexAccountSnapshot | null;
   connection: CodexConnectionState;
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
+  onConsumeRateLimitReset: ReturnType<typeof useCodexAccountActions>["consumeRateLimitReset"];
   onStartChatGptLogin: ReturnType<typeof useCodexAccountActions>["startChatGptLogin"];
   onStartApiKeyLogin: ReturnType<typeof useCodexAccountActions>["startApiKeyLogin"];
   onCancelLogin: ReturnType<typeof useCodexAccountActions>["cancelLogin"];
@@ -11872,6 +11876,7 @@ function ProjectSessionSidebar({
               account={account}
               connection={connection}
               onRefreshAccount={onRefreshAccount}
+              onConsumeRateLimitReset={onConsumeRateLimitReset}
               onStartChatGptLogin={onStartChatGptLogin}
               onStartApiKeyLogin={onStartApiKeyLogin}
               onCancelLogin={onCancelLogin}

@@ -170,6 +170,9 @@ interface TestableCodexService {
   getPersonality: () => import("../../shared/types").CodexPersonality;
   setPersonality: (personality: import("../../shared/types").CodexPersonality) => void;
   readAccountSnapshot: () => Promise<import("../../shared/types").CodexAccountSnapshot>;
+  consumeAccountRateLimitResetCredit: (
+    input: import("../../shared/types").CodexRateLimitResetInput,
+  ) => Promise<import("../../shared/types").CodexRateLimitResetResult>;
   logoutAccount: () => Promise<boolean>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   resolveThreadSummary: (threadId: string) => Promise<import("../../shared/types").CodexThreadSummary | null>;
@@ -6058,18 +6061,77 @@ describe("codex-service rate limit polling", () => {
             primary: { usedPercent: 18, windowDurationMins: 300, resetsAt: Date.now() + 1_000 },
             secondary: { usedPercent: 39, windowDurationMins: 10_080, resetsAt: Date.now() + 2_000 },
           },
+          rateLimitResetCredits: {
+            availableCount: 2,
+            credits: [{
+              id: "reset-credit-1",
+              resetType: "codexRateLimits",
+              status: "available",
+              grantedAt: 1_784_246_400,
+              expiresAt: 1_810_166_400,
+              title: "Quota reset",
+              description: null,
+            }],
+          },
         };
       }
       throw new Error(`Unexpected method ${method}`);
     };
 
     client.emit("connection", { status: "connected", retries: 0 });
-    await service.readAccountSnapshot();
+    const snapshot = await service.readAccountSnapshot();
     await waitForCondition(() => rateLimitsReadCount >= 3, 250);
     await service.shutdown();
 
     expect(accountReadCount).toBe(1);
     expect(rateLimitsReadCount >= 3).toBe(true);
+    expect(snapshot.rateLimitResetCredits?.availableCount).toBe(2);
+    expect(snapshot.rateLimitResetCredits?.credits?.[0]?.id).toBe("reset-credit-1");
+  });
+
+  test("treats an already-redeemed retry as success and refreshes authoritative quota", async () => {
+    const service = createService({ rateLimitsPollIntervalMs: 0 });
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
+    const consumeInputs: unknown[] = [];
+    let rateLimitsReadCount = 0;
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params?: unknown) => {
+      if (method === "account/rateLimitResetCredit/consume") {
+        consumeInputs.push(params);
+        return { outcome: "alreadyRedeemed" };
+      }
+      if (method === "account/rateLimits/read") {
+        rateLimitsReadCount += 1;
+        return {
+          rateLimits: {
+            primary: { usedPercent: 0, windowDurationMins: 300 },
+          },
+          rateLimitResetCredits: {
+            availableCount: 1,
+            credits: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    };
+
+    const result = await service.consumeAccountRateLimitResetCredit({
+      idempotencyKey: "attempt-1",
+      creditId: "reset-credit-1",
+    });
+    await service.shutdown();
+
+    expect(consumeInputs).toEqual([{
+      idempotencyKey: "attempt-1",
+      creditId: "reset-credit-1",
+    }]);
+    expect(rateLimitsReadCount).toBe(1);
+    expect(result.outcome).toBe("alreadyRedeemed");
+    expect(result.account.rateLimitResetCredits?.availableCount).toBe(1);
   });
 
   test("stops polling after logout clears the authenticated account", async () => {

@@ -118,6 +118,8 @@ import type {
   AppUpdateStatus,
   BoardSummary,
   CodexAccountSnapshot,
+  CodexRateLimitResetInput,
+  CodexRateLimitResetResult,
   CodexApprovalResponse,
   CodexApprovalKind,
   CodexCanonicalOptionPickerResponse,
@@ -1239,6 +1241,10 @@ export interface IpcApi {
   // Codex
   "codex:connection:status": { args: []; result: CodexConnectionState };
   "codex:account:read": { args: []; result: CodexAccountSnapshot };
+  "codex:account:rate-limit-reset:consume": {
+    args: [input: CodexRateLimitResetInput];
+    result: CodexRateLimitResetResult;
+  };
   "codex:dictation:state:read": {
     args: [];
     result: CodexDictationStateSnapshot;

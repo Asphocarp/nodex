@@ -1,9 +1,14 @@
 import { useCallback, useMemo } from "react";
 import { invoke } from "./api";
+import type { CodexRateLimitResetInput } from "./types";
 
 export function useCodexAccountActions() {
   const refreshAccount = useCallback(async () => {
     return invoke("codex:account:read");
+  }, []);
+
+  const consumeRateLimitReset = useCallback(async (input: CodexRateLimitResetInput) => {
+    return invoke("codex:account:rate-limit-reset:consume", input);
   }, []);
 
   const startChatGptLogin = useCallback(async () => {
@@ -24,9 +29,10 @@ export function useCodexAccountActions() {
 
   return useMemo(() => ({
     refreshAccount,
+    consumeRateLimitReset,
     startChatGptLogin,
     startApiKeyLogin,
     cancelLogin,
     logout,
-  }), [cancelLogin, logout, refreshAccount, startApiKeyLogin, startChatGptLogin]);
+  }), [cancelLogin, consumeRateLimitReset, logout, refreshAccount, startApiKeyLogin, startChatGptLogin]);
 }

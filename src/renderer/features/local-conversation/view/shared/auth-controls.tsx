@@ -5,7 +5,11 @@ import {
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
 import { handleFormSubmit } from "@/lib/forms";
-import type { CodexAccountSnapshot } from "../../../../lib/types";
+import type {
+  CodexAccountSnapshot,
+  CodexRateLimitResetInput,
+  CodexRateLimitResetResult,
+} from "../../../../lib/types";
 import { RateLimitTooltipSection } from "./auth-rate-limits";
 
 export function renderConnectionAccountTooltipContent(
@@ -14,16 +18,24 @@ export function renderConnectionAccountTooltipContent(
   options?: {
     onSignOut?: () => void;
     isSigningOutDisabled?: boolean;
+    rateLimitResetCredits?: CodexAccountSnapshot["rateLimitResetCredits"];
+    onConsumeRateLimitReset?: (
+      input: CodexRateLimitResetInput,
+    ) => Promise<CodexRateLimitResetResult>;
   },
 ) {
   if (account.type === "apiKey") {
     return (
-      <div className="flex min-w-28 flex-col gap-2">
+      <div className="flex w-60 flex-col gap-2 p-3">
         <div className="flex flex-col gap-0.5">
           <div className="text-xs text-(--foreground-tertiary)">Connected via</div>
           <div className="text-sm font-medium text-(--foreground)">API key</div>
         </div>
-        <RateLimitTooltipSection rateLimits={rateLimits} />
+        <RateLimitTooltipSection
+          rateLimits={rateLimits}
+          quotaResetCredits={options?.rateLimitResetCredits}
+          onQuotaReset={options?.onConsumeRateLimitReset}
+        />
         {options?.onSignOut && (
           <button
             type="button"
@@ -39,13 +51,17 @@ export function renderConnectionAccountTooltipContent(
   }
 
   return (
-    <div className="flex min-w-28 flex-col gap-2">
+    <div className="flex w-60 flex-col gap-2 p-3">
       <div className="flex flex-col gap-0.5">
         <div className="text-xs text-(--foreground-tertiary)">Connected as</div>
         <div className="text-sm font-medium text-(--foreground)">{account.email}</div>
         <div className="text-xs text-(--foreground-secondary)">ChatGPT {account.planType}</div>
       </div>
-      <RateLimitTooltipSection rateLimits={rateLimits} />
+      <RateLimitTooltipSection
+        rateLimits={rateLimits}
+        quotaResetCredits={options?.rateLimitResetCredits}
+        onQuotaReset={options?.onConsumeRateLimitReset}
+      />
       {options?.onSignOut && (
         <button
           type="button"

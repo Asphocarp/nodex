@@ -2580,6 +2580,10 @@ export function registerIpcHandlers(
     codexService.readAccountSnapshot(),
   );
 
+  registerHandle("codex:account:rate-limit-reset:consume", (_, input) =>
+    codexService.consumeAccountRateLimitResetCredit(input),
+  );
+
   registerHandle("codex:dictation:state:read", () =>
     codexService.readDictationStateSnapshot(),
   );

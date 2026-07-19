@@ -25,6 +25,7 @@ import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/Confi
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
+import type { ConsumeAccountRateLimitResetCreditResponse } from "@nodex/codex-app-server-protocol/v2/ConsumeAccountRateLimitResetCreditResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
@@ -141,6 +142,10 @@ import type {
   CodexQueuedFollowUp,
   CodexReviewDiffCommentAttachment,
   CodexRateLimitsSnapshot,
+  CodexRateLimitResetCredit,
+  CodexRateLimitResetCreditsSummary,
+  CodexRateLimitResetInput,
+  CodexRateLimitResetResult,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
   CodexRendererConversationResumeResult,
@@ -2529,6 +2534,7 @@ function emptyAccountSnapshot(): CodexAccountSnapshot {
     requiresOpenAiAuth: true,
     pendingLogin: null,
     rateLimits: null,
+    rateLimitResetCredits: null,
   };
 }
 
@@ -2591,6 +2597,64 @@ function parseRateLimitsSnapshot(value: unknown): CodexRateLimitsSnapshot | null
     credits,
     planType: typeof candidate.planType === "string" ? candidate.planType : undefined,
   };
+}
+
+function parseNonNegativeInteger(value: unknown): number | null {
+  const numericValue = typeof value === "bigint" ? Number(value) : value;
+  if (typeof numericValue !== "number" || !Number.isSafeInteger(numericValue)) return null;
+  if (numericValue < 0) return null;
+  return numericValue;
+}
+
+function parseRateLimitResetCredit(value: unknown): CodexRateLimitResetCredit | null {
+  if (typeof value !== "object" || value === null) return null;
+  const credit = value as Record<string, unknown>;
+  const id = typeof credit.id === "string" ? credit.id.trim() : "";
+  const grantedAt = typeof credit.grantedAt === "number" ? credit.grantedAt : null;
+  const expiresAt = credit.expiresAt === null || typeof credit.expiresAt === "number"
+    ? credit.expiresAt
+    : undefined;
+  const resetType = credit.resetType === "codexRateLimits" || credit.resetType === "unknown"
+    ? credit.resetType
+    : null;
+  const status = credit.status === "available"
+    || credit.status === "redeeming"
+    || credit.status === "redeemed"
+    || credit.status === "unknown"
+    ? credit.status
+    : null;
+
+  if (!id || grantedAt === null || !Number.isFinite(grantedAt)) return null;
+  if (expiresAt === undefined || (expiresAt !== null && !Number.isFinite(expiresAt))) return null;
+  if (resetType === null || status === null) return null;
+
+  return {
+    id,
+    resetType,
+    status,
+    grantedAt,
+    expiresAt,
+    title: typeof credit.title === "string" ? credit.title : null,
+    description: typeof credit.description === "string" ? credit.description : null,
+  };
+}
+
+function parseRateLimitResetCreditsSummary(value: unknown): CodexRateLimitResetCreditsSummary | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Record<string, unknown>;
+  const availableCount = parseNonNegativeInteger(candidate.availableCount);
+  if (availableCount === null) return null;
+
+  const credits = candidate.credits === null
+    ? null
+    : Array.isArray(candidate.credits)
+      ? candidate.credits.flatMap((entry) => {
+          const parsed = parseRateLimitResetCredit(entry);
+          return parsed ? [parsed] : [];
+        })
+      : null;
+
+  return { availableCount, credits };
 }
 
 function parseAccountIdentity(value: unknown): CodexAccountIdentity | null {
@@ -6496,19 +6560,35 @@ export class CodexService extends EventEmitter {
   }
 
   private async refreshRateLimitsSnapshot(): Promise<CodexRateLimitsSnapshot | null> {
-    const rateLimitResult = await this.client.request<"account/rateLimits/read", GetAccountRateLimitsResponse>(
-      "account/rateLimits/read",
-    ).catch(() => ({ rateLimits: null, rateLimitsByLimitId: null }));
-
-    const parsed = parseRateLimitsSnapshot(rateLimitResult.rateLimits ?? null);
+    const rateLimitState = await this.readAccountRateLimitState();
     this.accountSnapshot = {
       ...this.accountSnapshot,
-      rateLimits: parsed,
+      ...rateLimitState,
     };
     this.syncRateLimitsPolling();
-    this.emitEvent({ type: "rateLimits", rateLimits: parsed });
+    this.emitEvent({ type: "rateLimits", rateLimits: rateLimitState.rateLimits });
     this.emitEvent({ type: "account", account: this.accountSnapshot });
-    return parsed;
+    return rateLimitState.rateLimits;
+  }
+
+  private async readAccountRateLimitState(): Promise<{
+    rateLimits: CodexRateLimitsSnapshot | null;
+    rateLimitResetCredits: CodexRateLimitResetCreditsSummary | null;
+  }> {
+    const rateLimitResult = await this.client.request<"account/rateLimits/read", GetAccountRateLimitsResponse>(
+      "account/rateLimits/read",
+    ).catch(() => ({
+      rateLimits: null,
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    }));
+
+    return {
+      rateLimits: parseRateLimitsSnapshot(rateLimitResult.rateLimits ?? null),
+      rateLimitResetCredits: parseRateLimitResetCreditsSummary(
+        rateLimitResult.rateLimitResetCredits ?? null,
+      ),
+    };
   }
 
   async shutdown(): Promise<void> {
@@ -6905,11 +6985,12 @@ export class CodexService extends EventEmitter {
       refreshToken: false,
     });
 
+    const rateLimitState = await this.readAccountRateLimitState();
     this.accountSnapshot = {
       account: parseAccountIdentity(accountResult.account ?? null),
       requiresOpenAiAuth: Boolean(accountResult.requiresOpenaiAuth),
       pendingLogin: this.accountSnapshot.pendingLogin ?? null,
-      rateLimits: await this.refreshRateLimitsSnapshotForRead(),
+      ...rateLimitState,
     };
     this.syncRateLimitsPolling();
 
@@ -6917,16 +6998,40 @@ export class CodexService extends EventEmitter {
       accountType: this.accountSnapshot.account?.type ?? null,
       requiresOpenAiAuth: this.accountSnapshot.requiresOpenAiAuth,
       hasRateLimits: Boolean(this.accountSnapshot.rateLimits),
+      availableRateLimitResets: this.accountSnapshot.rateLimitResetCredits?.availableCount ?? null,
     });
     this.emitEvent({ type: "account", account: this.accountSnapshot });
     return this.accountSnapshot;
   }
 
-  private async refreshRateLimitsSnapshotForRead(): Promise<CodexRateLimitsSnapshot | null> {
-    const rateLimitResult = await this.client.request<"account/rateLimits/read", GetAccountRateLimitsResponse>(
-      "account/rateLimits/read",
-    ).catch(() => ({ rateLimits: null, rateLimitsByLimitId: null }));
-    return parseRateLimitsSnapshot(rateLimitResult.rateLimits ?? null);
+  async consumeAccountRateLimitResetCredit(
+    input: CodexRateLimitResetInput,
+  ): Promise<CodexRateLimitResetResult> {
+    await this.ensureClientReady();
+
+    const idempotencyKey = input.idempotencyKey.trim();
+    if (!idempotencyKey) throw new Error("Rate-limit reset idempotency key is required");
+    const creditId = input.creditId?.trim();
+    if (input.creditId !== undefined && input.creditId !== null && !creditId) {
+      throw new Error("Rate-limit reset credit ID must not be empty");
+    }
+
+    const response = await this.client.request<
+      "account/rateLimitResetCredit/consume",
+      ConsumeAccountRateLimitResetCreditResponse
+    >("account/rateLimitResetCredit/consume", {
+      idempotencyKey,
+      ...(creditId ? { creditId } : {}),
+    });
+
+    if (response.outcome === "reset" || response.outcome === "alreadyRedeemed" || response.outcome === "noCredit") {
+      await this.refreshRateLimitsSnapshot();
+    }
+
+    return {
+      outcome: response.outcome,
+      account: this.accountSnapshot,
+    };
   }
 
   async startAccountLogin(

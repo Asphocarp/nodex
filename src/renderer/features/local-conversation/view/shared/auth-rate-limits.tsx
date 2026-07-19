@@ -1,4 +1,13 @@
-import type { CodexAccountSnapshot, CodexRateLimitsSnapshot } from "../../../../lib/types";
+import { useId, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
+import type {
+  CodexAccountSnapshot,
+  CodexRateLimitResetCredit,
+  CodexRateLimitResetCreditsSummary,
+  CodexRateLimitResetInput,
+  CodexRateLimitResetResult,
+  CodexRateLimitsSnapshot,
+} from "../../../../lib/types";
 
 export interface RateLimitRingWindowView {
   label: string;
@@ -85,6 +94,31 @@ export function formatRateLimitResetLabel(
     month: "short",
     day: "numeric",
   }).format(resetsAt);
+}
+
+export function formatQuotaResetCreditExpiration(
+  expiresAt: number | null,
+  locale?: string,
+): string {
+  if (expiresAt === null) return "Doesn’t expire";
+
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(expiresAt * 1_000);
+}
+
+export function findAvailableQuotaResetCredit(
+  summary: CodexRateLimitResetCreditsSummary,
+): CodexRateLimitResetCredit | null {
+  return summary.credits?.find((credit) => credit.status === "available") ?? null;
+}
+
+export function formatQuotaResetAvailability(availableCount: number): string {
+  return availableCount === 1
+    ? "1 available reset"
+    : `${availableCount} available resets`;
 }
 
 export function getRemainingRateLimitPercent(usedPercent: number): number {
@@ -174,19 +208,24 @@ export function buildRateLimitRingViewModel(
 
 export function RateLimitTooltipSection({
   rateLimits,
+  quotaResetCredits,
+  onQuotaReset,
 }: {
   rateLimits: CodexAccountSnapshot["rateLimits"] | undefined;
+  quotaResetCredits?: CodexRateLimitResetCreditsSummary | null;
+  onQuotaReset?: (input: CodexRateLimitResetInput) => Promise<CodexRateLimitResetResult>;
 }) {
-  if (!rateLimits) return null;
-
-  const rows = [buildRateLimitRow(rateLimits.primary), buildRateLimitRow(rateLimits.secondary)].filter(
-    (row): row is NonNullable<ReturnType<typeof buildRateLimitRow>> => row !== null,
-  );
-  if (rows.length === 0) return null;
+  const rows = rateLimits
+    ? [buildRateLimitRow(rateLimits.primary), buildRateLimitRow(rateLimits.secondary)].filter(
+        (row): row is NonNullable<ReturnType<typeof buildRateLimitRow>> => row !== null,
+      )
+    : [];
+  const hasQuotaReset = Boolean(quotaResetCredits && onQuotaReset);
+  if (rows.length === 0 && !hasQuotaReset) return null;
 
   return (
     <div className="flex flex-col gap-1.5 border-t border-(--border) pt-2">
-      <div className="text-xs text-(--foreground-tertiary)">Rate limits remaining</div>
+      <div className="text-xs text-(--foreground-tertiary)">Usage remaining</div>
       <div className="flex flex-col gap-1">
         {rows.map((row, index) => (
           <div
@@ -202,7 +241,117 @@ export function RateLimitTooltipSection({
             </div>
           </div>
         ))}
+        {quotaResetCredits && onQuotaReset ? (
+          <QuotaResetTooltipSection summary={quotaResetCredits} onReset={onQuotaReset} />
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+function quotaResetOutcomeMessage(result: CodexRateLimitResetResult): string {
+  if (result.outcome === "nothingToReset") {
+    return "Your current quota doesn’t need a reset.";
+  }
+  if (result.outcome === "noCredit") {
+    return "No quota resets are available.";
+  }
+
+  const remaining = result.account.rateLimitResetCredits?.availableCount ?? 0;
+  return `Quota reset. ${remaining} remaining.`;
+}
+
+export function QuotaResetTooltipSection({
+  summary,
+  onReset,
+}: {
+  summary: CodexRateLimitResetCreditsSummary | null | undefined;
+  onReset: (input: CodexRateLimitResetInput) => Promise<CodexRateLimitResetResult>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<{ kind: "error" | "status"; text: string } | null>(null);
+  const attemptRef = useRef<{ idempotencyKey: string; creditId: string | null } | null>(null);
+  const contentId = useId();
+
+  if (!summary) return null;
+
+  const activeCredit = findAvailableQuotaResetCredit(summary);
+  const expiration = activeCredit
+    ? formatQuotaResetCreditExpiration(activeCredit.expiresAt)
+    : summary.availableCount > 0
+      ? "Unavailable"
+      : "—";
+
+  const handleReset = async () => {
+    if (pending || summary.availableCount <= 0) return;
+
+    const attempt = attemptRef.current ?? {
+      idempotencyKey: crypto.randomUUID(),
+      creditId: activeCredit?.id ?? null,
+    };
+    attemptRef.current = attempt;
+    setPending(true);
+    setMessage(null);
+
+    try {
+      const result = await onReset({
+        idempotencyKey: attempt.idempotencyKey,
+        ...(attempt.creditId ? { creditId: attempt.creditId } : {}),
+      });
+      attemptRef.current = null;
+      setMessage({ kind: "status", text: quotaResetOutcomeMessage(result) });
+    } catch {
+      setMessage({ kind: "error", text: "Couldn’t reset quota. Try again." });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        aria-controls={contentId}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-2 rounded-sm text-left hover:bg-(--foreground)/10 focus-visible:ring-2 focus-visible:ring-(--ring)/35 focus-visible:outline-none py-1 px-0.25"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-(--foreground)">
+          {formatQuotaResetAvailability(summary.availableCount)}
+        </span>
+        <ChevronRight
+          aria-hidden="true"
+          className={`size-4 shrink-0 text-(--foreground-secondary) transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
+        />
+      </button>
+
+      {expanded ? (
+        <div id={contentId} className="flex flex-col gap-1.5">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 text-xs">
+            <span className="text-(--foreground-tertiary)">Expiry</span>
+            <span className="text-(--foreground-secondary) tabular-nums">{expiration}</span>
+          </div>
+          <button
+            type="button"
+            disabled={pending || summary.availableCount <= 0}
+            className="h-7 rounded-md bg-(--foreground) px-2.5 text-xs font-medium text-(--background) hover:brightness-95 focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:outline-none disabled:opacity-40"
+            onClick={() => void handleReset()}
+          >
+            {pending ? "Resetting…" : "Reset quota"}
+          </button>
+          {message ? (
+            <p
+              aria-live="polite"
+              className={message.kind === "error"
+                ? "m-0 text-xs text-(--destructive)"
+                : "m-0 text-xs text-(--foreground-secondary)"}
+            >
+              {message.text}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
