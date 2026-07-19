@@ -119,6 +119,12 @@ cursor/evidence/recovery graph through the established strict Page History
 parser before IPC. Page content/search and the remaining deep Module adapters stay
 on the migration inventory and must fail closed rather than fall back in the
 Rust branch.
+Project-scoped Database Module reads now select one cached Core client per
+Project, translate only typed target coordinates, preserve filter/sort/config
+domain JSON unchanged, and validate the returned camel-cased aggregate through
+the existing Database v2 parser. Database writes and trusted Library Database
+access remain on the cutover inventory until their native receipts and
+capability boundaries preserve the established public contract.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

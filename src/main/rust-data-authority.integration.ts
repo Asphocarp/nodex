@@ -9,12 +9,14 @@ import { initializeDesktopDataAuthority } from "./core-client/desktop-data-autho
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreCanvasSceneAdapter } from "./core-client/core-canvas-scene-adapter";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
+import { createCoreDatabaseModuleAdapter } from "./core-client/database-module-adapter";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { closeDatabase, getDb } from "./local-store/database";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../shared/page-history";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   primaryCanvasDocumentId,
@@ -89,6 +91,30 @@ describe("Electron native data authority", () => {
       }
       const projectId = startup.value.projects[0]?.id;
       if (!projectId) throw new Error("Core startup has no Project");
+      const database = createCoreDatabaseModuleAdapter({
+        client: runtime.clientForProject(projectId),
+        projectId,
+        libraryId: runtime.rootClient.handshake.library_id,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+      });
+      const databaseCatalog = await database.read({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId,
+        read: { target: { kind: "project_default" }, mode: "catalog" },
+      });
+      expect(databaseCatalog).toMatchObject({
+        ok: true,
+        value: {
+          projectId,
+          libraryId: runtime.rootClient.handshake.library_id,
+          value: { kind: "catalog" },
+        },
+      });
+      if (!databaseCatalog.ok || databaseCatalog.value.value.kind !== "catalog") {
+        throw new Error("Expected Core Database catalog");
+      }
+      expect(databaseCatalog.value.value.databases.length).toBeGreaterThan(0);
+      expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);
       const createdProject = await workspace.createProject({
         name: "Electron Workspace Adapter",

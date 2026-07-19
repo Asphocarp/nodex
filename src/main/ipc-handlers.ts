@@ -134,6 +134,7 @@ import {
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
 import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
 import type { DesktopLibraryModuleBridge } from "./core-client/desktop-library-module-bridge";
+import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -578,6 +579,7 @@ interface RegisterIpcHandlersOptions {
     | "readLibraryPageDetail"
     | "listPageHistory"
   >;
+  databaseModule?: Pick<DesktopDatabaseModuleBridge, "read">;
   projectWorkspace?: DesktopProjectWorkspacePort;
   documentSync?: DesktopDocumentSyncPort;
 }
@@ -1437,8 +1439,8 @@ export function registerIpcHandlers(
     },
     apply: async (request) =>
       (await blockMutationWriter.applyDatabaseModule(request)).result,
-    read: async (request) =>
-      (await blockMutationWriter.readDatabaseModule(request)).result,
+    read: options.databaseModule?.read ?? (async (request) =>
+      (await blockMutationWriter.readDatabaseModule(request)).result),
   });
 
   registerLibraryModuleIpcHandler({

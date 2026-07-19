@@ -20,6 +20,14 @@ export {
   mapCoreLibraryEvent,
 } from "./desktop-library-module-bridge";
 export {
+  createDesktopDatabaseModuleBridge,
+  type DesktopDatabaseModuleBridge,
+} from "./desktop-database-module-bridge";
+export {
+  createCoreDatabaseModuleAdapter,
+  type CoreDatabaseModuleAdapter,
+} from "./database-module-adapter";
+export {
   createDesktopProjectWorkspaceBridge,
   mapCoreProjectWorkspaceEvent,
 } from "./desktop-project-workspace-bridge";

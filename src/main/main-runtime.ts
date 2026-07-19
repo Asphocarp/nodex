@@ -131,6 +131,7 @@ import { shouldGrantAppRendererPermission } from "./renderer-permissions";
 import {
   initializeDesktopDataAuthority,
   createCoreProjectWorkspaceAdapter,
+  createDesktopDatabaseModuleBridge,
   createDesktopLibraryModuleBridge,
   createDesktopDocumentSyncBridge,
   createDesktopProjectWorkspaceBridge,
@@ -1639,6 +1640,13 @@ export async function runMainAppStartup(
           ).result,
         listPageHistory: (request) =>
           blockMutationWriter.listPageHistory(request),
+      },
+    }),
+    databaseModule: createDesktopDatabaseModuleBridge({
+      authority: dataAuthority,
+      typescript: {
+        read: async (request) =>
+          (await blockMutationWriter.readDatabaseModule(request)).result,
       },
     }),
     rendererClientRouter,
