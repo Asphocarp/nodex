@@ -129,6 +129,15 @@
   resync boundary and closes that subscription. A reconnect after process
   restart therefore replays retained typed events; a slow or stale consumer is
   forced onto fresh authoritative reads instead of silently skipping changes.
+- Native event-stream identities are leased, unique, and released when Axum
+  drops the stream: one logical connection may hold at most 64 streams and the
+  process at most 2,048. A second live global stream or identical Document
+  client-session stream conflicts instead of creating ambiguous disconnect
+  ownership. The Document Realtime Adapter independently caps its subscription
+  map, accepts at most 4 KiB per Awareness publication, owns at most eight
+  Awareness clients per subscription and sixteen per Document, and refuses an
+  initial Awareness snapshot above 96 KiB. Capacity failure is the typed
+  retryable `resource_exhausted` error (HTTP 429), not silent eviction.
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before

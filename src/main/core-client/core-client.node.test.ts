@@ -112,6 +112,9 @@ describe("CoreClient over a Unix socket", () => {
         resolveEvent = resolve;
       });
       subscription = await client.openEventStream(0, (event) => resolveEvent?.(event));
+      await expect(
+        client.openEventStream(0, () => undefined),
+      ).rejects.toMatchObject({ status: 409 });
 
       const snapshot = await client.libraryRead({ kind: "metadata" });
       expect(snapshot.event_head).toBe(0);

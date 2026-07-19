@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use axum::extract::connect_info::Connected;
@@ -8,6 +8,8 @@ use nodex_core_contracts::AdapterKind;
 use tokio::net::UnixListener;
 
 const MAX_CONNECTIONS: usize = 1_024;
+const MAX_EVENT_SUBSCRIPTIONS: usize = 2_048;
+const MAX_EVENT_SUBSCRIPTIONS_PER_CONNECTION: usize = 64;
 const STALE_CONNECTION_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,16 +46,77 @@ struct ConnectionRecord {
     build_id: String,
     protocol_version: u32,
     last_seen: Instant,
+    event_subscriptions: HashSet<EventSubscriptionKey>,
 }
 
+struct RegistryState {
+    records: HashMap<String, ConnectionRecord>,
+    event_subscriptions: usize,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum EventSubscriptionKey {
+    Global,
+    Document(String),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConnectionRegistryErrorKind {
+    Unauthorized,
+    Conflict,
+    ResourceExhausted,
+    Unavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ConnectionRegistryError {
+    pub(crate) kind: ConnectionRegistryErrorKind,
+    pub(crate) message: &'static str,
+}
+
+pub(crate) struct EventSubscriptionLease {
+    state: Weak<Mutex<RegistryState>>,
+    connection_id: String,
+    key: EventSubscriptionKey,
+}
+
+impl Drop for EventSubscriptionLease {
+    fn drop(&mut self) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        let Ok(mut state) = state.lock() else {
+            return;
+        };
+        let removed = state
+            .records
+            .get_mut(&self.connection_id)
+            .is_some_and(|record| {
+                let removed = record.event_subscriptions.remove(&self.key);
+                if removed {
+                    record.last_seen = Instant::now();
+                }
+                removed
+            });
+        if !removed {
+            return;
+        }
+        state.event_subscriptions = state.event_subscriptions.saturating_sub(1);
+    }
+}
+
+#[derive(Clone)]
 pub(crate) struct ConnectionRegistry {
-    records: Mutex<HashMap<String, ConnectionRecord>>,
+    state: Arc<Mutex<RegistryState>>,
 }
 
 impl ConnectionRegistry {
     pub(crate) fn new() -> Self {
         Self {
-            records: Mutex::new(HashMap::new()),
+            state: Arc::new(Mutex::new(RegistryState {
+                records: HashMap::new(),
+                event_subscriptions: 0,
+            })),
         }
     }
 
@@ -65,29 +128,32 @@ impl ConnectionRegistry {
         peer: &PeerIdentity,
         build_id: &str,
         protocol_version: u32,
-    ) -> Result<(), &'static str> {
-        let mut records = self
-            .records
+    ) -> Result<(), ConnectionRegistryError> {
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| "connection registry failed")?;
+            .map_err(|_| unavailable("connection registry failed"))?;
         let now = Instant::now();
-        records.retain(|_, record| now.duration_since(record.last_seen) <= STALE_CONNECTION_AGE);
-        if let Some(record) = records.get_mut(connection_id) {
+        state.records.retain(|_, record| {
+            !record.event_subscriptions.is_empty()
+                || now.duration_since(record.last_seen) <= STALE_CONNECTION_AGE
+        });
+        if let Some(record) = state.records.get_mut(connection_id) {
             if record.adapter != adapter
                 || record.peer != *peer
                 || record.build_id != build_id
                 || record.protocol_version != protocol_version
                 || !constant_time_equal(record.binding.as_bytes(), binding.as_bytes())
             {
-                return Err("connection identity is already bound");
+                return Err(conflict("connection identity is already bound"));
             }
             record.last_seen = now;
             return Ok(());
         }
-        if records.len() >= MAX_CONNECTIONS {
-            return Err("connection registry is full");
+        if state.records.len() >= MAX_CONNECTIONS {
+            return Err(exhausted("connection registry is full"));
         }
-        records.insert(
+        state.records.insert(
             connection_id.to_owned(),
             ConnectionRecord {
                 binding,
@@ -96,6 +162,7 @@ impl ConnectionRegistry {
                 build_id: build_id.to_owned(),
                 protocol_version,
                 last_seen: now,
+                event_subscriptions: HashSet::new(),
             },
         );
         Ok(())
@@ -106,24 +173,96 @@ impl ConnectionRegistry {
         connection_id: &str,
         binding: &str,
         peer: &PeerIdentity,
-    ) -> Result<BoundConnection, &'static str> {
-        let mut records = self
-            .records
+    ) -> Result<BoundConnection, ConnectionRegistryError> {
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| "connection registry failed")?;
-        let Some(record) = records.get_mut(connection_id) else {
-            return Err("connection has not completed a compatible Core handshake");
+            .map_err(|_| unavailable("connection registry failed"))?;
+        let Some(record) = state.records.get_mut(connection_id) else {
+            return Err(unauthorized(
+                "connection has not completed a compatible Core handshake",
+            ));
         };
         if record.peer != *peer
             || !constant_time_equal(record.binding.as_bytes(), binding.as_bytes())
         {
-            return Err("connection binding does not match its authenticated peer");
+            return Err(unauthorized(
+                "connection binding does not match its authenticated peer",
+            ));
         }
-        record.last_seen = Instant::now();
-        Ok(BoundConnection {
+        let now = Instant::now();
+        record.last_seen = now;
+        let bound = BoundConnection {
             id: connection_id.to_owned(),
             adapter: record.adapter.clone(),
+        };
+        Ok(bound)
+    }
+
+    pub(crate) fn acquire_event_subscription(
+        &self,
+        connection_id: &str,
+        key: EventSubscriptionKey,
+    ) -> Result<EventSubscriptionLease, ConnectionRegistryError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| unavailable("connection registry failed"))?;
+        let record = state.records.get(connection_id).ok_or_else(|| {
+            unauthorized("connection has not completed a compatible Core handshake")
+        })?;
+        if record.event_subscriptions.contains(&key) {
+            return Err(conflict("event subscription identity is already active"));
+        }
+        if record.event_subscriptions.len() >= MAX_EVENT_SUBSCRIPTIONS_PER_CONNECTION {
+            return Err(exhausted(
+                "connection event subscription capacity is exhausted",
+            ));
+        }
+        if state.event_subscriptions >= MAX_EVENT_SUBSCRIPTIONS {
+            return Err(exhausted("Core event subscription capacity is exhausted"));
+        }
+        let record = state
+            .records
+            .get_mut(connection_id)
+            .expect("validated connection remains registered while locked");
+        record.event_subscriptions.insert(key.clone());
+        let now = Instant::now();
+        record.last_seen = now;
+        state.event_subscriptions += 1;
+        Ok(EventSubscriptionLease {
+            state: Arc::downgrade(&self.state),
+            connection_id: connection_id.to_owned(),
+            key,
         })
+    }
+}
+
+fn unauthorized(message: &'static str) -> ConnectionRegistryError {
+    ConnectionRegistryError {
+        kind: ConnectionRegistryErrorKind::Unauthorized,
+        message,
+    }
+}
+
+fn conflict(message: &'static str) -> ConnectionRegistryError {
+    ConnectionRegistryError {
+        kind: ConnectionRegistryErrorKind::Conflict,
+        message,
+    }
+}
+
+fn exhausted(message: &'static str) -> ConnectionRegistryError {
+    ConnectionRegistryError {
+        kind: ConnectionRegistryErrorKind::ResourceExhausted,
+        message,
+    }
+}
+
+fn unavailable(message: &'static str) -> ConnectionRegistryError {
+    ConnectionRegistryError {
+        kind: ConnectionRegistryErrorKind::Unavailable,
+        message,
     }
 }
 
@@ -186,5 +325,60 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn event_subscription_leases_are_unique_bounded_and_released() {
+        let registry = ConnectionRegistry::new();
+        registry
+            .register(
+                "connection:one",
+                "binding:one".to_owned(),
+                AdapterKind::ElectronHost,
+                &peer(10),
+                "host-build",
+                1,
+            )
+            .expect("registration");
+
+        let global = registry
+            .acquire_event_subscription("connection:one", EventSubscriptionKey::Global)
+            .expect("global subscription");
+        assert_eq!(
+            registry
+                .acquire_event_subscription("connection:one", EventSubscriptionKey::Global)
+                .err()
+                .expect("duplicate subscription")
+                .kind,
+            ConnectionRegistryErrorKind::Conflict
+        );
+        let mut document_leases = Vec::new();
+        for index in 1..MAX_EVENT_SUBSCRIPTIONS_PER_CONNECTION {
+            document_leases.push(
+                registry
+                    .acquire_event_subscription(
+                        "connection:one",
+                        EventSubscriptionKey::Document(format!("session:{index}")),
+                    )
+                    .expect("bounded Document subscription"),
+            );
+        }
+        assert_eq!(
+            registry
+                .acquire_event_subscription(
+                    "connection:one",
+                    EventSubscriptionKey::Document("session:overflow".to_owned()),
+                )
+                .err()
+                .expect("per-connection capacity")
+                .kind,
+            ConnectionRegistryErrorKind::ResourceExhausted
+        );
+
+        drop(global);
+        registry
+            .acquire_event_subscription("connection:one", EventSubscriptionKey::Global)
+            .expect("released subscription capacity");
+        drop(document_leases);
     }
 }

@@ -77,6 +77,12 @@ not reset the cursor. The replay window and live broadcast are bounded; a
 retention gap, oversized catch-up window, or lagged subscriber receives an
 explicit `core-resync-required` boundary and must refresh Module snapshots.
 Document subscribers receive their existing document-specific resync boundary.
+The connection registry grants one RAII lease per exact event-stream identity,
+rejects duplicate live global or Document-session streams, and caps both
+per-connection and process-wide subscriptions. The engine-neutral Document
+Realtime Adapter enforces the same independent subscription ceiling plus
+bounded Awareness publications, client ownership sets, and initial snapshots,
+so another trusted local Adapter cannot turn presence into unbounded memory.
 The handshake also binds its declared
 Electron Host, native CLI, or test Adapter kind to a generated connection ID;
 every Module and Document request must present the resulting per-start binding

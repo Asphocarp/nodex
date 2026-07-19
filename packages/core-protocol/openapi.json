@@ -1226,6 +1226,7 @@
           "store_corrupt",
           "protocol_incompatible",
           "event_replay_unavailable",
+          "resource_exhausted",
           "core_unavailable"
         ]
       },

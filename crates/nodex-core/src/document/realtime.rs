@@ -15,6 +15,14 @@ use crate::infrastructure::document_repository::DocumentSyncEngine;
 
 use super::{DocumentAwareness, OwnedDocumentApplyOutcome, OwnedDocumentModule};
 
+const MAX_DOCUMENT_SUBSCRIPTIONS: usize = 2_048;
+const MAX_DOCUMENT_SUBSCRIPTIONS_PER_CONNECTION: usize = 64;
+const MAX_AWARENESS_PUBLICATION_BYTES: usize = 4 * 1024;
+const MAX_AWARENESS_CLIENTS_PER_UPDATE: usize = 16;
+const MAX_AWARENESS_CLIENTS_PER_SUBSCRIPTION: usize = 8;
+const MAX_AWARENESS_CLIENTS_PER_DOCUMENT: usize = 16;
+const MAX_AWARENESS_SNAPSHOT_BYTES: usize = 96 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentSubscriptionEngine {
     Yjs,
@@ -128,31 +136,46 @@ impl OwnedDocumentRealtimeAdapter {
                 "A client session cannot be rebound to a different Document boundary",
             ));
         }
-        state
-            .subscriptions
-            .entry(key)
-            .or_insert_with(|| Subscription {
-                context: context.clone(),
-                document_id: document_id.clone(),
-                client_session_id,
-                store_epoch: boundary.store_epoch.clone(),
-                generation: boundary.generation,
-                head_seq: boundary.head_seq,
-                engine,
-                awareness_client_ids: BTreeSet::new(),
-            });
+        let existing = state.subscriptions.contains_key(&key);
+        if !existing {
+            let connection_subscriptions = state
+                .subscriptions
+                .keys()
+                .filter(|(connection_id, _)| connection_id == &context.connection_id)
+                .count();
+            ensure_subscription_capacity(state.subscriptions.len(), connection_subscriptions)?;
+        }
         let awareness_update = if engine == DocumentSubscriptionEngine::Yjs {
-            Some(
-                state
-                    .awareness_documents
-                    .entry(document_id.clone())
-                    .or_insert_with(|| DocumentAwareness::new(&document_id))
-                    .full_update_v1()
-                    .map_err(engine_error)?,
-            )
+            let update = state
+                .awareness_documents
+                .entry(document_id.clone())
+                .or_insert_with(|| DocumentAwareness::new(&document_id))
+                .full_update_v1()
+                .map_err(engine_error)?;
+            if update.len() > MAX_AWARENESS_SNAPSHOT_BYTES {
+                return Err(resource_exhausted(
+                    "Document Awareness snapshot capacity is exhausted",
+                ));
+            }
+            Some(update)
         } else {
             None
         };
+        if !existing {
+            state.subscriptions.insert(
+                key,
+                Subscription {
+                    context: context.clone(),
+                    document_id: document_id.clone(),
+                    client_session_id,
+                    store_epoch: boundary.store_epoch.clone(),
+                    generation: boundary.generation,
+                    head_seq: boundary.head_seq,
+                    engine,
+                    awareness_client_ids: BTreeSet::new(),
+                },
+            );
+        }
         Ok(DocumentSubscriptionAck {
             document_id,
             store_epoch: boundary.store_epoch,
@@ -297,7 +320,17 @@ impl OwnedDocumentRealtimeAdapter {
     ) -> Result<Option<AwarenessPublication>, CoreError> {
         let key = (connection_id.to_owned(), client_session_id.to_owned());
         let mut state = self.lock_state()?;
+        if update.len() > MAX_AWARENESS_PUBLICATION_BYTES {
+            return Err(resource_exhausted(
+                "Awareness publication exceeds its byte capacity",
+            ));
+        }
         let inspected = DocumentAwareness::inspect_update_v1(update).map_err(engine_error)?;
+        if inspected.len() > MAX_AWARENESS_CLIENTS_PER_UPDATE {
+            return Err(resource_exhausted(
+                "Awareness publication contains too many client identities",
+            ));
+        }
         let document_id = state
             .subscriptions
             .get(&key)
@@ -315,6 +348,28 @@ impl OwnedDocumentRealtimeAdapter {
                 ));
             }
         }
+        let mut subscription_clients = state
+            .subscriptions
+            .get(&key)
+            .ok_or_else(|| unauthorized("An exact Yjs subscription is required"))?
+            .awareness_client_ids
+            .clone();
+        let mut document_clients = state
+            .awareness_owners
+            .keys()
+            .filter(|(candidate, _)| candidate == &document_id)
+            .map(|(_, client_id)| *client_id)
+            .collect::<BTreeSet<_>>();
+        for (client_id, present) in &inspected {
+            if *present {
+                subscription_clients.insert(*client_id);
+                document_clients.insert(*client_id);
+            } else {
+                subscription_clients.remove(client_id);
+                document_clients.remove(client_id);
+            }
+        }
+        ensure_awareness_capacity(subscription_clients.len(), document_clients.len())?;
         let (subscription_store_epoch, subscription_generation) = {
             let subscription = state
                 .subscriptions
@@ -575,6 +630,34 @@ fn validate_identity(value: &str, label: &str) -> Result<(), CoreError> {
     Err(invalid(format!("{label} identity is invalid")))
 }
 
+fn ensure_subscription_capacity(total: usize, connection: usize) -> Result<(), CoreError> {
+    if total >= MAX_DOCUMENT_SUBSCRIPTIONS {
+        return Err(resource_exhausted(
+            "Document subscription capacity is exhausted",
+        ));
+    }
+    if connection >= MAX_DOCUMENT_SUBSCRIPTIONS_PER_CONNECTION {
+        return Err(resource_exhausted(
+            "Connection Document subscription capacity is exhausted",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_awareness_capacity(subscription: usize, document: usize) -> Result<(), CoreError> {
+    if subscription > MAX_AWARENESS_CLIENTS_PER_SUBSCRIPTION {
+        return Err(resource_exhausted(
+            "Subscription Awareness client capacity is exhausted",
+        ));
+    }
+    if document > MAX_AWARENESS_CLIENTS_PER_DOCUMENT {
+        return Err(resource_exhausted(
+            "Document Awareness client capacity is exhausted",
+        ));
+    }
+    Ok(())
+}
+
 fn engine_error(error: super::YrsEngineError) -> CoreError {
     CoreError {
         code: CoreErrorCode::InvalidInput,
@@ -608,5 +691,55 @@ fn internal(message: &str) -> CoreError {
         message: message.to_owned(),
         retryable: true,
         recovery: CoreErrorRecovery::None,
+    }
+}
+
+fn resource_exhausted(message: &str) -> CoreError {
+    CoreError {
+        code: CoreErrorCode::ResourceExhausted,
+        message: message.to_owned(),
+        retryable: true,
+        recovery: CoreErrorRecovery::None,
+    }
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::*;
+
+    #[test]
+    fn subscription_and_awareness_capacity_boundaries_are_explicit() {
+        assert!(
+            ensure_subscription_capacity(
+                MAX_DOCUMENT_SUBSCRIPTIONS - 1,
+                MAX_DOCUMENT_SUBSCRIPTIONS_PER_CONNECTION - 1,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            ensure_subscription_capacity(MAX_DOCUMENT_SUBSCRIPTIONS, 0)
+                .expect_err("global subscription capacity")
+                .code,
+            CoreErrorCode::ResourceExhausted
+        );
+        assert_eq!(
+            ensure_subscription_capacity(0, MAX_DOCUMENT_SUBSCRIPTIONS_PER_CONNECTION)
+                .expect_err("connection subscription capacity")
+                .code,
+            CoreErrorCode::ResourceExhausted
+        );
+        assert!(
+            ensure_awareness_capacity(
+                MAX_AWARENESS_CLIENTS_PER_SUBSCRIPTION,
+                MAX_AWARENESS_CLIENTS_PER_DOCUMENT,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            ensure_awareness_capacity(MAX_AWARENESS_CLIENTS_PER_SUBSCRIPTION + 1, 0)
+                .expect_err("subscription Awareness capacity")
+                .code,
+            CoreErrorCode::ResourceExhausted
+        );
     }
 }

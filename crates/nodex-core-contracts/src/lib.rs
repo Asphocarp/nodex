@@ -61,6 +61,7 @@ pub enum CoreErrorCode {
     StoreCorrupt,
     ProtocolIncompatible,
     EventReplayUnavailable,
+    ResourceExhausted,
     CoreUnavailable,
 }
 

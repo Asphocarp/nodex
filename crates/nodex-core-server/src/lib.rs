@@ -56,7 +56,10 @@ use sha2::{Digest, Sha256};
 use tokio::net::UnixListener;
 use tokio::sync::{Notify, broadcast};
 
-use connections::{BoundConnection, ConnectionRegistry, PeerIdentity};
+use connections::{
+    BoundConnection, ConnectionRegistry, ConnectionRegistryError, ConnectionRegistryErrorKind,
+    EventSubscriptionKey, PeerIdentity,
+};
 use document_wire::{ApplyFrame, CONTENT_TYPE as DOCUMENT_CONTENT_TYPE};
 use runtime_files::{PRIVATE_FILE_MODE, RuntimePaths, random_hex};
 use transport_bounds::{MAX_DOCUMENT_REQUEST_BYTES, MAX_JSON_REQUEST_BYTES};
@@ -185,8 +188,8 @@ async fn bind_connection(
     };
     let bound = match state.connections.bind(&connection_id, &binding, &peer) {
         Ok(bound) => bound,
-        Err(message) => {
-            return ApiError::new(StatusCode::UNAUTHORIZED, message).into_response();
+        Err(error) => {
+            return connection_registry_error(error).into_response();
         }
     };
     request.extensions_mut().insert(bound);
@@ -264,7 +267,7 @@ async fn handshake(
             &request.client.build_id,
             PROTOCOL_MAX,
         )
-        .map_err(|message| ApiError::new(StatusCode::CONFLICT, message))?;
+        .map_err(connection_registry_error)?;
 
     let event_head = state.event_log.head().map_err(|error| {
         ApiError::new(
@@ -731,6 +734,20 @@ async fn events(
     let mut document_receiver = state.document_sender.subscribe();
     let requested_document_id =
         optional_header(&headers, DOCUMENT_HEADER, "Document").map_err(api_core_error)?;
+    let requested_client_session_id = requested_document_id
+        .as_ref()
+        .map(|_| required_header(&headers, CLIENT_SESSION_HEADER, "Document client session"))
+        .transpose()
+        .map_err(api_core_error)?;
+    let subscription_key = requested_client_session_id
+        .as_ref()
+        .map_or(EventSubscriptionKey::Global, |client_session_id| {
+            EventSubscriptionKey::Document(client_session_id.clone())
+        });
+    let event_subscription = state
+        .connections
+        .acquire_event_subscription(&bound.id, subscription_key)
+        .map_err(connection_registry_error)?;
     let (
         replay,
         replay_head,
@@ -742,9 +759,10 @@ async fn events(
         disconnect,
     ) = if let Some(document_id) = requested_document_id.as_ref() {
         let context = document_context(&state, &headers, &bound).map_err(api_core_error)?;
-        let client_session_id =
-            required_header(&headers, CLIENT_SESSION_HEADER, "Document client session")
-                .map_err(api_core_error)?;
+        let client_session_id = requested_client_session_id
+            .as_ref()
+            .expect("Document subscription validated a client session")
+            .clone();
         let subscription = state
             .document_realtime
             .subscribe(&context, document_id.clone(), client_session_id.clone())
@@ -858,6 +876,7 @@ async fn events(
     };
     let event_log = state.event_log.clone();
     let stream = async_stream::stream! {
+        let _event_subscription = event_subscription;
         let _disconnect = disconnect;
         let mut last_delivered = query.after;
         for envelope in replay {
@@ -1196,7 +1215,18 @@ fn api_core_error(error: CoreError) -> ApiError {
         CoreErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         CoreErrorCode::NotFound => StatusCode::NOT_FOUND,
         CoreErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
+        CoreErrorCode::ResourceExhausted => StatusCode::TOO_MANY_REQUESTS,
         _ => StatusCode::CONFLICT,
+    };
+    ApiError::new(status, error.message)
+}
+
+fn connection_registry_error(error: ConnectionRegistryError) -> ApiError {
+    let status = match error.kind {
+        ConnectionRegistryErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
+        ConnectionRegistryErrorKind::Conflict => StatusCode::CONFLICT,
+        ConnectionRegistryErrorKind::ResourceExhausted => StatusCode::TOO_MANY_REQUESTS,
+        ConnectionRegistryErrorKind::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
     };
     ApiError::new(status, error.message)
 }
