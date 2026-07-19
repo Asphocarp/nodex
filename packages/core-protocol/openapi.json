@@ -8292,12 +8292,17 @@
             "required": [
               "document_id",
               "generation",
+              "base_head_seq",
               "head_seq",
               "scene_hash",
               "mutation",
               "kind"
             ],
             "properties": {
+              "base_head_seq": {
+                "type": "integer",
+                "format": "int64"
+              },
               "document_id": {
                 "type": "string"
               },

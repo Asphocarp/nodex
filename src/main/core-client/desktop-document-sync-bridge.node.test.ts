@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
 
+import {
+  CANVAS_SCENE_SYNC_VERSION,
+  materializePortableCanvasScene,
+} from "../../shared/block-documents";
 import type { DocumentSyncClientTarget } from "../document-sync-hub";
 import {
   createDesktopDocumentSyncBridge,
@@ -41,6 +45,10 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
     applyUpdate: async () => { throw new Error("TypeScript Hub must not run"); },
     publishAwareness: () => { throw new Error("TypeScript Hub must not run"); },
     respondToRelocationLease: () => { throw new Error("TypeScript Hub must not run"); },
+    subscribeCanvasScene: () => { throw new Error("TypeScript Hub must not run"); },
+    unsubscribeCanvasScene: () => { throw new Error("TypeScript Hub must not run"); },
+    syncCanvasScene: async () => { throw new Error("TypeScript Hub must not run"); },
+    applyCanvasSceneMutation: async () => { throw new Error("TypeScript Hub must not run"); },
   },
   authorizeProject: async () => {
     throw new Error("TypeScript authorization must not run");
@@ -63,6 +71,41 @@ const subscribeRequest = {
   documentId: "document:one",
   clientSessionId: "renderer:one",
 } as const;
+
+const canvasSubscribeRequest = {
+  version: CANVAS_SCENE_SYNC_VERSION,
+  projectId: "project:canvas",
+  documentId: "document:canvas",
+  clientSessionId: "renderer:canvas",
+} as const;
+
+const canvasSyncSnapshot = () => ({
+  version: 1 as const,
+  store_epoch: "epoch:canvas",
+  event_head: 0,
+  value: {
+    kind: "canvas_sync" as const,
+    descriptor: {
+      version: 2 as const,
+      projectId: canvasSubscribeRequest.projectId,
+      ownerBlockId: "canvas:one",
+      ownerType: "canvas" as const,
+      ownerLifecycle: "active" as const,
+      documentId: canvasSubscribeRequest.documentId,
+      storeEpoch: "epoch:canvas",
+      generation: 1,
+      headSeq: 0,
+      schemaKey: "nodex.canvas",
+      schemaVersion: 1,
+      readiness: "ready" as const,
+      sync: { kind: "canvas_scene" as const },
+    },
+    scene_json: [...new TextEncoder().encode(JSON.stringify(
+      materializePortableCanvasScene({ elements: [] }),
+    ))],
+    scene_hash: "a".repeat(64),
+  },
+});
 
 describe("Desktop Document sync bridge", () => {
   test("binds one Project subscription to its exact Electron target", async () => {
@@ -151,6 +194,63 @@ describe("Desktop Document sync bridge", () => {
     });
     expect(rootClient.documentSyncs).toHaveLength(1);
     expect(projectClient.documentSyncs).toHaveLength(0);
+  });
+
+  test("binds Canvas sync to its Project client, engine, and exact target", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    projectClient.enqueueDocumentRead(canvasSyncSnapshot());
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+    const yjsTarget = new FakeTarget(1);
+    const canvasTarget = new FakeTarget(2);
+    const otherTarget = new FakeTarget(3);
+
+    await expect(bridge.subscribe(
+      { kind: "project", projectId: "project:one" },
+      yjsTarget,
+      subscribeRequest,
+    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.subscribeCanvasScene(canvasTarget, {
+      ...canvasSubscribeRequest,
+      clientSessionId: subscribeRequest.clientSessionId,
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "project_scope_mismatch" },
+    });
+
+    await expect(bridge.subscribeCanvasScene(
+      canvasTarget,
+      canvasSubscribeRequest,
+    )).resolves.toEqual({ ok: true, value: { subscribed: true } });
+    await expect(bridge.syncCanvasScene(
+      otherTarget,
+      canvasSubscribeRequest,
+    )).resolves.toMatchObject({
+      ok: false,
+      error: { code: "project_scope_mismatch" },
+    });
+    await expect(bridge.syncCanvasScene(
+      canvasTarget,
+      canvasSubscribeRequest,
+    )).resolves.toMatchObject({
+      ok: true,
+      value: {
+        projectId: canvasSubscribeRequest.projectId,
+        documentId: canvasSubscribeRequest.documentId,
+        headSeq: 0,
+      },
+    });
+    expect(rootClient.documentReads).toHaveLength(0);
+    expect(projectClient.documentReads).toEqual([{
+      clientSessionId: canvasSubscribeRequest.clientSessionId,
+      read: {
+        kind: "sync_canvas",
+        document_id: canvasSubscribeRequest.documentId,
+      },
+    }]);
   });
 
   test("does not open a late subscription for a destroyed startup target", async () => {

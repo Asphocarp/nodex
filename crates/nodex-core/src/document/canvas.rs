@@ -30,6 +30,7 @@ pub(crate) struct LoadedCanvasAuthority {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PersistedCanvasMutation {
+    pub(crate) event_base_head_seq: i64,
     pub(crate) head_seq: i64,
     pub(crate) scene_hash: String,
     pub(crate) result: Value,
@@ -365,6 +366,7 @@ pub(crate) fn persist_canvas_mutation(
             "kind": durable_event_kind,
             "documentId": authority.head.id,
             "generation": authority.head.generation,
+            "baseHeadSeq": authority.head.head_seq,
             "headSeq": head_seq,
             "mutationId": operation_id,
             "sceneHash": scene_hash,
@@ -441,6 +443,7 @@ pub(crate) fn persist_canvas_mutation(
         ],
     )?;
     Ok(PersistedCanvasMutation {
+        event_base_head_seq: authority.head.head_seq,
         head_seq,
         scene_hash,
         result,

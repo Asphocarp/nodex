@@ -1,6 +1,10 @@
 export { CoreClient, CoreModuleResponseError } from "./core-client";
 export { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
 export {
+  createCoreCanvasSceneAdapter,
+  type CoreCanvasSceneAdapter,
+} from "./core-canvas-scene-adapter";
+export {
   createDesktopDocumentSyncBridge,
   type DesktopDocumentSyncPort,
 } from "./desktop-document-sync-bridge";

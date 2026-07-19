@@ -7,12 +7,18 @@ import * as Y from "yjs";
 
 import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
+import { createCoreCanvasSceneAdapter } from "./core-client/core-canvas-scene-adapter";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { closeDatabase, getDb } from "./local-store/database";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
+import {
+  CANVAS_SCENE_SYNC_VERSION,
+  primaryCanvasDocumentId,
+  type CanvasSceneRealtimeEvent,
+} from "../shared/block-documents";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -217,6 +223,89 @@ describe("Electron native data authority", () => {
           mode: "catalog",
         }),
       ).resolves.toMatchObject({ value: { kind: "catalog" } });
+
+      const canvasDocumentId = primaryCanvasDocumentId(projectId);
+      const firstCanvas = createCoreCanvasSceneAdapter(
+        runtime.clientForProject(projectId),
+      );
+      const secondCanvas = createCoreCanvasSceneAdapter(
+        runtime.clientForProject(projectId),
+      );
+      const firstCanvasRequest = {
+        version: CANVAS_SCENE_SYNC_VERSION,
+        projectId,
+        documentId: canvasDocumentId,
+        clientSessionId: "renderer:electron-canvas:first",
+      } as const;
+      const secondCanvasRequest = {
+        ...firstCanvasRequest,
+        clientSessionId: "renderer:electron-canvas:second",
+      } as const;
+      const secondCanvasEvents: CanvasSceneRealtimeEvent[] = [];
+      const closeFirstCanvas = firstCanvas.subscribe(
+        firstCanvasRequest,
+        () => undefined,
+      );
+      const closeSecondCanvas = secondCanvas.subscribe(
+        secondCanvasRequest,
+        (event) => secondCanvasEvents.push(event),
+      );
+      try {
+        const firstCanvasSync = await firstCanvas.sync(firstCanvasRequest);
+        if (!firstCanvasSync.ok) {
+          throw new Error(
+            `Core Canvas sync failed: ${firstCanvasSync.error.code}: ${firstCanvasSync.error.message}`,
+          );
+        }
+        const currentGridMode = firstCanvasSync.value.scene.appState
+          .gridModeEnabled;
+        const nextGridMode = currentGridMode !== true;
+        const mutationId = "electron-canvas-mutation:one";
+        const canvasMutation = await firstCanvas.applyMutation({
+          ...firstCanvasRequest,
+          mutationId,
+          storeEpoch: firstCanvasSync.value.storeEpoch,
+          generation: firstCanvasSync.value.generation,
+          baseHeadSeq: firstCanvasSync.value.headSeq,
+          elementCandidates: [],
+          appStateIntents: {
+            gridModeEnabled: {
+              expected: Object.prototype.hasOwnProperty.call(
+                firstCanvasSync.value.scene.appState,
+                "gridModeEnabled",
+              )
+                ? { kind: "value", value: currentGridMode }
+                : { kind: "absent" },
+              value: { kind: "value", value: nextGridMode },
+            },
+          },
+          fileAdditions: {},
+        });
+        if (!canvasMutation.ok) {
+          throw new Error(
+            `Core Canvas mutation failed: ${canvasMutation.error.code}: ${canvasMutation.error.message}`,
+          );
+        }
+        await waitUntil(
+          () => secondCanvasEvents.some((event) =>
+            event.type === "canvas_scene_committed"
+            && event.mutationId === mutationId),
+          "Second Canvas subscriber did not receive the durable mutation",
+        );
+        const secondCanvasSync = await secondCanvas.sync(secondCanvasRequest);
+        if (!secondCanvasSync.ok) {
+          throw new Error(
+            `Second Core Canvas sync failed: ${secondCanvasSync.error.code}: ${secondCanvasSync.error.message}`,
+          );
+        }
+        expect(
+          secondCanvasSync.value.scene.appState.gridModeEnabled,
+        ).toBe(nextGridMode);
+        expect(listCurrentProcessFiles()).not.toContain(databasePath);
+      } finally {
+        closeFirstCanvas();
+        closeSecondCanvas();
+      }
 
       const library = createCoreLibraryModuleAdapter({
         client: runtime.clientForProject(projectId),

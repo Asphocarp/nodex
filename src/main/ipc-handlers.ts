@@ -1123,7 +1123,7 @@ export function registerIpcHandlers(
     if (!authorization.ok) return authorization;
     return documentSyncHub.applyUpdate(target, omitProjectScope(request));
   });
-  registerHandle("canvas-scene:subscribe", (event, request) => {
+  registerHandle("canvas-scene:subscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return {
@@ -1135,10 +1135,13 @@ export function registerIpcHandlers(
           resetRequired: false,
         },
       };
+    }
+    if (options.documentSync) {
+      return await options.documentSync.subscribeCanvasScene(target, request);
     }
     return documentSyncHub.subscribeCanvasScene(target, request);
   });
-  registerHandle("canvas-scene:unsubscribe", (event, request) => {
+  registerHandle("canvas-scene:unsubscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return {
@@ -1151,9 +1154,12 @@ export function registerIpcHandlers(
         },
       };
     }
+    if (options.documentSync) {
+      return await options.documentSync.unsubscribeCanvasScene(target, request);
+    }
     return documentSyncHub.unsubscribeCanvasScene(target, request);
   });
-  registerHandle("canvas-scene:sync", (event, request) => {
+  registerHandle("canvas-scene:sync", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return {
@@ -1166,9 +1172,12 @@ export function registerIpcHandlers(
         },
       };
     }
+    if (options.documentSync) {
+      return await options.documentSync.syncCanvasScene(target, request);
+    }
     return documentSyncHub.syncCanvasScene(target, request);
   });
-  registerHandle("canvas-scene:apply", (event, request) => {
+  registerHandle("canvas-scene:apply", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return {
@@ -1181,6 +1190,12 @@ export function registerIpcHandlers(
           mutationId: request.mutationId,
         },
       };
+    }
+    if (options.documentSync) {
+      return await options.documentSync.applyCanvasSceneMutation(
+        target,
+        request,
+      );
     }
     return documentSyncHub.applyCanvasSceneMutation(target, request);
   });

@@ -1332,6 +1332,7 @@ impl OwnedDocumentModule {
                             OwnedDocumentEvent::CanvasUpdated {
                                 document_id,
                                 generation,
+                                base_head_seq: persisted.event_base_head_seq,
                                 head_seq: persisted.head_seq,
                                 scene_hash: persisted.scene_hash,
                                 mutation,
@@ -4150,6 +4151,30 @@ mod tests {
             stale_merge.committed.value.canvas.as_ref().unwrap()["skippedAppStateKeys"],
             json!(["gridSize"])
         );
+        assert_eq!(
+            stale_merge.committed.value.canvas.as_ref().unwrap()["baseHeadSeq"],
+            0
+        );
+        let Some(CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::CanvasUpdated {
+            base_head_seq,
+            ..
+        })) = stale_merge.events.first().map(|event| &event.payload)
+        else {
+            panic!("stale Canvas merge should publish a durable event")
+        };
+        assert_eq!(*base_head_seq, 1);
+        let stale_replay = seeded
+            .module
+            .replay_document_events(&context(), 0, None)
+            .expect("stale Canvas event replay");
+        let DocumentEventReplay::Events { events, .. } = stale_replay else {
+            panic!("stale Canvas merge should replay")
+        };
+        let replayed_stale = events
+            .iter()
+            .find(|event| event.operation_id.as_deref() == Some("canvas:edit:2"))
+            .expect("stale Canvas event");
+        assert_eq!(replayed_stale.payload, stale_merge.events[0].payload);
 
         seeded.module.inject_failure_after_next_commit();
         let interrupted = seeded

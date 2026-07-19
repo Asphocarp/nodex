@@ -2132,6 +2132,8 @@ export interface components {
             readonly kind: "document_updated";
             readonly update: readonly number[];
         } | {
+            /** Format: int64 */
+            readonly base_head_seq: number;
             readonly document_id: string;
             /** Format: int64 */
             readonly generation: number;

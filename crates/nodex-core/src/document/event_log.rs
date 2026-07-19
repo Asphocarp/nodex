@@ -44,6 +44,8 @@ struct DocumentEventMetadata {
     kind: String,
     document_id: String,
     generation: i64,
+    #[serde(default)]
+    base_head_seq: Option<i64>,
     head_seq: i64,
     #[serde(default)]
     update_id: Option<String>,
@@ -190,6 +192,10 @@ pub(crate) fn reconstruct_document_event(
             }
         }
         "canvas_scene_updated" => {
+            let base_head_seq = metadata
+                .base_head_seq
+                .filter(|base_head_seq| *base_head_seq >= 0)
+                .ok_or_else(|| corrupt("Canvas event base head is invalid"))?;
             let operation_id = row
                 .operation_id
                 .as_deref()
@@ -225,6 +231,7 @@ pub(crate) fn reconstruct_document_event(
             OwnedDocumentEvent::CanvasUpdated {
                 document_id: metadata.document_id,
                 generation: metadata.generation,
+                base_head_seq,
                 head_seq: metadata.head_seq,
                 scene_hash,
                 mutation,

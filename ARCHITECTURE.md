@@ -103,6 +103,11 @@ Document sync uses the root Core client and an explicit Library transport scope 
 server accepts only from trusted local Electron, native CLI, and test Adapters;
 Core resolves the Page's local Library identity and read/write lifecycle itself
 and never accepts an Adapter-selected storage Project as Library authority.
+Project Canvas scene subscribe, full sync, and field/element mutation use the
+same bridge and exact-target lifecycle but remain Project-only. Canvas and Yjs
+share one client-session ownership fence, while durable Canvas events carry the
+actual pre-commit authority head so replayed scene deltas retain their causal
+boundary even when a stale non-conflicting intent merges.
 Page detail/content/search/history and the remaining deep Module adapters stay
 on the migration inventory and must fail closed rather than fall back in the
 Rust branch.

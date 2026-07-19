@@ -277,6 +277,7 @@ pub enum OwnedDocumentEvent {
     CanvasUpdated {
         document_id: String,
         generation: i64,
+        base_head_seq: i64,
         head_seq: i64,
         scene_hash: String,
         mutation: Value,
