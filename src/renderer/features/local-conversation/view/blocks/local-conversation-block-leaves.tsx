@@ -54,7 +54,8 @@ import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-
 import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import { useWorkedForLabelText } from "../shared/use-worked-for-label";
 import type { CodexWorktreeInitActivity } from "../../../../lib/codex-worktree-init-activity";
-import type { CodexConversationChildMembership, CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
+import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
 import { logAssistantStreamingDebugState } from "../../../../lib/assistant-streaming-debug";
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
@@ -89,7 +90,7 @@ export interface ThreadLeafBlockProps {
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
@@ -110,7 +111,7 @@ export interface ThreadSpecialBlockProps {
   projectWorkspacePath?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
@@ -252,7 +253,7 @@ function renderCollapsedActivityEntry({
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
   onOpenSummaryScheduledAutomation?: ThreadStageActions["onOpenSummaryScheduledAutomation"];

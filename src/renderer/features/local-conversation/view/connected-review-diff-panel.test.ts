@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { CodexConversationSnapshot, CodexTurnDiffReviewTarget } from "@/lib/types";
+import type { CodexConversationSnapshot } from "@/lib/types";
 import { connectedReviewDiffPanelTestHelpers } from "./connected-review-diff-panel";
 import {
   areReviewConversationProjectionsEqual,
@@ -162,14 +162,10 @@ describe("connected review diff panel", () => {
   });
 
   test("refreshes the selected turn diff when the underlying patch changes", () => {
-    const selected: CodexTurnDiffReviewTarget = {
-      type: "turnDiff",
+    const selected = {
       threadId: "thread-1",
       turnId: "turn-1",
       entryId: "turn-diff:turn-1",
-      patch: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+older",
-      cwd: "/workspace/nodex",
-      showRevertButton: false,
     };
 
     const refreshed = connectedReviewDiffPanelTestHelpers.refreshSelectedTurnDiffTarget(

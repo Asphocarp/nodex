@@ -24,6 +24,19 @@ describe("getNodexDiffOptions", () => {
     expect(options.overflow).toBe("scroll");
   });
 
+  test("uses wrap overflow for Review when word wrap is enabled", () => {
+    const options = getNodexReviewDiffOptions("light", true, { wrap: true });
+    expect(options.overflow).toBe("wrap");
+  });
+
+  test("lets Review explicitly override word wrap overflow", () => {
+    const options = getNodexReviewDiffOptions("light", true, {
+      wrap: true,
+      overflow: "scroll",
+    });
+    expect(options.overflow).toBe("scroll");
+  });
+
   test("keeps inline diffs on simple hunk separators by default", () => {
     const options = getNodexDiffOptions("light", true);
 

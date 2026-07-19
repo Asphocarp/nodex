@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { createElement, type ComponentProps } from "react";
+import { createElement, useEffect, useRef, type ComponentProps } from "react";
 import {
   act,
   fireEvent,
@@ -38,12 +38,36 @@ import type {
   FileDiffMetadata,
   FileDiffProps,
 } from "@pierre/diffs/react";
+import { useSetScopedAtom } from "@/lib/maitai";
+import {
+  prepareReviewOpenAtom,
+  type ReviewOpenIntent,
+} from "@/features/review/model/review-view-state";
+import { canonicalizeReviewPath } from "@/features/review/model/review-path";
 
 const invokeCalls: unknown[][] = [];
 const startThreadPromptCalls: Array<{ threadId: string; prompt: string }> = [];
 const clipboardWrites: string[] = [];
 let mockInvokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null;
 let lastFileDiffProps: FileDiffProps<unknown> | null = null;
+
+function PrepareReviewOpen({ intent }: { readonly intent: ReviewOpenIntent }) {
+  const prepareOpen = useSetScopedAtom(prepareReviewOpenAtom);
+  const intentRef = useRef(intent);
+  useEffect(() => {
+    prepareOpen(intentRef.current);
+  }, [prepareOpen]);
+  return null;
+}
+
+function ReviewOpenButton({ intent }: { readonly intent: ReviewOpenIntent }) {
+  const prepareOpen = useSetScopedAtom(prepareReviewOpenAtom);
+  return (
+    <button type="button" onClick={() => prepareOpen(intent)}>
+      Open Review file
+    </button>
+  );
+}
 
 function installControlledIntersectionObserver() {
   const originalIntersectionObserver = globalThis.IntersectionObserver;
@@ -910,11 +934,18 @@ describe("review diff panel", () => {
 
     const { container, getByText } = render(
       <NodexTooltipProvider>
+        <PrepareReviewOpen intent={{
+          source: {
+            kind: "selected-turn",
+            threadId: "thr_review",
+            turnId: "turn_selected",
+            entryId: "turn-diff:turn_selected",
+          },
+        }} />
         <ReviewDiffPanel
           conversation={buildConversation()}
           projectWorkspacePath="/tmp/codex"
           selectedTurnDiff={{
-            type: "turnDiff",
             threadId: "thr_review",
             turnId: "turn_selected",
             entryId: "turn-diff:turn_selected",
@@ -946,13 +977,21 @@ describe("review diff panel", () => {
     };
 
     try {
-      const { container } = render(
+      const { container, getByText } = render(
         <NodexTooltipProvider>
+          <ReviewOpenButton intent={{
+            source: {
+              kind: "selected-turn",
+              threadId: "thr_review",
+              turnId: "turn_1",
+              entryId: "turn-diff:turn_1",
+            },
+            targetPath: canonicalizeReviewPath("src/selected.ts"),
+          }} />
           <ReviewDiffPanel
             conversation={buildConversation()}
             projectWorkspacePath="/tmp/codex"
             selectedTurnDiff={{
-              type: "turnDiff",
               threadId: "thr_review",
               turnId: "turn_1",
               entryId: "turn-diff:turn_1",
@@ -960,15 +999,18 @@ describe("review diff panel", () => {
                 "diff --git a/src/selected.ts b/src/selected.ts\nindex 1111111..2222222 100644\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-export const selected = false;\n+export const selected = true;\n",
               cwd: "/tmp/codex",
               showRevertButton: true,
-              path: "src/selected.ts",
-              source: "selected-turn",
             }}
           />
         </NodexTooltipProvider>,
       );
 
+      fireEvent.click(getByText("Open Review file"));
       await waitFor(() => {
         expect(scrollTargets.includes("src/selected.ts")).toBe(true);
+      });
+      fireEvent.click(getByText("Open Review file"));
+      await waitFor(() => {
+        expect(scrollTargets.filter((path) => path === "src/selected.ts").length).toBe(2);
       });
       expect(
         container.querySelector('[data-review-path="src/selected.ts"]'),
@@ -983,21 +1025,13 @@ describe("review diff panel", () => {
 
     const { container } = render(
       <NodexTooltipProvider>
+        <PrepareReviewOpen intent={{
+          source: { kind: "last-turn", threadId: "thr_review" },
+          targetPath: canonicalizeReviewPath("src/example.ts"),
+        }} />
         <ReviewDiffPanel
           conversation={buildConversation()}
           projectWorkspacePath="/tmp/codex"
-          selectedTurnDiff={{
-            type: "turnDiff",
-            threadId: "thr_review",
-            turnId: "turn_1",
-            entryId: "turn-diff:turn_1",
-            patch:
-              "diff --git a/src/selected.ts b/src/selected.ts\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-old\n+new\n",
-            cwd: "/tmp/codex",
-            showRevertButton: true,
-            path: "src/example.ts",
-            source: "last-turn",
-          }}
         />
       </NodexTooltipProvider>,
     );
@@ -1043,6 +1077,43 @@ describe("review diff panel", () => {
       '[role="separator"][aria-orientation="vertical"]',
     );
     expect(separator).not.toBeNull();
+  });
+
+  test("reveals the diff selected from the file tree", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const conversation = buildConversation();
+    conversation.turns[0]!.diff = buildMultiFilePatch(2);
+    const scrollTargets: string[] = [];
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function scrollIntoViewForTest() {
+      const reviewPath = this.getAttribute("data-review-path");
+      if (reviewPath) scrollTargets.push(reviewPath);
+    };
+
+    try {
+      const view = render(
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversation={conversation}
+            projectWorkspacePath="/tmp/codex"
+            initialFileTreeOpen
+          />
+        </NodexTooltipProvider>,
+      );
+
+      await settleAsyncRender();
+      const fileRow = await waitForReviewTreePath(
+        view.container,
+        "src/file-002.ts",
+      );
+      fireEvent.click(fileRow);
+
+      await waitFor(() => {
+        expect(scrollTargets).toContain("src/file-002.ts");
+      });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   test("hides the file tree without losing the selected diff", async () => {
@@ -2760,6 +2831,39 @@ describe("review diff panel", () => {
       menuItems.some((node) => node.textContent?.includes("Unified")),
     ).toBe(false);
     expect(view.getByLabelText("Switch to split diff").tagName).toBe("BUTTON");
+    await unmountReviewView(view);
+  });
+
+  test("passes native wrap overflow to FileDiff after enabling word wrap", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    expect(
+      (lastFileDiffProps?.options as { overflow?: string } | undefined)?.overflow,
+    ).toBe("scroll");
+    await openReviewOptionsMenu(view);
+    const wrapItem = Array.from(
+      view.baseElement.ownerDocument.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Enable word wrap"));
+    if (!wrapItem) throw new Error("Expected the word-wrap Review option.");
+    await clickReviewMenuItem(wrapItem);
+
+    await waitFor(() => {
+      const overflow = (
+        lastFileDiffProps?.options as { overflow?: string } | undefined
+      )?.overflow;
+      if (overflow !== "wrap") {
+        throw new Error("Expected Review to pass native wrap overflow to FileDiff.");
+      }
+    });
     await unmountReviewView(view);
   });
 

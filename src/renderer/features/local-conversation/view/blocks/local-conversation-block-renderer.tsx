@@ -26,7 +26,8 @@ import {
   ThreadWorktreeInitBlock,
   ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
-import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../../lib/types";
+import type { CodexConversationChildMembership } from "../../../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import type {
   ThreadBlockModel,
   ThreadPlanSidePanelState,
@@ -44,7 +45,7 @@ interface ThreadBlockRendererProps {
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];

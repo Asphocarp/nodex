@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import type {
   ThreadBlockModel,
   ThreadPlanSidePanelState,
@@ -218,7 +218,7 @@ function AboveComposerFixedContentLayer({
   blocks: AboveComposerFixedBlock[];
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
 }) {
   const reducedMotion = useReducedMotion();
   const todoCandidate = blocks.find((block) => block.type === "todoList") ?? null;
@@ -323,7 +323,7 @@ interface LocalConversationAboveComposerPortalProps {
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];

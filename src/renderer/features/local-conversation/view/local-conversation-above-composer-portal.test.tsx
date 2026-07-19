@@ -64,7 +64,11 @@ describe("LocalConversationAboveComposerPortal", () => {
           isStreamingTurn={true}
           threadCwd="/tmp/project"
           onOpenTurnDiffReview={(target) => {
-            openedTurnId = target.turnId;
+            openedTurnId = target.source.kind === "selected-turn"
+              ? target.source.turnId
+              : target.source.kind === "last-turn"
+                ? target.source.threadId
+                : target.source.kind;
           }}
         />
       </TooltipProvider>,
@@ -84,7 +88,7 @@ describe("LocalConversationAboveComposerPortal", () => {
     const reviewButton = host?.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]');
     expect(reviewButton !== null).toBe(true);
     fireEvent.click(reviewButton as HTMLButtonElement);
-    expect(openedTurnId).toBe("turn-1");
+    expect(openedTurnId).toBe("thread-portal");
     expect(buildTurnDiffRowsCall).toHaveBeenCalledTimes(1);
   });
 

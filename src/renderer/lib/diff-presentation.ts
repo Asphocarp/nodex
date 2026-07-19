@@ -241,16 +241,6 @@ export function getNodexDiffOptions(
     lineDiffType?: SharedDiffOptions["lineDiffType"];
   },
 ): SharedDiffOptions {
-  const wrapUnsafeCss = opts?.wrap
-    ? `
-[data-line-content] pre,
-[data-line-content] code {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-`
-    : "";
-
   return {
     theme: NODEX_DIFF_THEME,
     themeType,
@@ -259,7 +249,7 @@ export function getNodexDiffOptions(
     overflow: opts?.overflow ?? (opts?.wrap ? "wrap" : "scroll"),
     lineDiffType: opts?.lineDiffType ?? "none",
     hunkSeparators: "simple",
-    unsafeCSS: `${NODEX_DIFF_UNSAFE_CSS}\n${wrapUnsafeCss}`,
+    unsafeCSS: NODEX_DIFF_UNSAFE_CSS,
     disableFileHeader,
   };
 }
@@ -276,7 +266,6 @@ export function getNodexReviewDiffOptions(
 ): SharedDiffOptions {
   const options = getNodexDiffOptions(themeType, disableFileHeader, {
     ...opts,
-    overflow: opts?.overflow ?? "scroll",
     lineDiffType: opts?.lineDiffType ?? "word-alt",
   });
 

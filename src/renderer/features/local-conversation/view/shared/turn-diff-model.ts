@@ -5,8 +5,12 @@ import type {
   CodexTranscriptEntry,
   CodexTurnDiffPatchBatch,
   CodexTurnDiffReviewSource,
-  CodexTurnDiffReviewTarget,
 } from "../../../../lib/types";
+import { canonicalizeReviewPath } from "@/features/review/model/review-path";
+import type {
+  CanonicalReviewPath,
+  ReviewOpenIntent,
+} from "@/features/review/model/review-view-state";
 import {
   basename,
   normalizePathSegments,
@@ -42,6 +46,7 @@ export interface TurnDiffSummary {
 export interface TurnDiffRowModel {
   key: string;
   displayPath: string;
+  reviewPath: CanonicalReviewPath;
   fileName: string;
   openPath: string | null;
   openLine?: number;
@@ -87,27 +92,26 @@ export function normalizeTurnDiffBasePath(
   return normalizedPath.length > 0 ? normalizedPath : null;
 }
 
-export function buildTurnDiffReviewTarget(input: {
+export function buildTurnDiffReviewIntent(input: {
   item: CodexTranscriptEntry;
   threadCwd?: string;
   projectWorkspacePath?: string;
   source?: CodexTurnDiffReviewSource;
-  path?: string | null;
-}): CodexTurnDiffReviewTarget | null {
+  path?: CanonicalReviewPath | null;
+}): ReviewOpenIntent | null {
   const payload = extractTurnDiffPayload(input.item);
   if (!payload || input.item.turnId === null) return null;
 
   return {
-    type: "turnDiff",
-    threadId: input.item.threadId,
-    turnId: input.item.turnId,
-    entryId: input.item.entryId ?? input.item.itemId,
-    patch: payload.unifiedDiff,
-    cwd: normalizeTurnDiffBasePath(payload, input.threadCwd, input.projectWorkspacePath),
-    showRevertButton: payload.showRevertButton === true,
-    path: input.path ?? null,
-    patchBatches: payload.patchBatches ?? undefined,
-    source: input.source ?? "last-turn",
+    source: input.source === "selected-turn"
+      ? {
+          kind: "selected-turn",
+          threadId: input.item.threadId,
+          turnId: input.item.turnId,
+          entryId: input.item.entryId ?? input.item.itemId,
+        }
+      : { kind: "last-turn", threadId: input.item.threadId },
+    ...(input.path ? { targetPath: input.path } : {}),
   };
 }
 
@@ -223,10 +227,12 @@ export function buildTurnDiffRows(
     const deletions = fileDiff ? summarizeFileDiffMetadata(fileDiff).deletions : stat.deletions;
     const rawPath = stripPatchPrefix(stat.path);
     const displayPath = buildTurnDiffDisplayPath(rawPath, basePath);
+    const reviewPath = canonicalizeReviewPath(rawPath, [basePath]);
 
     return {
       key: `${item.entryId ?? item.itemId}:${rawPath}:${index}`,
       displayPath,
+      reviewPath,
       fileName: basename(displayPath),
       openPath: resolveOpenPath(rawPath, basePath),
       openLine: resolveOpenLine(fileDiff),

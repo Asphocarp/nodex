@@ -22,6 +22,7 @@ import {
 import { buildReviewFileSafety } from "../../../shared/review-file-safety";
 import { ReviewDiffPanel } from "./review-diff-panel";
 import { buildReviewConversationProjection } from "@/features/review/model/review-conversation-projection";
+import { WorkbenchSessionScopePath } from "@/lib/workbench-ui-scopes";
 
 function buildStoryConversation(): CodexConversationSnapshot {
   return {
@@ -253,12 +254,24 @@ function ReviewStorySurface({
   }, [openControlLabel]);
 
   return (
-    <div className="h-screen overflow-hidden bg-token-main-surface-primary">
-      <ReviewDiffPanel
-        {...args}
-        conversationProjection={conversationProjection}
-      />
-    </div>
+    <WorkbenchSessionScopePath
+      thread={{
+        stableKey: "session:review-story",
+        phase: "attached",
+        projectSessionId: "review-story",
+        clientThreadId: null,
+        threadId: storyThreadId,
+      }}
+      route={{ routeKey: `/story/review/${storyThreadId ?? "empty"}`, kind: "thread" }}
+      selected
+    >
+      <div className="h-screen overflow-hidden bg-token-main-surface-primary">
+        <ReviewDiffPanel
+          {...args}
+          conversationProjection={conversationProjection}
+        />
+      </div>
+    </WorkbenchSessionScopePath>
   );
 }
 

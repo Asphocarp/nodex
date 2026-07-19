@@ -1,5 +1,6 @@
 import { memo, useMemo } from "react";
-import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../lib/types";
+import type { CodexConversationChildMembership } from "../../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { selectTurnRenderModel } from "../projection/build-turn-render-model";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type {
@@ -33,7 +34,7 @@ interface LocalConversationTurnEntryProps {
     message: string;
     isLatestTurn: boolean;
   }) => void | Promise<void>;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];

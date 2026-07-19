@@ -9,7 +9,8 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { animate, motion, useMotionValue, useReducedMotion, type MotionValue } from "motion/react";
-import type { CodexConversationChildMembership, CodexTurnDiffReviewTarget } from "../../../lib/types";
+import type { CodexConversationChildMembership } from "../../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { cn } from "../../../lib/utils";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type {
@@ -171,7 +172,7 @@ interface LocalConversationVirtualizedTurnListProps {
     message: string;
     isLatestTurn: boolean;
   }) => void | Promise<void>;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];
@@ -281,7 +282,7 @@ interface MeasuredTurnProps {
     message: string;
     isLatestTurn: boolean;
   }) => void | Promise<void>;
-  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenThread?: ThreadStageActions["onOpenThread"];

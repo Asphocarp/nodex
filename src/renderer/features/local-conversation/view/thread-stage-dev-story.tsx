@@ -650,7 +650,12 @@ export function ThreadStageDevStoryPage({
     },
     onUnarchiveThread: async () => { },
     onOpenTurnDiffReview: (target) => {
-      setRuntime((current) => setStoryLog(current, `Opened diff review for ${target.turnId}.`));
+      const targetId = target.source.kind === "selected-turn"
+        ? target.source.turnId
+        : target.source.kind === "last-turn"
+          ? target.source.threadId
+          : target.source.kind;
+      setRuntime((current) => setStoryLog(current, `Opened diff review for ${targetId}.`));
     },
     onConsumeComposerIntent: (threadId: string, focusNonce: number) => {
       setRuntime((current) => {

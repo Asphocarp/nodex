@@ -1879,7 +1879,11 @@ describe("ThreadTurnDiffBlock", () => {
         allowInProgressTurnDiff={true}
         threadCwd="/tmp/project"
         onOpenTurnDiffReview={(target) => {
-          selectedTurnId = target.turnId;
+          selectedTurnId = target.source.kind === "selected-turn"
+            ? target.source.turnId
+            : target.source.kind === "last-turn"
+              ? target.source.threadId
+              : target.source.kind;
         }}
       />,
     );
@@ -1888,7 +1892,7 @@ describe("ThreadTurnDiffBlock", () => {
     expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
     expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(0);
     fireEvent.click(container.querySelector("button") as HTMLElement);
-    expect(selectedTurnId).toBe("turn-1");
+    expect(selectedTurnId).toBe("thread-1");
   });
 
   test("suppresses in-progress turn diffs in the normal thread body", () => {

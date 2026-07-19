@@ -209,6 +209,7 @@ import {
   resolvePendingThreadScopeDescriptor,
   resolveProjectSessionThreadScopeDescriptor,
 } from "@/lib/workbench-ui-scopes";
+import { useOpenReview } from "@/features/review/hooks/use-open-review";
 import {
   getCachedProjectSessionDetail,
   prefetchProjectSessionDetail,
@@ -271,8 +272,6 @@ import type {
   CodexSidebarSyncResult,
   CodexSidebarThreadItem,
   CodexThreadSummary,
-  CodexTurnDiffReviewTarget,
-  GitReviewSource,
   CodexPromptInput,
   CodexScheduledAutomation,
   CodexScheduledAutomationCreateInput,
@@ -2479,13 +2478,6 @@ export function WorkbenchShell({
   const [newThreadComposerIntentsBySessionId, setNewThreadComposerIntentsBySessionId] =
     useState<Record<string, CodexComposerIntent>>({});
   const [processManagerOpen, setProcessManagerOpen] = useState(false);
-  const [selectedTurnDiffReviewTarget, setSelectedTurnDiffReviewTarget] =
-    useState<CodexTurnDiffReviewTarget | null>(null);
-  const summaryGitReviewRequestKeyRef = useRef(0);
-  const [summaryGitReviewRequest, setSummaryGitReviewRequest] = useState<{
-    source: GitReviewSource;
-    key: number;
-  } | null>(null);
   const codexAccount = useLocalConversationAccount();
   const codexConnection = useLocalConversationConnection();
   const codexAccountActions = useCodexAccountActions();
@@ -3145,12 +3137,6 @@ export function WorkbenchShell({
     setLocalEnvironmentSettingsInitial(null);
     setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
   }, [keyboardShortcutsSettingsOpenTick]);
-
-  useEffect(() => {
-    if (!selectedTurnDiffReviewTarget) return;
-    if (activeSession?.thread?.threadId === selectedTurnDiffReviewTarget.threadId) return;
-    setSelectedTurnDiffReviewTarget(null);
-  }, [activeSession?.thread?.threadId, selectedTurnDiffReviewTarget]);
 
   const refreshProjectSessions = useCallback(async (projectId: string | null) => {
     const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
@@ -6489,6 +6475,10 @@ export function WorkbenchShell({
     await ensureActivePanelOpenWithoutRefresh(panelId);
     await refreshProjectSessions(sessionProjectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
+  const activateReviewTab = useCallback(
+    () => createManualTab("review", "right"),
+    [createManualTab],
+  );
 
   const openBackgroundAgentPanelTab = useCallback(async (
     subagent: ThreadOpenSubagentPayload,
@@ -6805,21 +6795,6 @@ export function WorkbenchShell({
     const target = buildProcessOutputTargetFromManagerRow(row, conversation);
     void openProcessOutputForThread(target);
   }, [openProcessOutputForThread, processManagerConversationsById]);
-
-  const openTurnDiffReview = useCallback((target: CodexTurnDiffReviewTarget) => {
-    setSummaryGitReviewRequest(null);
-    setSelectedTurnDiffReviewTarget(target);
-    void createManualTab("review", "right");
-  }, [createManualTab]);
-  const openSummaryGitReview = useCallback<NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>>((input) => {
-    summaryGitReviewRequestKeyRef.current += 1;
-    setSelectedTurnDiffReviewTarget(null);
-    setSummaryGitReviewRequest({
-      source: input.source,
-      key: summaryGitReviewRequestKeyRef.current,
-    });
-    void createManualTab("review", "right");
-  }, [createManualTab]);
 
   const openTurnDiffFileInSidePanel = useCallback<NonNullable<ThreadStageActions["onOpenTurnDiffFileInSidePanel"]>>(async (target) => {
     await openWorkspaceFileTab({
@@ -7765,23 +7740,27 @@ export function WorkbenchShell({
         renderPanel: (_closeTab, panelContext) => {
           if (isSideChatPanelTab(tab)) {
             return (
-              <SideChatSessionTab
-                key={`${session.id}:${tab.id}:${tab.stateKey}`}
-                tab={tab}
-                activeSession={session}
-                projects={projects}
-                onRefreshSessions={refreshProjectSessions}
-                onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
-                onOpenMcpAppSidePanel={openMcpAppSidePanel}
-                onOpenHooksSettings={openHooksSettings}
-                threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
-                composerEnterBehavior={composerEnterBehavior}
-                onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
-                onOpenThread={openAttachedThreadSession}
-                onOpenTurnDiffReview={openTurnDiffReview}
-                onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
-                turnDiffHoverPreviewDisabled={model.sidePanelOpen}
-              />
+              <ReviewRouteOpenAdapter activateReviewTab={activateReviewTab}>
+                {({ onOpenTurnDiffReview }) => (
+                  <SideChatSessionTab
+                    key={`${session.id}:${tab.id}:${tab.stateKey}`}
+                    tab={tab}
+                    activeSession={session}
+                    projects={projects}
+                    onRefreshSessions={refreshProjectSessions}
+                    onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
+                    onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                    onOpenHooksSettings={openHooksSettings}
+                    threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                    composerEnterBehavior={composerEnterBehavior}
+                    onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+                    onOpenThread={openAttachedThreadSession}
+                    onOpenTurnDiffReview={onOpenTurnDiffReview}
+                    onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                    turnDiffHoverPreviewDisabled={model.sidePanelOpen}
+                  />
+                )}
+              </ReviewRouteOpenAdapter>
             );
           }
           if (isMcpAppPanelTab(tab)) {
@@ -7845,22 +7824,26 @@ export function WorkbenchShell({
           }
           if (isBackgroundAgentPanelTab(tab)) {
             return (
-              <BackgroundAgentSessionTab
-                key={`${session.id}:${tab.id}:${tab.stateKey}`}
-                tab={tab}
-                activeSession={session}
-                projects={projects}
-                onRefreshSessions={refreshProjectSessions}
-                onOpenMcpAppSidePanel={openMcpAppSidePanel}
-                onOpenHooksSettings={openHooksSettings}
-                threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
-                composerEnterBehavior={composerEnterBehavior}
-                onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
-                onOpenThread={openAttachedThreadSession}
-                onOpenTurnDiffReview={openTurnDiffReview}
-                onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
-                turnDiffHoverPreviewDisabled={model.sidePanelOpen}
-              />
+              <ReviewRouteOpenAdapter activateReviewTab={activateReviewTab}>
+                {({ onOpenTurnDiffReview }) => (
+                  <BackgroundAgentSessionTab
+                    key={`${session.id}:${tab.id}:${tab.stateKey}`}
+                    tab={tab}
+                    activeSession={session}
+                    projects={projects}
+                    onRefreshSessions={refreshProjectSessions}
+                    onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                    onOpenHooksSettings={openHooksSettings}
+                    threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+                    composerEnterBehavior={composerEnterBehavior}
+                    onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+                    onOpenThread={openAttachedThreadSession}
+                    onOpenTurnDiffReview={onOpenTurnDiffReview}
+                    onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
+                    turnDiffHoverPreviewDisabled={model.sidePanelOpen}
+                  />
+                )}
+              </ReviewRouteOpenAdapter>
             );
           }
           return (
@@ -7894,8 +7877,6 @@ export function WorkbenchShell({
               onOpenThread={openAttachedThreadSessionById}
               pageStageHistoryModal={pageStageHistoryModal}
               onTogglePageStageHistoryModal={togglePageStageHistoryModal}
-              selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
-              summaryGitReviewRequest={summaryGitReviewRequest}
               browserBoundsSyncTrigger={browserBoundsSyncTriggerByPanel[tab.panelId]}
               isActivePanelTab={panelContext.active}
             />
@@ -7927,6 +7908,7 @@ export function WorkbenchShell({
     activeDbViewPrefs,
     activeSearchQuery,
     activeView,
+    activateReviewTab,
     pageStageCloseRef,
     pageStageHistoryModal,
     pageStagePersistRef,
@@ -7949,7 +7931,6 @@ export function WorkbenchShell({
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
     openAttachedThreadSessionById,
-    openTurnDiffReview,
     openTurnDiffFileInSidePanel,
     pendingReminderOpen,
     projects,
@@ -7961,8 +7942,6 @@ export function WorkbenchShell({
     searchByProject,
     setDbViewPrefs,
     setSearchQuery,
-    selectedTurnDiffReviewTarget,
-    summaryGitReviewRequest,
     terminalSessionVersion,
     threadQueueFollowUpsEnabled,
     togglePageStageHistoryModal,
@@ -9284,7 +9263,9 @@ export function WorkbenchShell({
                 {sessionError ? (
                   <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
                 ) : null}
-                <SessionThreadPage
+                <ReviewRouteOpenAdapter activateReviewTab={activateReviewTab}>
+                  {({ onOpenTurnDiffReview, onOpenSummaryGitReview }) => (
+                    <SessionThreadPage
                       session={session}
                       project={sessionProject}
                       projects={projects}
@@ -9302,9 +9283,9 @@ export function WorkbenchShell({
                       composerEnterBehavior={composerEnterBehavior}
                       onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
                       onOpenThread={openAttachedThreadSession}
-                      onOpenTurnDiffReview={openTurnDiffReview}
+                      onOpenTurnDiffReview={onOpenTurnDiffReview}
                       onOpenTurnDiffFileInSidePanel={openTurnDiffFileInSidePanel}
-                      onOpenSummaryGitReview={openSummaryGitReview}
+                      onOpenSummaryGitReview={onOpenSummaryGitReview}
                       turnDiffHoverPreviewDisabled={model.sidePanelOpen}
                       onForkSessionFromTurn={forkSessionFromTurn}
                       onForkFromTurnIntoWorktree={forkSessionFromTurnIntoWorktree}
@@ -9344,7 +9325,9 @@ export function WorkbenchShell({
                       }}
                       commandKeymapState={commandKeymapState}
                       isMac={isMacPlatform}
-                  />
+                    />
+                  )}
+                </ReviewRouteOpenAdapter>
               </div>
             </section>
 
@@ -12152,6 +12135,33 @@ function WindowNavigationToolbarButton({
   );
 }
 
+function ReviewRouteOpenAdapter({
+  activateReviewTab,
+  children,
+}: {
+  activateReviewTab: () => Promise<void>;
+  children: (actions: {
+    onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+    onOpenSummaryGitReview: NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>;
+  }) => ReactNode;
+}) {
+  const openReview = useOpenReview({ activateReviewTab });
+  const openSummaryGitReview = useCallback<
+    NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>
+  >(async ({ source }) => {
+    if (source === "unstaged" || source === "staged") {
+      await openReview({ source: { kind: "git", mode: source } });
+      return;
+    }
+    await openReview({ source: { kind: "git", mode: "branch", baseRef: "" } });
+  }, [openReview]);
+
+  return children({
+    onOpenTurnDiffReview: openReview,
+    onOpenSummaryGitReview: openSummaryGitReview,
+  });
+}
+
 function SessionThreadPage({
   session,
   project,
@@ -13016,8 +13026,6 @@ function ProjectSessionTabPanel({
   onOpenThread,
   pageStageHistoryModal,
   onTogglePageStageHistoryModal,
-  selectedTurnDiffReviewTarget,
-  summaryGitReviewRequest,
   browserBoundsSyncTrigger,
   isActivePanelTab,
 }: {
@@ -13064,11 +13072,6 @@ function ProjectSessionTabPanel({
   onOpenThread: (threadId: string) => Promise<void>;
   pageStageHistoryModal: PageStageHistoryModalContext | null;
   onTogglePageStageHistoryModal: (context: PageStageHistoryModalContext) => void;
-  selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
-  summaryGitReviewRequest: {
-    source: GitReviewSource;
-    key: number;
-  } | null;
   browserBoundsSyncTrigger?: MotionValue<number>;
   isActivePanelTab: boolean;
 }) {
@@ -13178,9 +13181,6 @@ function ProjectSessionTabPanel({
         threadId={activeSession.thread?.threadId ?? null}
         projectWorkspacePath={projectWorkspaceRootOrNull(project)}
         searchOpenTick={0}
-        initialGitSource={summaryGitReviewRequest?.source ?? null}
-        initialGitSourceRequestKey={summaryGitReviewRequest?.key ?? null}
-        selectedTurnDiff={selectedTurnDiffReviewTarget}
       />
     );
   }

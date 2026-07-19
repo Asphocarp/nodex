@@ -21,6 +21,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import {
   ChevronDownIcon,
@@ -92,6 +93,24 @@ import {
   selectReviewJumpToFileMatches,
   splitReviewJumpToFilePath,
 } from "@/lib/review-jump-to-file";
+import { useScopedAtom, useSetScopedAtom } from "@/lib/maitai";
+import {
+  acknowledgeReviewRevealAtom,
+  initializeReviewRouteStateAtom,
+  REVIEW_FILE_TREE_DEFAULT_WIDTH_PX,
+  reviewDiffPreferencesAtom,
+  reviewRouteStateAtom,
+  type CanonicalReviewPath,
+  type ReviewDiffMode,
+  type ReviewRouteState,
+  type ReviewSource,
+  type ResolvedTurnDiffReview,
+} from "@/features/review/model/review-view-state";
+import {
+  canonicalizeReviewPath,
+  getReviewPathAliases,
+  resolveReviewPathCandidate,
+} from "@/features/review/model/review-path";
 import {
   filterReviewFiles,
   buildReviewVisibleFiles,
@@ -131,7 +150,6 @@ import {
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import type {
   CodexTurnDiffPatchBatch,
-  CodexTurnDiffReviewTarget,
   GitReviewBaseBranchResult,
   GitReviewBranchCommit,
   GitReviewBranchCommitsResult,
@@ -218,8 +236,6 @@ import {
 } from "@/features/local-conversation/view/shared/tools/diff-file-shared";
 
 type TranscriptReviewSource = "selected-turn" | "last-turn";
-type ReviewSource = TranscriptReviewSource | GitReviewSource;
-type ReviewDiffMode = "unified" | "split";
 type GitReviewLoadStatus =
   "idle" | "loading" | "loaded" | "load-failed" | "timed-out";
 
@@ -228,9 +244,8 @@ interface ReviewDiffPanelProps {
   onStartThreadPrompt: (threadId: string, prompt: string) => Promise<unknown>;
   threadId?: string | null;
   projectWorkspacePath?: string | null;
-  selectedTurnDiff?: CodexTurnDiffReviewTarget | null;
+  selectedTurnDiff?: ResolvedTurnDiffReview | null;
   initialSource?: ReviewSource;
-  initialSourceRequestKey?: number | null;
   initialCommitSha?: string | null;
   initialFileTreeOpen?: boolean;
   searchOpenTick?: number;
@@ -244,6 +259,15 @@ interface ReviewDiffPanelDeps {
   FileDiff: typeof defaultFileDiff;
   subscribeGitReviewLiveQueries: typeof defaultSubscribeGitReviewLiveQueries;
   initialSummaryQuery?: boolean;
+}
+
+function resolveStateUpdate<Value>(
+  current: Value,
+  update: SetStateAction<Value>,
+): Value {
+  return typeof update === "function"
+    ? (update as (previous: Value) => Value)(current)
+    : update;
 }
 
 interface ReviewFileEntry {
@@ -302,7 +326,6 @@ interface ReviewEmptyStateCopy {
   showViewBranchDiffAction: boolean;
 }
 
-const REVIEW_FILE_TREE_DEFAULT_WIDTH_PX = 280;
 const REVIEW_FILE_TREE_MIN_WIDTH_PX = 200;
 const REVIEW_FILE_TREE_MAX_WIDTH_RATIO = 0.6;
 const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
@@ -439,6 +462,23 @@ function nextReviewAnimationFrame(signal?: AbortSignal): Promise<void> {
       resolve();
     });
     if (signal?.aborted) abort();
+  });
+}
+
+function waitForReviewRevealRetry(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException("Review reveal aborted", "AbortError"));
+  }
+  return new Promise((resolve, reject) => {
+    const timerId = window.setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, 50);
+    const abort = () => {
+      window.clearTimeout(timerId);
+      reject(new DOMException("Review reveal aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
   });
 }
 
@@ -1430,7 +1470,7 @@ function buildLastTurnSnapshot(
 }
 
 function buildSelectedTurnSnapshot(
-  selectedTurnDiff: CodexTurnDiffReviewTarget | null | undefined,
+  selectedTurnDiff: ResolvedTurnDiffReview | null | undefined,
   conversation: ReviewConversationProjection,
   projectWorkspacePath: string | null | undefined,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
@@ -3195,7 +3235,6 @@ export function ReviewDiffPanel({
   projectWorkspacePath,
   selectedTurnDiff = null,
   initialSource = "last-turn",
-  initialSourceRequestKey = null,
   initialCommitSha = null,
   initialFileTreeOpen = false,
   deps,
@@ -3212,28 +3251,107 @@ export function ReviewDiffPanel({
   const { opener } = useFileLinkOpener();
   const reviewContentRootRef = useRef<HTMLDivElement | null>(null);
   const reviewSplitRootRef = useRef<HTMLDivElement | null>(null);
-  const [source, setSource] = useState<ReviewSource>(initialSource);
-  const [commitSha, setCommitSha] = useState<string | null>(
-    initialCommitSha?.trim() || null,
+  const [preferences, setPreferences] = useScopedAtom(reviewDiffPreferencesAtom);
+  const [routeState, setRouteState] = useScopedAtom(reviewRouteStateAtom);
+  const initializeRouteState = useSetScopedAtom(initializeReviewRouteStateAtom);
+  const acknowledgeReveal = useSetScopedAtom(acknowledgeReviewRevealAtom);
+  const {
+    diffMode,
+    hideWhitespace,
+    wrap,
+    wordDiffsEnabled,
+    richPreviewEnabled,
+    loadFullFilesEnabled,
+  } = preferences;
+  const {
+    source,
+    commitSha,
+    fileTreeOpen,
+    fileTreeWidth,
+    fileFilter,
+    selectedPath,
+  } = routeState;
+  const updatePreference = useCallback(<Key extends keyof typeof preferences>(
+    key: Key,
+    update: SetStateAction<(typeof preferences)[Key]>,
+  ) => {
+    setPreferences((current) => ({
+      ...current,
+      [key]: resolveStateUpdate(current[key], update),
+    }));
+  }, [setPreferences]);
+  const updateRouteState = useCallback(<Key extends keyof ReviewRouteState>(
+    key: Key,
+    update: SetStateAction<ReviewRouteState[Key]>,
+  ) => {
+    setRouteState((current) => ({
+      ...current,
+      [key]: resolveStateUpdate(current[key], update),
+    }));
+  }, [setRouteState]);
+  const setDiffMode = useCallback(
+    (update: SetStateAction<ReviewDiffMode>) => updatePreference("diffMode", update),
+    [updatePreference],
   );
-  const [diffMode, setDiffMode] = useState<ReviewDiffMode>("unified");
-  const [hideWhitespace, setHideWhitespace] = useState(false);
-  const [wrap, setWrap] = useState(false);
-  const [wordDiffsEnabled, setWordDiffsEnabled] = useState(true);
-  const [richPreviewEnabled, setRichPreviewEnabled] = useState(false);
-  const [loadFullFilesEnabled, setLoadFullFilesEnabled] = useState(true);
-  const [fileTreeOpen, setFileTreeOpen] = useState(initialFileTreeOpen);
-  const [fileTreeWidth, setFileTreeWidth] = useState(
-    REVIEW_FILE_TREE_DEFAULT_WIDTH_PX,
+  const setHideWhitespace = useCallback(
+    (update: SetStateAction<boolean>) => updatePreference("hideWhitespace", update),
+    [updatePreference],
   );
-  const [fileFilter, setFileFilter] = useState("");
+  const setWrap = useCallback(
+    (update: SetStateAction<boolean>) => updatePreference("wrap", update),
+    [updatePreference],
+  );
+  const setWordDiffsEnabled = useCallback(
+    (update: SetStateAction<boolean>) => updatePreference("wordDiffsEnabled", update),
+    [updatePreference],
+  );
+  const setRichPreviewEnabled = useCallback(
+    (update: SetStateAction<boolean>) => updatePreference("richPreviewEnabled", update),
+    [updatePreference],
+  );
+  const setLoadFullFilesEnabled = useCallback(
+    (update: SetStateAction<boolean>) => updatePreference("loadFullFilesEnabled", update),
+    [updatePreference],
+  );
+  const setSource = useCallback(
+    (update: SetStateAction<ReviewSource>) => updateRouteState("source", update),
+    [updateRouteState],
+  );
+  const setFileTreeOpen = useCallback(
+    (update: SetStateAction<boolean>) => updateRouteState("fileTreeOpen", update),
+    [updateRouteState],
+  );
+  const setFileTreeWidth = useCallback(
+    (update: SetStateAction<number>) => updateRouteState("fileTreeWidth", update),
+    [updateRouteState],
+  );
+  const setFileFilter = useCallback(
+    (update: SetStateAction<string>) => updateRouteState("fileFilter", update),
+    [updateRouteState],
+  );
+  const setSelectedPath = useCallback(
+    (update: SetStateAction<CanonicalReviewPath | null>) =>
+      updateRouteState("selectedPath", update),
+    [updateRouteState],
+  );
   const [jumpToFileQuery, setJumpToFileQuery] = useState("");
   const deferredFileFilter = useDeferredValue(fileFilter);
   const deferredJumpToFileQuery = useDeferredValue(jumpToFileQuery);
-  const [expandedDirectoryPaths, setExpandedDirectoryPaths] = useState<
-    Set<string>
-  >(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const expandedDirectoryPaths = useMemo(
+    () => new Set(routeState.expandedDirectoryPaths),
+    [routeState.expandedDirectoryPaths],
+  );
+  const setExpandedDirectoryPaths = useCallback(
+    (update: SetStateAction<Set<string>>) => {
+      setRouteState((current) => ({
+        ...current,
+        expandedDirectoryPaths: [
+          ...resolveStateUpdate(new Set(current.expandedDirectoryPaths), update),
+        ],
+      }));
+    },
+    [setRouteState],
+  );
   const [selectedTreeItemId, setSelectedTreeItemId] = useState<string | null>(
     null,
   );
@@ -3244,13 +3362,26 @@ export function ReviewDiffPanel({
   const [branchCommitsError, setBranchCommitsError] = useState<string | null>(
     null,
   );
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
-  const expandedKeysSourceRef = useRef<ReviewSource | null>(null);
-  const knownReviewFileKeysRef = useRef<Set<string>>(new Set());
+  const expandedKeys = useMemo(
+    () => new Set(routeState.expandedDiffKeys),
+    [routeState.expandedDiffKeys],
+  );
+  const setExpandedKeys = useCallback(
+    (update: SetStateAction<Set<string>>) => {
+      setRouteState((current) => ({
+        ...current,
+        expandedDiffKeys: [
+          ...resolveStateUpdate(new Set(current.expandedDiffKeys), update),
+        ],
+      }));
+    },
+    [setRouteState],
+  );
   const gitLiveGenerationsRef = useRef(new Map<string, number>());
   const gitSummaryRequestSequenceRef = useRef(0);
   const reviewSearchRequestSequenceRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const navigationRevealControllerRef = useRef<AbortController | null>(null);
   const reviewCommentsByPathCacheRef = useRef<{
     comments: ReviewCodeComment[];
     pathsIdentity: string;
@@ -3263,10 +3394,6 @@ export function ReviewDiffPanel({
   const reviewThreadId = reviewConversation.threadId ?? threadId ?? null;
   const pendingReviewCommentAttachments =
     useReviewDiffCommentAttachments(reviewThreadId);
-  const selectedTurnDiffEntryId = selectedTurnDiff?.entryId ?? null;
-  const hasSelectedTurnDiff = selectedTurnDiff !== null;
-  const selectedTurnDiffPatch = selectedTurnDiff?.patch ?? null;
-  const selectedTurnDiffSource = selectedTurnDiff?.source ?? null;
 
   const reviewCwd = isTranscriptReviewSource(source)
     ? source === "selected-turn"
@@ -3284,58 +3411,55 @@ export function ReviewDiffPanel({
   }, [reviewConversation.threadId]);
 
   useEffect(() => {
-    void selectedTurnDiffEntryId;
-    void selectedTurnDiffPatch;
-    if (!hasSelectedTurnDiff) {
-      setSource((current) =>
-        current === "selected-turn" ? "last-turn" : current,
-      );
-      return;
-    }
-
-    setSource(selectedTurnDiffSource ?? "selected-turn");
-  }, [hasSelectedTurnDiff, selectedTurnDiffEntryId, selectedTurnDiffPatch, selectedTurnDiffSource]);
-
-  useEffect(() => {
-    if (initialSourceRequestKey === null) return;
-    setCommitSha(initialCommitSha?.trim() || null);
-    setSelectedPath(null);
-    setSelectedTreeItemId(null);
-    setFocusedTreeItemId(null);
-    setSource(initialSource);
-  }, [initialCommitSha, initialSource, initialSourceRequestKey]);
-
-  useEffect(() => {
-    const path = selectedTurnDiff?.path?.trim() ?? "";
-    if (path.length === 0) return;
-    setSelectedPath(path);
+    initializeRouteState({
+      source: initialSource,
+      commitSha: initialCommitSha,
+      fileTreeOpen: initialFileTreeOpen,
+    });
   }, [
-    selectedTurnDiff?.entryId,
-    selectedTurnDiff?.path,
-    selectedTurnDiff?.source,
+    initialCommitSha,
+    initialFileTreeOpen,
+    initialSource,
+    initializeRouteState,
   ]);
 
   useEffect(() => {
     if (source !== "commit" || commitSha) return;
     setSource("branch");
-  }, [commitSha, source]);
+  }, [commitSha, setSource, source]);
 
   const selectReviewSource = (nextSource: ReviewSource) => {
     startTransition(() => {
-      setSelectedPath(null);
+      setRouteState((current) => ({
+        ...current,
+        source: nextSource,
+        selectedTurn: nextSource === "selected-turn" ? current.selectedTurn : null,
+        transcriptThreadId:
+          nextSource === "selected-turn" ? current.transcriptThreadId : null,
+        commitSha: nextSource === "commit" ? current.commitSha : null,
+        branchBaseRef: nextSource === "branch" ? current.branchBaseRef : null,
+        selectedPath: null,
+        pendingReveal: null,
+      }));
       setSelectedTreeItemId(null);
       setFocusedTreeItemId(null);
-      setSource(nextSource);
     });
   };
 
   const selectReviewCommit = (commit: GitReviewBranchCommit) => {
     startTransition(() => {
-      setCommitSha(commit.sha);
-      setSelectedPath(null);
+      setRouteState((current) => ({
+        ...current,
+        source: "commit",
+        selectedTurn: null,
+        transcriptThreadId: null,
+        commitSha: commit.sha,
+        branchBaseRef: null,
+        selectedPath: null,
+        pendingReveal: null,
+      }));
       setSelectedTreeItemId(null);
       setFocusedTreeItemId(null);
-      setSource("commit");
     });
   };
 
@@ -3502,7 +3626,8 @@ export function ReviewDiffPanel({
     staleTime: Number.POSITIVE_INFINITY,
   });
   const resolvedBaseBranch =
-    gitBaseBranchQuery.data?.remote
+    routeState.branchBaseRef
+    ?? gitBaseBranchQuery.data?.remote
     ?? gitBaseBranchQuery.data?.local
     ?? gitRepositoryMetadataQuery.data?.defaultBranch
     ?? null;
@@ -4118,6 +4243,51 @@ export function ReviewDiffPanel({
     () => filterReviewFiles(snapshot.files, deferredFileFilter),
     [deferredFileFilter, snapshot.files],
   );
+  const reviewPathRoots = useMemo(
+    () => [reviewCwd, snapshot.cwd, projectWorkspacePath] as const,
+    [projectWorkspacePath, reviewCwd, snapshot.cwd],
+  );
+  const canonicalPathByEntryKey = useMemo(
+    () => new Map(
+      snapshot.files.map((entry) => [
+        entry.key,
+        getReviewPathAliases({
+          displayPath: entry.displayPath,
+          previousPath: entry.previousPath,
+          gitPath: entry.fileDiff?.name ?? null,
+        }, reviewPathRoots)[0]
+          ?? canonicalizeReviewPath(entry.displayPath, reviewPathRoots),
+      ]),
+    ),
+    [reviewPathRoots, snapshot.files],
+  );
+  const selectedEntry = useMemo(
+    () => selectedPath
+      ? resolveReviewPathCandidate(snapshot.files, selectedPath, reviewPathRoots)
+      : null,
+    [reviewPathRoots, selectedPath, snapshot.files],
+  );
+  const selectedDisplayPath = selectedEntry?.displayPath ?? null;
+  const reviewSourceBucketKey = useMemo(
+    () => [
+      source,
+      routeState.transcriptThreadId ?? "",
+      routeState.selectedTurn?.threadId ?? "",
+      routeState.selectedTurn?.turnId ?? "",
+      routeState.selectedTurn?.entryId ?? "",
+      routeState.branchBaseRef ?? "",
+      commitSha ?? "",
+      snapshot.baseRef ?? "",
+    ].join(":"),
+    [
+      commitSha,
+      routeState.branchBaseRef,
+      routeState.selectedTurn,
+      routeState.transcriptThreadId,
+      snapshot.baseRef,
+      source,
+    ],
+  );
 
   const fullFileTreeModel = useMemo(
     () => buildReviewFileTreeModel(snapshot.files),
@@ -4158,45 +4328,83 @@ export function ReviewDiffPanel({
 
   useEffect(() => {
     const nextFileKeys = new Set(snapshot.files.map((file) => file.key));
-    const sourceChanged = expandedKeysSourceRef.current !== source;
-    const previousFileKeys = knownReviewFileKeysRef.current;
-    expandedKeysSourceRef.current = source;
-    knownReviewFileKeysRef.current = nextFileKeys;
-    setExpandedKeys((current) => {
-      if (sourceChanged) return nextFileKeys;
+    setRouteState((current) => {
+      if (current.expandedDiffSourceKey !== reviewSourceBucketKey) {
+        return {
+          ...current,
+          expandedDiffSourceKey: reviewSourceBucketKey,
+          knownDiffKeys: [...nextFileKeys],
+          expandedDiffKeys: [...nextFileKeys],
+        };
+      }
+      const previousFileKeys = new Set(current.knownDiffKeys);
       const next = new Set(
-        Array.from(current).filter((key) => nextFileKeys.has(key)),
+        current.expandedDiffKeys.filter((key) => nextFileKeys.has(key)),
       );
       for (const key of nextFileKeys) {
         if (!previousFileKeys.has(key)) next.add(key);
       }
-      return next;
+      if (
+        next.size === current.expandedDiffKeys.length
+        && current.knownDiffKeys.length === nextFileKeys.size
+        && current.expandedDiffKeys.every((key) => next.has(key))
+        && current.knownDiffKeys.every((key) => nextFileKeys.has(key))
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        knownDiffKeys: [...nextFileKeys],
+        expandedDiffKeys: [...next],
+      };
     });
-  }, [source, snapshot.files]);
+  }, [reviewSourceBucketKey, setRouteState, snapshot.files]);
 
   useEffect(() => {
+    if (routeState.pendingReveal) return;
     const nextSelectedPath = resolveReviewSelectedPath(
       filteredFiles,
-      selectedPath,
+      selectedDisplayPath,
       isCappedMode,
     );
-    if (nextSelectedPath === selectedPath) return;
-    setSelectedPath(nextSelectedPath);
-  }, [filteredFiles, isCappedMode, selectedPath]);
+    const nextEntry = nextSelectedPath
+      ? snapshot.files.find((entry) => entry.displayPath === nextSelectedPath) ?? null
+      : null;
+    const nextCanonicalPath = nextEntry
+      ? canonicalPathByEntryKey.get(nextEntry.key) ?? null
+      : null;
+    if (nextCanonicalPath === selectedPath) return;
+    setSelectedPath(nextCanonicalPath);
+  }, [
+    canonicalPathByEntryKey,
+    filteredFiles,
+    isCappedMode,
+    routeState.pendingReveal,
+    selectedDisplayPath,
+    selectedPath,
+    setSelectedPath,
+    snapshot.files,
+  ]);
 
   useEffect(() => {
-    setExpandedDirectoryPaths(
-      new Set(buildReviewFileTreeDefaultExpandedPaths(snapshot.files)),
-    );
-  }, [snapshot.files, source]);
+    if (snapshot.files.length === 0) return;
+    setRouteState((current) => {
+      if (current.treeExpansionSourceKey === reviewSourceBucketKey) return current;
+      return {
+        ...current,
+        treeExpansionSourceKey: reviewSourceBucketKey,
+        expandedDirectoryPaths: buildReviewFileTreeDefaultExpandedPaths(snapshot.files),
+      };
+    });
+  }, [reviewSourceBucketKey, setRouteState, snapshot.files]);
 
   const selectedAncestorPaths = useMemo(
     () =>
       buildReviewFileTreeExpandedPathsForSelection(
         fullFileTreeModel,
-        selectedPath,
+        selectedDisplayPath,
       ),
-    [fullFileTreeModel, selectedPath],
+    [fullFileTreeModel, selectedDisplayPath],
   );
 
   useEffect(() => {
@@ -4211,7 +4419,7 @@ export function ReviewDiffPanel({
       }
       return changed ? next : current;
     });
-  }, [selectedAncestorPaths]);
+  }, [selectedAncestorPaths, setExpandedDirectoryPaths]);
 
   useEffect(() => {
     const currentSelectedNode = selectedTreeItemId
@@ -4223,7 +4431,7 @@ export function ReviewDiffPanel({
 
     const nextSelectedTreeItemId = resolveReviewFileTreeItemIdForPath(
       fullFileTreeModel,
-      selectedPath,
+      selectedDisplayPath,
     );
     if (!nextSelectedTreeItemId) return;
 
@@ -4233,7 +4441,7 @@ export function ReviewDiffPanel({
     if (nextSelectedTreeItemId !== focusedTreeItemId) {
       setFocusedTreeItemId(nextSelectedTreeItemId);
     }
-  }, [focusedTreeItemId, fullFileTreeModel, selectedPath, selectedTreeItemId]);
+  }, [focusedTreeItemId, fullFileTreeModel, selectedDisplayPath, selectedTreeItemId]);
 
   useEffect(() => {
     const visibleRowIds = new Set(fileTreeState.rows.map((row) => row.id));
@@ -4244,7 +4452,7 @@ export function ReviewDiffPanel({
     }
 
     const fallbackTreeItemId =
-      resolveReviewFileTreeItemIdForPath(fileTreeState.model, selectedPath) ??
+      resolveReviewFileTreeItemIdForPath(fileTreeState.model, selectedDisplayPath) ??
       fileTreeState.rows[0]?.id ??
       null;
 
@@ -4263,19 +4471,151 @@ export function ReviewDiffPanel({
     fileTreeState.model,
     fileTreeState.rows,
     focusedTreeItemId,
-    selectedPath,
+    selectedDisplayPath,
     selectedTreeItemId,
   ]);
 
   const visibleFiles = useMemo(() => {
     return buildReviewVisibleFiles(
       filteredFiles,
-      selectedPath,
+      selectedDisplayPath,
       isCappedMode,
       false,
       REVIEW_CAPPED_MATCH_PAGE_SIZE,
     );
-  }, [filteredFiles, isCappedMode, selectedPath]);
+  }, [filteredFiles, isCappedMode, selectedDisplayPath]);
+
+  const findReviewRow = useCallback((path: CanonicalReviewPath) => {
+    const registered = rowRefs.current.get(path);
+    if (registered) return registered;
+    const root = reviewContentRootRef.current;
+    if (!root) return null;
+    return Array.from(root.querySelectorAll<HTMLElement>("[data-review-path]"))
+      .find((candidate) => candidate.dataset.reviewPath === path) ?? null;
+  }, []);
+
+  const revealReviewEntry = useCallback(async (
+    entry: ReviewFileEntry,
+    options: {
+      readonly signal: AbortSignal;
+      readonly block: ScrollLogicalPosition;
+      readonly clearFilter?: boolean;
+    },
+  ): Promise<boolean> => {
+    const canonicalPath = canonicalPathByEntryKey.get(entry.key);
+    if (!canonicalPath) return false;
+    if (options.clearFilter && fileFilter.length > 0) setFileFilter("");
+    setSelectedPath(canonicalPath);
+    setExpandedKeys((current) => {
+      if (current.has(entry.key)) return current;
+      const next = new Set(current);
+      next.add(entry.key);
+      return next;
+    });
+
+    await nextReviewAnimationFrame(options.signal);
+    await nextReviewAnimationFrame(options.signal);
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const row = findReviewRow(canonicalPath);
+      if (row) {
+        row.scrollIntoView({ block: options.block, inline: "nearest" });
+        return true;
+      }
+      await waitForReviewRevealRetry(options.signal);
+    }
+    return false;
+  }, [
+    canonicalPathByEntryKey,
+    fileFilter.length,
+    findReviewRow,
+    setExpandedKeys,
+    setFileFilter,
+    setSelectedPath,
+  ]);
+
+  const revealFromReviewNavigation = useCallback(
+    (entry: ReviewFileEntry, block: ScrollLogicalPosition = "start") => {
+      navigationRevealControllerRef.current?.abort();
+      const controller = new AbortController();
+      navigationRevealControllerRef.current = controller;
+
+      void revealReviewEntry(entry, {
+        signal: controller.signal,
+        block,
+        clearFilter: true,
+      })
+        .then((revealed) => {
+          if (!revealed && !controller.signal.aborted) {
+            toast.danger(`Could not reveal ${entry.displayPath} in Review.`);
+          }
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          toast.danger(
+            error instanceof Error
+              ? error.message
+              : "Could not reveal the Review file.",
+          );
+        })
+        .finally(() => {
+          if (navigationRevealControllerRef.current === controller) {
+            navigationRevealControllerRef.current = null;
+          }
+        });
+    },
+    [revealReviewEntry],
+  );
+
+  useEffect(() => {
+    return () => navigationRevealControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    const pendingReveal = routeState.pendingReveal;
+    if (!pendingReveal) return;
+    if (isGitReviewSource(source) && gitLoadStatus === "loading") return;
+    const controller = new AbortController();
+    const entry = resolveReviewPathCandidate(
+      snapshot.files,
+      pendingReveal.targetPath,
+      reviewPathRoots,
+    );
+
+    void (async () => {
+      try {
+        if (!entry) {
+          for (let attempt = 0; attempt < 200; attempt += 1) {
+            await waitForReviewRevealRetry(controller.signal);
+          }
+          toast.danger(`Could not find ${pendingReveal.targetPath} in Review.`);
+          acknowledgeReveal(pendingReveal.requestId);
+          return;
+        }
+        const revealed = await revealReviewEntry(entry, {
+          signal: controller.signal,
+          block: "start",
+          clearFilter: true,
+        });
+        if (!revealed) {
+          toast.danger(`Could not reveal ${entry.displayPath} in Review.`);
+        }
+        acknowledgeReveal(pendingReveal.requestId);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        toast.danger(error instanceof Error ? error.message : "Could not reveal the Review file.");
+      }
+    })();
+
+    return () => controller.abort();
+  }, [
+    acknowledgeReveal,
+    gitLoadStatus,
+    revealReviewEntry,
+    reviewPathRoots,
+    routeState.pendingReveal,
+    snapshot.files,
+    source,
+  ]);
 
   const contentSearchSource = useMemo<ContentSearchLocalSource>(
     () => ({
@@ -4403,18 +4743,10 @@ export function ReviewDiffPanel({
         );
         if (!entry) return;
 
-        setSelectedPath(entry.displayPath);
-        setExpandedKeys((current) => {
-          if (current.has(entry.key)) return current;
-          const next = new Set(current);
-          next.add(entry.key);
-          return next;
+        await revealReviewEntry(entry, {
+          signal: options.signal,
+          block: "center",
         });
-
-        await nextReviewAnimationFrame(options.signal);
-        await nextReviewAnimationFrame(options.signal);
-        const row = rowRefs.current.get(entry.displayPath);
-        row?.scrollIntoView({ block: "center", inline: "nearest" });
         await nextReviewAnimationFrame(options.signal);
       },
       async activate(match, query, options) {
@@ -4426,7 +4758,8 @@ export function ReviewDiffPanel({
         if (!entry) return;
 
         const root = reviewContentRootRef.current;
-        const row = rowRefs.current.get(entry.displayPath);
+        const canonicalPath = canonicalPathByEntryKey.get(entry.key);
+        const row = canonicalPath ? findReviewRow(canonicalPath) : null;
         if (!root || !row) return;
         clearContentSearchMarks(root, { includeShadowRoots: true });
 
@@ -4470,8 +4803,11 @@ export function ReviewDiffPanel({
     }),
     [
       commitSha,
+      canonicalPathByEntryKey,
+      findReviewRow,
       invoke,
       isCappedMode,
+      revealReviewEntry,
       reviewCwd,
       snapshot.baseRef,
       snapshot.cwd,
@@ -4502,18 +4838,24 @@ export function ReviewDiffPanel({
         )
       )
         return;
-      setSelectedPath(file.displayPath);
       setJumpToFileQuery("");
+      revealFromReviewNavigation(file);
     },
-    [jumpToFileQuery, snapshot.files],
+    [jumpToFileQuery, revealFromReviewNavigation, snapshot.files],
   );
 
-  useEffect(() => {
-    if (!selectedPath) return;
-    const node = rowRefs.current.get(selectedPath);
-    if (!node) return;
-    node.scrollIntoView({ block: "start" });
-  }, [selectedPath, visibleFiles]);
+  const handleReviewTreePathSelect = useCallback(
+    (path: string) => {
+      const entry = resolveReviewPathCandidate(
+        snapshot.files,
+        canonicalizeReviewPath(path, reviewPathRoots),
+        reviewPathRoots,
+      );
+      if (!entry) return;
+      revealFromReviewNavigation(entry);
+    },
+    [revealFromReviewNavigation, reviewPathRoots, snapshot.files],
+  );
 
   const toggleReviewRow = useCallback((entryKey: string) => {
     setExpandedKeys((current) => {
@@ -4525,7 +4867,7 @@ export function ReviewDiffPanel({
       }
       return next;
     });
-  }, []);
+  }, [setExpandedKeys]);
 
   const reviewFilePathsIdentity = useMemo(
     () => snapshot.files.map((entry) => entry.displayPath).join("\0"),
@@ -4564,19 +4906,21 @@ export function ReviewDiffPanel({
   const renderReviewRow = (entry: ReviewFileEntry, keyPrefix = "") => (
     <div
       key={`${keyPrefix}${entry.key}`}
-      data-review-path={entry.displayPath}
+      data-review-path={canonicalPathByEntryKey.get(entry.key)}
       ref={(node) => {
+        const canonicalPath = canonicalPathByEntryKey.get(entry.key);
+        if (!canonicalPath) return;
         if (!node) {
-          rowRefs.current.delete(entry.displayPath);
+          rowRefs.current.delete(canonicalPath);
           return;
         }
-        rowRefs.current.set(entry.displayPath, node);
+        rowRefs.current.set(canonicalPath, node);
       }}
     >
       <ReviewFileRow
         entry={entry}
         diffMode={diffMode}
-        wrap={wrap}
+        wrap={wrap && !isCappedMode}
         wordDiffsEnabled={wordDiffsEnabled}
         ignoreWhitespace={hideWhitespace}
         loadFullFilesEnabled={loadFullFilesEnabled}
@@ -4906,7 +5250,7 @@ export function ReviewDiffPanel({
           focusedTreeItemId={focusedTreeItemId}
           onSelectTreeItemId={setSelectedTreeItemId}
           onFocusTreeItemId={setFocusedTreeItemId}
-          onSelectPath={setSelectedPath}
+          onSelectPath={handleReviewTreePathSelect}
           onToggleDirectory={handleToggleDirectory}
         />
       </div>
@@ -5277,7 +5621,7 @@ export function ReviewDiffPanel({
                     allowWrap
                     onSelect={() => handleJumpToFileSelect(file)}
                     rightSlot={
-                      selectedPath === file.displayPath ? (
+                      selectedPath === canonicalPathByEntryKey.get(file.key) ? (
                         <CheckmarkIcon className="size-4" />
                       ) : null
                     }

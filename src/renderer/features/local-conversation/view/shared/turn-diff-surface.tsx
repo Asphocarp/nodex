@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/dialog";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
+import { reviewDiffPreferencesAtom } from "@/features/review/model/review-view-state";
+import { useScopedAtomValue } from "@/lib/maitai";
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
@@ -34,15 +36,15 @@ import { useTheme } from "../../../../lib/use-theme";
 import type {
   CodexTranscriptEntry,
   CodexTurnDiffReviewSource,
-  CodexTurnDiffReviewTarget,
   GitApplyPatchResult,
 } from "../../../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { cn } from "../../../../lib/utils";
 import {
   TURN_DIFF_DEFAULT_VISIBLE_FILE_COUNT,
   buildTurnDiffApplyBatches,
   buildTurnDiffDisplayPath,
-  buildTurnDiffReviewTarget,
+  buildTurnDiffReviewIntent,
   buildTurnDiffRows,
   extractTurnDiffPayload,
   getTurnDiffDisclosureLabel,
@@ -322,7 +324,7 @@ export function TurnDiffInProgressInlineSummary({
   projectWorkspacePath?: string;
   threadCwd?: string;
   reviewSource?: CodexTurnDiffReviewSource;
-  onOpenReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   showLeadingSeparator?: boolean;
 }) {
   const payload = extractTurnDiffPayload(item);
@@ -331,8 +333,8 @@ export function TurnDiffInProgressInlineSummary({
     [item, projectWorkspacePath, rows, threadCwd],
   );
   const summary = useMemo(() => summarizeTurnDiffRows(resolvedRows), [resolvedRows]);
-  const reviewTarget = useMemo(
-    () => buildTurnDiffReviewTarget({
+  const reviewIntent = useMemo(
+    () => buildTurnDiffReviewIntent({
       item,
       threadCwd,
       projectWorkspacePath,
@@ -343,12 +345,9 @@ export function TurnDiffInProgressInlineSummary({
 
   if (!payload || summary.fileCount === 0) return null;
 
-  const handleOpenReview = onOpenReview && reviewTarget
+  const handleOpenReview = onOpenReview && reviewIntent
     ? () => {
-        onOpenReview({
-          ...reviewTarget,
-          path: summary.fileCount === 1 ? resolvedRows[0]?.displayPath ?? null : null,
-        });
+        void onOpenReview(reviewIntent);
       }
     : undefined;
 
@@ -471,7 +470,7 @@ export function TurnDiffSurface({
   projectWorkspacePath?: string;
   threadCwd?: string;
   reviewSource?: CodexTurnDiffReviewSource;
-  onOpenReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenFileInSidePanel?: (target: TurnDiffFileSidePanelTarget) => void | Promise<void>;
   disableHoverPreview?: boolean;
   deferOffscreenRendering?: boolean;
@@ -479,8 +478,8 @@ export function TurnDiffSurface({
   const payload = extractTurnDiffPayload(item);
   const rows = useMemo(() => buildTurnDiffRows(item, threadCwd, projectWorkspacePath), [item, projectWorkspacePath, threadCwd]);
   const summary = useMemo(() => summarizeTurnDiffRows(rows), [rows]);
-  const reviewTarget = useMemo(
-    () => buildTurnDiffReviewTarget({
+  const reviewIntent = useMemo(
+    () => buildTurnDiffReviewIntent({
       item,
       threadCwd,
       projectWorkspacePath,
@@ -491,7 +490,11 @@ export function TurnDiffSurface({
   const basePath = useMemo(() => normalizeTurnDiffBasePath(payload, threadCwd, projectWorkspacePath), [payload, projectWorkspacePath, threadCwd]);
   const applyBatches = useMemo(() => buildTurnDiffApplyBatches(payload, basePath), [basePath, payload]);
   const { resolved } = useTheme();
-  const diffOptions = useMemo(() => getNodexDiffOptions(resolved, true), [resolved]);
+  const { wrap } = useScopedAtomValue(reviewDiffPreferencesAtom);
+  const diffOptions = useMemo(
+    () => getNodexDiffOptions(resolved, true, { wrap }),
+    [resolved, wrap],
+  );
   const diffHostStyle = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
   const diffHostClassName = NODEX_DIFF_HOST_CLASS;
   const [expanded, setExpanded] = useState(false);
@@ -509,7 +512,7 @@ export function TurnDiffSurface({
     setLastPatchAction(null);
     setPatchActionInFlight(false);
     setFailure(null);
-  }, [reviewTarget?.entryId, payload?.unifiedDiff]);
+  }, [item.entryId, item.itemId, payload?.unifiedDiff]);
 
   if (!payload || summary.fileCount === 0) return null;
 
@@ -518,11 +521,11 @@ export function TurnDiffSurface({
       ? "reapply"
       : "undo";
 
-  const handleOpenReview = onOpenReview && reviewTarget
-    ? (path?: string | null) => {
-        onOpenReview({
-          ...reviewTarget,
-          path: path ?? (summary.fileCount === 1 ? rows[0]?.displayPath ?? null : null),
+  const handleOpenReview = onOpenReview && reviewIntent
+    ? (path?: TurnDiffRowModel["reviewPath"] | null) => {
+        void onOpenReview({
+          ...reviewIntent,
+          ...(path ? { targetPath: path } : {}),
         });
       }
     : null;
@@ -622,7 +625,7 @@ export function TurnDiffSurface({
               </div>
             </div>
             <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
-              {reviewTarget?.showRevertButton && applyBatches.length > 0 ? (
+              {payload.showRevertButton && applyBatches.length > 0 ? (
                 <TurnDiffToolbarButton
                   label={nextPatchAction === "undo" ? "Undo" : "Reapply"}
                   icon={nextPatchAction}
@@ -644,7 +647,7 @@ export function TurnDiffSurface({
               <TurnDiffFileRow
                 key={row.key}
                 row={row}
-                onOpenReview={handleOpenReview ? () => handleOpenReview(row.displayPath) : null}
+                onOpenReview={handleOpenReview ? () => handleOpenReview(row.reviewPath) : null}
                 onOpenFileInSidePanel={onOpenFileInSidePanel}
                 disableHoverPreview={disableHoverPreview}
                 diffHostClassName={diffHostClassName}
@@ -671,7 +674,7 @@ export function TurnDiffSurface({
 export const turnDiffSurfaceTestHelpers = {
   buildTurnDiffApplyBatches,
   buildTurnDiffDisplayPath,
-  buildTurnDiffReviewTarget,
+  buildTurnDiffReviewIntent,
   buildTurnDiffRows,
   extractTurnDiffPayload,
   getTurnDiffDisclosureLabel,

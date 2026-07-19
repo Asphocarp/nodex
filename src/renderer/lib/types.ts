@@ -235,7 +235,6 @@ export type {
   CodexItemView,
   CodexTurnDiffPatchBatch,
   CodexTurnDiffReviewSource,
-  CodexTurnDiffReviewTarget,
   CodexApprovalRequest,
   CodexApprovalKind,
   CodexApprovalDecision,

@@ -89,6 +89,8 @@ lifecycle; it is not task state.
 | Collapse override | Conversation ID plus stable turn search key | Renderer memory; no arbitrary cap | App atom family | Canonical conversation deletion or renderer shutdown |
 | Route-active and transcript-visible flags | Current selected route / full-width body visibility | Renderer memory | Route atom/derived presentation | Route unmount or panel visibility change |
 | Preview tabs, overlays, and route-local panel presentation | Thread/Route identity | Renderer memory unless an existing preference contract applies | Thread/Route atoms | Explicit close or scope eviction |
+| Review diff preferences | Renderer application | Renderer memory | App atoms | Renderer shutdown |
+| Review source, tree, selection, expansion, and pending file reveal | Task Route identity | Renderer memory | Route atoms; source data stays in conversation/Query authorities | Successful reveal, explicit source change, or Route eviction |
 | Durable Project-session panels and tabs | Project Session | SQLite + Query | Main/SQLite and TanStack Query | Domain close/delete operation |
 
 ## Existing external stores and Modules

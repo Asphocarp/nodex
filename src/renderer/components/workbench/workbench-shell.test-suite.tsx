@@ -9097,7 +9097,7 @@ describe(`workbench session shell / ${scope}`, () => {
     expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBe(true);
   });
 
-  test("summary Changes action opens Review with the requested git source", async () => {
+  test("summary Changes action opens Review without routing presentation state through props", async () => {
     (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = undefined;
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
@@ -9117,9 +9117,9 @@ describe(`workbench session shell / ${scope}`, () => {
       && JSON.stringify(call[1]).includes('"kind":"review"')
     )).toBe(true);
     const props = (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps;
-    expect(props?.initialGitSource).toBe("staged");
-    expect(props?.initialGitSourceRequestKey).toBe(1);
-    expect(props?.selectedTurnDiff).toBe(null);
+    expect("initialGitSource" in (props ?? {})).toBe(false);
+    expect("initialGitSourceRequestKey" in (props ?? {})).toBe(false);
+    expect("selectedTurnDiff" in (props ?? {})).toBe(false);
   });
 
   test("bottom panel add menu does not expose Review", async () => {

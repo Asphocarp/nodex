@@ -45,13 +45,13 @@ import type {
   CodexReasoningEffortOption,
   CodexScheduledAutomationCreateInput,
   CodexScheduledAutomationUpdateInput,
-  CodexTurnDiffReviewTarget,
   GitReviewSource,
   PanelId,
   ProtocolAppInfo,
   WorktreeEnvironmentOption,
   WorktreeStartMode,
 } from "../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import type { CodexHooksSettingsTarget } from "../../lib/codex-hooks-route";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
@@ -340,7 +340,7 @@ export interface ThreadStageActions {
   onOpenStatusPanel?: (threadId: string) => void;
   onToggleDesktopPet?: () => void;
   onUnarchiveThread: (threadId: string, projectId: string) => Promise<void>;
-  onOpenTurnDiffReview: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenTurnDiffReview: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: (target: ThreadTurnDiffFileSidePanelTarget) => void | Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;

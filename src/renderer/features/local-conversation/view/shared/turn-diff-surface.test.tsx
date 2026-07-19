@@ -7,7 +7,8 @@ import {
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
 import { renderWithMaitai as render, settleAsyncRender } from "../../../../test/dom";
-import type { CodexTranscriptEntry, CodexTurnDiffReviewTarget } from "../../../../lib/types";
+import type { CodexTranscriptEntry } from "../../../../lib/types";
+import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import {
   TurnDiffInProgressInlineSummary,
   TurnDiffSurface,
@@ -142,7 +143,7 @@ describe("TurnDiffSurface", () => {
   });
 
   test("opens Review from header and focuses a file from row click", () => {
-    const openedTargets: CodexTurnDiffReviewTarget[] = [];
+    const openedTargets: ReviewOpenIntent[] = [];
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
@@ -158,11 +159,11 @@ describe("TurnDiffSurface", () => {
     );
 
     fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
-    expect(openedTargets[0]?.source ?? null).toBe("selected-turn");
-    expect(openedTargets[0]?.path === null).toBe(true);
+    expect(openedTargets[0]?.source.kind).toBe("selected-turn");
+    expect(openedTargets[0]?.targetPath ?? null).toBe(null);
 
     fireEvent.click(findButtonByText(container, "src/file-2.ts") as HTMLButtonElement);
-    expect(openedTargets[1]?.path ?? null).toBe("src/file-2.ts");
+    expect(openedTargets[1]?.targetPath ?? null).toBe("src/file-2.ts");
   });
 
   test("cmd-click file rows opens the side panel instead of Review", () => {
@@ -241,7 +242,7 @@ describe("TurnDiffSurface", () => {
           threadCwd="/tmp/project"
           disableHoverPreview
           onOpenReview={(target) => {
-            focusedPath = target.path ?? null;
+            focusedPath = target.targetPath ?? null;
           }}
         />
       </TooltipProvider>,
@@ -296,7 +297,7 @@ describe("TurnDiffSurface", () => {
   });
 
   test("shows the streaming summary with the in-progress state attribute", () => {
-    let reviewTargetPatch = "";
+    let openedSourceKind = "";
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
@@ -304,7 +305,7 @@ describe("TurnDiffSurface", () => {
           isInProgress={true}
           threadCwd="/tmp/project"
           onOpenReview={(target) => {
-            reviewTargetPatch = target.patch;
+            openedSourceKind = target.source.kind;
           }}
         />
       </TooltipProvider>,
@@ -314,7 +315,7 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
 
     fireEvent.click(container.querySelector("button") as HTMLButtonElement);
-    expect(reviewTargetPatch.includes("src/file-1.ts")).toBe(true);
+    expect(openedSourceKind).toBe("last-turn");
   });
 
   test("renders the compact in-progress summary with optional leading separator", () => {
@@ -326,7 +327,7 @@ describe("TurnDiffSurface", () => {
           threadCwd="/tmp/project"
           showLeadingSeparator
           onOpenReview={(target) => {
-            openedPath = target.path ?? null;
+            openedPath = target.targetPath ?? null;
           }}
         />
       </TooltipProvider>,
@@ -337,7 +338,7 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
 
     fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Review changed files"]') as HTMLButtonElement);
-    expect(openedPath).toBe("src/one.ts");
+    expect(openedPath).toBe(null);
   });
 
   test("parses Codex-style file stats including quoted paths and duplicate file headers", () => {

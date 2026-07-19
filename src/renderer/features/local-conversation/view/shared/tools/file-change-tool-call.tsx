@@ -7,6 +7,8 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { reviewDiffPreferencesAtom } from "@/features/review/model/review-view-state";
+import { useScopedAtomValue } from "@/lib/maitai";
 import type { CodexVisualizationActivity } from "../../../../../../shared/types";
 import {
   buildCodexFileChangePatchRows,
@@ -596,6 +598,7 @@ export function FileChangeToolCall({
   onOpenFileInSidePanel,
 }: FileChangeToolCallProps) {
   const { resolved } = useTheme();
+  const { wrap } = useScopedAtomValue(reviewDiffPreferencesAtom);
   const { opener } = useFileLinkOpener();
   const rows = useMemo(() => buildFileChangeRows(
     item,
@@ -612,7 +615,10 @@ export function FileChangeToolCall({
     showDiffDetails,
     threadCwd,
   ]);
-  const diffOptions = useMemo(() => getNodexDiffOptions(resolved, true), [resolved]);
+  const diffOptions = useMemo(
+    () => getNodexDiffOptions(resolved, true, { wrap }),
+    [resolved, wrap],
+  );
   const diffHostStyle = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
   const diffHostClassName = `${NODEX_DIFF_HOST_CLASS} overflow-y-auto`;
   const state = resolveFileChangeStatus(item, isTurnCancelled);

@@ -3,6 +3,14 @@ import { ChevronRightIcon } from "../../../../../components/shared/icons";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
 import { summarizeUnifiedDiffChanges } from "../../../../../lib/unified-diff-summary";
+import { basename } from "@/lib/file-path";
+export {
+  basename,
+  normalizePathSegments,
+  normalizeSlashes,
+  resolveOpenPath,
+  stripPatchPrefix,
+} from "@/lib/file-path";
 
 export interface DiffSummary {
   additions: number;
@@ -17,57 +25,6 @@ export function summarizeFileDiffMetadata(fileDiff: FileDiffMetadata): DiffSumma
     }),
     { additions: 0, deletions: 0 },
   );
-}
-
-export function normalizeSlashes(value: string): string {
-  return value.replaceAll("\\", "/");
-}
-
-export function stripPatchPrefix(value: string): string {
-  return normalizeSlashes(value).replace(/^([ab])\//, "");
-}
-
-export function basename(filePath: string): string {
-  const cleaned = stripPatchPrefix(filePath);
-  const parts = cleaned.split("/").filter((part) => part.length > 0);
-  return parts[parts.length - 1] ?? cleaned;
-}
-
-export function normalizePathSegments(value: string): string {
-  const isAbsolute = value.startsWith("/");
-  const segments = normalizeSlashes(value).split("/");
-  const normalized: string[] = [];
-
-  for (const segment of segments) {
-    if (segment.length === 0 || segment === ".") continue;
-    if (segment === "..") {
-      if (normalized.length > 0 && normalized[normalized.length - 1] !== "..") {
-        normalized.pop();
-        continue;
-      }
-      if (!isAbsolute) normalized.push(segment);
-      continue;
-    }
-
-    normalized.push(segment);
-  }
-
-  if (isAbsolute) return `/${normalized.join("/")}`;
-  return normalized.join("/");
-}
-
-export function resolveOpenPath(path: string | null, basePath: string | null): string | null {
-  if (!path) return null;
-
-  const normalizedPath = normalizePathSegments(stripPatchPrefix(path));
-  if (normalizedPath.length === 0) return null;
-  if (normalizedPath.startsWith("/")) return normalizedPath;
-  if (/^[a-zA-Z]:\//.test(normalizedPath)) return normalizedPath;
-
-  if (!basePath) return null;
-  const normalizedBase = normalizePathSegments(basePath);
-  if (normalizedBase.length === 0) return null;
-  return normalizePathSegments(`${normalizedBase}/${normalizedPath}`);
 }
 
 export function summarizeDiff(diffText: string | undefined): DiffSummary {

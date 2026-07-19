@@ -2354,19 +2354,6 @@ export interface CodexTurnDiffPatchBatch {
 
 export type CodexTurnDiffReviewSource = "last-turn" | "selected-turn";
 
-export interface CodexTurnDiffReviewTarget {
-  type: "turnDiff";
-  threadId: string;
-  turnId: string;
-  entryId: string;
-  patch: string;
-  cwd: string | null;
-  showRevertButton: boolean;
-  path?: string | null;
-  patchBatches?: CodexTurnDiffPatchBatch[];
-  source?: CodexTurnDiffReviewSource;
-}
-
 export interface CodexToolCallView {
   toolName: string;
   server?: string;
