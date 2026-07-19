@@ -832,7 +832,11 @@ const mutationDisplay = (evidence: MutationEvidence): PageHistoryDisplay => {
         detail: null,
       };
     }
-    if (operationKinds.includes("transfer_membership")) {
+    if (
+      operationKinds.some((kind) =>
+        kind === "transfer_page" || kind === "transfer_membership"
+      )
+    ) {
       return {
         ...base,
         category: "database",

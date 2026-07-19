@@ -42,6 +42,7 @@ struct MutationEffects {
     data_source_ids: BTreeSet<String>,
     page_ids: BTreeSet<String>,
     view_ids: BTreeSet<String>,
+    revisions: BTreeMap<String, i64>,
 }
 
 #[derive(Debug)]
@@ -191,6 +192,23 @@ fn validate_request(request: &ModuleApplyRequest<Vec<DatabaseIntent>>) -> Result
         }
     }
     Ok(())
+}
+
+fn database_intent_kind(intent: &DatabaseIntent) -> &'static str {
+    match intent {
+        DatabaseIntent::PutProperty { .. } => "put_property",
+        DatabaseIntent::DeleteProperty { .. } => "delete_property",
+        DatabaseIntent::PutOption { .. } => "put_option",
+        DatabaseIntent::DeleteOption { .. } => "delete_option",
+        DatabaseIntent::SetValue { .. } => "set_value",
+        DatabaseIntent::SetValues { .. } => "set_values",
+        DatabaseIntent::AddRemoveValue { .. } => "add_remove_value",
+        DatabaseIntent::TransferPage { .. } => "transfer_page",
+        DatabaseIntent::PutView { .. } => "put_view",
+        DatabaseIntent::DeleteView { .. } => "delete_view",
+        DatabaseIntent::PositionPage { .. } => "position_page",
+        DatabaseIntent::PositionPages { .. } => "position_pages",
+    }
 }
 
 fn apply_intent(
@@ -501,6 +519,13 @@ fn put_property(
         params![source_revision, now, data_source_id],
     )?;
     touch_source(effects, &source);
+    effects
+        .revisions
+        .insert(format!("source:{data_source_id}"), source_revision);
+    effects.revisions.insert(
+        format!("property:{data_source_id}:{property_id}"),
+        property_revision,
+    );
     Ok(())
 }
 
@@ -557,6 +582,13 @@ fn delete_property(
         params![now, data_source_id],
     )?;
     touch_source(effects, &source);
+    effects
+        .revisions
+        .insert(format!("source:{data_source_id}"), source.revision + 1);
+    effects.revisions.insert(
+        format!("property:{data_source_id}:{property_id}"),
+        property.revision + 1,
+    );
     Ok(())
 }
 
@@ -616,6 +648,10 @@ fn put_option(
         .find(|option| option.id == option_id)
     {
         if *existing == next {
+            effects.revisions.insert(
+                format!("property:{data_source_id}:{property_id}"),
+                property.revision,
+            );
             return Ok(());
         }
         *existing = next;
@@ -630,6 +666,13 @@ fn put_option(
         refresh_tag_projections(connection, data_source_id, &config, now, effects)?;
     }
     touch_source(effects, &source);
+    effects
+        .revisions
+        .insert(format!("source:{data_source_id}"), source.revision + 1);
+    effects.revisions.insert(
+        format!("property:{data_source_id}:{property_id}"),
+        property.revision + 1,
+    );
     Ok(())
 }
 
@@ -688,6 +731,13 @@ fn delete_option(
     config.options.retain(|option| option.id != option_id);
     persist_option_config(connection, &source, &property, &config, now)?;
     touch_source(effects, &source);
+    effects
+        .revisions
+        .insert(format!("source:{data_source_id}"), source.revision + 1);
+    effects.revisions.insert(
+        format!("property:{data_source_id}:{property_id}"),
+        property.revision + 1,
+    );
     Ok(())
 }
 
@@ -790,6 +840,17 @@ fn set_value(
     )?;
     touch_source(effects, &source);
     effects.page_ids.insert(input.page_id.clone());
+    effects.revisions.insert(
+        format!(
+            "value:{}:{membership}:{}",
+            input.data_source_id, input.property_id
+        ),
+        revision,
+    );
+    effects.revisions.insert(
+        format!("page:{}:metadata", input.page_id),
+        metadata_revision,
+    );
     Ok(())
 }
 
@@ -1150,6 +1211,7 @@ pub(crate) fn place_copied_page_in_data_source(
         &membership_id,
         &destination.data_source_id,
         now,
+        None,
     )?;
     let updated = connection.execute(
         "UPDATE pages SET parent_kind = 'data_source', parent_id = ?1, parent_revision = 2, \
@@ -1348,11 +1410,19 @@ fn transfer_page(
         .query_map([page_id], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     if let Some(membership) = &active_membership {
-        connection.execute(
-            "UPDATE data_source_page_memberships SET removed_at = ?1, revision = revision + 1 \
-             WHERE id = ?2 AND removed_at IS NULL",
-            params![now, membership.id],
-        )?;
+        let removed_revision = connection
+            .query_row(
+                "UPDATE data_source_page_memberships SET removed_at = ?1, revision = revision + 1 \
+                 WHERE id = ?2 AND removed_at IS NULL RETURNING revision",
+                params![now, membership.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .ok_or_else(|| corrupt("Active Data Source membership disappeared"))?;
+        effects.revisions.insert(
+            format!("membership:{}:{}", membership.data_source_id, membership.id),
+            removed_revision,
+        );
     }
     connection.execute(
         "DELETE FROM database_view_page_positions WHERE page_block_id = ?1",
@@ -1489,7 +1559,12 @@ fn transfer_page(
                 &membership_id,
                 data_source_id,
                 now,
+                Some(effects),
             )?;
+            effects.revisions.insert(
+                format!("membership:{data_source_id}:{membership_id}"),
+                revision,
+            );
             effects.database_ids.insert(target_source.database_id);
             effects.data_source_ids.insert(data_source_id.clone());
             (Some(membership_id), Some(data_source_id.clone()))
@@ -1503,25 +1578,29 @@ fn transfer_page(
         }
         DatabaseTransferTarget::Page { .. } => unreachable!("Page target rejected above"),
     };
-    let updated = connection.execute(
-        "UPDATE pages SET parent_kind = ?1, parent_id = ?2, \
-           parent_revision = parent_revision + 1, metadata_revision = metadata_revision + 1, \
-           updated_at = ?3 WHERE block_id = ?4 AND parent_revision = ?5",
-        params![
-            parent_kind,
-            parent_id,
-            now,
-            page_id,
-            expected_parent_revision
-        ],
-    )?;
-    if updated != 1 {
+    let updated = connection
+        .query_row(
+            "UPDATE pages SET parent_kind = ?1, parent_id = ?2, \
+               parent_revision = parent_revision + 1, metadata_revision = metadata_revision + 1, \
+               updated_at = ?3 WHERE block_id = ?4 AND parent_revision = ?5 \
+             RETURNING parent_revision, metadata_revision",
+            params![
+                parent_kind,
+                parent_id,
+                now,
+                page_id,
+                expected_parent_revision
+            ],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    let Some((parent_revision, metadata_revision)) = updated else {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Page parent authority changed during transfer",
             true,
         ));
-    }
+    };
     refresh_transferred_page_projection(
         connection,
         page_id,
@@ -1533,6 +1612,12 @@ fn transfer_page(
         touch_source(effects, &source);
     }
     effects.page_ids.insert(page_id.to_owned());
+    effects
+        .revisions
+        .insert(format!("page:{page_id}:parent"), parent_revision);
+    effects
+        .revisions
+        .insert(format!("page:{page_id}:metadata"), metadata_revision);
     Ok(())
 }
 
@@ -1542,6 +1627,7 @@ fn ensure_transferred_built_in_values(
     target_membership_id: &str,
     target_data_source_id: &str,
     now: &str,
+    mut effects: Option<&mut MutationEffects>,
 ) -> Result<(), StoreError> {
     let properties = connection
         .prepare(
@@ -1594,6 +1680,15 @@ fn ensure_transferred_built_in_values(
                 now,
             ],
         )?;
+        if let Some(effects) = effects.as_deref_mut() {
+            effects.revisions.insert(
+                format!(
+                    "value:{target_data_source_id}:{target_membership_id}:{}",
+                    target_property.id
+                ),
+                1,
+            );
+        }
     }
     Ok(())
 }
@@ -2066,11 +2161,13 @@ fn put_view(
     if preserve_rank.is_none() {
         reorder_views(connection, database_id, view_id, before_view_id)?;
     }
-    connection.execute(
+    let metadata_revision = connection.query_row(
         "UPDATE database_containers SET \
            default_view_id = CASE WHEN ?1 = 1 THEN ?2 ELSE default_view_id END, \
-           metadata_revision = metadata_revision + 1, updated_at = ?3 WHERE block_id = ?4",
+           metadata_revision = metadata_revision + 1, updated_at = ?3 WHERE block_id = ?4 \
+         RETURNING metadata_revision",
         params![i64::from(is_default), view_id, now, database_id],
+        |row| row.get::<_, i64>(0),
     )?;
     if is_default
         || container.default_view_id.as_deref() == Some(view_id)
@@ -2085,6 +2182,13 @@ fn put_view(
         effects.data_source_ids.insert(existing.data_source_id);
     }
     effects.view_ids.insert(view_id.to_owned());
+    effects
+        .revisions
+        .insert(format!("view:{view_id}"), revision);
+    effects.revisions.insert(
+        format!("database:{database_id}:metadata"),
+        metadata_revision,
+    );
     Ok(())
 }
 
@@ -2115,11 +2219,13 @@ fn delete_view(
         "Database View revision changed",
     )?;
     let was_default = container.default_view_id.as_deref() == Some(view_id);
-    connection.execute(
+    let metadata_revision = connection.query_row(
         "UPDATE database_containers SET \
            default_view_id = CASE WHEN default_view_id = ?1 THEN NULL ELSE default_view_id END, \
-           metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE block_id = ?3",
+           metadata_revision = metadata_revision + 1, updated_at = ?2 WHERE block_id = ?3 \
+         RETURNING metadata_revision",
         params![view_id, now, database_id],
+        |row| row.get::<_, i64>(0),
     )?;
     clear_view_projection(connection, view_id, now)?;
     connection.execute(
@@ -2137,6 +2243,13 @@ fn delete_view(
     effects.database_ids.insert(database_id.to_owned());
     effects.data_source_ids.insert(view.data_source_id);
     effects.view_ids.insert(view_id.to_owned());
+    effects
+        .revisions
+        .insert(format!("view:{view_id}"), view.revision + 1);
+    effects.revisions.insert(
+        format!("database:{database_id}:metadata"),
+        metadata_revision,
+    );
     Ok(())
 }
 
@@ -2301,6 +2414,9 @@ fn position_pages(
              WHERE page_block_id = ?4 AND view_id = ?5",
             params![group_key, rank_key, now, page.page_id, view_id,],
         )?;
+        effects
+            .revisions
+            .insert(format!("position:{view_id}:{}", page.page_id), revision);
     }
     for page in pages {
         let metadata_revision = connection
@@ -2319,6 +2435,9 @@ fn position_pages(
             params![metadata_revision, now, page.page_id],
         )?;
         effects.page_ids.insert(page.page_id.clone());
+        effects
+            .revisions
+            .insert(format!("page:{}:metadata", page.page_id), metadata_revision);
     }
     effects.database_ids.insert(view.database_id);
     effects.data_source_ids.insert(view.data_source_id);
@@ -3057,22 +3176,28 @@ fn update_grouped_positions(
             continue;
         }
         let group_key = database_group_key(value)?;
-        let changed = connection.execute(
-            "UPDATE database_view_page_positions SET group_key = ?1, \
-               revision = revision + 1, updated_at = ?2 \
-             WHERE view_id = ?3 AND page_block_id = ?4",
-            params![group_key, now, view_id, page_id],
-        )?;
-        if changed == 0 {
+        let revision = connection
+            .query_row(
+                "UPDATE database_view_page_positions SET group_key = ?1, \
+                   revision = revision + 1, updated_at = ?2 \
+                 WHERE view_id = ?3 AND page_block_id = ?4 RETURNING revision",
+                params![group_key, now, view_id, page_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(revision) = revision else {
             continue;
-        }
+        };
         connection.execute(
             "UPDATE page_read_model SET view_group_key = ?1, \
                projection_version = projection_version + 1, updated_at = ?2 \
              WHERE page_block_id = ?3 AND view_id = ?4",
             params![group_key, now, page_id, view_id],
         )?;
-        effects.view_ids.insert(view_id);
+        effects.view_ids.insert(view_id.clone());
+        effects
+            .revisions
+            .insert(format!("position:{view_id}:{page_id}"), revision);
     }
     Ok(())
 }
@@ -3186,10 +3311,11 @@ fn refresh_tag_projections(
             continue;
         }
         values.insert("tags".to_owned(), Value::Array(projected));
-        connection.execute(
+        let metadata_revision = connection.query_row(
             "UPDATE blocks SET metadata_revision = metadata_revision + 1, updated_at = ?1 \
-             WHERE id = ?2 AND type = 'page'",
+             WHERE id = ?2 AND type = 'page' RETURNING metadata_revision",
             params![now, page_id],
+            |row| row.get::<_, i64>(0),
         )?;
         connection.execute(
             "UPDATE page_read_model SET metadata_revision = metadata_revision + 1, \
@@ -3201,7 +3327,10 @@ fn refresh_tag_projections(
                 page_id,
             ],
         )?;
-        effects.page_ids.insert(page_id);
+        effects.page_ids.insert(page_id.clone());
+        effects
+            .revisions
+            .insert(format!("page:{page_id}:metadata"), metadata_revision);
     }
     Ok(())
 }
@@ -3262,6 +3391,13 @@ fn commit(
     let data_source_ids = effects.data_source_ids.into_iter().collect::<Vec<_>>();
     let page_ids = effects.page_ids.into_iter().collect::<Vec<_>>();
     let view_ids = effects.view_ids.into_iter().collect::<Vec<_>>();
+    let committed_revisions = effects.revisions;
+    let operation_kinds = request
+        .intent
+        .iter()
+        .map(database_intent_kind)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     let block_ids = page_ids
         .iter()
         .chain(&database_ids)
@@ -3272,11 +3408,15 @@ fn commit(
     let payload = json!({
         "module": MODULE_NAME,
         "kind": "database_changed",
+        "version": request.version,
         "operationCount": request.intent.len(),
+        "operationKinds": operation_kinds,
+        "requestHash": request_hash,
         "databaseIds": database_ids,
         "dataSourceIds": data_source_ids,
         "pageIds": page_ids,
         "viewIds": view_ids,
+        "committedRevisions": committed_revisions,
     });
     connection.execute(
         "INSERT INTO change_log(\
@@ -3303,6 +3443,10 @@ fn commit(
         affected_data_source_ids: data_source_ids.clone(),
         affected_page_ids: page_ids.clone(),
         affected_view_ids: view_ids.clone(),
+        operation_kinds,
+        committed_revisions,
+        change_log_seq: event_sequence,
+        committed_at: now.to_owned(),
     };
     let committed = CommittedModuleValue {
         value: DatabaseCommitValue {
@@ -3336,6 +3480,7 @@ fn commit(
         committed_at: now.to_owned(),
         payload: CoreModuleEventPayload::Database(DatabaseEvent {
             kind: DatabaseEventKind::DatabaseChanged,
+            project_id: project_id.to_owned(),
             database_ids,
             data_source_ids,
             page_ids,

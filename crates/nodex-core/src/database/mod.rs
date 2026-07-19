@@ -205,6 +205,8 @@ fn corrupt(message: &str) -> StoreError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use nodex_core_contracts::database::{
         DatabaseIntent, DatabaseReadMode, DatabaseTarget, DatabaseTransferTarget,
     };
@@ -459,7 +461,25 @@ mod tests {
             applied.committed.receipt.affected_page_ids,
             ["page:database-row"]
         );
-        assert!(applied.event.is_some());
+        assert_eq!(
+            applied.committed.receipt.operation_kinds,
+            ["put_property", "put_option", "set_value"]
+        );
+        assert_eq!(
+            applied.committed.receipt.committed_revisions,
+            BTreeMap::from([
+                (format!("source:{SOURCE_ID}"), 3),
+                (format!("property:{SOURCE_ID}:risk"), 2),
+                (format!("value:{SOURCE_ID}:membership:row:risk"), 1),
+                ("page:page:database-row:metadata".to_owned(), 2),
+            ])
+        );
+        assert_eq!(
+            applied.committed.receipt.change_log_seq,
+            applied.committed.event_sequence
+        );
+        let event = applied.event.as_ref().expect("committed Database event");
+        assert_eq!(applied.committed.receipt.committed_at, event.committed_at);
 
         let replayed = module
             .apply(&context(), request.clone())
@@ -468,6 +488,14 @@ mod tests {
         assert_eq!(
             replayed.committed.event_sequence,
             applied.committed.event_sequence
+        );
+        assert_eq!(
+            replayed.committed.receipt.committed_revisions,
+            applied.committed.receipt.committed_revisions
+        );
+        assert_eq!(
+            replayed.committed.receipt.committed_at,
+            applied.committed.receipt.committed_at
         );
         assert!(replayed.event.is_none());
 

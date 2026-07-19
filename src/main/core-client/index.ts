@@ -21,6 +21,7 @@ export {
 } from "./desktop-library-module-bridge";
 export {
   createDesktopDatabaseModuleBridge,
+  mapCoreDatabaseEvent,
   type DesktopDatabaseModuleBridge,
 } from "./desktop-database-module-bridge";
 export {

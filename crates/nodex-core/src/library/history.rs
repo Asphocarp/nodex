@@ -861,7 +861,10 @@ fn mutation_display(evidence: &MutationEvidence) -> LibraryPageHistoryDisplay {
                     "Reordered Page in a database View",
                     None,
                 )
-            } else if operations.contains(&"transfer_membership") {
+            } else if operations
+                .iter()
+                .any(|operation| matches!(*operation, "transfer_page" | "transfer_membership"))
+            {
                 (
                     LibraryPageHistoryCategory::Database,
                     "Changed Page database membership",

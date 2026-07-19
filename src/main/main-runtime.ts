@@ -135,6 +135,7 @@ import {
   createDesktopLibraryModuleBridge,
   createDesktopDocumentSyncBridge,
   createDesktopProjectWorkspaceBridge,
+  mapCoreDatabaseEvent,
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
   type CoreEventEnvelope,
@@ -1183,6 +1184,14 @@ async function initializeDesktopApp(
 
 function publishCoreModuleEvent(envelope: CoreEventEnvelope): void {
   if (desktopDataAuthorityRuntime?.backend !== "rust") return;
+  const databaseEvent = mapCoreDatabaseEvent(
+    envelope,
+    desktopDataAuthorityRuntime.rootClient.handshake.library_id,
+  );
+  if (databaseEvent) {
+    dbNotifier.notifyDatabaseChanged(databaseEvent);
+    return;
+  }
   const libraryEvent = mapCoreLibraryEvent(
     envelope,
     desktopDataAuthorityRuntime.rootClient.handshake.library_id,
@@ -1647,6 +1656,8 @@ export async function runMainAppStartup(
       typescript: {
         read: async (request) =>
           (await blockMutationWriter.readDatabaseModule(request)).result,
+        apply: async (request) =>
+          (await blockMutationWriter.applyDatabaseModule(request)).result,
       },
     }),
     rendererClientRouter,

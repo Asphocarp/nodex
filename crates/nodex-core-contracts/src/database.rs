@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -161,6 +163,10 @@ pub struct DatabaseReceipt {
     pub affected_data_source_ids: Vec<String>,
     pub affected_page_ids: Vec<String>,
     pub affected_view_ids: Vec<String>,
+    pub operation_kinds: Vec<String>,
+    pub committed_revisions: BTreeMap<String, i64>,
+    pub change_log_seq: i64,
+    pub committed_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -171,6 +177,7 @@ pub struct DatabaseCommitValue {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DatabaseEvent {
     pub kind: DatabaseEventKind,
+    pub project_id: String,
     pub database_ids: Vec<String>,
     pub data_source_ids: Vec<String>,
     pub page_ids: Vec<String>,

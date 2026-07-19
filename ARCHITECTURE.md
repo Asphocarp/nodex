@@ -119,12 +119,16 @@ cursor/evidence/recovery graph through the established strict Page History
 parser before IPC. Page content/search and the remaining deep Module adapters stay
 on the migration inventory and must fail closed rather than fall back in the
 Rust branch.
-Project-scoped Database Module reads now select one cached Core client per
-Project, translate only typed target coordinates, preserve filter/sort/config
-domain JSON unchanged, and validate the returned camel-cased aggregate through
-the existing Database v2 parser. Database writes and trusted Library Database
-access remain on the cutover inventory until their native receipts and
-capability boundaries preserve the established public contract.
+Project-scoped Database Module reads and writes select one cached Core client
+per Project. The Adapter translates only typed target/intent coordinates,
+preserves filter/sort/config/value domain JSON unchanged, and validates both
+camel-cased aggregates and atomic mutation receipts through the existing strict
+Database v2 parsers. Core records operation kinds, every committed revision,
+change-log sequence, and commit time inside the writer transaction; durable
+Database events also retain the actor Project so Electron can publish the
+existing resource-scoped Database and Library invalidations after commit.
+Trusted Library Database access remains on the cutover inventory until it has
+an explicit local capability rather than an Adapter-selected storage Project.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

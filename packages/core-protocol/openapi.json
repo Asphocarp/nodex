@@ -1894,6 +1894,7 @@
         "type": "object",
         "required": [
           "kind",
+          "project_id",
           "database_ids",
           "data_source_ids",
           "page_ids",
@@ -1920,6 +1921,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "project_id": {
+            "type": "string"
           },
           "view_ids": {
             "type": "array",
@@ -10412,7 +10416,11 @@
                           "affected_database_ids",
                           "affected_data_source_ids",
                           "affected_page_ids",
-                          "affected_view_ids"
+                          "affected_view_ids",
+                          "operation_kinds",
+                          "committed_revisions",
+                          "change_log_seq",
+                          "committed_at"
                         ],
                         "properties": {
                           "affected_data_source_ids": {
@@ -10434,6 +10442,29 @@
                             }
                           },
                           "affected_view_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "change_log_seq": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "committed_at": {
+                            "type": "string"
+                          },
+                          "committed_revisions": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "integer",
+                              "format": "int64"
+                            },
+                            "propertyNames": {
+                              "type": "string"
+                            }
+                          },
+                          "operation_kinds": {
                             "type": "array",
                             "items": {
                               "type": "string"

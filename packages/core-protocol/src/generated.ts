@@ -619,6 +619,7 @@ export interface components {
             readonly database_ids: readonly string[];
             readonly kind: components["schemas"]["DatabaseEventKind"];
             readonly page_ids: readonly string[];
+            readonly project_id: string;
             readonly view_ids: readonly string[];
         };
         /** @enum {string} */
@@ -2622,6 +2623,13 @@ export interface components {
                     readonly affected_database_ids: readonly string[];
                     readonly affected_page_ids: readonly string[];
                     readonly affected_view_ids: readonly string[];
+                    /** Format: int64 */
+                    readonly change_log_seq: number;
+                    readonly committed_at: string;
+                    readonly committed_revisions: {
+                        readonly [key: string]: number;
+                    };
+                    readonly operation_kinds: readonly string[];
                 };
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {

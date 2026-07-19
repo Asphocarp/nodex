@@ -12,11 +12,13 @@ import { createCoreLibraryModuleAdapter } from "./core-client/library-module-ada
 import { createCoreDatabaseModuleAdapter } from "./core-client/database-module-adapter";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
+import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { closeDatabase, getDb } from "./local-store/database";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../shared/page-history";
 import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
+import { parseDataSourcePropertyId } from "../shared/database-identities";
 import {
   CANVAS_SCENE_SYNC_VERSION,
   primaryCanvasDocumentId,
@@ -114,6 +116,100 @@ describe("Electron native data authority", () => {
         throw new Error("Expected Core Database catalog");
       }
       expect(databaseCatalog.value.value.databases.length).toBeGreaterThan(0);
+      const primaryDataSource = databaseCatalog.value.value.databases[0]
+        ?.dataSources[0];
+      if (!primaryDataSource) {
+        throw new Error("Core Database catalog omitted the primary Data Source");
+      }
+      const nativePropertyId = parseDataSourcePropertyId("p_rustcore");
+      const databaseWrite = {
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        operationId: "electron-database-adapter-put-property",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        actor: {
+          kind: "electron_renderer",
+          clientId: "renderer:electron-database-adapter",
+        },
+        operations: [{
+          kind: "put_property",
+          dataSourceId: primaryDataSource.dataSourceId,
+          propertyId: nativePropertyId,
+          expectedDataSourceRevision: primaryDataSource.schemaRevision,
+          expectedPropertyRevision: 0,
+          name: "Native Core",
+          valueType: "text",
+          config: {},
+        }],
+      } as const;
+      const databaseEvents: CoreEventEnvelope[] = [];
+      const databaseEventSubscription = await runtime.rootClient.openEventStream(
+        runtime.rootClient.handshake.event_head,
+        (event) => databaseEvents.push(event),
+      );
+      const databaseWriteResult = await database.apply(databaseWrite);
+      expect(databaseWriteResult).toMatchObject({
+        ok: true,
+        value: {
+          operationId: databaseWrite.operationId,
+          duplicate: false,
+          operationKinds: ["put_property"],
+          affectedDataSourceIds: [primaryDataSource.dataSourceId],
+          committedRevisions: {
+            [`property:${primaryDataSource.dataSourceId}:${nativePropertyId}`]: 1,
+          },
+        },
+      });
+      await waitUntil(
+        () => databaseEvents.some((event) =>
+          event.event.operation_id === databaseWrite.operationId),
+        "Core Database event was not published",
+      );
+      expect(databaseEvents.find((event) =>
+        event.event.operation_id === databaseWrite.operationId
+      )).toMatchObject({
+        event: {
+          payload: {
+            module: "database",
+            event: { project_id: projectId },
+          },
+        },
+      });
+      databaseEventSubscription.close();
+      await expect(database.apply(databaseWrite)).resolves.toMatchObject({
+        ok: true,
+        value: {
+          operationId: databaseWrite.operationId,
+          duplicate: true,
+          operationKinds: ["put_property"],
+        },
+      });
+      const updatedDataSource = await database.read({
+        version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+        projectId,
+        read: {
+          target: {
+            kind: "data_source",
+            dataSourceId: primaryDataSource.dataSourceId,
+          },
+          mode: "data_source",
+        },
+      });
+      if (
+        !updatedDataSource.ok
+        || updatedDataSource.value.value.kind !== "data_source"
+      ) {
+        throw new Error("Expected updated Core Data Source descriptor");
+      }
+      expect(updatedDataSource.value.value.value.properties).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            propertyId: nativePropertyId,
+            name: "Native Core",
+            revision: 1,
+          }),
+        ]),
+      );
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);
       const createdProject = await workspace.createProject({
