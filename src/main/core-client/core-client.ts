@@ -61,6 +61,12 @@ import type {
   ProjectWorkspaceCommittedValue,
   ProjectWorkspaceReadResponse,
   ProjectWorkspaceReadSnapshot,
+  StoreAdministrationApplyInput,
+  StoreAdministrationApplyResponse,
+  StoreAdministrationCommittedValue,
+  StoreAdministrationRead,
+  StoreAdministrationReadResponse,
+  StoreAdministrationReadSnapshot,
 } from "./types";
 import { UdsHttpTransport } from "./uds-http";
 
@@ -244,6 +250,39 @@ export class CoreClient implements CoreClientPort {
       },
       this.#moduleHeaders(),
     );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async administrationRead(
+    read: StoreAdministrationRead,
+  ): Promise<StoreAdministrationReadSnapshot> {
+    const response =
+      await this.#transport.requestJson<StoreAdministrationReadResponse>(
+        "POST",
+        "/core/v1/modules/administration/read",
+        { version: PROTOCOL_MAX, read },
+        this.#moduleHeaders(),
+      );
+    if (response.status === "ok") return response.payload;
+    throw new CoreModuleResponseError(response.payload);
+  }
+
+  async administrationApply(
+    input: StoreAdministrationApplyInput,
+  ): Promise<StoreAdministrationCommittedValue> {
+    const response =
+      await this.#transport.requestJson<StoreAdministrationApplyResponse>(
+        "POST",
+        "/core/v1/modules/administration/apply",
+        {
+          version: PROTOCOL_MAX,
+          operation_id: input.operationId,
+          store_epoch: this.handshake.store_epoch,
+          intent: input.intent,
+        },
+        this.#moduleHeaders(),
+      );
     if (response.status === "ok") return response.payload;
     throw new CoreModuleResponseError(response.payload);
   }

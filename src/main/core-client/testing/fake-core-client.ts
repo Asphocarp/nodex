@@ -23,6 +23,10 @@ import type {
   ProjectWorkspaceApplyInput,
   ProjectWorkspaceCommittedValue,
   ProjectWorkspaceReadSnapshot,
+  StoreAdministrationApplyInput,
+  StoreAdministrationCommittedValue,
+  StoreAdministrationRead,
+  StoreAdministrationReadSnapshot,
 } from "../types";
 import type {
   DocumentAwarenessPublishAck,
@@ -43,6 +47,8 @@ export class FakeCoreClient implements CoreClientPort {
   readonly databaseApplies: DatabaseApplyInput[] = [];
   readonly workspaceReads: ProjectWorkspaceRead[] = [];
   readonly workspaceApplies: ProjectWorkspaceApplyInput[] = [];
+  readonly administrationReads: StoreAdministrationRead[] = [];
+  readonly administrationApplies: StoreAdministrationApplyInput[] = [];
   readonly documentReads: Array<{
     readonly clientSessionId: string;
     readonly read: OwnedDocumentRead;
@@ -59,6 +65,8 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #databaseApplyResults: DatabaseCommittedValue[] = [];
   readonly #workspaceReadResults: ProjectWorkspaceReadSnapshot[] = [];
   readonly #workspaceApplyResults: ProjectWorkspaceCommittedValue[] = [];
+  readonly #administrationReadResults: StoreAdministrationReadSnapshot[] = [];
+  readonly #administrationApplyResults: StoreAdministrationCommittedValue[] = [];
   readonly #documentReadResults: OwnedDocumentReadSnapshot[] = [];
   readonly #documentApplyResults: OwnedDocumentCommittedValue[] = [];
   readonly #documentSyncResults: DocumentSyncResponse[] = [];
@@ -96,6 +104,14 @@ export class FakeCoreClient implements CoreClientPort {
 
   enqueueWorkspaceApply(result: ProjectWorkspaceCommittedValue): void {
     this.#workspaceApplyResults.push(result);
+  }
+
+  enqueueAdministrationRead(result: StoreAdministrationReadSnapshot): void {
+    this.#administrationReadResults.push(result);
+  }
+
+  enqueueAdministrationApply(result: StoreAdministrationCommittedValue): void {
+    this.#administrationApplyResults.push(result);
   }
 
   enqueueDocumentRead(result: OwnedDocumentReadSnapshot): void {
@@ -175,6 +191,24 @@ export class FakeCoreClient implements CoreClientPort {
     this.workspaceApplies.push(input);
     const result = this.#workspaceApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Project Workspace apply");
+    return result;
+  }
+
+  async administrationRead(
+    read: StoreAdministrationRead,
+  ): Promise<StoreAdministrationReadSnapshot> {
+    this.administrationReads.push(read);
+    const result = this.#administrationReadResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Store Administration read");
+    return result;
+  }
+
+  async administrationApply(
+    input: StoreAdministrationApplyInput,
+  ): Promise<StoreAdministrationCommittedValue> {
+    this.administrationApplies.push(input);
+    const result = this.#administrationApplyResults.shift();
+    if (!result) throw new Error("Fake Core client has no queued Store Administration apply");
     return result;
   }
 

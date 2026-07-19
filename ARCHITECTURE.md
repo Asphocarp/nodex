@@ -94,8 +94,18 @@ sidebar snapshot, transcript-search results, or bounded search-backfill work.
 Profile/Library Adapter identity, Project lifecycle, primary Database bindings,
 JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed. Store Administration and the
-Automation Scheduled Page mutation aggregate remain migration work; unavailable
-semantics do not fall back to direct native SQL.
+remaining Store replacement/maintenance operations remain migration work;
+unavailable semantics do not fall back to direct native SQL. Automation now
+owns its accepted definition, lease, run, reminder, and Scheduled Page
+occurrence surface. Store Administration owns v83 readiness and backup listing,
+plus online SQLite backup creation through the same generated `read`/`apply`
+boundary. A backup uses a deterministic operation-owned directory, publishes a
+v2-compatible manifest last, validates the immutable snapshot, fsyncs database,
+assets, manifest, and directories, then commits its receipt/event. A retry after
+filesystem publication but before the SQLite receipt adopts only an exact
+operation/request-fingerprint match. Restore, deletion, retention, and general
+maintenance remain unavailable until the shared runtime can drain and close
+every live store generation safely.
 
 Project creation is the first native Workspace writer aggregate. One writer job
 creates the Project/sidebar order/sources, its primary Database Block and

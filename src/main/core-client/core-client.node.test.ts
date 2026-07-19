@@ -429,6 +429,40 @@ describe("CoreClient over a Unix socket", () => {
       await expect(unauthorizedReminderClaim).rejects.toMatchObject({
         coreError: { code: "unauthorized" },
       });
+      const administrationStatus = await client.administrationRead({ kind: "status" });
+      expect(administrationStatus.value).toEqual({
+        kind: "status",
+        readiness: "ready",
+        schema_version: 83,
+        schema_owner: "rust",
+        integrity: "unknown",
+      });
+      const backupInput = {
+        operationId: "node-administration-backup-1",
+        intent: {
+          kind: "create_backup" as const,
+          label: "Node integration backup",
+          include_assets: false,
+        },
+      };
+      const backupCommitted = await nativeCli.administrationApply(backupInput);
+      expect(backupCommitted.value.backup_id).toEqual(expect.any(String));
+      expect(backupCommitted.receipt.duplicate).toBe(false);
+      const backupReplay = await client.administrationApply(backupInput);
+      expect(backupReplay.value.backup_id).toBe(backupCommitted.value.backup_id);
+      expect(backupReplay.event_sequence).toBe(backupCommitted.event_sequence);
+      expect(backupReplay.receipt.duplicate).toBe(true);
+      const backups = await client.administrationRead({ kind: "backups" });
+      expect(backups.value).toMatchObject({
+        kind: "backups",
+        items: [
+          {
+            backup_id: backupCommitted.value.backup_id,
+            label: "Node integration backup",
+            byte_length: expect.any(Number),
+          },
+        ],
+      });
       const workspaceInput = {
         operationId: "node-workspace-create-1",
         intent: {

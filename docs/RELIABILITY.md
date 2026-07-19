@@ -66,6 +66,16 @@
 - Project rename updates linked Codex rows transactionally with project metadata updates.
 
 ## Backup and Restore
+- The native Rust Core migration lane exposes v83 readiness, backup inventory,
+  and manual online backup creation over its private generated Module route.
+  Backup identity is derived from Profile plus operation identity; the manifest
+  binds the full request fingerprint, so an interruption after directory
+  publication but before receipt commit is adopted on exact retry and rejected
+  on collision. Staging and managed-asset trees refuse symlinks and special
+  files, the immutable candidate must pass schema-owner, integrity, and foreign
+  key validation, and every file plus containing directory is flushed before
+  publication. Native restore/delete/prune/maintenance remain closed until the
+  Core runtime can fence work and close all SQLite generations.
 - Whole-store backups include `nodex.db` and managed asset files from one quiesced boundary. The asset gate first drains accepted uploads/materialization and rejects new mutations; the FIFO writer then crosses a barrier, destroys its Y.Doc cache, and closes the worker SQLite connection. The main connection also closes and fails lazy access until a standalone read-only backup source finishes.
 - Manual and scheduled backups are managed by `local-store/backups.ts` and use SQLite's online backup API. The staged DB and every asset file/directory are fsynced before the backup directory rename is published.
 - Restore requires explicit confirmation. Its optional pre-restore safety backup is created after the same asset/writer fence is acquired and before replacement, without reopening a write window between those operations.

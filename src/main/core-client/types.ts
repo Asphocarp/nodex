@@ -58,6 +58,21 @@ export type AutomationIntent = AutomationApplyRequest["intent"];
 export type AutomationApplyResponse = components["schemas"]["AutomationApplyResponse"];
 export type AutomationCommittedValue = SuccessfulPayload<AutomationApplyResponse>;
 
+export type StoreAdministrationReadRequest =
+  components["schemas"]["StoreAdministrationReadRequest"];
+export type StoreAdministrationRead = StoreAdministrationReadRequest["read"];
+export type StoreAdministrationReadResponse =
+  components["schemas"]["StoreAdministrationReadResponse"];
+export type StoreAdministrationReadSnapshot =
+  SuccessfulPayload<StoreAdministrationReadResponse>;
+export type StoreAdministrationApplyRequest =
+  components["schemas"]["StoreAdministrationApplyRequest"];
+export type StoreAdministrationIntent = StoreAdministrationApplyRequest["intent"];
+export type StoreAdministrationApplyResponse =
+  components["schemas"]["StoreAdministrationApplyResponse"];
+export type StoreAdministrationCommittedValue =
+  SuccessfulPayload<StoreAdministrationApplyResponse>;
+
 export interface ProjectWorkspaceApplyInput {
   readonly operationId: string;
   readonly intent: ProjectWorkspaceIntent;
@@ -66,6 +81,11 @@ export interface ProjectWorkspaceApplyInput {
 export interface AutomationApplyInput {
   readonly operationId: string;
   readonly intent: AutomationIntent;
+}
+
+export interface StoreAdministrationApplyInput {
+  readonly operationId: string;
+  readonly intent: StoreAdministrationIntent;
 }
 
 export type OwnedDocumentReadRequest = components["schemas"]["OwnedDocumentReadRequest"];
@@ -115,6 +135,12 @@ export interface CoreClientPort {
   workspaceApply(input: ProjectWorkspaceApplyInput): Promise<ProjectWorkspaceCommittedValue>;
   automationRead(read: AutomationRead): Promise<AutomationReadSnapshot>;
   automationApply(input: AutomationApplyInput): Promise<AutomationCommittedValue>;
+  administrationRead(
+    read: StoreAdministrationRead,
+  ): Promise<StoreAdministrationReadSnapshot>;
+  administrationApply(
+    input: StoreAdministrationApplyInput,
+  ): Promise<StoreAdministrationCommittedValue>;
   documentRead(
     clientSessionId: string,
     read: OwnedDocumentRead,

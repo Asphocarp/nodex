@@ -20,6 +20,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fs2::FileExt;
+use nodex_core::administration::StoreAdministrationModule;
 use nodex_core::automation::AutomationModule;
 use nodex_core::database::DatabaseModule;
 use nodex_core::document::{
@@ -43,6 +44,8 @@ use nodex_core_protocol::{
     OwnedDocumentReadResponse, PROTOCOL_MAX, PROTOCOL_MIN, ProjectWorkspaceApplyRequest,
     ProjectWorkspaceApplyResponse, ProjectWorkspaceReadRequest, ProjectWorkspaceReadResponse,
     ResponseEnvelope, RuntimeDescriptor, ShutdownResponse, ShutdownStatus,
+    StoreAdministrationApplyRequest, StoreAdministrationApplyResponse,
+    StoreAdministrationReadRequest, StoreAdministrationReadResponse,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -93,6 +96,7 @@ struct ServerState {
     database: DatabaseModule,
     workspace: ProjectWorkspaceModule,
     automation: AutomationModule,
+    administration: StoreAdministrationModule,
     document: OwnedDocumentModule,
     document_realtime: OwnedDocumentRealtimeAdapter,
     _store: SqliteStoreKernel,
@@ -359,6 +363,41 @@ async fn automation_apply(
         Err(error) => ResponseEnvelope::Error(error),
     };
     Json(AutomationApplyResponse(response))
+}
+
+async fn administration_read(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(StoreAdministrationReadRequest(request)): Json<StoreAdministrationReadRequest>,
+) -> Json<StoreAdministrationReadResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.administration.read(&context, request) {
+            Ok(snapshot) => ResponseEnvelope::Ok(snapshot),
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(StoreAdministrationReadResponse(response))
+}
+
+async fn administration_apply(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+    Json(StoreAdministrationApplyRequest(request)): Json<StoreAdministrationApplyRequest>,
+) -> Json<StoreAdministrationApplyResponse> {
+    let response = match module_context(&state, &headers) {
+        Ok(context) => match state.administration.apply(&context, request) {
+            Ok(outcome) => {
+                if let Some(event) = outcome.event {
+                    publish_event(&state, event);
+                }
+                ResponseEnvelope::Ok(outcome.committed)
+            }
+            Err(error) => ResponseEnvelope::Error(error),
+        },
+        Err(error) => ResponseEnvelope::Error(error),
+    };
+    Json(StoreAdministrationApplyResponse(response))
 }
 
 async fn document_read(State(state): State<Arc<ServerState>>, request: Request) -> Response {
@@ -738,13 +777,6 @@ async fn shutdown(State(state): State<Arc<ServerState>>) -> Json<ShutdownRespons
     })
 }
 
-async fn unavailable_module() -> impl IntoResponse {
-    ApiError::new(
-        StatusCode::NOT_IMPLEMENTED,
-        "Module implementation is not available in the Milestone 1 tracer",
-    )
-}
-
 fn router(state: Arc<ServerState>) -> Router {
     let regular_routes = Router::new()
         .route("/core/v1/health", get(health))
@@ -761,11 +793,11 @@ fn router(state: Arc<ServerState>) -> Router {
         .route("/core/v1/modules/automation/apply", post(automation_apply))
         .route(
             "/core/v1/modules/administration/read",
-            post(unavailable_module),
+            post(administration_read),
         )
         .route(
             "/core/v1/modules/administration/apply",
-            post(unavailable_module),
+            post(administration_apply),
         )
         .layer(DefaultBodyLimit::max(MAX_JSON_REQUEST_BYTES));
     let document_routes = Router::new()
@@ -1312,6 +1344,8 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let library = LibraryModule::new(&identity.profile_id, &identity.library_id, &store);
     let database = DatabaseModule::new(&identity.profile_id, &identity.library_id, &store);
     let automation = AutomationModule::new(&identity.profile_id, &identity.library_id, &store);
+    let administration =
+        StoreAdministrationModule::new(&identity.profile_id, &identity.library_id, &store);
     let document = OwnedDocumentModule::new(
         descriptor.profile_id.clone(),
         identity.library_id.clone(),
@@ -1324,6 +1358,7 @@ pub async fn run(home: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         database,
         workspace,
         automation,
+        administration,
         document_realtime: OwnedDocumentRealtimeAdapter::new(document.clone()),
         document,
         _store: store,
