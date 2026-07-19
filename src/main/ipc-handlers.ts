@@ -1679,6 +1679,7 @@ export function registerIpcHandlers(
       options.documentSync?.getVersion(request) ??
       blockMutationWriter.getDocumentVersion(request),
     restoreVersion: (request) =>
+      options.documentSync?.restoreVersion(request) ??
       documentSyncHub.applyDocumentMutation(request),
   });
 

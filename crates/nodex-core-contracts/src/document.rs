@@ -121,6 +121,8 @@ pub enum OwnedDocumentIntent {
         version_id: String,
         generation: i64,
         expected_head_seq: i64,
+        actor: Value,
+        write_fence_prepared: bool,
     },
     ApplyOwnerCommand {
         command: DocumentOwnerCommand,
@@ -272,12 +274,34 @@ pub struct OwnedDocumentCommitValue {
     pub owner_effect: Option<DocumentOwnerEffect>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_effect: Option<DocumentCheckpointEffect>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutation_effect: Option<DocumentMutationEffect>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct DocumentCheckpointEffect {
     pub checkpoint: Value,
     pub duplicate: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentMutationCoordination {
+    MergeFriendly,
+    WriteFence,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct DocumentMutationEffect {
+    pub base_head_seq: i64,
+    pub touched_block_ids: Vec<String>,
+    pub created_block_ids: Vec<String>,
+    pub deleted_block_ids: Vec<String>,
+    pub updated_block_ids: Vec<String>,
+    pub moved_block_ids: Vec<String>,
+    pub write_fence_block_ids: Vec<String>,
+    pub title_changed: bool,
+    pub coordination: DocumentMutationCoordination,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

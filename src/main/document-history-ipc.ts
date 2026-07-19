@@ -5,6 +5,7 @@ import type {
   DocumentVersionSummary,
   GetDocumentVersion,
   ListDocumentVersions,
+  PrepareDocumentVersionRestore,
 } from "../shared/block-documents/document-history";
 import {
   bindTrustedDocumentVersionCheckpoint,
@@ -14,10 +15,7 @@ import {
   parseListDocumentVersions,
   type DocumentHistoryCommandResult,
 } from "../shared/block-documents/document-history-transport";
-import type {
-  DocumentMutationRequest,
-  DocumentOperationCommandResult,
-} from "../shared/block-documents/document-operations";
+import type { DocumentOperationCommandResult } from "../shared/block-documents/document-operations";
 import {
   bindTrustedDocumentMutation,
   documentMutationFailure,
@@ -57,7 +55,7 @@ export interface DocumentHistoryIpcDependencies {
     request: GetDocumentVersion,
   ) => Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
   readonly restoreVersion: (
-    request: DocumentMutationRequest,
+    request: PrepareDocumentVersionRestore,
   ) => Promise<DocumentOperationCommandResult>;
 }
 

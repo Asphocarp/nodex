@@ -382,6 +382,172 @@ describe("Core Document sync adapter", () => {
     })).resolves.toEqual({ ok: true, value: documentVersionDetail() });
   });
 
+  test("maps a write-fenced forward restore and its durable no-change outcome", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    const request = {
+      version: 1 as const,
+      mutationId: "restore:history",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      documentId: "document:one",
+      versionId: documentVersionSummary().versionId,
+      generation: 1,
+      expectedHeadSeq: 2,
+      clientSessionId: "renderer:history",
+      actor: { kind: "electron_renderer", clientId: "renderer:history" },
+    };
+    client.enqueueDocumentApply({
+      store_epoch: request.storeEpoch,
+      event_sequence: 9,
+      value: {
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+        outcome: "committed",
+        committed_at: "2026-07-19T21:12:00.000Z",
+        mutation_effect: {
+          base_head_seq: 2,
+          touched_block_ids: ["page:one", "block:history"],
+          created_block_ids: [],
+          deleted_block_ids: [],
+          updated_block_ids: ["block:history"],
+          moved_block_ids: [],
+          write_fence_block_ids: ["page:one", "block:history"],
+          title_changed: true,
+          coordination: "write_fence",
+        },
+      },
+      receipt: {
+        operation_id: request.mutationId,
+        duplicate: false,
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+      },
+    });
+
+    await expect(adapter.restoreVersion(request)).resolves.toEqual({
+      ok: true,
+      value: {
+        version: 1,
+        mutationKind: "document_version_restore",
+        mutationId: request.mutationId,
+        projectId: request.projectId,
+        storeEpoch: request.storeEpoch,
+        documentId: request.documentId,
+        generation: 1,
+        baseHeadSeq: 2,
+        headSeq: 3,
+        touchedBlockIds: ["page:one", "block:history"],
+        createdBlockIds: [],
+        deletedBlockIds: [],
+        updatedBlockIds: ["block:history"],
+        movedBlockIds: [],
+        writeFenceBlockIds: ["page:one", "block:history"],
+        titleChanged: true,
+        coordination: "write_fence",
+        changeLogSeq: 9,
+        committedAt: "2026-07-19T21:12:00.000Z",
+        duplicate: false,
+      },
+    });
+    expect(client.documentApplies).toEqual([{
+      operationId: request.mutationId,
+      clientSessionId: request.clientSessionId,
+      intent: {
+        kind: "restore_version",
+        document_id: request.documentId,
+        version_id: request.versionId,
+        generation: request.generation,
+        expected_head_seq: request.expectedHeadSeq,
+        actor: request.actor,
+        write_fence_prepared: false,
+      },
+    }]);
+
+    const noChangeRequest = {
+      ...request,
+      mutationId: "restore:already-current",
+      expectedHeadSeq: 3,
+    };
+    client.enqueueDocumentApply({
+      store_epoch: request.storeEpoch,
+      event_sequence: 9,
+      value: {
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+        outcome: "no_change",
+      },
+      receipt: {
+        operation_id: noChangeRequest.mutationId,
+        duplicate: false,
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+      },
+    });
+    await expect(adapter.restoreVersion(noChangeRequest)).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "no_change",
+        mutationId: noChangeRequest.mutationId,
+        retryable: false,
+      },
+    });
+  });
+
+  test("rejects a Core restore effect that omits a changed Block from touched IDs", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreDocumentSyncAdapter(client);
+    const request = {
+      version: 1 as const,
+      mutationId: "restore:corrupt-effect",
+      projectId: "project:one",
+      storeEpoch: "epoch:test",
+      documentId: "document:one",
+      versionId: documentVersionSummary().versionId,
+      generation: 1,
+      expectedHeadSeq: 2,
+      actor: { kind: "electron_renderer" },
+    };
+    client.enqueueDocumentApply({
+      store_epoch: request.storeEpoch,
+      event_sequence: 9,
+      value: {
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+        outcome: "committed",
+        committed_at: "2026-07-19T21:12:00.000Z",
+        mutation_effect: {
+          base_head_seq: 2,
+          touched_block_ids: [],
+          created_block_ids: [],
+          deleted_block_ids: [],
+          updated_block_ids: ["block:history"],
+          moved_block_ids: [],
+          write_fence_block_ids: ["block:history"],
+          title_changed: false,
+          coordination: "write_fence",
+        },
+      },
+      receipt: {
+        operation_id: request.mutationId,
+        duplicate: false,
+        document_id: request.documentId,
+        generation: request.generation,
+        head_seq: 3,
+      },
+    });
+
+    await expect(adapter.restoreVersion(request)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "document_state_corrupt", retryable: false },
+    });
+  });
+
   test("uses a placeholder execution head only for durable owner receipt replay", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);

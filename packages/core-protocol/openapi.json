@@ -1515,6 +1515,16 @@
                 "type": "integer",
                 "format": "int64"
               },
+              "mutation_effect": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DocumentMutationEffect"
+                  }
+                ]
+              },
               "outcome": {
                 "$ref": "#/components/schemas/DocumentCommitOutcome"
               },
@@ -2240,6 +2250,75 @@
           "generation_changed",
           "restored"
         ]
+      },
+      "DocumentMutationCoordination": {
+        "type": "string",
+        "enum": [
+          "merge_friendly",
+          "write_fence"
+        ]
+      },
+      "DocumentMutationEffect": {
+        "type": "object",
+        "required": [
+          "base_head_seq",
+          "touched_block_ids",
+          "created_block_ids",
+          "deleted_block_ids",
+          "updated_block_ids",
+          "moved_block_ids",
+          "write_fence_block_ids",
+          "title_changed",
+          "coordination"
+        ],
+        "properties": {
+          "base_head_seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "coordination": {
+            "$ref": "#/components/schemas/DocumentMutationCoordination"
+          },
+          "created_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "deleted_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "moved_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "title_changed": {
+            "type": "boolean"
+          },
+          "touched_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "updated_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "write_fence_block_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "DocumentOwnerCommand": {
         "oneOf": [
@@ -5849,9 +5928,12 @@
                   "version_id",
                   "generation",
                   "expected_head_seq",
+                  "actor",
+                  "write_fence_prepared",
                   "kind"
                 ],
                 "properties": {
+                  "actor": {},
                   "document_id": {
                     "type": "string"
                   },
@@ -5871,6 +5953,9 @@
                   },
                   "version_id": {
                     "type": "string"
+                  },
+                  "write_fence_prepared": {
+                    "type": "boolean"
                   }
                 }
               },
@@ -11000,6 +11085,16 @@
                       "head_seq": {
                         "type": "integer",
                         "format": "int64"
+                      },
+                      "mutation_effect": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/DocumentMutationEffect"
+                          }
+                        ]
                       },
                       "outcome": {
                         "$ref": "#/components/schemas/DocumentCommitOutcome"

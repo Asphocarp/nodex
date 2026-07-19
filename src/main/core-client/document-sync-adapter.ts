@@ -18,6 +18,7 @@ import type {
   DocumentVersionSummary,
   GetDocumentVersion,
   ListDocumentVersions,
+  PrepareDocumentVersionRestore,
 } from "../../shared/block-documents/document-history";
 import {
   DocumentHistoryContractError,
@@ -26,6 +27,13 @@ import {
   parseDocumentVersionSummary,
   type DocumentHistoryCommandResult,
 } from "../../shared/block-documents/document-history-transport";
+import {
+  DocumentOperationContractError,
+  parseDocumentOperationResult,
+  parseDocumentVersionRestore,
+  type DocumentOperationCommandResult,
+} from "../../shared/block-documents/document-operations";
+import { documentMutationFailure } from "../../shared/block-documents/document-operation-transport";
 import type {
   OwnedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
@@ -112,6 +120,10 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   getVersion(
     request: GetDocumentVersion,
   ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
+  restoreVersion(
+    request: PrepareDocumentVersionRestore,
+    writeFencePrepared?: boolean,
+  ): Promise<DocumentOperationCommandResult>;
 }
 
 const executionHead = (
@@ -416,6 +428,87 @@ const historyFailure = <Value>(
           retryable: error.coreError.retryable,
         }),
       };
+  }
+};
+
+const documentRestoreFailure = (
+  request: PrepareDocumentVersionRestore,
+  error: unknown,
+): DocumentOperationCommandResult => {
+  if (error instanceof DocumentOperationContractError) {
+    return {
+      ok: false,
+      error: documentMutationFailure(
+        "document_state_corrupt",
+        error.message,
+        { mutationId: request.mutationId },
+      ),
+    };
+  }
+  if (!(error instanceof CoreModuleResponseError)) {
+    return {
+      ok: false,
+      error: documentMutationFailure(
+        "unknown",
+        error instanceof Error ? error.message : String(error),
+        { mutationId: request.mutationId, retryable: true },
+      ),
+    };
+  }
+  const recovery = error.coreError.recovery;
+  const failure = (
+    code: Parameters<typeof documentMutationFailure>[0],
+    options: Parameters<typeof documentMutationFailure>[2] = {},
+  ): DocumentOperationCommandResult => ({
+    ok: false,
+    error: documentMutationFailure(code, error.message, {
+      mutationId: request.mutationId,
+      ...options,
+    }),
+  });
+  switch (error.coreError.code) {
+    case "invalid_input":
+      return failure("invalid_document_operation_request");
+    case "unauthorized":
+      return failure("project_scope_mismatch");
+    case "not_found":
+      return failure(
+        error.message.toLowerCase().includes("version")
+          ? "document_version_not_found"
+          : "document_not_found",
+      );
+    case "stale_store_epoch":
+      return failure("store_epoch_mismatch");
+    case "generation_conflict":
+      if (recovery.kind !== "current_document_head") {
+        return failure("unknown", { retryable: error.coreError.retryable });
+      }
+      return failure("document_generation_conflict", {
+        expectedGeneration: request.generation,
+        actualGeneration: recovery.generation,
+      });
+    case "head_conflict":
+      if (recovery.kind !== "current_document_head") {
+        return failure("unknown", { retryable: error.coreError.retryable });
+      }
+      return failure("document_head_conflict", {
+        expectedHeadSeq: request.expectedHeadSeq,
+        actualHeadSeq: recovery.head_seq,
+      });
+    case "idempotency_key_reused":
+      return failure("mutation_id_collision");
+    case "revision_conflict":
+      if (error.message.toLowerCase().includes("write fence")) {
+        return failure("write_fence_required", { retryable: true });
+      }
+      return failure("unknown", { retryable: error.coreError.retryable });
+    case "invalid_document_schema":
+    case "schema_unsupported":
+      return failure("invalid_operation");
+    case "store_corrupt":
+      return failure("document_state_corrupt");
+    default:
+      return failure("unknown", { retryable: error.coreError.retryable });
   }
 };
 
@@ -774,6 +867,125 @@ export const createCoreDocumentSyncAdapter = (
         return { ok: true, value: detail };
       } catch (error) {
         return historyFailure(error);
+      }
+    },
+    restoreVersion: async (rawRequest, writeFencePrepared = false) => {
+      let request: PrepareDocumentVersionRestore;
+      try {
+        request = parseDocumentVersionRestore(rawRequest);
+      } catch (error) {
+        return {
+          ok: false,
+          error: documentMutationFailure(
+            "invalid_document_operation_request",
+            error instanceof Error ? error.message : String(error),
+            { mutationId: rawRequest.mutationId },
+          ),
+        };
+      }
+      try {
+        const committed = await client.documentApply({
+          operationId: request.mutationId,
+          clientSessionId:
+            request.clientSessionId ?? "electron:document-history",
+          intent: {
+            kind: "restore_version",
+            document_id: request.documentId,
+            version_id: request.versionId,
+            generation: request.generation,
+            expected_head_seq: request.expectedHeadSeq,
+            actor: request.actor,
+            write_fence_prepared: writeFencePrepared,
+          },
+        });
+        if (
+          committed.store_epoch !== request.storeEpoch
+          || committed.receipt.operation_id !== request.mutationId
+          || committed.receipt.document_id !== request.documentId
+          || committed.receipt.generation !== request.generation
+          || committed.value.document_id !== request.documentId
+          || committed.value.generation !== request.generation
+          || committed.value.head_seq !== committed.receipt.head_seq
+        ) {
+          throw new DocumentOperationContractError(
+            "Core Document restore receipt escaped its request boundary",
+          );
+        }
+        if (committed.value.outcome === "no_change") {
+          if (committed.value.head_seq !== request.expectedHeadSeq) {
+            throw new DocumentOperationContractError(
+              "Core no-change restore advanced the Document head",
+            );
+          }
+          return {
+            ok: false,
+            error: documentMutationFailure(
+              "no_change",
+              `Document is already equal to version ${request.versionId}`,
+              { mutationId: request.mutationId },
+            ),
+          };
+        }
+        const effect = committed.value.mutation_effect;
+        const committedAt = committed.value.committed_at;
+        if (
+          !effect
+          || !committedAt
+          || effect.base_head_seq !== request.expectedHeadSeq
+          || committed.value.head_seq !== request.expectedHeadSeq + 1
+          || effect.coordination !== "write_fence"
+        ) {
+          throw new DocumentOperationContractError(
+            "Core Document restore effect escaped its write-fenced head boundary",
+          );
+        }
+        const touched = new Set(effect.touched_block_ids);
+        if (
+          [
+            ...effect.created_block_ids,
+            ...effect.deleted_block_ids,
+            ...effect.updated_block_ids,
+            ...effect.moved_block_ids,
+          ].some((blockId) => !touched.has(blockId))
+        ) {
+          throw new DocumentOperationContractError(
+            "Core Document restore effect omitted a semantic change from touched Blocks",
+          );
+        }
+        const result = parseDocumentOperationResult({
+          version: 1,
+          mutationKind: "document_version_restore",
+          mutationId: request.mutationId,
+          projectId: request.projectId,
+          storeEpoch: committed.store_epoch,
+          documentId: committed.value.document_id,
+          generation: committed.value.generation,
+          baseHeadSeq: effect.base_head_seq,
+          headSeq: committed.value.head_seq,
+          touchedBlockIds: effect.touched_block_ids,
+          createdBlockIds: effect.created_block_ids,
+          deletedBlockIds: effect.deleted_block_ids,
+          updatedBlockIds: effect.updated_block_ids,
+          movedBlockIds: effect.moved_block_ids,
+          writeFenceBlockIds: effect.write_fence_block_ids,
+          titleChanged: effect.title_changed,
+          coordination: effect.coordination,
+          changeLogSeq: committed.event_sequence,
+          committedAt,
+          duplicate: committed.receipt.duplicate,
+        });
+        if (
+          result.projectId !== request.projectId
+          || result.documentId !== request.documentId
+          || result.mutationId !== request.mutationId
+        ) {
+          throw new DocumentOperationContractError(
+            "Core Document restore result escaped its public identity boundary",
+          );
+        }
+        return { ok: true, value: result };
+      } catch (error) {
+        return documentRestoreFailure(request, error);
       }
     },
     sync,

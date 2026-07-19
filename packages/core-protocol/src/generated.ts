@@ -516,6 +516,7 @@ export interface components {
                 readonly generation: number;
                 /** Format: int64 */
                 readonly head_seq: number;
+                readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                 readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                 readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
             };
@@ -701,6 +702,20 @@ export interface components {
         };
         /** @enum {string} */
         readonly DocumentInvalidationReason: "access_changed" | "generation_changed" | "restored";
+        /** @enum {string} */
+        readonly DocumentMutationCoordination: "merge_friendly" | "write_fence";
+        readonly DocumentMutationEffect: {
+            /** Format: int64 */
+            readonly base_head_seq: number;
+            readonly coordination: components["schemas"]["DocumentMutationCoordination"];
+            readonly created_block_ids: readonly string[];
+            readonly deleted_block_ids: readonly string[];
+            readonly moved_block_ids: readonly string[];
+            readonly title_changed: boolean;
+            readonly touched_block_ids: readonly string[];
+            readonly updated_block_ids: readonly string[];
+            readonly write_fence_block_ids: readonly string[];
+        };
         readonly DocumentOwnerCommand: {
             readonly before?: null | components["schemas"]["DocumentSpaceAnchor"];
             readonly document_id: string;
@@ -1588,6 +1603,7 @@ export interface components {
                 readonly source_change_seq?: number | null;
                 readonly source_mutation_id?: string | null;
             } | {
+                readonly actor: unknown;
                 readonly document_id: string;
                 /** Format: int64 */
                 readonly expected_head_seq: number;
@@ -1596,6 +1612,7 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "restore_version";
                 readonly version_id: string;
+                readonly write_fence_prepared: boolean;
             } | {
                 readonly command: components["schemas"]["DocumentOwnerCommand"];
                 /** @enum {string} */
@@ -2752,6 +2769,7 @@ export interface components {
                     readonly generation: number;
                     /** Format: int64 */
                     readonly head_seq: number;
+                    readonly mutation_effect?: null | components["schemas"]["DocumentMutationEffect"];
                     readonly outcome: components["schemas"]["DocumentCommitOutcome"];
                     readonly owner_effect?: null | components["schemas"]["DocumentOwnerEffect"];
                 };

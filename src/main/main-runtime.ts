@@ -1695,6 +1695,8 @@ export async function runMainAppStartup(
           await blockMutationWriter.listDocumentVersions(request),
         getVersion: async (request) =>
           await blockMutationWriter.getDocumentVersion(request),
+        restoreVersion: async (request) =>
+          await documentSyncHub.applyDocumentMutation(request),
       },
     }),
     projectWorkspace: createDesktopProjectWorkspaceBridge({

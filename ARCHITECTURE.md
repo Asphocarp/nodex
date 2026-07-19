@@ -130,9 +130,18 @@ summary and distinguishes operation replay from an already-existing identical
 version. Pagination carries the full `(baseHeadSeq, createdAt, versionId)`
 cursor and Core verifies all three coordinates against the retained row before
 reading the next page. The Adapter validates every returned summary against its
-Project, Document, metadata, and materialization boundary. Forward restore is
-still on the semantic Document-mutation migration inventory, so this history
-slice alone does not complete the Rust desktop workflow.
+Project, Document, metadata, and materialization boundary. Forward restore uses
+a receipt-first two-phase command: Core returns an existing durable mutation
+without reacquiring a lease, but a first execution fails with
+`write_fence_required`. The native bridge then asks every exact Yjs or Canvas
+subscription for a bounded flush/freeze ACK, rejects a resolved head that moved
+past the request, and only then resubmits with trusted write-fence evidence.
+Core commits the forward update, before/after restore checkpoints, semantic
+Block effect, change event, canonical timestamp, and exact-retry receipt in one
+writer transaction. Release carries the committed head back to each frozen
+provider. Renderer/connection audit identity and the host lease are excluded
+from semantic retry identity, so a reconnect or later head cannot hide an
+already-committed receipt.
 Project-scoped Page History reads also use the Library Module Adapter: the
 renderer request selects the exact Project client, Core evaluates recursive
 resource access in one read snapshot, and the Adapter maps the typed native
@@ -530,7 +539,7 @@ or the Electron client from reaching the local store.
 - `block-mutation-writer.ts`, `block-mutation-worker.ts`, and `block-mutation-worker-protocol.ts`: the single asynchronous SQLite writer seam. IPC/HTTP handlers enqueue Page lifecycle/parent, Block property/Database Module, stable-ID Document, owned-Document preparation, Yjs sync/apply, Canvas scene, transfer, history, binding/grant, and maintenance commands into one FIFO worker. It owns the SQLite connection and bounded Y.Doc cache for `block_tree`, while normalized Canvas authority is relational; typed receipts return only after durability.
 - `local-store/local-profile-library.ts`, `content-resource-authority.ts`, and `library-module-runtime.ts`: resolve the one local human Profile/Library independently of visible Project lifecycle, bind trusted application-window or loopback authority, and implement bounded Library navigation plus structural commands. Private compatibility ownership is selected only inside the worker; Library Page Detail, Database, Property, and Owned Document results expose `accessContext: { kind: "library" }` and never expose that storage Project.
 - `library-module-ipc.ts`, `library-module-http.ts`, and the Library event stream: equivalent trusted adapters and resource-addressed post-commit invalidation for Project-independent Library windows. Library events are hints to refetch authority, not content payloads, and remain useful when every Project is archived.
-- `document-sync-hub.ts`, `document-sync-runtime.ts`, and `document-sync-http.ts`: one targeted realtime plane shared by Electron and browser clients. It requires subscribe-before-sync, evaluates current Project resource access, fans out durable engine-discriminated updates, keeps Yjs Awareness ephemeral, and repairs Canvas gaps with canonical full-scene sync. `BlockTransfer`, Additional Document commands, and identity-destructive Agent operations reuse one short per-surface flush/freeze lease. Editability changes in place without remounting parent EditorViews/nested participants; an accepted provider lease may drain headlessly past visual teardown. Post-commit resync dispatches through the registered engine.
+- `document-sync-hub.ts`, `document-sync-runtime.ts`, and `document-sync-http.ts`: one targeted realtime plane shared by browser clients and the TypeScript desktop backend. It requires subscribe-before-sync, evaluates current Project resource access, fans out durable engine-discriminated updates, keeps Yjs Awareness ephemeral, and repairs Canvas gaps with canonical full-scene sync. `BlockTransfer`, Additional Document commands, and identity-destructive Agent operations reuse one short per-surface flush/freeze lease. The Rust desktop bridge registers its native Yjs/Canvas subscriptions with the same pure lease coordinator and owns restore preparation/release without invoking the TypeScript Hub. Editability changes in place without remounting parent EditorViews/nested participants; an accepted provider lease may drain headlessly past visual teardown. Post-commit resync dispatches through the registered engine.
 - `block-transfer-ipc.ts` and `block-transfer-http.ts`: equivalent trusted Adapters for logical same-Library parent Move/Copy. They replace caller audit/scope identity, evaluate Project access to source and target, and return binary Document commits natively over IPC or as bounded base64 over HTTP.
 - `additional-document-command-ipc.ts` and `additional-document-command-http.ts`: equivalent public boundaries for Additional Document commands. They reject unavailable capabilities, validate route scope and bounded JSON, replace caller attribution with trusted host identity, and preserve typed outcomes. Desktop IPC selects the Owned Document Module bridge under the Rust authority; the loopback HTTP path continues through the TypeScript Hub until its Core client boundary is enabled.
 - `ipc-safe-send.ts`: centralized one-way renderer notification helper for main-process IPC fanout. It checks `BrowserWindow`/`webContents` lifetime before sending, treats disposed-frame races as debug-only lifecycle skips, and rate-limits unexpected send warnings.

@@ -347,6 +347,7 @@ describe("Electron native data authority", () => {
       const nativeSourceBlockId = "01981e00-0000-7000-8000-000000000001";
       const nativeSourceDocumentId = "01981e00-0000-7000-8000-000000000002";
       const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
+      const nativeEmptyBlockId = "01981e00-0000-7000-8000-000000000004";
       const createSyncedSource = {
         version: 1 as const,
         operationId: "electron-document-create-synced-source",
@@ -371,6 +372,12 @@ describe("Electron native data authority", () => {
               text: "Native Additional Document command",
               styles: {},
             }],
+            children: [],
+          }, {
+            id: nativeEmptyBlockId,
+            type: "paragraph",
+            props: {},
+            content: [],
             children: [],
           }],
           placement: { kind: "space" as const },
@@ -473,6 +480,117 @@ describe("Electron native data authority", () => {
         ok: true,
         value: {
           summary: { versionId: checkpoint.value.checkpoint.versionId },
+          materialization: {
+            kind: "synced_block",
+            preview: "Native Additional Document command",
+          },
+        },
+      });
+      if (
+        !versionDetail.ok
+        || versionDetail.value.materialization.kind !== "synced_block"
+      ) {
+        throw new Error("Expected native Synced Block version detail");
+      }
+      const changed = await runtime.clientForProject(projectId).documentApply({
+        operationId: "electron-document-history-change",
+        clientSessionId: "renderer:electron-document-history",
+        intent: {
+          kind: "apply_semantic_mutation",
+          document_id: nativeSourceDocumentId,
+          generation: 1,
+          expected_head_seq: 1,
+          commands: [{
+            kind: "delete_block",
+            block_id: nativeContentBlockId,
+          }],
+        },
+      });
+      expect(changed.value).toMatchObject({
+        document_id: nativeSourceDocumentId,
+        head_seq: 2,
+        outcome: "committed",
+      });
+      const restoreRequest = {
+        version: 1 as const,
+        mutationId: "electron-document-history-restore",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        documentId: nativeSourceDocumentId,
+        versionId: checkpoint.value.checkpoint.versionId,
+        generation: 1,
+        expectedHeadSeq: 2,
+        clientSessionId: "renderer:electron-document-history",
+        actor: {
+          kind: "electron_renderer",
+          clientId: "renderer:electron-document-history",
+        },
+      };
+      await expect(projectDocuments.restoreVersion(
+        restoreRequest,
+        false,
+      )).resolves.toMatchObject({
+        ok: false,
+        error: { code: "write_fence_required", retryable: true },
+      });
+      const restored = await projectDocuments.restoreVersion(
+        restoreRequest,
+        true,
+      );
+      expect(restored).toMatchObject({
+        ok: true,
+        value: {
+          mutationId: restoreRequest.mutationId,
+          projectId,
+          documentId: nativeSourceDocumentId,
+          baseHeadSeq: 2,
+          headSeq: 3,
+          coordination: "write_fence",
+          duplicate: false,
+        },
+      });
+      await expect(projectDocuments.restoreVersion(
+        restoreRequest,
+        false,
+      )).resolves.toMatchObject({
+        ok: true,
+        value: {
+          mutationId: restoreRequest.mutationId,
+          headSeq: 3,
+          duplicate: true,
+        },
+      });
+      const restoredVersions = await projectDocuments.listVersions({
+        projectId,
+        documentId: nativeSourceDocumentId,
+        limit: 20,
+      });
+      if (!restoredVersions.ok) {
+        throw new Error(
+          `Core restored history list failed: ${restoredVersions.error.message}`,
+        );
+      }
+      expect(restoredVersions.value).toHaveLength(3);
+      const restoredVersion = restoredVersions.value.find(
+        (version) =>
+          version.baseHeadSeq === 3
+          && version.revisionKind === "restore"
+          && version.sourceMutationId === restoreRequest.mutationId,
+      );
+      if (!restoredVersion) {
+        throw new Error("Core history omitted the post-restore checkpoint");
+      }
+      await expect(projectDocuments.getVersion({
+        projectId,
+        documentId: nativeSourceDocumentId,
+        versionId: restoredVersion.versionId,
+      })).resolves.toMatchObject({
+        ok: true,
+        value: {
+          summary: {
+            versionId: restoredVersion.versionId,
+            sourceMutationId: restoreRequest.mutationId,
+          },
           materialization: {
             kind: "synced_block",
             preview: "Native Additional Document command",

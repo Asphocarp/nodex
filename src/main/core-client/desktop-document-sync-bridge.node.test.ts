@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   CANVAS_SCENE_SYNC_VERSION,
   materializePortableCanvasScene,
 } from "../../shared/block-documents";
 import type { DocumentSyncClientTarget } from "../document-sync-hub";
+import { CoreModuleResponseError } from "./core-client";
 import {
   createDesktopDocumentSyncBridge,
   type DesktopDocumentSyncBridgeInput,
@@ -77,6 +78,9 @@ const neverTypeScript = (): DesktopDocumentSyncBridgeInput["typescript"] => ({
     throw new Error("TypeScript Document history must not run");
   },
   getVersion: async () => {
+    throw new Error("TypeScript Document history must not run");
+  },
+  restoreVersion: async () => {
     throw new Error("TypeScript Document history must not run");
   },
 });
@@ -462,6 +466,167 @@ describe("Desktop Document sync bridge", () => {
         limit: 20,
       },
     }]);
+  });
+
+  test("flushes and freezes exact native participants before restore, then replays without refencing", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    projectClient.enqueueDocumentSync({
+      documentId: subscribeRequest.documentId,
+      storeEpoch: "epoch:test",
+      generation: 1,
+      headSeq: 2,
+      update: new Uint8Array(),
+      stateVector: new Uint8Array(),
+    });
+    const committed = (duplicate: boolean) => ({
+      store_epoch: "epoch:test",
+      event_sequence: 9,
+      value: {
+        document_id: subscribeRequest.documentId,
+        generation: 1,
+        head_seq: 3,
+        outcome: "committed" as const,
+        committed_at: "2026-07-19T21:18:00.000Z",
+        mutation_effect: {
+          base_head_seq: 2,
+          touched_block_ids: ["page:one"],
+          created_block_ids: [],
+          deleted_block_ids: [],
+          updated_block_ids: [],
+          moved_block_ids: [],
+          write_fence_block_ids: ["page:one"],
+          title_changed: true,
+          coordination: "write_fence" as const,
+        },
+      },
+      receipt: {
+        operation_id: "restore:native",
+        duplicate,
+        document_id: subscribeRequest.documentId,
+        generation: 1,
+        head_seq: 3,
+      },
+    });
+    let applyCount = 0;
+    vi.spyOn(projectClient, "documentApply").mockImplementation(async (input) => {
+      projectClient.documentApplies.push(input);
+      applyCount += 1;
+      if (applyCount === 1) {
+        throw new CoreModuleResponseError({
+          code: "revision_conflict",
+          message: "Document restore requires a trusted current-head write fence",
+          retryable: true,
+          recovery: { kind: "none" },
+        });
+      }
+      return committed(applyCount === 3);
+    });
+    const bridge = createDesktopDocumentSyncBridge({
+      authority: Promise.resolve(rustRuntime(rootClient, projectClient)),
+      typescript: neverTypeScript(),
+    });
+    const target = new FakeTarget(1);
+    const attacker = new FakeTarget(2);
+    const scope = { kind: "project", projectId: "project:one" } as const;
+    await bridge.subscribe(scope, target, subscribeRequest);
+    await bridge.sync(scope, target, {
+      ...subscribeRequest,
+      stateVector: new Uint8Array(),
+    });
+    const request = {
+      version: 1 as const,
+      mutationId: "restore:native",
+      projectId: scope.projectId,
+      storeEpoch: "epoch:test",
+      documentId: subscribeRequest.documentId,
+      versionId: documentVersionSummary().versionId,
+      generation: 1,
+      expectedHeadSeq: 2,
+      clientSessionId: subscribeRequest.clientSessionId,
+      actor: { kind: "electron_renderer" },
+    };
+
+    const pending = bridge.restoreVersion(request);
+    await vi.waitFor(() => {
+      expect(target.sent.some((delivery) =>
+        typeof delivery.payload === "object"
+        && delivery.payload !== null
+        && "kind" in delivery.payload
+        && delivery.payload.kind === "relocation-lease-prepare"
+      )).toBe(true);
+    });
+    const prepare = target.sent
+      .map((delivery) => delivery.payload)
+      .find((event) =>
+        typeof event === "object"
+        && event !== null
+        && "kind" in event
+        && event.kind === "relocation-lease-prepare"
+      ) as {
+        readonly leaseId: string;
+        readonly documentId: string;
+        readonly clientSessionId: string;
+        readonly storeEpoch: string;
+        readonly generation: number;
+        readonly expectedHeadSeq: number;
+      };
+    const response = {
+      response: "ack" as const,
+      leaseId: prepare.leaseId,
+      documentId: prepare.documentId,
+      clientSessionId: prepare.clientSessionId,
+      storeEpoch: prepare.storeEpoch,
+      generation: prepare.generation,
+      headSeq: prepare.expectedHeadSeq,
+    };
+    await expect(bridge.respondToRelocationLease(
+      scope,
+      attacker,
+      response,
+    )).resolves.toMatchObject({ ok: false, error: { code: "unauthorized" } });
+    await expect(bridge.respondToRelocationLease(
+      scope,
+      target,
+      response,
+    )).resolves.toMatchObject({ ok: true, value: { status: "frozen" } });
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      value: { mutationId: request.mutationId, headSeq: 3, duplicate: false },
+    });
+    expect(projectClient.documentApplies.map((input) =>
+      input.intent.kind === "restore_version"
+        ? input.intent.write_fence_prepared
+        : undefined
+    )).toEqual([false, true]);
+    const prepareCount = target.sent
+      .map((delivery) => delivery.payload)
+      .filter((event) =>
+        typeof event === "object"
+        && event !== null
+        && "kind" in event
+        && event.kind === "relocation-lease-prepare"
+      ).length;
+    expect(target.sent.some((delivery) =>
+      typeof delivery.payload === "object"
+      && delivery.payload !== null
+      && "kind" in delivery.payload
+      && delivery.payload.kind === "relocation-lease-release"
+    )).toBe(true);
+
+    await expect(bridge.restoreVersion(request)).resolves.toMatchObject({
+      ok: true,
+      value: { duplicate: true, headSeq: 3 },
+    });
+    expect(projectClient.documentApplies).toHaveLength(3);
+    expect(target.sent
+      .map((delivery) => delivery.payload)
+      .filter((event) =>
+        typeof event === "object"
+        && event !== null
+        && "kind" in event
+        && event.kind === "relocation-lease-prepare"
+      )).toHaveLength(prepareCount);
   });
 
   test("binds Canvas sync to its Project client, engine, and exact target", async () => {

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,9 +11,10 @@ use nodex_core_contracts::agent::{
 };
 use nodex_core_contracts::document::{
     AgentDocumentSemanticMutation, DocumentCheckpointEffect, DocumentCommitOutcome,
-    DocumentInvalidationReason, DocumentOwnerCommand, DocumentRevisionKind,
-    DocumentSemanticCommand, OwnedDocumentCommitValue, OwnedDocumentEvent, OwnedDocumentIntent,
-    OwnedDocumentRead, OwnedDocumentReadValue, OwnedDocumentReceipt,
+    DocumentInvalidationReason, DocumentMutationCoordination, DocumentMutationEffect,
+    DocumentOwnerCommand, DocumentRevisionKind, DocumentSemanticCommand, OwnedDocumentCommitValue,
+    OwnedDocumentEvent, OwnedDocumentIntent, OwnedDocumentRead, OwnedDocumentReadValue,
+    OwnedDocumentReceipt,
 };
 use nodex_core_contracts::{
     AdapterKind, BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent,
@@ -26,6 +27,7 @@ use serde_json::{Value, json};
 use yrs::updates::encoder::Encode;
 use yrs::{ReadTxn, Transact};
 
+use crate::domain::block_materialization::MaterializedBlockNode;
 use crate::infrastructure::agent_operations::{
     PreparedAgentOperationBinding, PreparedAgentOperationLease, PreparedAgentOperationRegistry,
 };
@@ -90,6 +92,11 @@ struct PreparedAgentExecutionJob {
     mutation: AgentDocumentSemanticMutation,
 }
 
+struct RestoreCheckpoint {
+    actor: Value,
+    label: String,
+}
+
 struct AgentSemanticPreflight {
     footprint: AgentOperationFootprint,
     consent: AgentConsentRequirement,
@@ -124,6 +131,7 @@ enum PreparedUpdate {
         update: Vec<u8>,
         write_fence_block_ids: Vec<String>,
         title_write_fence_required: bool,
+        mutation_effect: Option<Box<DocumentMutationEffect>>,
     },
     NoChange,
     Recovery {
@@ -448,6 +456,8 @@ impl OwnedDocumentModule {
                 version_id,
                 generation,
                 expected_head_seq,
+                actor,
+                write_fence_prepared,
             } => self.restore_version(
                 context,
                 request.operation_id,
@@ -456,6 +466,8 @@ impl OwnedDocumentModule {
                 version_id,
                 generation,
                 expected_head_seq,
+                actor,
+                write_fence_prepared,
             ),
             OwnedDocumentIntent::ApplyOwnerCommand { command } => self.apply_owner_command(
                 context,
@@ -834,6 +846,7 @@ impl OwnedDocumentModule {
                         canvas: None,
                         owner_effect: Some(executed.effect),
                         checkpoint_effect: None,
+                        mutation_effect: None,
                     },
                     receipt: OwnedDocumentReceipt {
                         mutation: ModuleMutationReceipt {
@@ -1487,8 +1500,10 @@ impl OwnedDocumentModule {
                     update,
                     write_fence_block_ids: Vec::new(),
                     title_write_fence_required: false,
+                    mutation_effect: None,
                 })
             },
+            None,
         )
     }
 
@@ -1574,6 +1589,7 @@ impl OwnedDocumentModule {
                         .unwrap_or(&authority.head.project_id),
                 )
             },
+            None,
         )
     }
 
@@ -1739,7 +1755,10 @@ impl OwnedDocumentModule {
         version_id: String,
         generation: i64,
         expected_head_seq: i64,
+        actor: Value,
+        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
+        validate_restore_actor(&actor)?;
         let sync_engine = self
             .readers
             .read_default(|connection| {
@@ -1757,6 +1776,8 @@ impl OwnedDocumentModule {
                 version_id,
                 generation,
                 expected_head_seq,
+                actor,
+                write_fence_prepared,
             ),
             DocumentSyncEngine::CanvasScene => self.restore_canvas_version(
                 context,
@@ -1766,6 +1787,8 @@ impl OwnedDocumentModule {
                 version_id,
                 generation,
                 expected_head_seq,
+                actor,
+                write_fence_prepared,
             ),
         }
     }
@@ -1780,9 +1803,13 @@ impl OwnedDocumentModule {
         version_id: String,
         generation: i64,
         expected_head_seq: i64,
+        actor: Value,
+        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let fingerprint = serde_json::to_vec(&(
-            context,
+            &context.profile_id,
+            &context.library_id,
+            &context.project_id,
             expected_store_epoch.clone(),
             &document_id,
             &version_id,
@@ -1792,6 +1819,11 @@ impl OwnedDocumentModule {
         .map_err(|_| invalid("Document restore request cannot be fingerprinted"))?;
         let checkpoint_operation_id = operation_id.clone();
         let checkpoint_context = context.clone();
+        let before_restore_actor = restore_checkpoint_actor(&actor, &operation_id, &version_id)?;
+        let after_restore_checkpoint = RestoreCheckpoint {
+            actor,
+            label: format!("Restored {version_id}"),
+        };
         self.apply_document_update(
             DocumentUpdateJob {
                 context: context.clone(),
@@ -1806,13 +1838,22 @@ impl OwnedDocumentModule {
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
+                require_restore_write_fence(write_fence_prepared)?;
                 let Some(prepared) =
                     prepare_version_restore(connection, authority, engine, &version_id)?
                 else {
                     return Ok(PreparedUpdate::NoChange);
                 };
+                let mutation_effect = document_restore_effect(
+                    &authority.owner_block_id,
+                    authority.head.head_seq,
+                    materialization,
+                    &prepared.materialization,
+                    &prepared.write_fence_block_ids,
+                    prepared.title_write_fence_required,
+                );
                 let now = sqlite_now(connection)?;
-                let safety_label = format!("Before restoring {version_id}");
+                let safety_label = format!("Before restore {version_id}");
                 insert_document_checkpoint(
                     connection,
                     authority,
@@ -1821,10 +1862,10 @@ impl OwnedDocumentModule {
                         operation_id: &checkpoint_operation_id,
                         cause: "before_restore",
                         label: Some(&safety_label),
-                        revision_kind: "safety",
-                        source_mutation_id: None,
+                        revision_kind: "restore",
+                        source_mutation_id: Some(&checkpoint_operation_id),
                         source_change_seq: None,
-                        actor: None,
+                        actor: Some(&before_restore_actor),
                         context: &checkpoint_context,
                         now: &now,
                     },
@@ -1836,8 +1877,10 @@ impl OwnedDocumentModule {
                     update: prepared.update_v1,
                     write_fence_block_ids: prepared.write_fence_block_ids,
                     title_write_fence_required: prepared.title_write_fence_required,
+                    mutation_effect: Some(Box::new(mutation_effect)),
                 })
             },
+            Some(after_restore_checkpoint),
         )
     }
 
@@ -1851,9 +1894,13 @@ impl OwnedDocumentModule {
         version_id: String,
         generation: i64,
         expected_head_seq: i64,
+        actor: Value,
+        write_fence_prepared: bool,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
         let fingerprint = serde_json::to_vec(&(
-            context,
+            &context.profile_id,
+            &context.library_id,
+            &context.project_id,
             expected_store_epoch.clone(),
             &document_id,
             &version_id,
@@ -1863,6 +1910,7 @@ impl OwnedDocumentModule {
         .map_err(|_| invalid("Canvas restore request cannot be fingerprinted"))?;
         let request_hash = sha256(&fingerprint);
         let context = context.clone();
+        let before_restore_actor = restore_checkpoint_actor(&actor, &operation_id, &version_id)?;
         let fail_after_commit = Arc::clone(&self.fail_after_commit);
         let assets_root = self.assets_root.clone();
         self.writer
@@ -1906,6 +1954,7 @@ impl OwnedDocumentModule {
                     .ok_or_else(|| not_found("Canvas Document was not found"))?;
                 authorize_canvas(&context, &authority, DocumentAccessKind::Write)?;
                 assert_document_head(&authority, generation, expected_head_seq)?;
+                require_restore_write_fence(write_fence_prepared)?;
                 let loaded = load_canvas_scene(&transaction, &authority)?;
                 let version = get_document_version(&transaction, &authority, &version_id)?
                     .ok_or_else(|| not_found("Canvas Document version was not found"))?;
@@ -1944,7 +1993,7 @@ impl OwnedDocumentModule {
                     });
                 };
                 let now = sqlite_now(&transaction)?;
-                let safety_label = format!("Before restoring {version_id}");
+                let safety_label = format!("Before restore {version_id}");
                 insert_canvas_checkpoint(
                     &transaction,
                     &authority,
@@ -1953,10 +2002,10 @@ impl OwnedDocumentModule {
                         operation_id: &operation_id,
                         cause: "before_restore",
                         label: Some(&safety_label),
-                        revision_kind: "safety",
-                        source_mutation_id: None,
+                        revision_kind: "restore",
+                        source_mutation_id: Some(&operation_id),
                         source_change_seq: None,
-                        actor: None,
+                        actor: Some(&before_restore_actor),
                         context: &context,
                         now: &now,
                     },
@@ -1984,11 +2033,11 @@ impl OwnedDocumentModule {
                     NewDocumentCheckpoint {
                         operation_id: &operation_id,
                         cause: "after_restore",
-                        label: Some("Restored Document state"),
+                        label: Some(&format!("Restored {version_id}")),
                         revision_kind: "restore",
                         source_mutation_id: Some(&operation_id),
                         source_change_seq: Some(persisted.event_sequence),
-                        actor: None,
+                        actor: Some(&actor),
                         context: &context,
                         now: &persisted.committed_at,
                     },
@@ -1997,7 +2046,7 @@ impl OwnedDocumentModule {
                     "DELETE FROM document_revision_sessions WHERE document_id = ?1",
                     [&authority.head.id],
                 )?;
-                let committed = committed_canvas_value(
+                let mut committed = committed_canvas_value(
                     &operation_id,
                     &store_epoch,
                     &authority,
@@ -2006,6 +2055,18 @@ impl OwnedDocumentModule {
                     persisted.event_sequence,
                     persisted.result,
                 );
+                committed.value.committed_at = Some(persisted.committed_at.clone());
+                committed.value.mutation_effect = Some(DocumentMutationEffect {
+                    base_head_seq: authority.head.head_seq,
+                    touched_block_ids: vec![authority.owner_block_id.clone()],
+                    created_block_ids: Vec::new(),
+                    deleted_block_ids: Vec::new(),
+                    updated_block_ids: vec![authority.owner_block_id.clone()],
+                    moved_block_ids: Vec::new(),
+                    write_fence_block_ids: vec![authority.owner_block_id.clone()],
+                    title_changed: false,
+                    coordination: DocumentMutationCoordination::WriteFence,
+                });
                 insert_typed_receipt(
                     &transaction,
                     &context,
@@ -2048,6 +2109,7 @@ impl OwnedDocumentModule {
         &self,
         job: DocumentUpdateJob,
         prepare: F,
+        restore_checkpoint: Option<RestoreCheckpoint>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError>
     where
         F: FnOnce(
@@ -2205,6 +2267,7 @@ impl OwnedDocumentModule {
                     update,
                     write_fence_block_ids,
                     title_write_fence_required,
+                    mutation_effect,
                 } = prepared
                 else {
                     let event_head = read_event_head(&transaction)?;
@@ -2326,11 +2389,15 @@ impl OwnedDocumentModule {
                         NewDocumentCheckpoint {
                             operation_id: &job.operation_id,
                             cause: "after_restore",
-                            label: Some("Restored Document state"),
+                            label: restore_checkpoint
+                                .as_ref()
+                                .map(|checkpoint| checkpoint.label.as_str()),
                             revision_kind: "restore",
                             source_mutation_id: Some(&job.operation_id),
                             source_change_seq: Some(persisted.event_sequence),
-                            actor: None,
+                            actor: restore_checkpoint
+                                .as_ref()
+                                .map(|checkpoint| &checkpoint.actor),
                             context: &job.context,
                             now: &persisted.committed_at,
                         },
@@ -2349,7 +2416,7 @@ impl OwnedDocumentModule {
                         &persisted.committed_at,
                     )?;
                 }
-                let committed = committed_value(
+                let mut committed = committed_value(
                     &job.operation_id,
                     &store_epoch,
                     &authority,
@@ -2357,6 +2424,8 @@ impl OwnedDocumentModule {
                     DocumentCommitOutcome::Committed,
                     persisted.event_sequence,
                 );
+                committed.value.committed_at = Some(persisted.committed_at.clone());
+                committed.value.mutation_effect = mutation_effect.map(|effect| *effect);
                 insert_typed_receipt(
                     &transaction,
                     &job.context,
@@ -2456,6 +2525,213 @@ fn materialize_candidate(
         .map_err(|error| invalid_store(format!("Yjs update cannot materialize: {error}")))
 }
 
+#[derive(Clone, Copy)]
+struct SemanticBlockCoordinate<'a> {
+    block: &'a MaterializedBlockNode,
+    parent_block_id: Option<&'a str>,
+    sibling_index: usize,
+}
+
+fn flatten_semantic_coordinates<'a>(
+    blocks: &'a [MaterializedBlockNode],
+    parent_block_id: Option<&'a str>,
+    coordinates: &mut Vec<SemanticBlockCoordinate<'a>>,
+) {
+    for (sibling_index, block) in blocks.iter().enumerate() {
+        coordinates.push(SemanticBlockCoordinate {
+            block,
+            parent_block_id,
+            sibling_index,
+        });
+        flatten_semantic_coordinates(&block.children, Some(&block.id), coordinates);
+    }
+}
+
+fn document_restore_effect(
+    owner_block_id: &str,
+    base_head_seq: i64,
+    before: &DocumentMaterialization,
+    after: &DocumentMaterialization,
+    write_fence_block_ids: &[String],
+    title_write_fence_required: bool,
+) -> DocumentMutationEffect {
+    let mut before_coordinates = Vec::new();
+    flatten_semantic_coordinates(&before.block_tree, None, &mut before_coordinates);
+    let mut after_coordinates = Vec::new();
+    flatten_semantic_coordinates(&after.block_tree, None, &mut after_coordinates);
+    let before_by_id = before_coordinates
+        .iter()
+        .map(|coordinate| (coordinate.block.id.as_str(), coordinate))
+        .collect::<HashMap<_, _>>();
+    let after_by_id = after_coordinates
+        .iter()
+        .map(|coordinate| (coordinate.block.id.as_str(), coordinate))
+        .collect::<HashMap<_, _>>();
+    let before_ids = before_coordinates
+        .iter()
+        .map(|coordinate| coordinate.block.id.clone())
+        .collect::<Vec<_>>();
+    let after_ids = after_coordinates
+        .iter()
+        .map(|coordinate| coordinate.block.id.clone())
+        .collect::<Vec<_>>();
+    let before_id_set = before_ids.iter().cloned().collect::<HashSet<_>>();
+    let after_id_set = after_ids.iter().cloned().collect::<HashSet<_>>();
+    let title_changed = before.rich_title != after.rich_title;
+    let created_block_ids = after_ids
+        .iter()
+        .filter(|block_id| !before_id_set.contains(*block_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let deleted_block_ids = before_ids
+        .iter()
+        .filter(|block_id| !after_id_set.contains(*block_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let updated_block_ids = before_ids
+        .iter()
+        .filter(|block_id| {
+            let Some(previous) = before_by_id.get(block_id.as_str()) else {
+                return false;
+            };
+            let Some(next) = after_by_id.get(block_id.as_str()) else {
+                return false;
+            };
+            previous.block.block_type != next.block.block_type
+                || previous.block.props != next.block.props
+                || previous.block.content != next.block.content
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let common_ids = before_ids
+        .iter()
+        .filter(|block_id| after_id_set.contains(*block_id))
+        .cloned()
+        .collect::<HashSet<_>>();
+    let parent_ids = before_coordinates
+        .iter()
+        .chain(after_coordinates.iter())
+        .map(|coordinate| coordinate.parent_block_id.map(str::to_owned))
+        .chain(std::iter::once(None))
+        .collect::<HashSet<_>>();
+    let mut reordered_ids = HashSet::new();
+    for parent_block_id in parent_ids {
+        let common_sibling_order = |coordinates: &[SemanticBlockCoordinate<'_>]| {
+            let mut siblings = coordinates
+                .iter()
+                .filter(|coordinate| {
+                    coordinate.parent_block_id == parent_block_id.as_deref()
+                        && common_ids.contains(&coordinate.block.id)
+                })
+                .collect::<Vec<_>>();
+            siblings.sort_by_key(|coordinate| coordinate.sibling_index);
+            siblings
+                .into_iter()
+                .map(|coordinate| coordinate.block.id.clone())
+                .collect::<Vec<_>>()
+        };
+        let previous = common_sibling_order(&before_coordinates);
+        let next = common_sibling_order(&after_coordinates);
+        if previous == next {
+            continue;
+        }
+        for (index, block_id) in previous.iter().enumerate() {
+            if next.get(index) != Some(block_id) {
+                reordered_ids.insert(block_id.clone());
+            }
+        }
+        for (index, block_id) in next.iter().enumerate() {
+            if previous.get(index) != Some(block_id) {
+                reordered_ids.insert(block_id.clone());
+            }
+        }
+    }
+    let moved_block_ids = before_ids
+        .iter()
+        .filter(|block_id| {
+            let Some(previous) = before_by_id.get(block_id.as_str()) else {
+                return false;
+            };
+            let Some(next) = after_by_id.get(block_id.as_str()) else {
+                return false;
+            };
+            previous.parent_block_id != next.parent_block_id || reordered_ids.contains(*block_id)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut durable_write_fences = write_fence_block_ids
+        .iter()
+        .filter(|block_id| before_id_set.contains(*block_id))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if title_write_fence_required {
+        durable_write_fences.insert(owner_block_id.to_owned());
+    }
+    let mut touched_block_ids = created_block_ids
+        .iter()
+        .chain(deleted_block_ids.iter())
+        .chain(updated_block_ids.iter())
+        .chain(moved_block_ids.iter())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if title_changed {
+        touched_block_ids.insert(owner_block_id.to_owned());
+    }
+    DocumentMutationEffect {
+        base_head_seq,
+        touched_block_ids: touched_block_ids.into_iter().collect(),
+        created_block_ids,
+        deleted_block_ids,
+        updated_block_ids,
+        moved_block_ids,
+        write_fence_block_ids: durable_write_fences.into_iter().collect(),
+        title_changed,
+        coordination: DocumentMutationCoordination::WriteFence,
+    }
+}
+
+fn validate_restore_actor(actor: &Value) -> Result<(), CoreError> {
+    let encoded = serde_json::to_vec(actor)
+        .map_err(|_| invalid("Document restore actor must be portable JSON"))?;
+    if actor.is_object() && encoded.len() <= 64 * 1024 {
+        return Ok(());
+    }
+    Err(invalid(
+        "Document restore actor must be a bounded portable object",
+    ))
+}
+
+fn require_restore_write_fence(prepared: bool) -> Result<(), StoreError> {
+    if prepared {
+        return Ok(());
+    }
+    Err(StoreError::new(
+        StoreErrorCode::RevisionConflict,
+        "Document restore requires a trusted current-head write fence",
+        true,
+    ))
+}
+
+fn restore_checkpoint_actor(
+    actor: &Value,
+    mutation_id: &str,
+    source_version_id: &str,
+) -> Result<Value, CoreError> {
+    validate_restore_actor(actor)?;
+    let mut enriched = actor.as_object().expect("validated restore actor").clone();
+    enriched.insert(
+        "restoreMutationId".to_owned(),
+        Value::String(mutation_id.to_owned()),
+    );
+    enriched.insert(
+        "sourceVersionId".to_owned(),
+        Value::String(source_version_id.to_owned()),
+    );
+    let enriched = Value::Object(enriched);
+    validate_restore_actor(&enriched)?;
+    Ok(enriched)
+}
+
 fn committed_value(
     operation_id: &str,
     store_epoch: &str,
@@ -2474,6 +2750,7 @@ fn committed_value(
             canvas: None,
             owner_effect: None,
             checkpoint_effect: None,
+            mutation_effect: None,
         },
         receipt: OwnedDocumentReceipt {
             mutation: ModuleMutationReceipt {
@@ -2685,6 +2962,7 @@ fn prepare_semantic_update(
             update: prepared.update_v1,
             write_fence_block_ids: prepared.write_fence_block_ids,
             title_write_fence_required: prepared.title_write_fence_required,
+            mutation_effect: None,
         }),
         Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
         Err(error) => Err(semantic_error(error)),
@@ -4406,11 +4684,28 @@ mod tests {
                         version_id: canvas_version_id.clone(),
                         generation: 1,
                         expected_head_seq: 5,
+                        actor: json!({ "kind": "test" }),
+                        write_fence_prepared: true,
                     },
                 },
             )
             .expect("restore Canvas version");
         assert_eq!(restored.committed.value.head_seq, 6);
+        let restore_effect = restored
+            .committed
+            .value
+            .mutation_effect
+            .as_ref()
+            .expect("Canvas restore effect");
+        assert_eq!(restore_effect.base_head_seq, 5);
+        assert_eq!(restore_effect.touched_block_ids, [OWNER_BLOCK_ID]);
+        assert_eq!(restore_effect.updated_block_ids, [OWNER_BLOCK_ID]);
+        assert_eq!(restore_effect.write_fence_block_ids, [OWNER_BLOCK_ID]);
+        assert_eq!(
+            restore_effect.coordination,
+            DocumentMutationCoordination::WriteFence
+        );
+        assert!(restored.committed.value.committed_at.is_some());
         assert!(matches!(
             restored.events.first().map(|event| &event.payload),
             Some(CoreModuleEventPayload::OwnedDocument(
@@ -5682,16 +5977,55 @@ mod tests {
             store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
             intent: OwnedDocumentIntent::RestoreVersion {
                 document_id: DOCUMENT_ID.to_owned(),
-                version_id,
+                version_id: version_id.clone(),
                 generation: 1,
                 expected_head_seq: 2,
+                actor: json!({ "kind": "test" }),
+                write_fence_prepared: true,
             },
         };
+        let mut unfenced_request = restore_request.clone();
+        let OwnedDocumentIntent::RestoreVersion {
+            write_fence_prepared,
+            ..
+        } = &mut unfenced_request.intent
+        else {
+            unreachable!()
+        };
+        *write_fence_prepared = false;
+        let unfenced = seeded
+            .module
+            .apply(&context(), unfenced_request)
+            .expect_err("a first restore requires host write-fence proof");
+        assert_eq!(unfenced.code, CoreErrorCode::RevisionConflict);
         let restored = seeded
             .module
             .apply(&context(), restore_request.clone())
             .expect("restore checkpoint");
         assert_eq!(restored.committed.value.head_seq, 3);
+        let restore_effect = restored
+            .committed
+            .value
+            .mutation_effect
+            .as_ref()
+            .expect("Document restore effect");
+        assert_eq!(restore_effect.base_head_seq, 2);
+        assert_eq!(restore_effect.touched_block_ids, [OWNER_BLOCK_ID]);
+        assert!(restore_effect.created_block_ids.is_empty());
+        assert!(restore_effect.deleted_block_ids.is_empty());
+        assert!(restore_effect.updated_block_ids.is_empty());
+        assert!(restore_effect.moved_block_ids.is_empty());
+        assert!(
+            restore_effect
+                .write_fence_block_ids
+                .contains(&OWNER_BLOCK_ID.to_owned())
+        );
+        assert!(restore_effect.title_changed);
+        assert_eq!(
+            restore_effect.coordination,
+            DocumentMutationCoordination::WriteFence
+        );
+        assert!(restored.committed.value.committed_at.is_some());
         assert!(matches!(
             restored.events[0].payload,
             CoreModuleEventPayload::OwnedDocument(OwnedDocumentEvent::DocumentInvalidated {
@@ -5699,16 +6033,53 @@ mod tests {
                 ..
             })
         ));
-        assert!(
-            seeded
-                .module
-                .apply(&context(), restore_request)
-                .unwrap()
-                .committed
-                .receipt
-                .mutation
-                .duplicate
+        let mut replay_request = restore_request;
+        let OwnedDocumentIntent::RestoreVersion { actor, .. } = &mut replay_request.intent else {
+            unreachable!()
+        };
+        *actor = json!({ "kind": "replacement-audit-identity" });
+        let OwnedDocumentIntent::RestoreVersion {
+            write_fence_prepared,
+            ..
+        } = &mut replay_request.intent
+        else {
+            unreachable!()
+        };
+        *write_fence_prepared = false;
+        let replayed = seeded
+            .module
+            .apply(&context_for("renderer-session:reconnected"), replay_request)
+            .unwrap();
+        assert!(replayed.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replayed.committed.value.mutation_effect,
+            restored.committed.value.mutation_effect
         );
+
+        let no_change = seeded
+            .module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "restore:already-current".to_owned(),
+                    store_epoch: StoreEpoch(STORE_EPOCH.to_owned()),
+                    intent: OwnedDocumentIntent::RestoreVersion {
+                        document_id: DOCUMENT_ID.to_owned(),
+                        version_id: version_id.clone(),
+                        generation: 1,
+                        expected_head_seq: 3,
+                        actor: json!({ "kind": "test" }),
+                        write_fence_prepared: true,
+                    },
+                },
+            )
+            .expect("already-current restore has a durable no-change receipt");
+        assert_eq!(
+            no_change.committed.value.outcome,
+            DocumentCommitOutcome::NoChange
+        );
+        assert!(no_change.committed.value.mutation_effect.is_none());
         seeded
             .kernel
             .readers()
@@ -5730,9 +6101,25 @@ mod tests {
                     [],
                     |row| row.get(0),
                 )?;
+                let checkpoint_actors = connection
+                    .prepare(
+                        "SELECT cause, actor_json FROM document_versions \
+                         WHERE document_id = ?1 AND source_mutation_id = 'restore:initial' \
+                         ORDER BY base_head_seq",
+                    )?
+                    .query_map([DOCUMENT_ID], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
                 assert_eq!(title, "");
                 assert_eq!(versions, 3);
                 assert_eq!(restored_events, 1);
+                assert_eq!(checkpoint_actors.len(), 2);
+                let before_actor: Value = serde_json::from_str(&checkpoint_actors[0].1).unwrap();
+                let after_actor: Value = serde_json::from_str(&checkpoint_actors[1].1).unwrap();
+                assert_eq!(before_actor["restoreMutationId"], "restore:initial");
+                assert_eq!(before_actor["sourceVersionId"], version_id);
+                assert_eq!(after_actor, json!({ "kind": "test" }));
                 Ok::<_, StoreError>(())
             })
             .unwrap();
