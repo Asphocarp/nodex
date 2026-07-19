@@ -83,8 +83,7 @@ connection, writes derive the actor Project from the trusted invoking window,
 and committed Core events become renderer Library or Workspace invalidations.
 The event bridge is backend-neutral and active for both authority choices, so
 Rust Session and Project receipts refresh existing renderer subscriptions.
-Project
-catalog reads, creation, metadata/source updates, sidebar and pinned ordering,
+Project catalog reads, creation, metadata/source updates, sidebar and pinned ordering,
 and archival all pass through one Workspace Adapter. Its Session startup/list
 and exact-snapshot reads hydrate the existing camel-cased IPC model from Core
 without opening SQLite in Electron; Session creation/deletion, ordinary and
@@ -96,9 +95,15 @@ that boundary. Tab-only calls resolve their owning Session through an exact
 Workspace read instead of scanning repositories, while delete and move carry
 the Adapter-compiled final layout into the same native aggregate as the tab
 mutation. Thread metadata upsert plus Session attach and guarded detach also
-cross this boundary as one native aggregate. Page detail/content/search/history
-and the remaining deep Module adapters stay on the migration inventory and
-must fail closed rather than fall back in the Rust branch.
+cross this boundary as one native aggregate. Project-scoped live Yjs subscribe,
+sync, update, and Awareness IPC use a lifecycle-aware Owned Document bridge;
+each native subscription is bound to its Electron target, Project, Document,
+and client session and is closed with the target. Library-scoped live Document
+sync remains explicitly unavailable until Core exposes a trusted Library
+capability instead of accepting an Adapter-selected Project. Page detail/
+content/search/history and the remaining deep Module adapters stay on the
+migration inventory and must fail closed rather than fall back in the Rust
+branch.
 `nodex-core-contracts` owns six
 transport-neutral semantic Module contracts; `nodex-core-protocol` generates the
 fixed private OpenAPI 3.1 surface and `@nodex/core-protocol` TypeScript types;

@@ -132,6 +132,7 @@ import {
   deleteProjectWithBrowserCleanupUsing,
 } from "./project-session-browser-ownership";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
+import type { DesktopDocumentSyncPort } from "./core-client/desktop-document-sync-bridge";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -573,6 +574,7 @@ interface RegisterIpcHandlersOptions {
   ) => void;
   libraryModule?: Pick<LibraryModuleIpcDependencies, "apply" | "read">;
   projectWorkspace?: DesktopProjectWorkspacePort;
+  documentSync?: DesktopDocumentSyncPort;
 }
 
 function assertValidOccurrenceIpcInput(
@@ -1020,6 +1022,13 @@ export function registerIpcHandlers(
     if (!target) {
       return documentSyncUnauthorized();
     }
+    if (options.documentSync) {
+      return await options.documentSync.subscribe(
+        { kind: "project", projectId: request.projectId },
+        target,
+        omitProjectScope(request),
+      );
+    }
     const authorization = await blockMutationWriter.authorizeDocumentAccess({
       projectId: request.projectId,
       documentId: request.documentId,
@@ -1060,10 +1069,17 @@ export function registerIpcHandlers(
     async (_, ownerBlockId) =>
       await blockMutationWriter.prepareLibraryOwnedBlockDocument(ownerBlockId),
   );
-  registerHandle("document-sync:unsubscribe", (event, request) => {
+  registerHandle("document-sync:unsubscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
+    }
+    if (options.documentSync) {
+      return await options.documentSync.unsubscribe(
+        { kind: "project", projectId: request.projectId },
+        target,
+        omitProjectScope(request),
+      );
     }
     return documentSyncHub.unsubscribe(target, omitProjectScope(request));
   });
@@ -1071,6 +1087,13 @@ export function registerIpcHandlers(
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
+    }
+    if (options.documentSync) {
+      return await options.documentSync.sync(
+        { kind: "project", projectId: request.projectId },
+        target,
+        omitProjectScope(request),
+      );
     }
     const authorization = await blockMutationWriter.authorizeDocumentAccess({
       projectId: request.projectId,
@@ -1084,6 +1107,13 @@ export function registerIpcHandlers(
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
       return documentSyncUnauthorized();
+    }
+    if (options.documentSync) {
+      return await options.documentSync.applyUpdate(
+        { kind: "project", projectId: request.projectId },
+        target,
+        omitProjectScope(request),
+      );
     }
     const authorization = await blockMutationWriter.authorizeDocumentAccess({
       projectId: request.projectId,
@@ -1159,6 +1189,13 @@ export function registerIpcHandlers(
     if (!target) {
       return documentSyncUnauthorized();
     }
+    if (options.documentSync) {
+      return await options.documentSync.publishAwareness(
+        { kind: "project", projectId: request.projectId },
+        target,
+        omitProjectScope(request),
+      );
+    }
     const authorization = await blockMutationWriter.authorizeDocumentAccess({
       projectId: request.projectId,
       documentId: request.documentId,
@@ -1175,6 +1212,13 @@ export function registerIpcHandlers(
     if (!target) {
       return documentSyncUnauthorized();
     }
+    if (options.documentSync) {
+      return await options.documentSync.respondToRelocationLease(
+        { kind: "project", projectId: request.projectId },
+        target,
+        omitRelocationLeaseProjectScope(request),
+      );
+    }
     const authorization = await blockMutationWriter.authorizeDocumentAccess({
       projectId: request.projectId,
       documentId: request.documentId,
@@ -1189,6 +1233,13 @@ export function registerIpcHandlers(
   registerHandle("library-document-sync:subscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
+    if (options.documentSync) {
+      return await options.documentSync.subscribe(
+        { kind: "library" },
+        target,
+        request,
+      );
+    }
     const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
       documentId: request.documentId,
       access: "read",
@@ -1196,14 +1247,28 @@ export function registerIpcHandlers(
     if (!authorization.ok) return authorization;
     return documentSyncHub.subscribe(target, request);
   });
-  registerHandle("library-document-sync:unsubscribe", (event, request) => {
+  registerHandle("library-document-sync:unsubscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
+    if (options.documentSync) {
+      return await options.documentSync.unsubscribe(
+        { kind: "library" },
+        target,
+        request,
+      );
+    }
     return documentSyncHub.unsubscribe(target, request);
   });
   registerHandle("library-document-sync:sync", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
+    if (options.documentSync) {
+      return await options.documentSync.sync(
+        { kind: "library" },
+        target,
+        request,
+      );
+    }
     const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
       documentId: request.documentId,
       access: "read",
@@ -1214,6 +1279,13 @@ export function registerIpcHandlers(
   registerHandle("library-document-sync:apply", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) return documentSyncUnauthorized();
+    if (options.documentSync) {
+      return await options.documentSync.applyUpdate(
+        { kind: "library" },
+        target,
+        request,
+      );
+    }
     const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
       documentId: request.documentId,
       access: "write",
@@ -1226,6 +1298,13 @@ export function registerIpcHandlers(
     async (event, request) => {
       const target = resolveDocumentSyncTarget(event);
       if (!target) return documentSyncUnauthorized();
+      if (options.documentSync) {
+        return await options.documentSync.publishAwareness(
+          { kind: "library" },
+          target,
+          request,
+        );
+      }
       const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
         documentId: request.documentId,
         access: "read",
@@ -1239,6 +1318,13 @@ export function registerIpcHandlers(
     async (event, request) => {
       const target = resolveDocumentSyncTarget(event);
       if (!target) return documentSyncUnauthorized();
+      if (options.documentSync) {
+        return await options.documentSync.respondToRelocationLease(
+          { kind: "library" },
+          target,
+          request,
+        );
+      }
       const authorization = await blockMutationWriter.authorizeLibraryDocumentAccess({
         documentId: request.documentId,
         access: "read",

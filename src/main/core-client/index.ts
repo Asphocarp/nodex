@@ -1,5 +1,9 @@
 export { CoreClient, CoreModuleResponseError } from "./core-client";
 export { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
+export {
+  createDesktopDocumentSyncBridge,
+  type DesktopDocumentSyncPort,
+} from "./desktop-document-sync-bridge";
 export { readCoreRuntimeConnection } from "./runtime-descriptor";
 export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
 export { initializeDesktopDataAuthority } from "./desktop-data-authority";

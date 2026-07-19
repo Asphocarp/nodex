@@ -22,6 +22,10 @@ interface ActiveSubscription {
   close(): void;
 }
 
+const subscriptionKey = (
+  request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
+): string => JSON.stringify([request.clientSessionId, request.documentId]);
+
 export const createCoreDocumentSyncAdapter = (
   client: CoreClientPort,
 ): DocumentSyncAdapter => {
@@ -29,9 +33,9 @@ export const createCoreDocumentSyncAdapter = (
   const lastSequences = new Map<string, number>();
 
   const requireSubscription = (
-    request: Pick<DocumentSyncSubscribeRequest, "clientSessionId">,
+    request: Pick<DocumentSyncSubscribeRequest, "clientSessionId" | "documentId">,
   ): Promise<void> => {
-    const subscription = subscriptions.get(request.clientSessionId);
+    const subscription = subscriptions.get(subscriptionKey(request));
     if (subscription) return subscription.ready;
     return Promise.reject(
       new Error("Owned Document sync requires an active event subscription"),
@@ -64,7 +68,8 @@ export const createCoreDocumentSyncAdapter = (
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
   ): (() => void) => {
-    subscriptions.get(request.clientSessionId)?.close();
+    const key = subscriptionKey(request);
+    subscriptions.get(key)?.close();
     let active = true;
     let opened: CoreEventSubscription | undefined;
     const ready = client
@@ -72,18 +77,18 @@ export const createCoreDocumentSyncAdapter = (
         {
           documentId: request.documentId,
           clientSessionId: request.clientSessionId,
-          after: lastSequences.get(request.clientSessionId) ?? 0,
+          after: lastSequences.get(key) ?? 0,
         },
         (envelope) => {
           const event = documentEvent(request, envelope);
           if (!event) return;
-          const previous = lastSequences.get(request.clientSessionId) ?? 0;
+          const previous = lastSequences.get(key) ?? 0;
           if (envelope.event.sequence <= previous) return;
-          lastSequences.set(request.clientSessionId, envelope.event.sequence);
+          lastSequences.set(key, envelope.event.sequence);
           listener(event);
         },
         (resync) => {
-          lastSequences.set(request.clientSessionId, resync.event_head);
+          lastSequences.set(key, resync.event_head);
           listener({
             kind: "resync-required",
             documentId: resync.document_id,
@@ -113,7 +118,9 @@ export const createCoreDocumentSyncAdapter = (
         if (!active) return;
         active = false;
         opened?.close();
-        subscriptions.delete(request.clientSessionId);
+        if (subscriptions.get(key) === subscription) {
+          subscriptions.delete(key);
+        }
         listener({
           kind: "connection",
           documentId: request.documentId,
@@ -121,7 +128,7 @@ export const createCoreDocumentSyncAdapter = (
         });
       },
     };
-    subscriptions.set(request.clientSessionId, subscription);
+    subscriptions.set(key, subscription);
     void ready.catch(() => subscription.close());
     return subscription.close;
   };

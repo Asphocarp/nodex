@@ -34,6 +34,7 @@ import { getAssetsPathPrefix } from "./local-store/assets";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./local-store/reminders";
 import { terminalManager } from "./terminal-manager";
 import { blockMutationWriter } from "./block-mutation-writer";
+import { documentSyncHub } from "./document-sync-runtime";
 import { projectDeletionRuntime } from "./project-deletion-runtime";
 import { startBlockDocumentCompactionScheduler } from "./block-document-compaction-scheduler";
 import { createBlockDocumentCompactionRuntime } from "./block-document-compaction-runtime";
@@ -131,6 +132,7 @@ import {
   initializeDesktopDataAuthority,
   createCoreProjectWorkspaceAdapter,
   createDesktopLibraryModuleBridge,
+  createDesktopDocumentSyncBridge,
   createDesktopProjectWorkspaceBridge,
   mapCoreLibraryEvent,
   mapCoreProjectWorkspaceEvent,
@@ -1494,6 +1496,16 @@ export async function runMainAppStartup(
       await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
   }));
   registerIpcHandlers({
+    documentSync: createDesktopDocumentSyncBridge({
+      authority: dataAuthority,
+      typescript: {
+        hub: documentSyncHub,
+        authorizeProject: async (input) =>
+          await blockMutationWriter.authorizeDocumentAccess(input),
+        authorizeLibrary: async (input) =>
+          await blockMutationWriter.authorizeLibraryDocumentAccess(input),
+      },
+    }),
     projectWorkspace: createDesktopProjectWorkspaceBridge({
       authority: dataAuthority,
       typescript: {

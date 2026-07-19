@@ -3,11 +3,14 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import * as Y from "yjs";
 
 import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
+import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createCoreProjectWorkspaceAdapter } from "./core-client/project-workspace-adapter";
+import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 import { closeDatabase, getDb } from "./local-store/database";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
 
@@ -258,6 +261,52 @@ describe("Electron native data authority", () => {
           duplicate: false,
         },
       });
+      const firstDocument = new Y.Doc({
+        guid: "document:electron-library-adapter",
+      });
+      const firstProvider = new NodexYProvider({
+        documentId: firstDocument.guid,
+        document: firstDocument,
+        adapter: createCoreDocumentSyncAdapter(
+          runtime.clientForProject(projectId),
+        ),
+        clientSessionId: "renderer:electron-authority:first",
+        autoConnect: false,
+        localCheckpointStore: null,
+      });
+      const secondDocument = new Y.Doc({
+        guid: "document:electron-library-adapter",
+      });
+      const secondProvider = new NodexYProvider({
+        documentId: secondDocument.guid,
+        document: secondDocument,
+        adapter: createCoreDocumentSyncAdapter(
+          runtime.clientForProject(projectId),
+        ),
+        clientSessionId: "renderer:electron-authority:second",
+        autoConnect: false,
+        localCheckpointStore: null,
+      });
+      try {
+        await firstProvider.connect();
+        expect(firstProvider.getStatus().phase).toBe("synced");
+        firstDocument.transact(() => {
+          const title = firstDocument.getText("title");
+          title.delete(0, title.length);
+          title.insert(0, "Electron native Document sync");
+        });
+        await firstProvider.flush();
+        await secondProvider.connect();
+        expect(secondDocument.getText("title").toString()).toBe(
+          "Electron native Document sync",
+        );
+        expect(listCurrentProcessFiles()).not.toContain(databasePath);
+      } finally {
+        firstProvider.destroy();
+        secondProvider.destroy();
+        firstDocument.destroy();
+        secondDocument.destroy();
+      }
     } finally {
       if (runtime) {
         await runtime.rootClient.shutdown().catch(() => undefined);
