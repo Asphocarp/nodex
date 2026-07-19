@@ -2,11 +2,15 @@ use std::collections::HashSet;
 
 use nodex_core_contracts::library::{
     LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode,
-    LibraryNavigationParent, LibraryRead, LibraryReadValue, LibraryResourceTarget,
+    LibraryNavigationParent, LibraryPageAccessContext, LibraryPageDataSourceContext,
+    LibraryPageDetail, LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty,
+    LibraryPageMembership, LibraryRead, LibraryReadValue, LibraryResourceTarget,
     LibraryRouteTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::Value;
 
+use crate::database::read::{page_data_source_projection, page_record};
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::cursor;
@@ -17,9 +21,10 @@ const MAX_LIMIT: usize = 100;
 pub(super) fn read(
     connection: &Connection,
     library_id: &str,
+    store_epoch: &str,
+    event_head: i64,
     request: LibraryRead,
 ) -> Result<LibraryReadValue, StoreError> {
-    let event_head = event_head(connection)?;
     match request {
         LibraryRead::Metadata => Err(invalid("Metadata is assembled by the Library Module")),
         LibraryRead::Children {
@@ -56,7 +61,142 @@ pub(super) fn read(
             requested_cursor,
             limit,
         ),
+        LibraryRead::PageDetail { page_id } => Ok(LibraryReadValue::PageDetail {
+            value: Box::new(page_detail(
+                connection,
+                library_id,
+                store_epoch,
+                event_head,
+                &page_id,
+            )?),
+        }),
     }
+}
+
+fn page_detail(
+    connection: &Connection,
+    library_id: &str,
+    store_epoch: &str,
+    event_head: i64,
+    page_id: &str,
+) -> Result<LibraryPageDetail, StoreError> {
+    if page_id.is_empty() || page_id.len() > 512 || page_id.trim() != page_id {
+        return Err(invalid("Page detail requires a canonical bounded identity"));
+    }
+    let document = connection
+        .query_row(
+            "SELECT document.readiness, document.schema_key, document.schema_version, \
+               page.parent_kind, page.parent_id \
+             FROM pages page JOIN documents document ON document.id = page.document_id \
+             WHERE page.block_id = ?1 AND page.library_id = ?2 AND page.lifecycle <> 'deleted'",
+            params![page_id, library_id],
+            |row| {
+                Ok((
+                    LibraryPageDocumentDescriptor {
+                        readiness: row.get(0)?,
+                        schema_key: row.get(1)?,
+                        schema_version: row.get(2)?,
+                    },
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .optional()?
+        .ok_or_else(|| not_found("Library Page is unavailable"))?;
+    if !matches!(
+        document.0.readiness.as_str(),
+        "pending_genesis" | "ready" | "failed"
+    ) || document.0.schema_key.is_empty()
+        || document.0.schema_version < 1
+    {
+        return Err(corrupt("Library Page Document descriptor is invalid"));
+    }
+    let intrinsic_properties = connection
+        .prepare(
+            "SELECT property_key, value_type, value_json, revision FROM block_properties \
+             WHERE block_id = ?1 ORDER BY property_key",
+        )?
+        .query_map([page_id], |row| {
+            let key = row.get::<_, String>(0)?;
+            let value_type = row.get::<_, String>(1)?;
+            let serialized = row.get::<_, String>(2)?;
+            let value = parse_json(&serialized, "Page intrinsic Property")?;
+            if !valid_intrinsic_value(&value_type, &value) {
+                return Err(rusqlite::Error::FromSqlConversionFailure(
+                    serialized.len(),
+                    rusqlite::types::Type::Text,
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Page intrinsic Property diverges from its value type",
+                    )
+                    .into(),
+                ));
+            }
+            Ok(LibraryPageIntrinsicProperty {
+                key,
+                value_type,
+                value,
+                revision: row.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let data_source_context = match document.1.as_str() {
+        "library" | "page" => LibraryPageDataSourceContext::Standalone,
+        "data_source" => {
+            let projection =
+                page_data_source_projection(connection, library_id, page_id, &document.2)?;
+            LibraryPageDataSourceContext::Member {
+                membership: LibraryPageMembership {
+                    membership_id: projection.membership_id,
+                    data_source_id: projection.data_source_id,
+                    revision: projection.membership_revision,
+                    created_at: projection.membership_created_at,
+                },
+                database: projection.database,
+                data_source: projection.data_source,
+                properties: projection.properties,
+                values: projection.values,
+            }
+        }
+        _ => return Err(corrupt("Library Page has an invalid parent kind")),
+    };
+    Ok(LibraryPageDetail {
+        version: 2,
+        library_id: library_id.to_owned(),
+        store_epoch: store_epoch.to_owned(),
+        change_log_seq: event_head,
+        page: page_record(connection, page_id)?,
+        document: document.0,
+        intrinsic_properties,
+        data_source_context,
+        access_context: LibraryPageAccessContext::Library,
+    })
+}
+
+fn valid_intrinsic_value(value_type: &str, value: &Value) -> bool {
+    match value_type {
+        "null" => value.is_null(),
+        "boolean" => value.is_boolean(),
+        "number" => value.is_number(),
+        "string" => value.is_null() || value.is_string(),
+        "json" => value.is_null() || value.is_array() || value.is_object(),
+        _ => false,
+    }
+}
+
+fn parse_json(serialized: &str, label: &str) -> rusqlite::Result<Value> {
+    serde_json::from_str(serialized).map_err(|_| {
+        rusqlite::Error::FromSqlConversionFailure(
+            serialized.len(),
+            rusqlite::types::Type::Text,
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{label} is invalid JSON"),
+            )
+            .into(),
+        )
+    })
 }
 
 pub(super) fn event_head(connection: &Connection) -> Result<i64, StoreError> {
@@ -683,4 +823,21 @@ fn not_found(message: &str) -> StoreError {
 
 fn corrupt(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::StoreCorrupt, message, false)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::valid_intrinsic_value;
+
+    #[test]
+    fn accepts_nullable_string_and_json_intrinsic_values() {
+        assert!(valid_intrinsic_value("string", &json!(null)));
+        assert!(valid_intrinsic_value("json", &json!(null)));
+        assert!(valid_intrinsic_value("string", &json!("value")));
+        assert!(valid_intrinsic_value("json", &json!({ "key": "value" })));
+        assert!(!valid_intrinsic_value("string", &json!(42)));
+        assert!(!valid_intrinsic_value("json", &json!("value")));
+    }
 }

@@ -729,6 +729,7 @@ impl OwnedDocumentModule {
                                     full_state: &prepared.update_v1,
                                     store_epoch: &store_epoch,
                                     operation_id: &operation_id,
+                                    emit_event: true,
                                 },
                             )?;
                             let committed = committed_value(

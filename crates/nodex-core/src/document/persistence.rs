@@ -33,6 +33,8 @@ pub(crate) struct PersistedDocumentCommit {
     pub state_vector: Vec<u8>,
     pub state_hash: String,
     pub derived_touched_block_ids: Vec<String>,
+    /// Public event head after persistence. This is the emitted event's sequence
+    /// when the owning aggregate publishes one.
     pub event_sequence: i64,
     pub committed_at: String,
 }
@@ -65,6 +67,9 @@ pub(crate) struct PersistYjsGenesis<'a> {
     pub full_state: &'a [u8],
     pub store_epoch: &'a str,
     pub operation_id: &'a str,
+    /// Internal collaborator genesis keeps its durable Document artifacts but
+    /// lets the owning aggregate publish the single public event.
+    pub emit_event: bool,
 }
 
 pub(crate) fn read_document_authority(
@@ -453,38 +458,45 @@ pub(crate) fn persist_yjs_genesis(
             sha256(&materialization_bytes),
         ],
     )?;
-    let payload = json!({
-        "module": "owned_document",
-        "kind": "document_initialized",
-        "documentId": input.authority.head.id,
-        "generation": input.authority.head.generation,
-        "headSeq": 1,
-        "updateId": input.update_id,
-        "updateHash": update_hash,
-        "updateByteLength": input.update.len(),
-    });
-    connection.execute(
-        "INSERT INTO change_log (\
-           project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
-           database_block_ids_json, payload_json, committed_at\
-         ) VALUES (?1, ?2, 'owned_document.document_initialized', ?3, ?4, ?5, '[]', ?6, ?7)",
-        params![
-            input.authority.head.project_id,
-            input.store_epoch,
-            input.operation_id,
-            derived_touched_json,
-            serde_json::to_string(&[&input.authority.head.id])
-                .map_err(|_| internal("Genesis Document event IDs"))?,
-            serde_json::to_string(&payload).map_err(|_| internal("Genesis event payload"))?,
-            now,
-        ],
-    )?;
+    let event_sequence = if input.emit_event {
+        let payload = json!({
+            "module": "owned_document",
+            "kind": "document_initialized",
+            "documentId": input.authority.head.id,
+            "generation": input.authority.head.generation,
+            "headSeq": 1,
+            "updateId": input.update_id,
+            "updateHash": update_hash,
+            "updateByteLength": input.update.len(),
+        });
+        connection.execute(
+            "INSERT INTO change_log (\
+               project_id, store_epoch, kind, operation_id, block_ids_json, document_ids_json, \
+               database_block_ids_json, payload_json, committed_at\
+             ) VALUES (?1, ?2, 'owned_document.document_initialized', ?3, ?4, ?5, '[]', ?6, ?7)",
+            params![
+                input.authority.head.project_id,
+                input.store_epoch,
+                input.operation_id,
+                derived_touched_json,
+                serde_json::to_string(&[&input.authority.head.id])
+                    .map_err(|_| internal("Genesis Document event IDs"))?,
+                serde_json::to_string(&payload).map_err(|_| internal("Genesis event payload"))?,
+                now,
+            ],
+        )?;
+        connection.last_insert_rowid()
+    } else {
+        connection.query_row("SELECT COALESCE(MAX(seq), 0) FROM change_log", [], |row| {
+            row.get(0)
+        })?
+    };
     Ok(PersistedDocumentCommit {
         head_seq: 1,
         state_vector: input.state_vector.to_vec(),
         state_hash,
         derived_touched_block_ids,
-        event_sequence: connection.last_insert_rowid(),
+        event_sequence,
         committed_at: now,
     })
 }

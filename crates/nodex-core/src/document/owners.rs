@@ -337,6 +337,7 @@ fn promote_synced_source(
             full_state: &source_full_state,
             store_epoch,
             operation_id: &source_operation_id,
+            emit_event: true,
         },
     )?;
     let source_event = committed_event(
@@ -985,6 +986,7 @@ fn create_yjs_owner(
             full_state: &full_state,
             store_epoch,
             operation_id: &update_id,
+            emit_event: true,
         },
     )?;
     let event = committed_event(

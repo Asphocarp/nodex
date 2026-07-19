@@ -658,6 +658,57 @@ export interface components {
             /** @enum {string} */
             readonly kind: "database";
         };
+        readonly LibraryPageAccessContext: {
+            /** @enum {string} */
+            readonly kind: "library";
+        };
+        readonly LibraryPageDataSourceContext: {
+            /** @enum {string} */
+            readonly kind: "standalone";
+        } | {
+            readonly data_source: unknown;
+            readonly database: unknown;
+            /** @enum {string} */
+            readonly kind: "member";
+            readonly membership: components["schemas"]["LibraryPageMembership"];
+            readonly properties: readonly unknown[];
+            readonly values: {
+                readonly [key: string]: unknown;
+            };
+        };
+        readonly LibraryPageDetail: {
+            readonly access_context: components["schemas"]["LibraryPageAccessContext"];
+            /** Format: int64 */
+            readonly change_log_seq: number;
+            readonly data_source_context: components["schemas"]["LibraryPageDataSourceContext"];
+            readonly document: components["schemas"]["LibraryPageDocumentDescriptor"];
+            readonly intrinsic_properties: readonly components["schemas"]["LibraryPageIntrinsicProperty"][];
+            readonly library_id: string;
+            readonly page: unknown;
+            readonly store_epoch: string;
+            /** Format: int32 */
+            readonly version: number;
+        };
+        readonly LibraryPageDocumentDescriptor: {
+            readonly readiness: string;
+            readonly schema_key: string;
+            /** Format: int64 */
+            readonly schema_version: number;
+        };
+        readonly LibraryPageIntrinsicProperty: {
+            readonly key: string;
+            /** Format: int64 */
+            readonly revision: number;
+            readonly value: unknown;
+            readonly value_type: string;
+        };
+        readonly LibraryPageMembership: {
+            readonly created_at: string;
+            readonly data_source_id: string;
+            readonly membership_id: string;
+            /** Format: int64 */
+            readonly revision: number;
+        };
         readonly LibraryPlacementAnchor: {
             readonly block_id: string;
             /** Format: int64 */
@@ -1119,6 +1170,10 @@ export interface components {
                 /** Format: int32 */
                 readonly limit?: number | null;
                 readonly query?: string | null;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_detail";
+                readonly page_id: string;
             };
             /** Format: int32 */
             readonly version: number;
@@ -1573,6 +1628,10 @@ export interface components {
                     readonly next_cursor?: string | null;
                     /** Format: int64 */
                     readonly total: number;
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_detail";
+                    readonly value: components["schemas"]["LibraryPageDetail"];
                 };
                 /** Format: int32 */
                 readonly version: number;

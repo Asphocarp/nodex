@@ -15,20 +15,22 @@ import {
   parseDatabaseViewId,
   parseDataSourceId,
   parseDataSourcePropertyId,
-} from "../../shared/database-identities";
-import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../../shared/database-module-v2";
-import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
-import { createUuidV7 } from "../../shared/uuid-v7";
-import { closeDatabase, getDb, initializeDatabase } from "../local-store/database";
+} from "../shared/database-identities";
+import { DATABASE_MODULE_V2_CONTRACT_VERSION } from "../shared/database-module-v2";
+import { LIBRARY_MODULE_CONTRACT_VERSION } from "../shared/library-module";
+import { createUuidV7 } from "../shared/uuid-v7";
+import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
+import { createPage } from "./local-store/database-pages";
 import {
   applyDatabaseModuleV2,
   readDatabaseModuleV2,
-} from "../local-store/database-module-v2-runtime";
+} from "./local-store/database-module-v2-runtime";
 import {
   applyLibraryModuleInDatabase,
   readLibraryModuleInDatabase,
-} from "../local-store/library-module-runtime";
-import { CoreClient, CoreModuleResponseError } from "./core-client";
+} from "./local-store/library-module-runtime";
+import { readLibraryPageDetailInDatabase } from "./local-store/page-detail";
+import { CoreClient, CoreModuleResponseError } from "./core-client/core-client";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const tempDirectories: string[] = [];
@@ -140,6 +142,9 @@ describe("TypeScript/Rust content Module differential", () => {
       readonly primaryDataSourceId: string;
       readonly primaryDataSourceRevision: number;
     };
+    const sourcePage = await createPage(coordinates.projectId, "triage", {
+      title: "Gate C imported row",
+    });
     closeDatabase();
     cpSync(typescriptHome, rustHome, { recursive: true });
     await initializeDatabase();
@@ -158,6 +163,54 @@ describe("TypeScript/Rust content Module differential", () => {
       store_epoch: coordinates.storeEpoch,
       schema_version: 83,
     });
+
+    const oracleImportedDetail = readLibraryPageDetailInDatabase(
+      getDb(),
+      sourcePage.id,
+      "app_window",
+    );
+    if (!oracleImportedDetail.ok) {
+      throw new Error(oracleImportedDetail.error.message);
+    }
+    const candidateImportedDetail = await stage(
+      "Library imported Data Source Page detail",
+      candidate.libraryRead({
+        kind: "page_detail",
+        page_id: sourcePage.id,
+      }),
+    );
+    if (candidateImportedDetail.value.kind !== "page_detail") {
+      throw new Error("Expected imported Rust Page detail");
+    }
+    expect(candidateImportedDetail.value.value).toMatchObject({
+      version: oracleImportedDetail.value.version,
+      library_id: oracleImportedDetail.value.libraryId,
+      store_epoch: oracleImportedDetail.value.storeEpoch,
+      change_log_seq: oracleImportedDetail.value.changeLogSeq,
+      access_context: { kind: oracleImportedDetail.value.accessContext.kind },
+    });
+    const oracleImportedContext = oracleImportedDetail.value.dataSourceContext;
+    if (oracleImportedContext.kind !== "member") {
+      throw new Error("Expected imported TypeScript Data Source context");
+    }
+    expect(withoutVolatileFields(candidateImportedDetail.value.value.page)).toEqual(
+      withoutVolatileFields(oracleImportedDetail.value.page),
+    );
+    expect(withoutVolatileFields(candidateImportedDetail.value.value.data_source_context)).toEqual(
+      withoutVolatileFields({
+        kind: "member",
+        membership: {
+          membership_id: oracleImportedContext.membership.membershipId,
+          data_source_id: oracleImportedContext.membership.dataSourceId,
+          revision: oracleImportedContext.membership.revision,
+          created_at: oracleImportedContext.membership.createdAt,
+        },
+        database: oracleImportedContext.database,
+        data_source: oracleImportedContext.dataSource,
+        properties: oracleImportedContext.properties,
+        values: oracleImportedContext.values,
+      }),
+    );
 
     const oracleLibraryRead = (
       read: Parameters<typeof readLibraryModuleInDatabase>[1]["read"],
@@ -238,6 +291,43 @@ describe("TypeScript/Rust content Module differential", () => {
       document_head_seq: oraclePageNode?.kind === "page"
         ? oraclePageNode.documentHeadSeq
         : -1,
+    });
+    const oracleDetail = readLibraryPageDetailInDatabase(
+      getDb(),
+      pageId,
+      "app_window",
+    );
+    if (!oracleDetail.ok) throw new Error(oracleDetail.error.message);
+    const candidateDetail = await stage("Library Page detail", candidate.libraryRead({
+      kind: "page_detail",
+      page_id: pageId,
+    }));
+    if (candidateDetail.value.kind !== "page_detail") {
+      throw new Error("Expected Rust Page detail");
+    }
+    expect(candidateDetail.value.value).toMatchObject({
+      version: oracleDetail.value.version,
+      library_id: oracleDetail.value.libraryId,
+      store_epoch: oracleDetail.value.storeEpoch,
+      change_log_seq: oracleDetail.value.changeLogSeq,
+      access_context: { kind: oracleDetail.value.accessContext.kind },
+    });
+    expect(withoutVolatileFields(candidateDetail.value.value.page)).toEqual(
+      withoutVolatileFields(oracleDetail.value.page),
+    );
+    expect(candidateDetail.value.value).toMatchObject({
+      document: {
+        readiness: oracleDetail.value.document.readiness,
+        schema_key: oracleDetail.value.document.schemaKey,
+        schema_version: oracleDetail.value.document.schemaVersion,
+      },
+      intrinsic_properties: oracleDetail.value.intrinsicProperties.map((property) => ({
+        key: property.key,
+        value_type: property.valueType,
+        value: property.value,
+        revision: property.revision,
+      })),
+      data_source_context: { kind: "standalone" },
     });
 
     const databaseId = parseDatabaseId(createUuidV7());

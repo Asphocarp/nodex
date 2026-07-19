@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use serde_json::Value;
+
 use crate::{ModuleMutationReceipt, ModuleName, VersionedModuleContract};
 
 pub const LIBRARY_CONTRACT_VERSION: u32 = 1;
@@ -68,6 +70,9 @@ pub enum LibraryRead {
         cursor: Option<String>,
         limit: Option<u32>,
     },
+    PageDetail {
+        page_id: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -129,7 +134,62 @@ pub struct LibraryCatalogEntry {
     pub metadata_revision: i64,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageDocumentDescriptor {
+    pub readiness: String,
+    pub schema_key: String,
+    pub schema_version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageIntrinsicProperty {
+    pub key: String,
+    pub value_type: String,
+    pub value: Value,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageMembership {
+    pub membership_id: String,
+    pub data_source_id: String,
+    pub revision: i64,
+    pub created_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageAccessContext {
+    Library,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryPageDataSourceContext {
+    Standalone,
+    Member {
+        membership: LibraryPageMembership,
+        database: Value,
+        data_source: Value,
+        properties: Vec<Value>,
+        values: std::collections::BTreeMap<String, Value>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageDetail {
+    pub version: u32,
+    pub library_id: String,
+    pub store_epoch: String,
+    pub change_log_seq: i64,
+    pub page: Value,
+    pub document: LibraryPageDocumentDescriptor,
+    pub intrinsic_properties: Vec<LibraryPageIntrinsicProperty>,
+    pub data_source_context: LibraryPageDataSourceContext,
+    pub access_context: LibraryPageAccessContext,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryReadValue {
     Metadata {
@@ -153,6 +213,9 @@ pub enum LibraryReadValue {
         next_cursor: Option<String>,
         has_more: bool,
         total: u64,
+    },
+    PageDetail {
+        value: Box<LibraryPageDetail>,
     },
 }
 

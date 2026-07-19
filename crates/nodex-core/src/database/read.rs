@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use nodex_core_contracts::BoundModuleContext;
 use nodex_core_contracts::database::{
@@ -8,6 +9,72 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
 
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
+
+pub(crate) struct PageDataSourceProjection {
+    pub membership_id: String,
+    pub data_source_id: String,
+    pub membership_revision: i64,
+    pub membership_created_at: String,
+    pub database: Value,
+    pub data_source: Value,
+    pub properties: Vec<Value>,
+    pub values: BTreeMap<String, Value>,
+}
+
+pub(crate) fn page_data_source_projection(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+    data_source_id: &str,
+) -> Result<PageDataSourceProjection, StoreError> {
+    let memberships = connection
+        .prepare(
+            "SELECT id, data_source_id, revision, created_at \
+             FROM data_source_page_memberships \
+             WHERE page_block_id = ?1 AND removed_at IS NULL ORDER BY id",
+        )?
+        .query_map([page_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let [(membership_id, membership_source_id, revision, created_at)] = memberships.as_slice()
+    else {
+        return Err(corrupt(
+            "Data Source Page must have exactly one active membership",
+        ));
+    };
+    if membership_source_id != data_source_id {
+        return Err(corrupt(
+            "Data Source Page membership and parent coordinates diverge",
+        ));
+    }
+    let database_id = database_for_source(connection, library_id, data_source_id)?;
+    let data_source = source_record(connection, library_id, data_source_id)?;
+    if data_source.get("lifecycle").and_then(Value::as_str) == Some("deleted") {
+        return Err(corrupt("Data Source Page belongs to a deleted Data Source"));
+    }
+    let database = container_record(connection, library_id, &database_id)?;
+    if database.get("lifecycle").and_then(Value::as_str) == Some("deleted") {
+        return Err(corrupt("Data Source Page belongs to a deleted Database"));
+    }
+    Ok(PageDataSourceProjection {
+        membership_id: membership_id.clone(),
+        data_source_id: membership_source_id.clone(),
+        membership_revision: *revision,
+        membership_created_at: created_at.clone(),
+        database,
+        data_source,
+        properties: property_records(connection, data_source_id, true)?,
+        values: read_values(connection, data_source_id, membership_id)?
+            .into_iter()
+            .collect(),
+    })
+}
 
 pub(super) fn read(
     connection: &Connection,
@@ -631,7 +698,7 @@ fn read_values(
         .collect()
 }
 
-fn page_record(connection: &Connection, page_id: &str) -> Result<Value, StoreError> {
+pub(crate) fn page_record(connection: &Connection, page_id: &str) -> Result<Value, StoreError> {
     connection
         .query_row(
             "SELECT page.block_id, page.library_id, page.parent_kind, page.parent_id, \

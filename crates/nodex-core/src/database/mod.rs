@@ -1,5 +1,5 @@
 mod mutation;
-mod read;
+pub(crate) mod read;
 
 use nodex_core_contracts::database::{
     DatabaseCommitValue, DatabaseIntent, DatabaseRead, DatabaseReadValue, DatabaseReceipt,

@@ -1459,6 +1459,7 @@ fn create_page(
             full_state: &full_state,
             store_epoch,
             operation_id: &genesis_update_id,
+            emit_event: false,
         },
     )?;
     insert_page_read_model(
@@ -2202,7 +2203,10 @@ mod tests {
                        (SELECT count(*) FROM core_module_receipts \
                          WHERE module_name = 'library' AND operation_id = 'operation:create-page'), \
                        (SELECT count(*) FROM change_log \
-                         WHERE operation_id = 'operation:create-page' AND kind = 'library.changed') \
+                         WHERE operation_id = 'operation:create-page' AND kind = 'library.changed'), \
+                       (SELECT count(*) FROM change_log \
+                         WHERE kind = 'owned_document.document_initialized' \
+                           AND document_ids_json = json_array(document.id)) \
                      FROM documents document \
                      JOIN document_materializations materialization \
                        ON materialization.document_id = document.id \
@@ -2219,6 +2223,7 @@ mod tests {
                             row.get::<_, i64>(5)?,
                             row.get::<_, i64>(6)?,
                             row.get::<_, i64>(7)?,
+                            row.get::<_, i64>(8)?,
                         ))
                     },
                 )?;
@@ -2233,6 +2238,7 @@ mod tests {
                         1,
                         1,
                         1,
+                        0,
                     )
                 );
                 Ok(())

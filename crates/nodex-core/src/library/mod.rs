@@ -108,7 +108,13 @@ impl LibraryModule {
                             library_id,
                             change_log_seq: event_head,
                         },
-                        read => navigation::read(connection, &library_id, read)?,
+                        read => navigation::read(
+                            connection,
+                            &library_id,
+                            &store_epoch,
+                            event_head,
+                            read,
+                        )?,
                     };
                     Ok(ModuleReadSnapshot {
                         version: CORE_CONTRACT_VERSION,
