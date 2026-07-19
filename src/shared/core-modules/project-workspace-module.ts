@@ -35,12 +35,17 @@ export interface ProjectWorkspaceProject {
 export interface ProjectWorkspaceSessionSummary {
   readonly id: string;
   readonly projectId: string | null;
+  readonly noThreadFallbackTitle: string;
   readonly displayTitle: string;
   readonly order: number;
   readonly pinned: boolean;
+  readonly pinnedOrder: number | null;
   readonly archived: boolean;
+  readonly archivedAt: string | null;
   readonly unread: boolean;
+  readonly leftPaneCollapsed: boolean;
   readonly threadId: string | null;
+  readonly createdAt: string;
   readonly updatedAt: string;
 }
 
@@ -104,6 +109,7 @@ export type ProjectSessionIntent =
   | { readonly kind: "rename"; readonly title: string }
   | { readonly kind: "set_pinned"; readonly pinned: boolean }
   | { readonly kind: "set_unread"; readonly unread: boolean }
+  | { readonly kind: "set_archived"; readonly archived: boolean }
   | {
       readonly kind: "replace_panel_layout";
       readonly panelId: PanelId;
@@ -162,6 +168,28 @@ export type ProjectWorkspaceIntent =
       readonly kind: "set_project_pinned";
       readonly projectId: string;
       readonly pinned: boolean;
+    }
+  | {
+      readonly kind: "create_session";
+      readonly sessionId: string;
+      readonly projectId: string | null;
+      readonly title: string;
+    }
+  | { readonly kind: "delete_session"; readonly sessionId: string }
+  | {
+      readonly kind: "move_session";
+      readonly sessionId: string;
+      readonly projectId: string | null;
+    }
+  | {
+      readonly kind: "reorder_sessions";
+      readonly projectId: string | null;
+      readonly sessionIds: readonly string[];
+    }
+  | {
+      readonly kind: "reorder_pinned_sessions";
+      readonly projectId: string | null;
+      readonly sessionIds: readonly string[];
     }
   | {
       readonly kind: "mutate_session";

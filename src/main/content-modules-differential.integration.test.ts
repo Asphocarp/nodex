@@ -33,14 +33,21 @@ import {
   updateProject,
 } from "./local-store/projects";
 import {
+  archiveProjectSession,
+  createProjectSession,
   createProjectSessionTab,
+  deleteProjectSession,
   deleteProjectSessionTab,
   getProjectSession,
   listProjectSessionSummaries,
   listProjectlessSessionSummaries,
   markProjectSessionUnread,
+  moveProjectSessionToProject,
   moveProjectSessionTab,
+  reorderProjectSessions,
+  setPinnedProjectSessionOrder,
   setProjectSessionPinned,
+  unarchiveProjectSession,
   updateProjectSession,
 } from "./local-store/project-sessions";
 import {
@@ -339,18 +346,25 @@ describe("TypeScript/Rust content Module differential", () => {
       sessions: readonly {
         readonly id: string;
         readonly project_id?: string | null;
+        readonly no_thread_fallback_title: string;
         readonly display_title: string;
         readonly order: number;
         readonly pinned: boolean;
+        readonly pinned_order?: number | null;
         readonly archived: boolean;
+        readonly archived_at?: string | null;
         readonly unread: boolean;
+        readonly left_pane_collapsed: boolean;
         readonly thread_id?: string | null;
+        readonly created_at: string;
         readonly updated_at: string;
       }[],
     ) => sessions
       .map((session) => ({
         ...session,
         project_id: session.project_id ?? null,
+        pinned_order: session.pinned_order ?? null,
+        archived_at: session.archived_at ?? null,
         thread_id: session.thread_id ?? null,
       }))
       .sort((left, right) => left.id.localeCompare(right.id));
@@ -358,12 +372,17 @@ describe("TypeScript/Rust content Module differential", () => {
       comparableSessions(oracleWorkspaceSessions.map((session) => ({
         id: session.id,
         project_id: session.projectId,
+        no_thread_fallback_title: session.noThreadFallbackTitle,
         display_title: session.displayTitle,
         order: session.order,
         pinned: session.pinned,
+        pinned_order: session.pinnedOrder,
         archived: session.archived,
+        archived_at: session.archivedAt,
         unread: session.unread,
+        left_pane_collapsed: session.leftPaneCollapsed,
         thread_id: session.thread?.threadId ?? null,
+        created_at: session.createdAt,
         updated_at: session.updatedAt,
       }))),
     );
@@ -385,12 +404,17 @@ describe("TypeScript/Rust content Module differential", () => {
         comparableSessions([{
           id: oracleSession.id,
           project_id: oracleSession.projectId,
+          no_thread_fallback_title: oracleSession.noThreadFallbackTitle,
           display_title: oracleSession.displayTitle,
           order: oracleSession.order,
           pinned: oracleSession.pinned,
+          pinned_order: oracleSession.pinnedOrder,
           archived: oracleSession.archived,
+          archived_at: oracleSession.archivedAt,
           unread: oracleSession.unread,
+          left_pane_collapsed: oracleSession.leftPaneCollapsed,
           thread_id: oracleSession.thread?.threadId ?? null,
+          created_at: oracleSession.createdAt,
           updated_at: oracleSession.updatedAt,
         }])[0],
       );
@@ -2930,6 +2954,378 @@ describe("TypeScript/Rust content Module differential", () => {
       order: tab.order,
       stateKey: tab.stateKey,
     })));
+
+    const oracleLifecycleSessionA = createProjectSession({
+      projectId: oracleCreatedProject.id,
+      noThreadFallbackTitle: "Gate C lifecycle A",
+    });
+    const candidateLifecycleSessionAId = "gate-c-lifecycle-session-a";
+    const candidateCreateSessionAInput = {
+      operationId: "gate-c-workspace-create-session-a",
+      intent: {
+        kind: "create_session" as const,
+        session_id: candidateLifecycleSessionAId,
+        project_id: candidateProjectId,
+        title: "Gate C lifecycle A",
+      },
+    };
+    const candidateCreatedSessionA = await stage(
+      "Project Workspace create explicit Session A",
+      candidate.workspaceApply(candidateCreateSessionAInput),
+    );
+    const candidateReplayedSessionA = await stage(
+      "Project Workspace replay explicit Session A creation",
+      candidate.workspaceApply(candidateCreateSessionAInput),
+    );
+    expect(candidateReplayedSessionA.event_sequence).toBe(
+      candidateCreatedSessionA.event_sequence,
+    );
+    expect(candidateReplayedSessionA.receipt.duplicate).toBe(true);
+
+    const oracleLifecycleSessionB = createProjectSession({
+      projectId: oracleCreatedProject.id,
+      noThreadFallbackTitle: "Gate C lifecycle B",
+    });
+    const candidateLifecycleSessionBId = "gate-c-lifecycle-session-b";
+    await stage(
+      "Project Workspace create explicit Session B",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-create-session-b",
+        intent: {
+          kind: "create_session",
+          session_id: candidateLifecycleSessionBId,
+          project_id: candidateProjectId,
+          title: "Gate C lifecycle B",
+        },
+      }),
+    );
+
+    const lifecyclePairs = [
+      {
+        oracleId: oracleCreatedSession.id,
+        candidateId: candidateCreatedSession.value.session.id,
+        stableId: "default",
+      },
+      {
+        oracleId: oracleLifecycleSessionA.id,
+        candidateId: candidateLifecycleSessionAId,
+        stableId: "a",
+      },
+      {
+        oracleId: oracleLifecycleSessionB.id,
+        candidateId: candidateLifecycleSessionBId,
+        stableId: "b",
+      },
+    ] as const;
+    for (const pair of lifecyclePairs) {
+      setProjectSessionPinned(pair.oracleId, { pinned: true });
+      await stage(
+        `Project Workspace pin lifecycle Session ${pair.stableId}`,
+        candidate.workspaceApply({
+          operationId: `gate-c-workspace-pin-session-${pair.stableId}`,
+          intent: {
+            kind: "mutate_session",
+            session_id: pair.candidateId,
+            intent: { kind: "set_pinned", pinned: true },
+          },
+        }),
+      );
+    }
+    reorderProjectSessions(oracleCreatedProject.id, [
+      oracleLifecycleSessionB.id,
+      oracleLifecycleSessionA.id,
+    ]);
+    await stage(
+      "Project Workspace reorder Sessions",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-reorder-sessions",
+        intent: {
+          kind: "reorder_sessions",
+          project_id: candidateProjectId,
+          session_ids: [candidateLifecycleSessionBId, candidateLifecycleSessionAId],
+        },
+      }),
+    );
+    setPinnedProjectSessionOrder(oracleCreatedProject.id, {
+      orderedSessionIds: [oracleCreatedSession.id, oracleLifecycleSessionB.id],
+    });
+    await stage(
+      "Project Workspace reorder pinned Sessions",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-reorder-pinned-sessions",
+        intent: {
+          kind: "reorder_pinned_sessions",
+          project_id: candidateProjectId,
+          session_ids: [
+            candidateCreatedSession.value.session.id,
+            candidateLifecycleSessionBId,
+          ],
+        },
+      }),
+    );
+
+    const oracleArchivedSessionB = archiveProjectSession(oracleLifecycleSessionB.id);
+    if (!oracleArchivedSessionB) throw new Error("TypeScript Session archive disappeared");
+    await stage(
+      "Project Workspace archive Session",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-archive-session-b",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateLifecycleSessionBId,
+          intent: { kind: "set_archived", archived: true },
+        },
+      }),
+    );
+    const candidateArchivedSessionB = await stage(
+      "Project Workspace archived Session snapshot",
+      candidate.workspaceRead({
+        kind: "session",
+        session_id: candidateLifecycleSessionBId,
+      }),
+    );
+    if (candidateArchivedSessionB.value.kind !== "session") {
+      throw new Error("Expected archived Rust Session snapshot");
+    }
+    expect({
+      archived: candidateArchivedSessionB.value.session.archived,
+      archivedAtPresent: candidateArchivedSessionB.value.session.archived_at != null,
+      pinned: candidateArchivedSessionB.value.session.pinned,
+      pinnedOrder: candidateArchivedSessionB.value.session.pinned_order,
+      unread: candidateArchivedSessionB.value.session.unread,
+    }).toEqual({
+      archived: oracleArchivedSessionB.archived,
+      archivedAtPresent: oracleArchivedSessionB.archivedAt !== null,
+      pinned: oracleArchivedSessionB.pinned,
+      pinnedOrder: oracleArchivedSessionB.pinnedOrder,
+      unread: oracleArchivedSessionB.unread,
+    });
+    const oracleRestoredSessionB = unarchiveProjectSession(oracleLifecycleSessionB.id);
+    if (!oracleRestoredSessionB) throw new Error("TypeScript Session restore disappeared");
+    await stage(
+      "Project Workspace restore Session",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-restore-session-b",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateLifecycleSessionBId,
+          intent: { kind: "set_archived", archived: false },
+        },
+      }),
+    );
+
+    const normalizeOracleLifecycleSession = (
+      stableId: string,
+      session: {
+        readonly projectId: string | null;
+        readonly noThreadFallbackTitle: string;
+        readonly displayTitle: string;
+        readonly order: number;
+        readonly pinned: boolean;
+        readonly pinnedOrder: number | null;
+        readonly archived: boolean;
+        readonly archivedAt: string | null;
+        readonly unread: boolean;
+        readonly leftPaneCollapsed: boolean;
+      },
+    ) => ({
+      stableId,
+      projectBound: session.projectId !== null,
+      title: session.noThreadFallbackTitle,
+      displayTitle: session.displayTitle,
+      order: session.order,
+      pinned: session.pinned,
+      pinnedOrder: session.pinnedOrder,
+      archived: session.archived,
+      archivedAtPresent: session.archivedAt !== null,
+      unread: session.unread,
+      leftPaneCollapsed: session.leftPaneCollapsed,
+    });
+    const normalizeCandidateLifecycleSession = (
+      stableId: string,
+      session: {
+        readonly project_id?: string | null;
+        readonly no_thread_fallback_title: string;
+        readonly display_title: string;
+        readonly order: number;
+        readonly pinned: boolean;
+        readonly pinned_order?: number | null;
+        readonly archived: boolean;
+        readonly archived_at?: string | null;
+        readonly unread: boolean;
+        readonly left_pane_collapsed: boolean;
+      },
+    ) => ({
+      stableId,
+      projectBound: session.project_id !== null,
+      title: session.no_thread_fallback_title,
+      displayTitle: session.display_title,
+      order: session.order,
+      pinned: session.pinned,
+      pinnedOrder: session.pinned_order ?? null,
+      archived: session.archived,
+      archivedAtPresent: session.archived_at != null,
+      unread: session.unread,
+      leftPaneCollapsed: session.left_pane_collapsed,
+    });
+    const oracleLifecycleIds = new Map(
+      lifecyclePairs.map((pair) => [pair.oracleId, pair.stableId]),
+    );
+    const candidateLifecycleIds = new Map(
+      lifecyclePairs.map((pair) => [pair.candidateId, pair.stableId]),
+    );
+    const oracleLifecycleState = listProjectSessionSummaries(
+      oracleCreatedProject.id,
+      { includeArchived: true },
+    ).map((session) => normalizeOracleLifecycleSession(
+      oracleLifecycleIds.get(session.id) ?? session.id,
+      session,
+    )).sort((left, right) => left.stableId.localeCompare(right.stableId));
+    const candidateLifecycleState = await stage(
+      "Project Workspace ordered Session summaries",
+      candidate.workspaceRead({
+        kind: "sessions",
+        project_id: candidateProjectId,
+        include_archived: true,
+      }),
+    );
+    if (candidateLifecycleState.value.kind !== "sessions") {
+      throw new Error("Expected ordered Rust Session summaries");
+    }
+    expect(candidateLifecycleState.value.sessions.map((session) =>
+      normalizeCandidateLifecycleSession(
+        candidateLifecycleIds.get(session.id) ?? session.id,
+        session,
+      )
+    ).sort((left, right) => left.stableId.localeCompare(right.stableId))).toEqual(
+      oracleLifecycleState,
+    );
+
+    expect(deleteProjectSession(oracleLifecycleSessionA.id)).toBe(true);
+    await stage(
+      "Project Workspace delete explicit Session",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-delete-session-a",
+        intent: {
+          kind: "delete_session",
+          session_id: candidateLifecycleSessionAId,
+        },
+      }),
+    );
+
+    const oracleProjectlessSession = createProjectSession({
+      projectId: null,
+      noThreadFallbackTitle: "Gate C movable browser",
+    });
+    const candidateProjectlessSessionId = "gate-c-projectless-session";
+    await stage(
+      "Project Workspace create projectless Session",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-create-projectless-session",
+        intent: {
+          kind: "create_session",
+          session_id: candidateProjectlessSessionId,
+          project_id: null,
+          title: "Gate C movable browser",
+        },
+      }),
+    );
+    createProjectSessionTab({
+      sessionId: oracleProjectlessSession.id,
+      projectId: null,
+      panelId: "right",
+      clientTabId: "gate-c-movable-browser-tab",
+      browserTabId: "gate-c-movable-browser-identity",
+      kind: "browser",
+      title: "Gate C movable browser",
+      config: {
+        projectId: null,
+        url: "https://example.test/movable",
+      },
+    });
+    await stage(
+      "Project Workspace create projectless browser tab",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-create-projectless-browser",
+        intent: {
+          kind: "mutate_session",
+          session_id: candidateProjectlessSessionId,
+          intent: {
+            kind: "create_tab",
+            tab_id: "gate-c-movable-browser-tab",
+            panel_id: "right",
+            target_leaf_id: null,
+            browser_tab_id: "gate-c-movable-browser-identity",
+            tab_kind: "browser",
+            title: "Gate C movable browser",
+            config: {
+              projectId: null,
+              url: "https://example.test/movable",
+            },
+          },
+        },
+      }),
+    );
+    const oracleMovedSession = moveProjectSessionToProject(
+      oracleProjectlessSession.id,
+      oracleCreatedProject.id,
+    );
+    if (!oracleMovedSession) throw new Error("TypeScript Session move disappeared");
+    await stage(
+      "Project Workspace move browser-only Session",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-move-projectless-session",
+        intent: {
+          kind: "move_session",
+          session_id: candidateProjectlessSessionId,
+          project_id: candidateProjectId,
+        },
+      }),
+    );
+    const candidateMovedSession = await stage(
+      "Project Workspace moved Session snapshot",
+      candidate.workspaceRead({
+        kind: "session",
+        session_id: candidateProjectlessSessionId,
+      }),
+    );
+    if (candidateMovedSession.value.kind !== "session") {
+      throw new Error("Expected moved Rust Session snapshot");
+    }
+    expect(normalizeCandidateLifecycleSession(
+      "moved",
+      candidateMovedSession.value.session,
+    )).toEqual(normalizeOracleLifecycleSession("moved", oracleMovedSession));
+    expect(candidateMovedSession.value.tabs).toHaveLength(1);
+    expect(candidateMovedSession.value.tabs[0]).toMatchObject({
+      id: "gate-c-movable-browser-tab",
+      browser_tab_id: "gate-c-movable-browser-identity",
+      kind: "browser",
+      config: {
+        projectId: candidateProjectId,
+        url: "https://example.test/movable",
+      },
+    });
+    expect(oracleMovedSession.tabs[0]).toMatchObject({
+      id: "gate-c-movable-browser-tab",
+      browserTabId: "gate-c-movable-browser-identity",
+      kind: "browser",
+      config: {
+        projectId: oracleCreatedProject.id,
+        url: "https://example.test/movable",
+      },
+    });
+    expect(deleteProjectSession(oracleMovedSession.id)).toBe(true);
+    await stage(
+      "Project Workspace delete moved Session",
+      candidate.workspaceApply({
+        operationId: "gate-c-workspace-delete-moved-session",
+        intent: {
+          kind: "delete_session",
+          session_id: candidateProjectlessSessionId,
+        },
+      }),
+    );
 
     const oracleInitialDatabase = readDatabaseModuleV2(getDb(), {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,

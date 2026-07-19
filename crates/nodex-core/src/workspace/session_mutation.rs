@@ -23,11 +23,11 @@ const MAX_TAB_ID_LENGTH: usize = 160;
 const MAX_TAB_JSON_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TAB_TITLE_CHARS: usize = 2_000;
 
-struct SessionAuthority {
-    project_id: Option<String>,
-    pinned: bool,
-    pinned_order: Option<i64>,
-    thread_id: Option<String>,
+pub(super) struct SessionAuthority {
+    pub(super) project_id: Option<String>,
+    pub(super) pinned: bool,
+    pub(super) pinned_order: Option<i64>,
+    pub(super) thread_id: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -76,6 +76,17 @@ pub(super) fn mutate_session(
             session_id,
             &authority,
             *unread,
+        ),
+        ProjectSessionIntent::SetArchived { archived } => set_session_archived(
+            connection,
+            library_id,
+            context,
+            store_epoch,
+            operation_id,
+            request_hash,
+            session_id,
+            &authority,
+            *archived,
         ),
         ProjectSessionIntent::LinkThread {
             thread_id,
@@ -1116,6 +1127,56 @@ fn set_session_unread(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn set_session_archived(
+    connection: &Connection,
+    library_id: &str,
+    context: &BoundModuleContext,
+    store_epoch: &str,
+    operation_id: &str,
+    request_hash: &str,
+    session_id: &str,
+    authority: &SessionAuthority,
+    archived: bool,
+) -> Result<ProjectWorkspaceApplyOutcome, StoreError> {
+    let now = sqlite_now(connection)?;
+    let changed = if archived {
+        connection.execute(
+            "UPDATE project_sessions SET archived = 1, archived_at = ?1, pinned = 0, \
+               pinned_order = NULL, unread = 0, updated_at = ?1 WHERE id = ?2",
+            params![now, session_id],
+        )?
+    } else {
+        connection.execute(
+            "UPDATE project_sessions SET archived = 0, archived_at = NULL, updated_at = ?1 \
+             WHERE id = ?2",
+            params![now, session_id],
+        )?
+    };
+    if changed != 1 {
+        return Err(corrupt(
+            "Project Session disappeared during lifecycle update",
+        ));
+    }
+    finish_session_mutation(
+        connection,
+        library_id,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        if archived {
+            "archive_session"
+        } else {
+            "restore_session"
+        },
+        session_id,
+        authority,
+        Vec::new(),
+        now,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn link_thread(
     connection: &Connection,
     library_id: &str,
@@ -1250,7 +1311,7 @@ fn unlink_thread(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn finish_session_mutation(
+pub(super) fn finish_session_mutation(
     connection: &Connection,
     library_id: &str,
     context: &BoundModuleContext,
@@ -1288,7 +1349,7 @@ fn finish_session_mutation(
     )
 }
 
-fn require_session(
+pub(super) fn require_session(
     connection: &Connection,
     library_id: &str,
     session_id: &str,
@@ -1343,7 +1404,7 @@ fn touch_session(connection: &Connection, session_id: &str, now: &str) -> Result
     Err(corrupt("Project Session disappeared during mutation"))
 }
 
-fn validate_id(name: &str, value: &str) -> Result<(), StoreError> {
+pub(super) fn validate_id(name: &str, value: &str) -> Result<(), StoreError> {
     if !value.is_empty()
         && value == value.trim()
         && value.len() <= MAX_ID_LENGTH
@@ -1356,7 +1417,7 @@ fn validate_id(name: &str, value: &str) -> Result<(), StoreError> {
     )))
 }
 
-fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
+pub(super) fn sqlite_now(connection: &Connection) -> Result<String, StoreError> {
     connection
         .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now')", [], |row| {
             row.get::<_, String>(0)

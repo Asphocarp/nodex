@@ -90,12 +90,17 @@ pub enum ProjectLifecycle {
 pub struct ProjectWorkspaceSessionSummary {
     pub id: String,
     pub project_id: Option<String>,
+    pub no_thread_fallback_title: String,
     pub display_title: String,
     pub order: i64,
     pub pinned: bool,
+    pub pinned_order: Option<i64>,
     pub archived: bool,
+    pub archived_at: Option<String>,
     pub unread: bool,
+    pub left_pane_collapsed: bool,
     pub thread_id: Option<String>,
+    pub created_at: String,
     pub updated_at: String,
 }
 
@@ -163,6 +168,26 @@ pub enum ProjectWorkspaceIntent {
         project_id: String,
         pinned: bool,
     },
+    CreateSession {
+        session_id: String,
+        project_id: Option<String>,
+        title: String,
+    },
+    DeleteSession {
+        session_id: String,
+    },
+    MoveSession {
+        session_id: String,
+        project_id: Option<String>,
+    },
+    ReorderSessions {
+        project_id: Option<String>,
+        session_ids: Vec<String>,
+    },
+    ReorderPinnedSessions {
+        project_id: Option<String>,
+        session_ids: Vec<String>,
+    },
     MutateSession {
         session_id: String,
         intent: ProjectSessionIntent,
@@ -180,6 +205,9 @@ pub enum ProjectSessionIntent {
     },
     SetUnread {
         unread: bool,
+    },
+    SetArchived {
+        archived: bool,
     },
     ReplacePanelLayout {
         panel_id: ProjectSessionPanelId,

@@ -32,12 +32,16 @@ struct SessionRow {
     fallback_title: String,
     order: i64,
     pinned: i64,
+    pinned_order: Option<i64>,
     archived: i64,
+    archived_at: Option<String>,
     unread: i64,
+    left_pane_collapsed: i64,
     panel_state_json: String,
     thread_id: Option<String>,
     thread_name: Option<String>,
     thread_preview: Option<String>,
+    created_at: String,
     updated_at: String,
 }
 
@@ -255,9 +259,10 @@ fn read_sessions(
     all_projects: bool,
 ) -> Result<Vec<ProjectWorkspaceSessionSummary>, StoreError> {
     let sql = "SELECT session.id, session.project_id, session.no_thread_fallback_title, \
-           session.\"order\", session.pinned, session.archived, session.unread, \
+           session.\"order\", session.pinned, session.pinned_order, session.archived, \
+           session.archived_at, session.unread, session.left_pane_collapsed, \
            session.panel_state_json, thread.thread_id, thread.thread_name, \
-           thread.thread_preview, session.updated_at \
+           thread.thread_preview, session.created_at, session.updated_at \
          FROM project_sessions session \
          LEFT JOIN project_session_threads link ON link.session_id = session.id \
          LEFT JOIN codex_threads thread ON thread.thread_id = link.thread_id \
@@ -300,9 +305,10 @@ fn read_session(
     connection
         .query_row(
             "SELECT session.id, session.project_id, session.no_thread_fallback_title, \
-               session.\"order\", session.pinned, session.archived, session.unread, \
+               session.\"order\", session.pinned, session.pinned_order, session.archived, \
+               session.archived_at, session.unread, session.left_pane_collapsed, \
                session.panel_state_json, thread.thread_id, thread.thread_name, \
-               thread.thread_preview, session.updated_at \
+               thread.thread_preview, session.created_at, session.updated_at \
              FROM project_sessions session \
              LEFT JOIN project_session_threads link ON link.session_id = session.id \
              LEFT JOIN codex_threads thread ON thread.thread_id = link.thread_id \
@@ -325,13 +331,17 @@ fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
         fallback_title: row.get(2)?,
         order: row.get(3)?,
         pinned: row.get(4)?,
-        archived: row.get(5)?,
-        unread: row.get(6)?,
-        panel_state_json: row.get(7)?,
-        thread_id: row.get(8)?,
-        thread_name: row.get(9)?,
-        thread_preview: row.get(10)?,
-        updated_at: row.get(11)?,
+        pinned_order: row.get(5)?,
+        archived: row.get(6)?,
+        archived_at: row.get(7)?,
+        unread: row.get(8)?,
+        left_pane_collapsed: row.get(9)?,
+        panel_state_json: row.get(10)?,
+        thread_id: row.get(11)?,
+        thread_name: row.get(12)?,
+        thread_preview: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
 }
 
@@ -350,12 +360,17 @@ fn session_summary(row: SessionRow) -> ProjectWorkspaceSessionSummary {
     ProjectWorkspaceSessionSummary {
         id: row.id,
         project_id: row.project_id,
+        no_thread_fallback_title: row.fallback_title,
         display_title,
         order: row.order,
         pinned: row.pinned == 1,
+        pinned_order: row.pinned_order,
         archived: row.archived == 1,
+        archived_at: row.archived_at,
         unread: row.unread == 1,
+        left_pane_collapsed: row.left_pane_collapsed == 1,
         thread_id: row.thread_id,
+        created_at: row.created_at,
         updated_at: row.updated_at,
     }
 }

@@ -133,6 +133,16 @@ cross-panel move, and delete all keep each durable tab in exactly one leaf;
 delete/move prune non-final empty leaves while ordinary layout replacement may
 retain an explicitly visible empty leaf.
 
+Session collection lifecycle is owned by the same Workspace boundary. Creation
+uses an explicit retry-stable identity and inserts at the head of the target
+Project or projectless order. Ordinary and pinned reorder intents preserve the
+established partial-order behavior over non-archived Sessions; archive clears
+pin/unread state and restore retains the sparse order. A Project move is allowed
+only for an empty or browser-only Session and atomically rewrites the Session,
+every browser tab's owner/config, and any linked Codex Thread before publishing
+one Workspace receipt/event. Deletion cascades the panel/tab and Thread-link
+aggregate without deleting the independently owned Codex Thread.
+
 This boundary currently runs only in migration probes. The TypeScript main
 process remains the sole production SQLite/Yjs authority until the explicit
 Profile cutover milestone; neither normal startup nor renderer behavior depends

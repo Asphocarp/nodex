@@ -4376,6 +4376,130 @@
                 "type": "object",
                 "required": [
                   "session_id",
+                  "title",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "create_session"
+                    ]
+                  },
+                  "project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "session_id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "delete_session"
+                    ]
+                  },
+                  "session_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "move_session"
+                    ]
+                  },
+                  "project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "session_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reorder_sessions"
+                    ]
+                  },
+                  "project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "session_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_ids",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reorder_pinned_sessions"
+                    ]
+                  },
+                  "project_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "session_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "session_id",
                   "intent",
                   "kind"
                 ],
@@ -5927,6 +6051,24 @@
           {
             "type": "object",
             "required": [
+              "archived",
+              "kind"
+            ],
+            "properties": {
+              "archived": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "set_archived"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "panel_id",
               "layout",
               "kind"
@@ -6246,21 +6388,39 @@
         "type": "object",
         "required": [
           "id",
+          "no_thread_fallback_title",
           "display_title",
           "order",
           "pinned",
           "archived",
           "unread",
+          "left_pane_collapsed",
+          "created_at",
           "updated_at"
         ],
         "properties": {
           "archived": {
             "type": "boolean"
           },
+          "archived_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
           "display_title": {
             "type": "string"
           },
           "id": {
+            "type": "string"
+          },
+          "left_pane_collapsed": {
+            "type": "boolean"
+          },
+          "no_thread_fallback_title": {
             "type": "string"
           },
           "order": {
@@ -6269,6 +6429,13 @@
           },
           "pinned": {
             "type": "boolean"
+          },
+          "pinned_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "project_id": {
             "type": [

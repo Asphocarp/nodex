@@ -1214,6 +1214,31 @@ export interface components {
                 readonly pinned: boolean;
                 readonly project_id: string;
             } | {
+                /** @enum {string} */
+                readonly kind: "create_session";
+                readonly project_id?: string | null;
+                readonly session_id: string;
+                readonly title: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "delete_session";
+                readonly session_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "move_session";
+                readonly project_id?: string | null;
+                readonly session_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "reorder_sessions";
+                readonly project_id?: string | null;
+                readonly session_ids: readonly string[];
+            } | {
+                /** @enum {string} */
+                readonly kind: "reorder_pinned_sessions";
+                readonly project_id?: string | null;
+                readonly session_ids: readonly string[];
+            } | {
                 readonly intent: components["schemas"]["ProjectSessionIntent"];
                 /** @enum {string} */
                 readonly kind: "mutate_session";
@@ -1575,6 +1600,10 @@ export interface components {
             readonly kind: "set_unread";
             readonly unread: boolean;
         } | {
+            readonly archived: boolean;
+            /** @enum {string} */
+            readonly kind: "set_archived";
+        } | {
             /** @enum {string} */
             readonly kind: "replace_panel_layout";
             readonly layout: unknown;
@@ -1651,11 +1680,17 @@ export interface components {
         readonly ProjectWorkspaceReadResponse: components["schemas"]["ResponseEnvelope_ModuleReadSnapshot_ProjectWorkspaceReadValue"];
         readonly ProjectWorkspaceSessionSummary: {
             readonly archived: boolean;
+            readonly archived_at?: string | null;
+            readonly created_at: string;
             readonly display_title: string;
             readonly id: string;
+            readonly left_pane_collapsed: boolean;
+            readonly no_thread_fallback_title: string;
             /** Format: int64 */
             readonly order: number;
             readonly pinned: boolean;
+            /** Format: int64 */
+            readonly pinned_order?: number | null;
             readonly project_id?: string | null;
             readonly thread_id?: string | null;
             readonly unread: boolean;

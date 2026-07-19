@@ -23,7 +23,7 @@ use crate::infrastructure::module_receipts::{
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode, with_immediate_transaction};
 use crate::infrastructure::writer::StoreWriter;
 
-use super::{ProjectWorkspaceApplyOutcome, session_mutation};
+use super::{ProjectWorkspaceApplyOutcome, session_lifecycle, session_mutation};
 
 const MODULE_NAME: &str = "project_workspace";
 const MAX_ID_LENGTH: usize = 512;
@@ -238,6 +238,73 @@ pub(super) fn apply(
                         *pinned,
                     )
                 }
+                ProjectWorkspaceIntent::CreateSession {
+                    session_id,
+                    project_id,
+                    title,
+                } => session_lifecycle::create_session(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    session_id,
+                    project_id.as_deref(),
+                    title,
+                ),
+                ProjectWorkspaceIntent::DeleteSession { session_id } => {
+                    session_lifecycle::delete_session(
+                        transaction,
+                        &library_id,
+                        &context,
+                        &store_epoch,
+                        &request.operation_id,
+                        &request_hash,
+                        session_id,
+                    )
+                }
+                ProjectWorkspaceIntent::MoveSession {
+                    session_id,
+                    project_id,
+                } => session_lifecycle::move_session(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    session_id,
+                    project_id.as_deref(),
+                ),
+                ProjectWorkspaceIntent::ReorderSessions {
+                    project_id,
+                    session_ids,
+                } => session_lifecycle::reorder_sessions(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    project_id.as_deref(),
+                    session_ids,
+                    false,
+                ),
+                ProjectWorkspaceIntent::ReorderPinnedSessions {
+                    project_id,
+                    session_ids,
+                } => session_lifecycle::reorder_sessions(
+                    transaction,
+                    &library_id,
+                    &context,
+                    &store_epoch,
+                    &request.operation_id,
+                    &request_hash,
+                    project_id.as_deref(),
+                    session_ids,
+                    true,
+                ),
                 ProjectWorkspaceIntent::MutateSession { session_id, intent } => {
                     session_mutation::mutate_session(
                         transaction,
@@ -1686,6 +1753,335 @@ mod tests {
         assert_eq!((stored.1, stored.2, stored.3), (0, None, 0));
         assert_eq!(stored.4, "Thread title");
         assert_eq!((stored.5, stored.6, stored.7), (0, 0, 0));
+    }
+
+    #[test]
+    fn owns_session_lifecycle_order_move_and_delete_with_exact_replay() {
+        let (_directory, kernel, module) = seeded_module();
+        let project = module
+            .apply(
+                &context(),
+                create_request("workspace-session-lifecycle-project", "project-native"),
+            )
+            .expect("create Session lifecycle Project");
+        let initial_session_id = project.committed.value.affected_session_ids[0].clone();
+
+        let create_a = request(
+            "workspace-session-create-a",
+            ProjectWorkspaceIntent::CreateSession {
+                session_id: "session-a".to_owned(),
+                project_id: Some("project-native".to_owned()),
+                title: "  Lifecycle A  ".to_owned(),
+            },
+        );
+        let created_a = module
+            .apply(&context(), create_a.clone())
+            .expect("create first explicit Session");
+        let replayed_a = module
+            .apply(&context(), create_a)
+            .expect("replay explicit Session creation");
+        assert!(replayed_a.committed.receipt.mutation.duplicate);
+        assert_eq!(
+            replayed_a.committed.event_sequence,
+            created_a.committed.event_sequence
+        );
+        assert!(replayed_a.event.is_none());
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-create-b",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: "session-b".to_owned(),
+                        project_id: Some("project-native".to_owned()),
+                        title: "Lifecycle B".to_owned(),
+                    },
+                ),
+            )
+            .expect("create second explicit Session");
+        for session_id in ["session-a", "session-b"] {
+            module
+                .apply(
+                    &context(),
+                    session_request(
+                        &format!("workspace-session-pin-{session_id}"),
+                        session_id,
+                        ProjectSessionIntent::SetPinned { pinned: true },
+                    ),
+                )
+                .expect("pin explicit Session");
+        }
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-reorder",
+                    ProjectWorkspaceIntent::ReorderSessions {
+                        project_id: Some("project-native".to_owned()),
+                        session_ids: vec!["session-b".to_owned(), "session-a".to_owned()],
+                    },
+                ),
+            )
+            .expect("reorder active Sessions");
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-reorder-pinned",
+                    ProjectWorkspaceIntent::ReorderPinnedSessions {
+                        project_id: Some("project-native".to_owned()),
+                        session_ids: vec![initial_session_id.clone(), "session-b".to_owned()],
+                    },
+                ),
+            )
+            .expect("reorder pinned Sessions");
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-archive-b",
+                    "session-b",
+                    ProjectSessionIntent::SetArchived { archived: true },
+                ),
+            )
+            .expect("archive Session");
+        let archived = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: ProjectWorkspaceRead::Session {
+                        session_id: "session-b".to_owned(),
+                    },
+                },
+            )
+            .expect("read archived Session");
+        let ProjectWorkspaceReadValue::Session { session, .. } = archived.value else {
+            panic!("archived Session snapshot");
+        };
+        assert!(session.archived);
+        assert!(session.archived_at.is_some());
+        assert!(!session.pinned);
+        assert_eq!(session.pinned_order, None);
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-restore-b",
+                    "session-b",
+                    ProjectSessionIntent::SetArchived { archived: false },
+                ),
+            )
+            .expect("restore Session");
+
+        module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-create-projectless",
+                    ProjectWorkspaceIntent::CreateSession {
+                        session_id: "session-projectless".to_owned(),
+                        project_id: None,
+                        title: "Projectless browser".to_owned(),
+                    },
+                ),
+            )
+            .expect("create projectless Session");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "INSERT INTO codex_threads(\
+                       thread_id, project_id, thread_name, thread_preview, model_provider, \
+                       status_type, status_active_flags_json, archived, created_at, updated_at, \
+                       linked_at\
+                     ) VALUES (\
+                       'thread-projectless', NULL, '', 'Projectless preview', 'openai', \
+                       'idle', '[]', 0, 1, 2, ?1\
+                     )",
+                    [NOW],
+                )?;
+                Ok(())
+            })
+            .expect("seed projectless Codex Thread");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-link-projectless",
+                    "session-projectless",
+                    ProjectSessionIntent::LinkThread {
+                        thread_id: "thread-projectless".to_owned(),
+                        expected_project_id: None,
+                    },
+                ),
+            )
+            .expect("link projectless Codex Thread");
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-create-projectless-browser",
+                    "session-projectless",
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "projectless-browser".to_owned(),
+                        panel_id: ProjectSessionPanelId::Right,
+                        target_leaf_id: None,
+                        browser_tab_id: Some("projectless-browser-identity".to_owned()),
+                        tab_kind: ProjectSessionTabKind::Browser,
+                        title: "Projectless browser".to_owned(),
+                        config: json!({
+                            "projectId": null,
+                            "url": "https://example.test/projectless"
+                        }),
+                    },
+                ),
+            )
+            .expect("create projectless browser tab");
+        let moved = module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-move-projectless",
+                    ProjectWorkspaceIntent::MoveSession {
+                        session_id: "session-projectless".to_owned(),
+                        project_id: Some("project-native".to_owned()),
+                    },
+                ),
+            )
+            .expect("move browser-only Session into Project");
+        assert_eq!(
+            moved.committed.value.affected_thread_ids,
+            ["thread-projectless"]
+        );
+
+        module
+            .apply(
+                &context(),
+                session_request(
+                    "workspace-session-create-terminal-a",
+                    "session-a",
+                    ProjectSessionIntent::CreateTab {
+                        tab_id: "session-a-terminal".to_owned(),
+                        panel_id: ProjectSessionPanelId::Right,
+                        target_leaf_id: None,
+                        browser_tab_id: None,
+                        tab_kind: ProjectSessionTabKind::Terminal,
+                        title: "Terminal".to_owned(),
+                        config: json!({
+                            "projectId": "project-native",
+                            "terminalSessionId": "session-a-terminal-owner"
+                        }),
+                    },
+                ),
+            )
+            .expect("create non-browser tab");
+        let invalid_move = module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-invalid-move",
+                    ProjectWorkspaceIntent::MoveSession {
+                        session_id: "session-a".to_owned(),
+                        project_id: Some("project:default".to_owned()),
+                    },
+                ),
+            )
+            .expect_err("reject moving a non-browser Session");
+        assert_eq!(invalid_move.code, CoreErrorCode::InvalidInput);
+
+        let deleted = module
+            .apply(
+                &context(),
+                request(
+                    "workspace-session-delete-projectless",
+                    ProjectWorkspaceIntent::DeleteSession {
+                        session_id: "session-projectless".to_owned(),
+                    },
+                ),
+            )
+            .expect("delete moved Session");
+        assert_eq!(
+            deleted.committed.value.affected_thread_ids,
+            ["thread-projectless"]
+        );
+
+        let stored = kernel
+            .writer()
+            .call(move |connection| {
+                let session_rows = connection
+                    .prepare(
+                        "SELECT id, \"order\", pinned, pinned_order, archived, archived_at, \
+                           no_thread_fallback_title, left_pane_collapsed \
+                         FROM project_sessions WHERE project_id = 'project-native' \
+                         ORDER BY id",
+                    )?
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, Option<i64>>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, i64>(7)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                let lifecycle_counts = connection.query_row(
+                    "SELECT \
+                       (SELECT count(*) FROM project_sessions \
+                        WHERE id = 'session-projectless'), \
+                       (SELECT count(*) FROM project_session_tabs \
+                        WHERE id = 'projectless-browser'), \
+                       (SELECT count(*) FROM project_session_threads \
+                        WHERE thread_id = 'thread-projectless'), \
+                       (SELECT count(*) FROM core_module_receipts \
+                        WHERE operation_id = 'workspace-session-invalid-move'), \
+                       (SELECT count(*) FROM change_log \
+                        WHERE operation_id = 'workspace-session-invalid-move'), \
+                       (SELECT project_id FROM codex_threads \
+                        WHERE thread_id = 'thread-projectless')",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                        ))
+                    },
+                )?;
+                Ok((session_rows, lifecycle_counts))
+            })
+            .expect("read Session lifecycle effects");
+        let session_a = stored
+            .0
+            .iter()
+            .find(|row| row.0 == "session-a")
+            .expect("first explicit Session");
+        assert_eq!((session_a.1, session_a.2, session_a.3), (2, 1, Some(2)));
+        assert_eq!(session_a.6, "Lifecycle A");
+        assert_eq!(session_a.7, 0);
+        let session_b = stored
+            .0
+            .iter()
+            .find(|row| row.0 == "session-b")
+            .expect("second explicit Session");
+        assert_eq!((session_b.1, session_b.2, session_b.3), (1, 0, None));
+        assert_eq!(session_b.4, 0);
+        assert_eq!(session_b.5, None);
+        assert_eq!(stored.1, (0, 0, 0, 0, 0, Some("project-native".to_owned())));
+        let initial = stored
+            .0
+            .iter()
+            .find(|row| row.0 == initial_session_id)
+            .expect("initial Project Session");
+        assert_eq!((initial.1, initial.2, initial.3), (3, 1, Some(0)));
     }
 
     #[test]
