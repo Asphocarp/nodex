@@ -2941,8 +2941,8 @@ export function registerIpcHandlers(
     codexService.setSidebarChatsThreadOrder(input),
   );
 
-  registerHandle("codex:threads:pinned:list", () =>
-    codexService.listPinnedThreads(),
+  registerHandle("codex:threads:pinned:list", async () =>
+    await codexService.listPinnedThreads(),
   );
 
   registerHandle("codex:threads:pinned:set", (_, threadId: string, input) =>

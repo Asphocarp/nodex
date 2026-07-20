@@ -12586,6 +12586,7 @@ describe("codex-service session-backed transcript recovery", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        readWorkspaceThread: (threadId: string) => Promise<unknown>;
       };
 
       serviceInternals.setConversationRecordDetail({
@@ -12607,6 +12608,7 @@ describe("codex-service session-backed transcript recovery", () => {
         createdAt: 1,
         updatedAt: 2,
       });
+      await serviceInternals.readWorkspaceThread("thr_child_catalog");
 
       try {
         const conversation = service.serializeConversationSnapshot("thr_parent_catalog");
@@ -12801,7 +12803,9 @@ describe("codex-service session-backed transcript recovery", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         buildThreadDetailFromRead: (thread: Thread) => CodexThreadDetail | null;
+        readWorkspaceThread: (threadId: string) => Promise<unknown>;
       };
+      await serviceInternals.readWorkspaceThread("thr_failed_reconnect");
 
       const detail = serviceInternals.buildThreadDetailFromRead(
         makeProtocolThread("thr_failed_reconnect", "/tmp", [
@@ -23365,10 +23369,10 @@ describe("codex-service approval fallback", () => {
 
       const restartedService = createService();
       const restartedInternals = restartedService as unknown as {
-        resolveThreadServiceName: (threadId: string) => string | undefined;
+        resolveThreadServiceName: (threadId: string) => Promise<string | undefined>;
       };
       try {
-        expect(restartedInternals.resolveThreadServiceName(sourceThreadId)).toBe(
+        expect(await restartedInternals.resolveThreadServiceName(sourceThreadId)).toBe(
           "durable-source-service",
         );
       } finally {
@@ -27233,7 +27237,9 @@ describe("codex-service approval fallback", () => {
         "read:thread-authority-lifecycle",
         "archive:thread-authority-lifecycle:true",
         "read:thread-authority-lifecycle",
+        "read:thread-authority-lifecycle",
         "archive:thread-authority-lifecycle:false",
+        "read:thread-authority-lifecycle",
         "read:thread-authority-lifecycle",
         "delete:thread-authority-lifecycle",
       ]);

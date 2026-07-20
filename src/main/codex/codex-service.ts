@@ -205,7 +205,6 @@ import type {
   CodexPromptInput,
   CodexPromptTextAttachmentInput,
   ManagedWorktreeRecord,
-  ProjectSessionThreadLink,
   Project,
   ProjectSession,
   ProjectSessionForkInput,
@@ -274,7 +273,6 @@ import {
   MAX_PROJECT_SESSION_TITLE_LENGTH,
   ProjectSessionForkInputSchema,
 } from "../../shared/schemas/project-sessions";
-import * as projectSessionService from "../local-store/project-sessions";
 import {
   getThreadGoalAttachmentsRoot,
   PastedTextAttachmentManager,
@@ -460,18 +458,6 @@ import {
   getCodexGitSettings,
   getNodexHome,
 } from "../local-store/config";
-import { listCodexProjectThreadOrders } from "../local-store/codex-project-thread-move";
-import { getCodexSidebarChatOrder } from "../local-store/codex-sidebar-chat-order";
-import {
-  getCodexThread,
-  listCodexChildThreadLinks,
-  listPinnedCodexThreadIds,
-  listCodexThreadLinks,
-  updateCodexThreadArchived,
-  updateCodexThreadName,
-  updateCodexThreadStatus,
-  upsertCodexThread,
-} from "./codex-link-repository";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
   CodexAppServerClient,
@@ -1810,33 +1796,6 @@ function buildThreadRuntimeStatus(
   return { type: statusType };
 }
 
-function sessionThreadLinkToSummary(link: ProjectSessionThreadLink): CodexThreadSummary {
-  const parsedStatus = parseThreadStatus({
-    type: link.statusType,
-    activeFlags: link.statusActiveFlags,
-  });
-  return {
-    threadId: link.threadId,
-    projectId: link.projectId,
-    source: link.parentThreadId ? { parentThreadId: link.parentThreadId } : null,
-    threadName: link.threadName ?? null,
-    threadPreview: link.threadPreview,
-    modelProvider: link.modelProvider,
-    cwd: link.cwd ?? null,
-    managedWorktreePath: link.managedWorktreePath ?? null,
-    projectlessOutputDirectory: link.projectlessOutputDirectory ?? null,
-    projectlessWorkspaceBrowserRoot: link.projectlessWorkspaceBrowserRoot ?? null,
-    statusType: parsedStatus.statusType,
-    statusActiveFlags: parsedStatus.statusActiveFlags,
-    threadRuntimeStatus: parsedStatus.threadRuntimeStatus,
-    archived: link.archived,
-    hasUnreadTurn: false,
-    createdAt: link.createdAt,
-    updatedAt: link.updatedAt,
-    linkedAt: link.linkedAt,
-  };
-}
-
 function parseThreadStatus(status: unknown): ParsedThreadStatus {
   const parsed = CodexThreadStatusSchema.safeParse(status);
   if (parsed.success) {
@@ -2834,6 +2793,10 @@ export class CodexService extends EventEmitter {
     createTypeScriptAutomationModulePort();
   private projectWorkspace: DesktopProjectWorkspacePort =
     createTypeScriptProjectWorkspacePort();
+  private readonly workspaceThreadProjectionById = new Map<
+    string,
+    DesktopProjectWorkspaceThread
+  >();
   private readonly automationIdByRunThreadId = new Map<string, string>();
   private readonly activeHeartbeatAutomationIdByThreadId =
     new Map<string, string>();
@@ -4045,6 +4008,7 @@ export class CodexService extends EventEmitter {
 
   setProjectWorkspacePort(port: DesktopProjectWorkspacePort): void {
     this.projectWorkspace = port;
+    this.workspaceThreadProjectionById.clear();
   }
 
   async synchronizeAutomationRuntime(): Promise<void> {
@@ -4914,7 +4878,10 @@ export class CodexService extends EventEmitter {
   }
 
   private syncDormantConversations(threadIds: string[] | undefined, reason: DormantConversationSyncReason): void {
-    const nextThreadIds = (threadIds ?? listCodexThreadLinks({ includeArchived: true }).map((thread) => thread.threadId))
+    const nextThreadIds = (threadIds ?? [
+      ...this.workspaceThreadProjectionById.keys(),
+      ...this.conversationRecords.keys(),
+    ])
       .filter((threadId, index, values) => threadId.length > 0 && values.indexOf(threadId) === index);
     for (const threadId of nextThreadIds) {
       this.syncDormantConversationFromRecord(threadId, reason);
@@ -5692,24 +5659,18 @@ export class CodexService extends EventEmitter {
   }
 
   private getThreadLinkSafely(threadId: string) {
-    try {
-      const thread = getCodexThread(threadId);
-      if (thread?.threadId === threadId) return thread;
-      const sessionLink = projectSessionService.getProjectSessionThreadLink(threadId);
-      if (!sessionLink || sessionLink.threadId !== threadId) return null;
-      const summary = sessionThreadLinkToSummary(sessionLink);
-      return summary.threadId === threadId ? summary : null;
-    } catch (error) {
-      if (isUnavailableSqliteBindingError(error)) return null;
-      throw error;
-    }
+    const detail = this.getMaybeConversationRecord(threadId)?.detail;
+    if (detail) return detail;
+    const thread = this.workspaceThreadProjectionById.get(threadId);
+    if (thread) return this.buildWorkspaceThreadSummary(thread);
+    return null;
   }
 
-  private resolveThreadServiceName(threadId: string): string | undefined {
+  private async resolveThreadServiceName(threadId: string): Promise<string | undefined> {
     const liveServiceName = this.getMaybeConversationRecord(threadId)?.detail?.serviceName;
     if (typeof liveServiceName === "string") return liveServiceName;
 
-    const persistedServiceName = this.getThreadLinkSafely(threadId)?.serviceName;
+    const persistedServiceName = (await this.readWorkspaceThread(threadId))?.serviceName;
     return typeof persistedServiceName === "string" ? persistedServiceName : undefined;
   }
 
@@ -5771,7 +5732,7 @@ export class CodexService extends EventEmitter {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return false;
     const record = this.getMaybeConversationRecord(normalizedThreadId);
-    const thread = await this.projectWorkspace.getThread(normalizedThreadId);
+    const thread = await this.readWorkspaceThread(normalizedThreadId);
     if (!record && !thread) return false;
     if (hasUnreadTurn && (thread?.archived || record?.detail?.archived)) return false;
     const recordChanged = Boolean(record && record.hasUnreadTurn !== hasUnreadTurn);
@@ -5793,21 +5754,21 @@ export class CodexService extends EventEmitter {
   }
 
   private listChildThreadLinksSafely(parentThreadId: string): CodexThreadSummary[] {
-    try {
-      return listCodexChildThreadLinks(parentThreadId);
-    } catch (error) {
-      if (isUnavailableSqliteBindingError(error)) return [];
-      throw error;
-    }
+    return this.listThreadLinksSafely().filter(
+      (thread) => thread.source?.parentThreadId === parentThreadId,
+    );
   }
 
   private listThreadLinksSafely(): CodexThreadSummary[] {
-    try {
-      return listCodexThreadLinks({ includeArchived: true });
-    } catch (error) {
-      if (isUnavailableSqliteBindingError(error)) return [];
-      throw error;
+    const summaries = new Map<string, CodexThreadSummary>();
+    for (const thread of this.workspaceThreadProjectionById.values()) {
+      const summary = this.buildWorkspaceThreadSummary(thread);
+      summaries.set(summary.threadId, summary);
     }
+    for (const [threadId, record] of this.conversationRecords) {
+      if (record.detail) summaries.set(threadId, record.detail);
+    }
+    return [...summaries.values()];
   }
 
   private ensureConversationDetail(threadId: string): CodexThreadDetail | null {
@@ -5862,7 +5823,7 @@ export class CodexService extends EventEmitter {
 
   private markAllConversationRecordsNeedResumeAfterReconnect(): void {
     const knownThreadIds = new Set<string>([
-      ...listCodexThreadLinks({ includeArchived: true }).map((thread) => thread.threadId),
+      ...this.workspaceThreadProjectionById.keys(),
       ...this.conversationRecords.keys(),
     ]);
 
@@ -6965,7 +6926,7 @@ export class CodexService extends EventEmitter {
       CODEX_APP_LOCAL_HOST_ID,
       conversationId,
     ) ?? conversationId;
-    const thread = await this.projectWorkspace.getThread(resolvedThreadId);
+    const thread = await this.readWorkspaceThread(resolvedThreadId);
     if (!thread?.sessionId) return null;
     return await this.projectWorkspace.getProjectSession(thread.sessionId);
   }
@@ -7219,7 +7180,7 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexThreadSummary[]> {
     const normalizedProjectId = projectId.trim();
     if (!normalizedProjectId) throw new Error("Project id is required");
-    const sidebar = await this.projectWorkspace.readSidebar(
+    const sidebar = await this.readWorkspaceSidebar(
       opts?.includeArchived === true,
     );
     return sidebar.threads
@@ -7425,54 +7386,9 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private emitSidebarSyncUpdatedFromMetadata(
-    metadata: SidebarThreadSyncMetadata,
-    reason: CodexSidebarRefreshReason,
-  ): CodexSidebarSyncResult {
-    this.invalidateSidebarSnapshotCache();
-    const result = this.buildSidebarSyncResult({
-      includeArchived: false,
-      source: "sqlite",
-      refreshed: false,
-      refreshedAt: this.sidebarLastSuccessfulRefreshAt,
-      metadata,
-    });
-    this.emitSidebarSyncUpdated(result, reason);
-    return result;
-  }
-
-  private emitSidebarSyncUpdatedForThread(
-    summary: CodexThreadSummary,
-    reason: CodexSidebarRefreshReason,
-  ): void {
-    const metadata = createSidebarThreadSyncMetadata();
-    markSidebarSyncScopeChanged(metadata, summary.projectId);
-    this.emitSidebarSyncUpdatedFromMetadata(metadata, reason);
-  }
-
   private invalidateSidebarSnapshotCache(): void {
     this.sidebarSnapshotRevision += 1;
     this.sidebarSnapshotCacheByIncludeArchived.clear();
-  }
-
-  private buildSidebarSyncResult(input: {
-    includeArchived: boolean;
-    source: "sqlite" | "app-server";
-    refreshed: boolean;
-    refreshedAt: number;
-    metadata?: SidebarThreadSyncMetadata;
-  }): CodexSidebarSyncResult {
-    const metadata = input.metadata;
-    return {
-      snapshot: this.buildSidebarSnapshot({ includeArchived: input.includeArchived }),
-      source: input.source,
-      refreshed: input.refreshed,
-      refreshedAt: input.refreshedAt,
-      changedProjectIds: [...(metadata?.changedProjectIds ?? new Set<string>())],
-      projectlessChanged: metadata?.projectlessChanged ?? false,
-      materializedSessionIds: [...(metadata?.materializedSessionIds ?? new Set<string>())],
-      failedThreadIds: [...(metadata?.failedThreadIds ?? new Set<string>())],
-    };
   }
 
   private async buildWorkspaceSidebarSyncResult(input: {
@@ -7483,7 +7399,7 @@ export class CodexService extends EventEmitter {
     metadata?: SidebarThreadSyncMetadata;
   }): Promise<CodexSidebarSyncResult> {
     const metadata = input.metadata;
-    let sidebar = await this.projectWorkspace.readSidebar(input.includeArchived);
+    let sidebar = await this.readWorkspaceSidebar(input.includeArchived);
     let repairedHiddenThread = false;
     for (const thread of sidebar.threads) {
       const summary = this.buildWorkspaceThreadSummary(thread);
@@ -7495,7 +7411,7 @@ export class CodexService extends EventEmitter {
       repairedHiddenThread = true;
     }
     if (repairedHiddenThread) {
-      sidebar = await this.projectWorkspace.readSidebar(input.includeArchived);
+      sidebar = await this.readWorkspaceSidebar(input.includeArchived);
     }
     return {
       snapshot: await this.buildWorkspaceSidebarSnapshot(
@@ -7718,10 +7634,10 @@ export class CodexService extends EventEmitter {
     input: CodexSidebarThreadMoveInput,
   ): Promise<CodexSidebarThreadMoveResult> {
     const threadId = input.threadId.trim();
-    let workspaceThread = await this.projectWorkspace.getThread(threadId);
+    let workspaceThread = await this.readWorkspaceThread(threadId);
     if (!workspaceThread) {
       await this.resolveThreadSummary(threadId);
-      workspaceThread = await this.projectWorkspace.getThread(threadId);
+      workspaceThread = await this.readWorkspaceThread(threadId);
     }
     if (!workspaceThread) throw new Error(`Task not found: ${threadId}`);
 
@@ -7787,7 +7703,7 @@ export class CodexService extends EventEmitter {
     }
 
     await this.ensureWorkspaceSidebarThreadSession(workspaceThread);
-    workspaceThread = await this.projectWorkspace.getThread(threadId);
+    workspaceThread = await this.readWorkspaceThread(threadId);
     if (!workspaceThread || workspaceThread.projectId !== sourceProjectId) {
       throw new Error("Sidebar task source project changed during move preparation");
     }
@@ -7857,8 +7773,9 @@ export class CodexService extends EventEmitter {
       await rollbackWorkspace();
       throw error;
     }
+    this.rememberWorkspaceThread(moved.thread);
 
-    let sidebar = moved.sidebar;
+    let sidebar = this.rememberWorkspaceSidebar(moved.sidebar);
     if (pinned || targetLocation.pinned) {
       try {
         sidebar = await this.projectWorkspace.setThreadPinned(
@@ -7964,8 +7881,14 @@ export class CodexService extends EventEmitter {
     return await order;
   }
 
-  listPinnedThreads(): string[] {
-    return listPinnedCodexThreadIds();
+  async listPinnedThreads(): Promise<string[]> {
+    const sidebar = await this.readWorkspaceSidebar(false);
+    return sidebar.threads
+      .filter((thread) => thread.pinnedOrder !== null)
+      .sort((left, right) => (
+        (left.pinnedOrder ?? 0) - (right.pinnedOrder ?? 0)
+      ))
+      .map((thread) => thread.threadId);
   }
 
   async setThreadPinned(
@@ -7975,7 +7898,7 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexSidebarSnapshot> {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) {
-      const sidebar = await this.projectWorkspace.readSidebar(false);
+      const sidebar = await this.readWorkspaceSidebar(false);
       this.invalidateSidebarSnapshotCache();
       return await this.buildWorkspaceSidebarSnapshot(sidebar);
     }
@@ -8022,10 +7945,10 @@ export class CodexService extends EventEmitter {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return null;
 
-    let thread = await this.projectWorkspace.getThread(normalizedThreadId);
+    let thread = await this.readWorkspaceThread(normalizedThreadId);
     if (!thread) {
       await this.resolveThreadSummary(normalizedThreadId);
-      thread = await this.projectWorkspace.getThread(normalizedThreadId);
+      thread = await this.readWorkspaceThread(normalizedThreadId);
     }
     if (!thread) return null;
 
@@ -8187,21 +8110,31 @@ export class CodexService extends EventEmitter {
     const summaries: CodexThreadSummary[] = [];
     for (const threadId of threadIds) {
       await this.readThread(threadId, includeTurns);
-      const summary = getCodexThread(threadId);
-      if (summary) summaries.push(summary);
+      const thread = await this.readWorkspaceThread(threadId);
+      if (thread) summaries.push(this.buildWorkspaceThreadSummary(thread));
     }
 
     return summaries;
   }
 
-  private isKnownSubagentDescendant(rootThreadId: string, threadId: string): boolean {
+  private async isKnownSubagentDescendant(
+    rootThreadId: string,
+    threadId: string,
+  ): Promise<boolean> {
     if (rootThreadId === threadId) return false;
 
     const visited = new Set<string>();
     let currentThreadId: string | null = threadId;
     while (currentThreadId && !visited.has(currentThreadId)) {
       visited.add(currentThreadId);
-      const parentThreadId: string | null = getCodexThread(currentThreadId)?.source?.parentThreadId ?? null;
+      const recordParentThreadId: string | null | undefined = this.getMaybeConversationRecord(currentThreadId)
+        ?.detail?.source?.parentThreadId;
+      const persisted: DesktopProjectWorkspaceThread | null = recordParentThreadId === undefined
+        ? await this.readWorkspaceThread(currentThreadId)
+        : null;
+      const parentThreadId: string | null = recordParentThreadId
+        ?? persisted?.parentThreadId
+        ?? null;
       if (parentThreadId === rootThreadId) return true;
       currentThreadId = parentThreadId;
     }
@@ -8211,7 +8144,8 @@ export class CodexService extends EventEmitter {
 
   private async discoverSubagentDescendants(rootThreadId: string): Promise<CodexThreadSummary[]> {
     const summaries: CodexThreadSummary[] = [];
-    const rootCreatedAtSeconds = Math.floor((getCodexThread(rootThreadId)?.createdAt ?? 0) / 1000);
+    const root = await this.readWorkspaceThread(rootThreadId);
+    const rootCreatedAtSeconds = Math.floor((root?.createdAt ?? 0) / 1000);
     let cursor: string | null = null;
 
     do {
@@ -8266,19 +8200,25 @@ export class CodexService extends EventEmitter {
       return this.discoverSubagentDescendants(rootThreadId);
     }
 
-    if (requestedThreadIds.some((threadId) => !this.isKnownSubagentDescendant(rootThreadId, threadId))) {
+    const knownDescendants = await Promise.all(
+      requestedThreadIds.map(async (threadId) => ({
+        threadId,
+        known: await this.isKnownSubagentDescendant(rootThreadId, threadId),
+      })),
+    );
+    if (knownDescendants.some(({ known }) => !known)) {
       await this.discoverSubagentDescendants(rootThreadId);
     }
 
     const summaries: CodexThreadSummary[] = [];
     for (const threadId of requestedThreadIds) {
-      if (!this.isKnownSubagentDescendant(rootThreadId, threadId)) continue;
+      if (!await this.isKnownSubagentDescendant(rootThreadId, threadId)) continue;
       if (input.includeTurns === true) {
         this.markSubagentThreadOpened(threadId);
       }
       await this.readThread(threadId, input.includeTurns === true);
-      const summary = getCodexThread(threadId);
-      if (summary) summaries.push(summary);
+      const thread = await this.readWorkspaceThread(threadId);
+      if (thread) summaries.push(this.buildWorkspaceThreadSummary(thread));
     }
     return summaries;
   }
@@ -8301,7 +8241,7 @@ export class CodexService extends EventEmitter {
     const cwd = typeof candidate.cwd === "string" ? candidate.cwd : null;
     const parentThreadId = parseThreadParentThreadId(candidate);
     if (parentThreadId) {
-      const previousThread = await this.projectWorkspace.getThread(candidate.id);
+      const previousThread = await this.readWorkspaceThread(candidate.id);
       const previousSummary = previousThread
         ? this.buildWorkspaceThreadSummary(previousThread)
         : null;
@@ -8322,7 +8262,7 @@ export class CodexService extends EventEmitter {
     }
 
     const projectId = resolveSidebarProjectIdForCwd(cwd, input.projects);
-    const previousThread = await this.projectWorkspace.getThread(candidate.id);
+    const previousThread = await this.readWorkspaceThread(candidate.id);
     const previousSummary = previousThread
       ? this.buildWorkspaceThreadSummary(previousThread)
       : null;
@@ -8359,7 +8299,7 @@ export class CodexService extends EventEmitter {
         markSidebarSyncScopeChanged(sessionResult, summary.projectId);
       }
       const sessionId = sessionResult.session?.id
-        ?? (await this.projectWorkspace.getThread(summary.threadId))?.sessionId
+        ?? (await this.readWorkspaceThread(summary.threadId))?.sessionId
         ?? null;
       return {
         summary,
@@ -8373,7 +8313,7 @@ export class CodexService extends EventEmitter {
         projectlessChanged: sessionResult.projectlessChanged,
       };
     } catch (error) {
-      const existingThread = await this.projectWorkspace.getThread(summary.threadId);
+      const existingThread = await this.readWorkspaceThread(summary.threadId);
       this.logger.warn("Could not materialize sidebar thread session", {
         reason: input.reason,
         threadId: summary.threadId,
@@ -8400,7 +8340,7 @@ export class CodexService extends EventEmitter {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return createEmptySidebarThreadMaterializationResult();
 
-    const previous = await this.projectWorkspace.getThread(normalizedThreadId);
+    const previous = await this.readWorkspaceThread(normalizedThreadId);
     if (!previous) return createEmptySidebarThreadMaterializationResult();
 
     const previousSummary = this.buildWorkspaceThreadSummary(previous);
@@ -8415,7 +8355,7 @@ export class CodexService extends EventEmitter {
     const detached = previous.sessionId
       ? await this.projectWorkspace.detachProjectSessionThread(previous.sessionId)
       : false;
-    const archived = await this.projectWorkspace.getThread(normalizedThreadId);
+    const archived = await this.readWorkspaceThread(normalizedThreadId);
     const archivedSummary = archived
       ? this.buildWorkspaceThreadSummary(archived, {
           archived: true,
@@ -8519,7 +8459,7 @@ export class CodexService extends EventEmitter {
     };
     if (summary.archived || summary.ephemeral || summary.source?.sideConversation) return result;
 
-    const thread = await this.projectWorkspace.getThread(summary.threadId);
+    const thread = await this.readWorkspaceThread(summary.threadId);
     if (!thread?.sessionId) {
       const session = await this.createSidebarThreadSessionFromSummary(summary);
       result.session = session;
@@ -8544,141 +8484,11 @@ export class CodexService extends EventEmitter {
     );
   }
 
-  private buildSidebarSnapshot(input: { includeArchived: boolean }): CodexSidebarSnapshot {
-    const startedAt = getDevRuntimeMetricStart();
-    const cached = this.sidebarSnapshotCacheByIncludeArchived.get(input.includeArchived);
-    if (cached && cached.revision === this.sidebarSnapshotRevision) {
-      logDevRuntimeMetric("codex.sidebar.snapshot.build", {
-        cacheHit: true,
-        includeArchived: input.includeArchived,
-        revision: this.sidebarSnapshotRevision,
-        itemCount: cached.snapshot.items.length,
-        pinnedThreadCount: cached.snapshot.pinnedThreadIds.length,
-        projectAssignmentCount: Object.keys(cached.snapshot.projectAssignments).length,
-        projectlessThreadCount: cached.snapshot.projectlessThreadIds.length,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return cached.snapshot;
-    }
-
-    const pinnedThreadIds = listPinnedCodexThreadIds();
-    const pinnedOrderByThreadId = new Map(pinnedThreadIds.map((threadId, index) => [threadId, index]));
-    const projectAssignments: Record<string, string> = {};
-    const projectlessThreadIds: string[] = [];
-    const items: CodexSidebarThreadItem[] = [];
-    const threadLinks = listCodexThreadLinks({ includeArchived: input.includeArchived });
-    const clientThreadIdByThreadId = new Map(
-      listCodexClientThreadIdentities(
-        CODEX_APP_LOCAL_HOST_ID,
-        threadLinks.map((thread) => thread.threadId),
-      ).map(({ threadId, clientThreadId }) => [threadId, clientThreadId] as const),
-    );
-    let sessionLinkLookupCount = 0;
-    let sessionReadCount = 0;
-    let skippedArchivedCount = 0;
-    let skippedEphemeralCount = 0;
-    let repairedNonSidebarCount = 0;
-
-    for (const thread of threadLinks) {
-      if (this.shouldHidePersistedNonSidebarThread(thread)) {
-        repairedNonSidebarCount += 1;
-        continue;
-      }
-
-      sessionLinkLookupCount += 1;
-      const sessionLink = projectSessionService.getProjectSessionThreadLink(thread.threadId);
-      const session = sessionLink ? projectSessionService.getProjectSessionSummary(sessionLink.sessionId) : null;
-      if (sessionLink) sessionReadCount += 1;
-      const archived = thread.archived || session?.archived === true;
-      if (!input.includeArchived && archived) {
-        skippedArchivedCount += 1;
-        continue;
-      }
-      if (thread.ephemeral || thread.source?.sideConversation) {
-        skippedEphemeralCount += 1;
-        continue;
-      }
-
-      const projectId = session?.projectId ?? thread.projectId;
-      if (projectId) {
-        projectAssignments[thread.threadId] = projectId;
-      } else {
-        projectlessThreadIds.push(thread.threadId);
-      }
-
-      const pinnedOrder = pinnedOrderByThreadId.get(thread.threadId) ?? null;
-      const clientThreadId = clientThreadIdByThreadId.get(thread.threadId) ?? null;
-      items.push({
-        key: `local:${clientThreadId ?? thread.threadId}`,
-        kind: "local",
-        ...(clientThreadId ? { clientThreadId } : {}),
-        hostId: DEFAULT_CODEX_HOST_ID,
-        threadId: thread.threadId,
-        sessionId: session?.id ?? null,
-        projectId,
-        title: session?.displayTitle ?? resolveSidebarThreadTitle(thread),
-        preview: thread.threadPreview,
-        cwd: thread.cwd,
-        updatedAt: thread.updatedAt,
-        createdAt: thread.createdAt,
-        pinned: pinnedOrder !== null,
-        pinnedOrder,
-        unread: session?.unread === true,
-        archived,
-        statusType: thread.statusType,
-        statusActiveFlags: thread.statusActiveFlags,
-        projectless: projectId === null,
-        disabled: false,
-      });
-    }
-
-    items.sort((left, right) => {
-      if (left.pinned && right.pinned) return (left.pinnedOrder ?? 0) - (right.pinnedOrder ?? 0);
-      if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
-      if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
-      return left.threadId.localeCompare(right.threadId);
-    });
-
-    const projectThreadOrders = listCodexProjectThreadOrders();
-    const snapshot: CodexSidebarSnapshot = {
-      items,
-      pinnedThreadIds,
-      projectAssignments,
-      projectlessThreadIds,
-      projectThreadOrders,
-      projectlessThreadOrder: getCodexSidebarChatOrder(),
-      revision: this.sidebarSnapshotRevision,
-      generatedAt: Date.now(),
-    };
-    this.sidebarSnapshotCacheByIncludeArchived.set(input.includeArchived, {
-      revision: this.sidebarSnapshotRevision,
-      snapshot,
-    });
-    logDevRuntimeMetric("codex.sidebar.snapshot.build", {
-      cacheHit: false,
-      includeArchived: input.includeArchived,
-      revision: this.sidebarSnapshotRevision,
-      threadLinkCount: threadLinks.length,
-      sessionLinkLookupCount,
-      sessionReadCount,
-      skippedArchivedCount,
-      skippedEphemeralCount,
-      repairedNonSidebarCount,
-      itemCount: items.length,
-      pinnedThreadCount: pinnedThreadIds.length,
-      projectAssignmentCount: Object.keys(projectAssignments).length,
-      projectThreadOrderCount: Object.keys(projectThreadOrders).length,
-      projectlessThreadCount: projectlessThreadIds.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
-      durationMs: getDevRuntimeMetricDurationMs(startedAt),
-    });
-    return snapshot;
-  }
-
   private async buildWorkspaceSidebarSnapshot(
     sidebar: DesktopProjectWorkspaceSidebar,
     includeArchived = false,
   ): Promise<CodexSidebarSnapshot> {
+    this.rememberWorkspaceSidebar(sidebar);
     const visibleThreads = sidebar.threads.filter((thread) => {
       const summary = this.buildWorkspaceThreadSummary(thread);
       if (this.shouldHidePersistedNonSidebarThread(summary)) return false;
@@ -8769,6 +8579,55 @@ export class CodexService extends EventEmitter {
     return snapshot;
   }
 
+  private rememberWorkspaceThread(
+    thread: DesktopProjectWorkspaceThread,
+  ): DesktopProjectWorkspaceThread {
+    this.workspaceThreadProjectionById.set(thread.threadId, thread);
+    const record = this.getMaybeConversationRecord(thread.threadId);
+    const detail = record?.detail;
+    if (record && detail) {
+      const summary = this.buildWorkspaceThreadSummary(thread);
+      record.detail = {
+        ...detail,
+        ...summary,
+        source: detail.source?.sideConversation === true
+          ? detail.source
+          : summary.source,
+        turns: detail.turns,
+        transcript: detail.transcript,
+        latestCollaborationMode: detail.latestCollaborationMode,
+        latestThreadSettings: detail.latestThreadSettings,
+        latestTokenUsageInfo: detail.latestTokenUsageInfo,
+      };
+      record.hasUnreadTurn = summary.hasUnreadTurn ?? false;
+    }
+    return thread;
+  }
+
+  private rememberWorkspaceSidebar(
+    sidebar: DesktopProjectWorkspaceSidebar,
+  ): DesktopProjectWorkspaceSidebar {
+    for (const thread of sidebar.threads) this.rememberWorkspaceThread(thread);
+    return sidebar;
+  }
+
+  private async readWorkspaceThread(
+    threadId: string,
+  ): Promise<DesktopProjectWorkspaceThread | null> {
+    const thread = await this.projectWorkspace.getThread(threadId);
+    if (thread) return this.rememberWorkspaceThread(thread);
+    this.workspaceThreadProjectionById.delete(threadId);
+    return null;
+  }
+
+  private async readWorkspaceSidebar(
+    includeArchived: boolean,
+  ): Promise<DesktopProjectWorkspaceSidebar> {
+    return this.rememberWorkspaceSidebar(
+      await this.projectWorkspace.readSidebar(includeArchived),
+    );
+  }
+
   private buildWorkspaceThreadSummary(
     thread: DesktopProjectWorkspaceThread,
     overrides: {
@@ -8816,7 +8675,9 @@ export class CodexService extends EventEmitter {
     patch: DesktopProjectWorkspaceThreadPatch,
   ): Promise<CodexThreadSummary | null> {
     const thread = await this.projectWorkspace.updateThread(threadId, patch);
-    return thread ? this.buildWorkspaceThreadSummary(thread) : null;
+    return thread
+      ? this.buildWorkspaceThreadSummary(this.rememberWorkspaceThread(thread))
+      : null;
   }
 
   private async emitWorkspaceSidebarSyncUpdatedFromMetadata(
@@ -8867,7 +8728,7 @@ export class CodexService extends EventEmitter {
       let changed = false;
       const candidates = await listCandidates(2, options.force === true);
       for (const candidate of candidates) {
-        const thread = await this.projectWorkspace.getThread(candidate.threadId);
+        const thread = await this.readWorkspaceThread(candidate.threadId);
         if (!thread || thread.updatedAt !== candidate.sourceUpdatedAt) continue;
         const summary = this.buildWorkspaceThreadSummary(thread);
         try {
@@ -8921,7 +8782,7 @@ export class CodexService extends EventEmitter {
         const replaceProjection = this.projectWorkspace.replaceThreadSearchProjection;
         if (!replaceProjection) return;
         const [thread, conversation] = await Promise.all([
-          this.projectWorkspace.getThread(threadId),
+          this.readWorkspaceThread(threadId),
           Promise.resolve(this.serializeConversationSnapshot(threadId)),
         ]);
         if (!thread || !conversation) return;
@@ -8956,7 +8817,7 @@ export class CodexService extends EventEmitter {
 
   private async listCommandPaletteSidebarChats(): Promise<CommandPaletteThreadSummary[]> {
     const [sidebar, projects] = await Promise.all([
-      this.projectWorkspace.readSidebar(false),
+      this.readWorkspaceSidebar(false),
       this.projectWorkspace.listProjects(),
     ]);
     const snapshot = await this.buildWorkspaceSidebarSnapshot(sidebar, false);
@@ -9044,7 +8905,7 @@ export class CodexService extends EventEmitter {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return null;
 
-    const cached = await this.projectWorkspace.getThread(normalizedThreadId);
+    const cached = await this.readWorkspaceThread(normalizedThreadId);
     if (cached) return this.buildWorkspaceThreadSummary(cached);
 
     await this.ensureClientReady();
@@ -9057,7 +8918,7 @@ export class CodexService extends EventEmitter {
         `Codex thread/read expected '${normalizedThreadId}' but received '${result.thread.id}'`,
       );
     }
-    const previousThread = await this.projectWorkspace.getThread(normalizedThreadId);
+    const previousThread = await this.readWorkspaceThread(normalizedThreadId);
     const previous = previousThread
       ? this.buildWorkspaceThreadSummary(previousThread)
       : null;
@@ -9067,7 +8928,7 @@ export class CodexService extends EventEmitter {
       const metadata = createSidebarThreadSyncMetadata();
       markSidebarSyncScopeChanged(metadata, summary.projectId);
       await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-        await this.projectWorkspace.readSidebar(false),
+        await this.readWorkspaceSidebar(false),
         metadata,
         "host-message",
       );
@@ -9223,7 +9084,7 @@ export class CodexService extends EventEmitter {
   async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {
     const managedRoot = path.resolve(getNodexHome(), "worktrees");
     const [sidebar, projects] = await Promise.all([
-      this.projectWorkspace.readSidebar(true),
+      this.readWorkspaceSidebar(true),
       this.projectWorkspace.listProjects(),
     ]);
     const projectNameById = new Map(
@@ -9277,7 +9138,7 @@ export class CodexService extends EventEmitter {
   /** Remove a managed worktree directory. Returns true if deletion was performed. */
   async deleteManagedWorktree(threadId: string): Promise<boolean> {
     const managedRoot = path.resolve(getNodexHome(), "worktrees");
-    const thread = await this.projectWorkspace.getThread(threadId);
+    const thread = await this.readWorkspaceThread(threadId);
     if (!thread) return false;
     const link = this.buildWorkspaceThreadSummary(thread);
 
@@ -9287,7 +9148,7 @@ export class CodexService extends EventEmitter {
 
     await removeManagedWorktree(resolvedPath);
 
-    const sidebar = await this.projectWorkspace.readSidebar(true);
+    const sidebar = await this.readWorkspaceSidebar(true);
     const linkedThreadIds = sidebar.threads
       .filter((candidate) =>
         resolveManagedWorktreeGitRoot(
@@ -9301,6 +9162,8 @@ export class CodexService extends EventEmitter {
     let removedAnyLink = false;
     for (const linkedThreadId of threadIdsToUnlink) {
       const result = await this.projectWorkspace.deleteThread(linkedThreadId);
+      if (result.deleted) this.workspaceThreadProjectionById.delete(linkedThreadId);
+      this.rememberWorkspaceSidebar(result.sidebar);
       removedAnyLink = result.deleted || removedAnyLink;
     }
 
@@ -10099,7 +9962,11 @@ export class CodexService extends EventEmitter {
           threadId: link.threadId,
           name: input.automation.name,
         });
-        this.applyThreadNameLocal(link.threadId, input.automation.name);
+        await this.applyThreadNameLocal(link.threadId, input.automation.name);
+        await this.persistWorkspaceThreadNameBestEffort(
+          link.threadId,
+          input.automation.name,
+        );
       } catch (error) {
         this.logger.warn("Failed to set scheduled automation thread title", {
           automationId: input.automation.id,
@@ -12559,17 +12426,29 @@ export class CodexService extends EventEmitter {
     return turns[turns.length - 1]?.turnId ?? null;
   }
 
-  private markThreadAsActive(threadId: string): void {
-    const updated = updateCodexThreadStatus(threadId, "active", []);
-    if (updated) {
-      this.emitEvent({ type: "threadSummary", thread: updated });
-    }
+  private async applyThreadStatusLocal(
+    threadId: string,
+    statusType: CodexThreadStatusType,
+    statusActiveFlags: readonly CodexThreadActiveFlag[],
+  ): Promise<void> {
+    const updated = await this.updateWorkspaceThreadSummary(threadId, {
+      status: {
+        statusType,
+        activeFlags: statusActiveFlags,
+      },
+      updatedAt: Date.now(),
+    });
+    if (updated) this.emitEvent({ type: "threadSummary", thread: updated });
     this.emitEvent({
       type: "threadStatus",
       threadId,
-      statusType: "active",
-      statusActiveFlags: [],
+      statusType,
+      statusActiveFlags: [...statusActiveFlags],
     });
+  }
+
+  private async markThreadAsActive(threadId: string): Promise<void> {
+    await this.applyThreadStatusLocal(threadId, "active", []);
   }
 
   private buildCanonicalSteeringUserMessageItem(input: {
@@ -12655,19 +12534,10 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private syncThreadStatusFromKnownTurns(threadId: string): void {
+  private async syncThreadStatusFromKnownTurns(threadId: string): Promise<void> {
     const hasInProgressTurn = this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress");
     const statusType: CodexThreadStatusType = hasInProgressTurn ? "active" : "idle";
-    const updated = updateCodexThreadStatus(threadId, statusType, []);
-    if (updated) {
-      this.emitEvent({ type: "threadSummary", thread: updated });
-    }
-    this.emitEvent({
-      type: "threadStatus",
-      threadId,
-      statusType,
-      statusActiveFlags: [],
-    });
+    await this.applyThreadStatusLocal(threadId, statusType, []);
   }
 
   private async resolveInterruptTurnId(threadId: string, turnId?: string): Promise<string | null> {
@@ -12754,26 +12624,33 @@ export class CodexService extends EventEmitter {
     this.scheduleThreadSearchLiveIndex(threadId);
   }
 
-  private persistThreadDetailSummary(detail: CodexThreadDetail): void {
-    upsertCodexThread({
+  private async persistThreadDetailSummary(detail: CodexThreadDetail): Promise<void> {
+    await this.updateWorkspaceThreadSummary(detail.threadId, {
       projectId: detail.projectId,
-      threadId: detail.threadId,
-      source: detail.source,
+      parentThreadId: detail.source?.parentThreadId ?? null,
       threadSource: detail.threadSource ?? null,
+      serviceName: detail.serviceName ?? null,
       agentNickname: detail.agentNickname ?? null,
       agentRole: detail.agentRole ?? null,
+      agentPath: detail.agentPath ?? null,
       threadName: detail.threadName,
       threadPreview: detail.threadPreview,
       modelProvider: detail.modelProvider,
       cwd: detail.cwd,
-      statusType: detail.statusType,
-      statusActiveFlags: detail.statusActiveFlags,
+      managedWorktreePath: detail.managedWorktreePath ?? null,
+      projectlessOutputDirectory: detail.projectlessOutputDirectory ?? null,
+      projectlessWorkspaceBrowserRoot:
+        detail.projectlessWorkspaceBrowserRoot ?? null,
+      status: {
+        statusType: detail.statusType,
+        activeFlags: detail.statusActiveFlags,
+      },
       archived: detail.archived,
       createdAt: detail.createdAt,
       updatedAt: detail.updatedAt,
       linkedAt: detail.linkedAt,
     });
-    this.emitSidebarCatalogChangedForThread(detail.threadId, "host-message");
+    await this.emitSidebarCatalogChangedForThread(detail.threadId, "host-message");
   }
 
   private hasKnownThreadDetail(threadId: string): boolean {
@@ -12814,24 +12691,6 @@ export class CodexService extends EventEmitter {
     if (!sessionDetail) return null;
 
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);
-    upsertCodexThread({
-      projectId: link.projectId,
-      threadId,
-      source: link.source,
-      threadSource: reconciledDetail.threadSource ?? link.threadSource ?? null,
-      agentNickname: reconciledDetail.agentNickname ?? link.agentNickname ?? null,
-      agentRole: reconciledDetail.agentRole ?? link.agentRole ?? null,
-      threadName: reconciledDetail.threadName ?? link.threadName,
-      threadPreview: reconciledDetail.threadPreview || link.threadPreview,
-      cwd: reconciledDetail.cwd ?? link.cwd,
-      statusType: link.statusType,
-      statusActiveFlags: link.statusActiveFlags,
-      archived: link.archived,
-      createdAt: reconciledDetail.createdAt || link.createdAt,
-      updatedAt: Math.max(link.updatedAt, reconciledDetail.updatedAt),
-      linkedAt: link.linkedAt,
-    });
-    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
     this.setConversationRecordDetail(reconciledDetail);
     const record = this.ensureConversationRecord(threadId);
     if (record.streamRole === null && !record.isStreaming) {
@@ -13259,13 +13118,15 @@ export class CodexService extends EventEmitter {
       input.thread.sessionId,
     );
     if (session?.tabs.every((tab) => tab.kind === "browser")) {
-      await this.projectWorkspace.moveThread({
+      const moved = await this.projectWorkspace.moveThread({
         threadId: input.thread.threadId,
         sourceProjectId: input.thread.projectId,
         targetProjectId: input.targetProjectId,
         useDefaultOrder: true,
         metadata: input.metadata,
       });
+      this.rememberWorkspaceThread(moved.thread);
+      this.rememberWorkspaceSidebar(moved.sidebar);
       this.logger.info("Re-homed sidebar Thread aggregate from app-server metadata", {
         threadId: input.thread.threadId,
         sessionId: session.id,
@@ -13298,7 +13159,7 @@ export class CodexService extends EventEmitter {
     const candidate = thread as Record<string, unknown>;
     if (typeof candidate.id !== "string") return null;
 
-    const existingThread = await this.projectWorkspace.getThread(candidate.id);
+    const existingThread = await this.readWorkspaceThread(candidate.id);
     const existing = existingThread
       ? this.buildWorkspaceThreadSummary(existingThread)
       : null;
@@ -13341,9 +13202,11 @@ export class CodexService extends EventEmitter {
       });
     }
 
-    const persisted = await this.projectWorkspace.upsertThread(
-      candidate.id,
-      upsertInput,
+    const persisted = this.rememberWorkspaceThread(
+      await this.projectWorkspace.upsertThread(
+        candidate.id,
+        upsertInput,
+      ),
     );
     const summary = this.buildWorkspaceThreadSummary(persisted);
 
@@ -13458,7 +13321,7 @@ export class CodexService extends EventEmitter {
     if (!threadId) return null;
     this.deletedThreadIds.delete(threadId);
 
-    const parentThread = await this.projectWorkspace.getThread(parentThreadId);
+    const parentThread = await this.readWorkspaceThread(parentThreadId);
     const parentSummary = parentThread
       ? this.buildWorkspaceThreadSummary(parentThread)
       : null;
@@ -13495,7 +13358,7 @@ export class CodexService extends EventEmitter {
     if (typeof candidate.id !== "string") return null;
 
     const fallbackCwd = options.fallbackCwd?.trim() || null;
-    const existingThread = await this.projectWorkspace.getThread(candidate.id);
+    const existingThread = await this.readWorkspaceThread(candidate.id);
     const existing = existingThread
       ? this.buildWorkspaceThreadSummary(existingThread)
       : null;
@@ -13549,7 +13412,7 @@ export class CodexService extends EventEmitter {
         : {}),
       updatedAt: normalizeTimestamp(candidate.updatedAt),
     });
-    const persisted = await this.projectWorkspace.getThread(candidate.id);
+    const persisted = await this.readWorkspaceThread(candidate.id);
     if (!persisted) {
       throw new Error("Unable to read attached project session thread");
     }
@@ -13583,40 +13446,39 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private emitSidebarCatalogChangedForThread(
+  private async emitSidebarCatalogChangedForThread(
     threadId: string,
     reason: CodexSidebarRefreshReason,
-  ): void {
-    const summary = getCodexThread(threadId);
+  ): Promise<void> {
+    const sidebar = await this.readWorkspaceSidebar(false);
+    const thread = sidebar.threads.find((candidate) => candidate.threadId === threadId);
+    const projectId = thread?.projectId
+      ?? this.getMaybeConversationRecord(threadId)?.detail?.projectId;
     const metadata = createSidebarThreadSyncMetadata();
-    if (summary) markSidebarSyncScopeChanged(metadata, summary.projectId);
-    for (const owner of projectSessionService.listProjectSessionThreadOwners(threadId)) {
-      markSidebarSyncScopeChanged(metadata, owner.projectId);
-    }
-    this.emitSidebarSyncUpdatedFromMetadata(metadata, reason);
+    if (projectId !== undefined) markSidebarSyncScopeChanged(metadata, projectId);
+    await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(sidebar, metadata, reason);
   }
 
-  private hasThreadTitle(threadId: string): boolean {
+  private async hasThreadTitle(threadId: string): Promise<boolean> {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return false;
     return Boolean(
       this.getMaybeConversationRecord(normalizedThreadId)?.detail?.threadName?.trim()
-      || this.getThreadLinkSafely(normalizedThreadId)?.threadName?.trim(),
+      || (await this.readWorkspaceThread(normalizedThreadId))?.threadName?.trim(),
     );
   }
 
-  private applyThreadNameLocal(
+  private async applyThreadNameLocal(
     threadId: string,
     name: string,
     options: DormantConversationSyncOptions = {},
-  ): void {
+  ): Promise<void> {
     this.emitThreadTitleUpdated(threadId, name);
-    updateCodexThreadName(threadId, name);
     const detail = this.getMaybeConversationRecord(threadId)?.detail;
     if (detail) {
       detail.threadName = name;
     }
-    const updated = this.getThreadLinkSafely(threadId);
+    const updated = detail ?? this.getThreadLinkSafely(threadId);
     if (updated) {
       this.emitEvent({ type: "threadSummary", thread: updated });
     }
@@ -13625,7 +13487,6 @@ export class CodexService extends EventEmitter {
     } else {
       this.syncAcceptedConversationSummary(threadId, { syncCapabilityFlags: true });
     }
-    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
   }
 
   private scheduleGeneratedThreadName(input: {
@@ -13644,14 +13505,14 @@ export class CodexService extends EventEmitter {
     titlePrompt: string,
     cwd: string | null,
   ): Promise<void> {
-    if (this.hasThreadTitle(threadId)) return;
+    if (await this.hasThreadTitle(threadId)) return;
 
     let title: string | null = null;
     try {
       title = await this.generateThreadTitleForPrompt(
         titlePrompt,
         cwd,
-        this.resolveThreadServiceName(threadId),
+        await this.resolveThreadServiceName(threadId),
       );
     } catch (error) {
       this.logger.warn("Failed to generate thread title", {
@@ -13668,20 +13529,10 @@ export class CodexService extends EventEmitter {
       )
       || "";
     if (!normalizedTitle) return;
-    if (this.hasThreadTitle(threadId)) return;
+    if (await this.hasThreadTitle(threadId)) return;
 
-    this.applyThreadNameLocal(threadId, normalizedTitle);
-    try {
-      await this.client.request("thread/name/set", {
-        threadId,
-        name: normalizedTitle,
-      });
-    } catch (error) {
-      this.logger.warn("Failed to set generated thread title", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await this.applyThreadNameLocal(threadId, normalizedTitle);
+    await this.persistThreadNameBestEffort(threadId, normalizedTitle);
   }
 
   private async waitForStructuredThreadTitleTurn(input: RunStructuredThreadTitleInput & {
@@ -14268,7 +14119,7 @@ export class CodexService extends EventEmitter {
       observedAtMs: optimisticStartedAt,
     });
     record.isStreaming = true;
-    this.markThreadAsActive(input.threadId);
+    await this.markThreadAsActive(input.threadId);
     this.syncDormantConversationFromRecord(input.threadId, "owner-unavailable");
 
     try {
@@ -14582,13 +14433,11 @@ export class CodexService extends EventEmitter {
           threadId: link.threadId,
           name: explicitThreadName,
         });
-        updateCodexThreadName(link.threadId, explicitThreadName);
-        this.emitThreadTitleUpdated(link.threadId, explicitThreadName);
-        const updatedThread = this.getThreadLinkSafely(link.threadId);
-        if (updatedThread) {
-          this.emitEvent({ type: "threadSummary", thread: updatedThread });
-        }
-        this.emitSidebarCatalogChangedForThread(link.threadId, "host-message");
+        await this.applyThreadNameLocal(link.threadId, explicitThreadName);
+        await this.persistWorkspaceThreadNameBestEffort(
+          link.threadId,
+          explicitThreadName,
+        );
       }
 
       if (!explicitThreadName && input.skipAutoTitleGeneration !== true) {
@@ -15075,7 +14924,7 @@ export class CodexService extends EventEmitter {
 
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
     this.setConversationRecordDetail(reconciledDetail);
-    this.persistThreadDetailSummary(reconciledDetail);
+    await this.persistThreadDetailSummary(reconciledDetail);
     return {
       detail: reconciledDetail,
       thread,
@@ -15105,10 +14954,10 @@ export class CodexService extends EventEmitter {
     return result.thread;
   }
 
-  private persistProjectlessWorkspaceForThread(
+  private async persistProjectlessWorkspaceForThread(
     threadId: string,
     workspace: CodexProjectlessWorkspace,
-  ): ThreadRef | null {
+  ): Promise<ThreadRef | null> {
     const existing = this.getThreadLinkSafely(threadId);
     if (!existing || existing.projectId !== null) return this.parseThreadRef(threadId);
 
@@ -15117,13 +14966,12 @@ export class CodexService extends EventEmitter {
       || existing.projectlessWorkspaceBrowserRoot !== workspace.workspaceRoot;
     if (!workspaceChanged) return this.parseThreadRef(threadId);
 
-    const summary = upsertCodexThread({
-      ...existing,
-      projectId: null,
+    const summary = await this.updateWorkspaceThreadSummary(threadId, {
       cwd: workspace.cwd,
       projectlessOutputDirectory: workspace.outputDirectory,
       projectlessWorkspaceBrowserRoot: workspace.workspaceRoot,
     });
+    if (!summary) return this.parseThreadRef(threadId);
     const detail = this.getMaybeConversationRecord(threadId)?.detail ?? null;
     if (detail?.projectId === null) {
       this.setConversationRecordDetail({
@@ -15136,7 +14984,7 @@ export class CodexService extends EventEmitter {
 
     this.invalidateSidebarSnapshotCache();
     this.emitEvent({ type: "threadSummary", thread: summary });
-    this.emitSidebarCatalogChangedForThread(threadId, "host-message");
+    await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
     return {
       projectId: null,
       cwd: summary.cwd,
@@ -15185,7 +15033,7 @@ export class CodexService extends EventEmitter {
       writableRoots: input.writableRoots,
     });
     if (!workspace) return this.parseThreadRef(input.threadId);
-    return this.persistProjectlessWorkspaceForThread(input.threadId, workspace);
+    return await this.persistProjectlessWorkspaceForThread(input.threadId, workspace);
   }
 
   private async resumeConversationRecord(
@@ -15194,6 +15042,7 @@ export class CodexService extends EventEmitter {
     force = false,
   ): Promise<CodexThreadDetail | null> {
     await this.ensureClientReady();
+    await this.readWorkspaceThread(threadId);
     this.logger.info("Resuming Codex thread", { threadId });
     const record = this.ensureConversationRecord(threadId);
     if (
@@ -15505,7 +15354,7 @@ export class CodexService extends EventEmitter {
       personality: latestPersonality,
     });
     const resumedDetail = this.serializeThreadDetail(threadId) ?? detail;
-    this.persistThreadDetailSummary(resumedDetail);
+    await this.persistThreadDetailSummary(resumedDetail);
 
     record.isStreaming = true;
     record.streamRole = "owner";
@@ -15628,6 +15477,7 @@ export class CodexService extends EventEmitter {
     threadId: string,
     options: RequestConversationResumeOptions,
   ): Promise<CodexConversationSnapshot | null> {
+    await this.readWorkspaceThread(threadId);
     const syncDormantConversationSnapshots = options.syncDormantConversationSnapshots !== false;
     const replayBufferedNotifications = options.replayBufferedNotifications !== false;
     const syncOrEmitSnapshot = (): number => {
@@ -15695,15 +15545,28 @@ export class CodexService extends EventEmitter {
       record.isStreaming = false;
       this.syncInactiveRendererOwnerCleanup(threadId);
       if (isThreadArchivedError(error)) {
-        const summary = updateCodexThreadArchived(threadId, true);
-        if (summary) {
-          this.emitEvent({ type: "threadSummary", thread: summary });
+        const sidebar = this.rememberWorkspaceSidebar(
+          await this.projectWorkspace.setThreadArchived(threadId, true),
+        );
+        const persisted = await this.readWorkspaceThread(threadId);
+        if (persisted) {
+          this.emitEvent({
+            type: "threadSummary",
+            thread: this.buildWorkspaceThreadSummary(persisted),
+          });
         }
         const detail = this.ensureConversationDetail(threadId);
         if (detail) {
           detail.archived = true;
         }
         this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
+        const metadata = createSidebarThreadSyncMetadata();
+        markSidebarSyncScopeChanged(metadata, persisted?.projectId ?? detail?.projectId ?? null);
+        await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
+          sidebar,
+          metadata,
+          "host-message",
+        );
         syncOrEmitSnapshot();
         return this.serializeConversationSnapshotIncludingArchived(threadId);
       }
@@ -15912,7 +15775,7 @@ export class CodexService extends EventEmitter {
           rawPageTurns[0]?.id ?? requestedOldestLoadedTurnId,
         ),
       });
-      this.persistThreadDetailSummary(mergedDetail);
+      await this.persistThreadDetailSummary(mergedDetail);
       const snapshot = this.serializeConversationSnapshot(threadId);
       if (snapshot && options.broadcastResult) {
         this.storeDormantConversationSnapshot(threadId, snapshot, "explicit-resync");
@@ -16028,7 +15891,7 @@ export class CodexService extends EventEmitter {
           rawTurns[0]?.id ?? requestedOldestLoadedTurnId,
         ),
       });
-      this.persistThreadDetailSummary(mergedDetail);
+      await this.persistThreadDetailSummary(mergedDetail);
       const snapshot = this.serializeConversationSnapshot(threadId);
       if (snapshot && options.broadcastResult) {
         this.storeDormantConversationSnapshot(threadId, snapshot, "explicit-resync");
@@ -16771,6 +16634,25 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
+  private async persistWorkspaceThreadNameBestEffort(
+    threadId: string,
+    name: string,
+  ): Promise<void> {
+    try {
+      const summary = await this.updateWorkspaceThreadSummary(threadId, {
+        threadName: name,
+        updatedAt: Date.now(),
+      });
+      if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
+      await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
+    } catch (error) {
+      this.logger.warn("Failed to persist thread title in Project Workspace", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async persistThreadNameBestEffort(threadId: string, name: string): Promise<void> {
     const previous = this.threadNamePersistenceByThreadId.get(threadId) ?? Promise.resolve();
     const pending = previous
@@ -16784,6 +16666,7 @@ export class CodexService extends EventEmitter {
             error: error instanceof Error ? error.message : String(error),
           });
         }
+        await this.persistWorkspaceThreadNameBestEffort(threadId, name);
       });
     this.threadNamePersistenceByThreadId.set(threadId, pending);
     try {
@@ -16806,7 +16689,7 @@ export class CodexService extends EventEmitter {
       return false;
     }
 
-    this.applyThreadNameLocal(threadId, normalizedName, options);
+    await this.applyThreadNameLocal(threadId, normalizedName, options);
     await this.persistThreadNameBestEffort(threadId, normalizedName);
     return true;
   }
@@ -16818,7 +16701,7 @@ export class CodexService extends EventEmitter {
       return false;
     }
 
-    this.applyThreadNameLocal(threadId, normalizedName);
+    await this.applyThreadNameLocal(threadId, normalizedName);
     await this.persistThreadNameBestEffort(threadId, normalizedName);
     return true;
   }
@@ -16869,13 +16752,16 @@ export class CodexService extends EventEmitter {
       }
     }
     await this.deleteHeartbeatAutomationForArchivedThread(threadId);
-    const previous = await this.projectWorkspace.getThread(threadId);
+    const previous = await this.readWorkspaceThread(threadId);
     const hadUnreadState = Boolean(
       previous?.hasUnreadTurn
       || this.getMaybeConversationRecord(threadId)?.hasUnreadTurn
       || this.acceptedConversationDocumentById.get(threadId)?.hasUnreadTurn,
     );
-    const sidebar = await this.projectWorkspace.setThreadArchived(threadId, true);
+    const sidebar = this.rememberWorkspaceSidebar(
+      await this.projectWorkspace.setThreadArchived(threadId, true),
+    );
+    await this.readWorkspaceThread(threadId);
     this.applyCommittedConversationUnreadState(threadId, false, {
       broadcast: hadUnreadState,
     });
@@ -16982,10 +16868,13 @@ export class CodexService extends EventEmitter {
     await this.ensureClientReady();
     await this.client.request<"thread/unarchive", ThreadUnarchiveResponse>("thread/unarchive", { threadId });
 
-    const previous = await this.projectWorkspace.getThread(threadId);
-    const sidebar = await this.projectWorkspace.setThreadArchived(threadId, false);
-    const summary = previous
-      ? this.buildWorkspaceThreadSummary(previous, { archived: false })
+    const previous = await this.readWorkspaceThread(threadId);
+    const sidebar = this.rememberWorkspaceSidebar(
+      await this.projectWorkspace.setThreadArchived(threadId, false),
+    );
+    const persisted = await this.readWorkspaceThread(threadId);
+    const summary = persisted
+      ? this.buildWorkspaceThreadSummary(persisted)
       : null;
     if (summary) {
       this.emitEvent({ type: "threadSummary", thread: summary });
@@ -17585,7 +17474,7 @@ export class CodexService extends EventEmitter {
       this.clearPausedQueuedFollowUps(threadId, false);
       if (!usedCanonicalTransaction) {
         this.mergeTurn(threadId, observedTurn);
-        this.markThreadAsActive(threadId);
+        await this.markThreadAsActive(threadId);
       }
       if (syncDormantConversationUpdates) {
         this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
@@ -17598,7 +17487,7 @@ export class CodexService extends EventEmitter {
       return this.getKnownTurn(threadId, observedTurn.turnId) ?? observedTurn;
     }
 
-    this.markThreadAsActive(threadId);
+    await this.markThreadAsActive(threadId);
     this.clearPausedQueuedFollowUps(threadId, false);
     if (syncDormantConversationUpdates) {
       this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
@@ -17794,7 +17683,7 @@ export class CodexService extends EventEmitter {
       ],
     };
     this.mergeTurn(threadId, interruptedTurn);
-    this.syncThreadStatusFromKnownTurns(threadId);
+    await this.syncThreadStatusFromKnownTurns(threadId);
     this.reconcileTurnItemsToTerminalStatus(threadId, resolvedTurnId, "interrupted");
     this.emitEvent({ type: "turn", turn: interruptedTurn });
     if (syncDormantConversationUpdates) {
@@ -18873,10 +18762,10 @@ export class CodexService extends EventEmitter {
     return args.localEnvironmentConfigPath === undefined || args.localEnvironmentConfigPath !== null;
   }
 
-  private assertAutomationUpdateHeartbeatTargetIsLocalThread(
+  private async assertAutomationUpdateHeartbeatTargetIsLocalThread(
     args: ParsedAutomationUpdateArgs,
     currentThreadId: string,
-  ): void {
+  ): Promise<void> {
     if (args.mode !== "create" && args.mode !== "update") return;
     if (args.kind !== "heartbeat") return;
 
@@ -18886,7 +18775,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (targetThreadId === currentThreadId) return;
-    if (this.getThreadLinkSafely(targetThreadId)) return;
+    if (await this.readWorkspaceThread(targetThreadId)) return;
     if (this.serializeThreadDetail(targetThreadId)) return;
 
     throw new Error("Automations are only supported for local threads.");
@@ -19056,7 +18945,7 @@ export class CodexService extends EventEmitter {
     }
 
     try {
-      this.assertAutomationUpdateHeartbeatTargetIsLocalThread(parsed, params.threadId);
+      await this.assertAutomationUpdateHeartbeatTargetIsLocalThread(parsed, params.threadId);
 
       if (parsed.mode === "view" || parsed.mode === "suggested_create" || parsed.mode === "suggested_update") {
         return this.buildAutomationUpdateToolResponse();
@@ -19142,6 +19031,7 @@ export class CodexService extends EventEmitter {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) throw new Error("Thread id is required");
 
+    await this.readWorkspaceThread(normalizedThreadId);
     const loaded = this.serializeThreadDetail(normalizedThreadId);
     if (loaded) return loaded;
 
@@ -19157,7 +19047,7 @@ export class CodexService extends EventEmitter {
 
   private listDynamicThreadSummaries(): CodexThreadSummary[] {
     const byId = new Map<string, CodexThreadSummary>();
-    for (const summary of listCodexThreadLinks({ includeArchived: true })) {
+    for (const summary of this.listThreadLinksSafely()) {
       byId.set(summary.threadId, summary);
     }
     for (const threadId of this.conversationRecords.keys()) {
@@ -20309,7 +20199,7 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private failDynamicCreateOptimisticTurn(
+  private async failDynamicCreateOptimisticTurn(
     threadId: string,
     clientUserMessageId: string,
     previousPermissionContext: CodexCanonicalHydratedPermissionContext,
@@ -20317,7 +20207,7 @@ export class CodexService extends EventEmitter {
       readonly statusType: CodexThreadStatusType;
       readonly statusActiveFlags: readonly CodexThreadActiveFlag[];
     },
-  ): void {
+  ): Promise<void> {
     const record = this.getMaybeConversationRecord(threadId);
     if (!record) return;
     if (record.canonicalState) {
@@ -20355,18 +20245,11 @@ export class CodexService extends EventEmitter {
         statusActiveFlags: [...previousStatus.statusActiveFlags],
       };
     }
-    const summary = updateCodexThreadStatus(
+    await this.applyThreadStatusLocal(
       threadId,
       previousStatus.statusType,
       [...previousStatus.statusActiveFlags],
     );
-    if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-    this.emitEvent({
-      type: "threadStatus",
-      threadId,
-      statusType: previousStatus.statusType,
-      statusActiveFlags: [...previousStatus.statusActiveFlags],
-    });
     this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
   }
 
@@ -20456,7 +20339,7 @@ export class CodexService extends EventEmitter {
             observedAtMs: Date.now(),
           });
         }
-        this.markThreadAsActive(input.threadId);
+        await this.markThreadAsActive(input.threadId);
         this.syncDormantConversationFromRecord(input.threadId, "owner-unavailable");
       } catch (error) {
         this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
@@ -20464,7 +20347,7 @@ export class CodexService extends EventEmitter {
           threadId: input.threadId,
           error,
         });
-        this.failDynamicCreateOptimisticTurn(
+        await this.failDynamicCreateOptimisticTurn(
           input.threadId,
           input.clientUserMessageId,
           input.previousPermissionContext,
@@ -20762,7 +20645,7 @@ export class CodexService extends EventEmitter {
       statusType: "active",
       statusActiveFlags: [],
     };
-    this.markThreadAsActive(threadId);
+    await this.markThreadAsActive(threadId);
     this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
     const firstTurnPromise = this.dispatchDynamicCreateFirstTurn({
       ...(input.firstTurnAdditionalContext
@@ -21292,7 +21175,7 @@ export class CodexService extends EventEmitter {
           createInput.model,
           createInput.thinking,
         );
-        const sourceServiceName = this.resolveThreadServiceName(params.threadId);
+        const sourceServiceName = await this.resolveThreadServiceName(params.threadId);
         const destinationSnapshot = await this.readDynamicCreateDestinationSnapshot(target);
         const hostPermissionMode = isCodexDynamicCreatePermissionMode(context.permissionMode)
           ? context.permissionMode
@@ -22848,7 +22731,7 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         mergeSidebarThreadMaterialization(metadata, result);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.projectWorkspace.readSidebar(false),
+          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -22897,7 +22780,7 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, updated.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.projectWorkspace.readSidebar(false),
+          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -22938,23 +22821,21 @@ export class CodexService extends EventEmitter {
         threadId: payload.threadId,
         archived,
       });
-      const previous = await this.projectWorkspace.getThread(payload.threadId);
+      const previous = await this.readWorkspaceThread(payload.threadId);
       const hadUnreadState = Boolean(
         previous?.hasUnreadTurn
         || this.getMaybeConversationRecord(payload.threadId)?.hasUnreadTurn
         || this.acceptedConversationDocumentById.get(payload.threadId)?.hasUnreadTurn,
       );
-      const sidebar = await this.projectWorkspace.setThreadArchived(
-        payload.threadId,
-        archived,
+      const sidebar = this.rememberWorkspaceSidebar(
+        await this.projectWorkspace.setThreadArchived(
+          payload.threadId,
+          archived,
+        ),
       );
-      const updated = previous
-        ? this.buildWorkspaceThreadSummary(previous, {
-            archived,
-            ...(archived
-              ? { hasUnreadTurn: false, pinnedOrder: null }
-              : {}),
-          })
+      const persisted = await this.readWorkspaceThread(payload.threadId);
+      const updated = persisted
+        ? this.buildWorkspaceThreadSummary(persisted)
         : null;
       if (!previous) {
         if (!archived) this.scheduleSidebarThreadListRepair(method, payload.threadId);
@@ -23002,7 +22883,7 @@ export class CodexService extends EventEmitter {
         threadId: payload.threadId,
       });
       const metadata = createSidebarThreadSyncMetadata();
-      const existingThread = await this.projectWorkspace.getThread(payload.threadId);
+      const existingThread = await this.readWorkspaceThread(payload.threadId);
       if (existingThread) markSidebarSyncScopeChanged(metadata, existingThread.projectId);
       const hadUnreadState = Boolean(
         existingThread?.hasUnreadTurn
@@ -23010,6 +22891,9 @@ export class CodexService extends EventEmitter {
         || this.acceptedConversationDocumentById.get(payload.threadId)?.hasUnreadTurn,
       );
       const deleted = await this.projectWorkspace.deleteThread(payload.threadId);
+      if (deleted.deleted) {
+        this.workspaceThreadProjectionById.delete(payload.threadId);
+      }
       this.applyCommittedConversationUnreadState(payload.threadId, false, {
         broadcast: hadUnreadState,
       });
@@ -23045,7 +22929,7 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, updated.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.projectWorkspace.readSidebar(false),
+          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -23064,7 +22948,7 @@ export class CodexService extends EventEmitter {
       const payload = params;
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);
 
-      const workspaceThread = await this.projectWorkspace.getThread(payload.threadId);
+      const workspaceThread = await this.readWorkspaceThread(payload.threadId);
       const known = workspaceThread
         ? this.buildWorkspaceThreadSummary(workspaceThread)
         : null;
@@ -23094,7 +22978,7 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, known.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.projectWorkspace.readSidebar(false),
+          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -23123,7 +23007,7 @@ export class CodexService extends EventEmitter {
         this.scheduleCompletedThreadGoalClear(payload.threadId);
       }
 
-      const workspaceThread = await this.projectWorkspace.getThread(payload.threadId);
+      const workspaceThread = await this.readWorkspaceThread(payload.threadId);
       const known = workspaceThread
         ? this.buildWorkspaceThreadSummary(workspaceThread)
         : null;
@@ -23140,7 +23024,7 @@ export class CodexService extends EventEmitter {
         const metadata = createSidebarThreadSyncMetadata();
         markSidebarSyncScopeChanged(metadata, known.projectId);
         await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(
-          await this.projectWorkspace.readSidebar(false),
+          await this.readWorkspaceSidebar(false),
           metadata,
           "host-message",
         );
@@ -23224,7 +23108,7 @@ export class CodexService extends EventEmitter {
       if (mergedTurn.status !== "inProgress") {
         this.syncTurnDiffItem(threadId, mergedTurn.turnId, mergedTurn.diff, mergedTurn.status);
       }
-      this.syncThreadStatusFromKnownTurns(threadId);
+      await this.syncThreadStatusFromKnownTurns(threadId);
       this.reconcileTurnItemsToTerminalStatus(threadId, mergedTurn.turnId, mergedTurn.status);
       if (mergedTurn.status !== "inProgress") {
         this.restoreUnacceptedSteeringEntriesForTurn(

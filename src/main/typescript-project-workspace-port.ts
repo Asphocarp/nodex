@@ -132,6 +132,7 @@ const upsertTypeScriptThread = (
   threadId: string,
   patch: DesktopProjectWorkspaceThreadPatch,
 ): DesktopProjectWorkspaceThread => {
+  const existing = getCodexThread(threadId);
   const hasThreadName = Object.prototype.hasOwnProperty.call(patch, "threadName");
   upsertCodexThread({
     threadId,
@@ -166,12 +167,8 @@ const upsertTypeScriptThread = (
     ...(Object.prototype.hasOwnProperty.call(patch, "agentPath")
       ? { agentPath: patch.agentPath ?? null }
       : {}),
-    ...(patch.threadPreview === undefined
-      ? {}
-      : { threadPreview: patch.threadPreview }),
-    ...(patch.modelProvider === undefined
-      ? {}
-      : { modelProvider: patch.modelProvider }),
+    threadPreview: patch.threadPreview ?? existing?.threadPreview ?? "",
+    modelProvider: patch.modelProvider ?? existing?.modelProvider ?? "",
     ...(Object.prototype.hasOwnProperty.call(patch, "cwd")
       ? { cwd: patch.cwd ?? null }
       : {}),
@@ -187,12 +184,10 @@ const upsertTypeScriptThread = (
             patch.projectlessWorkspaceBrowserRoot ?? null,
         }
       : {}),
-    ...(patch.status === undefined
-      ? {}
-      : {
-          statusType: patch.status.statusType,
-          statusActiveFlags: [...patch.status.activeFlags],
-        }),
+    statusType: patch.status?.statusType ?? existing?.statusType ?? "notLoaded",
+    statusActiveFlags: patch.status
+      ? [...patch.status.activeFlags]
+      : [...(existing?.statusActiveFlags ?? [])],
     ...(patch.archived === undefined ? {} : { archived: patch.archived }),
     ...(patch.createdAt === undefined ? {} : { createdAt: patch.createdAt }),
     ...(patch.updatedAt === undefined ? {} : { updatedAt: patch.updatedAt }),

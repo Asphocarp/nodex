@@ -579,6 +579,17 @@ remains only behind the oracle selection; the Rust Host reads rollout files and
 submits bounded search units without opening the legacy database. Managed
 worktree removal remains a Host filesystem action, then deletes every owning
 Thread through native lifecycle commands.
+Codex Host keeps a bounded in-memory Workspace Thread projection only so its
+synchronous protocol and renderer serializers can resolve already-observed
+metadata without blocking. That projection is never durable authority: resume,
+sidebar/catalog hydration, and lifecycle reads populate it from the selected
+Workspace port, while name, summary, status, unread, archive/restore, Session
+attachment, move, and delete paths await the Workspace mutation before emitting
+their local projection events. Archived mutations reread the exact Thread
+because the active-sidebar response intentionally omits it. The TypeScript
+oracle preserves omitted fields for Workspace partial updates, matching Core's
+presence-sensitive patch contract instead of resetting absent preview, provider,
+or status values.
 Generic persisted renderer atoms remain shell-owned until their owning semantic
 Module adopts a typed field; Core does not provide a catch-all JSON persistence
 surface.
