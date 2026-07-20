@@ -5,21 +5,21 @@ use serde::{Deserialize, Serialize};
 
 use super::sqlite::{StoreError, StoreErrorCode};
 
-pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 82;
-pub const CORE_SCHEMA_VERSION: i64 = 83;
-pub const V82_SCHEMA_SQL: &str = include_str!("../../schema/v82.sql");
+pub const TYPESCRIPT_SCHEMA_VERSION: i64 = 83;
+pub const CORE_SCHEMA_VERSION: i64 = 84;
+pub const V83_SCHEMA_SQL: &str = include_str!("../../schema/v83.sql");
 
-pub fn v82_schema_objects_sql() -> &'static str {
+pub fn v83_schema_objects_sql() -> &'static str {
     let start_marker = "BEGIN IMMEDIATE;\n\n";
-    let end_marker = "\nPRAGMA user_version = 82;";
-    let start = V82_SCHEMA_SQL
+    let end_marker = "\nPRAGMA user_version = 83;";
+    let start = V83_SCHEMA_SQL
         .find(start_marker)
-        .expect("v82 schema artifact start marker")
+        .expect("v83 schema artifact start marker")
         + start_marker.len();
-    let end = V82_SCHEMA_SQL
+    let end = V83_SCHEMA_SQL
         .rfind(end_marker)
-        .expect("v82 schema artifact end marker");
-    &V82_SCHEMA_SQL[start..end]
+        .expect("v83 schema artifact end marker");
+    &V83_SCHEMA_SQL[start..end]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ pub struct SchemaObjectKey {
 
 pub type SchemaInventory = BTreeMap<SchemaObjectKey, String>;
 
-pub fn install_v82_schema(connection: &Connection) -> Result<(), StoreError> {
+pub fn install_v83_schema(connection: &Connection) -> Result<(), StoreError> {
     let current: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let object_count: i64 = connection.query_row(
         "SELECT count(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
@@ -42,16 +42,16 @@ pub fn install_v82_schema(connection: &Connection) -> Result<(), StoreError> {
     if current != 0 || object_count != 0 {
         return Err(StoreError::new(
             StoreErrorCode::UnsupportedSchema,
-            "v82 schema installation requires an empty SQLite database",
+            "v83 schema installation requires an empty SQLite database",
             false,
         ));
     }
-    connection.execute_batch(V82_SCHEMA_SQL)?;
+    connection.execute_batch(V83_SCHEMA_SQL)?;
     let installed: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if installed != TYPESCRIPT_SCHEMA_VERSION {
         return Err(StoreError::new(
             StoreErrorCode::StoreCorrupt,
-            format!("v82 schema artifact published v{installed}"),
+            format!("v83 schema artifact published v{installed}"),
             false,
         ));
     }
@@ -105,10 +105,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn checked_in_v82_artifact_installs_the_complete_physical_schema() {
+    fn checked_in_v83_artifact_installs_the_complete_physical_schema() {
         let directory = tempdir().expect("schema store");
         let connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
-        install_v82_schema(&connection).expect("v82 schema");
+        install_v83_schema(&connection).expect("v83 schema");
         validate_store(&connection).expect("valid fresh schema");
         let inventory = read_schema_inventory(&connection).expect("schema inventory");
         assert_eq!(inventory.len(), 240);
@@ -136,7 +136,7 @@ mod tests {
     fn schema_inventory_ignores_fts_shadow_implementation_objects() {
         let directory = tempdir().expect("schema store");
         let connection = open_writer(&directory.path().join("nodex.db")).expect("writer");
-        install_v82_schema(&connection).expect("v82 schema");
+        install_v83_schema(&connection).expect("v83 schema");
         let inventory = read_schema_inventory(&connection).expect("inventory");
         assert!(
             inventory

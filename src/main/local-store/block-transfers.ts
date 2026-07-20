@@ -90,6 +90,7 @@ import {
   initializeBlockDocumentGenesis,
   initializePageDocumentGenesis,
 } from "./block-document-store";
+import { insertDefaultPageIntrinsicProperties } from "./default-page-intrinsic-properties";
 import { readCanvasSceneAuthoritySnapshot } from "./canvas-scene-authority-reader";
 import { initializeCanvasSceneAuthority } from "./canvas-scene-store";
 import {
@@ -555,43 +556,6 @@ const transformationEvidence = (input: {
   sourceToResultBlockIds: input.sourceToResultBlockIds,
 });
 
-const insertDefaultIntrinsicPageProperties = (
-  database: Database.Database,
-  input: {
-    readonly pageId: string;
-    readonly projectId: string;
-    readonly now: string;
-  },
-): void => {
-  const values = [
-    ["run.target", "string", "localProject"],
-    ["run.localPath", "string", null],
-    ["run.baseBranch", "string", null],
-    ["run.worktreePath", "string", null],
-    ["run.environmentPath", "string", null],
-    ["schedule.isAllDay", "boolean", false],
-    ["schedule.timezone", "string", null],
-    ["recurrence.config", "json", null],
-    ["reminders.config", "json", []],
-  ] as const;
-  const insert = database.prepare(`
-    INSERT INTO block_properties (
-      block_id, project_id, property_key, value_type,
-      value_json, revision, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 1, ?)
-  `);
-  for (const [key, valueType, value] of values) {
-    insert.run(
-      input.pageId,
-      input.projectId,
-      key,
-      valueType,
-      JSON.stringify(value),
-      input.now,
-    );
-  }
-};
-
 const stagePromotedPageOwnership = (
   database: Database.Database,
   request: BlockTransferRequest,
@@ -682,7 +646,7 @@ const stagePromotedPageOwnership = (
   if (pageAuthority.changes !== 1) {
     throw new Error(`Promoted Page ${pageId} has no canonical parent authority`);
   }
-  insertDefaultIntrinsicPageProperties(database, {
+  insertDefaultPageIntrinsicProperties(database, {
     pageId,
     projectId: request.projectId,
     now: input.now,
@@ -823,7 +787,7 @@ const stageWrapperPageDocument = (
   } finally {
     genesis.document.destroy();
   }
-  insertDefaultIntrinsicPageProperties(database, {
+  insertDefaultPageIntrinsicProperties(database, {
     pageId: input.pageId,
     projectId: request.projectId,
     now: input.now,

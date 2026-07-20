@@ -35,6 +35,7 @@ import {
   type DataSourceDescriptorV2,
   type DataSourcePageRowV2,
   type DataSourcePageValueV2,
+  type PageIntrinsicPropertyValueV2,
   type DataSourcePropertyRecordV2,
   type DataSourceQueryResultV2,
   type DataSourceRecordV2,
@@ -540,6 +541,55 @@ const readValues = (
   return result;
 };
 
+const readPageDatabaseProjection = (
+  database: Database.Database,
+  pageId: string,
+): Readonly<{
+  bodyNfm: string;
+  intrinsicProperties: readonly PageIntrinsicPropertyValueV2[];
+}> => {
+  const body = database.prepare(`
+    SELECT materialization.nfm AS bodyNfm
+    FROM pages page
+    INNER JOIN documents document ON document.id = page.document_id
+    INNER JOIN document_materializations materialization
+      ON materialization.document_id = document.id
+      AND materialization.generation = document.generation
+      AND materialization.projected_seq = document.head_seq
+      AND materialization.schema_version = document.schema_version
+    WHERE page.block_id = ?
+  `).get(pageId) as { readonly bodyNfm: string } | undefined;
+  if (!body) {
+    throw new DatabaseModuleV2StateError(
+      `Database Page ${pageId} has no exact-head body projection`,
+    );
+  }
+  const properties = database.prepare(`
+    SELECT property_key AS key, value_type AS valueType,
+      value_json AS valueJson, revision
+    FROM block_properties
+    WHERE block_id = ?
+    ORDER BY property_key
+  `).all(pageId) as readonly {
+    readonly key: string;
+    readonly valueType: string;
+    readonly valueJson: string;
+    readonly revision: number;
+  }[];
+  return {
+    bodyNfm: body.bodyNfm,
+    intrinsicProperties: properties.map((property) => ({
+      key: property.key,
+      valueType: property.valueType,
+      value: parseDatabaseJson(
+        property.valueJson,
+        `Page intrinsic Property ${pageId}/${property.key}`,
+      ),
+      revision: property.revision,
+    })),
+  };
+};
+
 const materializeRows = (
   database: Database.Database,
   input: Readonly<{
@@ -578,6 +628,10 @@ const materializeRows = (
         `Membership ${membership.id} has no readable Page`,
       );
     }
+    const pageProjection = readPageDatabaseProjection(
+      database,
+      membership.page_block_id,
+    );
     const rowValues = values.get(membership.id) ?? {};
     const effectiveGroupKey = input.groupPropertyId === null
       ? membership.group_key
@@ -612,6 +666,8 @@ const materializeRows = (
               revision: membership.position_revision,
             },
       effectiveGroupKey,
+      bodyNfm: pageProjection.bodyNfm,
+      intrinsicProperties: pageProjection.intrinsicProperties,
     };
   });
   const visibleRows = rows.filter((row) =>
@@ -1212,8 +1268,19 @@ const updatePageMetadataRevision = (
     WHERE id = ? AND type = 'page'
     RETURNING metadata_revision AS revision
   `).get(now, pageId) as { readonly revision: number } | undefined;
-  if (updated) return updated.revision;
-  throw new DatabaseModuleV2StateError(`Page ${pageId} disappeared`);
+  if (!updated) {
+    throw new DatabaseModuleV2StateError(`Page ${pageId} disappeared`);
+  }
+  const pageAuthority = database.prepare(`
+    UPDATE pages SET metadata_revision = ?, updated_at = ?
+    WHERE block_id = ? AND lifecycle <> 'deleted'
+  `).run(updated.revision, now, pageId);
+  if (pageAuthority.changes !== 1) {
+    throw new DatabaseModuleV2StateError(
+      `Page ${pageId} has no live authority projection`,
+    );
+  }
+  return updated.revision;
 };
 
 const readJsonObject = (

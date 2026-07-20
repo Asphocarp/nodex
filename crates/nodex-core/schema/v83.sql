@@ -1,5 +1,5 @@
--- Generated from the TypeScript-authoritative Nodex v82 schema.
--- Regenerate with: pnpm core:schema:v82:generate
+-- Generated from the TypeScript-authoritative Nodex v83 schema.
+-- Regenerate with: pnpm core:schema:v83:generate
 PRAGMA foreign_keys = OFF;
 BEGIN IMMEDIATE;
 
@@ -54,7 +54,7 @@ CREATE TABLE codex_threads (
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       linked_at TEXT NOT NULL
-    , forked_from_id TEXT, service_name TEXT) WITHOUT ROWID;
+    , forked_from_id TEXT, service_name TEXT, agent_path TEXT) WITHOUT ROWID;
 
 CREATE TABLE codex_thread_dynamic_tool_catalogs (
       thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
@@ -3206,6 +3206,6 @@ CREATE TRIGGER canvas_scene_mutation_receipts_validate_result_hash_insert
         SELECT RAISE(ABORT, 'Canvas scene mutation result hash is invalid');
       END;
 
-PRAGMA user_version = 82;
+PRAGMA user_version = 83;
 COMMIT;
 PRAGMA foreign_keys = ON;

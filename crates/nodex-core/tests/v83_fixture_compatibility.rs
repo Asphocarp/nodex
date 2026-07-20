@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use nodex_core::document::{create_compatible_document, has_pending_dependencies};
-use nodex_core::infrastructure::schema::{install_v82_schema, read_schema_inventory};
+use nodex_core::infrastructure::schema::{install_v83_schema, read_schema_inventory};
 use nodex_core::infrastructure::sqlite::StoreError;
 use nodex_core::infrastructure::store::SqliteStoreKernel;
 use rusqlite::types::ValueRef;
@@ -14,8 +14,8 @@ use tempfile::tempdir;
 use yrs::updates::decoder::Decode;
 use yrs::{ReadTxn, StateVector, Transact, Update};
 
-const FIXTURE_MARKER: &str = ".nodex-rust-core-v82-fixture";
-const FIXTURE_MARKER_CONTENTS: &str = "Nodex disposable Rust Core v82 compatibility fixture\n";
+const FIXTURE_MARKER: &str = ".nodex-rust-core-v83-fixture";
+const FIXTURE_MARKER_CONTENTS: &str = "Nodex disposable Rust Core v83 compatibility fixture\n";
 
 #[derive(Debug)]
 struct DocumentHead {
@@ -44,8 +44,8 @@ struct PreservationEvidence {
 }
 
 fn fixture_home() -> PathBuf {
-    let configured = std::env::var_os("NODEX_V82_FIXTURE")
-        .expect("NODEX_V82_FIXTURE must point at the generated TypeScript profile");
+    let configured = std::env::var_os("NODEX_V83_FIXTURE")
+        .expect("NODEX_V83_FIXTURE must point at the generated TypeScript profile");
     let configured = PathBuf::from(configured);
     let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let configured = if configured.is_absolute() {
@@ -55,22 +55,22 @@ fn fixture_home() -> PathBuf {
     };
     let canonical = configured
         .canonicalize()
-        .expect("v82 fixture directory must exist");
-    assert!(canonical.is_dir(), "v82 fixture path must be a directory");
+        .expect("v83 fixture directory must exist");
+    assert!(canonical.is_dir(), "v83 fixture path must be a directory");
     let generated_root = repository_root
         .join(".generated/rust-core-migration")
         .canonicalize()
         .expect("generated Rust Core migration directory must exist");
     assert!(
         canonical.starts_with(generated_root),
-        "v82 fixture must remain under .generated/rust-core-migration"
+        "v83 fixture must remain under .generated/rust-core-migration"
     );
 
     let marker = canonical.join(FIXTURE_MARKER);
     assert_eq!(
-        fs::read_to_string(marker).expect("v82 fixture marker must be readable"),
+        fs::read_to_string(marker).expect("v83 fixture marker must be readable"),
         FIXTURE_MARKER_CONTENTS,
-        "v82 probe only accepts its disposable generated fixture"
+        "v83 probe only accepts its disposable generated fixture"
     );
     canonical
 }
@@ -92,7 +92,7 @@ fn assert_search_and_json_projections(connection: &Connection) {
     let fts_match_count: i64 = connection
         .query_row(
             "SELECT count(*) FROM block_search_units_fts \
-             WHERE block_search_units_fts MATCH 'rustcorev82token'",
+             WHERE block_search_units_fts MATCH 'rustcorev83token'",
             [],
             |row| row.get(0),
         )
@@ -301,10 +301,10 @@ fn copy_fixture_database(fixture: &Path, target: &Path) {
 }
 
 #[test]
-#[ignore = "requires a TypeScript-generated v82 profile"]
-fn opens_and_reconstructs_a_typescript_created_v82_profile() {
+#[ignore = "requires a TypeScript-generated v83 profile"]
+fn opens_and_reconstructs_a_typescript_created_v83_profile() {
     let fixture = fixture_home();
-    let temporary = tempdir().expect("disposable v82 probe directory");
+    let temporary = tempdir().expect("disposable v83 probe directory");
     let source_path = temporary.path().join("source.db");
     let backup_path = temporary.path().join("backup.db");
     let restored_path = temporary.path().join("restored.db");
@@ -317,17 +317,17 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
     let user_version: i64 = source
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("user_version reads");
-    assert_eq!(user_version, 82);
+    assert_eq!(user_version, 83);
     assert_store_is_valid(&source);
     assert_search_and_json_projections(&source);
 
     let artifact_path = temporary.path().join("artifact.db");
     let artifact = Connection::open(&artifact_path).expect("artifact database opens");
-    install_v82_schema(&artifact).expect("checked-in v82 schema installs");
+    install_v83_schema(&artifact).expect("checked-in v83 schema installs");
     assert_eq!(
         read_schema_inventory(&artifact).expect("artifact inventory"),
         read_schema_inventory(&source).expect("TypeScript inventory"),
-        "checked-in Rust schema artifact must exactly match TypeScript v82"
+        "checked-in Rust schema artifact must exactly match TypeScript v83"
     );
 
     let heads = load_document_heads(&source);
@@ -378,9 +378,9 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
     let migrated_home = temporary.path().join("migrated-profile");
     fs::create_dir(&migrated_home).expect("migrated Profile directory");
     copy_fixture_database(&fixture, &migrated_home.join("nodex.db"));
-    let kernel = SqliteStoreKernel::open(&migrated_home).expect("v82 migrates to v83");
-    assert_eq!(kernel.preparation().schema_version, 83);
-    assert_eq!(kernel.preparation().migrated_from_version, Some(82));
+    let kernel = SqliteStoreKernel::open(&migrated_home).expect("v83 migrates to v84");
+    assert_eq!(kernel.preparation().schema_version, 84);
+    assert_eq!(kernel.preparation().migrated_from_version, Some(83));
     assert_eq!(
         kernel.preparation().validated_yjs_documents,
         live_yjs_documents
@@ -398,7 +398,7 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
         .expect("migration preservation evidence");
     assert_eq!(
         migrated_evidence, source_evidence,
-        "v83 ownership publication must not rewrite authoritative rows, updates, receipts, snapshots, projections, or event history"
+        "v84 ownership publication must not rewrite authoritative rows, updates, receipts, snapshots, projections, or event history"
     );
     kernel
         .readers()
@@ -406,12 +406,12 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
             assert_store_is_valid(connection);
             assert_search_and_json_projections(connection);
             let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-            assert_eq!(version, 83);
+            assert_eq!(version, 84);
             Ok::<_, StoreError>(())
         })
         .expect("migrated store remains queryable");
 
-    let v83_backup_path = temporary.path().join("v83-online-backup.db");
+    let v84_backup_path = temporary.path().join("v84-online-backup.db");
     let readers = kernel.readers();
     let (reader_ready_tx, reader_ready_rx) = mpsc::sync_channel(1);
     let (reader_release_tx, reader_release_rx) = mpsc::sync_channel(1);
@@ -430,39 +430,39 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
     kernel
         .writer()
         .call({
-            let v83_backup_path = v83_backup_path.clone();
+            let v84_backup_path = v84_backup_path.clone();
             move |connection| {
-                connection.backup(MAIN_DB, &v83_backup_path, None)?;
+                connection.backup(MAIN_DB, &v84_backup_path, None)?;
                 Ok(())
             }
         })
-        .expect("v83 online backup succeeds while a reader holds a snapshot");
+        .expect("v84 online backup succeeds while a reader holds a snapshot");
     reader_release_tx.send(()).expect("release read traffic");
     reader
         .join()
         .expect("reader thread joins")
         .expect("concurrent read succeeds");
 
-    let v83_backup = Connection::open_with_flags(
-        &v83_backup_path,
+    let v84_backup = Connection::open_with_flags(
+        &v84_backup_path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .expect("v83 backup reopens read-only");
-    assert_store_is_valid(&v83_backup);
-    assert_search_and_json_projections(&v83_backup);
-    assert_eq!(preservation_evidence(&v83_backup), source_evidence);
-    drop(v83_backup);
+    .expect("v84 backup reopens read-only");
+    assert_store_is_valid(&v84_backup);
+    assert_search_and_json_projections(&v84_backup);
+    assert_eq!(preservation_evidence(&v84_backup), source_evidence);
+    drop(v84_backup);
 
-    let restored_v83_home = temporary.path().join("restored-v83-profile");
-    fs::create_dir(&restored_v83_home).expect("restored v83 Profile directory");
-    let v83_backup_source = Connection::open(&v83_backup_path).expect("v83 backup opens");
-    v83_backup_source
-        .backup(MAIN_DB, restored_v83_home.join("nodex.db"), None)
-        .expect("v83 backup restores through SQLite");
-    drop(v83_backup_source);
-    let restored_v83 =
-        SqliteStoreKernel::open(&restored_v83_home).expect("restored v83 store opens in Core");
-    restored_v83
+    let restored_v84_home = temporary.path().join("restored-v84-profile");
+    fs::create_dir(&restored_v84_home).expect("restored v84 Profile directory");
+    let v84_backup_source = Connection::open(&v84_backup_path).expect("v84 backup opens");
+    v84_backup_source
+        .backup(MAIN_DB, restored_v84_home.join("nodex.db"), None)
+        .expect("v84 backup restores through SQLite");
+    drop(v84_backup_source);
+    let restored_v84 =
+        SqliteStoreKernel::open(&restored_v84_home).expect("restored v84 store opens in Core");
+    restored_v84
         .readers()
         .read_default(|connection| {
             assert_store_is_valid(connection);
@@ -470,5 +470,5 @@ fn opens_and_reconstructs_a_typescript_created_v82_profile() {
             assert_eq!(preservation_evidence(connection), source_evidence);
             Ok::<_, StoreError>(())
         })
-        .expect("restored v83 store remains exact and queryable");
+        .expect("restored v84 store remains exact and queryable");
 }

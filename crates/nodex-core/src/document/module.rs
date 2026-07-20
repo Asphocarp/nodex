@@ -4601,7 +4601,7 @@ mod tests {
     fn seeded_module() -> SeededModule {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v83");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
         let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/yjs-yrs/empty-page.bin");
         let full_state = fs::read(fixture).expect("empty Page fixture");
@@ -4930,7 +4930,7 @@ mod tests {
     fn pending_module(owner_type: &str, schema_key: &str, schema_version: i64) -> SeededModule {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v83");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
         let owner_type = owner_type.to_owned();
         let schema_key = schema_key.to_owned();
         kernel
@@ -4985,7 +4985,7 @@ mod tests {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         fs::create_dir(home.join("assets")).expect("assets root");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v83");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
         kernel
             .writer()
             .call(|connection| {
@@ -5044,7 +5044,7 @@ mod tests {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         fs::create_dir(home.join("assets")).expect("assets root");
-        let kernel = SqliteStoreKernel::open(&home).expect("fresh v83");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh v84");
         kernel
             .writer()
             .call(|connection| {

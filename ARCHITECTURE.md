@@ -384,9 +384,9 @@ with the Core process.
 Native failure recovery is promoted through one executable Gate D matrix, not
 an informal inference from the full suite. The matrix binds named behavior
 tests for each deep transaction aggregate and for pre-transaction rejection,
-post-commit Document cache/publication recovery, v82 migration, online backup,
+post-commit Document cache/publication recovery, v83 migration, online backup,
 restore journaling/runtime reset, and abrupt WAL exit. It also starts from a
-fresh restricted `.generated` Profile and reports the reopened v83 Store's
+fresh restricted `.generated` Profile and reports the reopened v84 Store's
 durable head, integrity result, and foreign-key result. The Electron loopback
 test in the same gate proves that private Core health/lifecycle/Store
 Administration UDS paths remain unreachable over the public HTTP adapter.
@@ -411,14 +411,14 @@ JSON bounds, store epoch, and event head are validated by the Module; incomplete
 bindings and cross-Library rows fail closed.
 Automation now
 owns its accepted definition, lease, run, reminder, and Scheduled Page
-occurrence surface. Store Administration owns v83 readiness, backup listing,
+occurrence surface. Store Administration owns v84 readiness, backup listing,
 online SQLite backup creation, and whole-store restore through the same
 generated `read`/`apply` boundary. A backup uses a deterministic operation-owned
 directory, publishes a v2-compatible manifest last, validates the immutable
 snapshot, fsyncs database, assets, manifest, and directories, then commits its
 receipt/event. A retry after filesystem publication but before the SQLite
 receipt adopts only an exact operation/request-fingerprint match. Restore
-semantically validates the complete v83 Document/Canvas/projection/managed-asset
+semantically validates the complete v84 Document/Canvas/projection/managed-asset
 closure, optionally creates a safety backup inside one maintenance generation,
 installs through the Core-owned journal, rotates `storeEpoch`, resets Document
 cache and realtime state, republishes the runtime descriptor, and clears the
@@ -474,7 +474,7 @@ readiness so no half-bound default Project can exist.
 The same Workspace writer owns Project metadata/source replacement, lifecycle,
 sidebar order, and pinned order. Each operation validates Library ownership and
 bounded canonical input, writes one receipt/event with exact replay, and keeps
-the compatibility binding row synchronized through the v82 import triggers.
+the compatibility binding row synchronized through the v83 import triggers.
 Metadata replacement fences the Project binding revision; lifecycle transitions
 advance it, remove archived Projects from sidebar/pinned order, and append a
 restored Project without renumbering surviving gaps. Multi-Project reorder events
@@ -546,7 +546,7 @@ bounded Project fallback, while an existing row from another epoch or actor
 fails closed and is never replaced by broader authority. One inherited
 full-access Turn must name an exact persisted Library-scope parent Turn.
 Per-Thread writable workspace roots are ordered Core rows with Thread-cascade
-lifecycle; v83 imports the former profile JSON projection once and retains the
+lifecycle; v84 imports the former profile JSON projection once and retains the
 file only as rollback evidence. The Desktop Host reads those roots only from
 the authority-selected execution-context snapshot and uses semantic merge or
 replace intents for app-server launch repair and workspace moves. A newly
@@ -640,7 +640,7 @@ canonical-to-client Thread identity aliases used during resolution remain in the
 Host-owned persisted-atoms file and are not a second SQLite authority.
 
 The native Automation Module now owns Scheduled Automation definitions and due
-work leases in SQLite. v83 adds an optimistic definition revision, imports the
+work leases in SQLite. v84 adds an optimistic definition revision, imports the
 former profile jitter salt once, and retains the old TOML tree only as legacy
 rollback/export evidence; native mutations never reconcile two writable
 definition authorities. Typed create/update/delete intents validate cron versus

@@ -10,7 +10,7 @@
 
 ## Data Durability Model
 - During the development cutover, Electron selects exactly one Profile data
-  authority at bootstrap. The TypeScript default preserves the v82 oracle; the
+  authority at bootstrap. The TypeScript default preserves the v83 oracle; the
   explicit Rust selector prevents all legacy SQLite opens. The accompanying
   launcher can start or reuse a detached Core and waits for an authenticated
   ready handshake; Electron adapter initialization is the remaining cutover
@@ -23,7 +23,7 @@
   can construct a `better-sqlite3` connection.
 - SQLite runs in WAL mode (`local-store/database.ts`) for resilient write/read behavior.
 - SQLite schema version state is tracked in `PRAGMA user_version`.
-- The current SQLite schema is v80. It persists one Profile-owned Library, canonical Pages with exclusive `library | page | data_source` parents, Database Containers, deterministic initial Data Sources, Source-owned schema/memberships/values, View-to-Source targets, Project bindings/lifecycle/grants, exact-Turn Nodex authority provenance, authority-bound Agent receipts, and immutable compatibility-owner relocation evidence. Active projections are Page-named (`page_read_model`, `scheduled_page_index`, `canvas_page_references`); old Card names occur only inside ordered migration inputs and compatibility adapters. Block, engine-neutral Document, projection, and immutable evidence writes remain bounded typed transactions.
+- The TypeScript oracle schema is v83 and a Rust-owned Store is v84. They persist one Profile-owned Library, canonical Pages with exclusive `library | page | data_source` parents, Database Containers, deterministic initial Data Sources, Source-owned schema/memberships/values, View-to-Source targets, Project bindings/lifecycle/grants, exact-Turn Nodex authority provenance, authority-bound Agent receipts, and immutable compatibility-owner relocation evidence. Active projections are Page-named (`page_read_model`, `scheduled_page_index`, `canvas_page_references`); old Card names occur only inside ordered migration inputs and compatibility adapters. Block, engine-neutral Document, projection, and immutable evidence writes remain bounded typed transactions.
 - Schema v64-v66 add the Agent dynamic-tool durability plane: each launched task retains its namespace/toolset catalog, one store-local signing key authenticates separately domain-bound short ETags and self-contained cursors across restarts, and content-free call receipts bind thread/call identity, request semantics, deterministic allocations, canonical mutation identity, and compact replay results. Restoring or replacing the store changes the epoch, so validators, cursors, and task grants from the old authority fail closed.
 - Startup supports shipped v26 and v57 stores as direct inputs to v58. It creates a SQLite-consistent snapshot with the online backup API, copies assets into staging, normalizes v26 when needed, converts every Card/Canvas authority and inline image there, then requires current-schema, integrity, ownership, exact-head projection, and asset-hash validation. Only a passing candidate enters the fsynced replacement journal. Any conversion or validation failure deletes staging and leaves the source unchanged; any pre-commit swap interruption restores the complete source DB/WAL/SHM/assets set.
 - The v58 Card model keeps generation and Yjs authority intact while using `nodex.card@2` and canonical portable-rich title projections. The live Adapter registry rejects Card v1; a separate read-only historical inspector exists only inside the shipped-schema importer. A v1 checkpoint remains immutable and restores by compiling a forward rich-title/body mutation into the current v2 Document.
@@ -78,7 +78,7 @@
 - Project rename updates linked Codex rows transactionally with project metadata updates.
 
 ## Backup and Restore
-- The native Rust Core migration lane exposes v83 readiness, backup inventory,
+- The native Rust Core migration lane exposes v84 readiness, backup inventory,
   manual online backup creation, and whole-store restore over its private
   generated Module route.
   Backup identity is derived from Profile plus operation identity; the manifest
@@ -87,7 +87,7 @@
   on collision. Staging and managed-asset trees refuse symlinks and special
   files, the immutable candidate must pass schema-owner, integrity, and foreign
   key validation, and every file plus containing directory is flushed before
-  publication. Restore validates the selected immutable v83 backup plus every
+  publication. Restore validates the selected immutable v84 backup plus every
   reconstructed ready Document, Canvas scene and current projection,
   Profile/Library identity, and referenced managed asset before file movement.
   Delete and automatic-retention pruning persist exact logical deletion
@@ -172,11 +172,11 @@
   is the executable Gate D recovery audit. It refuses nonempty, symlinked, or
   out-of-tree Profiles; verifies the named behavior tests still exist; runs all
   native Module transaction tests plus abrupt-WAL recovery and the Electron
-  loopback isolation test; then seeds and reopens one representative v83
+  loopback isolation test; then seeds and reopens one representative v84
   Profile to report its final committed sequence, `integrity_check`, and
   `foreign_key_check`. The matrix covers rejection before transaction,
   Library/Database/Workspace/Automation rollback during a transaction,
-  Document commit before cache/event publication, v82 migration publication,
+  Document commit before cache/event publication, v83 migration publication,
   backup publication before receipt, restore rollback/adoption, and process
   exit with a committed WAL.
 - Native global Module events are reconstructed from the durable SQLite change
@@ -211,7 +211,7 @@
 - Native whole-store replacement has a bounded, mode-restricted, atomically
   fsynced journal whose paths are controlled staging/rollback directory names,
   never caller-authored paths. It is inspected under the Profile lock before
-  any SQLite connection opens. A prepared candidate must be a Rust-owned v83
+  any SQLite connection opens. A prepared candidate must be a Rust-owned v84
   Store with a regular no-symlink asset tree. An interruption before file
   movement returns the journal to `prepared`; an interruption during install
   restores DB, WAL, SHM, and assets while moving the candidate back to staging.

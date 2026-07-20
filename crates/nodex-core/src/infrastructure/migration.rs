@@ -16,7 +16,7 @@ use crate::document::{
 };
 
 use super::document_repository::{DocumentHeadRow, DocumentReadRepository};
-use super::schema::{CORE_SCHEMA_VERSION, TYPESCRIPT_SCHEMA_VERSION, v82_schema_objects_sql};
+use super::schema::{CORE_SCHEMA_VERSION, TYPESCRIPT_SCHEMA_VERSION, v83_schema_objects_sql};
 use super::sqlite::{
     StoreError, StoreErrorCode, open_immutable_reader, validate_store, with_immediate_transaction,
 };
@@ -29,9 +29,7 @@ const MAX_LEGACY_WRITABLE_ROOTS_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_AUTOMATION_JITTER_SALT_BYTES: u64 = 512;
 const MAX_WRITABLE_ROOTS_PER_THREAD: usize = 128;
 const MAX_WRITABLE_ROOT_BYTES: usize = 16_384;
-const V83_SCHEMA_SQL: &str = r#"
-ALTER TABLE codex_threads ADD COLUMN agent_path TEXT;
-
+const V84_SCHEMA_SQL: &str = r#"
 CREATE TABLE core_store_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   schema_owner TEXT NOT NULL CHECK (schema_owner = 'rust_core'),
@@ -41,7 +39,7 @@ CREATE TABLE core_store_metadata (
   migrated_at_unix_ms INTEGER NOT NULL CHECK (migrated_at_unix_ms >= 0),
   CHECK (
     (migrated_from_version IS NULL AND migration_backup_name IS NULL)
-    OR (migrated_from_version = 82 AND length(migration_backup_name) > 0)
+    OR (migrated_from_version IN (82, 83) AND length(migration_backup_name) > 0)
   )
 ) STRICT;
 
@@ -130,7 +128,7 @@ INSERT OR IGNORE INTO nodex_agent_token_keys(id, key_material)
 VALUES (1, randomblob(32));
 "#;
 
-const V83_EXECUTION_SCHEMA_SQL: &str = r#"
+const V84_EXECUTION_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS core_legacy_imports (
   import_key TEXT PRIMARY KEY,
   imported_at_unix_ms INTEGER NOT NULL CHECK (imported_at_unix_ms >= 0),
@@ -263,7 +261,7 @@ pub fn prepare_profile_store(
     )?;
     if version == 0 && object_count == 0 {
         let now = unix_time_millis()?;
-        create_fresh_v83(connection, profile_home, now)?;
+        create_fresh_v84(connection, profile_home, now)?;
         validate_store(connection)?;
         return Ok(StorePreparation {
             schema_version: CORE_SCHEMA_VERSION,
@@ -283,10 +281,10 @@ pub fn prepare_profile_store(
         ));
     }
     if version == CORE_SCHEMA_VERSION {
-        validate_v83_metadata(connection)?;
+        validate_v84_metadata(connection)?;
         validate_store(connection)?;
         let now = unix_time_millis()?;
-        ensure_v83_execution_schema(connection, profile_home, now)?;
+        ensure_v84_execution_schema(connection, profile_home, now)?;
         validate_store(connection)?;
         let validated_yjs_documents: i64 = connection.query_row(
             "SELECT count(*) FROM document_engine_fingerprints",
@@ -311,6 +309,29 @@ pub fn prepare_profile_store(
     validate_store(connection)?;
     let now = unix_time_millis()?;
     let backup_path = create_migration_backup(connection, profile_home, now)?;
+    if is_legacy_core_v83_store(connection)? {
+        upgrade_legacy_core_v83(connection, profile_home, now)?;
+        validate_store(connection)?;
+        validate_v84_metadata(connection)?;
+        let validated_yjs_documents: i64 = connection.query_row(
+            "SELECT count(*) FROM document_engine_fingerprints",
+            [],
+            |row| row.get(0),
+        )?;
+        return Ok(StorePreparation {
+            schema_version: CORE_SCHEMA_VERSION,
+            created_fresh: false,
+            migrated_from_version: Some(TYPESCRIPT_SCHEMA_VERSION),
+            migration_backup_path: Some(backup_path),
+            validated_yjs_documents: usize::try_from(validated_yjs_documents).map_err(|_| {
+                StoreError::new(
+                    StoreErrorCode::StoreCorrupt,
+                    "Document fingerprint count is invalid",
+                    false,
+                )
+            })?,
+        });
+    }
     let fingerprints = validate_live_yjs_documents(connection)?;
     let backup_name = backup_path
         .file_name()
@@ -322,7 +343,7 @@ pub fn prepare_profile_store(
                 false,
             )
         })?;
-    publish_v83(
+    publish_v84(
         connection,
         profile_home,
         Some(TYPESCRIPT_SCHEMA_VERSION),
@@ -331,7 +352,7 @@ pub fn prepare_profile_store(
         &fingerprints,
     )?;
     validate_store(connection)?;
-    validate_v83_metadata(connection)?;
+    validate_v84_metadata(connection)?;
     Ok(StorePreparation {
         schema_version: CORE_SCHEMA_VERSION,
         created_fresh: false,
@@ -359,7 +380,9 @@ fn create_migration_backup(
             false,
         ));
     }
-    let backup_path = directory.join(format!("v82-to-v83-{now}.db"));
+    let backup_path = directory.join(format!(
+        "v{TYPESCRIPT_SCHEMA_VERSION}-to-v{CORE_SCHEMA_VERSION}-{now}.db"
+    ));
     if backup_path.exists() {
         return Err(StoreError::new(
             StoreErrorCode::Internal,
@@ -401,8 +424,8 @@ fn validate_live_yjs_documents(
         .collect()
 }
 
-pub(crate) fn validate_v83_restore_documents(connection: &Connection) -> Result<usize, StoreError> {
-    validate_v83_metadata(connection)?;
+pub(crate) fn validate_v84_restore_documents(connection: &Connection) -> Result<usize, StoreError> {
+    validate_v84_metadata(connection)?;
     validate_live_yjs_documents(connection).map(|fingerprints| fingerprints.len())
 }
 
@@ -537,7 +560,7 @@ fn assert_persisted_materialization(
     )))
 }
 
-fn publish_v83(
+fn publish_v84(
     connection: &mut Connection,
     profile_home: &Path,
     migrated_from: Option<i64>,
@@ -546,45 +569,106 @@ fn publish_v83(
     fingerprints: &[DocumentEngineFingerprint],
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
-        transaction.execute_batch(V83_SCHEMA_SQL)?;
-        transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        transaction.execute_batch(V84_SCHEMA_SQL)?;
+        transaction.execute_batch(V84_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
-        write_v83_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
+        write_v84_metadata(transaction, migrated_from, backup_name, now, fingerprints)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
 }
 
-fn create_fresh_v83(
+fn create_fresh_v84(
     connection: &mut Connection,
     profile_home: &Path,
     now: u64,
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
-        transaction.execute_batch(v82_schema_objects_sql())?;
-        transaction.execute_batch(V83_SCHEMA_SQL)?;
-        transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        transaction.execute_batch(v83_schema_objects_sql())?;
+        transaction.execute_batch(V84_SCHEMA_SQL)?;
+        transaction.execute_batch(V84_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
-        write_v83_metadata(transaction, None, None, now, &[])?;
+        write_v84_metadata(transaction, None, None, now, &[])?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
     })
 }
 
-fn ensure_v83_execution_schema(
+fn ensure_v84_execution_schema(
     connection: &mut Connection,
     profile_home: &Path,
     now: u64,
 ) -> Result<(), StoreError> {
     with_immediate_transaction(connection, |transaction| {
         ensure_codex_thread_agent_path(transaction)?;
-        transaction.execute_batch(V83_EXECUTION_SCHEMA_SQL)?;
+        transaction.execute_batch(V84_EXECUTION_SCHEMA_SQL)?;
         ensure_automation_definition_revision(transaction)?;
         ensure_automation_run_revision(transaction)?;
         import_legacy_writable_roots(transaction, profile_home, now)?;
         import_automation_jitter_salt(transaction, profile_home, now)
+    })
+}
+
+fn is_legacy_core_v83_store(connection: &Connection) -> Result<bool, StoreError> {
+    let metadata_table_exists = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_schema \
+             WHERE type = 'table' AND name = 'core_store_metadata'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !metadata_table_exists {
+        return Ok(false);
+    }
+    let metadata = connection
+        .query_row(
+            "SELECT schema_owner, store_format_version \
+             FROM core_store_metadata WHERE id = 1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    if metadata == Some((CORE_SCHEMA_OWNER.to_owned(), TYPESCRIPT_SCHEMA_VERSION)) {
+        return Ok(true);
+    }
+    Err(corrupt(
+        "v83 store contains an invalid or ambiguous Core ownership marker",
+    ))
+}
+
+fn upgrade_legacy_core_v83(
+    connection: &mut Connection,
+    profile_home: &Path,
+    now: u64,
+) -> Result<(), StoreError> {
+    with_immediate_transaction(connection, |transaction| {
+        ensure_codex_thread_agent_path(transaction)?;
+        transaction.execute_batch(V84_EXECUTION_SCHEMA_SQL)?;
+        ensure_automation_definition_revision(transaction)?;
+        ensure_automation_run_revision(transaction)?;
+        import_legacy_writable_roots(transaction, profile_home, now)?;
+        import_automation_jitter_salt(transaction, profile_home, now)?;
+        let updated = transaction.execute(
+            "UPDATE core_store_metadata \
+             SET store_format_version = ?1 \
+             WHERE id = 1 AND schema_owner = ?2 AND store_format_version = ?3",
+            params![
+                CORE_SCHEMA_VERSION,
+                CORE_SCHEMA_OWNER,
+                TYPESCRIPT_SCHEMA_VERSION
+            ],
+        )?;
+        if updated != 1 {
+            return Err(corrupt(
+                "Legacy v83 Core ownership marker changed during upgrade",
+            ));
+        }
+        transaction.pragma_update(None, "user_version", CORE_SCHEMA_VERSION)?;
+        Ok(())
     })
 }
 
@@ -854,7 +938,7 @@ fn network_root_has_server_and_share(root: &str, separator: char) -> bool {
         && parts.next().is_some_and(|part| !part.is_empty())
 }
 
-fn write_v83_metadata(
+fn write_v84_metadata(
     transaction: &rusqlite::Transaction<'_>,
     migrated_from: Option<i64>,
     backup_name: Option<&str>,
@@ -904,7 +988,7 @@ fn write_v83_metadata(
     Ok(())
 }
 
-fn validate_v83_metadata(connection: &Connection) -> Result<(), StoreError> {
+fn validate_v84_metadata(connection: &Connection) -> Result<(), StoreError> {
     let metadata = connection
         .query_row(
             "SELECT schema_owner, store_format_version FROM core_store_metadata WHERE id = 1",
@@ -916,7 +1000,7 @@ fn validate_v83_metadata(connection: &Connection) -> Result<(), StoreError> {
         return Ok(());
     }
     Err(corrupt(
-        "v83 store does not contain the Rust Core ownership marker",
+        "v84 store does not contain the Rust Core ownership marker",
     ))
 }
 
@@ -1029,7 +1113,7 @@ mod tests {
         BlockDocumentSchema, create_compatible_document, decode_block_document,
         materialize_decoded_document,
     };
-    use crate::infrastructure::schema::install_v82_schema;
+    use crate::infrastructure::schema::install_v83_schema;
     use crate::infrastructure::sqlite::{StoreErrorCode, open_writer};
     use crate::infrastructure::store::SqliteStoreKernel;
 
@@ -1043,9 +1127,9 @@ mod tests {
             .join(name)
     }
 
-    fn seed_v82_page(home: &Path) {
-        let mut connection = open_writer(&home.join("nodex.db")).expect("v82 writer");
-        install_v82_schema(&connection).expect("v82 schema");
+    fn seed_v83_page(home: &Path) {
+        let mut connection = open_writer(&home.join("nodex.db")).expect("v83 writer");
+        install_v83_schema(&connection).expect("v83 schema");
         let full_state = fs::read(fixture("empty-page.bin")).expect("Page fixture");
         let document = create_compatible_document(DOCUMENT_ID);
         document
@@ -1107,7 +1191,7 @@ mod tests {
             )?;
             Ok(())
         })
-        .expect("seed v82 Page");
+        .expect("seed v83 Page");
     }
 
     fn open_error(home: &Path) -> StoreError {
@@ -1118,7 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_profiles_publish_v83_and_hold_the_store_lock() {
+    fn fresh_profiles_publish_v84_and_hold_the_store_lock() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
         let kernel = SqliteStoreKernel::open(&home).expect("fresh Core store");
@@ -1152,19 +1236,19 @@ mod tests {
         let second = open_error(&home);
         assert_eq!(second.code, StoreErrorCode::AlreadyOwned);
         drop(kernel);
-        let reopened = SqliteStoreKernel::open(&home).expect("reopen v83");
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen v84");
         assert!(!reopened.preparation().created_fresh);
     }
 
     #[test]
-    fn v82_migration_backs_up_validates_and_publishes_fingerprints_once() {
+    fn v83_migration_backs_up_validates_and_publishes_fingerprints_once() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        seed_v82_page(&home);
+        seed_v83_page(&home);
 
         let kernel = SqliteStoreKernel::open(&home).expect("migrated Core store");
         let preparation = kernel.preparation();
-        assert_eq!(preparation.migrated_from_version, Some(82));
+        assert_eq!(preparation.migrated_from_version, Some(83));
         assert_eq!(preparation.validated_yjs_documents, 1);
         let backup_path = preparation
             .migration_backup_path
@@ -1175,7 +1259,7 @@ mod tests {
         let backup_version: i64 = backup
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("backup version");
-        assert_eq!(backup_version, 82);
+        assert_eq!(backup_version, 83);
 
         let evidence = kernel
             .readers()
@@ -1216,11 +1300,95 @@ mod tests {
     }
 
     #[test]
-    fn writable_root_import_is_atomic_one_time_and_repairs_early_v83_stores() {
+    fn legacy_rust_v83_store_upgrades_once_without_reimporting_authority() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        seed_v82_page(&home);
-        let connection = Connection::open(home.join("nodex.db")).expect("v82 store");
+        seed_v83_page(&home);
+        let mut connection = open_writer(&home.join("nodex.db")).expect("legacy Core writer");
+        let fingerprints = validate_live_yjs_documents(&connection).expect("legacy fingerprints");
+        with_immediate_transaction(&mut connection, |transaction| {
+            transaction.execute_batch(V84_SCHEMA_SQL)?;
+            transaction.execute_batch(V84_EXECUTION_SCHEMA_SQL)?;
+            transaction.execute(
+                "INSERT INTO core_store_metadata(\
+                   id, schema_owner, store_format_version, migrated_from_version, \
+                   migration_backup_name, migrated_at_unix_ms\
+                 ) VALUES (1, ?1, 83, 82, 'v82-to-v83-legacy.db', 1)",
+                [CORE_SCHEMA_OWNER],
+            )?;
+            let mut insert = transaction.prepare(
+                "INSERT INTO document_engine_fingerprints(\
+                   document_id, generation, head_seq, source_state_hash, \
+                   yrs_state_vector_sha256, yrs_full_state_sha256, \
+                   materialization_sha256, validated_at_unix_ms\
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
+            )?;
+            for fingerprint in &fingerprints {
+                insert.execute(params![
+                    fingerprint.document_id,
+                    fingerprint.generation,
+                    fingerprint.head_seq,
+                    fingerprint.source_state_hash,
+                    fingerprint.yrs_state_vector_sha256,
+                    fingerprint.yrs_full_state_sha256,
+                    fingerprint.materialization_sha256,
+                ])?;
+            }
+            drop(insert);
+            transaction.pragma_update(None, "user_version", 83)?;
+            Ok(())
+        })
+        .expect("legacy v83 Core store");
+        drop(connection);
+
+        let upgraded = SqliteStoreKernel::open(&home).expect("upgrade legacy Core store");
+        assert_eq!(upgraded.preparation().schema_version, 84);
+        assert_eq!(upgraded.preparation().migrated_from_version, Some(83));
+        assert_eq!(upgraded.preparation().validated_yjs_documents, 1);
+        assert!(
+            upgraded
+                .preparation()
+                .migration_backup_path
+                .as_ref()
+                .is_some_and(|path| path.is_file())
+        );
+        upgraded
+            .readers()
+            .read_default(|connection| {
+                let marker = connection.query_row(
+                    "SELECT schema_owner, store_format_version, migrated_from_version \
+                     FROM core_store_metadata WHERE id = 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, i64>(2)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(marker, (CORE_SCHEMA_OWNER.to_owned(), 84, 82));
+                Ok::<_, StoreError>(())
+            })
+            .expect("upgraded ownership marker");
+        drop(upgraded);
+
+        let reopened = SqliteStoreKernel::open(&home).expect("reopen upgraded Core store");
+        assert!(reopened.preparation().migration_backup_path.is_none());
+        assert_eq!(
+            fs::read_dir(home.join("backups/core-migrations"))
+                .expect("migration backups")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn writable_root_import_is_atomic_one_time_and_repairs_early_v84_stores() {
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        seed_v83_page(&home);
+        let connection = Connection::open(home.join("nodex.db")).expect("v83 store");
         connection
             .execute(
                 "INSERT INTO codex_threads(\
@@ -1278,16 +1446,16 @@ mod tests {
         assert_eq!(roots, ["/workspace/a", "/workspace/b"]);
         drop(reopened);
 
-        let connection = Connection::open(home.join("nodex.db")).expect("early v83 store");
+        let connection = Connection::open(home.join("nodex.db")).expect("early v84 store");
         connection
             .execute_batch(
                 "ALTER TABLE codex_threads DROP COLUMN agent_path; \
                  DROP TABLE codex_thread_writable_roots; \
                  DROP TABLE core_legacy_imports;",
             )
-            .expect("simulate early v83 schema");
+            .expect("simulate early v84 schema");
         drop(connection);
-        let repaired = SqliteStoreKernel::open(&home).expect("repair early v83 schema");
+        let repaired = SqliteStoreKernel::open(&home).expect("repair early v84 schema");
         let repaired_root = repaired
             .readers()
             .read_default(|connection| {
@@ -1322,8 +1490,8 @@ mod tests {
     fn automation_runtime_schema_imports_jitter_salt_once() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        seed_v82_page(&home);
-        let connection = Connection::open(home.join("nodex.db")).expect("v82 store");
+        seed_v83_page(&home);
+        let connection = Connection::open(home.join("nodex.db")).expect("v83 store");
         connection
             .execute(
                 "INSERT INTO codex_scheduled_automations(\
@@ -1401,10 +1569,10 @@ mod tests {
         assert_eq!(runtime, ("legacy-jitter-salt".to_owned(), true));
         drop(reopened);
 
-        let connection = Connection::open(home.join("nodex.db")).expect("early v83 store");
+        let connection = Connection::open(home.join("nodex.db")).expect("early v84 store");
         connection
             .execute("DROP TABLE core_reminder_leases", [])
-            .expect("simulate early v83 reminder schema");
+            .expect("simulate early v84 reminder schema");
         drop(connection);
         let repaired = SqliteStoreKernel::open(&home).expect("repair reminder lease schema");
         let repaired_table = repaired
@@ -1424,11 +1592,11 @@ mod tests {
     }
 
     #[test]
-    fn failed_document_validation_keeps_the_live_store_at_v82() {
+    fn failed_document_validation_keeps_the_live_store_at_v83() {
         let directory = tempdir().expect("Profile");
         let home = directory.path().canonicalize().expect("absolute Profile");
-        seed_v82_page(&home);
-        let connection = Connection::open(home.join("nodex.db")).expect("v82 store");
+        seed_v83_page(&home);
+        let connection = Connection::open(home.join("nodex.db")).expect("v83 store");
         connection
             .execute(
                 "UPDATE document_materializations SET nfm = 'corrupt projection' WHERE document_id = ?1",
@@ -1439,11 +1607,11 @@ mod tests {
 
         let error = open_error(&home);
         assert_eq!(error.code, StoreErrorCode::StoreCorrupt);
-        let connection = Connection::open(home.join("nodex.db")).expect("live v82 store");
+        let connection = Connection::open(home.join("nodex.db")).expect("live v83 store");
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("live version");
-        assert_eq!(version, 82);
+        assert_eq!(version, 83);
         let core_tables: i64 = connection
             .query_row(
                 "SELECT count(*) FROM sqlite_schema WHERE name = 'core_store_metadata'",
@@ -1462,7 +1630,7 @@ mod tests {
 
     #[test]
     fn unsupported_store_versions_fail_before_publication() {
-        for version in [81, 84] {
+        for version in [82, 85] {
             let directory = tempdir().expect("Profile");
             let home = directory.path().canonicalize().expect("absolute Profile");
             let connection = Connection::open(home.join("nodex.db")).expect("store");

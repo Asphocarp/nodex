@@ -59,7 +59,7 @@ const rustRows: readonly FailureRow[] = [
   },
   {
     failurePoint: "migration-before-publication",
-    test: "infrastructure::migration::tests::v82_migration_backs_up_validates_and_publishes_fingerprints_once",
+    test: "infrastructure::migration::tests::v83_migration_backs_up_validates_and_publishes_fingerprints_once",
   },
   {
     failurePoint: "backup-after-filesystem-before-receipt",
@@ -194,7 +194,7 @@ function main(): void {
     "-p",
     "nodex-core",
     "--test",
-    "v83_store_recovery",
+    "v84_store_recovery",
     "--all-features",
   ]);
   run("pnpm", ["test:main", "src/main/http-server-start.test.ts"]);
@@ -209,7 +209,7 @@ function main(): void {
     })),
     {
       failurePoint: "abrupt-wal-process-exit",
-      test: "v83_store_recovery::fresh_v83_recovers_a_committed_wal_after_abrupt_writer_exit",
+      test: "v84_store_recovery::fresh_v84_recovers_a_committed_wal_after_abrupt_writer_exit",
       recovered: true,
       finalCommittedSequence: verification.finalCommittedSequence,
       integrityCheck: verification.integrityCheck,

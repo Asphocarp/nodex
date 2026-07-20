@@ -170,6 +170,23 @@ describe("Library Module runtime", () => {
         affectedParentKeys: ["library"],
       },
     });
+    expect(getDb().prepare(`
+      SELECT property_key AS key, value_type AS valueType, value_json AS valueJson,
+        revision
+      FROM block_properties
+      WHERE block_id = ?
+      ORDER BY property_key
+    `).all(pageId)).toEqual([
+      { key: "recurrence.config", valueType: "json", valueJson: "null", revision: 1 },
+      { key: "reminders.config", valueType: "json", valueJson: "[]", revision: 1 },
+      { key: "run.baseBranch", valueType: "string", valueJson: "null", revision: 1 },
+      { key: "run.environmentPath", valueType: "string", valueJson: "null", revision: 1 },
+      { key: "run.localPath", valueType: "string", valueJson: "null", revision: 1 },
+      { key: "run.target", valueType: "string", valueJson: '"localProject"', revision: 1 },
+      { key: "run.worktreePath", valueType: "string", valueJson: "null", revision: 1 },
+      { key: "schedule.isAllDay", valueType: "boolean", valueJson: "false", revision: 1 },
+      { key: "schedule.timezone", valueType: "string", valueJson: "null", revision: 1 },
+    ]);
 
     const path = read({ mode: "path", target: { kind: "page", pageId } });
     if (!path.ok || path.value.value.kind !== "path") {

@@ -14,7 +14,7 @@ fn abrupt_writer_process() {
     let Some(database_path) = env::var_os(CRASH_WRITER_DATABASE_ENV) else {
         return;
     };
-    let connection = open_writer(&PathBuf::from(database_path)).expect("crash writer opens v83");
+    let connection = open_writer(&PathBuf::from(database_path)).expect("crash writer opens v84");
     connection
         .execute(
             "UPDATE core_store_metadata SET migrated_at_unix_ms = migrated_at_unix_ms + 1 WHERE id = 1",
@@ -25,11 +25,11 @@ fn abrupt_writer_process() {
 }
 
 #[test]
-fn fresh_v83_recovers_a_committed_wal_after_abrupt_writer_exit() {
-    let directory = tempdir().expect("disposable v83 Profile");
+fn fresh_v84_recovers_a_committed_wal_after_abrupt_writer_exit() {
+    let directory = tempdir().expect("disposable v84 Profile");
     let profile_home = directory.path().canonicalize().expect("absolute Profile");
     let database_path = profile_home.join("nodex.db");
-    let kernel = SqliteStoreKernel::open(&profile_home).expect("fresh v83 store");
+    let kernel = SqliteStoreKernel::open(&profile_home).expect("fresh v84 store");
     let before = kernel
         .readers()
         .read_default(|connection| {
@@ -71,5 +71,5 @@ fn fresh_v83_recovers_a_committed_wal_after_abrupt_writer_exit() {
             assert_eq!(after, before + 1);
             Ok::<_, StoreError>(())
         })
-        .expect("recovered v83 store is valid and includes the committed WAL frame");
+        .expect("recovered v84 store is valid and includes the committed WAL frame");
 }

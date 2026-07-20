@@ -3389,7 +3389,6 @@ function createShippedV57Schema(
       thread_source TEXT,
       agent_nickname TEXT,
       agent_role TEXT,
-      agent_path TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
       cwd TEXT,

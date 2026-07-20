@@ -1420,17 +1420,17 @@ describe("schema v83 release boundary", () => {
     unchanged.close();
   });
 
-  test("rejects the Rust Core v83 ownership schema without mutating it", async () => {
+  test("rejects the Rust Core v84 ownership schema without mutating it", async () => {
     useTempStore();
     const database = new Database(getDatabasePath());
-    database.pragma("user_version = 83");
+    database.pragma("user_version = 84");
     database.close();
 
     await expect(initializeDatabase()).rejects.toThrow(
-      "Unsupported Nodex database schema version 83",
+      "Unsupported Nodex database schema version 84",
     );
     const unchanged = new Database(getDatabasePath(), { readonly: true });
-    expect(unchanged.pragma("user_version", { simple: true })).toBe(83);
+    expect(unchanged.pragma("user_version", { simple: true })).toBe(84);
     unchanged.close();
   });
 

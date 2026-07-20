@@ -404,6 +404,19 @@ describe("dormant canonical Database Module v2 runtime", () => {
       tags: ["runtime-alpha"],
     });
     expect(pageProjection.groupKey).toBe(databaseGroupKeyForValue([optionA]));
+    expect(database.prepare(`
+      SELECT block.metadata_revision AS blockRevision,
+        page.metadata_revision AS pageRevision,
+        projection.metadata_revision AS projectionRevision
+      FROM blocks block
+      INNER JOIN pages page ON page.block_id = block.id
+      INNER JOIN page_read_model projection ON projection.page_block_id = block.id
+      WHERE block.id = ?
+    `).get(page.id)).toEqual({
+      blockRevision: 2,
+      pageRevision: 2,
+      projectionRevision: 2,
+    });
 
     const query = readDatabaseModuleV2(database, {
       version: DATABASE_MODULE_V2_CONTRACT_VERSION,
@@ -417,10 +430,21 @@ describe("dormant canonical Database Module v2 runtime", () => {
     if (!query.ok || query.value.value.kind !== "data_source_query") {
       throw new Error("Expected a Data Source query");
     }
-    expect(
-      query.value.value.value.rows.find((row) => row.page.pageId === page.id)
-        ?.values.tags?.value,
-    ).toEqual([optionA]);
+    const queryRow = query.value.value.value.rows.find(
+      (row) => row.page.pageId === page.id,
+    );
+    expect(queryRow?.values.tags?.value).toEqual([optionA]);
+    expect(queryRow).toMatchObject({
+      bodyNfm: "",
+      intrinsicProperties: expect.arrayContaining([
+        {
+          key: "run.target",
+          valueType: "string",
+          value: "localProject",
+          revision: 1,
+        },
+      ]),
+    });
 
     const putB = apply("v2-put-option-b", [
       {

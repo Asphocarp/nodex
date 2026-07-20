@@ -467,7 +467,7 @@ describe("TypeScript/Rust content Module differential", () => {
       profile_id: coordinates.profileId,
       library_id: coordinates.libraryId,
       store_epoch: coordinates.storeEpoch,
-      schema_version: 83,
+      schema_version: 84,
     });
 
     const importedAutomations = await stage(
@@ -3028,6 +3028,7 @@ describe("TypeScript/Rust content Module differential", () => {
       service_name: oracleThreadContext.serviceName ?? null,
       agent_nickname: oracleThreadContext.agentNickname ?? null,
       agent_role: oracleThreadContext.agentRole ?? null,
+      agent_path: oracleThreadContext.agentPath ?? null,
       thread_preview: oracleThreadContext.threadPreview,
       model_provider: oracleThreadContext.modelProvider,
       cwd: oracleThreadContext.cwd ?? null,
@@ -5503,13 +5504,13 @@ describe("TypeScript/Rust content Module differential", () => {
       profile_id: profile.profileId,
       library_id: profile.libraryId,
       store_epoch: profile.storeEpoch,
-      schema_version: 83,
+      schema_version: 84,
     });
     const candidateStatus = await candidate.administrationRead({ kind: "status" });
     expect(candidateStatus.value).toEqual({
       kind: "status",
       readiness: "ready",
-      schema_version: 83,
+      schema_version: 84,
       schema_owner: "rust",
       integrity: "unknown",
     });

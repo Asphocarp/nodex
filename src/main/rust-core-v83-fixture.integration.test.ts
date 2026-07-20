@@ -14,11 +14,11 @@ import {
 import { closeDatabase, getDb, initializeDatabase } from "./local-store/database";
 import { createPage } from "./local-store/database-pages";
 
-const enabled = process.env.NODEX_GENERATE_RUST_CORE_V82_FIXTURE === "1";
+const enabled = process.env.NODEX_GENERATE_RUST_CORE_V83_FIXTURE === "1";
 const generatedRoot = path.resolve(".generated", "rust-core-migration");
-const fixtureHome = path.join(generatedRoot, "v82-profile");
-const fixtureMarkerName = ".nodex-rust-core-v82-fixture";
-const fixtureMarkerContents = "Nodex disposable Rust Core v82 compatibility fixture\n";
+const fixtureHome = path.join(generatedRoot, "v83-profile");
+const fixtureMarkerName = ".nodex-rust-core-v83-fixture";
+const fixtureMarkerContents = "Nodex disposable Rust Core v83 compatibility fixture\n";
 
 const assertDirectoryIsNotSymlink = (directory: string): void => {
   if (!fs.existsSync(directory)) return;
@@ -60,7 +60,7 @@ afterEach(() => {
   delete process.env.NODEX_HOME;
 });
 
-describe.runIf(enabled)("Rust Core v82 compatibility fixture", () => {
+describe.runIf(enabled)("Rust Core v83 compatibility fixture", () => {
   test("creates a representative TypeScript-authoritative profile", async () => {
     prepareFixtureHome();
     process.env.NODEX_HOME = fixtureHome;
@@ -75,12 +75,12 @@ describe.runIf(enabled)("Rust Core v82 compatibility fixture", () => {
       ORDER BY created, id
       LIMIT 1
     `).get() as { readonly id: string } | undefined;
-    if (!project) throw new Error("v82 fixture has no active Project");
+    if (!project) throw new Error("v83 fixture has no active Project");
 
     const page = await createPage(project.id, "triage", {
-      title: "Rust Core v82 兼容性 😀",
+      title: "Rust Core v83 兼容性 😀",
       description: [
-        "rustcorev82token validates the authoritative FTS projection.",
+        "rustcorev83token validates the authoritative FTS projection.",
         "第二行覆盖 Unicode、换行与 Yjs snapshot 重放。",
       ].join("\n"),
       tags: ["rust-core", "migration"],
@@ -101,7 +101,7 @@ describe.runIf(enabled)("Rust Core v82 compatibility fixture", () => {
       storeEpoch: loaded.storeEpoch,
       generation: loaded.head.generation,
       updateId: randomUUID(),
-      clientSessionId: "rust-core-v82-fixture",
+      clientSessionId: "rust-core-v83-fixture",
       baseHeadSeq: loaded.head.headSeq,
       touchedBlockIds: [page.id],
       update: incrementalUpdate,
@@ -109,18 +109,18 @@ describe.runIf(enabled)("Rust Core v82 compatibility fixture", () => {
     loaded.document.destroy();
 
     expect(acknowledgment.headSeq).toBeGreaterThan(loaded.head.headSeq);
-    expect(database.pragma("user_version", { simple: true })).toBe(82);
+    expect(database.pragma("user_version", { simple: true })).toBe(83);
     database.pragma("wal_checkpoint(TRUNCATE)");
 
     const manifest = {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
-      databaseUserVersion: 82,
+      databaseUserVersion: 83,
       projectId: project.id,
       pageId: page.id,
       documentId,
-      expectedTitle: "Rust Core v82 兼容性 😀 — incremental tail",
-      searchToken: "rustcorev82token",
+      expectedTitle: "Rust Core v83 兼容性 😀 — incremental tail",
+      searchToken: "rustcorev83token",
       expectedMinimumHeadSeq: acknowledgment.headSeq,
     };
     fs.writeFileSync(

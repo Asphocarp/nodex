@@ -184,8 +184,8 @@ const capabilityRules: readonly CapabilityRule[] = [
   {
     pattern: /(?:block-first-finalization|legacy-card|retired-card-agent-properties-finalization)/,
     module: "Library",
-    intent: "retire the v82-only implementation after finalizing legacy Page and Block authority",
-    callerNeed: "the one-way v82 importer must preserve the accepted final Library state, not the legacy dual authority",
+    intent: "retire the v83-only implementation after finalizing legacy Page and Block authority",
+    callerNeed: "the one-way v83 importer must preserve the accepted final Library state, not the legacy dual authority",
   },
   {
     pattern: /(?:database-module|database-pages|data-source|database-view|block-property|fractional-rank|initial-database-authority)/,
@@ -257,7 +257,7 @@ const capabilityFor = (file: string): Capability | null => {
   return {
     module: rule.module,
     intent: migrationOnly(file)
-      ? `retire the v82-only implementation after ${rule.intent}`
+      ? `retire the v83-only implementation after ${rule.intent}`
       : rule.intent,
     callerNeed: rule.callerNeed,
   };

@@ -56,6 +56,7 @@ import {
 import { initializePageDocumentGenesis } from "./block-document-store";
 import { applyDocumentOperationBatch } from "./block-document-operations";
 import { createDatabaseAuthorityRecordsInDatabase } from "./initial-database-authority";
+import { insertDefaultPageIntrinsicProperties } from "./default-page-intrinsic-properties";
 import {
   applyLibraryContentRehomeInTransaction,
   prepareLibraryContentRehome,
@@ -1203,6 +1204,11 @@ const createPage = (
     input.now,
     input.now,
   );
+  insertDefaultPageIntrinsicProperties(database, {
+    pageId: input.operation.pageId,
+    projectId: parent.projectId,
+    now: input.now,
+  });
   initializePageDocumentGenesis(database, {
     documentId: input.operation.documentId,
     storeEpoch: input.request.storeEpoch,
