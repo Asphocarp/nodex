@@ -158,6 +158,7 @@ const effectsFromPreparation = (
   const deleted = new Set(preparation.footprint.deleted_roots);
   return {
     ...emptyEffects(),
+    createdBlockIds: [...preparation.footprint.created_roots],
     updatedBlockIds: preparation.footprint.updated_roots.filter((id) =>
       id !== pageId && !moved.has(id) && !deleted.has(id)
     ),

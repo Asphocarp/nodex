@@ -645,11 +645,18 @@
         "required": [
           "effect_class",
           "targets",
+          "created_roots",
           "updated_roots",
           "deleted_roots",
           "ownership_transformations"
         ],
         "properties": {
+          "created_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "deleted_roots": {
             "type": "array",
             "items": {

@@ -36,7 +36,7 @@ pub(crate) enum SemanticMutationError {
 #[derive(Debug)]
 pub(crate) struct PreparedSemanticMutation {
     pub(crate) update_v1: Vec<u8>,
-    pub(crate) touched_block_ids: Vec<String>,
+    pub(crate) materialization: DocumentMaterialization,
     pub(crate) write_fence_block_ids: Vec<String>,
     pub(crate) title_write_fence_required: bool,
 }
@@ -73,7 +73,6 @@ pub(crate) fn prepare_semantic_mutation(
     let mut replacement = None::<String>;
     let mut patches = Vec::<ExactNfmPatch>::new();
     let mut structural = Vec::<DocumentBlockOperation>::new();
-    let mut touched = Vec::<String>::new();
     for command in commands {
         match command {
             DocumentSemanticCommand::SetTitle {
@@ -111,7 +110,6 @@ pub(crate) fn prepare_semantic_mutation(
                 replacement = Some(nested_markdown.clone());
             }
             DocumentSemanticCommand::DeleteBlock { block_id } => {
-                touched.push(block_id.clone());
                 structural.push(DocumentBlockOperation::DeleteBlock {
                     block_id: block_id.clone(),
                 });
@@ -121,7 +119,6 @@ pub(crate) fn prepare_semantic_mutation(
                 parent_block_id,
                 before_block_id,
             } => {
-                touched.push(block_id.clone());
                 structural.push(DocumentBlockOperation::MoveBlock {
                     block_id: block_id.clone(),
                     parent_block_id: parent_block_id.clone(),
@@ -184,11 +181,9 @@ pub(crate) fn prepare_semantic_mutation(
         }
         Err(error) => return Err(SemanticMutationError::Operation(error)),
     };
-    touched.sort();
-    touched.dedup();
     Ok(PreparedSemanticMutation {
         update_v1: prepared.update_v1,
-        touched_block_ids: touched,
+        materialization: prepared.materialization,
         write_fence_block_ids: prepared.write_fence_block_ids,
         title_write_fence_required: prepared.title_write_fence_required,
     })

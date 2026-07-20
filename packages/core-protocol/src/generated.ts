@@ -306,6 +306,7 @@ export interface components {
          *     heads deliberately remain outside this value.
          */
         readonly AgentOperationFootprint: {
+            readonly created_roots: readonly string[];
             readonly deleted_roots: readonly string[];
             readonly effect_class: components["schemas"]["AgentEffectClass"];
             readonly ownership_transformations: readonly components["schemas"]["AgentOwnershipTransformation"][];

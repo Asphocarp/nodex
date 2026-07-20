@@ -211,10 +211,11 @@ describe("native desktop Nodex Agent dynamic service", () => {
             expires_at_unix_ms: Date.now() + 30_000,
             token: `token-${preparation}`,
             footprint: {
-              effect_class: "write" as const,
+              effect_class: "destructive" as const,
               targets: [{ kind: "page" as const, page_id: "page-update" }],
+              created_roots: ["block-created"],
               updated_roots: ["page-update"],
-              deleted_roots: [],
+              deleted_roots: ["block-deleted"],
               ownership_transformations: [],
             },
           },
@@ -253,10 +254,10 @@ describe("native desktop Nodex Agent dynamic service", () => {
           committed_at: "2026-07-20T00:00:00.000Z",
           mutation_effect: {
             base_head_seq: 7,
-            touched_block_ids: ["block-updated"],
-            created_block_ids: [],
-            deleted_block_ids: [],
-            updated_block_ids: ["block-updated"],
+            touched_block_ids: ["block-created", "block-deleted"],
+            created_block_ids: ["block-created"],
+            deleted_block_ids: ["block-deleted"],
+            updated_block_ids: [],
             moved_block_ids: [],
             write_fence_block_ids: [],
             title_changed: false,
@@ -311,11 +312,15 @@ describe("native desktop Nodex Agent dynamic service", () => {
         data: {
           pageId: "page-update",
           effects: {
-            created: 0,
-            updated: 1,
+            created: 1,
+            updated: 0,
             moved: 0,
-            deleted: 0,
-            blockIds: { updated: ["block-updated"] },
+            deleted: 1,
+            blockIds: {
+              created: ["block-created"],
+              updated: [],
+              deleted: ["block-deleted"],
+            },
           },
           etags: {
             title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",

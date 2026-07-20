@@ -183,6 +183,7 @@ pub struct AgentOwnershipTransformation {
 pub struct AgentOperationFootprint {
     pub effect_class: AgentEffectClass,
     pub targets: Vec<AgentResourceTarget>,
+    pub created_roots: Vec<String>,
     pub updated_roots: Vec<String>,
     pub deleted_roots: Vec<String>,
     pub ownership_transformations: Vec<AgentOwnershipTransformation>,

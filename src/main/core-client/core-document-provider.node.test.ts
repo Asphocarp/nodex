@@ -170,7 +170,7 @@ describe("Rust Core renderer Document adapter", () => {
           state: "prepared",
           consent: "none",
           footprint: {
-            effect_class: "write",
+            effect_class: "destructive",
             targets: [{ kind: "page" }],
           },
         },
@@ -178,6 +178,9 @@ describe("Rust Core renderer Document adapter", () => {
       if (preflight.value.kind !== "agent_semantic_mutation_preparation") {
         throw new Error("Expected prepared Agent mutation");
       }
+      const footprint = preflight.value.preparation.footprint;
+      expect(footprint.created_roots).toHaveLength(1);
+      expect(footprint.deleted_roots).toHaveLength(1);
       const token = preflight.value.preparation.token;
       expect(token).toMatch(/^[0-9a-f]{64}$/);
       await expect(
@@ -209,6 +212,10 @@ describe("Rust Core renderer Document adapter", () => {
           semantic_etags: {
             title: expect.stringMatching(/^nxe1\./u),
             body: expect.stringMatching(/^nxe1\./u),
+          },
+          mutation_effect: {
+            created_block_ids: footprint.created_roots,
+            deleted_block_ids: footprint.deleted_roots,
           },
         },
         receipt: { duplicate: false },

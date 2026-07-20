@@ -1,8 +1,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use nodex_core_contracts::agent::{
     AgentConsentRequirement, AgentEffectClass, AgentOperationFootprint, AgentOperationPreparation,
@@ -83,7 +82,6 @@ use super::{
 
 const MODULE_NAME: &str = "owned_document";
 const MAX_AGENT_FOOTPRINT_ROOTS: usize = 2_048;
-static DOCUMENT_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 struct DocumentUpdateJob {
     context: BoundModuleContext,
@@ -650,6 +648,7 @@ impl OwnedDocumentModule {
                     let footprint = nominal_agent_semantic_footprint(
                         &authority.owner_block_id,
                         &mutation.commands,
+                        committed.value.mutation_effect.as_ref(),
                     )?;
                     transaction.commit()?;
                     return Ok(AgentSemanticPreparationResult::CommittedReplay {
@@ -681,7 +680,7 @@ impl OwnedDocumentModule {
                     .clone_engine(&transaction, &authority.head)?;
                 let schema = registered_yjs_schema(&authority)?;
                 let materialization = materialize_engine(&engine, schema)?;
-                prepare_semantic_update(
+                let prepared_update = prepare_semantic_update(
                     &transaction,
                     &authority,
                     &engine,
@@ -693,10 +692,17 @@ impl OwnedDocumentModule {
                     &operation_id,
                     &provenance.authority.actor_project_id,
                 )?;
+                let mutation_effect = match &prepared_update {
+                    PreparedUpdate::Apply {
+                        mutation_effect, ..
+                    } => mutation_effect.as_deref(),
+                    PreparedUpdate::NoChange | PreparedUpdate::Recovery { .. } => None,
+                };
                 let footprint = agent_semantic_footprint(
                     &authority.owner_block_id,
                     &mutation.commands,
                     &materialization,
+                    mutation_effect,
                 )?;
                 let authority_revisions_hash = agent_authority_revisions_hash(
                     &transaction,
@@ -2460,10 +2466,17 @@ impl OwnedDocumentModule {
                 let mut prepared_agent_lease = if let Some(prepared_agent) =
                     job.prepared_agent.as_ref()
                 {
+                    let mutation_effect = match &prepared {
+                        PreparedUpdate::Apply {
+                            mutation_effect, ..
+                        } => mutation_effect.as_deref(),
+                        PreparedUpdate::NoChange | PreparedUpdate::Recovery { .. } => None,
+                    };
                     let footprint = agent_semantic_footprint(
                         &authority.owner_block_id,
                         &prepared_agent.mutation.commands,
                         &base_materialization,
+                        mutation_effect,
                     )?;
                     let authority_revisions_hash = agent_authority_revisions_hash(
                         &transaction,
@@ -3361,15 +3374,31 @@ fn prepare_semantic_update(
         },
     );
     match prepared {
-        Ok(prepared) => Ok(PreparedUpdate::Apply {
-            base_head_seq: authority.head.head_seq,
-            update_id: update_id.to_owned(),
-            touched_block_ids: prepared.touched_block_ids,
-            update: prepared.update_v1,
-            write_fence_block_ids: prepared.write_fence_block_ids,
-            title_write_fence_required: prepared.title_write_fence_required,
-            mutation_effect: None,
-        }),
+        Ok(prepared) => {
+            let mutation_effect = document_mutation_effect(
+                &authority.owner_block_id,
+                authority.head.head_seq,
+                materialization,
+                &prepared.materialization,
+                &prepared.write_fence_block_ids,
+                prepared.title_write_fence_required,
+                false,
+            );
+            assert_fresh_document_block_ids(
+                connection,
+                authority,
+                &mutation_effect.created_block_ids,
+            )?;
+            Ok(PreparedUpdate::Apply {
+                base_head_seq: authority.head.head_seq,
+                update_id: update_id.to_owned(),
+                touched_block_ids: mutation_effect.touched_block_ids.clone(),
+                update: prepared.update_v1,
+                write_fence_block_ids: prepared.write_fence_block_ids,
+                title_write_fence_required: prepared.title_write_fence_required,
+                mutation_effect: Some(Box::new(mutation_effect)),
+            })
+        }
         Err(SemanticMutationError::NoChange) => Ok(PreparedUpdate::NoChange),
         Err(error) => Err(semantic_error(error)),
     }
@@ -3469,23 +3498,32 @@ fn agent_semantic_request_fingerprint(
 fn nominal_agent_semantic_footprint(
     owner_page_id: &str,
     commands: &[DocumentSemanticCommand],
+    mutation_effect: Option<&DocumentMutationEffect>,
 ) -> Result<AgentOperationFootprint, StoreError> {
-    build_agent_semantic_footprint(owner_page_id, commands, None)
+    build_agent_semantic_footprint(owner_page_id, commands, None, mutation_effect)
 }
 
 fn agent_semantic_footprint(
     owner_page_id: &str,
     commands: &[DocumentSemanticCommand],
     materialization: &DocumentMaterialization,
+    mutation_effect: Option<&DocumentMutationEffect>,
 ) -> Result<AgentOperationFootprint, StoreError> {
-    build_agent_semantic_footprint(owner_page_id, commands, Some(materialization))
+    build_agent_semantic_footprint(
+        owner_page_id,
+        commands,
+        Some(materialization),
+        mutation_effect,
+    )
 }
 
 fn build_agent_semantic_footprint(
     owner_page_id: &str,
     commands: &[DocumentSemanticCommand],
     materialization: Option<&DocumentMaterialization>,
+    mutation_effect: Option<&DocumentMutationEffect>,
 ) -> Result<AgentOperationFootprint, StoreError> {
+    let mut created_roots = HashSet::<String>::new();
     let mut updated_roots = HashSet::<String>::new();
     let mut deleted_roots = HashSet::<String>::new();
     let mut ownership_transformations = Vec::new();
@@ -3550,13 +3588,23 @@ fn build_agent_semantic_footprint(
             }
         }
     }
+    if let Some(effect) = mutation_effect {
+        created_roots.extend(effect.created_block_ids.iter().cloned());
+        updated_roots.extend(effect.updated_block_ids.iter().cloned());
+        updated_roots.extend(effect.moved_block_ids.iter().cloned());
+        deleted_roots.extend(effect.deleted_block_ids.iter().cloned());
+        destructive |= !effect.deleted_block_ids.is_empty();
+    }
+    let mut created_roots = created_roots.into_iter().collect::<Vec<_>>();
     let mut updated_roots = updated_roots.into_iter().collect::<Vec<_>>();
     let mut deleted_roots = deleted_roots.into_iter().collect::<Vec<_>>();
+    created_roots.sort();
     updated_roots.sort();
     deleted_roots.sort();
-    let footprint_size = updated_roots
+    let footprint_size = created_roots
         .len()
-        .checked_add(deleted_roots.len())
+        .checked_add(updated_roots.len())
+        .and_then(|size| size.checked_add(deleted_roots.len()))
         .and_then(|size| size.checked_add(ownership_transformations.len()))
         .ok_or_else(|| exhausted_store("Agent operation footprint size overflowed"))?;
     if footprint_size > MAX_AGENT_FOOTPRINT_ROOTS {
@@ -3574,6 +3622,7 @@ fn build_agent_semantic_footprint(
             kind: AgentResourceKind::Page,
             id: owner_page_id.to_owned(),
         }],
+        created_roots,
         updated_roots,
         deleted_roots,
         ownership_transformations,
@@ -4053,21 +4102,14 @@ fn corrupt_receipt() -> StoreError {
 }
 
 fn allocate_document_block_id(seed: &str, index: u64) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or_default();
-    let timestamp = now.min(0xffff_ffff_ffff) as u64;
-    let sequence = DOCUMENT_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let entropy = sha256(format!("{seed}:{index}:{sequence}:{now}").as_bytes());
-    let timestamp = format!("{timestamp:012x}");
+    let entropy = sha256(format!("nodex.document.semantic-block.v1:{seed}:{index}").as_bytes());
     format!(
         "{}-{}-7{}-8{}-{}",
-        &timestamp[..8],
-        &timestamp[8..],
-        &entropy[..3],
-        &entropy[3..6],
-        &entropy[6..18],
+        &entropy[..8],
+        &entropy[8..12],
+        &entropy[12..15],
+        &entropy[15..18],
+        &entropy[18..30],
     )
 }
 
@@ -7315,6 +7357,11 @@ mod tests {
         assert_eq!(preparation.consent, AgentConsentRequirement::None);
         assert_eq!(preparation.footprint.effect_class, AgentEffectClass::Write);
         assert_eq!(preparation.footprint.targets[0].id, OWNER_BLOCK_ID);
+        assert!(preparation.footprint.created_roots.is_empty());
+        assert_eq!(
+            preparation.footprint.updated_roots,
+            vec![OWNER_BLOCK_ID.to_owned()]
+        );
         let token = preparation.token.expect("single-use token");
         seeded
             .kernel
@@ -7356,6 +7403,17 @@ mod tests {
             .expect("execute exact prepared operation");
         assert_eq!(committed.committed.value.head_seq, 2);
         assert!(!committed.committed.receipt.mutation.duplicate);
+        let mutation_effect = committed
+            .committed
+            .value
+            .mutation_effect
+            .as_ref()
+            .expect("prepared Agent commit returns its exact Block effect");
+        assert!(mutation_effect.title_changed);
+        assert_eq!(
+            mutation_effect.touched_block_ids,
+            vec![OWNER_BLOCK_ID.to_owned()]
+        );
         let semantic_etags = committed
             .committed
             .value
