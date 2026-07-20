@@ -5215,6 +5215,21 @@
           }
         }
       },
+      "LibraryPageLocation": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "project_id"
+        ],
+        "properties": {
+          "page_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        }
+      },
       "LibraryPageMembership": {
         "type": "object",
         "required": [
@@ -5238,6 +5253,162 @@
             "format": "int64"
           }
         }
+      },
+      "LibraryPageOwnershipPath": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "target_page_id",
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "missing"
+                ]
+              },
+              "target_page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "target_page_id",
+              "ancestors",
+              "status"
+            ],
+            "properties": {
+              "ancestors": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryPageOwnershipPathAncestor"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "available"
+                ]
+              },
+              "target_page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "LibraryPageOwnershipPathAncestor": {
+        "type": "object",
+        "required": [
+          "page_id",
+          "title",
+          "lifecycle"
+        ],
+        "properties": {
+          "lifecycle": {
+            "$ref": "#/components/schemas/LibraryLifecycle"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "LibraryPageTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "target_page_id",
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "missing"
+                ]
+              },
+              "target_page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "target_page_id",
+              "actual_block_type",
+              "status"
+            ],
+            "properties": {
+              "actual_block_type": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "invalid_target"
+                ]
+              },
+              "target_page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "target_page_id",
+              "library_id",
+              "status"
+            ],
+            "properties": {
+              "library_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "deleted"
+                ]
+              },
+              "target_page_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "target_page_id",
+              "page",
+              "document",
+              "status"
+            ],
+            "properties": {
+              "document": {
+                "$ref": "#/components/schemas/LibraryPageDocumentDescriptor"
+              },
+              "page": {},
+              "status": {
+                "type": "string",
+                "enum": [
+                  "available"
+                ]
+              },
+              "target_page_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       },
       "LibraryPageWorkflowStatus": {
         "type": "string",
@@ -8755,6 +8926,60 @@
                     "type": "string",
                     "enum": [
                       "page_content"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_target"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_ownership_path"
+                    ]
+                  },
+                  "page_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "page_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "page_location"
                     ]
                   },
                   "page_id": {
@@ -12909,6 +13134,78 @@
                           },
                           "value": {
                             "$ref": "#/components/schemas/LibraryPageContent"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_target"
+                            ]
+                          },
+                          "value": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageTarget"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_ownership_path"
+                            ]
+                          },
+                          "value": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageOwnershipPath"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "page_location"
+                            ]
+                          },
+                          "value": {
+                            "oneOf": [
+                              {
+                                "type": "null"
+                              },
+                              {
+                                "$ref": "#/components/schemas/LibraryPageLocation"
+                              }
+                            ]
                           }
                         }
                       },

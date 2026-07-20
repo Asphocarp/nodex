@@ -1615,6 +1615,26 @@ describe("Electron native data authority", () => {
           document: { readiness: "ready" },
         },
       });
+      await expect(library.resolvePageTarget({
+        requestingProjectId: projectId,
+        targetPageId: "page:electron-library-adapter",
+      })).resolves.toMatchObject({
+        status: "available",
+        targetPageId: "page:electron-library-adapter",
+        page: {
+          pageId: "page:electron-library-adapter",
+          title: "Electron Library Adapter",
+        },
+        document: { readiness: "ready" },
+      });
+      await expect(library.resolvePageOwnershipPath({
+        requestingProjectId: projectId,
+        targetPageId: "page:electron-library-adapter",
+      })).resolves.toEqual({
+        status: "available",
+        targetPageId: "page:electron-library-adapter",
+        ancestors: [],
+      });
       await expect(library.listPageHistory({
         version: PAGE_HISTORY_CONTRACT_VERSION,
         requestingProjectId: projectId,
@@ -1633,6 +1653,12 @@ describe("Electron native data authority", () => {
         libraryId: runtime.rootClient.handshake.library_id,
         profileId: runtime.rootClient.handshake.profile_id,
         storeEpoch: runtime.rootClient.handshake.store_epoch,
+      });
+      await expect(rootLibrary.findPageLocation(
+        "page:electron-library-adapter",
+      )).resolves.toEqual({
+        pageId: "page:electron-library-adapter",
+        projectId,
       });
       const libraryPageDetail = await rootLibrary.readLibraryPageDetail(
         "page:electron-library-adapter",

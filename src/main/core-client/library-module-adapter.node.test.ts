@@ -123,6 +123,53 @@ const projectPageSearchSnapshot = () => ({
   },
 });
 
+const pageTargetSnapshot = () => ({
+  version: 1 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 14,
+  value: {
+    kind: "page_target" as const,
+    value: {
+      status: "available" as const,
+      target_page_id: "page:one",
+      page: pageDetailSnapshot().value.value.page,
+      document: {
+        readiness: "ready",
+        schema_key: "nodex.page",
+        schema_version: 1,
+      },
+    },
+  },
+});
+
+const pageOwnershipPathSnapshot = () => ({
+  version: 1 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 14,
+  value: {
+    kind: "page_ownership_path" as const,
+    value: {
+      status: "available" as const,
+      target_page_id: "page:one",
+      ancestors: [{
+        page_id: "page:root",
+        title: "Root",
+        lifecycle: "active" as const,
+      }],
+    },
+  },
+});
+
+const pageLocationSnapshot = () => ({
+  version: 1 as const,
+  store_epoch: identity.storeEpoch,
+  event_head: 14,
+  value: {
+    kind: "page_location" as const,
+    value: { page_id: "page:one", project_id: "project:test" },
+  },
+});
+
 const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   read: async () => {
     throw new Error("TypeScript read must not run");
@@ -141,6 +188,15 @@ const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   },
   searchPages: async () => {
     throw new Error("TypeScript Page search must not run");
+  },
+  resolvePageTarget: async () => {
+    throw new Error("TypeScript Page target read must not run");
+  },
+  resolvePageOwnershipPath: async () => {
+    throw new Error("TypeScript Page ownership path read must not run");
+  },
+  findPageLocation: async () => {
+    throw new Error("TypeScript Page location read must not run");
   },
 });
 
@@ -305,6 +361,90 @@ describe("Core Library Module Adapter", () => {
         version_id: "version:13",
       },
       limit: 25,
+    }]);
+  });
+
+  test("maps Project-scoped Page references and trusted root locations", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueRead(pageTargetSnapshot());
+    client.enqueueRead(pageOwnershipPathSnapshot());
+    client.enqueueRead(pageLocationSnapshot());
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(adapter.resolvePageTarget({
+      requestingProjectId: "project:test",
+      targetPageId: "page:one",
+    })).resolves.toMatchObject({
+      status: "available",
+      targetPageId: "page:one",
+      page: { pageId: "page:one", lifecycle: "active" },
+      document: { readiness: "ready", schemaKey: "nodex.page" },
+    });
+    await expect(adapter.resolvePageOwnershipPath({
+      requestingProjectId: "project:test",
+      targetPageId: "page:one",
+    })).resolves.toEqual({
+      status: "available",
+      targetPageId: "page:one",
+      ancestors: [{
+        pageId: "page:root",
+        title: "Root",
+        lifecycle: "active",
+      }],
+    });
+    await expect(adapter.findPageLocation("page:one")).resolves.toEqual({
+      pageId: "page:one",
+      projectId: "project:test",
+    });
+    expect(client.reads).toEqual([
+      { kind: "page_target", page_id: "page:one" },
+      { kind: "page_ownership_path", page_id: "page:one" },
+      { kind: "page_location", page_id: "page:one" },
+    ]);
+  });
+
+  test("binds reference reads to their Project and locations to the trusted root", async () => {
+    const rootClient = new FakeCoreClient();
+    const projectClient = new FakeCoreClient();
+    projectClient.enqueueRead(pageTargetSnapshot());
+    projectClient.enqueueRead(pageOwnershipPathSnapshot());
+    rootClient.enqueueRead(pageLocationSnapshot());
+    const requestedProjects: string[] = [];
+    const runtime = {
+      backend: "rust",
+      rootClient: Object.assign(rootClient, {
+        handshake: {
+          library_id: identity.libraryId,
+          profile_id: identity.profileId,
+          store_epoch: identity.storeEpoch,
+        },
+      }),
+      clientForProject: (projectId: string) => {
+        requestedProjects.push(projectId);
+        return projectClient;
+      },
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopLibraryModuleBridge({
+      authority: Promise.resolve(runtime),
+      resolveProjectId: () => null,
+      typescript: neverTypeScript(),
+    });
+
+    await bridge.resolvePageTarget({
+      requestingProjectId: "project:test",
+      targetPageId: "page:one",
+    });
+    await bridge.resolvePageOwnershipPath({
+      requestingProjectId: "project:test",
+      targetPageId: "page:one",
+    });
+    await bridge.findPageLocation("page:one");
+
+    expect(requestedProjects).toEqual(["project:test"]);
+    expect(projectClient.reads).toHaveLength(2);
+    expect(rootClient.reads).toEqual([{
+      kind: "page_location",
+      page_id: "page:one",
     }]);
   });
 

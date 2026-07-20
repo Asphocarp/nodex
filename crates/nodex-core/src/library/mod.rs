@@ -539,6 +539,11 @@ mod tests {
                         params!["project-1", "library-1", NOW],
                     )?;
                     transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES (?1, ?2, 'Reference reads', ?3, ?3)",
+                        params!["project-2", "library-1", NOW],
+                    )?;
+                    transaction.execute(
                         "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
                          VALUES (1, 'epoch-1', ?1, ?1)",
                         [NOW],
@@ -833,6 +838,18 @@ mod tests {
             )
             .expect_err("Agent clients cannot claim trusted Project Page search");
         assert_eq!(untrusted_search_error.code, CoreErrorCode::Unauthorized);
+        let untrusted_content_error = module
+            .read(
+                &untrusted_root_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageContent {
+                        page_id: ROOT_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Agent root clients cannot bypass Page authorization");
+        assert_eq!(untrusted_content_error.code, CoreErrorCode::Unauthorized);
         let LibraryReadValue::Path { nodes, .. } = read(LibraryRead::Path {
             target: nodex_core_contracts::library::LibraryRouteTarget::Page {
                 page_id: ROW_PAGE.to_owned(),
@@ -845,6 +862,219 @@ mod tests {
             [nodex_core_contracts::library::LibraryNavigationNode::Database { database_id, .. }]
                 if database_id == DATABASE
         ));
+        let LibraryReadValue::PageLocation { value } = module
+            .read(
+                &context(),
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageLocation {
+                        page_id: ROW_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("trusted root Page location")
+            .value
+        else {
+            panic!("Page location");
+        };
+        assert_eq!(value.expect("active Page location").project_id, "project-1");
+        let location_error = module
+            .read(
+                &persistent_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageLocation {
+                        page_id: ROW_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Project clients cannot perform global Page lookup");
+        assert_eq!(location_error.code, CoreErrorCode::Unauthorized);
+
+        const NESTED_PAGE: &str = "page:nested";
+        const NESTED_DOCUMENT: &str = "document:nested";
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "create:nested-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreatePage {
+                        page_id: NESTED_PAGE.to_owned(),
+                        document_id: NESTED_DOCUMENT.to_owned(),
+                        title: "Nested reference".to_owned(),
+                        parent: LibraryWriteParent::Page {
+                            page_id: ROOT_PAGE.to_owned(),
+                            expected_document_generation: 1,
+                            expected_document_head_seq: 1,
+                            before: None,
+                        },
+                    },
+                },
+            )
+            .expect("create nested reference Page");
+        let project_two_context = BoundModuleContext {
+            project_id: Some(ProjectId("project-2".to_owned())),
+            connection_id: "connection:reference-project".to_owned(),
+            ..persistent_context.clone()
+        };
+        let LibraryReadValue::PageTarget { value } = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageTarget {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("unauthorized target resolves without disclosure")
+            .value
+        else {
+            panic!("Page target");
+        };
+        assert!(matches!(
+            value.as_deref(),
+            Some(nodex_core_contracts::library::LibraryPageTarget::Missing { target_page_id })
+                if target_page_id == NESTED_PAGE
+        ));
+        let detail_error = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageDetail {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect_err("Project Page detail enforces recursive grants");
+        assert_eq!(detail_error.code, CoreErrorCode::NotFound);
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "grant:nested-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-2".to_owned(),
+                        target: LibraryResourceTarget::Page {
+                            page_id: NESTED_PAGE.to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("grant nested Page");
+        let LibraryReadValue::PageTarget { value } = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageTarget {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("authorized Page target")
+            .value
+        else {
+            panic!("Page target");
+        };
+        assert!(matches!(
+            value.as_deref(),
+            Some(nodex_core_contracts::library::LibraryPageTarget::Available {
+                target_page_id,
+                ..
+            }) if target_page_id == NESTED_PAGE
+        ));
+        let LibraryReadValue::PageOwnershipPath { value } = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageOwnershipPath {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("direct grant ownership path")
+            .value
+        else {
+            panic!("Page ownership path");
+        };
+        let Some(nodex_core_contracts::library::LibraryPageOwnershipPath::Available {
+            ancestors,
+            ..
+        }) = value.as_deref()
+        else {
+            panic!("available Page ownership path");
+        };
+        assert!(ancestors.is_empty());
+        module
+            .apply(
+                &context(),
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "grant:root-reference-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::GrantProjectAccess {
+                        project_id: "project-2".to_owned(),
+                        target: LibraryResourceTarget::Page {
+                            page_id: ROOT_PAGE.to_owned(),
+                        },
+                        access: LibraryAccess::Read,
+                    },
+                },
+            )
+            .expect("grant root Page");
+        let LibraryReadValue::PageOwnershipPath { value } = module
+            .read(
+                &project_two_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageOwnershipPath {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("visible ownership path")
+            .value
+        else {
+            panic!("Page ownership path");
+        };
+        let Some(nodex_core_contracts::library::LibraryPageOwnershipPath::Available {
+            ancestors,
+            ..
+        }) = value.as_deref()
+        else {
+            panic!("available Page ownership path");
+        };
+        assert_eq!(ancestors.len(), 1);
+        assert_eq!(ancestors[0].page_id, ROOT_PAGE);
+        let missing_project_context = BoundModuleContext {
+            project_id: Some(ProjectId("project:missing".to_owned())),
+            connection_id: "connection:missing-project".to_owned(),
+            ..persistent_context.clone()
+        };
+        let LibraryReadValue::PageTarget { value } = module
+            .read(
+                &missing_project_context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PageTarget {
+                        page_id: NESTED_PAGE.to_owned(),
+                    },
+                },
+            )
+            .expect("missing Project scope")
+            .value
+        else {
+            panic!("Page target");
+        };
+        assert!(value.is_none());
 
         let LibraryReadValue::Children { next_cursor, .. } = read(LibraryRead::Children {
             parent: LibraryNavigationParent::Library,

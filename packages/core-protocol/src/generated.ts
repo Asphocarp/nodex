@@ -1415,12 +1415,52 @@ export interface components {
             readonly value: unknown;
             readonly value_type: string;
         };
+        readonly LibraryPageLocation: {
+            readonly page_id: string;
+            readonly project_id: string;
+        };
         readonly LibraryPageMembership: {
             readonly created_at: string;
             readonly data_source_id: string;
             readonly membership_id: string;
             /** Format: int64 */
             readonly revision: number;
+        };
+        readonly LibraryPageOwnershipPath: {
+            /** @enum {string} */
+            readonly status: "missing";
+            readonly target_page_id: string;
+        } | {
+            readonly ancestors: readonly components["schemas"]["LibraryPageOwnershipPathAncestor"][];
+            /** @enum {string} */
+            readonly status: "available";
+            readonly target_page_id: string;
+        };
+        readonly LibraryPageOwnershipPathAncestor: {
+            readonly lifecycle: components["schemas"]["LibraryLifecycle"];
+            readonly page_id: string;
+            readonly title: string;
+        };
+        readonly LibraryPageTarget: {
+            /** @enum {string} */
+            readonly status: "missing";
+            readonly target_page_id: string;
+        } | {
+            readonly actual_block_type: string;
+            /** @enum {string} */
+            readonly status: "invalid_target";
+            readonly target_page_id: string;
+        } | {
+            readonly library_id: string;
+            /** @enum {string} */
+            readonly status: "deleted";
+            readonly target_page_id: string;
+        } | {
+            readonly document: components["schemas"]["LibraryPageDocumentDescriptor"];
+            readonly page: unknown;
+            /** @enum {string} */
+            readonly status: "available";
+            readonly target_page_id: string;
         };
         /** @enum {string} */
         readonly LibraryPageWorkflowStatus: "triage" | "plan" | "build" | "review" | "ship";
@@ -2249,6 +2289,18 @@ export interface components {
             } | {
                 /** @enum {string} */
                 readonly kind: "page_content";
+                readonly page_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_target";
+                readonly page_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_ownership_path";
+                readonly page_id: string;
+            } | {
+                /** @enum {string} */
+                readonly kind: "page_location";
                 readonly page_id: string;
             } | {
                 readonly block_types?: readonly string[] | null;
@@ -3177,6 +3229,18 @@ export interface components {
                     /** @enum {string} */
                     readonly kind: "page_content";
                     readonly value: components["schemas"]["LibraryPageContent"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_target";
+                    readonly value?: null | components["schemas"]["LibraryPageTarget"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_ownership_path";
+                    readonly value?: null | components["schemas"]["LibraryPageOwnershipPath"];
+                } | {
+                    /** @enum {string} */
+                    readonly kind: "page_location";
+                    readonly value?: null | components["schemas"]["LibraryPageLocation"];
                 } | {
                     readonly has_more: boolean;
                     readonly items: readonly components["schemas"]["LibrarySearchHit"][];

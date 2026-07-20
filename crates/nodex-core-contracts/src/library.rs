@@ -249,6 +249,15 @@ pub enum LibraryRead {
     PageContent {
         page_id: String,
     },
+    PageTarget {
+        page_id: String,
+    },
+    PageOwnershipPath {
+        page_id: String,
+    },
+    PageLocation {
+        page_id: String,
+    },
     Search {
         query: String,
         include_archived: bool,
@@ -338,6 +347,52 @@ pub struct LibraryPageDocumentDescriptor {
     pub readiness: String,
     pub schema_key: String,
     pub schema_version: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LibraryPageTarget {
+    Missing {
+        target_page_id: String,
+    },
+    InvalidTarget {
+        target_page_id: String,
+        actual_block_type: String,
+    },
+    Deleted {
+        target_page_id: String,
+        library_id: String,
+    },
+    Available {
+        target_page_id: String,
+        page: Value,
+        document: LibraryPageDocumentDescriptor,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageOwnershipPathAncestor {
+    pub page_id: String,
+    pub title: String,
+    pub lifecycle: LibraryLifecycle,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LibraryPageOwnershipPath {
+    Missing {
+        target_page_id: String,
+    },
+    Available {
+        target_page_id: String,
+        ancestors: Vec<LibraryPageOwnershipPathAncestor>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryPageLocation {
+    pub page_id: String,
+    pub project_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -694,6 +749,15 @@ pub enum LibraryReadValue {
     },
     PageContent {
         value: Box<LibraryPageContent>,
+    },
+    PageTarget {
+        value: Option<Box<LibraryPageTarget>>,
+    },
+    PageOwnershipPath {
+        value: Option<Box<LibraryPageOwnershipPath>>,
+    },
+    PageLocation {
+        value: Option<LibraryPageLocation>,
     },
     Search {
         items: Vec<LibrarySearchHit>,

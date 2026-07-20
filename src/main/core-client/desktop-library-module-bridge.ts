@@ -13,6 +13,14 @@ import type {
 import type { ListPageHistoryRequest } from "../../shared/page-history";
 import type { PageHistoryCommandResult } from "../../shared/page-history-transport";
 import type { PageSearchInput, PageSearchResult } from "../../shared/types";
+import type {
+  PageTargetReadModel,
+  ResolvePageTargetInput,
+} from "../../shared/page-targets";
+import type {
+  PageOwnershipPathReadModel,
+  ResolvePageOwnershipPathInput,
+} from "../../shared/page-ownership-paths";
 import type { CoreEventEnvelope } from "./types";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
@@ -35,6 +43,15 @@ export interface DesktopLibraryModuleBridgeInput {
       request: ListPageHistoryRequest,
     ): Promise<PageHistoryCommandResult>;
     searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
+    resolvePageTarget(
+      input: ResolvePageTargetInput,
+    ): Promise<PageTargetReadModel | null>;
+    resolvePageOwnershipPath(
+      input: ResolvePageOwnershipPathInput,
+    ): Promise<PageOwnershipPathReadModel | null>;
+    findPageLocation(
+      pageId: string,
+    ): Promise<{ readonly pageId: string; readonly projectId: string } | null>;
   };
 }
 
@@ -53,6 +70,15 @@ export interface DesktopLibraryModuleBridge {
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
   searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
+  resolvePageTarget(
+    input: ResolvePageTargetInput,
+  ): Promise<PageTargetReadModel | null>;
+  resolvePageOwnershipPath(
+    input: ResolvePageOwnershipPathInput,
+  ): Promise<PageOwnershipPathReadModel | null>;
+  findPageLocation(
+    pageId: string,
+  ): Promise<{ readonly pageId: string; readonly projectId: string } | null>;
 }
 
 export function createDesktopLibraryModuleBridge(
@@ -140,6 +166,30 @@ export function createDesktopLibraryModuleBridge(
       }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.searchPages(searchInput);
+    },
+    resolvePageTarget: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.resolvePageTarget(request);
+      }
+      return await projectCoreAdapter(runtime, request.requestingProjectId)
+        .resolvePageTarget(request);
+    },
+    resolvePageOwnershipPath: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.resolvePageOwnershipPath(request);
+      }
+      return await projectCoreAdapter(runtime, request.requestingProjectId)
+        .resolvePageOwnershipPath(request);
+    },
+    findPageLocation: async (pageId) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.findPageLocation(pageId);
+      }
+      rootCoreAdapter ??= coreAdapter(runtime);
+      return await rootCoreAdapter.findPageLocation(pageId);
     },
   };
 }

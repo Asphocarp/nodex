@@ -25,6 +25,10 @@ import {
   findPageLocationById,
   searchPages,
 } from "./local-store/database-pages";
+import {
+  resolveProjectScopedPageOwnershipPath,
+  resolveProjectScopedPageTarget,
+} from "./local-store/reference-reads";
 import { getDb, initializeDatabase } from "./local-store/database";
 import * as projectSessionService from "./local-store/project-sessions";
 import * as projectsStore from "./local-store/projects";
@@ -150,6 +154,7 @@ import {
   type CoreEventSubscription,
   type DesktopAutomationModulePort,
   type DesktopDataAuthorityRuntime,
+  type DesktopLibraryModuleBridge,
   type DesktopStoreAdministrationPort,
 } from "./core-client";
 import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
@@ -196,6 +201,7 @@ let appPermissionHandlersRegistered = false;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopAutomationModule: DesktopAutomationModulePort | null = null;
+let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 let desktopStoreAdministration: DesktopStoreAdministrationPort | null = null;
 let coreEventSubscription: CoreEventSubscription | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
@@ -734,7 +740,7 @@ function flushPendingSessionDeepLink(): void {
   }
 }
 
-function resolvePendingPageDeepLink(): void {
+async function resolvePendingPageDeepLink(): Promise<void> {
   if (!databaseReady) {
     return;
   }
@@ -745,7 +751,16 @@ function resolvePendingPageDeepLink(): void {
   }
 
   const pageId = pendingPageDeepLinkPageId;
-  const location = findPageLocationById(pageId);
+  const legacyLocation = (): { readonly pageId: string; readonly projectId: string } | null => {
+    const location = findPageLocationById(pageId);
+    return location ? { pageId, projectId: location.projectId } : null;
+  };
+  const location = desktopLibraryModule
+    ? await desktopLibraryModule.findPageLocation(pageId)
+    : legacyLocation();
+  if (pendingPageDeepLinkPageId !== pageId) {
+    return;
+  }
   pendingPageDeepLinkPageId = null;
   if (!location) {
     return;
@@ -796,7 +811,11 @@ function queuePageDeepLink(pageId: string): void {
   }
 
   focusLastWindow();
-  resolvePendingPageDeepLink();
+  void resolvePendingPageDeepLink().catch((error) => {
+    logger.warn("Page deep-link resolution failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 function queueSessionDeepLink(sessionId: string): void {
@@ -1156,7 +1175,7 @@ async function initializeTypeScriptDesktopApp(serverPort: number): Promise<void>
   startBlockRetentionMaintenanceRuntime();
   startDocumentRevisionMaintenanceRuntime();
   databaseReady = true;
-  resolvePendingPageDeepLink();
+  await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
 
   startHttpServer(serverPort);
@@ -1215,6 +1234,7 @@ async function initializeDesktopApp(
     });
   });
   databaseReady = true;
+  await resolvePendingPageDeepLink();
   await resolvePendingSessionDeepLink();
   configureRuntimeBackupScheduler(getBackupSettings());
   startRuntimeStoreMaintenanceScheduler();
@@ -1641,6 +1661,44 @@ export async function runMainAppStartup(
     typescript: createTypeScriptStoreAdministrationPort(),
   });
   desktopStoreAdministration = storeAdministration;
+  const libraryModule = createDesktopLibraryModuleBridge({
+    authority: dataAuthority,
+    resolveProjectId: (rawEvent) => {
+      const event = rawEvent as IpcMainInvokeEvent;
+      const projectId = windowSessionState
+        ?.getSessionForWindow(event.sender.id)
+        ?.layout.dbProjectId.trim();
+      if (!projectId || projectId === "default") return null;
+      return projectId;
+    },
+    typescript: {
+      read: async (request) =>
+        (await blockMutationWriter.readLibraryModule(request)).result,
+      apply: async (request) =>
+        (await blockMutationWriter.applyLibraryModule(request)).result,
+      readProjectPageDetail: async (projectId, pageId) =>
+        (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+      readLibraryPageDetail: async (pageId) =>
+        (
+          await blockMutationWriter.readLibraryPageDetail(
+            pageId,
+            "app_window",
+          )
+        ).result,
+      listPageHistory: (request) =>
+        blockMutationWriter.listPageHistory(request),
+      searchPages,
+      resolvePageTarget: async (request) =>
+        resolveProjectScopedPageTarget(request),
+      resolvePageOwnershipPath: async (request) =>
+        resolveProjectScopedPageOwnershipPath(request),
+      findPageLocation: async (pageId) => {
+        const location = findPageLocationById(pageId);
+        return location ? { pageId, projectId: location.projectId } : null;
+      },
+    },
+  });
+  desktopLibraryModule = libraryModule;
   appInitializationPromise = initializeDesktopApp(serverPort, dataAuthority);
 
   const serverUrl = `http://127.0.0.1:${serverPort}`;
@@ -1790,35 +1848,7 @@ export async function runMainAppStartup(
           projectSessionService.detachProjectSessionThread(sessionId),
       },
     }),
-    libraryModule: createDesktopLibraryModuleBridge({
-      authority: dataAuthority,
-      resolveProjectId: (rawEvent) => {
-        const event = rawEvent as IpcMainInvokeEvent;
-        const projectId = windowSessionState
-          ?.getSessionForWindow(event.sender.id)
-          ?.layout.dbProjectId.trim();
-        if (!projectId || projectId === "default") return null;
-        return projectId;
-      },
-      typescript: {
-        read: async (request) =>
-          (await blockMutationWriter.readLibraryModule(request)).result,
-        apply: async (request) =>
-          (await blockMutationWriter.applyLibraryModule(request)).result,
-        readProjectPageDetail: async (projectId, pageId) =>
-          (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
-        readLibraryPageDetail: async (pageId) =>
-          (
-            await blockMutationWriter.readLibraryPageDetail(
-              pageId,
-              "app_window",
-            )
-          ).result,
-        listPageHistory: (request) =>
-          blockMutationWriter.listPageHistory(request),
-        searchPages,
-      },
-    }),
+    libraryModule,
     databaseModule: createDesktopDatabaseModuleBridge({
       authority: dataAuthority,
       typescript: {

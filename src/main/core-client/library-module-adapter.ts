@@ -32,6 +32,15 @@ import {
   type PageHistoryCommandResult,
 } from "../../shared/page-history-transport";
 import type { PageSearchInput, PageSearchResult } from "../../shared/types";
+import { parsePage } from "../../shared/page";
+import type {
+  PageTargetReadModel,
+  ResolvePageTargetInput,
+} from "../../shared/page-targets";
+import type {
+  PageOwnershipPathReadModel,
+  ResolvePageOwnershipPathInput,
+} from "../../shared/page-ownership-paths";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import { CoreModuleResponseError } from "./core-client";
 import type {
@@ -61,6 +70,15 @@ export interface CoreLibraryModuleAdapter {
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
   searchPages(input: PageSearchInput): Promise<PageSearchResult[]>;
+  resolvePageTarget(
+    input: ResolvePageTargetInput,
+  ): Promise<PageTargetReadModel | null>;
+  resolvePageOwnershipPath(
+    input: ResolvePageOwnershipPathInput,
+  ): Promise<PageOwnershipPathReadModel | null>;
+  findPageLocation(
+    pageId: string,
+  ): Promise<{ readonly pageId: string; readonly projectId: string } | null>;
 }
 
 const toCoreRouteTarget = (target: LibraryRouteTarget) => {
@@ -193,6 +211,14 @@ type CorePageHistory = Extract<
 >["value"];
 type CorePageHistoryCursor = NonNullable<CorePageHistory["next_cursor"]>;
 type CorePageHistoryEntry = CorePageHistory["entries"][number];
+type CorePageTarget = NonNullable<Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "page_target" }
+>["value"]>;
+type CorePageOwnershipPath = NonNullable<Extract<
+  LibraryReadSnapshot["value"],
+  { kind: "page_ownership_path" }
+>["value"]>;
 
 const fromCoreRouteTarget = (
   target: CoreRouteTarget,
@@ -443,6 +469,65 @@ const mapPageHistory = (
   entries: page.entries.map(mapPageHistoryEntry),
   nextCursor: page.next_cursor ? mapPageHistoryCursor(page.next_cursor) : null,
 });
+
+const mapPageTarget = (value: CorePageTarget): PageTargetReadModel => {
+  if (value.status === "missing") {
+    return { status: value.status, targetPageId: value.target_page_id };
+  }
+  if (value.status === "invalid_target") {
+    return {
+      status: value.status,
+      targetPageId: value.target_page_id,
+      actualBlockType: value.actual_block_type,
+    };
+  }
+  if (value.status === "deleted") {
+    return {
+      status: value.status,
+      targetPageId: value.target_page_id,
+      libraryId: value.library_id,
+    };
+  }
+  const page = parsePage(value.page);
+  if (page.pageId !== value.target_page_id || page.lifecycle === "deleted") {
+    throw new Error("Core Page target escaped its requested active Page boundary");
+  }
+  const readiness = value.document.readiness;
+  if (
+    readiness !== "pending_genesis"
+    && readiness !== "ready"
+    && readiness !== "failed"
+  ) {
+    throw new Error("Core Page target returned invalid Document readiness");
+  }
+  return {
+    status: value.status,
+    targetPageId: value.target_page_id,
+    page: { ...page, lifecycle: page.lifecycle },
+    document: {
+      readiness,
+      schemaKey: value.document.schema_key,
+      schemaVersion: value.document.schema_version,
+    },
+  };
+};
+
+const mapPageOwnershipPath = (
+  value: CorePageOwnershipPath,
+): PageOwnershipPathReadModel => {
+  if (value.status === "missing") {
+    return { status: value.status, targetPageId: value.target_page_id };
+  }
+  return {
+    status: value.status,
+    targetPageId: value.target_page_id,
+    ancestors: value.ancestors.map((ancestor) => ({
+      pageId: ancestor.page_id,
+      title: ancestor.title,
+      lifecycle: ancestor.lifecycle,
+    })),
+  };
+};
 
 const mapCoreError = (error: CoreModuleError): LibraryModuleError => {
   const code = (() => {
@@ -729,6 +814,51 @@ export const createCoreLibraryModuleAdapter = (
           excerpt: item.excerpt,
         };
       });
+    },
+    resolvePageTarget: async (request) => {
+      const snapshot = await input.client.libraryRead({
+        kind: "page_target",
+        page_id: request.targetPageId,
+      });
+      if (snapshot.value.kind !== "page_target") {
+        throw new Error("Core returned a non-Page-target Library read value");
+      }
+      const value = snapshot.value.value;
+      if (!value) return null;
+      if (value.target_page_id !== request.targetPageId) {
+        throw new Error("Core Page target escaped its requested identity");
+      }
+      return mapPageTarget(value);
+    },
+    resolvePageOwnershipPath: async (request) => {
+      const snapshot = await input.client.libraryRead({
+        kind: "page_ownership_path",
+        page_id: request.targetPageId,
+      });
+      if (snapshot.value.kind !== "page_ownership_path") {
+        throw new Error("Core returned a non-ownership-path Library read value");
+      }
+      const value = snapshot.value.value;
+      if (!value) return null;
+      if (value.target_page_id !== request.targetPageId) {
+        throw new Error("Core Page ownership path escaped its requested identity");
+      }
+      return mapPageOwnershipPath(value);
+    },
+    findPageLocation: async (pageId) => {
+      const snapshot = await input.client.libraryRead({
+        kind: "page_location",
+        page_id: pageId,
+      });
+      if (snapshot.value.kind !== "page_location") {
+        throw new Error("Core returned a non-Page-location Library read value");
+      }
+      const value = snapshot.value.value;
+      if (!value) return null;
+      if (value.page_id !== pageId || !value.project_id) {
+        throw new Error("Core Page location escaped its requested identity");
+      }
+      return { pageId: value.page_id, projectId: value.project_id };
     },
   };
 };

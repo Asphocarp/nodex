@@ -582,6 +582,8 @@ interface RegisterIpcHandlersOptions {
     | "readLibraryPageDetail"
     | "listPageHistory"
     | "searchPages"
+    | "resolvePageTarget"
+    | "resolvePageOwnershipPath"
   >;
   databaseModule?: Pick<
     DesktopDatabaseModuleBridge,
@@ -1060,10 +1062,12 @@ export function registerIpcHandlers(
     return documentSyncHub.subscribe(target, omitProjectScope(request));
   });
   registerHandle("page-target:resolve", (_, input) =>
-    resolveProjectScopedPageTarget(input),
+    options.libraryModule?.resolvePageTarget(input)
+      ?? resolveProjectScopedPageTarget(input),
   );
   registerHandle("page-ownership-path:resolve", (_, input) =>
-    resolveProjectScopedPageOwnershipPath(input),
+    options.libraryModule?.resolvePageOwnershipPath(input)
+      ?? resolveProjectScopedPageOwnershipPath(input),
   );
   registerHandle("database-view:reference:get", (_, input) =>
     readProjectScopedDatabaseViewReference(input),

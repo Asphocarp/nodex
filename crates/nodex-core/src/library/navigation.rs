@@ -5,8 +5,9 @@ use nodex_core_contracts::library::{
     LibraryCatalogEntry, LibraryCatalogKind, LibraryLifecycle, LibraryNavigationNode,
     LibraryNavigationParent, LibraryPageAccessContext, LibraryPageDataSourceContext,
     LibraryPageDetail, LibraryPageDocumentDescriptor, LibraryPageIntrinsicProperty,
-    LibraryPageMembership, LibraryRead, LibraryReadValue, LibraryResourceTarget,
-    LibraryRouteTarget,
+    LibraryPageLocation, LibraryPageMembership, LibraryPageOwnershipPath,
+    LibraryPageOwnershipPathAncestor, LibraryPageTarget, LibraryRead, LibraryReadValue,
+    LibraryResourceTarget, LibraryRouteTarget,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
@@ -44,10 +45,23 @@ pub(super) fn read(
             limit,
             force_include_target,
         ),
-        LibraryRead::Path { target } => Ok(LibraryReadValue::Path {
-            nodes: path(connection, library_id, &target)?,
-            target,
-        }),
+        LibraryRead::Path { target } => {
+            if let (Some(project_id), LibraryRouteTarget::Page { page_id }) =
+                (requesting_project_id, &target)
+            {
+                super::require_page_read_access(connection, library_id, project_id, page_id)?;
+            } else if matches!(&target, LibraryRouteTarget::Page { .. })
+                && !trusted_root_adapter(requesting_adapter)
+            {
+                return Err(unauthorized(
+                    "Library Page paths require a trusted root or bound Project Adapter",
+                ));
+            }
+            Ok(LibraryReadValue::Path {
+                nodes: path(connection, library_id, &target)?,
+                target,
+            })
+        }
         LibraryRead::Catalog {
             query,
             kinds,
@@ -64,24 +78,74 @@ pub(super) fn read(
             requested_cursor,
             limit,
         ),
-        LibraryRead::PageDetail { page_id } => Ok(LibraryReadValue::PageDetail {
-            value: Box::new(page_detail(
+        LibraryRead::PageDetail { page_id } => {
+            require_bound_page_read_access(
                 connection,
                 library_id,
-                store_epoch,
-                event_head,
+                requesting_project_id,
+                requesting_adapter,
                 &page_id,
-            )?),
-        }),
-        LibraryRead::PageContent { page_id } => Ok(LibraryReadValue::PageContent {
-            value: Box::new(super::content::page_content(
+            )?;
+            Ok(LibraryReadValue::PageDetail {
+                value: Box::new(page_detail(
+                    connection,
+                    library_id,
+                    store_epoch,
+                    event_head,
+                    &page_id,
+                )?),
+            })
+        }
+        LibraryRead::PageContent { page_id } => {
+            require_bound_page_read_access(
                 connection,
                 library_id,
-                store_epoch,
-                event_head,
+                requesting_project_id,
+                requesting_adapter,
                 &page_id,
-            )?),
+            )?;
+            Ok(LibraryReadValue::PageContent {
+                value: Box::new(super::content::page_content(
+                    connection,
+                    library_id,
+                    store_epoch,
+                    event_head,
+                    &page_id,
+                )?),
+            })
+        }
+        LibraryRead::PageTarget { page_id } => Ok(LibraryReadValue::PageTarget {
+            value: page_target(connection, library_id, requesting_project_id, &page_id)?
+                .map(Box::new),
         }),
+        LibraryRead::PageOwnershipPath { page_id } => Ok(LibraryReadValue::PageOwnershipPath {
+            value: page_ownership_path(connection, library_id, requesting_project_id, &page_id)?
+                .map(Box::new),
+        }),
+        LibraryRead::PageLocation { page_id } => {
+            if requesting_project_id.is_some() || !trusted_root_adapter(requesting_adapter) {
+                return Err(unauthorized(
+                    "Page location requires a trusted local root Adapter",
+                ));
+            }
+            validate_page_identity(&page_id, "Page location")?;
+            let value = connection
+                .query_row(
+                    "SELECT page.block_id, block.project_id FROM pages page \
+                     JOIN blocks block ON block.id = page.block_id AND block.type = 'page' \
+                     WHERE page.block_id = ?1 AND page.library_id = ?2 \
+                       AND page.lifecycle = 'active' AND block.lifecycle = 'active' LIMIT 1",
+                    params![page_id, library_id],
+                    |row| {
+                        Ok(LibraryPageLocation {
+                            page_id: row.get(0)?,
+                            project_id: row.get(1)?,
+                        })
+                    },
+                )
+                .optional()?;
+            Ok(LibraryReadValue::PageLocation { value })
+        }
         LibraryRead::Search {
             query,
             include_archived,
@@ -135,6 +199,300 @@ pub(super) fn read(
             "Block transfer planning is assembled by the Library Module",
         )),
     }
+}
+
+fn require_bound_page_read_access(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&str>,
+    requesting_adapter: &AdapterKind,
+    page_id: &str,
+) -> Result<(), StoreError> {
+    if let Some(project_id) = requesting_project_id {
+        return super::require_page_read_access(connection, library_id, project_id, page_id);
+    }
+    if trusted_root_adapter(requesting_adapter) {
+        return Ok(());
+    }
+    Err(unauthorized(
+        "Library Page reads require a trusted root or bound Project Adapter",
+    ))
+}
+
+fn trusted_root_adapter(adapter: &AdapterKind) -> bool {
+    matches!(
+        adapter,
+        AdapterKind::ElectronHost | AdapterKind::NativeCli | AdapterKind::Test
+    )
+}
+
+fn page_target(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&str>,
+    page_id: &str,
+) -> Result<Option<LibraryPageTarget>, StoreError> {
+    validate_page_identity(page_id, "Page target")?;
+    let project_id = requesting_project_id
+        .ok_or_else(|| unauthorized("Page target resolution requires a bound Project"))?;
+    if !project_scope_exists(connection, library_id, project_id)? {
+        return Ok(None);
+    }
+    if let Err(error) = super::require_page_read_access(connection, library_id, project_id, page_id)
+    {
+        if error.code == StoreErrorCode::NotFound {
+            return Ok(Some(LibraryPageTarget::Missing {
+                target_page_id: page_id.to_owned(),
+            }));
+        }
+        return Err(error);
+    }
+    let row = connection
+        .query_row(
+            "SELECT block.type, block.lifecycle, page.library_id, page.lifecycle, \
+               document.readiness, document.schema_key, document.schema_version \
+             FROM blocks block LEFT JOIN pages page ON page.block_id = block.id \
+             LEFT JOIN documents document ON document.id = page.document_id \
+             WHERE block.id = ?1 LIMIT 1",
+            [page_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((
+        block_type,
+        lifecycle,
+        page_library_id,
+        page_lifecycle,
+        readiness,
+        schema_key,
+        schema_version,
+    )) = row
+    else {
+        return Ok(Some(LibraryPageTarget::Missing {
+            target_page_id: page_id.to_owned(),
+        }));
+    };
+    if block_type != "page" {
+        return Ok(Some(LibraryPageTarget::InvalidTarget {
+            target_page_id: page_id.to_owned(),
+            actual_block_type: block_type,
+        }));
+    }
+    let page_library_id =
+        page_library_id.ok_or_else(|| corrupt("Page target has no Library authority"))?;
+    let page_lifecycle =
+        page_lifecycle.ok_or_else(|| corrupt("Page target has no Page lifecycle"))?;
+    if page_library_id != library_id {
+        return Ok(Some(LibraryPageTarget::Missing {
+            target_page_id: page_id.to_owned(),
+        }));
+    }
+    if lifecycle != page_lifecycle {
+        return Err(corrupt("Page target lifecycle projections diverge"));
+    }
+    if lifecycle == "deleted" {
+        return Ok(Some(LibraryPageTarget::Deleted {
+            target_page_id: page_id.to_owned(),
+            library_id: page_library_id,
+        }));
+    }
+    if !matches!(lifecycle.as_str(), "active" | "archived") {
+        return Err(corrupt("Page target has an invalid lifecycle"));
+    }
+    let readiness = readiness.ok_or_else(|| corrupt("Page target has no Document readiness"))?;
+    let schema_key = schema_key.ok_or_else(|| corrupt("Page target has no Document schema"))?;
+    let schema_version =
+        schema_version.ok_or_else(|| corrupt("Page target has no Document schema version"))?;
+    if !matches!(readiness.as_str(), "pending_genesis" | "ready" | "failed")
+        || schema_key.is_empty()
+        || schema_version < 1
+    {
+        return Err(corrupt("Page target Document descriptor is invalid"));
+    }
+    Ok(Some(LibraryPageTarget::Available {
+        target_page_id: page_id.to_owned(),
+        page: page_record(connection, page_id)?,
+        document: LibraryPageDocumentDescriptor {
+            readiness,
+            schema_key,
+            schema_version,
+        },
+    }))
+}
+
+fn page_ownership_path(
+    connection: &Connection,
+    library_id: &str,
+    requesting_project_id: Option<&str>,
+    page_id: &str,
+) -> Result<Option<LibraryPageOwnershipPath>, StoreError> {
+    validate_page_identity(page_id, "Page ownership path")?;
+    let project_id = requesting_project_id
+        .ok_or_else(|| unauthorized("Page ownership path requires a bound Project"))?;
+    if !project_scope_exists(connection, library_id, project_id)? {
+        return Ok(None);
+    }
+    let Some(hierarchy) = page_hierarchy(connection, library_id, page_id)? else {
+        return Ok(Some(LibraryPageOwnershipPath::Missing {
+            target_page_id: page_id.to_owned(),
+        }));
+    };
+    let mut visible = Vec::new();
+    for page in hierarchy {
+        match super::require_page_read_access(connection, library_id, project_id, &page.page_id) {
+            Ok(()) => visible.push(page),
+            Err(error) if error.code == StoreErrorCode::NotFound => break,
+            Err(error) => return Err(error),
+        }
+    }
+    if visible.first().is_none_or(|page| page.page_id != page_id) {
+        return Ok(Some(LibraryPageOwnershipPath::Missing {
+            target_page_id: page_id.to_owned(),
+        }));
+    }
+    let ancestors = visible
+        .into_iter()
+        .skip(1)
+        .rev()
+        .map(|page| LibraryPageOwnershipPathAncestor {
+            page_id: page.page_id,
+            title: page.title,
+            lifecycle: page.lifecycle,
+        })
+        .collect();
+    Ok(Some(LibraryPageOwnershipPath::Available {
+        target_page_id: page_id.to_owned(),
+        ancestors,
+    }))
+}
+
+struct PageHierarchyEntry {
+    page_id: String,
+    title: String,
+    lifecycle: LibraryLifecycle,
+}
+
+fn page_hierarchy(
+    connection: &Connection,
+    library_id: &str,
+    page_id: &str,
+) -> Result<Option<Vec<PageHierarchyEntry>>, StoreError> {
+    let mut current = page_id.to_owned();
+    let mut hierarchy = Vec::new();
+    let mut seen = HashSet::new();
+    loop {
+        if hierarchy.len() >= 512 {
+            return Err(corrupt("Library Page hierarchy exceeds 512 Page levels"));
+        }
+        if !seen.insert(current.clone()) {
+            return Err(corrupt("Library Page hierarchy contains a cycle"));
+        }
+        let row = connection
+            .query_row(
+                "SELECT page.library_id, page.parent_kind, page.parent_id, page.lifecycle, \
+                   materialization.title \
+                 FROM pages page JOIN documents document ON document.id = page.document_id \
+                 LEFT JOIN document_materializations materialization \
+                   ON materialization.document_id = document.id \
+                   AND materialization.generation = document.generation \
+                   AND materialization.projected_seq = document.head_seq \
+                   AND materialization.schema_version = document.schema_version \
+                 WHERE page.block_id = ?1",
+                [&current],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((page_library_id, parent_kind, parent_id, lifecycle, title)) = row else {
+            if hierarchy.is_empty() {
+                return Ok(None);
+            }
+            return Err(corrupt(
+                "Library Page hierarchy points to a missing parent Page",
+            ));
+        };
+        if page_library_id != library_id {
+            return Err(corrupt("Library Page hierarchy crosses Library authority"));
+        }
+        let lifecycle = match lifecycle.as_str() {
+            "active" => LibraryLifecycle::Active,
+            "archived" => LibraryLifecycle::Archived,
+            "deleted" if hierarchy.is_empty() => return Ok(None),
+            "deleted" => {
+                return Err(corrupt(
+                    "Library Page hierarchy points through a deleted parent Page",
+                ));
+            }
+            _ => return Err(corrupt("Library Page has an invalid lifecycle")),
+        };
+        let title = title.ok_or_else(|| corrupt("Library Page projection is unavailable"))?;
+        hierarchy.push(PageHierarchyEntry {
+            page_id: current.clone(),
+            title,
+            lifecycle,
+        });
+        match parent_kind.as_str() {
+            "page" => current = parent_id,
+            "library" if parent_id == library_id => return Ok(Some(hierarchy)),
+            "data_source" => {
+                let source_exists = connection
+                    .query_row(
+                        "SELECT 1 FROM data_sources \
+                         WHERE id = ?1 AND library_id = ?2 AND lifecycle <> 'deleted'",
+                        params![parent_id, library_id],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some();
+                if source_exists {
+                    return Ok(Some(hierarchy));
+                }
+                return Err(corrupt("Library Page has no matching owning Data Source"));
+            }
+            _ => return Err(corrupt("Library Page has an invalid ownership parent")),
+        }
+    }
+}
+
+fn project_scope_exists(
+    connection: &Connection,
+    library_id: &str,
+    project_id: &str,
+) -> Result<bool, StoreError> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM projects WHERE id = ?1 AND library_id = ?2 LIMIT 1",
+            params![project_id, library_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn validate_page_identity(value: &str, label: &str) -> Result<(), StoreError> {
+    if !value.is_empty() && value.len() <= 512 && value.trim() == value {
+        return Ok(());
+    }
+    Err(invalid(&format!(
+        "{label} requires a canonical bounded identity"
+    )))
 }
 
 fn page_detail(

@@ -78,7 +78,9 @@ and disconnecting Electron does not terminate the detached Core. Electron
 Module adapters still need to replace the TypeScript stores before the Rust
 development selector can serve the full desktop workflow. The first active
 proxy slices cover the established Library catalog/navigation `read`/`apply`
-IPC pair, Project/Library Page Detail, and the Project catalog boundary.
+IPC pair, Project/Library Page Detail, Project-scoped Page references and
+ownership paths, trusted-root Page deep-link location, and the Project catalog
+boundary.
 Library reads use the Library connection, writes derive the actor Project from
 the trusted invoking window,
 and committed Core events become renderer Library or Workspace invalidations.
@@ -174,17 +176,24 @@ transaction. Library placement creates both Library/Project ranks; Data Source
 placement reuses the Database Module's membership, built-in value, grouped-View
 position, and projection kernels and reports the affected Database. These
 branches lease only the existing source Document because the target Document is
-created inside the transaction. Existing Page ownership transfers—including
-Data Source sources—remain on the TypeScript oracle until their recursive
-ownership compiler is mapped; the native Adapter rejects those shapes instead of
-partially emulating them.
-Project-scoped Page History reads also use the Library Module Adapter: the
-renderer request selects the exact Project client, Core evaluates recursive
-resource access in one read snapshot, and the Adapter maps the typed native
-cursor/evidence/recovery graph through the established strict Page History
-parser before IPC. Semantic Page content and the remaining deep Module adapters
-stay on the migration inventory and must fail closed rather than fall back in
-the Rust branch. Renderer Project Page search is now native: one
+created inside the transaction. Existing Page Move retains identity and its
+recursively owned Documents while changing only the canonical parent and any
+containing Page shells. Page Copy clones the complete
+Page/Synced/Template/Canvas ownership closure, and multiple roots targeting one
+Page stage all closures before one ordered target-Document commit.
+Project-scoped Page History, Page target, and ownership-path reads also use the
+Library Module Adapter: the renderer request selects the exact Project client
+and Core evaluates recursive resource access in one read snapshot. Ownership
+paths expose only the highest-to-direct-parent prefix independently readable by
+that Project. Page Detail, Page content, and Page paths enforce the same
+recursive access check whenever the connection is Project-bound. Global Page
+deep-link lookup is a separate minimal projection accepted only from trusted
+root Electron, native CLI, or test Adapters; Project-bound and Agent clients
+cannot enumerate storage Projects. The Adapter maps these typed native results
+through the existing strict renderer contracts before IPC. Semantic Agent Page
+content and the remaining deep Codex persistence adapters stay on the migration
+inventory and must fail closed rather than fall back in the Rust branch.
+Renderer Project Page search is now native: one
 trusted root Library read accepts the requested Project sequence, evaluates
 each Page's primary-Database or recursive grant authority, requires its current
 Data Source workflow status, and returns the established deduplicated command-
