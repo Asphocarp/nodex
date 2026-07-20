@@ -746,6 +746,74 @@ describe("Electron native data authority", () => {
             finalLocationRevisions: { [nativeContentBlockId]: 2 },
           },
         });
+      const promoteToLibraryIntent = {
+        ...transferIntent,
+        operationId: "electron-native-block-transfer-promote-to-library",
+        source: {
+          kind: "document" as const,
+          documentId: nativeTargetDocumentId,
+        },
+        target: {
+          kind: "library" as const,
+          libraryId: runtime.rootClient.handshake.library_id,
+        },
+      };
+      const preparedLibraryPromotion = await transferAdapter.prepare(
+        promoteToLibraryIntent,
+      );
+      if (!preparedLibraryPromotion.ok) {
+        throw new Error(
+          `Core Library promotion preparation failed: ${preparedLibraryPromotion.error.code}: ${preparedLibraryPromotion.error.message}`,
+        );
+      }
+      expect(preparedLibraryPromotion.value.leaseDocuments).toEqual([{
+        documentId: nativeTargetDocumentId,
+        generation: 1,
+        expectedHeadSeq: 2,
+      }]);
+      const promotedToLibrary = await transferAdapter.apply(
+        preparedLibraryPromotion.value.request,
+      );
+      if (!promotedToLibrary.ok) {
+        throw new Error(
+          `Core Library promotion failed: ${promotedToLibrary.error.code}: ${promotedToLibrary.error.message}`,
+        );
+      }
+      expect(promotedToLibrary.value).toMatchObject({
+        operationId: promoteToLibraryIntent.operationId,
+        duplicate: false,
+        resultRootBlockIds: [nativeContentBlockId],
+        transformationEvidence: [{
+          sourceBlockId: nativeContentBlockId,
+          resultPageId: nativeContentBlockId,
+          kind: "promote",
+          sourceBlockType: "paragraph",
+          consumedPropertyKeys: [],
+          bodyRootBlockIds: [expect.any(String)],
+          sourceToResultBlockIds: {
+            [nativeContentBlockId]: nativeContentBlockId,
+          },
+        }],
+        finalLocations: {
+          [nativeContentBlockId]: {
+            kind: "space",
+            projectId,
+            rankKey: expect.any(String),
+          },
+        },
+        finalLocationRevisions: { [nativeContentBlockId]: 3 },
+        documentCommits: expect.arrayContaining([
+          expect.objectContaining({
+            documentId: nativeTargetDocumentId,
+            baseHeadSeq: 2,
+            headSeq: 3,
+          }),
+          expect.objectContaining({
+            baseHeadSeq: 0,
+            headSeq: 1,
+          }),
+        ]),
+      });
       databaseEventSubscription.close();
       expect(listCurrentProcessFiles()).not.toContain(databasePath);
       const workspace = createCoreProjectWorkspaceAdapter(runtime.rootClient);

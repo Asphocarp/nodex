@@ -152,7 +152,7 @@ pub struct LibraryBlockTransferPreparation {
     pub lease_documents: Vec<LibraryBlockTransferDocumentHead>,
     pub expected_location_revisions: std::collections::BTreeMap<String, i64>,
     pub source_document_id: String,
-    pub target_document_id: String,
+    pub target_document_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -160,6 +160,8 @@ pub struct LibraryBlockTransferPreparation {
 pub enum LibraryBlockLocation {
     Library {
         library_id: String,
+        project_id: String,
+        rank_key: String,
     },
     Document {
         document_id: String,

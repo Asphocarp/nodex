@@ -166,8 +166,14 @@ checkpoints, the Library event, and one reconnect-safe transfer receipt atomical
 A cross-storage Move rehomes the complete ordinary-Block registry closure to the
 target Document's compatibility Project and records general mutation evidence;
 same-storage movement retains the stricter relocation ledger. Same-Document move
-remains a stable-ID Document operation. Page ownership transformations and Data
-Source placement remain on the TypeScript oracle until their Library and Database
+remains a stable-ID Document operation. An ordinary root can also target the
+Library root: Core deterministically promotes title-capable Blocks or wraps the
+unchanged subtree in a fresh Page, creates the Page ownership Document and both
+Library/Project placements, commits the source edit and Page genesis, and records
+the transformation evidence under one Library writer transaction. This branch
+leases only the existing source Document because the target Document is created
+inside that transaction. Existing Page ownership transfers and Data Source
+placement remain on the TypeScript oracle until their Library and Database
 semantic branches are mapped; the native Adapter rejects those shapes instead of
 partially emulating them.
 Project-scoped Page History reads also use the Library Module Adapter: the

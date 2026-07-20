@@ -224,6 +224,129 @@ describe("Core Block Transfer Adapter", () => {
     }]);
   });
 
+  test("maps a source-only lease into Library Page promotion and wrapper evidence", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const libraryIntent: BlockTransferIntent = {
+      ...intent,
+      operationId: "transfer:library",
+      mode: "copy",
+      target: {
+        kind: "library",
+        libraryId: identity.libraryId,
+        beforeBlockId: "page:anchor",
+      },
+    };
+    client.enqueueRead({
+      ...preparedSnapshot(),
+      value: {
+        kind: "block_transfer_plan",
+        value: {
+          kind: "prepared",
+          preparation: {
+            source_document_id: "document:source",
+            target_document_id: null,
+            lease_documents: [{
+              document_id: "document:source",
+              generation: 1,
+              expected_head_seq: 3,
+            }],
+            expected_location_revisions: { "block:root": 1 },
+          },
+        },
+      },
+    });
+
+    const prepared = await adapter.prepare(libraryIntent);
+    expect(prepared).toMatchObject({
+      ok: true,
+      value: {
+        request: {
+          source: { kind: "document", documentId: "document:source" },
+          target: {
+            kind: "space",
+            libraryId: identity.libraryId,
+            beforeBlockId: "page:anchor",
+          },
+        },
+        leaseDocuments: [{ documentId: "document:source" }],
+      },
+    });
+    if (!prepared.ok) throw new Error("Expected a prepared Library transfer");
+
+    const libraryResult = {
+      ...coreResult(),
+      mode: "copy" as const,
+      result_root_block_ids: ["page:wrapper"],
+      copied_block_ids: { "block:root": "block:copy" },
+      transformation_evidence: [{
+        sourceBlockId: "block:root",
+        resultPageId: "page:wrapper",
+        kind: "wrap",
+        sourceBlockType: "checkListItem",
+        semanticTitleHash: "a".repeat(64),
+        consumedPropertyKeys: [],
+        wrapperReason: "type_requires_wrapper",
+        bodyRootBlockIds: ["block:copy"],
+        sourceToResultBlockIds: { "block:root": "block:copy" },
+      }],
+      final_locations: {
+        "page:wrapper": {
+          kind: "library" as const,
+          library_id: identity.libraryId,
+          project_id: identity.projectId,
+          rank_key: "0001",
+        },
+      },
+      final_location_revisions: { "page:wrapper": 1 },
+      document_commits: [coreResult().document_commits[0]!],
+    };
+    client.enqueueApply({
+      ...committedApply(),
+      value: {
+        affected_resource_ids: ["page:wrapper"],
+        page_copy: null,
+        block_transfer: libraryResult,
+      },
+      receipt: {
+        ...committedApply().receipt,
+        operation_id: libraryIntent.operationId,
+      },
+    });
+    const committed = await adapter.apply(prepared.value.request);
+    expect(committed).toMatchObject({
+      ok: true,
+      value: {
+        finalLocations: {
+          "page:wrapper": {
+            kind: "space",
+            projectId: identity.projectId,
+            rankKey: "0001",
+          },
+        },
+        transformationEvidence: [{
+          sourceBlockId: "block:root",
+          resultPageId: "page:wrapper",
+          kind: "wrap",
+          wrapperReason: "type_requires_wrapper",
+          bodyRootBlockIds: ["block:copy"],
+        }],
+      },
+    });
+    expect(client.applies[0]).toMatchObject({
+      intent: {
+        intent: {
+          target: {
+            kind: "library",
+            library_id: identity.libraryId,
+            before_block_id: "page:anchor",
+          },
+        },
+        write_fence: [{ document_id: "document:source" }],
+      },
+    });
+  });
+
   test("recovers a committed receipt before leasing and rejects stale scope locally", async () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });

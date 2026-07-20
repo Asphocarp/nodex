@@ -10,6 +10,7 @@ import {
   type BlockTransferPreparation,
   type BlockTransferReceipt,
   type BlockTransferRequest,
+  type BlockTransferTransformationEvidence,
 } from "../../shared/block-transfer";
 import { blockTransferFailure } from "../../shared/block-transfer-transport";
 import type { BlockLocation } from "../../shared/block-documents/contracts";
@@ -174,7 +175,42 @@ const toPreparedRequest = (
 ): BlockTransferPreparation => {
   const leaseDocuments = plan.lease_documents.map(toDocumentHead);
   const sourceHead = requireHead(leaseDocuments, plan.source_document_id);
-  const targetHead = requireHead(leaseDocuments, plan.target_document_id);
+  const target: BlockTransferRequest["target"] = (() => {
+    if (intent.target.kind === "library") {
+      if (plan.target_document_id != null) {
+        throw new Error("Core returned a target Document for a Library placement");
+      }
+      return {
+        kind: "space",
+        libraryId: intent.target.libraryId,
+        ...(intent.target.beforeBlockId
+          ? { beforeBlockId: intent.target.beforeBlockId }
+          : {}),
+      };
+    }
+    if (intent.target.kind === "data_source") {
+      throw new Error(
+        "Core returned a prepared Data Source transfer before its placement mapping was implemented",
+      );
+    }
+    if (plan.target_document_id == null) {
+      throw new Error("Core omitted the Block transfer target Document");
+    }
+    const targetHead = requireHead(leaseDocuments, plan.target_document_id);
+    return {
+      kind: "document",
+      documentId: plan.target_document_id,
+      ...(intent.target.kind === "page" ? { pageId: intent.target.pageId } : {}),
+      generation: targetHead.generation,
+      expectedHeadSeq: targetHead.expectedHeadSeq,
+      ...(intent.target.parentBlockId
+        ? { parentBlockId: intent.target.parentBlockId }
+        : {}),
+      ...(intent.target.beforeBlockId
+        ? { beforeBlockId: intent.target.beforeBlockId }
+        : {}),
+    };
+  })();
   const request: BlockTransferRequest = {
     version: BLOCK_TRANSFER_CONTRACT_VERSION,
     operationId: intent.operationId,
@@ -192,21 +228,7 @@ const toPreparedRequest = (
       generation: sourceHead.generation,
       expectedHeadSeq: sourceHead.expectedHeadSeq,
     },
-    target: {
-      kind: "document",
-      documentId: plan.target_document_id,
-      ...(intent.target.kind === "page" ? { pageId: intent.target.pageId } : {}),
-      generation: targetHead.generation,
-      expectedHeadSeq: targetHead.expectedHeadSeq,
-      ...((intent.target.kind === "page" || intent.target.kind === "document") &&
-      intent.target.parentBlockId
-        ? { parentBlockId: intent.target.parentBlockId }
-        : {}),
-      ...((intent.target.kind === "page" || intent.target.kind === "document") &&
-      intent.target.beforeBlockId
-        ? { beforeBlockId: intent.target.beforeBlockId }
-        : {}),
-    },
+    target,
   };
   return { request: parseBlockTransferRequest(request), leaseDocuments };
 };
@@ -216,14 +238,93 @@ const fromCoreLocation = (
 ): BlockLocation => {
   switch (location.kind) {
     case "library":
-      throw new Error(
-        "Core returned a Library Block location before the public placement contract was implemented",
-      );
+      return {
+        kind: "space",
+        projectId: location.project_id,
+        rankKey: location.rank_key,
+      };
     case "document":
       return { kind: "document", documentId: location.document_id };
     case "data_source":
       return { kind: "database", databaseBlockId: location.database_id };
   }
+};
+
+const requireRecord = (
+  value: unknown,
+  label: string,
+): Readonly<Record<string, unknown>> => {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Readonly<Record<string, unknown>>;
+  }
+  throw new Error(`${label} is not an object`);
+};
+
+const requireString = (
+  value: unknown,
+  label: string,
+): string => {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(`${label} is not a non-empty string`);
+};
+
+const requireStringArray = (
+  value: unknown,
+  label: string,
+): readonly string[] => {
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+    return value;
+  }
+  throw new Error(`${label} is not a string array`);
+};
+
+const fromCoreTransformation = (
+  value: unknown,
+): BlockTransferTransformationEvidence => {
+  const evidence = requireRecord(value, "Core Block transformation evidence");
+  const kind = evidence.kind;
+  if (kind !== "promote" && kind !== "wrap") {
+    throw new Error("Core Block transformation kind is invalid");
+  }
+  const sourceToResult = requireRecord(
+    evidence.sourceToResultBlockIds,
+    "Core Block transformation identity map",
+  );
+  const sourceToResultBlockIds = Object.fromEntries(
+    Object.entries(sourceToResult).map(([sourceId, resultId]) => [
+      sourceId,
+      requireString(resultId, `Core Block transformation identity ${sourceId}`),
+    ]),
+  );
+  const wrapperReason = evidence.wrapperReason;
+  if (
+    wrapperReason != null &&
+    wrapperReason !== "type_requires_wrapper" &&
+    wrapperReason !== "unsupported_primary_content" &&
+    wrapperReason !== "unmapped_type_state"
+  ) {
+    throw new Error("Core Block transformation wrapper reason is invalid");
+  }
+  return {
+    sourceBlockId: requireString(evidence.sourceBlockId, "Core transformation source"),
+    resultPageId: requireString(evidence.resultPageId, "Core transformation Page"),
+    kind,
+    sourceBlockType: requireString(evidence.sourceBlockType, "Core transformation type"),
+    semanticTitleHash: requireString(
+      evidence.semanticTitleHash,
+      "Core transformation title hash",
+    ),
+    consumedPropertyKeys: requireStringArray(
+      evidence.consumedPropertyKeys,
+      "Core transformation consumed properties",
+    ),
+    ...(wrapperReason == null ? {} : { wrapperReason }),
+    bodyRootBlockIds: requireStringArray(
+      evidence.bodyRootBlockIds,
+      "Core transformation body roots",
+    ),
+    sourceToResultBlockIds,
+  };
 };
 
 const fromCoreResult = (
@@ -233,12 +334,9 @@ const fromCoreResult = (
   changeLogSeq: number,
   committedAt: string,
 ): BlockTransferReceipt => {
-  if (
-    result.transformation_evidence.length > 0
-    || result.affected_database_ids.length > 0
-  ) {
+  if (result.affected_database_ids.length > 0) {
     throw new Error(
-      "Core returned Page/Data Source transfer evidence before the public native mapping was implemented",
+      "Core returned Data Source transfer evidence before the public native mapping was implemented",
     );
   }
   return {
@@ -251,7 +349,7 @@ const fromCoreResult = (
     sourceRootBlockIds: result.source_root_block_ids,
     resultRootBlockIds: result.result_root_block_ids,
     copiedBlockIds: result.copied_block_ids,
-    transformationEvidence: [],
+    transformationEvidence: result.transformation_evidence.map(fromCoreTransformation),
     finalLocations: Object.fromEntries(
       Object.entries(result.final_locations).map(([blockId, location]) => [
         blockId,

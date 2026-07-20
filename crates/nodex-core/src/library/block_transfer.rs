@@ -4,19 +4,24 @@ use nodex_core_contracts::library::{
     LibraryBlockLocation, LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
     LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferPlan,
     LibraryBlockTransferPreparation, LibraryBlockTransferResult, LibraryBlockTransferSource,
-    LibraryBlockTransferTarget, LibraryCommitValue, LibraryReceipt,
+    LibraryBlockTransferTarget, LibraryCommitValue, LibraryPlacementAnchor, LibraryReceipt,
 };
 use nodex_core_contracts::{BoundModuleContext, CommittedModuleValue};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::document::{
-    BlockDocumentSchema, DocumentAuthorityRow, DocumentMaterialization, NewDocumentCheckpoint,
-    PersistYjsCommit, PortableSubtreeDocumentHead, PortableSubtreeTransferKind,
-    PortableSubtreeTransferRequest, PreparedDocumentOperationUpdate, YrsDocumentEngine,
-    decode_block_document, insert_document_checkpoint, materialize_decoded_document,
-    persist_yjs_commit, prepare_portable_subtree_transfer_updates, read_document_authority,
-    reconstruct_yjs_engine, sha256,
+    BlockDocumentSchema, DocumentAuthorityRow, DocumentBlockOperation, DocumentMaterialization,
+    NewDocumentCheckpoint, PersistYjsCommit, PersistYjsGenesis, PortableSubtreeDocumentHead,
+    PortableSubtreeTransferKind, PortableSubtreeTransferRequest, PreparedDocumentOperationUpdate,
+    YrsDocumentEngine, decode_block_document, insert_document_checkpoint,
+    materialize_decoded_document, persist_yjs_commit, persist_yjs_genesis,
+    prepare_document_operation_update, prepare_portable_subtree_transfer_updates,
+    prepare_yjs_clone_genesis, read_document_authority, reconstruct_yjs_engine, sha256,
+};
+use crate::domain::block_materialization::MaterializedBlockNode;
+use crate::domain::block_to_page::{
+    BlockToPageTransformation, PageWrapperReason, plan_block_to_page_transformation,
 };
 use crate::domain::identity::stable_uuid_v7;
 use crate::domain::subtree::BlockSubtreeInsertionTarget;
@@ -24,7 +29,10 @@ use crate::infrastructure::module_receipts::read_module_receipt;
 use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::LibraryApplyOutcome;
-use super::mutation::{MutationEffects, finish_mutation, sqlite_now};
+use super::mutation::{
+    MutationEffects, append_rank, finish_mutation, insert_library_placement,
+    insert_page_read_model, require_project_in_library, sqlite_now,
+};
 
 const MODULE_NAME: &str = "library";
 const MAX_ID_LENGTH: usize = 512;
@@ -46,6 +54,26 @@ struct PreparedTransfer {
 struct PersistedTransferCommit {
     public: LibraryBlockTransferDocumentCommit,
     materialization: DocumentMaterialization,
+}
+
+struct PreparedPageParentTransfer {
+    source_authority: DocumentAuthorityRow,
+    source_engine: YrsDocumentEngine,
+    source_materialization: DocumentMaterialization,
+    source_update: Option<PreparedDocumentOperationUpdate>,
+    roots: Vec<PreparedPageParentRoot>,
+    expected_location_revisions: BTreeMap<String, i64>,
+    copied_block_ids: BTreeMap<String, String>,
+    target_project_id: String,
+}
+
+struct PreparedPageParentRoot {
+    source_root_id: String,
+    source_block_ids: Vec<String>,
+    page_id: String,
+    document_id: String,
+    transformation: BlockToPageTransformation,
+    source_to_result_block_ids: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy)]
@@ -116,6 +144,13 @@ pub(super) fn plan(
             committed_at: committed.receipt.committed_at,
         });
     }
+    if matches!(intent.target, LibraryBlockTransferTarget::Library { .. }) {
+        let prepared =
+            prepare_page_parent_transfer(connection, context, library_id, operation_id, intent)?;
+        return Ok(LibraryBlockTransferPlan::Prepared {
+            preparation: page_parent_preparation(&prepared),
+        });
+    }
     let prepared = prepare_transfer(connection, context, library_id, operation_id, intent)?;
     Ok(LibraryBlockTransferPlan::Prepared {
         preparation: preparation(&prepared),
@@ -134,6 +169,18 @@ pub(super) fn apply(
     write_fence: Option<&[LibraryBlockTransferDocumentHead]>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     validate_intent(library_id, intent)?;
+    if matches!(intent.target, LibraryBlockTransferTarget::Library { .. }) {
+        return apply_page_parent_transfer(
+            connection,
+            context,
+            library_id,
+            operation_id,
+            store_epoch,
+            request_hash,
+            intent,
+            write_fence,
+        );
+    }
     let mut prepared = prepare_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = preparation(&prepared);
     if write_fence != Some(expected_preparation.lease_documents.as_slice()) {
@@ -414,6 +461,294 @@ fn prepare_transfer(
     })
 }
 
+fn prepare_page_parent_transfer(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+) -> Result<PreparedPageParentTransfer, StoreError> {
+    let project_id = bound_project_id(context)?;
+    require_project_in_library(connection, project_id, library_id)?;
+    let LibraryBlockTransferTarget::Library {
+        library_id: target_library_id,
+        ..
+    } = &intent.target
+    else {
+        return Err(invalid("Page-parent transfer requires a Library target"));
+    };
+    if target_library_id != library_id {
+        return Err(unauthorized(
+            "Block transfer target belongs to another Library",
+        ));
+    }
+    let source_page_id = match &intent.source {
+        LibraryBlockTransferSource::Page { page_id } => Some(page_id.as_str()),
+        _ => None,
+    };
+    let source_document_id = resolve_source_document(connection, library_id, &intent.source)?;
+    let source_authority = require_transfer_authority(
+        connection,
+        library_id,
+        project_id,
+        &source_document_id,
+        source_page_id,
+        match intent.mode {
+            LibraryBlockTransferMode::Move => TransferDocumentAccess::Write,
+            LibraryBlockTransferMode::Copy => TransferDocumentAccess::Read,
+        },
+    )?;
+    let source_schema = require_schema(&source_authority)?;
+    let source_engine = reconstruct_yjs_engine(connection, &source_authority.head)?;
+    let source_decoded = decode_block_document(source_engine.document(), source_schema)
+        .map_err(|error| corrupt(error.to_string()))?;
+    let source_materialization = materialize_decoded_document(&source_decoded)
+        .map_err(|error| corrupt(error.to_string()))?;
+    let source_forest = crate::domain::subtree::capture_block_subtree_forest(
+        &source_decoded.block_tree,
+        &intent.root_block_ids,
+    )
+    .map_err(|error| invalid(error.to_string()))?;
+    for block_id in &source_forest.block_ids {
+        if is_typed_resource(connection, block_id)? {
+            return Err(invalid(
+                "Page ownership roots use the recursive Page transfer compiler",
+            ));
+        }
+    }
+    let expected_location_revisions = validate_source_roots(
+        connection,
+        &source_authority.head.project_id,
+        &source_document_id,
+        &intent.root_block_ids,
+    )?;
+    let mut copied_block_ids = BTreeMap::new();
+    let mut roots = Vec::with_capacity(source_forest.roots.len());
+    let mut new_block_ids = Vec::new();
+    for source_root in &source_forest.roots {
+        let materialized = find_materialized_block(
+            &source_materialization.block_tree,
+            &source_root.root_block_id,
+        )
+        .ok_or_else(|| corrupt("Selected Block is absent from its materialization"))?;
+        let source_to_result_block_ids = source_root
+            .block_ids
+            .iter()
+            .map(|source_id| {
+                let result_id = if intent.mode == LibraryBlockTransferMode::Copy {
+                    stable_uuid_v7(operation_id, "block_transfer", source_id)
+                } else {
+                    source_id.clone()
+                };
+                (source_id.clone(), result_id)
+            })
+            .collect::<BTreeMap<_, _>>();
+        if intent.mode == LibraryBlockTransferMode::Copy {
+            copied_block_ids.extend(source_to_result_block_ids.clone());
+        }
+        let result_root = remap_materialized_block(&materialized, &source_to_result_block_ids)?;
+        let result_root_id = source_to_result_block_ids
+            .get(&source_root.root_block_id)
+            .ok_or_else(|| corrupt("Page transformation omitted its result root"))?;
+        let wrapper_page_id = stable_uuid_v7(
+            operation_id,
+            "block_transfer_wrapper",
+            &source_root.root_block_id,
+        );
+        let empty_body_block_id = stable_uuid_v7(
+            operation_id,
+            "block_transfer_page_body",
+            &source_root.root_block_id,
+        );
+        let transformation = plan_block_to_page_transformation(
+            &result_root,
+            result_root_id,
+            &wrapper_page_id,
+            &empty_body_block_id,
+        )
+        .map_err(|error| invalid(error.to_string()))?;
+        let page_id = match &transformation {
+            BlockToPageTransformation::Promote { page_id, .. }
+            | BlockToPageTransformation::Wrap { page_id, .. }
+            | BlockToPageTransformation::AlreadyPage { page_id } => page_id.clone(),
+        };
+        if matches!(
+            transformation,
+            BlockToPageTransformation::AlreadyPage { .. }
+        ) {
+            return Err(invalid(
+                "Page ownership roots use the recursive Page transfer compiler",
+            ));
+        }
+        let document_id = format!("document:{page_id}");
+        require_fresh_page_authority(
+            connection,
+            &page_id,
+            &document_id,
+            &source_root.root_block_id,
+        )?;
+        new_block_ids.extend(
+            transformation_result_blocks(&transformation)
+                .into_iter()
+                .filter(|block_id| {
+                    intent.mode == LibraryBlockTransferMode::Copy
+                        || block_id != &source_root.root_block_id
+                            && !source_root.block_ids.contains(block_id)
+                }),
+        );
+        roots.push(PreparedPageParentRoot {
+            source_root_id: source_root.root_block_id.clone(),
+            source_block_ids: source_root.block_ids.clone(),
+            page_id,
+            document_id,
+            transformation,
+            source_to_result_block_ids,
+        });
+    }
+    new_block_ids.sort();
+    new_block_ids.dedup();
+    assert_fresh_copy_identities(connection, &new_block_ids)?;
+    let source_update = if intent.mode == LibraryBlockTransferMode::Move {
+        Some(
+            prepare_document_operation_update(
+                &source_authority.head.id,
+                source_schema,
+                &source_engine.full_state_v1(),
+                &source_authority.head.state_vector,
+                &intent
+                    .root_block_ids
+                    .iter()
+                    .map(|block_id| DocumentBlockOperation::DeleteBlock {
+                        block_id: block_id.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+                false,
+            )
+            .map_err(|error| invalid(error.to_string()))?,
+        )
+    } else {
+        None
+    };
+    Ok(PreparedPageParentTransfer {
+        source_authority,
+        source_engine,
+        source_materialization,
+        source_update,
+        roots,
+        expected_location_revisions,
+        copied_block_ids,
+        target_project_id: project_id.to_owned(),
+    })
+}
+
+fn page_parent_preparation(
+    prepared: &PreparedPageParentTransfer,
+) -> LibraryBlockTransferPreparation {
+    LibraryBlockTransferPreparation {
+        lease_documents: vec![LibraryBlockTransferDocumentHead {
+            document_id: prepared.source_authority.head.id.clone(),
+            generation: prepared.source_authority.head.generation,
+            expected_head_seq: prepared.source_authority.head.head_seq,
+        }],
+        expected_location_revisions: prepared.expected_location_revisions.clone(),
+        source_document_id: prepared.source_authority.head.id.clone(),
+        target_document_id: None,
+    }
+}
+
+fn find_materialized_block(
+    blocks: &[MaterializedBlockNode],
+    block_id: &str,
+) -> Option<MaterializedBlockNode> {
+    blocks.iter().find_map(|block| {
+        if block.id == block_id {
+            return Some(block.clone());
+        }
+        find_materialized_block(&block.children, block_id)
+    })
+}
+
+fn remap_materialized_block(
+    block: &MaterializedBlockNode,
+    identities: &BTreeMap<String, String>,
+) -> Result<MaterializedBlockNode, StoreError> {
+    Ok(MaterializedBlockNode {
+        id: identities
+            .get(&block.id)
+            .cloned()
+            .ok_or_else(|| corrupt("Block transformation identity map is incomplete"))?,
+        block_type: block.block_type.clone(),
+        props: block.props.clone(),
+        content: block.content.clone(),
+        children: block
+            .children
+            .iter()
+            .map(|child| remap_materialized_block(child, identities))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn transformation_result_blocks(transformation: &BlockToPageTransformation) -> Vec<String> {
+    let mut result = Vec::new();
+    match transformation {
+        BlockToPageTransformation::Promote {
+            page_id,
+            body_roots,
+            ..
+        } => {
+            result.push(page_id.clone());
+            collect_materialized_block_ids(body_roots, &mut result);
+        }
+        BlockToPageTransformation::Wrap {
+            page_id,
+            wrapped_root,
+            ..
+        } => {
+            result.push(page_id.clone());
+            collect_materialized_block_ids(std::slice::from_ref(wrapped_root), &mut result);
+        }
+        BlockToPageTransformation::AlreadyPage { page_id } => result.push(page_id.clone()),
+    }
+    result
+}
+
+fn collect_materialized_block_ids(blocks: &[MaterializedBlockNode], output: &mut Vec<String>) {
+    for block in blocks {
+        output.push(block.id.clone());
+        collect_materialized_block_ids(&block.children, output);
+    }
+}
+
+fn require_fresh_page_authority(
+    connection: &Connection,
+    page_id: &str,
+    document_id: &str,
+    source_root_id: &str,
+) -> Result<(), StoreError> {
+    let page_collision = connection
+        .query_row("SELECT type FROM blocks WHERE id = ?1", [page_id], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?;
+    if page_collision.is_some() && page_id != source_root_id {
+        return Err(invalid("Wrapper Page identity already exists"));
+    }
+    if connection
+        .query_row(
+            "SELECT 1 FROM documents WHERE id = ?1",
+            [document_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some()
+    {
+        return Err(invalid(
+            "Page transformation Document identity already exists",
+        ));
+    }
+    Ok(())
+}
+
 fn preparation(prepared: &PreparedTransfer) -> LibraryBlockTransferPreparation {
     let mut documents = vec![
         LibraryBlockTransferDocumentHead {
@@ -433,8 +768,540 @@ fn preparation(prepared: &PreparedTransfer) -> LibraryBlockTransferPreparation {
         lease_documents: documents,
         expected_location_revisions: prepared.expected_location_revisions.clone(),
         source_document_id: prepared.source_authority.head.id.clone(),
-        target_document_id: prepared.target_authority.head.id.clone(),
+        target_document_id: Some(prepared.target_authority.head.id.clone()),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_page_parent_transfer(
+    connection: &Connection,
+    context: &BoundModuleContext,
+    library_id: &str,
+    operation_id: &str,
+    store_epoch: &str,
+    request_hash: &str,
+    intent: &LibraryBlockTransferLogicalIntent,
+    write_fence: Option<&[LibraryBlockTransferDocumentHead]>,
+) -> Result<LibraryApplyOutcome, StoreError> {
+    let mut prepared =
+        prepare_page_parent_transfer(connection, context, library_id, operation_id, intent)?;
+    let expected_preparation = page_parent_preparation(&prepared);
+    if write_fence != Some(expected_preparation.lease_documents.as_slice()) {
+        return Err(StoreError::new(
+            StoreErrorCode::RevisionConflict,
+            "Block transfer requires a trusted exact-closure write fence",
+            true,
+        ));
+    }
+    let now = sqlite_now(connection)?;
+    if intent.mode == LibraryBlockTransferMode::Move
+        && prepared.source_authority.head.project_id != prepared.target_project_id
+    {
+        connection.execute(
+            "DELETE FROM block_asset_refs WHERE document_id = ?1",
+            [&prepared.source_authority.head.id],
+        )?;
+        connection.execute(
+            "DELETE FROM block_search_units WHERE document_id = ?1 AND source_revision IS NULL",
+            [&prepared.source_authority.head.id],
+        )?;
+    }
+
+    let before_block_id = match &intent.target {
+        LibraryBlockTransferTarget::Library {
+            before_block_id, ..
+        } => before_block_id.as_deref(),
+        _ => None,
+    };
+    let mut staged = Vec::with_capacity(prepared.roots.len());
+    for root in &prepared.roots {
+        let stage = stage_page_parent_root(
+            connection,
+            library_id,
+            &prepared,
+            root,
+            before_block_id,
+            &now,
+        )?;
+        staged.push(stage);
+    }
+
+    let mut document_commits = Vec::new();
+    if let Some(source_update) = prepared.source_update.take() {
+        let update_id = format!("block-transfer:{request_hash}:source");
+        document_commits.push(persist_prepared_update(
+            connection,
+            &prepared.source_authority,
+            &prepared.source_materialization,
+            &mut prepared.source_engine,
+            source_update,
+            &update_id,
+            store_epoch,
+        )?);
+    }
+    for stage in staged {
+        document_commits.push(persist_page_parent_genesis(
+            connection,
+            store_epoch,
+            request_hash,
+            stage,
+            &now,
+        )?);
+    }
+
+    let result_root_block_ids = prepared
+        .roots
+        .iter()
+        .map(|root| root.page_id.clone())
+        .collect::<Vec<_>>();
+    let result_block_ids = prepared
+        .roots
+        .iter()
+        .flat_map(|root| transformation_result_blocks(&root.transformation))
+        .collect::<Vec<_>>();
+    let (final_locations, final_location_revisions) =
+        read_final_locations(connection, &result_block_ids)?;
+    let result = LibraryBlockTransferResult {
+        mode: intent.mode,
+        source_root_block_ids: intent.root_block_ids.clone(),
+        result_root_block_ids,
+        copied_block_ids: prepared.copied_block_ids.clone(),
+        transformation_evidence: prepared
+            .roots
+            .iter()
+            .map(transformation_evidence)
+            .collect::<Result<_, _>>()?,
+        final_locations,
+        final_location_revisions: final_location_revisions.clone(),
+        document_commits: document_commits
+            .iter()
+            .map(|commit| commit.public.clone())
+            .collect(),
+        affected_database_ids: Vec::new(),
+    };
+    let committed_revisions = final_location_revisions
+        .iter()
+        .map(|(block_id, revision)| (format!("blockLocation:{block_id}"), *revision))
+        .chain(document_commits.iter().map(|commit| {
+            (
+                format!("documentHead:{}", commit.public.document_id),
+                commit.public.head_seq,
+            )
+        }))
+        .collect();
+    let outcome = finish_mutation(
+        connection,
+        context,
+        store_epoch,
+        operation_id,
+        request_hash,
+        MutationEffects {
+            project_id: prepared.target_project_id.clone(),
+            operation_kind: "transfer_blocks",
+            change_kind: "block_mutation",
+            did_mutate: true,
+            created_target: None,
+            affected_parent_keys: vec![format!("library:{library_id}")],
+            affected_block_ids: result_block_ids,
+            affected_page_ids: prepared
+                .roots
+                .iter()
+                .map(|root| root.page_id.clone())
+                .collect(),
+            affected_database_ids: Vec::new(),
+            affected_view_ids: Vec::new(),
+            affected_document_ids: document_commits
+                .iter()
+                .map(|commit| commit.public.document_id.clone())
+                .collect(),
+            committed_revisions,
+            page_copy: None,
+            block_transfer: Some(result.clone()),
+            committed_at: now.clone(),
+        },
+    )?;
+    persist_mutation_ledger(
+        connection,
+        operation_id,
+        &prepared.target_project_id,
+        store_epoch,
+        request_hash,
+        intent,
+        &result,
+        outcome.committed.event_sequence,
+        &now,
+    )?;
+    persist_operation_checkpoints(
+        connection,
+        context,
+        operation_id,
+        &intent.actor,
+        &document_commits,
+        outcome.committed.event_sequence,
+        &now,
+    )?;
+    Ok(outcome)
+}
+
+struct StagedPageParentGenesis {
+    page_id: String,
+    document_id: String,
+    top_level_rank: String,
+    prepared: crate::document::PreparedYjsGenesis,
+}
+
+fn stage_page_parent_root(
+    connection: &Connection,
+    library_id: &str,
+    prepared: &PreparedPageParentTransfer,
+    root: &PreparedPageParentRoot,
+    before_block_id: Option<&str>,
+    now: &str,
+) -> Result<StagedPageParentGenesis, StoreError> {
+    let (rich_title, body_roots, promotes_existing_root) = match &root.transformation {
+        BlockToPageTransformation::Promote {
+            rich_title,
+            body_roots,
+            ..
+        } => (
+            rich_title,
+            body_roots.as_slice(),
+            root.page_id == root.source_root_id,
+        ),
+        BlockToPageTransformation::Wrap {
+            rich_title,
+            wrapped_root,
+            ..
+        } => (rich_title, std::slice::from_ref(wrapped_root), false),
+        BlockToPageTransformation::AlreadyPage { .. } => {
+            return Err(invalid("Page root requires the Page ownership compiler"));
+        }
+    };
+    let source_project_id = &prepared.source_authority.head.project_id;
+    if promotes_existing_root && prepared.source_update.is_some() {
+        let changed = connection.execute(
+            "UPDATE blocks SET project_id = ?1, type = 'page', location_kind = 'space', \
+               containing_document_id = NULL, containing_database_id = NULL, \
+               location_revision = location_revision + 1, metadata_revision = metadata_revision + 1, \
+               updated_at = ?2 WHERE id = ?3 AND project_id = ?4 AND lifecycle = 'active' \
+               AND location_kind = 'document' AND containing_document_id = ?5",
+            params![
+                prepared.target_project_id,
+                now,
+                root.page_id,
+                source_project_id,
+                prepared.source_authority.head.id,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StoreError::new(
+                StoreErrorCode::RevisionConflict,
+                format!("Block {} changed before Page promotion", root.page_id),
+                true,
+            ));
+        }
+    } else {
+        connection.execute(
+            "INSERT INTO blocks( \
+               id, project_id, type, lifecycle, location_kind, containing_document_id, \
+               containing_database_id, location_revision, metadata_revision, created_at, updated_at \
+             ) VALUES (?1, ?2, 'page', 'active', 'space', NULL, NULL, 1, 1, ?3, ?3)",
+            params![root.page_id, prepared.target_project_id, now],
+        )?;
+    }
+    connection.execute(
+        "INSERT INTO documents( \
+           id, project_id, generation, head_seq, schema_key, schema_version, state_vector, \
+           state_hash, readiness, authority, genesis_source_revision, created_at, updated_at, sync_engine \
+         ) VALUES (?1, ?2, 1, 0, 'nodex.page', 2, X'', '', 'pending_genesis', \
+           'legacy_shadow', NULL, ?3, ?3, 'yjs')",
+        params![root.document_id, prepared.target_project_id, now],
+    )?;
+    if prepared.source_update.is_some() {
+        let body_ids = body_roots
+            .iter()
+            .flat_map(|block| {
+                let mut ids = Vec::new();
+                collect_materialized_block_ids(std::slice::from_ref(block), &mut ids);
+                ids
+            })
+            .filter(|block_id| root.source_block_ids.contains(block_id))
+            .collect::<Vec<_>>();
+        for block_id in body_ids {
+            let changed = connection.execute(
+                "UPDATE blocks SET project_id = ?1, containing_document_id = ?2, \
+                   location_revision = location_revision + 1, updated_at = ?3 \
+                 WHERE id = ?4 AND project_id = ?5 AND lifecycle = 'active' \
+                   AND location_kind = 'document' AND containing_document_id = ?6",
+                params![
+                    prepared.target_project_id,
+                    root.document_id,
+                    now,
+                    block_id,
+                    source_project_id,
+                    prepared.source_authority.head.id,
+                ],
+            )?;
+            if changed != 1 {
+                return Err(StoreError::new(
+                    StoreErrorCode::RevisionConflict,
+                    format!("Block {block_id} changed before Page transformation"),
+                    true,
+                ));
+            }
+        }
+    }
+    connection.execute(
+        "INSERT INTO block_documents(block_id, document_id, project_id, created_at) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            root.page_id,
+            root.document_id,
+            prepared.target_project_id,
+            now
+        ],
+    )?;
+    let revisions = connection.query_row(
+        "SELECT location_revision, metadata_revision FROM blocks WHERE id = ?1",
+        [&root.page_id],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    connection.execute(
+        "INSERT INTO pages( \
+           block_id, library_id, document_id, parent_kind, parent_id, lifecycle, \
+           parent_revision, metadata_revision, created_at, updated_at \
+         ) VALUES (?1, ?2, ?3, 'library', ?2, 'active', ?4, ?5, ?6, ?6)",
+        params![
+            root.page_id,
+            library_id,
+            root.document_id,
+            revisions.0,
+            revisions.1,
+            now,
+        ],
+    )?;
+    let top_level_rank = insert_top_level_placement(
+        connection,
+        &prepared.target_project_id,
+        &root.page_id,
+        before_block_id,
+        now,
+    )?;
+    let anchor = before_block_id
+        .map(|block_id| read_library_anchor(connection, library_id, block_id))
+        .transpose()?;
+    insert_library_placement(connection, library_id, &root.page_id, anchor.as_ref(), now)?;
+    let title_delta = crate::domain::rich_text::rich_text_to_delta(rich_title)
+        .map_err(|error| invalid(error.to_string()))?;
+    let prepared_genesis = prepare_yjs_clone_genesis(
+        &root.document_id,
+        "page",
+        BlockDocumentSchema::PageV2,
+        Some(&title_delta),
+        body_roots,
+    )?;
+    Ok(StagedPageParentGenesis {
+        page_id: root.page_id.clone(),
+        document_id: root.document_id.clone(),
+        top_level_rank,
+        prepared: prepared_genesis,
+    })
+}
+
+fn persist_page_parent_genesis(
+    connection: &Connection,
+    store_epoch: &str,
+    request_hash: &str,
+    stage: StagedPageParentGenesis,
+    now: &str,
+) -> Result<PersistedTransferCommit, StoreError> {
+    let authority = read_document_authority(connection, &stage.document_id)?
+        .ok_or_else(|| corrupt("Staged Page has no Document authority"))?;
+    let update_id = format!(
+        "block-transfer-page-genesis:{}",
+        sha256(format!("{request_hash}\0{}", stage.page_id).as_bytes())
+    );
+    let full_state = stage.prepared.engine.full_state_v1();
+    let persisted = persist_yjs_genesis(
+        connection,
+        PersistYjsGenesis {
+            authority: &authority,
+            materialization: &stage.prepared.materialization,
+            update_id: &update_id,
+            client_session_id: TRANSFER_CLIENT_SESSION_ID,
+            update: &stage.prepared.update_v1,
+            state_vector: &stage.prepared.state_vector_v1,
+            full_state: &full_state,
+            store_epoch,
+            operation_id: &update_id,
+            emit_event: false,
+        },
+    )?;
+    insert_page_read_model(
+        connection,
+        &stage.page_id,
+        &authority.head.project_id,
+        &stage.document_id,
+        "space",
+        None,
+        Some(&stage.top_level_rank),
+        &stage.prepared.materialization,
+        persisted.head_seq,
+        now,
+    )?;
+    let revisions = connection.query_row(
+        "SELECT location_revision, metadata_revision FROM blocks WHERE id = ?1",
+        [&stage.page_id],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    )?;
+    connection.execute(
+        "UPDATE page_read_model SET location_revision = ?1, metadata_revision = ?2 \
+         WHERE page_block_id = ?3",
+        params![revisions.0, revisions.1, stage.page_id],
+    )?;
+    Ok(PersistedTransferCommit {
+        public: LibraryBlockTransferDocumentCommit {
+            document_id: stage.document_id,
+            generation: 1,
+            base_head_seq: 0,
+            head_seq: persisted.head_seq,
+            update_id,
+            update: stage.prepared.update_v1,
+            state_vector: persisted.state_vector,
+        },
+        materialization: stage.prepared.materialization,
+    })
+}
+
+fn insert_top_level_placement(
+    connection: &Connection,
+    project_id: &str,
+    block_id: &str,
+    before_block_id: Option<&str>,
+    now: &str,
+) -> Result<String, StoreError> {
+    let Some(before_block_id) = before_block_id else {
+        let rank = append_rank(connection, "top_level_block_placements", project_id)?;
+        connection.execute(
+            "INSERT INTO top_level_block_placements( \
+               block_id, project_id, rank_key, created_at, updated_at \
+             ) VALUES (?1, ?2, ?3, ?4, ?4)",
+            params![block_id, project_id, rank, now],
+        )?;
+        return Ok(rank);
+    };
+    let ids = connection
+        .prepare(
+            "SELECT placement.block_id FROM top_level_block_placements placement \
+             JOIN blocks block ON block.id = placement.block_id \
+             WHERE placement.project_id = ?1 AND block.lifecycle = 'active' \
+             ORDER BY placement.rank_key, placement.block_id",
+        )?
+        .query_map([project_id], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let position = ids
+        .iter()
+        .position(|id| id == before_block_id)
+        .ok_or_else(|| invalid("Library placement anchor is unavailable"))?;
+    let mut ordered = ids;
+    ordered.insert(position, block_id.to_owned());
+    for (index, id) in ordered.iter().enumerate() {
+        let rank = format!("{:020}", index + 1);
+        if id == block_id {
+            connection.execute(
+                "INSERT INTO top_level_block_placements( \
+                   block_id, project_id, rank_key, created_at, updated_at \
+                 ) VALUES (?1, ?2, ?3, ?4, ?4)",
+                params![id, project_id, rank, now],
+            )?;
+        } else {
+            connection.execute(
+                "UPDATE top_level_block_placements SET rank_key = ?1, updated_at = ?2 \
+                 WHERE block_id = ?3 AND project_id = ?4 AND rank_key <> ?1",
+                params![rank, now, id, project_id],
+            )?;
+        }
+    }
+    Ok(format!("{:020}", position + 1))
+}
+
+fn read_library_anchor(
+    connection: &Connection,
+    library_id: &str,
+    block_id: &str,
+) -> Result<LibraryPlacementAnchor, StoreError> {
+    let revision = connection
+        .query_row(
+            "SELECT block.location_revision FROM library_block_placements placement \
+             JOIN blocks block ON block.id = placement.block_id \
+             WHERE placement.library_id = ?1 AND placement.block_id = ?2 \
+               AND block.lifecycle = 'active'",
+            params![library_id, block_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .ok_or_else(|| invalid("Library placement anchor is unavailable"))?;
+    Ok(LibraryPlacementAnchor {
+        block_id: block_id.to_owned(),
+        expected_location_revision: revision,
+    })
+}
+
+fn transformation_evidence(root: &PreparedPageParentRoot) -> Result<Value, StoreError> {
+    let (kind, rich_title, body_root_ids, consumed_props, wrapper_reason) =
+        match &root.transformation {
+            BlockToPageTransformation::Promote {
+                rich_title,
+                body_roots,
+                consumed_props,
+                ..
+            } => (
+                "promote",
+                rich_title,
+                body_roots.iter().map(|block| block.id.clone()).collect(),
+                consumed_props.keys().cloned().collect::<Vec<_>>(),
+                None,
+            ),
+            BlockToPageTransformation::Wrap {
+                rich_title,
+                wrapped_root,
+                reason,
+                ..
+            } => (
+                "wrap",
+                rich_title,
+                vec![wrapped_root.id.clone()],
+                Vec::new(),
+                Some(match reason {
+                    PageWrapperReason::TypeRequiresWrapper => "type_requires_wrapper",
+                    PageWrapperReason::UnsupportedPrimaryContent => "unsupported_primary_content",
+                    PageWrapperReason::UnmappedTypeState => "unmapped_type_state",
+                }),
+            ),
+            BlockToPageTransformation::AlreadyPage { .. } => {
+                return Err(corrupt("Committed Page transformation was not compiled"));
+            }
+        };
+    let semantic_title =
+        serde_json::to_vec(rich_title).map_err(|_| internal("Page transformation title JSON"))?;
+    let mut evidence = serde_json::json!({
+        "sourceBlockId": root.source_root_id,
+        "resultPageId": root.page_id,
+        "kind": kind,
+        "sourceBlockType": match &root.transformation {
+            BlockToPageTransformation::Promote { consumed_type, .. } => consumed_type,
+            BlockToPageTransformation::Wrap { wrapped_root, .. } => &wrapped_root.block_type,
+            BlockToPageTransformation::AlreadyPage { .. } => "page",
+        },
+        "semanticTitleHash": sha256(&semantic_title),
+        "consumedPropertyKeys": consumed_props,
+        "bodyRootBlockIds": body_root_ids,
+        "sourceToResultBlockIds": root.source_to_result_block_ids,
+    });
+    if let Some(wrapper_reason) = wrapper_reason {
+        evidence["wrapperReason"] = Value::String(wrapper_reason.to_owned());
+    }
+    Ok(evidence)
 }
 
 fn affected_page_ids(prepared: &PreparedTransfer) -> Vec<String> {
@@ -793,7 +1660,13 @@ fn read_final_locations(
         let row = connection
             .query_row(
                 "SELECT location_kind, containing_document_id, containing_database_id, \
-                        location_revision FROM blocks WHERE id = ?1",
+                        location_revision, project.library_id, block.project_id, \
+                        EXISTS(SELECT 1 FROM library_block_placements placement \
+                          WHERE placement.block_id = block.id AND placement.library_id = project.library_id), \
+                        top_level.rank_key \
+                 FROM blocks block JOIN projects project ON project.id = block.project_id \
+                 LEFT JOIN top_level_block_placements top_level ON top_level.block_id = block.id \
+                 WHERE block.id = ?1",
                 [block_id],
                 |row| {
                     Ok((
@@ -801,13 +1674,24 @@ fn read_final_locations(
                         row.get::<_, Option<String>>(1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, bool>(6)?,
+                        row.get::<_, Option<String>>(7)?,
                     ))
                 },
             )
             .optional()?
             .ok_or_else(|| corrupt(format!("Committed Block disappeared: {block_id}")))?;
-        let location = match (row.0.as_str(), row.1, row.2) {
-            ("document", Some(document_id), None) => LibraryBlockLocation::Document { document_id },
+        let location = match (row.0.as_str(), row.1, row.2, row.6, row.7) {
+            ("document", Some(document_id), None, false, None) => {
+                LibraryBlockLocation::Document { document_id }
+            }
+            ("space", None, None, true, Some(rank_key)) => LibraryBlockLocation::Library {
+                library_id: row.4,
+                project_id: row.5,
+                rank_key,
+            },
             _ => {
                 return Err(corrupt(format!(
                     "Committed Block has invalid location: {block_id}"

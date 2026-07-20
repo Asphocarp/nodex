@@ -412,7 +412,10 @@ fn unix_timestamp_millis() -> String {
 
 #[cfg(test)]
 mod tests {
-    use nodex_core_contracts::document::OwnedDocumentIntent;
+    use nodex_core_contracts::document::{
+        DocumentBlockOperation as ContractDocumentBlockOperation, DocumentBlockUpdatePatch,
+        DocumentOptionalValue, OwnedDocumentIntent,
+    };
     use nodex_core_contracts::library::{
         LibraryAccess, LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode,
         LibraryBlockTransferPlan, LibraryBlockTransferSource, LibraryBlockTransferTarget,
@@ -1512,6 +1515,385 @@ mod tests {
                 Ok(())
             })
             .expect("cross-storage transfer evidence");
+    }
+
+    #[test]
+    fn library_target_promotes_and_wraps_document_roots_atomically() {
+        const NOW: &str = "2026-07-20T00:45:00.000Z";
+        const PROMOTE_PAGE: &str = "018f0000-0000-7000-8000-000000000301";
+        const WRAP_PAGE: &str = "018f0000-0000-7000-8000-000000000302";
+        const ANCHOR_PAGE: &str = "018f0000-0000-7000-8000-000000000303";
+        const PROMOTE_DOCUMENT: &str = "document:promotion-source";
+        const WRAP_DOCUMENT: &str = "document:wrapper-source";
+        const ANCHOR_DOCUMENT: &str = "document:promotion-anchor";
+        const PROMOTE_SIBLING: &str = "018f0000-0000-7000-8000-000000000311";
+        const WRAP_SIBLING: &str = "018f0000-0000-7000-8000-000000000312";
+        let context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:page-transformation".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Transform', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed authority");
+        let library = LibraryModule::new("profile-1", "library-1", &kernel);
+        for (operation_id, page_id, document_id, title) in [
+            (
+                "create-promote-source",
+                PROMOTE_PAGE,
+                PROMOTE_DOCUMENT,
+                "Promote",
+            ),
+            ("create-wrap-source", WRAP_PAGE, WRAP_DOCUMENT, "Wrap"),
+            (
+                "create-transform-anchor",
+                ANCHOR_PAGE,
+                ANCHOR_DOCUMENT,
+                "Anchor",
+            ),
+        ] {
+            library
+                .apply(
+                    &context,
+                    ModuleApplyRequest {
+                        version: CORE_CONTRACT_VERSION,
+                        operation_id: operation_id.to_owned(),
+                        store_epoch: StoreEpoch("epoch-1".to_owned()),
+                        intent: LibraryIntent::CreatePage {
+                            page_id: page_id.to_owned(),
+                            document_id: document_id.to_owned(),
+                            title: title.to_owned(),
+                            parent: LibraryWriteParent::Library { before: None },
+                        },
+                    },
+                )
+                .expect("create Page");
+        }
+        let roots = kernel
+            .readers()
+            .read_default(|connection| {
+                let root = |document_id: &str| {
+                    connection.query_row(
+                        "SELECT block_id FROM document_block_index \
+                         WHERE document_id = ?1 ORDER BY ordinal LIMIT 1",
+                        [document_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                };
+                Ok((root(PROMOTE_DOCUMENT)?, root(WRAP_DOCUMENT)?))
+            })
+            .expect("source roots");
+        let documents = OwnedDocumentModule::new("profile-1", "library-1", &kernel);
+        let paragraph = |id: &str| {
+            serde_json::json!({
+                "id": id,
+                "type": "paragraph",
+                "props": {
+                    "backgroundColor": "default",
+                    "textColor": "default",
+                    "textAlignment": "left"
+                },
+                "content": [],
+                "children": []
+            })
+        };
+        documents
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "shape-promote-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: PROMOTE_DOCUMENT.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![
+                            ContractDocumentBlockOperation::UpdateBlock {
+                                block_id: roots.0.clone(),
+                                patch: DocumentBlockUpdatePatch {
+                                    block_type: None,
+                                    props: None,
+                                    content: DocumentOptionalValue::Value {
+                                        value: serde_json::json!([{
+                                            "type": "text",
+                                            "text": "Promoted title",
+                                            "styles": { "bold": true }
+                                        }]),
+                                    },
+                                    unset_content: false,
+                                },
+                            },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(PROMOTE_SIBLING),
+                                parent_block_id: None,
+                                before_block_id: None,
+                            },
+                        ],
+                        actor: serde_json::json!({ "kind": "test" }),
+                        write_fence_prepared: true,
+                    },
+                },
+            )
+            .expect("shape promotion source");
+        documents
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "shape-wrapper-source".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: OwnedDocumentIntent::ApplyOperationBatch {
+                        document_id: WRAP_DOCUMENT.to_owned(),
+                        generation: 1,
+                        expected_head_seq: 1,
+                        operations: vec![
+                            ContractDocumentBlockOperation::UpdateBlock {
+                                block_id: roots.1.clone(),
+                                patch: DocumentBlockUpdatePatch {
+                                    block_type: Some("checkListItem".to_owned()),
+                                    props: Some(BTreeMap::from([(
+                                        "checked".to_owned(),
+                                        serde_json::json!(true),
+                                    )])),
+                                    content: DocumentOptionalValue::Value {
+                                        value: serde_json::json!([{
+                                            "type": "text",
+                                            "text": "Wrapped task",
+                                            "styles": {}
+                                        }]),
+                                    },
+                                    unset_content: false,
+                                },
+                            },
+                            ContractDocumentBlockOperation::InsertBlock {
+                                block: paragraph(WRAP_SIBLING),
+                                parent_block_id: None,
+                                before_block_id: None,
+                            },
+                        ],
+                        actor: serde_json::json!({ "kind": "test" }),
+                        write_fence_prepared: true,
+                    },
+                },
+            )
+            .expect("shape wrapper source");
+
+        let promote_intent = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Move,
+            root_block_ids: vec![roots.0.clone()],
+            source: LibraryBlockTransferSource::Document {
+                document_id: PROMOTE_DOCUMENT.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Library {
+                library_id: "library-1".to_owned(),
+                before_block_id: Some(ANCHOR_PAGE.to_owned()),
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "promote-root-to-library".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: promote_intent.clone(),
+                    },
+                },
+            )
+            .expect("plan promotion");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("promotion plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared promotion");
+        };
+        assert_eq!(preparation.lease_documents.len(), 1);
+        assert_eq!(preparation.target_document_id, None);
+        let promoted = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "promote-root-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: promote_intent,
+                        write_fence: Some(preparation.lease_documents),
+                    },
+                },
+            )
+            .expect("promote root");
+        let promoted_result = promoted
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("promotion result");
+        assert_eq!(promoted_result.result_root_block_ids, vec![roots.0.clone()]);
+        assert_eq!(promoted_result.document_commits.len(), 2);
+        assert_eq!(
+            promoted_result.transformation_evidence[0]["kind"],
+            "promote"
+        );
+
+        let wrap_intent = LibraryBlockTransferLogicalIntent {
+            actor: serde_json::json!({ "kind": "test" }),
+            mode: LibraryBlockTransferMode::Copy,
+            root_block_ids: vec![roots.1.clone()],
+            source: LibraryBlockTransferSource::Page {
+                page_id: WRAP_PAGE.to_owned(),
+            },
+            target: LibraryBlockTransferTarget::Library {
+                library_id: "library-1".to_owned(),
+                before_block_id: Some(ANCHOR_PAGE.to_owned()),
+            },
+        };
+        let plan = library
+            .read(
+                &context,
+                ModuleReadRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    read: LibraryRead::PlanBlockTransfer {
+                        operation_id: "copy-wrapper-to-library".to_owned(),
+                        store_epoch: "epoch-1".to_owned(),
+                        intent: wrap_intent.clone(),
+                    },
+                },
+            )
+            .expect("plan wrapper");
+        let LibraryReadValue::BlockTransferPlan { value } = plan.value else {
+            panic!("wrapper plan");
+        };
+        let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
+            panic!("prepared wrapper");
+        };
+        let wrapped = library
+            .apply(
+                &context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "copy-wrapper-to-library".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: wrap_intent,
+                        write_fence: Some(preparation.lease_documents),
+                    },
+                },
+            )
+            .expect("copy wrapper");
+        let wrapped_result = wrapped
+            .committed
+            .value
+            .block_transfer
+            .as_ref()
+            .expect("wrapper result");
+        let wrapper_page_id = &wrapped_result.result_root_block_ids[0];
+        let copied_task_id = &wrapped_result.copied_block_ids[&roots.1];
+        assert_ne!(wrapper_page_id, copied_task_id);
+        assert_eq!(wrapped_result.transformation_evidence[0]["kind"], "wrap");
+        assert_eq!(
+            wrapped_result.transformation_evidence[0]["wrapperReason"],
+            "type_requires_wrapper"
+        );
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let promoted_row = connection.query_row(
+                    "SELECT block.type, block.location_kind, block.location_revision, \
+                            block.metadata_revision, page.parent_kind, page.parent_id, \
+                            materialization.title \
+                     FROM blocks block JOIN pages page ON page.block_id = block.id \
+                     JOIN document_materializations materialization ON materialization.document_id = page.document_id \
+                     WHERE block.id = ?1",
+                    [&roots.0],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    promoted_row,
+                    (
+                        "page".to_owned(),
+                        "space".to_owned(),
+                        2,
+                        2,
+                        "library".to_owned(),
+                        "library-1".to_owned(),
+                        "Promoted title".to_owned(),
+                    )
+                );
+                let ordered = connection
+                    .prepare(
+                        "SELECT block_id FROM library_block_placements \
+                         WHERE library_id = 'library-1' ORDER BY rank_key, block_id",
+                    )?
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                let anchor_index = ordered.iter().position(|id| id == ANCHOR_PAGE).unwrap();
+                assert_eq!(ordered[anchor_index - 1], *wrapper_page_id);
+                assert_eq!(ordered[anchor_index - 2], roots.0);
+                let copied_body = connection.query_row(
+                    "SELECT materialization.block_tree_json FROM pages page \
+                     JOIN document_materializations materialization ON materialization.document_id = page.document_id \
+                     WHERE page.block_id = ?1",
+                    [wrapper_page_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let copied_body: serde_json::Value =
+                    serde_json::from_str(&copied_body).expect("body JSON");
+                assert_eq!(copied_body[0]["id"], copied_task_id.as_str());
+                assert_eq!(copied_body[0]["type"], "checkListItem");
+                let source_task_present = connection.query_row(
+                    "SELECT count(*) FROM document_block_index \
+                     WHERE document_id = ?1 AND block_id = ?2",
+                    params![WRAP_DOCUMENT, roots.1],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(source_task_present, 1);
+                Ok(())
+            })
+            .expect("transformation evidence");
     }
 }
 mod block_transfer;

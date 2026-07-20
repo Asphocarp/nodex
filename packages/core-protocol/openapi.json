@@ -3225,6 +3225,8 @@
             "type": "object",
             "required": [
               "library_id",
+              "project_id",
+              "rank_key",
               "kind"
             ],
             "properties": {
@@ -3235,6 +3237,12 @@
                 ]
               },
               "library_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "rank_key": {
                 "type": "string"
               }
             }
@@ -3448,8 +3456,7 @@
         "required": [
           "lease_documents",
           "expected_location_revisions",
-          "source_document_id",
-          "target_document_id"
+          "source_document_id"
         ],
         "properties": {
           "expected_location_revisions": {
@@ -3472,7 +3479,10 @@
             "type": "string"
           },
           "target_document_id": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

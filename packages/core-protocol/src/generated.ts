@@ -938,6 +938,8 @@ export interface components {
             /** @enum {string} */
             readonly kind: "library";
             readonly library_id: string;
+            readonly project_id: string;
+            readonly rank_key: string;
         } | {
             readonly document_id: string;
             /** @enum {string} */
@@ -996,7 +998,7 @@ export interface components {
             };
             readonly lease_documents: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
             readonly source_document_id: string;
-            readonly target_document_id: string;
+            readonly target_document_id?: string | null;
         };
         readonly LibraryBlockTransferResult: {
             readonly affected_database_ids: readonly string[];
