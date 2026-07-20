@@ -727,18 +727,22 @@ describe("Desktop Document sync bridge", () => {
     };
     const preparation = {
       source_document_id: "document:source",
+      source_database_id: null,
       target_document_id: "document:target",
       target_database_id: null,
-      lease_documents: [{
-        document_id: "document:source",
-        generation: 1,
-        expected_head_seq: 2,
-      }, {
-        document_id: "document:target",
-        generation: 1,
-        expected_head_seq: 5,
-      }],
-      expected_location_revisions: { "block:root": 1 },
+      write_fence: {
+        documents: [{
+          document_id: "document:source",
+          generation: 1,
+          expected_head_seq: 2,
+        }, {
+          document_id: "document:target",
+          generation: 1,
+          expected_head_seq: 5,
+        }],
+        location_revisions: { "block:root": 1 },
+        source_memberships: {},
+      },
     } as const;
     const preparedSnapshot = {
       version: 1 as const,
@@ -886,13 +890,17 @@ describe("Desktop Document sync bridge", () => {
       operationId: transferIntent.operationId,
       intent: {
         kind: "transfer_blocks",
-        write_fence: [{
-          document_id: "document:source",
-          expected_head_seq: 2,
-        }, {
-          document_id: "document:target",
-          expected_head_seq: 5,
-        }],
+        write_fence: {
+          documents: [{
+            document_id: "document:source",
+            expected_head_seq: 2,
+          }, {
+            document_id: "document:target",
+            expected_head_seq: 5,
+          }],
+          location_revisions: { "block:root": 1 },
+          source_memberships: {},
+        },
       },
     });
     for (const target of [sourceTarget, targetTarget]) {

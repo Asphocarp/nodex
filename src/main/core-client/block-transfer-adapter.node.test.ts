@@ -75,18 +75,22 @@ const preparedSnapshot = (): LibraryReadSnapshot => ({
       kind: "prepared",
       preparation: {
         source_document_id: "document:source",
+        source_database_id: null,
         target_document_id: "document:target",
         target_database_id: null,
-        lease_documents: [{
-          document_id: "document:source",
-          generation: 1,
-          expected_head_seq: 3,
-        }, {
-          document_id: "document:target",
-          generation: 2,
-          expected_head_seq: 7,
-        }],
-        expected_location_revisions: { "block:root": 1 },
+        write_fence: {
+          documents: [{
+            document_id: "document:source",
+            generation: 1,
+            expected_head_seq: 3,
+          }, {
+            document_id: "document:target",
+            generation: 2,
+            expected_head_seq: 7,
+          }],
+          location_revisions: { "block:root": 1 },
+          source_memberships: {},
+        },
       },
     },
   },
@@ -212,15 +216,19 @@ describe("Core Block Transfer Adapter", () => {
             before_block_id: "block:before",
           },
         },
-        write_fence: [{
-          document_id: "document:source",
-          generation: 1,
-          expected_head_seq: 3,
-        }, {
-          document_id: "document:target",
-          generation: 2,
-          expected_head_seq: 7,
-        }],
+        write_fence: {
+          documents: [{
+            document_id: "document:source",
+            generation: 1,
+            expected_head_seq: 3,
+          }, {
+            document_id: "document:target",
+            generation: 2,
+            expected_head_seq: 7,
+          }],
+          location_revisions: { "block:root": 1 },
+          source_memberships: {},
+        },
       },
     }]);
   });
@@ -246,14 +254,18 @@ describe("Core Block Transfer Adapter", () => {
           kind: "prepared",
           preparation: {
             source_document_id: "document:source",
+            source_database_id: null,
             target_document_id: null,
             target_database_id: null,
-            lease_documents: [{
-              document_id: "document:source",
-              generation: 1,
-              expected_head_seq: 3,
-            }],
-            expected_location_revisions: { "block:root": 1 },
+            write_fence: {
+              documents: [{
+                document_id: "document:source",
+                generation: 1,
+                expected_head_seq: 3,
+              }],
+              location_revisions: { "block:root": 1 },
+              source_memberships: {},
+            },
           },
         },
       },
@@ -344,7 +356,11 @@ describe("Core Block Transfer Adapter", () => {
             before_block_id: "page:anchor",
           },
         },
-        write_fence: [{ document_id: "document:source" }],
+        write_fence: {
+          documents: [{ document_id: "document:source" }],
+          location_revisions: { "block:root": 1 },
+          source_memberships: {},
+        },
       },
     });
   });
@@ -372,14 +388,18 @@ describe("Core Block Transfer Adapter", () => {
           kind: "prepared",
           preparation: {
             source_document_id: "document:source",
+            source_database_id: null,
             target_document_id: null,
             target_database_id: "database:target",
-            lease_documents: [{
-              document_id: "document:source",
-              generation: 1,
-              expected_head_seq: 3,
-            }],
-            expected_location_revisions: { "block:root": 1 },
+            write_fence: {
+              documents: [{
+                document_id: "document:source",
+                generation: 1,
+                expected_head_seq: 3,
+              }],
+              location_revisions: { "block:root": 1 },
+              source_memberships: {},
+            },
           },
         },
       },
@@ -469,7 +489,87 @@ describe("Core Block Transfer Adapter", () => {
             before_page_id: "page:anchor",
           },
         },
-        write_fence: [{ document_id: "document:source" }],
+        write_fence: {
+          documents: [{ document_id: "document:source" }],
+          location_revisions: { "block:root": 1 },
+          source_memberships: {},
+        },
+      },
+    });
+  });
+
+  test("round-trips Data Source membership coordinates in the exact write fence", async () => {
+    const client = new FakeCoreClient();
+    const adapter = createCoreBlockTransferAdapter({ client, ...identity });
+    const dataSourceIntent: BlockTransferIntent = {
+      ...intent,
+      operationId: "transfer:from-data-source",
+      source: { kind: "data_source", dataSourceId: "source:origin" },
+      target: { kind: "library", libraryId: identity.libraryId },
+    };
+    client.enqueueRead({
+      ...preparedSnapshot(),
+      value: {
+        kind: "block_transfer_plan",
+        value: {
+          kind: "prepared",
+          preparation: {
+            source_document_id: null,
+            source_database_id: "database:origin",
+            target_document_id: null,
+            target_database_id: null,
+            write_fence: {
+              documents: [],
+              location_revisions: { "block:root": 4 },
+              source_memberships: {
+                "block:root": {
+                  membership_id: "membership:root",
+                  revision: 6,
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const prepared = await adapter.prepare(dataSourceIntent);
+    expect(prepared).toMatchObject({
+      ok: true,
+      value: {
+        leaseDocuments: [],
+        request: {
+          source: {
+            kind: "database",
+            databaseBlockId: "database:origin",
+            dataSourceId: "source:origin",
+            memberships: {
+              "block:root": { membershipId: "membership:root", revision: 6 },
+            },
+          },
+          expectedLocationRevisions: { "block:root": 4 },
+        },
+      },
+    });
+    if (!prepared.ok) throw new Error("Expected a prepared Data Source source");
+
+    client.enqueueApply({
+      ...committedApply(),
+      receipt: {
+        ...committedApply().receipt,
+        operation_id: dataSourceIntent.operationId,
+      },
+    });
+    await adapter.apply(prepared.value.request);
+    expect(client.applies[0]).toMatchObject({
+      intent: {
+        write_fence: {
+          documents: [],
+          location_revisions: { "block:root": 4 },
+          source_memberships: {
+            "block:root": { membership_id: "membership:root", revision: 6 },
+          },
+        },
       },
     });
   });

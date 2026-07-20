@@ -148,10 +148,23 @@ pub struct LibraryBlockTransferDocumentHead {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferMembership {
+    pub membership_id: String,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockTransferWriteFence {
+    pub documents: Vec<LibraryBlockTransferDocumentHead>,
+    pub location_revisions: std::collections::BTreeMap<String, i64>,
+    pub source_memberships: std::collections::BTreeMap<String, LibraryBlockTransferMembership>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryBlockTransferPreparation {
-    pub lease_documents: Vec<LibraryBlockTransferDocumentHead>,
-    pub expected_location_revisions: std::collections::BTreeMap<String, i64>,
-    pub source_document_id: String,
+    pub write_fence: LibraryBlockTransferWriteFence,
+    pub source_document_id: Option<String>,
+    pub source_database_id: Option<String>,
     pub target_document_id: Option<String>,
     pub target_database_id: Option<String>,
 }
@@ -743,7 +756,7 @@ pub enum LibraryIntent {
     },
     TransferBlocks {
         intent: LibraryBlockTransferLogicalIntent,
-        write_fence: Option<Vec<LibraryBlockTransferDocumentHead>>,
+        write_fence: Option<LibraryBlockTransferWriteFence>,
     },
 }
 

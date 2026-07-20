@@ -978,6 +978,11 @@ export interface components {
             readonly source: components["schemas"]["LibraryBlockTransferSource"];
             readonly target: components["schemas"]["LibraryBlockTransferTarget"];
         };
+        readonly LibraryBlockTransferMembership: {
+            readonly membership_id: string;
+            /** Format: int64 */
+            readonly revision: number;
+        };
         /** @enum {string} */
         readonly LibraryBlockTransferMode: "move" | "copy";
         readonly LibraryBlockTransferPlan: {
@@ -993,13 +998,11 @@ export interface components {
             readonly result: components["schemas"]["LibraryBlockTransferResult"];
         };
         readonly LibraryBlockTransferPreparation: {
-            readonly expected_location_revisions: {
-                readonly [key: string]: number;
-            };
-            readonly lease_documents: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
-            readonly source_document_id: string;
+            readonly source_database_id?: string | null;
+            readonly source_document_id?: string | null;
             readonly target_database_id?: string | null;
             readonly target_document_id?: string | null;
+            readonly write_fence: components["schemas"]["LibraryBlockTransferWriteFence"];
         };
         readonly LibraryBlockTransferResult: {
             readonly affected_database_ids: readonly string[];
@@ -1059,6 +1062,15 @@ export interface components {
             /** @enum {string} */
             readonly kind: "data_source";
             readonly view_id: string;
+        };
+        readonly LibraryBlockTransferWriteFence: {
+            readonly documents: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][];
+            readonly location_revisions: {
+                readonly [key: string]: number;
+            };
+            readonly source_memberships: {
+                readonly [key: string]: components["schemas"]["LibraryBlockTransferMembership"];
+            };
         };
         readonly LibraryCatalogEntry: {
             readonly kind: components["schemas"]["LibraryCatalogKind"];
@@ -1716,7 +1728,7 @@ export interface components {
                 readonly intent: components["schemas"]["LibraryBlockTransferLogicalIntent"];
                 /** @enum {string} */
                 readonly kind: "transfer_blocks";
-                readonly write_fence?: readonly components["schemas"]["LibraryBlockTransferDocumentHead"][] | null;
+                readonly write_fence?: null | components["schemas"]["LibraryBlockTransferWriteFence"];
             };
             readonly operation_id: string;
             readonly store_epoch: components["schemas"]["StoreEpoch"];

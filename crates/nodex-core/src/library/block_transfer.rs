@@ -4,7 +4,8 @@ use nodex_core_contracts::library::{
     LibraryBlockLocation, LibraryBlockTransferDocumentCommit, LibraryBlockTransferDocumentHead,
     LibraryBlockTransferLogicalIntent, LibraryBlockTransferMode, LibraryBlockTransferPlan,
     LibraryBlockTransferPreparation, LibraryBlockTransferResult, LibraryBlockTransferSource,
-    LibraryBlockTransferTarget, LibraryCommitValue, LibraryPlacementAnchor, LibraryReceipt,
+    LibraryBlockTransferTarget, LibraryBlockTransferWriteFence, LibraryCommitValue,
+    LibraryPlacementAnchor, LibraryReceipt,
 };
 use nodex_core_contracts::{BoundModuleContext, CommittedModuleValue};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -184,7 +185,7 @@ pub(super) fn apply(
     store_epoch: &str,
     request_hash: &str,
     intent: &LibraryBlockTransferLogicalIntent,
-    write_fence: Option<&[LibraryBlockTransferDocumentHead]>,
+    write_fence: Option<&LibraryBlockTransferWriteFence>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     validate_intent(library_id, intent)?;
     if matches!(
@@ -204,7 +205,7 @@ pub(super) fn apply(
     }
     let mut prepared = prepare_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = preparation(&prepared);
-    if write_fence != Some(expected_preparation.lease_documents.as_slice()) {
+    if write_fence != Some(&expected_preparation.write_fence) {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",
@@ -326,7 +327,8 @@ pub(super) fn apply(
             affected_database_ids: Vec::new(),
             affected_view_ids: Vec::new(),
             affected_document_ids: expected_preparation
-                .lease_documents
+                .write_fence
+                .documents
                 .iter()
                 .map(|head| head.document_id.clone())
                 .collect(),
@@ -701,13 +703,17 @@ fn page_parent_preparation(
     prepared: &PreparedPageParentTransfer,
 ) -> LibraryBlockTransferPreparation {
     LibraryBlockTransferPreparation {
-        lease_documents: vec![LibraryBlockTransferDocumentHead {
-            document_id: prepared.source_authority.head.id.clone(),
-            generation: prepared.source_authority.head.generation,
-            expected_head_seq: prepared.source_authority.head.head_seq,
-        }],
-        expected_location_revisions: prepared.expected_location_revisions.clone(),
-        source_document_id: prepared.source_authority.head.id.clone(),
+        write_fence: LibraryBlockTransferWriteFence {
+            documents: vec![LibraryBlockTransferDocumentHead {
+                document_id: prepared.source_authority.head.id.clone(),
+                generation: prepared.source_authority.head.generation,
+                expected_head_seq: prepared.source_authority.head.head_seq,
+            }],
+            location_revisions: prepared.expected_location_revisions.clone(),
+            source_memberships: BTreeMap::new(),
+        },
+        source_document_id: Some(prepared.source_authority.head.id.clone()),
+        source_database_id: None,
         target_document_id: None,
         target_database_id: match &prepared.target {
             PreparedPageParentTarget::Library { .. } => None,
@@ -825,9 +831,13 @@ fn preparation(prepared: &PreparedTransfer) -> LibraryBlockTransferPreparation {
     documents.sort_by(|left, right| left.document_id.cmp(&right.document_id));
     documents.dedup_by(|left, right| left.document_id == right.document_id);
     LibraryBlockTransferPreparation {
-        lease_documents: documents,
-        expected_location_revisions: prepared.expected_location_revisions.clone(),
-        source_document_id: prepared.source_authority.head.id.clone(),
+        write_fence: LibraryBlockTransferWriteFence {
+            documents,
+            location_revisions: prepared.expected_location_revisions.clone(),
+            source_memberships: BTreeMap::new(),
+        },
+        source_document_id: Some(prepared.source_authority.head.id.clone()),
+        source_database_id: None,
         target_document_id: Some(prepared.target_authority.head.id.clone()),
         target_database_id: None,
     }
@@ -842,12 +852,12 @@ fn apply_page_parent_transfer(
     store_epoch: &str,
     request_hash: &str,
     intent: &LibraryBlockTransferLogicalIntent,
-    write_fence: Option<&[LibraryBlockTransferDocumentHead]>,
+    write_fence: Option<&LibraryBlockTransferWriteFence>,
 ) -> Result<LibraryApplyOutcome, StoreError> {
     let mut prepared =
         prepare_page_parent_transfer(connection, context, library_id, operation_id, intent)?;
     let expected_preparation = page_parent_preparation(&prepared);
-    if write_fence != Some(expected_preparation.lease_documents.as_slice()) {
+    if write_fence != Some(&expected_preparation.write_fence) {
         return Err(StoreError::new(
             StoreErrorCode::RevisionConflict,
             "Block transfer requires a trusted exact-closure write fence",

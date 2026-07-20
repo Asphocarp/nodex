@@ -3395,6 +3395,22 @@
           }
         }
       },
+      "LibraryBlockTransferMembership": {
+        "type": "object",
+        "required": [
+          "membership_id",
+          "revision"
+        ],
+        "properties": {
+          "membership_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "LibraryBlockTransferMode": {
         "type": "string",
         "enum": [
@@ -3454,29 +3470,20 @@
       "LibraryBlockTransferPreparation": {
         "type": "object",
         "required": [
-          "lease_documents",
-          "expected_location_revisions",
-          "source_document_id"
+          "write_fence"
         ],
         "properties": {
-          "expected_location_revisions": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "int64"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "lease_documents": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LibraryBlockTransferDocumentHead"
-            }
+          "source_database_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source_document_id": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "target_database_id": {
             "type": [
@@ -3489,6 +3496,9 @@
               "string",
               "null"
             ]
+          },
+          "write_fence": {
+            "$ref": "#/components/schemas/LibraryBlockTransferWriteFence"
           }
         }
       },
@@ -3764,6 +3774,41 @@
             }
           }
         ]
+      },
+      "LibraryBlockTransferWriteFence": {
+        "type": "object",
+        "required": [
+          "documents",
+          "location_revisions",
+          "source_memberships"
+        ],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockTransferDocumentHead"
+            }
+          },
+          "location_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "source_memberships": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LibraryBlockTransferMembership"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
       },
       "LibraryCatalogEntry": {
         "type": "object",
@@ -6437,13 +6482,14 @@
                     ]
                   },
                   "write_fence": {
-                    "type": [
-                      "array",
-                      "null"
-                    ],
-                    "items": {
-                      "$ref": "#/components/schemas/LibraryBlockTransferDocumentHead"
-                    }
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LibraryBlockTransferWriteFence"
+                      }
+                    ]
                   }
                 }
               }

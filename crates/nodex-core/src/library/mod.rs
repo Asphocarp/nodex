@@ -1004,7 +1004,26 @@ mod tests {
         let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
             panic!("prepared transfer");
         };
-        assert_eq!(preparation.lease_documents.len(), 2);
+        assert_eq!(preparation.write_fence.documents.len(), 2);
+        let mut stale_write_fence = preparation.write_fence.clone();
+        stale_write_fence
+            .location_revisions
+            .insert(source_root.clone(), 0);
+        let stale = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "move-transfer-root".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::TransferBlocks {
+                        intent: move_intent.clone(),
+                        write_fence: Some(stale_write_fence),
+                    },
+                },
+            )
+            .expect_err("stale location fence must be rejected");
+        assert_eq!(stale.code, CoreErrorCode::RevisionConflict);
         let moved = module
             .apply(
                 &persistent_context,
@@ -1014,7 +1033,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_intent.clone(),
-                        write_fence: Some(preparation.lease_documents.clone()),
+                        write_fence: Some(preparation.write_fence.clone()),
                     },
                 },
             )
@@ -1114,7 +1133,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: copy_intent,
-                        write_fence: Some(preparation.lease_documents),
+                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -1335,7 +1354,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: copy_from_foreign,
-                        write_fence: Some(preparation.lease_documents),
+                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -1410,7 +1429,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_foreign,
-                        write_fence: Some(preparation.lease_documents),
+                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -1457,7 +1476,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: move_across_storage,
-                        write_fence: Some(preparation.lease_documents),
+                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -1770,7 +1789,7 @@ mod tests {
         let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
             panic!("prepared promotion");
         };
-        assert_eq!(preparation.lease_documents.len(), 1);
+        assert_eq!(preparation.write_fence.documents.len(), 1);
         assert_eq!(preparation.target_document_id, None);
         let promoted = library
             .apply(
@@ -1781,7 +1800,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: promote_intent,
-                        write_fence: Some(preparation.lease_documents),
+                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -1839,7 +1858,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: wrap_intent,
-                        write_fence: Some(preparation.lease_documents),
+                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )
@@ -1892,7 +1911,7 @@ mod tests {
         let LibraryBlockTransferPlan::Prepared { preparation } = *value else {
             panic!("prepared Data Source wrapper");
         };
-        assert_eq!(preparation.lease_documents.len(), 1);
+        assert_eq!(preparation.write_fence.documents.len(), 1);
         assert_eq!(preparation.target_document_id, None);
         assert_eq!(preparation.target_database_id.as_deref(), Some(DATABASE));
         let data_source_transfer = library
@@ -1904,7 +1923,7 @@ mod tests {
                     store_epoch: StoreEpoch("epoch-1".to_owned()),
                     intent: LibraryIntent::TransferBlocks {
                         intent: data_source_intent,
-                        write_fence: Some(preparation.lease_documents),
+                        write_fence: Some(preparation.write_fence),
                     },
                 },
             )

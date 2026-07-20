@@ -270,7 +270,7 @@ pub(super) fn apply(
                     &store_epoch,
                     &request_hash,
                     intent,
-                    write_fence.as_deref(),
+                    write_fence.as_ref(),
                 ),
             }
         })

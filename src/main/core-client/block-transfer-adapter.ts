@@ -173,8 +173,44 @@ const toPreparedRequest = (
   intent: BlockTransferIntent,
   plan: Extract<CoreTransferPlan, { kind: "prepared" }>["preparation"],
 ): BlockTransferPreparation => {
-  const leaseDocuments = plan.lease_documents.map(toDocumentHead);
-  const sourceHead = requireHead(leaseDocuments, plan.source_document_id);
+  const leaseDocuments = plan.write_fence.documents.map(toDocumentHead);
+  const source: BlockTransferRequest["source"] = (() => {
+    if (intent.source.kind === "library") {
+      if (plan.source_document_id != null || plan.source_database_id != null) {
+        throw new Error("Core returned storage authority for a Library source");
+      }
+      return { kind: "space", libraryId: intent.source.libraryId };
+    }
+    if (intent.source.kind === "data_source") {
+      if (plan.source_document_id != null || plan.source_database_id == null) {
+        throw new Error("Core returned invalid Data Source source authority");
+      }
+      return {
+        kind: "database",
+        databaseBlockId: plan.source_database_id,
+        dataSourceId: intent.source.dataSourceId,
+        memberships: Object.fromEntries(
+          Object.entries(plan.write_fence.source_memberships).map(
+            ([blockId, membership]) => [blockId, {
+              membershipId: membership.membership_id,
+              revision: membership.revision,
+            }],
+          ),
+        ),
+      };
+    }
+    if (plan.source_document_id == null || plan.source_database_id != null) {
+      throw new Error("Core omitted the Block transfer source Document");
+    }
+    const sourceHead = requireHead(leaseDocuments, plan.source_document_id);
+    return {
+      kind: "document",
+      documentId: plan.source_document_id,
+      ...(intent.source.kind === "page" ? { pageId: intent.source.pageId } : {}),
+      generation: sourceHead.generation,
+      expectedHeadSeq: sourceHead.expectedHeadSeq,
+    };
+  })();
   const target: BlockTransferRequest["target"] = (() => {
     if (intent.target.kind === "library") {
       if (plan.target_document_id != null || plan.target_database_id != null) {
@@ -230,14 +266,8 @@ const toPreparedRequest = (
     actor: intent.actor,
     mode: intent.mode,
     rootBlockIds: intent.rootBlockIds,
-    expectedLocationRevisions: plan.expected_location_revisions,
-    source: {
-      kind: "document",
-      documentId: plan.source_document_id,
-      ...(intent.source.kind === "page" ? { pageId: intent.source.pageId } : {}),
-      generation: sourceHead.generation,
-      expectedHeadSeq: sourceHead.expectedHeadSeq,
-    },
+    expectedLocationRevisions: plan.write_fence.location_revisions,
+    source,
     target,
   };
   return { request: parseBlockTransferRequest(request), leaseDocuments };
@@ -439,13 +469,27 @@ const exactWriteFence = (request: BlockTransferRequest) => {
       expectedHeadSeq: request.target.expectedHeadSeq,
     });
   }
-  return [...new Map(heads.map((head) => [head.documentId, head])).values()]
-    .sort((left, right) => left.documentId.localeCompare(right.documentId))
-    .map((head) => ({
-      document_id: head.documentId,
-      generation: head.generation,
-      expected_head_seq: head.expectedHeadSeq,
-    }));
+  return {
+    documents: [...new Map(heads.map((head) => [head.documentId, head])).values()]
+      .sort((left, right) => left.documentId.localeCompare(right.documentId))
+      .map((head) => ({
+        document_id: head.documentId,
+        generation: head.generation,
+        expected_head_seq: head.expectedHeadSeq,
+      })),
+    location_revisions: request.expectedLocationRevisions,
+    source_memberships: request.source.kind === "database"
+      ? Object.fromEntries(
+          Object.entries(request.source.memberships).map(([blockId, membership]) => [
+            blockId,
+            {
+              membership_id: membership.membershipId,
+              revision: membership.revision,
+            },
+          ]),
+        )
+      : {},
+  };
 };
 
 export const createCoreBlockTransferAdapter = (
