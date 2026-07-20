@@ -3307,6 +3307,343 @@
           }
         ]
       },
+      "LibraryBlockPropertyFieldMutation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "block_id",
+              "property_key",
+              "expected_revision",
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "intrinsic_set"
+                ]
+              },
+              "property_key": {
+                "type": "string"
+              },
+              "value": {}
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "data_source_id",
+              "property_id",
+              "expected_revision",
+              "kind"
+            ],
+            "properties": {
+              "data_source_id": {
+                "type": "string"
+              },
+              "expected_revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source_set"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "property_id": {
+                "type": "string"
+              },
+              "value": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "page_id",
+              "data_source_id",
+              "property_id",
+              "add",
+              "remove",
+              "kind"
+            ],
+            "properties": {
+              "add": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data_source_add_remove"
+                ]
+              },
+              "page_id": {
+                "type": "string"
+              },
+              "property_id": {
+                "type": "string"
+              },
+              "remove": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "LibraryBlockPropertyFieldResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "block_id",
+              "property_key",
+              "operation",
+              "revision",
+              "value",
+              "scope"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "property_key": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "intrinsic"
+                ]
+              },
+              "value": {}
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "block_id",
+              "data_source_id",
+              "property_id",
+              "operation",
+              "revision",
+              "value",
+              "scope"
+            ],
+            "properties": {
+              "block_id": {
+                "type": "string"
+              },
+              "data_source_id": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "property_id": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "data_source"
+                ]
+              },
+              "value": {}
+            }
+          }
+        ]
+      },
+      "LibraryBlockPropertyMutation": {
+        "type": "object",
+        "required": [
+          "actor",
+          "fields"
+        ],
+        "properties": {
+          "actor": {},
+          "client_session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryBlockPropertyFieldMutation"
+            }
+          }
+        }
+      },
+      "LibraryBlockPropertyMutationError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "properties": {
+          "actual_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "code": {
+            "$ref": "#/components/schemas/LibraryBlockPropertyMutationErrorCode"
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "field_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LibraryBlockPropertyMutationErrorCode": {
+        "type": "string",
+        "enum": [
+          "invalid_property_mutation_request",
+          "mutation_id_collision",
+          "project_not_found",
+          "block_not_found",
+          "block_not_active",
+          "block_type_mismatch",
+          "data_source_not_found",
+          "membership_not_found",
+          "property_not_found",
+          "property_type_mismatch",
+          "property_value_invalid",
+          "property_value_corrupt",
+          "property_conflict",
+          "unknown"
+        ]
+      },
+      "LibraryBlockPropertyMutationOutcome": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "fields",
+              "block_metadata_revisions",
+              "status"
+            ],
+            "properties": {
+              "block_metadata_revisions": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "propertyNames": {
+                  "type": "string"
+                }
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/LibraryBlockPropertyFieldResult"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "committed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error",
+              "status"
+            ],
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/LibraryBlockPropertyMutationError"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "rejected"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LibraryBlockPropertyMutationReceipt": {
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/LibraryBlockPropertyMutationOutcome"
+          }
+        }
+      },
       "LibraryBlockRelocationDirection": {
         "type": "string",
         "enum": [
@@ -7491,6 +7828,24 @@
                   },
                   "mutation": {
                     "$ref": "#/components/schemas/LibraryPageLifecycleMutation"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "mutation",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "apply_block_property_mutation"
+                    ]
+                  },
+                  "mutation": {
+                    "$ref": "#/components/schemas/LibraryBlockPropertyMutation"
                   }
                 }
               },
@@ -13006,6 +13361,16 @@
                         "items": {
                           "type": "string"
                         }
+                      },
+                      "block_property_mutation": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "$ref": "#/components/schemas/LibraryBlockPropertyMutationReceipt"
+                          }
+                        ]
                       },
                       "block_transfer": {
                         "oneOf": [

@@ -352,7 +352,7 @@ pub struct LibraryPageDocumentDescriptor {
     pub schema_version: i64,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum LibraryPageTarget {
     Missing {
@@ -467,7 +467,7 @@ pub struct LibraryPageLifecycleAuthority {
     pub restore_evidence: Option<LibraryPageLifecycleRestoreEvidence>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 pub struct LibraryPageLifecyclePreflight {
     pub version: u32,
     pub default_view: Value,
@@ -615,6 +615,106 @@ pub struct LibraryPageLifecycleMutationReceipt {
     pub created_block_ids: Vec<String>,
     pub created_tag_option_ids: Vec<String>,
     pub delete_evidence: Option<LibraryPageLifecycleDeleteEvidence>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryBlockPropertyFieldMutation {
+    IntrinsicSet {
+        block_id: String,
+        property_key: String,
+        expected_revision: i64,
+        value: Value,
+    },
+    DataSourceSet {
+        page_id: String,
+        data_source_id: String,
+        property_id: String,
+        expected_revision: i64,
+        value: Option<String>,
+    },
+    DataSourceAddRemove {
+        page_id: String,
+        data_source_id: String,
+        property_id: String,
+        add: Vec<String>,
+        remove: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockPropertyMutation {
+    pub actor: Value,
+    pub client_session_id: Option<String>,
+    pub fields: Vec<LibraryBlockPropertyFieldMutation>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryBlockPropertyMutationErrorCode {
+    InvalidPropertyMutationRequest,
+    MutationIdCollision,
+    ProjectNotFound,
+    BlockNotFound,
+    BlockNotActive,
+    BlockTypeMismatch,
+    DataSourceNotFound,
+    MembershipNotFound,
+    PropertyNotFound,
+    PropertyTypeMismatch,
+    PropertyValueInvalid,
+    PropertyValueCorrupt,
+    PropertyConflict,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockPropertyMutationError {
+    pub code: LibraryBlockPropertyMutationErrorCode,
+    pub message: String,
+    pub retryable: bool,
+    pub field_path: Option<String>,
+    pub expected_revision: Option<i64>,
+    pub actual_revision: Option<i64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "scope", rename_all = "snake_case")]
+pub enum LibraryBlockPropertyFieldResult {
+    Intrinsic {
+        path: String,
+        block_id: String,
+        property_key: String,
+        operation: String,
+        revision: i64,
+        value: Value,
+    },
+    DataSource {
+        path: String,
+        block_id: String,
+        data_source_id: String,
+        property_id: String,
+        operation: String,
+        revision: i64,
+        value: Value,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LibraryBlockPropertyMutationOutcome {
+    Committed {
+        fields: Vec<LibraryBlockPropertyFieldResult>,
+        block_metadata_revisions: std::collections::BTreeMap<String, i64>,
+    },
+    Rejected {
+        error: LibraryBlockPropertyMutationError,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+pub struct LibraryBlockPropertyMutationReceipt {
+    pub outcome: LibraryBlockPropertyMutationOutcome,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ToSchema)]
@@ -1041,6 +1141,9 @@ pub enum LibraryIntent {
     ApplyPageLifecycle {
         mutation: Box<LibraryPageLifecycleMutation>,
     },
+    ApplyBlockPropertyMutation {
+        mutation: Box<LibraryBlockPropertyMutation>,
+    },
     GrantProjectAccess {
         project_id: String,
         target: LibraryResourceTarget,
@@ -1081,6 +1184,7 @@ pub struct LibraryCommitValue {
     pub page_copy: Option<LibraryPageCopyResult>,
     pub block_transfer: Option<LibraryBlockTransferResult>,
     pub page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
+    pub block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

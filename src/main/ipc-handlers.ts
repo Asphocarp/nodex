@@ -586,6 +586,8 @@ interface RegisterIpcHandlersOptions {
     | "resolvePageOwnershipPath"
     | "readPageLifecyclePreflight"
     | "applyPageLifecycleMutation"
+    | "applyBlockPropertyMutation"
+    | "applyLibraryBlockPropertyMutation"
   >;
   databaseModule?: Pick<
     DesktopDatabaseModuleBridge,
@@ -1426,8 +1428,9 @@ export function registerIpcHandlers(
         },
       };
     },
-    applyMutation: async (request) =>
-      (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
+    applyMutation: options.libraryModule?.applyBlockPropertyMutation
+      ?? (async (request) =>
+        (await blockMutationWriter.applyBlockPropertyMutation(request)).result),
   });
   registerLibraryBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
@@ -1444,8 +1447,9 @@ export function registerIpcHandlers(
         actor: { kind: "electron_renderer", clientId },
       };
     },
-    applyMutation: async (input) =>
-      (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
+    applyMutation: options.libraryModule?.applyLibraryBlockPropertyMutation
+      ?? (async (input) =>
+        (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result),
   });
 
   registerDatabaseModuleIpcHandlers({

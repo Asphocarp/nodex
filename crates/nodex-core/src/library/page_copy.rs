@@ -237,6 +237,8 @@ pub(super) fn copy_page(
             page_copy: Some(execution.result),
             block_transfer: None,
             page_lifecycle: None,
+            block_property_mutation: None,
+            change_payload: None,
             committed_at: execution.committed_at,
         },
     )

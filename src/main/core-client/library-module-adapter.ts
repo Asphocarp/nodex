@@ -2,6 +2,7 @@ import {
   parseDatabaseId,
   parseDatabaseViewId,
   parseDataSourceId,
+  parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import type { DatabaseViewKind } from "../../shared/database-kernel";
 import type {
@@ -32,6 +33,15 @@ import {
   type PageHistoryCommandResult,
 } from "../../shared/page-history-transport";
 import type { PageSearchInput, PageSearchResult } from "../../shared/types";
+import {
+  parseBlockPropertyMutationCommandResultV2,
+  parseLibraryBlockPropertyMutationCommandResultV2,
+  type BlockPropertyMutationCommandResultV2,
+  type BlockPropertyMutationFieldResultV2,
+  type BlockPropertyMutationRequestV2,
+  type LibraryBlockPropertyMutationCommandResultV2,
+  type LibraryBlockPropertyMutationRequestV2,
+} from "../../shared/block-property-mutations-v2";
 import { parsePage } from "../../shared/page";
 import type { PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import { parsePageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-transport";
@@ -95,6 +105,13 @@ export interface CoreLibraryModuleAdapter {
   applyPageLifecycleMutation(
     request: PageLifecycleMutationRequestV2,
   ): Promise<PageLifecycleMutationCommandResultV2>;
+  applyBlockPropertyMutation(
+    request: BlockPropertyMutationRequestV2,
+  ): Promise<BlockPropertyMutationCommandResultV2>;
+  applyLibraryBlockPropertyMutation(input: {
+    readonly request: LibraryBlockPropertyMutationRequestV2;
+    readonly actor: BlockPropertyMutationRequestV2["actor"];
+  }): Promise<LibraryBlockPropertyMutationCommandResultV2>;
 }
 
 const toCoreRouteTarget = (target: LibraryRouteTarget) => {
@@ -966,6 +983,146 @@ const fromCoreCreatedTarget = (
   return { kind: target.kind, databaseId: parseDatabaseId(target.database_id) };
 };
 
+type CoreBlockPropertyMutation = Extract<
+  LibraryIntent,
+  { kind: "apply_block_property_mutation" }
+>["mutation"];
+type CoreBlockPropertyOutcome = NonNullable<
+  Awaited<ReturnType<CoreClientPort["libraryApply"]>>["value"]["block_property_mutation"]
+>["outcome"];
+
+const toCoreBlockPropertyMutation = (
+  fields: BlockPropertyMutationRequestV2["fields"],
+  actor: BlockPropertyMutationRequestV2["actor"],
+  clientSessionId: string | undefined,
+): CoreBlockPropertyMutation => ({
+  actor,
+  client_session_id: clientSessionId ?? null,
+  fields: fields.map((field) => {
+    if (field.scope === "intrinsic") {
+      return {
+        kind: "intrinsic_set",
+        block_id: field.blockId,
+        property_key: field.propertyKey,
+        expected_revision: field.expectedRevision,
+        value: field.value,
+      };
+    }
+    if (field.operation === "set") {
+      return {
+        kind: "data_source_set",
+        page_id: field.pageId,
+        data_source_id: field.dataSourceId,
+        property_id: field.propertyId,
+        expected_revision: field.expectedRevision,
+        value: field.value,
+      };
+    }
+    return {
+      kind: "data_source_add_remove",
+      page_id: field.pageId,
+      data_source_id: field.dataSourceId,
+      property_id: field.propertyId,
+      add: [...field.add],
+      remove: [...field.remove],
+    };
+  }),
+});
+
+const fromCoreBlockPropertyField = (
+  field: Extract<CoreBlockPropertyOutcome, { status: "committed" }>["fields"][number],
+): BlockPropertyMutationFieldResultV2 => {
+  if (field.scope === "intrinsic") {
+    return {
+      path: field.path,
+      scope: "intrinsic",
+      blockId: field.block_id,
+      propertyKey: field.property_key,
+      operation: "set",
+      revision: field.revision,
+      value: field.value as BlockPropertyMutationFieldResultV2["value"],
+    };
+  }
+  return {
+    path: field.path,
+    scope: "data_source",
+    blockId: field.block_id,
+    dataSourceId: parseDataSourceId(field.data_source_id),
+    propertyId: parseDataSourcePropertyId(field.property_id),
+    operation: field.operation === "add_remove" ? "add_remove" : "set",
+    revision: field.revision,
+    value: field.value as Extract<
+      BlockPropertyMutationFieldResultV2,
+      { readonly scope: "data_source" }
+    >["value"],
+  };
+};
+
+const blockPropertyFailure = (
+  mutationId: string,
+  error: unknown,
+): BlockPropertyMutationCommandResultV2 => {
+  const coreError = error instanceof CoreModuleResponseError
+    ? error.coreError
+    : null;
+  const code = (() => {
+    switch (coreError?.code) {
+      case "invalid_input":
+        return "invalid_property_mutation_request";
+      case "stale_store_epoch":
+        return "store_epoch_mismatch";
+      case "idempotency_key_reused":
+        return "mutation_id_collision";
+      case "not_found":
+        return "block_not_found";
+      case "revision_conflict":
+        return "property_conflict";
+      default:
+        return "unknown";
+    }
+  })() satisfies Extract<
+    BlockPropertyMutationCommandResultV2,
+    { readonly ok: false }
+  >["error"]["code"];
+  return {
+    ok: false,
+    error: {
+      code,
+      message: error instanceof Error ? error.message : String(error),
+      retryable: coreError?.retryable ?? true,
+      mutationId,
+    },
+  };
+};
+
+const fromCoreBlockPropertyOutcome = (
+  mutationId: string,
+  outcome: CoreBlockPropertyOutcome,
+): Extract<BlockPropertyMutationCommandResultV2, { readonly ok: false }> | null => {
+  if (outcome.status === "committed") return null;
+  return {
+    ok: false,
+    error: {
+      code: outcome.error.code,
+      message: outcome.error.message,
+      retryable: outcome.error.retryable,
+      mutationId,
+      ...(outcome.error.field_path === undefined
+        || outcome.error.field_path === null
+        ? {}
+        : { fieldPath: outcome.error.field_path }),
+      ...(outcome.error.expected_revision === undefined
+        || outcome.error.expected_revision === null
+        ? {}
+        : { expectedRevision: outcome.error.expected_revision }),
+      ...(outcome.error.actual_revision === undefined
+        || outcome.error.actual_revision === null
+        ? {}
+        : { actualRevision: outcome.error.actual_revision }),
+    },
+  };
+};
+
 export const createCoreLibraryModuleAdapter = (
   input: CoreLibraryModuleAdapterInput,
 ): CoreLibraryModuleAdapter => {
@@ -986,6 +1143,76 @@ export const createCoreLibraryModuleAdapter = (
       throw new Error("Core Page Detail escaped its Library snapshot boundary");
     }
     return detail;
+  };
+
+  const applyBlockProperty = async (request: {
+    readonly mutationId: string;
+    readonly projectId: string;
+    readonly storeEpoch: string;
+    readonly clientSessionId?: string;
+    readonly actor: BlockPropertyMutationRequestV2["actor"];
+    readonly fields: BlockPropertyMutationRequestV2["fields"];
+  }): Promise<BlockPropertyMutationCommandResultV2> => {
+    if (request.storeEpoch !== input.storeEpoch) {
+      return {
+        ok: false,
+        error: {
+          code: "store_epoch_mismatch",
+          message: "Property mutation targets a stale Store epoch",
+          retryable: false,
+          mutationId: request.mutationId,
+        },
+      };
+    }
+    try {
+      const committed = await input.client.libraryApply({
+        operationId: request.mutationId,
+        intent: {
+          kind: "apply_block_property_mutation",
+          mutation: toCoreBlockPropertyMutation(
+            request.fields,
+            request.actor,
+            request.clientSessionId,
+          ),
+        },
+      });
+      const receipt = committed.value.block_property_mutation;
+      if (
+        !receipt
+        || committed.store_epoch !== request.storeEpoch
+        || committed.receipt.operation_id !== request.mutationId
+        || committed.receipt.operation_kind !== "property_batch"
+      ) {
+        throw new Error(
+          "Core Property mutation receipt escaped its operation boundary",
+        );
+      }
+      const rejected = fromCoreBlockPropertyOutcome(
+        request.mutationId,
+        receipt.outcome,
+      );
+      if (rejected) return rejected;
+      if (receipt.outcome.status !== "committed") {
+        throw new Error("Core returned an invalid Property mutation outcome");
+      }
+      return parseBlockPropertyMutationCommandResultV2({
+        ok: true,
+        value: {
+          version: 2,
+          mutationId: request.mutationId,
+          projectId: request.projectId,
+          storeEpoch: committed.store_epoch,
+          duplicate: committed.receipt.duplicate,
+          fields: receipt.outcome.fields.map(fromCoreBlockPropertyField),
+          blockMetadataRevisions:
+            receipt.outcome.block_metadata_revisions,
+          changeLogSeq: committed.receipt.change_log_seq,
+          committedAt: committed.receipt.committed_at,
+        },
+      });
+    } catch (error) {
+      return blockPropertyFailure(request.mutationId, error);
+    }
   };
 
   return {
@@ -1284,6 +1511,31 @@ export const createCoreLibraryModuleAdapter = (
       } catch (error) {
         return pageLifecycleMutationFailure(request, error);
       }
+    },
+    applyBlockPropertyMutation: async (request) =>
+      await applyBlockProperty(request),
+    applyLibraryBlockPropertyMutation: async ({ request, actor }) => {
+      const compatibilityProjectId = `library:${input.libraryId}`;
+      const result = await applyBlockProperty({
+        ...request,
+        projectId: compatibilityProjectId,
+        actor,
+      });
+      if (!result.ok) return result;
+      return parseLibraryBlockPropertyMutationCommandResultV2({
+        ok: true,
+        value: {
+          version: result.value.version,
+          mutationId: result.value.mutationId,
+          accessContext: { kind: "library" },
+          storeEpoch: result.value.storeEpoch,
+          duplicate: result.value.duplicate,
+          fields: result.value.fields,
+          blockMetadataRevisions: result.value.blockMetadataRevisions,
+          changeLogSeq: result.value.changeLogSeq,
+          committedAt: result.value.committedAt,
+        },
+      });
     },
   };
 };

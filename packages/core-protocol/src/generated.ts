@@ -954,6 +954,86 @@ export interface components {
             /** @enum {string} */
             readonly kind: "data_source";
         };
+        readonly LibraryBlockPropertyFieldMutation: {
+            readonly block_id: string;
+            /** Format: int64 */
+            readonly expected_revision: number;
+            /** @enum {string} */
+            readonly kind: "intrinsic_set";
+            readonly property_key: string;
+            readonly value: unknown;
+        } | {
+            readonly data_source_id: string;
+            /** Format: int64 */
+            readonly expected_revision: number;
+            /** @enum {string} */
+            readonly kind: "data_source_set";
+            readonly page_id: string;
+            readonly property_id: string;
+            readonly value?: string | null;
+        } | {
+            readonly add: readonly string[];
+            readonly data_source_id: string;
+            /** @enum {string} */
+            readonly kind: "data_source_add_remove";
+            readonly page_id: string;
+            readonly property_id: string;
+            readonly remove: readonly string[];
+        };
+        readonly LibraryBlockPropertyFieldResult: {
+            readonly block_id: string;
+            readonly operation: string;
+            readonly path: string;
+            readonly property_key: string;
+            /** Format: int64 */
+            readonly revision: number;
+            /** @enum {string} */
+            readonly scope: "intrinsic";
+            readonly value: unknown;
+        } | {
+            readonly block_id: string;
+            readonly data_source_id: string;
+            readonly operation: string;
+            readonly path: string;
+            readonly property_id: string;
+            /** Format: int64 */
+            readonly revision: number;
+            /** @enum {string} */
+            readonly scope: "data_source";
+            readonly value: unknown;
+        };
+        readonly LibraryBlockPropertyMutation: {
+            readonly actor: unknown;
+            readonly client_session_id?: string | null;
+            readonly fields: readonly components["schemas"]["LibraryBlockPropertyFieldMutation"][];
+        };
+        readonly LibraryBlockPropertyMutationError: {
+            /** Format: int64 */
+            readonly actual_revision?: number | null;
+            readonly code: components["schemas"]["LibraryBlockPropertyMutationErrorCode"];
+            /** Format: int64 */
+            readonly expected_revision?: number | null;
+            readonly field_path?: string | null;
+            readonly message: string;
+            readonly retryable: boolean;
+        };
+        /** @enum {string} */
+        readonly LibraryBlockPropertyMutationErrorCode: "invalid_property_mutation_request" | "mutation_id_collision" | "project_not_found" | "block_not_found" | "block_not_active" | "block_type_mismatch" | "data_source_not_found" | "membership_not_found" | "property_not_found" | "property_type_mismatch" | "property_value_invalid" | "property_value_corrupt" | "property_conflict" | "unknown";
+        readonly LibraryBlockPropertyMutationOutcome: {
+            readonly block_metadata_revisions: {
+                readonly [key: string]: number;
+            };
+            readonly fields: readonly components["schemas"]["LibraryBlockPropertyFieldResult"][];
+            /** @enum {string} */
+            readonly status: "committed";
+        } | {
+            readonly error: components["schemas"]["LibraryBlockPropertyMutationError"];
+            /** @enum {string} */
+            readonly status: "rejected";
+        };
+        readonly LibraryBlockPropertyMutationReceipt: {
+            readonly outcome: components["schemas"]["LibraryBlockPropertyMutationOutcome"];
+        };
         /** @enum {string} */
         readonly LibraryBlockRelocationDirection: "into_page" | "out_of_page" | "within_page" | "unknown";
         readonly LibraryBlockTransferDocumentCommit: {
@@ -1965,6 +2045,10 @@ export interface components {
                 /** @enum {string} */
                 readonly kind: "apply_page_lifecycle";
                 readonly mutation: components["schemas"]["LibraryPageLifecycleMutation"];
+            } | {
+                /** @enum {string} */
+                readonly kind: "apply_block_property_mutation";
+                readonly mutation: components["schemas"]["LibraryBlockPropertyMutation"];
             } | {
                 readonly access: components["schemas"]["LibraryAccess"];
                 /** @enum {string} */
@@ -3217,6 +3301,7 @@ export interface components {
                 readonly store_epoch: components["schemas"]["StoreEpoch"];
                 readonly value: {
                     readonly affected_resource_ids: readonly string[];
+                    readonly block_property_mutation?: null | components["schemas"]["LibraryBlockPropertyMutationReceipt"];
                     readonly block_transfer?: null | components["schemas"]["LibraryBlockTransferResult"];
                     readonly page_copy?: null | components["schemas"]["LibraryPageCopyResult"];
                     readonly page_lifecycle?: null | components["schemas"]["LibraryPageLifecycleMutationReceipt"];

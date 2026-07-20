@@ -1042,7 +1042,7 @@ fn take_revision_map(
     }
 }
 
-fn refresh_scheduled_index(
+pub(crate) fn refresh_scheduled_index(
     connection: &Connection,
     page_id: &str,
     now: &str,

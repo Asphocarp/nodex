@@ -583,6 +583,8 @@ fn create_page(
             page_copy: None,
             block_transfer: None,
             page_lifecycle: Some(receipt),
+            block_property_mutation: None,
+            change_payload: None,
             committed_at: now,
         },
     )
@@ -2709,6 +2711,8 @@ fn finish_page_lifecycle(
             page_copy: None,
             block_transfer: None,
             page_lifecycle: Some(receipt),
+            block_property_mutation: None,
+            change_payload: None,
             committed_at,
         },
     )

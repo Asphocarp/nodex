@@ -20,7 +20,10 @@ import type {
 } from "../shared/app-startup";
 import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
-import { startHttpServer } from "./http-server";
+import {
+  configureHttpPropertyMutationAuthority,
+  startHttpServer,
+} from "./http-server";
 import {
   findPageLocationById,
   getBoardSummary,
@@ -1709,9 +1712,23 @@ export async function runMainAppStartup(
         ).result,
       applyPageLifecycleMutation: async (request) =>
         (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
+      applyBlockPropertyMutation: async (request) =>
+        (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
+      applyLibraryBlockPropertyMutation: async (input) =>
+        (
+          await blockMutationWriter.applyLibraryBlockPropertyMutation({
+            ...input,
+            accessActor: input.accessActor ?? "app_window",
+          })
+        ).result,
     },
   });
   desktopLibraryModule = libraryModule;
+  configureHttpPropertyMutationAuthority({
+    project: (request) => libraryModule.applyBlockPropertyMutation(request),
+    library: (input) =>
+      libraryModule.applyLibraryBlockPropertyMutation(input),
+  });
   appInitializationPromise = initializeDesktopApp(serverPort, dataAuthority);
 
   const serverUrl = `http://127.0.0.1:${serverPort}`;

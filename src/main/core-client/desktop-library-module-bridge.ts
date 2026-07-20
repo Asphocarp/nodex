@@ -27,6 +27,12 @@ import type {
   ResolvePageOwnershipPathInput,
 } from "../../shared/page-ownership-paths";
 import type { CoreEventEnvelope } from "./types";
+import type {
+  BlockPropertyMutationCommandResultV2,
+  BlockPropertyMutationRequestV2,
+  LibraryBlockPropertyMutationCommandResultV2,
+  LibraryBlockPropertyMutationRequestV2,
+} from "../../shared/block-property-mutations-v2";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import {
   createCoreLibraryModuleAdapter,
@@ -64,6 +70,14 @@ export interface DesktopLibraryModuleBridgeInput {
     applyPageLifecycleMutation(
       request: PageLifecycleMutationRequestV2,
     ): Promise<PageLifecycleMutationCommandResultV2>;
+    applyBlockPropertyMutation(
+      request: BlockPropertyMutationRequestV2,
+    ): Promise<BlockPropertyMutationCommandResultV2>;
+    applyLibraryBlockPropertyMutation(input: {
+      readonly request: LibraryBlockPropertyMutationRequestV2;
+      readonly actor: BlockPropertyMutationRequestV2["actor"];
+      readonly accessActor?: "app_window" | "http_loopback";
+    }): Promise<LibraryBlockPropertyMutationCommandResultV2>;
   };
 }
 
@@ -98,6 +112,14 @@ export interface DesktopLibraryModuleBridge {
   applyPageLifecycleMutation(
     request: PageLifecycleMutationRequestV2,
   ): Promise<PageLifecycleMutationCommandResultV2>;
+  applyBlockPropertyMutation(
+    request: BlockPropertyMutationRequestV2,
+  ): Promise<BlockPropertyMutationCommandResultV2>;
+  applyLibraryBlockPropertyMutation(input: {
+    readonly request: LibraryBlockPropertyMutationRequestV2;
+    readonly actor: BlockPropertyMutationRequestV2["actor"];
+    readonly accessActor?: "app_window" | "http_loopback";
+  }): Promise<LibraryBlockPropertyMutationCommandResultV2>;
 }
 
 export function createDesktopLibraryModuleBridge(
@@ -228,6 +250,22 @@ export function createDesktopLibraryModuleBridge(
       }
       return await projectCoreAdapter(runtime, request.projectId)
         .applyPageLifecycleMutation(request);
+    },
+    applyBlockPropertyMutation: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.applyBlockPropertyMutation(request);
+      }
+      return await projectCoreAdapter(runtime, request.projectId)
+        .applyBlockPropertyMutation(request);
+    },
+    applyLibraryBlockPropertyMutation: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.applyLibraryBlockPropertyMutation(request);
+      }
+      rootCoreAdapter ??= coreAdapter(runtime);
+      return await rootCoreAdapter.applyLibraryBlockPropertyMutation(request);
     },
   };
 }

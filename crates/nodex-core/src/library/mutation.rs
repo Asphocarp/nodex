@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use nodex_core_contracts::library::{
-    LibraryAccess, LibraryBlockTransferDocumentCommit, LibraryBlockTransferResult,
-    LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent, LibraryPageCopyResult,
-    LibraryPageLifecycleMutationReceipt, LibraryReceipt, LibraryResourceTarget, LibraryWriteParent,
+    LibraryAccess, LibraryBlockPropertyMutationReceipt, LibraryBlockTransferDocumentCommit,
+    LibraryBlockTransferResult, LibraryCommitValue, LibraryEvent, LibraryEventKind, LibraryIntent,
+    LibraryPageCopyResult, LibraryPageLifecycleMutationReceipt, LibraryReceipt,
+    LibraryResourceTarget, LibraryWriteParent,
 };
 use nodex_core_contracts::{
     BoundModuleContext, CORE_CONTRACT_VERSION, CommittedCoreModuleEvent, CommittedModuleValue,
@@ -55,6 +56,8 @@ pub(super) struct MutationEffects {
     pub(super) page_copy: Option<LibraryPageCopyResult>,
     pub(super) block_transfer: Option<LibraryBlockTransferResult>,
     pub(super) page_lifecycle: Option<LibraryPageLifecycleMutationReceipt>,
+    pub(super) block_property_mutation: Option<LibraryBlockPropertyMutationReceipt>,
+    pub(super) change_payload: Option<serde_json::Value>,
     pub(super) committed_at: String,
 }
 
@@ -111,6 +114,18 @@ pub(super) fn apply(
             let request_hash = match &request.intent {
                 LibraryIntent::TransferBlocks { intent, .. } => {
                     super::block_transfer::semantic_request_hash(&context, &store_epoch, intent)?
+                }
+                LibraryIntent::ApplyBlockPropertyMutation { .. } => {
+                    let fingerprint = serde_json::to_vec(&(
+                        &context.profile_id,
+                        &context.library_id,
+                        &context.project_id,
+                        request.version,
+                        &request.store_epoch,
+                        &request.intent,
+                    ))
+                    .map_err(|_| internal("Library Property mutation cannot be fingerprinted"))?;
+                    sha256(&fingerprint)
                 }
                 _ => {
                     let fingerprint = serde_json::to_vec(&(
@@ -235,6 +250,17 @@ pub(super) fn apply(
                 ),
                 LibraryIntent::ApplyPageLifecycle { mutation } => {
                     super::page_lifecycle_mutation::apply(
+                        transaction,
+                        &context,
+                        &store_epoch,
+                        &library_id,
+                        &request.operation_id,
+                        &request_hash,
+                        mutation,
+                    )
+                }
+                LibraryIntent::ApplyBlockPropertyMutation { mutation } => {
+                    super::page_property_mutation::apply(
                         transaction,
                         &context,
                         &store_epoch,
@@ -593,6 +619,8 @@ fn move_block(
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
+            block_property_mutation: None,
+            change_payload: None,
             committed_at: now,
         },
     )
@@ -784,6 +812,8 @@ fn change_resource_lifecycle(
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
+            block_property_mutation: None,
+            change_payload: None,
             committed_at: now,
         },
     )
@@ -928,6 +958,8 @@ fn grant_project_access(
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
+            block_property_mutation: None,
+            change_payload: None,
             committed_at: now,
         },
     )
@@ -1436,6 +1468,8 @@ fn create_database(
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
+            block_property_mutation: None,
+            change_payload: None,
             committed_at: now,
         },
     )
@@ -1674,6 +1708,8 @@ fn create_page(
             page_copy: None,
             block_transfer: None,
             page_lifecycle: None,
+            block_property_mutation: None,
+            change_payload: None,
             committed_at: now,
         },
     )
@@ -1694,14 +1730,16 @@ pub(super) fn finish_mutation(
         .chain(&effects.affected_database_ids)
         .cloned()
         .collect::<Vec<_>>();
-    let payload = json!({
-        "module": MODULE_NAME,
-        "operationKind": effects.operation_kind,
-        "didMutate": effects.did_mutate,
-        "affectedParentKeys": effects.affected_parent_keys,
-        "affectedPageIds": effects.affected_page_ids,
-        "affectedDatabaseIds": effects.affected_database_ids,
-        "affectedViewIds": effects.affected_view_ids,
+    let payload = effects.change_payload.clone().unwrap_or_else(|| {
+        json!({
+            "module": MODULE_NAME,
+            "operationKind": effects.operation_kind,
+            "didMutate": effects.did_mutate,
+            "affectedParentKeys": effects.affected_parent_keys,
+            "affectedPageIds": effects.affected_page_ids,
+            "affectedDatabaseIds": effects.affected_database_ids,
+            "affectedViewIds": effects.affected_view_ids,
+        })
     });
     connection.execute(
         "INSERT INTO change_log(\
@@ -1745,6 +1783,7 @@ pub(super) fn finish_mutation(
             page_copy: effects.page_copy,
             block_transfer: effects.block_transfer,
             page_lifecycle: effects.page_lifecycle,
+            block_property_mutation: effects.block_property_mutation,
         },
         receipt,
         event_sequence,
@@ -2039,22 +2078,45 @@ pub(super) fn refresh_page_intrinsic_projection(
 ) -> Result<(), StoreError> {
     let rows = connection
         .prepare(
-            "SELECT property_key, value_json FROM block_properties \
+            "SELECT property_key, value_json, revision FROM block_properties \
              WHERE block_id = ?1 AND project_id = ?2 ORDER BY property_key",
         )?
         .query_map(params![page_id, project_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut values = serde_json::Map::new();
     let mut intrinsic_revisions = serde_json::Map::new();
-    for (key, value_json) in rows {
+    for (key, value_json, revision) in rows {
         let value = serde_json::from_str(&value_json)
             .map_err(|_| corrupt("Page intrinsic Property JSON is invalid"))?;
         values.insert(key.clone(), value);
-        intrinsic_revisions.insert(key, serde_json::Value::from(1));
+        intrinsic_revisions.insert(key, serde_json::Value::from(revision));
     }
-    let revisions = serde_json::json!({ "intrinsic": intrinsic_revisions, "database": {} });
+    let revisions_json = connection
+        .query_row(
+            "SELECT property_revisions_json FROM page_read_model WHERE page_block_id = ?1",
+            [page_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or_else(|| corrupt("Page intrinsic projection has no Page read model"))?;
+    let mut revisions = serde_json::from_str::<serde_json::Value>(&revisions_json)
+        .map_err(|_| corrupt("Page Property revision projection is invalid"))?;
+    let revisions = revisions
+        .as_object_mut()
+        .ok_or_else(|| corrupt("Page Property revision projection is not an object"))?;
+    revisions.insert(
+        "intrinsic".to_owned(),
+        serde_json::Value::Object(intrinsic_revisions),
+    );
+    revisions
+        .entry("database".to_owned())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
     let changed = connection.execute(
         "UPDATE page_read_model SET intrinsic_properties_json = ?1, \
            property_revisions_json = ?2, updated_at = ?3 WHERE page_block_id = ?4",

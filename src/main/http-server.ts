@@ -70,6 +70,8 @@ import { registerReferenceReadHttpRoutes } from "./reference-read-http";
 import {
   registerBlockPropertyMutationHttpRoute,
   registerLibraryBlockPropertyMutationHttpRoute,
+  type BlockPropertyMutationHttpDependencies,
+  type LibraryBlockPropertyMutationHttpDependencies,
 } from "./block-property-mutation-http";
 import { registerDatabaseModuleHttpRoutes } from "./database-module-http";
 import { registerLibraryModuleHttpRoute } from "./library-module-http";
@@ -148,6 +150,10 @@ function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number
 interface HttpServerDependencies {
   browserRuntime: ProjectSessionBrowserRuntime;
   transcribeDictation: (input: { contentType: string; base64Payload: string }) => Promise<string>;
+  propertyMutations: {
+    project: BlockPropertyMutationHttpDependencies["applyMutation"];
+    library: LibraryBlockPropertyMutationHttpDependencies["applyMutation"];
+  };
 }
 
 const defaultHttpServerDependencies: HttpServerDependencies = {
@@ -166,6 +172,12 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
     },
   },
   transcribeDictation: async (input) => await codexService.transcribeDictation(input),
+  propertyMutations: {
+    project: async (request) =>
+      (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
+    library: async (input) =>
+      (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
+  },
 };
 
 let httpServerDependencies: HttpServerDependencies = defaultHttpServerDependencies;
@@ -307,11 +319,11 @@ registerReferenceReadHttpRoutes(app, {
 
 registerBlockPropertyMutationHttpRoute(app, {
   applyMutation: async (request) =>
-    (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
+    await httpServerDependencies.propertyMutations.project(request),
 });
 registerLibraryBlockPropertyMutationHttpRoute(app, {
   applyMutation: async (input) =>
-    (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
+    await httpServerDependencies.propertyMutations.library(input),
 });
 
 registerDatabaseModuleHttpRoutes(app, {
@@ -1763,6 +1775,15 @@ export function __setHttpServerDependenciesForTests(
   httpServerDependencies = {
     ...defaultHttpServerDependencies,
     ...overrides,
+  };
+}
+
+export function configureHttpPropertyMutationAuthority(
+  propertyMutations: HttpServerDependencies["propertyMutations"],
+): void {
+  httpServerDependencies = {
+    ...httpServerDependencies,
+    propertyMutations,
   };
 }
 

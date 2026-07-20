@@ -307,6 +307,7 @@ impl LibraryModule {
                 page_copy: None,
                 block_transfer: None,
                 page_lifecycle: None,
+                block_property_mutation: None,
             },
             receipt,
             event_sequence,
@@ -428,7 +429,9 @@ mod tests {
         DocumentOptionalValue, OwnedDocumentIntent,
     };
     use nodex_core_contracts::library::{
-        LibraryAccess, LibraryBlockLocation, LibraryBlockTransferLogicalIntent,
+        LibraryAccess, LibraryBlockLocation, LibraryBlockPropertyFieldMutation,
+        LibraryBlockPropertyMutation, LibraryBlockPropertyMutationErrorCode,
+        LibraryBlockPropertyMutationOutcome, LibraryBlockTransferLogicalIntent,
         LibraryBlockTransferMode, LibraryBlockTransferPlan, LibraryBlockTransferSource,
         LibraryBlockTransferTarget, LibraryNavigationParent, LibraryPageLifecycleMutation,
         LibraryPageLifecycleState, LibraryPageLifecycleTagOption, LibraryPageWorkflowStatus,
@@ -3688,6 +3691,359 @@ mod tests {
             })
             .expect("nested multi-root Page copy evidence");
     }
+
+    #[test]
+    fn page_property_batch_commits_mixed_fields_and_replays_rejections() {
+        const NOW: &str = "2026-07-20T12:00:00.000Z";
+        const DATABASE: &str = "019c1000-0000-7000-8000-000000000001";
+        const SOURCE: &str = "019c1000-0000-7000-8000-000000000002";
+        const VIEW: &str = "019c1000-0000-7000-8000-000000000003";
+        const PAGE: &str = "019c1000-0000-7000-8000-000000000004";
+        let persistent_context = BoundModuleContext {
+            profile_id: ProfileId("profile-1".to_owned()),
+            library_id: LibraryId("library-1".to_owned()),
+            project_id: Some(ProjectId("project-1".to_owned())),
+            connection_id: "connection:page-property".to_owned(),
+            adapter: AdapterKind::Test,
+        };
+        let directory = tempdir().expect("Profile");
+        let home = directory.path().canonicalize().expect("absolute Profile");
+        let kernel = SqliteStoreKernel::open(&home).expect("fresh store");
+        kernel
+            .writer()
+            .call(|connection| {
+                with_immediate_transaction(connection, |transaction| {
+                    transaction.execute(
+                        "INSERT INTO profiles(id, created_at, updated_at) VALUES ('profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO libraries(id, profile_id, created_at, updated_at) \
+                         VALUES ('library-1', 'profile-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO projects(id, library_id, name, created, updated) \
+                         VALUES ('project-1', 'library-1', 'Properties', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    transaction.execute(
+                        "INSERT INTO block_store_metadata(id, store_epoch, created_at, updated_at) \
+                         VALUES (1, 'epoch-1', ?1, ?1)",
+                        [NOW],
+                    )?;
+                    Ok(())
+                })
+            })
+            .expect("seed Library");
+        let module = LibraryModule::new("profile-1", "library-1", &kernel);
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "property:create-database".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::CreateDatabase {
+                        database_id: DATABASE.to_owned(),
+                        data_source_id: SOURCE.to_owned(),
+                        view_id: VIEW.to_owned(),
+                        name: "Tasks".to_owned(),
+                        parent: LibraryWriteParent::Library { before: None },
+                    },
+                },
+            )
+            .expect("create Database");
+        kernel
+            .writer()
+            .call(|connection| {
+                connection.execute(
+                    "UPDATE projects SET database_block_id = ?1 WHERE id = 'project-1'",
+                    [DATABASE],
+                )?;
+                Ok(())
+            })
+            .expect("bind Database");
+        module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "property:create-page".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyPageLifecycle {
+                        mutation: Box::new(LibraryPageLifecycleMutation::CreatePage {
+                            page_id: PAGE.to_owned(),
+                            title: "Property Page".to_owned(),
+                            rich_title: None,
+                            nfm: String::new(),
+                            status: LibraryPageWorkflowStatus::Triage,
+                            priority: None,
+                            estimate: None,
+                            due_date: None,
+                            scheduled_start: None,
+                            scheduled_end: None,
+                            is_all_day: false,
+                            recurrence: None,
+                            reminders: Vec::new(),
+                            schedule_timezone: None,
+                            assignee: None,
+                            run_in_target: "localProject".to_owned(),
+                            run_in_local_path: None,
+                            run_in_base_branch: None,
+                            run_in_worktree_path: None,
+                            run_in_environment_path: None,
+                            before_block_id: None,
+                            before_view_page_id: None,
+                            data_source_id: SOURCE.to_owned(),
+                            tag_option_ids: vec!["o_AAAAAAAA".to_owned()],
+                            new_tag_options: vec![LibraryPageLifecycleTagOption {
+                                option_id: "o_AAAAAAAA".to_owned(),
+                                name: "Native".to_owned(),
+                            }],
+                            expected_tags_property_revision: 1,
+                        }),
+                    },
+                },
+            )
+            .expect("create Page");
+        let request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "property:mixed".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyBlockPropertyMutation {
+                mutation: Box::new(LibraryBlockPropertyMutation {
+                    actor: serde_json::json!({ "kind": "test" }),
+                    client_session_id: Some("session:property".to_owned()),
+                    fields: vec![
+                        LibraryBlockPropertyFieldMutation::DataSourceSet {
+                            page_id: PAGE.to_owned(),
+                            data_source_id: SOURCE.to_owned(),
+                            property_id: "status".to_owned(),
+                            expected_revision: 1,
+                            value: Some("build".to_owned()),
+                        },
+                        LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                            block_id: PAGE.to_owned(),
+                            property_key: "run.target".to_owned(),
+                            expected_revision: 1,
+                            value: serde_json::json!("cloud"),
+                        },
+                        LibraryBlockPropertyFieldMutation::DataSourceAddRemove {
+                            page_id: PAGE.to_owned(),
+                            data_source_id: SOURCE.to_owned(),
+                            property_id: "tags".to_owned(),
+                            add: Vec::new(),
+                            remove: vec!["o_AAAAAAAA".to_owned()],
+                        },
+                    ],
+                }),
+            },
+        };
+        let committed = module
+            .apply(&persistent_context, request.clone())
+            .expect("commit mixed Properties");
+        let receipt = committed
+            .committed
+            .value
+            .block_property_mutation
+            .as_ref()
+            .expect("Property receipt");
+        let LibraryBlockPropertyMutationOutcome::Committed {
+            fields,
+            block_metadata_revisions,
+        } = &receipt.outcome
+        else {
+            panic!("Property mutation committed")
+        };
+        assert_eq!(fields.len(), 3);
+        assert_eq!(block_metadata_revisions.get(PAGE), Some(&2));
+        assert!(committed.event.is_some());
+        assert_eq!(committed.committed.receipt.operation_kind, "property_batch");
+        let replay = module
+            .apply(&persistent_context, request)
+            .expect("replay mixed Properties");
+        assert!(replay.committed.receipt.mutation.duplicate);
+        assert!(replay.event.is_none());
+
+        let rejected = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "property:conflict".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyBlockPropertyMutation {
+                        mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                                block_id: PAGE.to_owned(),
+                                property_key: "run.target".to_owned(),
+                                expected_revision: 1,
+                                value: serde_json::json!("newWorktree"),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect("conflict has a durable rejected outcome");
+        let rejected_receipt = rejected
+            .committed
+            .value
+            .block_property_mutation
+            .as_ref()
+            .expect("rejection receipt");
+        assert!(matches!(
+            &rejected_receipt.outcome,
+            LibraryBlockPropertyMutationOutcome::Rejected { error }
+                if error.code == LibraryBlockPropertyMutationErrorCode::PropertyConflict
+                    && error.expected_revision == Some(1)
+                    && error.actual_revision == Some(2)
+        ));
+        assert!(rejected.event.is_none());
+
+        let invalid_schedule = module
+            .apply(
+                &persistent_context,
+                ModuleApplyRequest {
+                    version: CORE_CONTRACT_VERSION,
+                    operation_id: "property:invalid-schedule".to_owned(),
+                    store_epoch: StoreEpoch("epoch-1".to_owned()),
+                    intent: LibraryIntent::ApplyBlockPropertyMutation {
+                        mutation: Box::new(LibraryBlockPropertyMutation {
+                            actor: serde_json::json!({ "kind": "test" }),
+                            client_session_id: None,
+                            fields: vec![LibraryBlockPropertyFieldMutation::DataSourceSet {
+                                page_id: PAGE.to_owned(),
+                                data_source_id: SOURCE.to_owned(),
+                                property_id: "scheduled_start".to_owned(),
+                                expected_revision: 1,
+                                value: Some("2026-07-21T01:00:00.000Z".to_owned()),
+                            }],
+                        }),
+                    },
+                },
+            )
+            .expect("invalid schedule has a durable rejected outcome");
+        assert!(matches!(
+            invalid_schedule
+                .committed
+                .value
+                .block_property_mutation
+                .as_ref()
+                .map(|receipt| &receipt.outcome),
+            Some(LibraryBlockPropertyMutationOutcome::Rejected { error })
+                if error.code == LibraryBlockPropertyMutationErrorCode::PropertyValueInvalid
+        ));
+        assert!(invalid_schedule.event.is_none());
+
+        let invalid_actor_request = ModuleApplyRequest {
+            version: CORE_CONTRACT_VERSION,
+            operation_id: "property:invalid-actor".to_owned(),
+            store_epoch: StoreEpoch("epoch-1".to_owned()),
+            intent: LibraryIntent::ApplyBlockPropertyMutation {
+                mutation: Box::new(LibraryBlockPropertyMutation {
+                    actor: serde_json::json!("spoofed"),
+                    client_session_id: None,
+                    fields: vec![LibraryBlockPropertyFieldMutation::IntrinsicSet {
+                        block_id: PAGE.to_owned(),
+                        property_key: "run.target".to_owned(),
+                        expected_revision: 2,
+                        value: serde_json::json!("localProject"),
+                    }],
+                }),
+            },
+        };
+        let invalid_actor = module
+            .apply(&persistent_context, invalid_actor_request.clone())
+            .expect("invalid actor has a durable rejected outcome");
+        assert!(matches!(
+            invalid_actor
+                .committed
+                .value
+                .block_property_mutation
+                .as_ref()
+                .map(|receipt| &receipt.outcome),
+            Some(LibraryBlockPropertyMutationOutcome::Rejected { error })
+                if error.code
+                    == LibraryBlockPropertyMutationErrorCode::InvalidPropertyMutationRequest
+        ));
+        assert!(invalid_actor.event.is_none());
+        let invalid_actor_replay = module
+            .apply(&persistent_context, invalid_actor_request)
+            .expect("invalid actor rejection replays");
+        assert!(invalid_actor_replay.committed.receipt.mutation.duplicate);
+
+        kernel
+            .readers()
+            .read_default(|connection| {
+                let evidence = connection.query_row(
+                    "SELECT block.metadata_revision, intrinsic.value_json, intrinsic.revision, \
+                       status.value_json, status.revision, position.group_key, \
+                       (SELECT count(*) FROM change_log WHERE operation_id = 'property:mixed'), \
+                       (SELECT count(*) FROM change_log WHERE operation_id = 'property:conflict'), \
+                       (SELECT outcome FROM block_mutations WHERE mutation_id = 'property:conflict'), \
+                       (SELECT count(*) FROM change_log WHERE operation_id = 'property:invalid-schedule'), \
+                       (SELECT outcome FROM block_mutations WHERE mutation_id = 'property:invalid-schedule') \
+                     FROM blocks block \
+                     JOIN block_properties intrinsic ON intrinsic.block_id = block.id \
+                       AND intrinsic.property_key = 'run.target' \
+                     JOIN data_source_page_memberships membership ON membership.page_block_id = block.id \
+                       AND membership.removed_at IS NULL \
+                     JOIN data_source_property_values status ON status.membership_id = membership.id \
+                       AND status.data_source_id = membership.data_source_id \
+                       AND status.property_id = 'status' \
+                     JOIN database_view_page_positions position ON position.page_block_id = block.id \
+                       AND position.view_id = ?1 \
+                     WHERE block.id = ?2",
+                    params![VIEW, PAGE],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, i64>(6)?,
+                            row.get::<_, i64>(7)?,
+                            row.get::<_, String>(8)?,
+                            row.get::<_, i64>(9)?,
+                            row.get::<_, String>(10)?,
+                        ))
+                    },
+                )?;
+                assert_eq!(
+                    evidence,
+                    (
+                        2,
+                        "\"cloud\"".to_owned(),
+                        2,
+                        "\"build\"".to_owned(),
+                        2,
+                        Some("build".to_owned()),
+                        1,
+                        0,
+                        "rejected".to_owned(),
+                        0,
+                        "rejected".to_owned(),
+                    )
+                );
+                let invalid_actor_ledger = connection.query_row(
+                    "SELECT outcome, actor_json FROM block_mutations \
+                     WHERE mutation_id = 'property:invalid-actor'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )?;
+                assert_eq!(
+                    invalid_actor_ledger,
+                    ("rejected".to_owned(), "{}".to_owned())
+                );
+                Ok(())
+            })
+            .expect("Property authority evidence");
+    }
 }
 mod block_transfer;
 mod content;
@@ -3701,3 +4057,4 @@ mod navigation;
 mod page_copy;
 mod page_lifecycle;
 mod page_lifecycle_mutation;
+mod page_property_mutation;

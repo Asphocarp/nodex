@@ -806,13 +806,13 @@ pub(super) fn shift_date_key(value: &str, days: i64) -> Result<String, StoreErro
         .ok_or_else(|| invalid("Recurrence end date exceeds the calendar range"))
 }
 
-pub(super) fn validate_recurrence_input(
+pub(crate) fn validate_recurrence_input(
     recurrence: &PageRecurrenceConfig,
 ) -> Result<(), StoreError> {
     validate_recurrence(recurrence).map_err(|_| invalid("Recurrence config is invalid"))
 }
 
-pub(super) fn validate_reminders_input(reminders: &[PageReminderConfig]) -> Result<(), StoreError> {
+pub(crate) fn validate_reminders_input(reminders: &[PageReminderConfig]) -> Result<(), StoreError> {
     let value = serde_json::to_value(reminders)
         .map_err(|_| invalid("Reminder config cannot be encoded"))?;
     parse_reminders(&value)
@@ -820,7 +820,7 @@ pub(super) fn validate_reminders_input(reminders: &[PageReminderConfig]) -> Resu
         .map_err(|_| invalid("Reminder config is invalid"))
 }
 
-pub(super) fn validate_timezone_input(timezone: Option<&str>) -> Result<(), StoreError> {
+pub(crate) fn validate_timezone_input(timezone: Option<&str>) -> Result<(), StoreError> {
     ScheduleZone::parse(timezone)
         .map(|_| ())
         .map_err(|_| invalid("Schedule timezone is invalid"))

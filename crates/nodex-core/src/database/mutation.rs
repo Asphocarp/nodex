@@ -66,14 +66,14 @@ struct SourceRow {
 }
 
 #[derive(Debug)]
-struct PropertyRow {
-    id: String,
-    value_type: String,
-    config_json: String,
-    rank_key: String,
-    lifecycle: String,
-    revision: i64,
-    created_at: String,
+pub(crate) struct PropertyRow {
+    pub(crate) id: String,
+    pub(crate) value_type: String,
+    pub(crate) config_json: String,
+    pub(crate) rank_key: String,
+    pub(crate) lifecycle: String,
+    pub(crate) revision: i64,
+    pub(crate) created_at: String,
 }
 
 #[derive(Debug)]
@@ -3533,7 +3533,7 @@ fn persist_option_config(
     Ok(())
 }
 
-fn normalize_value(property: &PropertyRow, value: &Value) -> Result<Value, StoreError> {
+pub(crate) fn normalize_value(property: &PropertyRow, value: &Value) -> Result<Value, StoreError> {
     if value.is_null() {
         return Ok(Value::Null);
     }
@@ -4017,7 +4017,7 @@ fn property_row(
         .map_err(StoreError::from)
 }
 
-fn active_property(
+pub(crate) fn active_property(
     connection: &Connection,
     data_source_id: &str,
     property_id: &str,
@@ -4124,6 +4124,69 @@ fn authorize_write(
         return Ok(());
     }
     Err(unauthorized("Project cannot mutate this Database"))
+}
+
+pub(crate) fn authorize_page_value_write(
+    connection: &Connection,
+    project_id: &str,
+    database_id: &str,
+    library_scope: bool,
+) -> Result<(), StoreError> {
+    authorize_write(
+        connection,
+        project_id,
+        database_id,
+        DatabaseWriteAction::Write,
+        library_scope,
+    )
+}
+
+#[derive(Default)]
+pub(crate) struct PageValueProjectionEffects {
+    pub(crate) view_ids: Vec<String>,
+    pub(crate) committed_revisions: BTreeMap<String, i64>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn refresh_page_value_projection(
+    connection: &Connection,
+    page_id: &str,
+    data_source_id: &str,
+    property_id: &str,
+    value: &Value,
+    value_revision: i64,
+    metadata_revision: i64,
+    now: &str,
+) -> Result<PageValueProjectionEffects, StoreError> {
+    let property = active_property(connection, data_source_id, property_id)?;
+    let mut effects = MutationEffects::default();
+    update_grouped_positions(
+        connection,
+        data_source_id,
+        property_id,
+        page_id,
+        value,
+        now,
+        &mut effects,
+    )?;
+    refresh_value_projection(
+        connection,
+        page_id,
+        property_id,
+        value,
+        value_revision,
+        metadata_revision,
+        &property,
+        now,
+    )?;
+    Ok(PageValueProjectionEffects {
+        view_ids: effects.view_ids.into_iter().collect(),
+        committed_revisions: effects
+            .revisions
+            .into_iter()
+            .filter(|(key, _)| key.starts_with("position:"))
+            .collect(),
+    })
 }
 
 fn mutation_authority(

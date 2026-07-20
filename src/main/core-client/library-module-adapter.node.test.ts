@@ -1,9 +1,11 @@
 import { describe, expect, test } from "vitest";
 
 import { plainTextToPortableRichText } from "../../shared/block-documents";
+import type { BlockPropertyMutationRequestV2 } from "../../shared/block-property-mutations-v2";
 import {
   parseDataSourceId,
   parseDataSourceOptionId,
+  parseDataSourcePropertyId,
 } from "../../shared/database-identities";
 import { LIBRARY_MODULE_CONTRACT_VERSION } from "../../shared/library-module";
 import { PAGE_HISTORY_CONTRACT_VERSION } from "../../shared/page-history";
@@ -323,6 +325,12 @@ const neverTypeScript = (): DesktopLibraryModuleBridgeInput["typescript"] => ({
   },
   applyPageLifecycleMutation: async () => {
     throw new Error("TypeScript lifecycle mutation must not run");
+  },
+  applyBlockPropertyMutation: async () => {
+    throw new Error("TypeScript Property mutation must not run");
+  },
+  applyLibraryBlockPropertyMutation: async () => {
+    throw new Error("TypeScript Library Property mutation must not run");
   },
 });
 
@@ -666,6 +674,142 @@ describe("Core Library Module Adapter", () => {
           kind: "archive_page",
           page_id: "page:one",
           expected_metadata_revision: 3,
+        },
+      },
+    }]);
+  });
+
+  test("maps mixed Page Property mutations through one native Library intent", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:one", "database:test"],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: null,
+        block_property_mutation: {
+          outcome: {
+            status: "committed",
+            fields: [{
+              scope: "intrinsic",
+              path: "intrinsic/page%3Aone/run.target",
+              block_id: "page:one",
+              property_key: "run.target",
+              operation: "set",
+              revision: 2,
+              value: "cloud",
+            }, {
+              scope: "data_source",
+              path: "data_source/source%3Atest/page%3Aone/status",
+              block_id: "page:one",
+              data_source_id: "source:test",
+              property_id: "status",
+              operation: "set",
+              revision: 3,
+              value: "build",
+            }],
+            block_metadata_revisions: { "page:one": 7 },
+          },
+        },
+      },
+      receipt: {
+        operation_id: "property:mixed",
+        duplicate: false,
+        operation_kind: "property_batch",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: [],
+        affected_page_ids: ["page:one"],
+        affected_database_ids: ["database:test"],
+        affected_view_ids: ["view:test"],
+        committed_revisions: {
+          "intrinsic/page%3Aone/run.target": 2,
+          "data_source/source%3Atest/page%3Aone/status": 3,
+        },
+        change_log_seq: 21,
+        committed_at: "2026-07-20T12:00:00.000Z",
+      },
+      event_sequence: 21,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+    const request: BlockPropertyMutationRequestV2 = {
+      version: 2,
+      mutationId: "property:mixed",
+      projectId: "project:test",
+      storeEpoch: identity.storeEpoch,
+      clientSessionId: "session:test",
+      actor: { kind: "electron_renderer" },
+      fields: [{
+        scope: "intrinsic",
+        blockId: "page:one",
+        propertyKey: "run.target",
+        operation: "set",
+        expectedRevision: 1,
+        value: "cloud",
+      }, {
+        scope: "data_source",
+        pageId: "page:one",
+        dataSourceId: parseDataSourceId("source:test"),
+        propertyId: parseDataSourcePropertyId("status"),
+        operation: "set",
+        expectedRevision: 2,
+        value: "build",
+      }],
+    };
+
+    await expect(adapter.applyBlockPropertyMutation(request)).resolves.toEqual({
+      ok: true,
+      value: {
+        version: 2,
+        mutationId: request.mutationId,
+        projectId: request.projectId,
+        storeEpoch: identity.storeEpoch,
+        duplicate: false,
+        fields: [{
+          scope: "intrinsic",
+          path: "intrinsic/page%3Aone/run.target",
+          blockId: "page:one",
+          propertyKey: "run.target",
+          operation: "set",
+          revision: 2,
+          value: "cloud",
+        }, {
+          scope: "data_source",
+          path: "data_source/source%3Atest/page%3Aone/status",
+          blockId: "page:one",
+          dataSourceId: "source:test",
+          propertyId: "status",
+          operation: "set",
+          revision: 3,
+          value: "build",
+        }],
+        blockMetadataRevisions: { "page:one": 7 },
+        changeLogSeq: 21,
+        committedAt: "2026-07-20T12:00:00.000Z",
+      },
+    });
+    expect(client.applies).toEqual([{
+      operationId: request.mutationId,
+      intent: {
+        kind: "apply_block_property_mutation",
+        mutation: {
+          actor: request.actor,
+          client_session_id: request.clientSessionId,
+          fields: [{
+            kind: "intrinsic_set",
+            block_id: "page:one",
+            property_key: "run.target",
+            expected_revision: 1,
+            value: "cloud",
+          }, {
+            kind: "data_source_set",
+            page_id: "page:one",
+            data_source_id: "source:test",
+            property_id: "status",
+            expected_revision: 2,
+            value: "build",
+          }],
         },
       },
     }]);

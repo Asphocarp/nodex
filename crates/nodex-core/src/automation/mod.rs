@@ -1,6 +1,10 @@
 mod mutation;
 mod occurrence;
 mod occurrence_mutation;
+pub(crate) use occurrence::{
+    validate_recurrence_input, validate_reminders_input, validate_timezone_input,
+};
+pub(crate) use occurrence_mutation::refresh_scheduled_index;
 mod read;
 mod reminder;
 mod run;

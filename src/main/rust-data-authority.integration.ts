@@ -979,13 +979,81 @@ describe("Electron native data authority", () => {
         storeEpoch: runtime.rootClient.handshake.store_epoch,
         actor: { kind: "electron_renderer", clientId: "rust-authority-test" },
       };
+      const propertyMutation = await lifecycleLibrary.applyBlockPropertyMutation({
+        version: 2,
+        mutationId: "electron-page-property-mixed",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        clientSessionId: "rust-authority-test",
+        actor: lifecycleRequestBase.actor,
+        fields: [{
+          scope: "intrinsic",
+          blockId: copiedDataSourcePageId,
+          propertyKey: "run.target",
+          operation: "set",
+          expectedRevision: 1,
+          value: "cloud",
+        }, {
+          scope: "data_source",
+          pageId: copiedDataSourcePageId,
+          dataSourceId: primaryDataSource.dataSourceId,
+          propertyId: parseDataSourcePropertyId("assignee"),
+          operation: "set",
+          expectedRevision: 1,
+          value: "native-core",
+        }],
+      });
+      if (!propertyMutation.ok) {
+        throw new Error(
+          `Core Page Property mutation failed: ${propertyMutation.error.code}: ${propertyMutation.error.message}`,
+        );
+      }
+      expect(propertyMutation).toMatchObject({
+        ok: true,
+        value: {
+          duplicate: false,
+          fields: [
+            { scope: "data_source", propertyId: "assignee", revision: 2 },
+            { scope: "intrinsic", propertyKey: "run.target", revision: 2 },
+          ],
+        },
+      });
+      const propertyReplay = await lifecycleLibrary.applyBlockPropertyMutation({
+        version: 2,
+        mutationId: "electron-page-property-mixed",
+        projectId,
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        clientSessionId: "rust-authority-test",
+        actor: lifecycleRequestBase.actor,
+        fields: [{
+          scope: "intrinsic",
+          blockId: copiedDataSourcePageId,
+          propertyKey: "run.target",
+          operation: "set",
+          expectedRevision: 1,
+          value: "cloud",
+        }, {
+          scope: "data_source",
+          pageId: copiedDataSourcePageId,
+          dataSourceId: primaryDataSource.dataSourceId,
+          propertyId: parseDataSourcePropertyId("assignee"),
+          operation: "set",
+          expectedRevision: 1,
+          value: "native-core",
+        }],
+      });
+      expect(propertyReplay).toMatchObject({
+        ok: true,
+        value: { duplicate: true },
+      });
       const archived = await lifecycleLibrary.applyPageLifecycleMutation({
         ...lifecycleRequestBase,
         operationId: "electron-page-lifecycle-archive",
         operation: {
           kind: "archive_page",
           pageId: copiedDataSourcePageId,
-          expectedMetadataRevision: initialLifecyclePage.metadataRevision,
+          expectedMetadataRevision:
+            propertyMutation.value.blockMetadataRevisions[copiedDataSourcePageId],
         },
       });
       expect(archived).toMatchObject({
