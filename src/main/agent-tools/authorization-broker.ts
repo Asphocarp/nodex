@@ -56,7 +56,7 @@ export interface AuthorizeNodexAgentAccessInput
   readonly authority: FrozenNodexAgentTurnAuthority;
   readonly presentation: NodexAgentAuthorizationPresentationTarget | null;
   /** Main-owned exact-Turn check, evaluated after the renderer responds. */
-  readonly isAuthorityCurrent?: () => boolean;
+  readonly isAuthorityCurrent?: () => boolean | Promise<boolean>;
 }
 
 /** @deprecated Use the resource-scoped access input. */
@@ -197,7 +197,8 @@ export class NodexAgentAuthorizationBroker {
     if (response.decision === "deny") return "deny";
     if (
       this.readStoreEpoch() !== storeEpoch
-      || input.isAuthorityCurrent?.() === false
+      || (input.isAuthorityCurrent
+        && !(await input.isAuthorityCurrent()))
     ) return "unavailable";
 
     if (response.decision === "allow_once") {
@@ -252,7 +253,8 @@ export class NodexAgentAuthorizationBroker {
     }
     if (
       this.readStoreEpoch() !== storeEpoch
-      || input.isAuthorityCurrent?.() === false
+      || (input.isAuthorityCurrent
+        && !(await input.isAuthorityCurrent()))
     ) return "unavailable";
 
     const taskAccess = this.getTaskAccess(input.authority);

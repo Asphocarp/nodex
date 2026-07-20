@@ -211,9 +211,28 @@ describe("NodexAgentAuthorizationBroker", () => {
     });
 
     await expect(broker.authorize(authorizationInput({
-      isAuthorityCurrent: () => false,
+      isAuthorityCurrent: async () => false,
     }))).resolves.toBe("unavailable");
     expect(persistProjectGrants).not.toHaveBeenCalled();
+  });
+
+  test("rechecks async exact-Turn authority after Project persistence", async () => {
+    const persistProjectGrants = vi.fn(async () => undefined);
+    const { router } = createRouter(["allow_project"]);
+    const broker = new NodexAgentAuthorizationBroker({
+      rendererClientRouter: router,
+      readStoreEpoch: () => "store-1",
+      persistProjectGrants,
+    });
+    const isAuthorityCurrent = vi.fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await expect(broker.authorize(authorizationInput({
+      isAuthorityCurrent,
+    }))).resolves.toBe("unavailable");
+    expect(persistProjectGrants).toHaveBeenCalledTimes(1);
+    expect(isAuthorityCurrent).toHaveBeenCalledTimes(2);
   });
 
   test("does not bind task grants to the renderer that presented the card", async () => {

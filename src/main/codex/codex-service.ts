@@ -298,10 +298,13 @@ import { getDb } from "../local-store/database";
 import { planNodexAgentResourceAccessInDatabase } from "../local-store/project-resource-grants";
 import {
   canAutoApproveNodexAgentWrite,
-  CodexNodexAgentAuthorityRegistry,
+  createTypeScriptNodexAgentAuthorityPort,
   resolveNodexAgentWriteAccess,
-  type NodexAgentTurnAuthorityLaunch,
 } from "./codex-nodex-agent-authority";
+import type {
+  NodexAgentAuthorityPort,
+  NodexAgentTurnAuthorityLaunch,
+} from "../nodex-agent-authority-port";
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import {
   buildPlanImplementationRequestId,
@@ -2851,7 +2854,8 @@ export class CodexService extends EventEmitter {
   private readonly automationIdByRunThreadId = new Map<string, string>();
   private readonly activeHeartbeatAutomationIdByThreadId =
     new Map<string, string>();
-  private readonly nodexAgentAuthorityRegistry = new CodexNodexAgentAuthorityRegistry();
+  private nodexAgentAuthorityRegistry: NodexAgentAuthorityPort =
+    createTypeScriptNodexAgentAuthorityPort();
 
   private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
   private readonly verifiedPermissionModeByProject = new Map<string, CodexPermissionMode>();
@@ -3075,7 +3079,12 @@ export class CodexService extends EventEmitter {
     });
 
     this.client.on("notification", (notification: CodexServerNotification) => {
-      void this.routeAppServerNotification(notification);
+      void this.routeAppServerNotification(notification).catch((error) => {
+        this.logger.warn("Codex notification routing failed", {
+          method: notification.method,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     });
 
     this.client.on("protocolError", (message: string) => {
@@ -3190,7 +3199,9 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private registerSubagentThreadFromStartedNotification(notification: CodexServerNotification): void {
+  private async registerSubagentThreadFromStartedNotification(
+    notification: CodexServerNotification,
+  ): Promise<void> {
     if (notification.method !== "thread/started") return;
     const thread = asRecord(notification.params.thread);
     if (!thread || (!parseThreadParentThreadId(thread) && !isSubagentThreadSpawnSource(thread.source) && !hasCodexSubagentSource(thread.source))) return;
@@ -3211,7 +3222,7 @@ export class CodexService extends EventEmitter {
       ?? this.parseThreadRef(parentRootThreadId)?.projectId
       ?? null;
     if (!parentProjectId) return;
-    const parentAuthority = this.nodexAgentAuthorityRegistry.capture({
+    const parentAuthority = await this.nodexAgentAuthorityRegistry.capture({
       threadId: parentThreadId,
       turnId: parentTurnId,
       rootThreadId: parentRootThreadId,
@@ -3244,7 +3255,9 @@ export class CodexService extends EventEmitter {
       && !this.fullFidelitySubagentThreadIds.has(normalizedThreadId);
   }
 
-  private routeAppServerNotification(notification: CodexServerNotification): void {
+  private async routeAppServerNotification(
+    notification: CodexServerNotification,
+  ): Promise<void> {
     if (notification.method === "turn/started") {
       const params = asRecord(notification.params);
       const threadId = parseEventThreadId(params);
@@ -3254,14 +3267,17 @@ export class CodexService extends EventEmitter {
           const inherited = this.inheritedNodexAuthorityBySubagentThreadId.get(threadId);
           if (inherited) {
             this.inheritedNodexAuthorityBySubagentThreadId.delete(threadId);
-            this.nodexAgentAuthorityRegistry.inheritTurn({
+            await this.nodexAgentAuthorityRegistry.inheritTurn({
               threadId,
               turnId,
               rootThreadId: inherited.rootThreadId,
               actorProjectId: inherited.actorProjectId,
             }, inherited);
           } else {
-            this.nodexAgentAuthorityRegistry.observeTurnStarted(threadId, turnId);
+            await this.nodexAgentAuthorityRegistry.observeTurnStarted(
+              threadId,
+              turnId,
+            );
           }
         } catch (error) {
           this.logger.error("Failed to bind Nodex Agent Turn authority", {
@@ -3285,7 +3301,7 @@ export class CodexService extends EventEmitter {
     }
 
     this.registerInternalThreadFromStartedNotification(notification);
-    this.registerSubagentThreadFromStartedNotification(notification);
+    await this.registerSubagentThreadFromStartedNotification(notification);
     const threadId = this.resolveNotificationThreadId(notification);
     if (threadId && this.internalThreadIds.has(threadId)) {
       this.logger.debug("Suppressed internal Codex thread notification from visible pipeline", {
@@ -4025,6 +4041,10 @@ export class CodexService extends EventEmitter {
   ): void {
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.nodexAgentAuthorizationBroker = broker;
+  }
+
+  setNodexAgentAuthorityPort(port: NodexAgentAuthorityPort): void {
+    this.nodexAgentAuthorityRegistry = port;
   }
 
   setAutomationModule(module: DesktopAutomationModulePort): void {
@@ -9266,7 +9286,7 @@ export class CodexService extends EventEmitter {
     const actorPermissionState = actorProjectId && !input.permissions
       ? await this.readPermissionState(actorProjectId)
       : null;
-    const authorityLaunch = this.beginNodexAgentTurnAuthority(
+    const authorityLaunch = await this.beginNodexAgentTurnAuthority(
       resumedThread.threadId,
       actorPermissionState
         ? this.isVerifiedBuiltinFullAccess(actorProjectId, actorPermissionState)
@@ -9277,7 +9297,7 @@ export class CodexService extends EventEmitter {
       turnStart = input.waitForCompletion
         ? await this.startHeartbeatTurnAndWaitForCompletion(turnStartParams)
         : await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
-      this.nodexAgentAuthorityRegistry.bindTurn(
+      await this.nodexAgentAuthorityRegistry.bindTurn(
         authorityLaunch,
         turnStart.turn.id,
       );
@@ -13671,7 +13691,7 @@ export class CodexService extends EventEmitter {
       if (!this.asTurnSummary(input.threadId, response.turn)) {
         throw new Error("Codex turn/start returned an invalid turn payload");
       }
-      this.nodexAgentAuthorityRegistry.bindTurn(
+      await this.nodexAgentAuthorityRegistry.bindTurn(
         input.authorityLaunch,
         response.turn.id,
       );
@@ -14078,7 +14098,7 @@ export class CodexService extends EventEmitter {
         commentAttachments: [...preparedPrompt.commentAttachments],
       };
       const startedTurn = await this.dispatchCanonicalOptimisticTurn({
-        authorityLaunch: this.beginNodexAgentTurnAuthority(
+        authorityLaunch: await this.beginNodexAgentTurnAuthority(
           link.threadId,
           this.isVerifiedBuiltinFullAccess(
             input.projectId,
@@ -16610,7 +16630,7 @@ export class CodexService extends EventEmitter {
       undefined,
       detail?.cwd ? [detail.cwd] : [],
     );
-    const authorityLaunch = this.beginNodexAgentTurnAuthority(
+    const authorityLaunch = await this.beginNodexAgentTurnAuthority(
       threadId,
       this.isVerifiedBuiltinFullAccess(projectId, permissionState),
     );
@@ -16619,7 +16639,7 @@ export class CodexService extends EventEmitter {
         "turn/start",
         params,
       );
-      this.nodexAgentAuthorityRegistry.bindTurn(
+      await this.nodexAgentAuthorityRegistry.bindTurn(
         authorityLaunch,
         response.turn.id,
       );
@@ -16787,7 +16807,7 @@ export class CodexService extends EventEmitter {
     }));
     const startedAt = Date.now();
     const clientUserMessageId = overrides?.clientUserMessageId ?? randomUUID();
-    const authorityLaunch = this.beginNodexAgentTurnAuthority(
+    const authorityLaunch = await this.beginNodexAgentTurnAuthority(
       threadId,
       this.isVerifiedBuiltinFullAccess(threadRef?.projectId ?? null, permissionState),
     );
@@ -16907,7 +16927,7 @@ export class CodexService extends EventEmitter {
           }
         : await requestTurnStartWithRecovery();
       if (!usedCanonicalTransaction) {
-        this.nodexAgentAuthorityRegistry.bindTurn(
+        await this.nodexAgentAuthorityRegistry.bindTurn(
           authorityLaunch,
           turnStartResult.turn.id,
         );
@@ -19722,7 +19742,7 @@ export class CodexService extends EventEmitter {
     readonly workspaceKind: CodexResolvedDynamicDirectThreadTarget["workspaceKind"];
   }): Promise<void> {
     return (async () => {
-      const authorityLaunch = this.beginNodexAgentTurnAuthority(
+      const authorityLaunch = await this.beginNodexAgentTurnAuthority(
         input.threadId,
         input.nodexBuiltinFullAccess,
       );
@@ -19767,7 +19787,7 @@ export class CodexService extends EventEmitter {
           "turn/start",
           turnStartParams,
         );
-        this.nodexAgentAuthorityRegistry.bindTurn(
+        await this.nodexAgentAuthorityRegistry.bindTurn(
           authorityLaunch,
           response.turn.id,
         );
@@ -20178,17 +20198,17 @@ export class CodexService extends EventEmitter {
     return threadId;
   }
 
-  private beginNodexAgentTurnAuthority(
+  private async beginNodexAgentTurnAuthority(
     threadId: string,
     builtinFullAccess: boolean,
     inheritedAuthority?: FrozenNodexAgentTurnAuthority | null,
-  ): NodexAgentTurnAuthorityLaunch | null {
+  ): Promise<NodexAgentTurnAuthorityLaunch | null> {
     const rootThreadId = this.resolveNodexAgentRootThreadId(threadId);
     const actorProjectId = this.parseThreadRef(threadId)?.projectId
       ?? this.parseThreadRef(rootThreadId)?.projectId
       ?? null;
     if (!actorProjectId) return null;
-    return this.nodexAgentAuthorityRegistry.beginTurn({
+    return await this.nodexAgentAuthorityRegistry.beginTurn({
       threadId,
       rootThreadId,
       actorProjectId,
@@ -20197,9 +20217,9 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private captureNodexAgentTurnAuthority(
+  private async captureNodexAgentTurnAuthority(
     params: DynamicToolCallParams,
-  ): FrozenNodexAgentTurnAuthority | null {
+  ): Promise<FrozenNodexAgentTurnAuthority | null> {
     const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
     const actorProjectId = this.parseThreadRef(params.threadId)?.projectId
       ?? this.parseThreadRef(rootThreadId)?.projectId
@@ -20211,13 +20231,13 @@ export class CodexService extends EventEmitter {
       rootThreadId,
       actorProjectId,
     };
-    const persisted = this.nodexAgentAuthorityRegistry.capturePersisted(captureInput);
+    const persisted = await this.nodexAgentAuthorityRegistry
+      .capturePersisted(captureInput);
     if (persisted) return persisted;
-    if (this.nodexAgentAuthorityRegistry.hasRecordedAuthority(
-      params.threadId,
-      params.turnId,
-    )) return null;
-    return this.nodexAgentAuthorityRegistry.capture(captureInput);
+    if (await this.nodexAgentAuthorityRegistry.hasRecordedAuthority(captureInput)) {
+      return null;
+    }
+    return await this.nodexAgentAuthorityRegistry.capture(captureInput);
   }
 
   private resolveNodexAgentAuthorizationPresentation(
@@ -20254,7 +20274,7 @@ export class CodexService extends EventEmitter {
   ): Promise<DynamicToolCallResponse> {
     const rootThreadId = this.resolveNodexAgentRootThreadId(params.threadId);
     const authority = frozenAuthority === undefined
-      ? this.captureNodexAgentTurnAuthority(params)
+      ? await this.captureNodexAgentTurnAuthority(params)
       : frozenAuthority;
     const projectId = authority?.actorProjectId ?? null;
     const broker = this.nodexAgentAuthorizationBroker;
@@ -20308,7 +20328,7 @@ export class CodexService extends EventEmitter {
       },
       authorize: async (authorization) => {
         if (authority?.scope === "library") {
-          const current = this.captureNodexAgentTurnAuthority(params);
+          const current = await this.captureNodexAgentTurnAuthority(params);
           if (canAutoApproveNodexAgentWrite(authority, current)) {
             return { decision: "allow_once" };
           }
@@ -20320,14 +20340,16 @@ export class CodexService extends EventEmitter {
           params.turnId,
           rootThreadId,
         );
-        const isAuthorityCurrent = (): boolean => {
+        const isAuthorityCurrent = async (): Promise<boolean> => {
           const currentRootThreadId = this.resolveNodexAgentRootThreadId(
             params.threadId,
           );
           const currentProjectId = this.parseThreadRef(params.threadId)?.projectId
             ?? this.parseThreadRef(currentRootThreadId)?.projectId
             ?? null;
-          const currentAuthority = this.captureNodexAgentTurnAuthority(params);
+          const currentAuthority = await this.captureNodexAgentTurnAuthority(
+            params,
+          );
           return currentRootThreadId === rootThreadId
             && currentProjectId === projectId
             && currentAuthority !== null
@@ -20341,7 +20363,7 @@ export class CodexService extends EventEmitter {
           presentation: currentPresentation,
           isAuthorityCurrent,
         });
-        return isAuthorityCurrent() ? decision : "unavailable";
+        return await isAuthorityCurrent() ? decision : "unavailable";
       },
     });
   }
@@ -20736,7 +20758,7 @@ export class CodexService extends EventEmitter {
 
     const isStoredSpecialRequest = lifecycle.disposition === "stored";
     const nodexAuthority = request.params.namespace === NODEX_APP_TOOL_NAMESPACE
-      ? this.captureNodexAgentTurnAuthority(request.params)
+      ? await this.captureNodexAgentTurnAuthority(request.params)
       : null;
     if (!isStoredSpecialRequest && !threadId) {
       this.logger.warn("Ignored Codex dynamic tool call without a thread id", {

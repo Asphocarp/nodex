@@ -72,6 +72,7 @@ import {
   getPort,
 } from "./local-store/config";
 import { codexService } from "./codex/codex-service";
+import { createTypeScriptNodexAgentAuthorityPort } from "./codex/codex-nodex-agent-authority";
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import {
   startCodexScheduledAutomationScheduler,
@@ -167,6 +168,7 @@ import {
 import { createTypeScriptAutomationModulePort } from "./typescript-automation-module-port";
 import { createTypeScriptStoreAdministrationPort } from "./typescript-store-administration-port";
 import { createTypeScriptProjectWorkspacePort } from "./typescript-project-workspace-port";
+import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import {
   startStoreAdministrationBackupScheduler,
   type StoreAdministrationBackupScheduler,
@@ -1658,6 +1660,12 @@ export async function runMainAppStartup(
     nodexHome: getNodexHome(),
     repositoryRoot: process.cwd(),
   });
+  codexService.setNodexAgentAuthorityPort(
+    createDesktopNodexAgentAuthorityPort({
+      authority: dataAuthority,
+      typescript: createTypeScriptNodexAgentAuthorityPort(),
+    }),
+  );
   const automationModule = createDesktopAutomationModuleBridge({
     authority: dataAuthority,
     typescript: createTypeScriptAutomationModulePort(),
@@ -1901,6 +1909,13 @@ export async function runMainAppStartup(
   rendererClientRouter = new RendererClientRouter();
   codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
     rendererClientRouter,
+    readStoreEpoch: () => {
+      const runtime = desktopDataAuthorityRuntime;
+      if (!runtime) return null;
+      return runtime.backend === "rust"
+        ? runtime.rootClient.handshake.store_epoch
+        : readBlockStoreEpoch(getDb());
+    },
     persistProjectGrants: async (input) =>
       await blockMutationWriter.persistNodexAgentProjectResourceGrants(input),
   }));

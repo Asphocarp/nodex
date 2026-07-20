@@ -11,6 +11,18 @@ import type { NodexAgentAccess } from "../../shared/nodex-agent-tools";
 import { readBlockStoreEpoch } from "../local-store/block-store-metadata";
 import { getDb } from "../local-store/database";
 import { FULL_ACCESS_PERMISSION_PROFILE_ID } from "./codex-permission-resolver";
+import type {
+  BeginNodexAgentTurnAuthorityInput,
+  CaptureNodexAgentTurnAuthorityInput,
+  NodexAgentAuthorityPort,
+  NodexAgentTurnAuthorityLaunch,
+} from "../nodex-agent-authority-port";
+
+export type {
+  BeginNodexAgentTurnAuthorityInput,
+  CaptureNodexAgentTurnAuthorityInput,
+  NodexAgentTurnAuthorityLaunch,
+} from "../nodex-agent-authority-port";
 
 interface ProjectAuthorityCoordinates {
   readonly projectId: string;
@@ -32,40 +44,6 @@ interface AuthorityRow {
   readonly permission_profile_id: string | null;
   readonly authority_fingerprint: string;
   readonly provenance_version: number;
-}
-
-interface PendingAuthoritySnapshot {
-  readonly threadId: string;
-  readonly rootThreadId: string;
-  readonly actorProjectId: string;
-  readonly libraryId: string;
-  readonly profileId: string;
-  readonly storeEpoch: string;
-  readonly scope: FrozenNodexAgentTurnAuthority["scope"];
-  readonly source: NodexAgentAuthoritySource;
-  readonly permissionProfileId: string | null;
-}
-
-export interface NodexAgentTurnAuthorityLaunch {
-  readonly launchId: string;
-  readonly snapshot: PendingAuthoritySnapshot;
-  boundTurnId: string | null;
-  aborted: boolean;
-}
-
-export interface BeginNodexAgentTurnAuthorityInput {
-  readonly threadId: string;
-  readonly rootThreadId: string;
-  readonly actorProjectId: string;
-  readonly builtinFullAccess: boolean;
-  readonly inheritedAuthority?: FrozenNodexAgentTurnAuthority | null;
-}
-
-export interface CaptureNodexAgentTurnAuthorityInput {
-  readonly threadId: string;
-  readonly turnId: string;
-  readonly rootThreadId: string;
-  readonly actorProjectId: string;
 }
 
 const normalizeIdentity = (value: string): string | null => {
@@ -414,3 +392,19 @@ export class CodexNodexAgentAuthorityRegistry {
     this.pendingByThreadId.set(launch.snapshot.threadId, next);
   }
 }
+
+export const createTypeScriptNodexAgentAuthorityPort = (
+  registry = new CodexNodexAgentAuthorityRegistry(),
+): NodexAgentAuthorityPort => ({
+  beginTurn: async (input) => registry.beginTurn(input),
+  bindTurn: async (launch, turnId) => registry.bindTurn(launch, turnId),
+  observeTurnStarted: async (threadId, turnId) =>
+    registry.observeTurnStarted(threadId, turnId),
+  abortTurn: (launch) => registry.abortTurn(launch),
+  inheritTurn: async (input, inheritedAuthority) =>
+    registry.inheritTurn(input, inheritedAuthority),
+  capturePersisted: async (input) => registry.capturePersisted(input),
+  hasRecordedAuthority: async (input) =>
+    registry.hasRecordedAuthority(input.threadId, input.turnId),
+  capture: async (input) => registry.capture(input),
+});

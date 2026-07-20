@@ -15,6 +15,7 @@ import {
 } from "./core-client/database-module-adapter";
 import { createDesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import { createDesktopProjectWorkspaceBridge } from "./core-client/desktop-project-workspace-bridge";
+import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import { createDesktopDocumentSyncBridge } from "./core-client/desktop-document-sync-bridge";
 import { createCoreBlockTransferAdapter } from "./core-client/block-transfer-adapter";
@@ -1773,6 +1774,35 @@ describe("Electron native data authority", () => {
       await expect(
         workspace.getProjectSession(createdSession.id),
       ).resolves.toMatchObject({ thread: null });
+      const turnAuthority = createDesktopNodexAgentAuthorityPort({
+        authority: Promise.resolve(runtime),
+        typescript: {} as never,
+      });
+      const authorityLaunch = await turnAuthority.beginTurn({
+        threadId: "thread:electron-session",
+        rootThreadId: "thread:electron-session",
+        actorProjectId: createdProject.id,
+        builtinFullAccess: false,
+      });
+      await expect(
+        turnAuthority.bindTurn(authorityLaunch, "turn:electron-session"),
+      ).resolves.toMatchObject({
+        threadId: "thread:electron-session",
+        turnId: "turn:electron-session",
+        rootThreadId: "thread:electron-session",
+        actorProjectId: createdProject.id,
+        scope: "project",
+        source: "project_turn",
+      });
+      await expect(turnAuthority.capturePersisted({
+        threadId: "thread:electron-session",
+        turnId: "turn:electron-session",
+        rootThreadId: "thread:electron-session",
+        actorProjectId: createdProject.id,
+      })).resolves.toMatchObject({
+        storeEpoch: runtime.rootClient.handshake.store_epoch,
+        libraryId: runtime.rootClient.handshake.library_id,
+      });
       await workspace.setProjectPinned(projectId, { pinned: true });
       await workspace.setProjectPinned(createdProject.id, { pinned: true });
       const pinnedOrder = [createdProject.id, projectId];
