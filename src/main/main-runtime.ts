@@ -21,7 +21,7 @@ import type {
 import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import {
-  configureHttpPropertyMutationAuthority,
+  configureHttpContentModuleAuthorities,
   startHttpServer,
 } from "./http-server";
 import {
@@ -1685,11 +1685,11 @@ export async function runMainAppStartup(
         (await blockMutationWriter.applyLibraryModule(request)).result,
       readProjectPageDetail: async (projectId, pageId) =>
         (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
-      readLibraryPageDetail: async (pageId) =>
+      readLibraryPageDetail: async (pageId, accessActor) =>
         (
           await blockMutationWriter.readLibraryPageDetail(
             pageId,
-            "app_window",
+            accessActor,
           )
         ).result,
       listPageHistory: (request) =>
@@ -1724,10 +1724,128 @@ export async function runMainAppStartup(
     },
   });
   desktopLibraryModule = libraryModule;
-  configureHttpPropertyMutationAuthority({
-    project: (request) => libraryModule.applyBlockPropertyMutation(request),
-    library: (input) =>
-      libraryModule.applyLibraryBlockPropertyMutation(input),
+  const documentSync = createDesktopDocumentSyncBridge({
+    authority: dataAuthority,
+    typescript: {
+      hub: documentSyncHub,
+      authorizeProject: async (input) =>
+        await blockMutationWriter.authorizeDocumentAccess(input),
+      authorizeLibrary: async (input) =>
+        await blockMutationWriter.authorizeLibraryDocumentAccess(input),
+      getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
+        (
+          await blockMutationWriter.getOwnedDocumentDescriptor(
+            projectId,
+            ownerBlockId,
+          )
+        ).result,
+      prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
+        await blockMutationWriter.prepareOwnedBlockDocument(
+          projectId,
+          ownerBlockId,
+        ),
+      prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
+        await blockMutationWriter.prepareLibraryOwnedBlockDocument(
+          ownerBlockId,
+        ),
+      createCheckpoint: async (request) =>
+        await blockMutationWriter.createDocumentVersionCheckpoint(request),
+      listVersions: async (request) =>
+        await blockMutationWriter.listDocumentVersions(request),
+      getVersion: async (request) =>
+        await blockMutationWriter.getDocumentVersion(request),
+      applyDocumentMutation: async (request) =>
+        await documentSyncHub.applyDocumentMutation(request),
+    },
+  });
+  const databaseModule = createDesktopDatabaseModuleBridge({
+    authority: dataAuthority,
+    typescript: {
+      read: async (request) =>
+        (await blockMutationWriter.readDatabaseModule(request)).result,
+      apply: async (request) =>
+        (await blockMutationWriter.applyDatabaseModule(request)).result,
+      readLibrary: (request, accessActor) =>
+        blockMutationWriter.readLibraryDatabaseModule(
+          request,
+          accessActor,
+        ),
+      applyLibrary: (request, identity) =>
+        blockMutationWriter.applyLibraryDatabaseModule(
+          request,
+          identity.actor,
+          identity.accessActor,
+        ),
+      getBoardSummary,
+      getDatabaseRowPage,
+      getDatabaseRowsDetails,
+      resolveDatabaseViewReference: async (input) =>
+        readProjectScopedDatabaseViewReference(input),
+    },
+  });
+  configureHttpContentModuleAuthorities({
+    referenceReads: {
+      resolvePageOwnershipPath: (input) =>
+        libraryModule.resolvePageOwnershipPath(input),
+      resolvePageTarget: (input) => libraryModule.resolvePageTarget(input),
+      readDatabaseViewReference: (input) =>
+        databaseModule.resolveDatabaseViewReference(input),
+    },
+    propertyMutations: {
+      project: (request) => libraryModule.applyBlockPropertyMutation(request),
+      library: (input) =>
+        libraryModule.applyLibraryBlockPropertyMutation(input),
+    },
+    database: {
+      read: (request) => databaseModule.read(request),
+      apply: (request) => databaseModule.apply(request),
+    },
+    library: {
+      read: (request) => libraryModule.read(request),
+      apply: (request) => libraryModule.applyTrustedLibrary(request),
+    },
+    libraryDatabase: {
+      read: (request) => databaseModule.readLibrary(request, "http_loopback"),
+      apply: (request) => databaseModule.applyLibrary(request, {
+        actor: { kind: "http_loopback" },
+        accessActor: "http_loopback",
+      }),
+    },
+    pageDetail: {
+      read: (projectId, pageId) =>
+        libraryModule.readProjectPageDetail(projectId, pageId),
+    },
+    libraryPageDetail: {
+      read: (pageId) =>
+        libraryModule.readLibraryPageDetail(pageId, "http_loopback"),
+    },
+    pageLifecyclePreflight: {
+      readPreflight: (projectId, pageId) =>
+        libraryModule.readPageLifecyclePreflight(projectId, pageId),
+    },
+    pageLifecycle: {
+      applyMutation: (request) =>
+        libraryModule.applyPageLifecycleMutation(request),
+    },
+    documentMutation: {
+      applyMutation: (request) => documentSync.applyDocumentMutation(request),
+    },
+    additionalDocumentCommand: {
+      applyCommand: (request) =>
+        documentSync.applyAdditionalDocumentCommand(request),
+    },
+    blockTransfer: {
+      transfer: (intent) => documentSync.transferBlocks(intent),
+    },
+    documentHistory: {
+      createCheckpoint: (request) => documentSync.createCheckpoint(request),
+      listVersions: (request) => documentSync.listVersions(request),
+      getVersion: (request) => documentSync.getVersion(request),
+      restoreVersion: (request) => documentSync.applyDocumentMutation(request),
+    },
+    pageHistory: {
+      listHistory: (request) => libraryModule.listPageHistory(request),
+    },
   });
   appInitializationPromise = initializeDesktopApp(serverPort, dataAuthority);
 
@@ -1753,40 +1871,7 @@ export async function runMainAppStartup(
       }, 250);
       restart.unref?.();
     },
-    documentSync: createDesktopDocumentSyncBridge({
-      authority: dataAuthority,
-      typescript: {
-        hub: documentSyncHub,
-        authorizeProject: async (input) =>
-          await blockMutationWriter.authorizeDocumentAccess(input),
-        authorizeLibrary: async (input) =>
-          await blockMutationWriter.authorizeLibraryDocumentAccess(input),
-        getOwnedDocumentDescriptor: async (projectId, ownerBlockId) =>
-          (
-            await blockMutationWriter.getOwnedDocumentDescriptor(
-              projectId,
-              ownerBlockId,
-            )
-          ).result,
-        prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
-          await blockMutationWriter.prepareOwnedBlockDocument(
-            projectId,
-            ownerBlockId,
-          ),
-        prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
-          await blockMutationWriter.prepareLibraryOwnedBlockDocument(
-            ownerBlockId,
-          ),
-        createCheckpoint: async (request) =>
-          await blockMutationWriter.createDocumentVersionCheckpoint(request),
-        listVersions: async (request) =>
-          await blockMutationWriter.listDocumentVersions(request),
-        getVersion: async (request) =>
-          await blockMutationWriter.getDocumentVersion(request),
-        applyDocumentMutation: async (request) =>
-          await documentSyncHub.applyDocumentMutation(request),
-      },
-    }),
+    documentSync,
     projectWorkspace: createDesktopProjectWorkspaceBridge({
       authority: dataAuthority,
       typescript: {
@@ -1879,31 +1964,7 @@ export async function runMainAppStartup(
       },
     }),
     libraryModule,
-    databaseModule: createDesktopDatabaseModuleBridge({
-      authority: dataAuthority,
-      typescript: {
-        read: async (request) =>
-          (await blockMutationWriter.readDatabaseModule(request)).result,
-        apply: async (request) =>
-          (await blockMutationWriter.applyDatabaseModule(request)).result,
-        readLibrary: (request) =>
-          blockMutationWriter.readLibraryDatabaseModule(
-            request,
-            "app_window",
-          ),
-        applyLibrary: (request) =>
-          blockMutationWriter.applyLibraryDatabaseModule(
-            request,
-            { kind: "electron_renderer" },
-            "app_window",
-          ),
-        getBoardSummary,
-        getDatabaseRowPage,
-        getDatabaseRowsDetails,
-        resolveDatabaseViewReference: async (input) =>
-          readProjectScopedDatabaseViewReference(input),
-      },
-    }),
+    databaseModule,
     rendererClientRouter,
     desktopNotificationManager,
     onHeartbeatAutomationsEnabledChanged: (input) => {

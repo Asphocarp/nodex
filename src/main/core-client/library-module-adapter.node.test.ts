@@ -436,6 +436,32 @@ describe("Core Library Module Adapter", () => {
     expect(rootClient.reads).toHaveLength(1);
   });
 
+  test("preserves Library Page Detail access identity on the TypeScript fallback", async () => {
+    let receivedAccessActor: "app_window" | "http_loopback" | null = null;
+    const bridge = createDesktopLibraryModuleBridge({
+      authority: Promise.resolve({ backend: "typescript" } as never),
+      resolveProjectId: () => null,
+      typescript: {
+        ...neverTypeScript(),
+        readLibraryPageDetail: async (_pageId, accessActor) => {
+          receivedAccessActor = accessActor;
+          return {
+            ok: false,
+            error: {
+              code: "store_not_initialized",
+              message: "fallback sentinel",
+              retryable: true,
+            },
+          };
+        },
+      },
+    });
+
+    await bridge.readLibraryPageDetail("page:one", "http_loopback");
+
+    expect(receivedAccessActor).toBe("http_loopback");
+  });
+
   test("maps Page history cursors and entries through the strict shared contract", async () => {
     const client = new FakeCoreClient();
     client.enqueueRead(pageHistorySnapshot());
@@ -1206,6 +1232,73 @@ describe("Core Library Module Adapter", () => {
       error: { code: "invalid_request" },
     });
     expect(typescriptApplyCalled).toBe(false);
+  });
+
+  test("routes trusted Library writes through the root Core client", async () => {
+    const rootClient = new FakeCoreClient();
+    rootClient.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:trusted"],
+        page_copy: null,
+        block_transfer: null,
+        page_lifecycle: null,
+      },
+      receipt: {
+        operation_id: "operation:trusted",
+        duplicate: false,
+        operation_kind: "create_page",
+        did_mutate: true,
+        created_target: { kind: "page", page_id: "page:trusted" },
+        affected_parent_keys: ["library"],
+        affected_page_ids: ["page:trusted"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: { "page:trusted": 1 },
+        change_log_seq: 9,
+        committed_at: "2026-07-20T00:00:00.000Z",
+      },
+      event_sequence: 9,
+      store_epoch: identity.storeEpoch,
+    });
+    const runtime = {
+      backend: "rust",
+      rootClient: Object.assign(rootClient, {
+        handshake: {
+          library_id: identity.libraryId,
+          profile_id: identity.profileId,
+          store_epoch: identity.storeEpoch,
+        },
+      }),
+      clientForProject: () => {
+        throw new Error("Trusted Library writes must not resolve a Project client");
+      },
+    } as unknown as RustDataAuthorityRuntime;
+    const bridge = createDesktopLibraryModuleBridge({
+      authority: Promise.resolve(runtime),
+      resolveProjectId: () => null,
+      typescript: neverTypeScript(),
+    });
+    const request = {
+      version: LIBRARY_MODULE_CONTRACT_VERSION,
+      operationId: "operation:trusted",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "create_page" as const,
+        pageId: "page:trusted",
+        documentId: "document:trusted",
+        title: "Trusted",
+        parent: { kind: "library" as const },
+      },
+    };
+
+    await expect(bridge.applyTrustedLibrary(request)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationId: request.operationId,
+        createdTarget: { kind: "page", pageId: "page:trusted" },
+      },
+    });
+    expect(rootClient.applies).toHaveLength(1);
   });
 
   test("maps only Library Core events into renderer invalidations", () => {

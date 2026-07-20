@@ -49,7 +49,10 @@ export interface DesktopLibraryModuleBridgeInput {
       projectId: string,
       pageId: string,
     ): Promise<PageDetailResult>;
-    readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
+    readLibraryPageDetail(
+      pageId: string,
+      accessActor: "app_window" | "http_loopback",
+    ): Promise<LibraryPageDetailResult>;
     listPageHistory(
       request: ListPageHistoryRequest,
     ): Promise<PageHistoryCommandResult>;
@@ -87,11 +90,17 @@ export interface DesktopLibraryModuleBridge {
     request: LibraryModuleApplyRequest,
     event: unknown,
   ): Promise<LibraryModuleApplyResult>;
+  applyTrustedLibrary(
+    request: LibraryModuleApplyRequest,
+  ): Promise<LibraryModuleApplyResult>;
   readProjectPageDetail(
     projectId: string,
     pageId: string,
   ): Promise<PageDetailResult>;
-  readLibraryPageDetail(pageId: string): Promise<LibraryPageDetailResult>;
+  readLibraryPageDetail(
+    pageId: string,
+    accessActor?: "app_window" | "http_loopback",
+  ): Promise<LibraryPageDetailResult>;
   listPageHistory(
     request: ListPageHistoryRequest,
   ): Promise<PageHistoryCommandResult>;
@@ -176,6 +185,14 @@ export function createDesktopLibraryModuleBridge(
       }
       return await projectCoreAdapter(runtime, projectId).apply(request);
     },
+    applyTrustedLibrary: async (request) => {
+      const runtime = await input.authority;
+      if (runtime.backend === "typescript") {
+        return await input.typescript.apply(request);
+      }
+      rootCoreAdapter ??= coreAdapter(runtime);
+      return await rootCoreAdapter.apply(request);
+    },
     readProjectPageDetail: async (projectId, pageId) => {
       const runtime = await input.authority;
       if (runtime.backend === "typescript") {
@@ -184,10 +201,10 @@ export function createDesktopLibraryModuleBridge(
       return await projectCoreAdapter(runtime, projectId)
         .readProjectPageDetail(projectId, pageId);
     },
-    readLibraryPageDetail: async (pageId) => {
+    readLibraryPageDetail: async (pageId, accessActor = "app_window") => {
       const runtime = await input.authority;
       if (runtime.backend === "typescript") {
-        return await input.typescript.readLibraryPageDetail(pageId);
+        return await input.typescript.readLibraryPageDetail(pageId, accessActor);
       }
       rootCoreAdapter ??= coreAdapter(runtime);
       return await rootCoreAdapter.readLibraryPageDetail(pageId);

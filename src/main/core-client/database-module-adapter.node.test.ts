@@ -525,6 +525,69 @@ describe("Core Database Module Adapter", () => {
     expect(requestedProjects).toEqual([identity.projectId]);
   });
 
+  test("preserves the caller's Library access identity on the TypeScript fallback", async () => {
+    let readAccessActor: "app_window" | "http_loopback" | null = null;
+    let applyIdentity: Readonly<{
+      actor: Readonly<Record<string, unknown>>;
+      accessActor: "app_window" | "http_loopback";
+    }> | null = null;
+    const unavailable = {
+      ok: false as const,
+      error: {
+        code: "store_not_initialized" as const,
+        message: "fallback sentinel",
+        retryable: true,
+      },
+    };
+    const bridge = createDesktopDatabaseModuleBridge({
+      authority: Promise.resolve({ backend: "typescript" } as never),
+      typescript: {
+        read: async () => unavailable,
+        apply: async () => unavailable,
+        readLibrary: async (_request, accessActor) => {
+          readAccessActor = accessActor;
+          return unavailable;
+        },
+        applyLibrary: async (_request, identity) => {
+          applyIdentity = identity;
+          return unavailable;
+        },
+        getBoardSummary: async () => ({ columns: [] }),
+        getDatabaseRowsDetails: async () => [],
+        getDatabaseRowPage: async () => null,
+        resolveDatabaseViewReference: async () => null,
+      },
+    });
+    const readRequest = {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      read: {
+        target: {
+          kind: "database" as const,
+          databaseId: parseDatabaseId("database:test"),
+        },
+        mode: "database" as const,
+      },
+    };
+    const applyRequest = {
+      version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+      operationId: "operation:http",
+      storeEpoch: identity.storeEpoch,
+      operations: [],
+    };
+
+    await bridge.readLibrary(readRequest, "http_loopback");
+    await bridge.applyLibrary(applyRequest, {
+      actor: { kind: "http_loopback" },
+      accessActor: "http_loopback",
+    });
+
+    expect(readAccessActor).toBe("http_loopback");
+    expect(applyIdentity).toEqual({
+      actor: { kind: "http_loopback" },
+      accessActor: "http_loopback",
+    });
+  });
+
   test("maps Database Core events into resource-scoped renderer invalidations", () => {
     expect(mapCoreDatabaseEvent({
       protocol_version: 1,

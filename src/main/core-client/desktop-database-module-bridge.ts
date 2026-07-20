@@ -57,9 +57,14 @@ export interface DesktopDatabaseModuleBridgeInput {
     apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
     readLibrary(
       request: LibraryDatabaseModuleReadRequestV2,
+      accessActor: "app_window" | "http_loopback",
     ): Promise<LibraryDatabaseModuleReadResultV2>;
     applyLibrary(
       request: LibraryDatabaseApplyV2,
+      identity: Readonly<{
+        actor: DatabaseApplyV2["actor"];
+        accessActor: "app_window" | "http_loopback";
+      }>,
     ): Promise<LibraryDatabaseApplyResultV2>;
     getBoardSummary(projectId: string): Promise<BoardSummary>;
     getDatabaseRowsDetails(
@@ -84,9 +89,14 @@ export interface DesktopDatabaseModuleBridge {
   apply(request: DatabaseApplyV2): Promise<DatabaseApplyResultV2>;
   readLibrary(
     request: LibraryDatabaseModuleReadRequestV2,
+    accessActor?: "app_window" | "http_loopback",
   ): Promise<LibraryDatabaseModuleReadResultV2>;
   applyLibrary(
     request: LibraryDatabaseApplyV2,
+    identity?: Readonly<{
+      actor: DatabaseApplyV2["actor"];
+      accessActor: "app_window" | "http_loopback";
+    }>,
   ): Promise<LibraryDatabaseApplyResultV2>;
   getBoardSummary(projectId: string): Promise<BoardSummary>;
   getDatabaseRowsDetails(
@@ -164,17 +174,23 @@ export const createDesktopDatabaseModuleBridge = (
       }
       return await coreAdapterFor(runtime, request.projectId).apply(request);
     },
-    readLibrary: async (request) => {
+    readLibrary: async (request, accessActor = "app_window") => {
       const runtime = await input.authority;
       if (runtime.backend === "typescript") {
-        return await input.typescript.readLibrary(request);
+        return await input.typescript.readLibrary(request, accessActor);
       }
       return await libraryAdapterFor(runtime).read(request);
     },
-    applyLibrary: async (request) => {
+    applyLibrary: async (
+      request,
+      identity = {
+        actor: { kind: "electron_renderer" },
+        accessActor: "app_window",
+      },
+    ) => {
       const runtime = await input.authority;
       if (runtime.backend === "typescript") {
-        return await input.typescript.applyLibrary(request);
+        return await input.typescript.applyLibrary(request, identity);
       }
       return await libraryAdapterFor(runtime).apply(request);
     },

@@ -66,27 +66,62 @@ import {
 import { renameProjectSessionChat } from "./project-session-rename-service";
 import { registerDocumentSyncHttpRoutes } from "./document-sync-http";
 import { documentSyncHub } from "./document-sync-runtime";
-import { registerReferenceReadHttpRoutes } from "./reference-read-http";
+import {
+  registerReferenceReadHttpRoutes,
+  type ReferenceReadHttpDependencies,
+} from "./reference-read-http";
 import {
   registerBlockPropertyMutationHttpRoute,
   registerLibraryBlockPropertyMutationHttpRoute,
   type BlockPropertyMutationHttpDependencies,
   type LibraryBlockPropertyMutationHttpDependencies,
 } from "./block-property-mutation-http";
-import { registerDatabaseModuleHttpRoutes } from "./database-module-http";
-import { registerLibraryModuleHttpRoute } from "./library-module-http";
-import { registerLibraryDatabaseModuleHttpRoute } from "./library-database-module-http";
-import { registerPageDetailHttpRoute } from "./page-detail-http";
-import { registerLibraryPageDetailHttpRoute } from "./library-page-detail-http";
-import { registerDocumentMutationHttpRoute } from "./document-operation-http";
-import { registerAdditionalDocumentCommandHttpRoute } from "./additional-document-command-http";
-import { registerDocumentHistoryHttpRoutes } from "./document-history-http";
+import {
+  registerDatabaseModuleHttpRoutes,
+  type DatabaseModuleHttpDependencies,
+} from "./database-module-http";
+import {
+  registerLibraryModuleHttpRoute,
+  type LibraryModuleHttpDependencies,
+} from "./library-module-http";
+import {
+  registerLibraryDatabaseModuleHttpRoute,
+  type LibraryDatabaseModuleHttpDependencies,
+} from "./library-database-module-http";
+import {
+  registerPageDetailHttpRoute,
+  type PageDetailHttpDependencies,
+} from "./page-detail-http";
+import {
+  registerLibraryPageDetailHttpRoute,
+  type LibraryPageDetailHttpDependencies,
+} from "./library-page-detail-http";
+import {
+  registerDocumentMutationHttpRoute,
+  type DocumentMutationHttpDependencies,
+} from "./document-operation-http";
+import {
+  registerAdditionalDocumentCommandHttpRoute,
+  type AdditionalDocumentCommandHttpDependencies,
+} from "./additional-document-command-http";
+import {
+  registerDocumentHistoryHttpRoutes,
+  type DocumentHistoryHttpDependencies,
+} from "./document-history-http";
 import {
   registerPageLifecycleHttpRoute,
   registerPageLifecyclePreflightHttpRoute,
+  type PageLifecycleHttpDependencies,
+  type PageLifecyclePreflightHttpDependencies,
 } from "./page-lifecycle-http";
-import { registerPageHistoryHttpRoute } from "./page-history-http";
-import { registerBlockTransferHttpRoute } from "./block-transfer-http";
+import {
+  registerPageHistoryHttpRoute,
+  type PageHistoryHttpDependencies,
+} from "./page-history-http";
+import {
+  registerBlockTransferHttpRoute,
+  type BlockTransferHttpDependencies,
+} from "./block-transfer-http";
 import {
   readProjectScopedDatabaseViewReference,
   resolveProjectScopedPageOwnershipPath,
@@ -150,10 +185,27 @@ function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number
 interface HttpServerDependencies {
   browserRuntime: ProjectSessionBrowserRuntime;
   transcribeDictation: (input: { contentType: string; base64Payload: string }) => Promise<string>;
+  contentModules: HttpContentModuleDependencies;
+}
+
+export interface HttpContentModuleDependencies {
+  referenceReads: ReferenceReadHttpDependencies;
   propertyMutations: {
     project: BlockPropertyMutationHttpDependencies["applyMutation"];
     library: LibraryBlockPropertyMutationHttpDependencies["applyMutation"];
   };
+  database: DatabaseModuleHttpDependencies;
+  library: LibraryModuleHttpDependencies;
+  libraryDatabase: LibraryDatabaseModuleHttpDependencies;
+  pageDetail: PageDetailHttpDependencies;
+  libraryPageDetail: LibraryPageDetailHttpDependencies;
+  pageLifecyclePreflight: PageLifecyclePreflightHttpDependencies;
+  pageLifecycle: PageLifecycleHttpDependencies;
+  documentMutation: DocumentMutationHttpDependencies;
+  additionalDocumentCommand: AdditionalDocumentCommandHttpDependencies;
+  blockTransfer: BlockTransferHttpDependencies;
+  documentHistory: DocumentHistoryHttpDependencies;
+  pageHistory: PageHistoryHttpDependencies;
 }
 
 const defaultHttpServerDependencies: HttpServerDependencies = {
@@ -172,11 +224,78 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
     },
   },
   transcribeDictation: async (input) => await codexService.transcribeDictation(input),
-  propertyMutations: {
-    project: async (request) =>
-      (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
-    library: async (input) =>
-      (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
+  contentModules: {
+    referenceReads: {
+      resolvePageOwnershipPath: resolveProjectScopedPageOwnershipPath,
+      resolvePageTarget: resolveProjectScopedPageTarget,
+      readDatabaseViewReference: readProjectScopedDatabaseViewReference,
+    },
+    propertyMutations: {
+      project: async (request) =>
+        (await blockMutationWriter.applyBlockPropertyMutation(request)).result,
+      library: async (input) =>
+        (await blockMutationWriter.applyLibraryBlockPropertyMutation(input)).result,
+    },
+    database: {
+      apply: async (request) =>
+        (await blockMutationWriter.applyDatabaseModule(request)).result,
+      read: async (request) =>
+        (await blockMutationWriter.readDatabaseModule(request)).result,
+    },
+    library: {
+      read: async (request) =>
+        (await blockMutationWriter.readLibraryModule(request)).result,
+      apply: async (request) =>
+        (await blockMutationWriter.applyLibraryModule(request)).result,
+    },
+    libraryDatabase: {
+      read: (request) =>
+        blockMutationWriter.readLibraryDatabaseModule(request, "http_loopback"),
+      apply: (request) =>
+        blockMutationWriter.applyLibraryDatabaseModule(
+          request,
+          { kind: "http_loopback" },
+          "http_loopback",
+        ),
+    },
+    pageDetail: {
+      read: async (projectId, pageId) =>
+        (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+    },
+    libraryPageDetail: {
+      read: async (pageId) =>
+        (await blockMutationWriter.readLibraryPageDetail(pageId, "http_loopback"))
+          .result,
+    },
+    pageLifecyclePreflight: {
+      readPreflight: async (projectId, pageId) =>
+        (await blockMutationWriter.readPageLifecyclePreflight(projectId, pageId))
+          .result,
+    },
+    pageLifecycle: {
+      applyMutation: async (request) =>
+        (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
+    },
+    documentMutation: {
+      applyMutation: (request) => documentSyncHub.applyDocumentMutation(request),
+    },
+    additionalDocumentCommand: {
+      applyCommand: (request) =>
+        documentSyncHub.applyAdditionalDocumentCommand(request),
+    },
+    blockTransfer: {
+      transfer: (intent) => documentSyncHub.transferBlocks(intent),
+    },
+    documentHistory: {
+      createCheckpoint: (request) =>
+        blockMutationWriter.createDocumentVersionCheckpoint(request),
+      listVersions: (request) => blockMutationWriter.listDocumentVersions(request),
+      getVersion: (request) => blockMutationWriter.getDocumentVersion(request),
+      restoreVersion: (request) => documentSyncHub.applyDocumentMutation(request),
+    },
+    pageHistory: {
+      listHistory: (request) => blockMutationWriter.listPageHistory(request),
+    },
   },
 };
 
@@ -312,90 +431,95 @@ registerDocumentSyncHttpRoutes(app, {
 });
 
 registerReferenceReadHttpRoutes(app, {
-  resolvePageOwnershipPath: resolveProjectScopedPageOwnershipPath,
-  resolvePageTarget: resolveProjectScopedPageTarget,
-  readDatabaseViewReference: readProjectScopedDatabaseViewReference,
+  resolvePageOwnershipPath: (input) =>
+    httpServerDependencies.contentModules.referenceReads
+      .resolvePageOwnershipPath(input),
+  resolvePageTarget: (input) =>
+    httpServerDependencies.contentModules.referenceReads.resolvePageTarget(input),
+  readDatabaseViewReference: (input) =>
+    httpServerDependencies.contentModules.referenceReads
+      .readDatabaseViewReference(input),
 });
 
 registerBlockPropertyMutationHttpRoute(app, {
   applyMutation: async (request) =>
-    await httpServerDependencies.propertyMutations.project(request),
+    await httpServerDependencies.contentModules.propertyMutations.project(request),
 });
 registerLibraryBlockPropertyMutationHttpRoute(app, {
   applyMutation: async (input) =>
-    await httpServerDependencies.propertyMutations.library(input),
+    await httpServerDependencies.contentModules.propertyMutations.library(input),
 });
 
 registerDatabaseModuleHttpRoutes(app, {
-  apply: async (request) =>
-    (await blockMutationWriter.applyDatabaseModule(request)).result,
-  read: async (request) =>
-    (await blockMutationWriter.readDatabaseModule(request)).result,
+  apply: (request) =>
+    httpServerDependencies.contentModules.database.apply(request),
+  read: (request) => httpServerDependencies.contentModules.database.read(request),
 });
 
 registerLibraryModuleHttpRoute(app, {
-  read: async (request) =>
-    (await blockMutationWriter.readLibraryModule(request)).result,
-  apply: async (request) =>
-    (await blockMutationWriter.applyLibraryModule(request)).result,
+  read: (request) => httpServerDependencies.contentModules.library.read(request),
+  apply: (request) => httpServerDependencies.contentModules.library.apply(request),
 });
 
 registerLibraryDatabaseModuleHttpRoute(app, {
   read: (request) =>
-    blockMutationWriter.readLibraryDatabaseModule(request, "http_loopback"),
+    httpServerDependencies.contentModules.libraryDatabase.read(request),
   apply: (request) =>
-    blockMutationWriter.applyLibraryDatabaseModule(
-      request,
-      { kind: "http_loopback" },
-      "http_loopback",
-    ),
+    httpServerDependencies.contentModules.libraryDatabase.apply(request),
 });
 
 registerPageDetailHttpRoute(app, {
-  read: async (projectId, pageId) =>
-    (await blockMutationWriter.readPageDetail(projectId, pageId)).result,
+  read: (projectId, pageId) =>
+    httpServerDependencies.contentModules.pageDetail.read(projectId, pageId),
 });
 
 registerLibraryPageDetailHttpRoute(app, {
-  read: async (pageId) =>
-    (await blockMutationWriter.readLibraryPageDetail(pageId, "http_loopback"))
-      .result,
+  read: (pageId) =>
+    httpServerDependencies.contentModules.libraryPageDetail.read(pageId),
 });
 
 registerPageLifecyclePreflightHttpRoute(app, {
-  readPreflight: async (projectId, pageId) =>
-    (await blockMutationWriter.readPageLifecyclePreflight(projectId, pageId))
-      .result,
+  readPreflight: (projectId, pageId) =>
+    httpServerDependencies.contentModules.pageLifecyclePreflight
+      .readPreflight(projectId, pageId),
 });
 
 registerPageLifecycleHttpRoute(app, {
-  applyMutation: async (request) =>
-    (await blockMutationWriter.applyPageLifecycleMutation(request)).result,
+  applyMutation: (request) =>
+    httpServerDependencies.contentModules.pageLifecycle.applyMutation(request),
 });
 
 registerDocumentMutationHttpRoute(app, {
-  applyMutation: (request) => documentSyncHub.applyDocumentMutation(request),
+  applyMutation: (request) =>
+    httpServerDependencies.contentModules.documentMutation.applyMutation(request),
 });
 
 registerAdditionalDocumentCommandHttpRoute(app, {
   applyCommand: (request) =>
-    documentSyncHub.applyAdditionalDocumentCommand(request),
+    httpServerDependencies.contentModules.additionalDocumentCommand
+      .applyCommand(request),
 });
 
 registerBlockTransferHttpRoute(app, {
-  transfer: (intent) => documentSyncHub.transferBlocks(intent),
+  transfer: (intent) =>
+    httpServerDependencies.contentModules.blockTransfer.transfer(intent),
 });
 
 registerDocumentHistoryHttpRoutes(app, {
   createCheckpoint: (request) =>
-    blockMutationWriter.createDocumentVersionCheckpoint(request),
-  listVersions: (request) => blockMutationWriter.listDocumentVersions(request),
-  getVersion: (request) => blockMutationWriter.getDocumentVersion(request),
-  restoreVersion: (request) => documentSyncHub.applyDocumentMutation(request),
+    httpServerDependencies.contentModules.documentHistory
+      .createCheckpoint(request),
+  listVersions: (request) =>
+    httpServerDependencies.contentModules.documentHistory.listVersions(request),
+  getVersion: (request) =>
+    httpServerDependencies.contentModules.documentHistory.getVersion(request),
+  restoreVersion: (request) =>
+    httpServerDependencies.contentModules.documentHistory.restoreVersion(request),
 });
 
 registerPageHistoryHttpRoute(app, {
-  listHistory: (request) => blockMutationWriter.listPageHistory(request),
+  listHistory: (request) =>
+    httpServerDependencies.contentModules.pageHistory.listHistory(request),
 });
 
 app.post(
@@ -1778,12 +1902,24 @@ export function __setHttpServerDependenciesForTests(
   };
 }
 
-export function configureHttpPropertyMutationAuthority(
-  propertyMutations: HttpServerDependencies["propertyMutations"],
+export function __setHttpContentModuleDependenciesForTests(
+  overrides: Partial<HttpContentModuleDependencies>,
+): void {
+  httpServerDependencies = {
+    ...defaultHttpServerDependencies,
+    contentModules: {
+      ...defaultHttpServerDependencies.contentModules,
+      ...overrides,
+    },
+  };
+}
+
+export function configureHttpContentModuleAuthorities(
+  contentModules: HttpContentModuleDependencies,
 ): void {
   httpServerDependencies = {
     ...httpServerDependencies,
-    propertyMutations,
+    contentModules,
   };
 }
 

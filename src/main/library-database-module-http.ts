@@ -16,14 +16,18 @@ const invalid = (message: string): LibraryDatabaseModuleReadResultV2 => ({
   error: { code: "invalid_request", message, retryable: false },
 });
 
+export interface LibraryDatabaseModuleHttpDependencies {
+  readonly read: (
+    request: LibraryDatabaseModuleReadRequestV2,
+  ) => Promise<LibraryDatabaseModuleReadResultV2>;
+  readonly apply: (
+    request: LibraryDatabaseApplyV2,
+  ) => Promise<LibraryDatabaseApplyResultV2>;
+}
+
 export const registerLibraryDatabaseModuleHttpRoute = (
   app: Hono,
-  dependencies: Readonly<{
-    read: (
-      request: LibraryDatabaseModuleReadRequestV2,
-    ) => Promise<LibraryDatabaseModuleReadResultV2>;
-    apply: (request: LibraryDatabaseApplyV2) => Promise<LibraryDatabaseApplyResultV2>;
-  }>,
+  dependencies: LibraryDatabaseModuleHttpDependencies,
 ): void => {
   app.post(
     "/api/library/database-module/read",

@@ -38,6 +38,11 @@ import {
   type CanvasSceneRealtimeEvent,
 } from "../shared/block-documents";
 import { BLOCK_TRANSFER_INTENT_CONTRACT_VERSION } from "../shared/block-transfer";
+import {
+  __resetHttpServerDependenciesForTests,
+  __setHttpContentModuleDependenciesForTests,
+  getHttpServerOptions,
+} from "./http-server";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const temporaryDirectories: string[] = [];
@@ -117,6 +122,7 @@ const listCurrentProcessFiles = (): string => {
 };
 
 afterEach(() => {
+  __resetHttpServerDependenciesForTests();
   closeDatabase();
   delete process.env.NODEX_CORE_BACKEND;
   delete process.env.NODEX_CORE_EXECUTABLE;
@@ -183,6 +189,35 @@ describe("Electron native data authority", () => {
         throw new Error("Expected Core Database catalog");
       }
       expect(databaseCatalog.value.value.databases.length).toBeGreaterThan(0);
+      __setHttpContentModuleDependenciesForTests({
+        database: {
+          read: (request) => database.read(request),
+          apply: (request) => database.apply(request),
+        },
+      });
+      const databaseHttpResponse = await getHttpServerOptions(51_284).fetch(
+        new Request(
+          `http://127.0.0.1:51284/api/projects/${projectId}/database-module/read`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              version: DATABASE_MODULE_V2_CONTRACT_VERSION,
+              projectId,
+              read: { target: { kind: "project_default" }, mode: "catalog" },
+            }),
+          },
+        ),
+      );
+      expect(databaseHttpResponse.status).toBe(200);
+      await expect(databaseHttpResponse.json()).resolves.toMatchObject({
+        ok: true,
+        value: {
+          projectId,
+          libraryId: runtime.rootClient.handshake.library_id,
+          value: { kind: "catalog" },
+        },
+      });
       const primaryDatabase = databaseCatalog.value.value.databases[0];
       const primaryDataSource = primaryDatabase?.dataSources[0];
       const primaryView = primaryDatabase?.views.find((view) =>
