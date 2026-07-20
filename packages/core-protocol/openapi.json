@@ -3333,6 +3333,14 @@
               "kind"
             ],
             "properties": {
+              "expected_matches": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "minimum": 0
+              },
               "kind": {
                 "type": "string",
                 "enum": [

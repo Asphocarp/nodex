@@ -7657,6 +7657,7 @@ mod tests {
                         commands: vec![DocumentSemanticCommand::PatchBody {
                             old_fragment: "Semantic body".to_owned(),
                             new_fragment: "Merged body".to_owned(),
+                            expected_matches: None,
                         }],
                     },
                 },

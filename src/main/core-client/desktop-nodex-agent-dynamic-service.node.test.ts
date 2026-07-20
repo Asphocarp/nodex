@@ -56,7 +56,7 @@ const context = {
   authorize: async () => "deny" as const,
 } satisfies NodexAgentDynamicExecutionContext;
 
-describe("desktop Nodex Agent dynamic service", () => {
+describe("native desktop Nodex Agent dynamic service", () => {
   test("reads native Project and Database context without invoking TypeScript authority", async () => {
     const getProject = vi.fn(async () => ({
       id: "project-native-agent",
@@ -165,6 +165,161 @@ describe("desktop Nodex Agent dynamic service", () => {
         },
       },
     });
+    expect(unavailable).not.toHaveBeenCalled();
+  });
+
+  test("commits exact Page patches through prepared native Document authority", async () => {
+    let committed = false;
+    let preparation = 0;
+    const pageContent = () => ({
+      store_epoch: "store-native-agent",
+      event_sequence: committed ? 10 : 9,
+      value: {
+        kind: "page_content" as const,
+        value: {
+          page_id: "page-update",
+          library_id: "library-native-agent",
+          document_id: "document-update",
+          document_generation: 1,
+          document_head_seq: committed ? 8 : 7,
+          body_nfm: committed ? "New New" : "Old Old",
+        },
+      },
+    });
+    const libraryRead = vi.fn(async () => pageContent());
+    const documentRead = vi.fn(async (
+      _clientSessionId: string,
+      read: {
+        mutation: { commands: readonly unknown[] };
+      },
+    ) => {
+      preparation += 1;
+      expect(read.mutation.commands).toEqual([{
+        kind: "patch_body",
+        old_fragment: "Old",
+        new_fragment: "New",
+        expected_matches: 2,
+      }]);
+      return {
+        store_epoch: "store-native-agent",
+        event_sequence: 9,
+        value: {
+          kind: "agent_semantic_mutation_preparation" as const,
+          preparation: {
+            state: "prepared" as const,
+            consent: "none" as const,
+            expires_at_unix_ms: Date.now() + 30_000,
+            token: `token-${preparation}`,
+            footprint: {
+              effect_class: "write" as const,
+              targets: [{ kind: "page" as const, page_id: "page-update" }],
+              updated_roots: ["page-update"],
+              deleted_roots: [],
+              ownership_transformations: [],
+            },
+          },
+        },
+      };
+    });
+    const documentApply = vi.fn(async (request: {
+      intent: {
+        authorization: { token?: string | null };
+        mutation: { commands: readonly unknown[] };
+      };
+    }) => {
+      expect(request.intent.authorization.token).toBe("token-2");
+      expect(request.intent.mutation.commands).toEqual([{
+        kind: "patch_body",
+        old_fragment: "Old",
+        new_fragment: "New",
+        expected_matches: 2,
+      }]);
+      committed = true;
+      return {
+        store_epoch: "store-native-agent",
+        event_sequence: 10,
+        receipt: {
+          operation_id: "agent-update",
+          duplicate: false,
+          document_id: "document-update",
+          generation: 1,
+          head_seq: 8,
+        },
+        value: {
+          document_id: "document-update",
+          generation: 1,
+          head_seq: 8,
+          outcome: "committed" as const,
+          committed_at: "2026-07-20T00:00:00.000Z",
+          mutation_effect: {
+            base_head_seq: 7,
+            touched_block_ids: ["block-updated"],
+            created_block_ids: [],
+            deleted_block_ids: [],
+            updated_block_ids: ["block-updated"],
+            moved_block_ids: [],
+            write_fence_block_ids: [],
+            title_changed: false,
+            coordination: "merge_friendly" as const,
+          },
+        },
+      };
+    });
+    const runtime = {
+      backend: "rust" as const,
+      rootClient: {
+        handshake: {
+          profile_id: "profile-native-agent",
+          library_id: "library-native-agent",
+          store_epoch: "store-native-agent",
+        },
+        libraryRead,
+      },
+      clientForProject: () => ({ documentRead, documentApply }),
+    } as unknown as DesktopDataAuthorityRuntime;
+    const service = createDesktopNodexAgentV3DynamicService({
+      authority: Promise.resolve(runtime),
+      projectWorkspace: {} as DesktopProjectWorkspacePort,
+      databaseModule: {} as DesktopDatabaseModuleBridge,
+      typescript,
+    });
+
+    const result = await service.registry.execute({
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V5_TOOLSET_REVISION,
+      tool: "update_page",
+    }, {
+      pageId: "page-update",
+      body: {
+        kind: "patch",
+        patches: [{
+          oldMarkdown: "Old",
+          newMarkdown: "New",
+          expectedMatches: 2,
+        }],
+      },
+      return: ["markdown", "block_ids"],
+    }, context);
+
+    expect(result).toMatchObject({
+      effect: "write",
+      output: {
+        data: {
+          pageId: "page-update",
+          effects: {
+            created: 0,
+            updated: 1,
+            moved: 0,
+            deleted: 0,
+            blockIds: { updated: ["block-updated"] },
+          },
+          body: { format: "markdown", markdown: "New New" },
+        },
+      },
+    });
+    expect(documentRead).toHaveBeenCalledTimes(2);
+    expect(documentApply).toHaveBeenCalledOnce();
+    expect(libraryRead).toHaveBeenCalledTimes(3);
     expect(unavailable).not.toHaveBeenCalled();
   });
 });

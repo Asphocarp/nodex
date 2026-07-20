@@ -940,6 +940,8 @@ export interface components {
             /** @enum {string} */
             readonly kind: "set_title";
         } | {
+            /** Format: int32 */
+            readonly expected_matches?: number | null;
             /** @enum {string} */
             readonly kind: "patch_body";
             readonly new_fragment: string;

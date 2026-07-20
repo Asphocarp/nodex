@@ -101,10 +101,11 @@ pub(crate) fn prepare_semantic_mutation(
             DocumentSemanticCommand::PatchBody {
                 old_fragment,
                 new_fragment,
+                expected_matches,
             } => patches.push(ExactNfmPatch {
                 old_nfm: old_fragment.clone(),
                 new_nfm: new_fragment.clone(),
-                expected_matches: Some(1),
+                expected_matches: expected_matches.map(|value| value as usize).or(Some(1)),
             }),
             DocumentSemanticCommand::ReplaceBody {
                 nested_markdown,

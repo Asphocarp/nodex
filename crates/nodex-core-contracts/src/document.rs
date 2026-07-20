@@ -175,6 +175,8 @@ pub enum DocumentSemanticCommand {
     PatchBody {
         old_fragment: String,
         new_fragment: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expected_matches: Option<u32>,
     },
     ReplaceBody {
         nested_markdown: String,

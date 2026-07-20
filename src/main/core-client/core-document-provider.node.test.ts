@@ -154,6 +154,7 @@ describe("Rust Core renderer Document adapter", () => {
           kind: "patch_body" as const,
           old_fragment: "Base body",
           new_fragment: "Prepared body",
+          expected_matches: 1,
         }],
       };
       const preflight = await host.documentRead("agent:prepared", {

@@ -23,7 +23,7 @@ type CoreAgentGrant = components["schemas"]["AgentResourceGrantSpec"];
 type CoreAgentOverlay = components["schemas"]["AgentResourceAccessOverlay"];
 type CoreAgentPlan = components["schemas"]["AgentResourceAccessPlan"];
 
-const toCoreProvenance = (
+export const toCoreAgentTurnProvenance = (
   profileId: string,
   authority: FrozenNodexAgentTurnAuthority,
 ) => ({
@@ -271,7 +271,7 @@ const createCorePort = (
     const snapshot = await runtime.clientForProject(input.authority.actorProjectId)
       .libraryRead({
         kind: "plan_agent_resource_access",
-        provenance: toCoreProvenance(
+        provenance: toCoreAgentTurnProvenance(
           runtime.rootClient.handshake.profile_id,
           input.authority,
         ),
@@ -299,7 +299,7 @@ const createCorePort = (
         operationId: input.operationId,
         intent: {
           kind: "persist_agent_project_resource_grants",
-          provenance: toCoreProvenance(
+          provenance: toCoreAgentTurnProvenance(
             runtime.rootClient.handshake.profile_id,
             input.authority,
           ),

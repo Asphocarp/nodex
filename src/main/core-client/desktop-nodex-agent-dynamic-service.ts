@@ -1,6 +1,5 @@
 import { NESTED_MARKDOWN_AGENT_GUIDE } from "../../shared/nfm/agent-guide";
 import type {
-  CompleteNodexAgentPageUpdateResult,
   ExecuteNodexAgentCreatePagesResult,
   ExecuteNodexAgentDuplicatePageResult,
   ExecuteNodexAgentMovePagesResult,
@@ -9,7 +8,6 @@ import type {
   PrepareNodexAgentCreatePagesResult,
   PrepareNodexAgentDuplicatePageResult,
   PrepareNodexAgentMovePagesResult,
-  PrepareNodexAgentPageUpdateResult,
   ToolFailure,
 } from "../../shared/nodex-agent-tools";
 import { GetContextV3OutputSchema } from "../../shared/nodex-agent-tools/v3-read-schemas";
@@ -23,6 +21,7 @@ import {
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
 import type { DesktopDatabaseModuleBridge } from "./desktop-database-module-bridge";
 import type { DesktopProjectWorkspacePort } from "./project-workspace-adapter";
+import { NativeNodexAgentPageUpdateRuntime } from "./native-nodex-agent-page-update";
 
 type ToolError = ToolFailure["error"];
 
@@ -196,6 +195,13 @@ async function readNativeContext(
 export function createDesktopNodexAgentV3DynamicService(
   input: DesktopNodexAgentDynamicServiceInput,
 ): NodexAgentV3DynamicService {
+  let nativePageUpdates: NativeNodexAgentPageUpdateRuntime | null = null;
+  const pageUpdatesFor = (
+    runtime: Extract<DesktopDataAuthorityRuntime, { readonly backend: "rust" }>,
+  ): NativeNodexAgentPageUpdateRuntime => {
+    nativePageUpdates ??= new NativeNodexAgentPageUpdateRuntime(runtime);
+    return nativePageUpdates;
+  };
   const writer: NodexAgentV3Writer = {
     readNodexAgentV3Tool: async (request) => {
       const runtime = await input.authority;
@@ -216,22 +222,14 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.writer.prepareNodexAgentPageUpdate(request);
       }
-      const result: PrepareNodexAgentPageUpdateResult = {
-        ok: false,
-        error: nativeUnavailableError(request.tool),
-      };
-      return envelope(result, request.callId);
+      return await pageUpdatesFor(runtime).prepare(request);
     },
     completeNodexAgentPageUpdate: async (request) => {
       const runtime = await input.authority;
       if (runtime.backend === "typescript") {
         return await input.typescript.writer.completeNodexAgentPageUpdate(request);
       }
-      const result: CompleteNodexAgentPageUpdateResult = {
-        ok: false,
-        error: nativeUnavailableError(request.tool),
-      };
-      return envelope(result, request.callId);
+      return await pageUpdatesFor(runtime).complete(request);
     },
     prepareNodexAgentCreatePages: async (request) => {
       const runtime = await input.authority;
@@ -274,7 +272,7 @@ export function createDesktopNodexAgentV3DynamicService(
       if (runtime.backend === "typescript") {
         return await input.typescript.documentHub.applyDocumentMutation(...args);
       }
-      throw new Error("Native Agent Page updates must execute through Core preparation");
+      return await pageUpdatesFor(runtime).apply(args[0]);
     },
     executeNodexAgentCreatePages: async (...args) => {
       const runtime = await input.authority;
